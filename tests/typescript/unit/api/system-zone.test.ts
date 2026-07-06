@@ -24,7 +24,7 @@ interface FakeResource {
   scopes: string[]
   upstream_url?: string | null
   credential_provider_id?: string | null
-  gateway_application_id?: string | null
+  allowed_application_ids?: string[]
   operation_enforcement?: string
 }
 interface FakeProvider {
@@ -386,12 +386,12 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(provider.config_json).toMatchObject({ api_key: 'sk-live-secret', allow_runtime_injection: true, header_name: 'Authorization' })
 
     // The resource declares the data scope (the admin reconciler adds agent:lifecycle to
-    // every gateway-bound resource), binds the credential provider, and routes through the
-    // gateway as the base LLM identity.
+    // every gateway-routed resource), binds the credential provider, and caps callers to
+    // the base LLM identity through its allowlist.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     expect([...resource.scopes].sort()).toEqual(['agent:lifecycle', 'llm:invoke'])
     expect(resource.credential_provider_id).toBe(provider.id)
-    expect(resource.gateway_application_id).toBe(result.llm.applicationId)
+    expect(resource.allowed_application_ids).toEqual([result.llm.applicationId])
     expect(resource.operation_enforcement).toBe('transport_uniform')
 
     // Exactly one policy and one policy-set, activated, granting the base identity the resource.
@@ -467,7 +467,7 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-anthropic')).toBeUndefined()
     expect(state.calls).toContain('providers.delete')
     // Its resource is left intact (a non-control resource must keep a credential provider and
-    // gateway binding, so it cannot be neutralized in place); with its provider archived and
+    // upstream routing, so it cannot be neutralized in place); with its provider archived and
     // its grant revoked it is inert, and a later re-add patches it straight back.
     const orphan = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-anthropic')!
     expect(orphan).toBeDefined()
@@ -504,7 +504,7 @@ describe('provisionSystemZone with governed upstreams', () => {
     // The single resource (never archived) is re-bound to the freshly created provider.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     const provider = state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-openai')!
-    expect(resource.gateway_application_id).toBe(result.llm.applicationId)
+    expect(resource.allowed_application_ids).toEqual([result.llm.applicationId])
     expect(resource.credential_provider_id).toBe(provider.id)
     expect(state.resources.filter((r) => r.identifier === 'caracal-sys://operator-llm-openai')).toHaveLength(1)
     expect(result.governedResources).toEqual([{ id: 'openai', resourceIdentifier: 'caracal-sys://operator-llm-openai' }])

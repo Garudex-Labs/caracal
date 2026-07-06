@@ -222,8 +222,7 @@ describe('previewPlan', () => {
 
   it('treats an id bound by a step-output reference as satisfied by the plan itself', async () => {
     const db = scriptedDb([
-      { rows: [] }, // connectProvider name free
-      { rows: [{ one: 1 }] }, // gateway application live; the referenced provider is never queried
+      { rows: [] }, // connectProvider name free; the referenced provider is never queried
     ])
     const result = await previewPlan(db, 'z1', {
       summary: 'Connect and bind',
@@ -236,7 +235,6 @@ describe('previewPlan', () => {
             name: 'PiperNet',
             scopes: ['pipernet:read'],
             upstream_url: 'https://api.pipernet.example',
-            gateway_application_id: 'app-1',
             credential_provider_id: '{{steps.s1.outputs.provider_id}}',
           },
         },
@@ -244,6 +242,7 @@ describe('previewPlan', () => {
     })
     expect(result.ok).toBe(true)
     expect(result.steps.map((s) => s.effect)).toEqual(['create', 'create'])
+    expect(db.query as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -289,7 +288,6 @@ describe('direct-read conformance', () => {
             name: 'PiperNet',
             scopes: ['pipernet:read'],
             upstream_url: 'https://api.pipernet.example',
-            gateway_application_id: 'app-1',
             credential_provider_id: 'prov-1',
           },
         },

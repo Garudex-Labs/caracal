@@ -118,4 +118,36 @@ describe('crossFieldIssues', () => {
       }),
     ).toEqual([])
   })
+  it('forbids combining private_key_jwt with the jwt_bearer grant', () => {
+    const issues = crossFieldIssues('oauth2_client_credentials', {
+      grant_type: 'jwt_bearer',
+      client_auth_method: 'private_key_jwt',
+    })
+    expect(issues.some((i) => i.key === 'client_auth_method')).toBe(true)
+  })
+  it('accepts a private key and key id under the jwt_bearer grant without a method change', () => {
+    expect(
+      crossFieldIssues('oauth2_client_credentials', {
+        grant_type: 'jwt_bearer',
+        private_key: '-----BEGIN-----',
+        key_id: 'kid1',
+      }),
+    ).toEqual([])
+  })
+  it('ties the client certificate to the private_key_jwt method', () => {
+    const issues = crossFieldIssues('oauth2_client_credentials', {
+      client_auth_method: 'client_secret_basic',
+      client_secret: 'shhh',
+      certificate: '-----BEGIN CERTIFICATE-----',
+    })
+    expect(issues.some((i) => i.key === 'certificate')).toBe(true)
+  })
+})
+
+describe('validateFieldFormat certificate', () => {
+  it('requires PEM certificate framing', () => {
+    expect(validateFieldFormat('certificate', '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----')).toBeUndefined()
+    expect(validateFieldFormat('certificate', 'not a certificate')).toBeDefined()
+    expect(validateFieldFormat('certificate', '')).toBeUndefined()
+  })
 })
