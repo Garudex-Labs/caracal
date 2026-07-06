@@ -49,6 +49,51 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
     expect(String(db.query.mock.calls[0][0])).toContain('END AS state')
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 1])
   })
+
+  it('filters by derived state and principal server-side', async () => {
+    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/step-up-challenges?state=pending&principal=user%3Arichard.hendricks',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const sql = String(db.query.mock.calls[0][0])
+    expect(sql).toContain('satisfied_at IS NULL AND expires_at > now()')
+    expect(sql).toContain('principal_id = $2')
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'user:richard.hendricks', 200])
+  })
+
+  it('rejects an unknown state filter', async () => {
+    const { app } = buildRouteApp(stepUpChallengesRoutes)
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges?state=bogus' })
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_query' })
+  })
+})
+
+describe('GET /v1/zones/:zoneId/step-up-challenges/counts', () => {
+  it('aggregates every derived state in one pass', async () => {
+    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{ pending: '2', approved: '1', rejected: '0', expired: '3', consumed: '4' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges/counts' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ pending: 2, approved: 1, rejected: 0, expired: 3, consumed: 4 })
+    const sql = String(db.query.mock.calls[0][0])
+    expect(sql).toContain('count(*) FILTER')
+    expect(db.query.mock.calls[0][1]).toEqual(['z1'])
+  })
 })
 
 describe('GET /v1/zones/:zoneId/step-up-challenges/:id', () => {

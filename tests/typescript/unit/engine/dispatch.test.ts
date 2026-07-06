@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminClient } from '../../../../packages/admin/ts/src/client.js'
 import { AdminApiError } from '../../../../packages/admin/ts/src/errors.js'
-import { dispatch, DispatchError, validateFlags, type Principal } from '../../../../packages/engine/src/dispatch.js'
+import { dispatch, validateFlags, type Principal } from '../../../../packages/engine/src/dispatch.js'
 
 const operator: Principal = {
   subject: 'operator',
@@ -62,13 +62,17 @@ describe('dispatch', () => {
     await expect(dispatch({ command: 'resource', subcommand: 'missing' }, reader, { admin: admin() })).rejects.toMatchObject({
       code: 'denied',
     })
-    await expect(dispatch({ command: 'resource', subcommand: 'create', flags: { name: 'Nucleus' } }, reader, { admin: admin() })).rejects.toMatchObject({
+    await expect(
+      dispatch({ command: 'resource', subcommand: 'create', flags: { name: 'Nucleus' } }, reader, { admin: admin() }),
+    ).rejects.toMatchObject({
       code: 'denied',
     })
-    await expect(dispatch({ command: 'resource', subcommand: 'create' }, operator, { admin: admin() })).rejects.toBeInstanceOf(DispatchError)
+    await expect(
+      dispatch({ command: 'resource', subcommand: 'patch', flags: { name: 'Nucleus' } }, operator, { admin: admin() }),
+    ).rejects.toMatchObject({ code: 'invalid' })
   })
 
-  it('denies a principal without a zone binding', async () => {
+  it('rejects a zone-bound command when the principal has no zone', async () => {
     await expect(
       dispatch(
         {
@@ -79,7 +83,7 @@ describe('dispatch', () => {
         { ...operator, zoneId: undefined },
         { admin: admin() },
       ),
-    ).rejects.toMatchObject({ code: 'denied' })
+    ).rejects.toMatchObject({ code: 'invalid', message: 'zone_id is required' })
   })
 
   it('dispatches resource and policy-set helpers with parsed flag shapes', async () => {
@@ -232,5 +236,43 @@ describe('dispatch', () => {
         { admin: a },
       ),
     ).rejects.toMatchObject({ code: 'upstream' })
+  })
+
+  it('rotates an application secret server-side and returns the minted credential', async () => {
+    const rotateSecret = vi.fn(async () => ({ id: 'app-1', client_secret: 'cs_rotated' }))
+    const get = vi.fn(async () => ({ id: 'app-1', traits: ['agent'] }))
+    const a = { applications: { rotateSecret, get } } as unknown as AdminClient
+
+    await expect(
+      dispatch(
+        { command: 'app', subcommand: 'rotate-secret', flags: { id: 'app-1' } },
+        { subject: 'op', zoneId: 'z1', scopes: ['control:app:write'] },
+        { admin: a },
+      ),
+    ).resolves.toMatchObject({ client_secret: 'cs_rotated' })
+    expect(rotateSecret).toHaveBeenCalledWith('z1', 'app-1')
+  })
+
+  it('refuses to mutate or delete a control key through the app command', async () => {
+    const get = vi.fn(async () => ({ id: 'ck-1', traits: ['control:invoke'] }))
+    const patch = vi.fn()
+    const rotateSecret = vi.fn()
+    const del = vi.fn()
+    const a = { applications: { get, patch, rotateSecret, delete: del } } as unknown as AdminClient
+    const writer: Principal = { subject: 'op', zoneId: 'z1', scopes: ['control:app:write', 'control:app:delete'] }
+
+    await expect(
+      dispatch({ command: 'app', subcommand: 'patch', flags: { id: 'ck-1', name: 'renamed' } }, writer, { admin: a }),
+    ).rejects.toMatchObject({ code: 'denied', message: expect.stringContaining('control key') })
+    await expect(
+      dispatch({ command: 'app', subcommand: 'rotate-secret', flags: { id: 'ck-1' } }, writer, { admin: a }),
+    ).rejects.toMatchObject({ code: 'denied', message: expect.stringContaining('control key') })
+    await expect(dispatch({ command: 'app', subcommand: 'delete', flags: { id: 'ck-1' } }, writer, { admin: a })).rejects.toMatchObject({
+      code: 'denied',
+      message: expect.stringContaining('control key'),
+    })
+    expect(patch).not.toHaveBeenCalled()
+    expect(rotateSecret).not.toHaveBeenCalled()
+    expect(del).not.toHaveBeenCalled()
   })
 })
