@@ -26,6 +26,10 @@ export interface AuthConfig {
   production: boolean
   secureCookies: boolean
   autoProvisionDatabase: boolean
+  // Whether the immediate reverse proxy's x-forwarded-for is trusted when resolving the client
+  // address for auth rate limiting. Off by default: a directly exposed BFF must key on the TCP
+  // peer, or any caller could rotate spoofed addresses past the per-IP ceilings.
+  trustProxy: boolean
   openRegistration: boolean
   passwordSignup: boolean
   // Path to the Console sign-in allowlist managed by `caracal allowlist`; the file's entries
@@ -144,6 +148,7 @@ export function loadConfig(): AuthConfig {
   // An explicit CARACAL_AUTH_AUTO_MIGRATE wins either way, so a single-node self-host can opt in.
   const autoProvisionDatabase =
     process.env.CARACAL_AUTH_AUTO_MIGRATE !== undefined ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_AUTO_MIGRATE) : !production
+  const trustProxy = /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_TRUST_PROXY ?? '')
   // A signed-in operator wields the shared global admin token, so registration is fail-closed in
   // production: without allowlist entries no one may register. Local development stays open so a
   // fresh stack is usable without configuration. Entries in the allowlist file are authoritative
@@ -183,6 +188,7 @@ export function loadConfig(): AuthConfig {
     production,
     secureCookies,
     autoProvisionDatabase,
+    trustProxy,
     openRegistration,
     passwordSignup,
     operatorAllowlistFile: process.env.CARACAL_OPERATOR_ALLOWLIST_FILE?.trim() ?? '',

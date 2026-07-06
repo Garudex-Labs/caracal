@@ -29,6 +29,25 @@ export function method(req: IncomingMessage): string {
   return (req.method ?? 'GET').toUpperCase()
 }
 
+// The header the BFF stamps the resolved client address into before any auth handling. It is
+// always overwritten from connection state, never read from the wire, so rate limiting keys on
+// an address the caller cannot choose.
+export const CLIENT_IP_HEADER = 'x-caracal-client-ip'
+
+// Resolves the client address for per-IP rate limiting. A directly exposed deployment uses the
+// TCP peer address. Behind a TLS-terminating edge the peer is always the proxy, so a deployment
+// that declares its proxy trusted resolves the last x-forwarded-for entry - the one appended by
+// that trusted hop; earlier entries remain caller-controlled and are ignored.
+export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const raw = req.headers['x-forwarded-for']
+    const value = Array.isArray(raw) ? raw[raw.length - 1] : raw
+    const nearest = value?.split(',').pop()?.trim()
+    if (nearest) return nearest
+  }
+  return req.socket.remoteAddress ?? ''
+}
+
 export function isSafeMethod(value: string): boolean {
   return SAFE_METHODS.has(value.toUpperCase())
 }

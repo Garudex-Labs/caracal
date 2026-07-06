@@ -17,7 +17,16 @@ import { handleConsole } from './console.ts'
 import { enabledProviders } from './providers.ts'
 import { logger } from './logger.ts'
 import { serveStatic } from './static.ts'
-import { applySecurityHeaders, downstreamHeaders, isCrossSiteWrite, method, requestId, traceFromRequest } from './security.ts'
+import {
+  applySecurityHeaders,
+  CLIENT_IP_HEADER,
+  clientIp,
+  downstreamHeaders,
+  isCrossSiteWrite,
+  method,
+  requestId,
+  traceFromRequest,
+} from './security.ts'
 
 const cfg = loadConfig()
 
@@ -161,6 +170,11 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
 
 const server = createServer((req, res) => {
   const id = requestId(req)
+  // Stamp the resolved client address before any handling, always overwriting whatever arrived
+  // on the wire, so Better Auth's per-IP rate limiting keys on an address the caller cannot
+  // choose in every topology: the TCP peer when directly exposed, the trusted proxy's
+  // x-forwarded-for entry when CARACAL_AUTH_TRUST_PROXY is set.
+  req.headers[CLIENT_IP_HEADER] = clientIp(req, cfg.trustProxy)
   bindTrace(traceFromRequest(req))
   const startedAt = Date.now()
 

@@ -10,6 +10,7 @@ import { APIError } from 'better-auth/api'
 import { authDatabase } from './database.ts'
 import { loadConfig } from './config.ts'
 import { enforceDenial, resolveAccess } from './allowlist.ts'
+import { CLIENT_IP_HEADER } from './security.ts'
 import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
@@ -191,6 +192,12 @@ export const auth = betterAuth({
     // The signing edge is HTTPS in production; pin Secure explicitly rather than inferring it
     // from the internal baseURL scheme, which is plain HTTP behind a TLS-terminating proxy.
     useSecureCookies: cfg.secureCookies,
+    // Rate limiting keys on the client address the BFF stamps from connection state on every
+    // request. Without a resolvable address Better Auth collapses to one shared per-path
+    // bucket, letting a single client exhaust everyone's sign-in budget.
+    ipAddress: {
+      ipAddressHeaders: [CLIENT_IP_HEADER],
+    },
     defaultCookieAttributes: {
       httpOnly: true,
       sameSite: 'lax',
