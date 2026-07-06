@@ -16,7 +16,10 @@ export const SUBJECT_TYPE_APPLICATION = 'application'
 export interface JwtConfig {
   issuer: string
   audience: string
-  zoneId?: string
+  // The zone is a mandatory trust anchor. It fixes which zone's signing keyset
+  // verifies the token, so key selection can never be steered by the unverified
+  // zone_id claim. A verifier must know the single zone it serves.
+  zoneId: string
   requiredScopes?: string[]
   requiredTargets?: string[]
   requiredUse?: string

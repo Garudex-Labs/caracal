@@ -21,7 +21,7 @@ import type { RevocationStore } from '@caracalai/revocation'
 import type { AuthError, AuthErrorCode, AuthResult, Principal } from './types.js'
 
 export type AuthDeps = JwtConfig & { revocations: RevocationStore; jwksCache?: JwksCache }
-export type AuthOverrides = Partial<Omit<AuthDeps, 'issuer' | 'audience' | 'revocations' | 'jwksCache'>>
+export type AuthOverrides = Partial<Omit<AuthDeps, 'issuer' | 'audience' | 'zoneId' | 'revocations' | 'jwksCache'>>
 
 export interface MandateVerifier {
   readonly defaults: AuthDeps
@@ -55,9 +55,7 @@ export function createMandateVerifier(defaults: AuthDeps): MandateVerifier {
       return createMandateVerifier({ ...defaults, ...overrides })
     },
     async warmup(): Promise<void> {
-      // JWKS keysets are zone-scoped; without a configured zone the keyset to
-      // warm is unknown until the first token arrives.
-      if (!defaults.zoneId) return
+      // JWKS keysets are zone-scoped; the configured zone selects the keyset to warm.
       if (defaults.jwksCache) {
         await defaults.jwksCache.warm(defaults.issuer, defaults.zoneId)
         return

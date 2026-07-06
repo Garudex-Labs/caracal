@@ -3,7 +3,7 @@
 //
 // Verifies a Caracal JWT against an issuer JWKS and enforces zone and scope claims.
 
-import { decodeJwt, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 import { CaracalError, hasScope } from '@caracalai/core'
 import { getKeySet, type JwksCache } from './jwks.js'
 import { DEFAULT_MAX_HOP_COUNT, MANDATE_USE_RESOURCE, MANDATE_USE_SESSION, type ChainHop, type Claims, type JwtConfig } from './types.js'
@@ -124,24 +124,12 @@ function readChain(raw: unknown): ChainHop[] | undefined {
   return out.length === 0 ? undefined : out
 }
 
-// STS serves one signing keyset per zone, so the JWKS fetch needs a zone. The
-// configured zone wins; otherwise the unverified zone_id claim selects the
-// keyset, which is safe because it only routes the key lookup - the signature
-// check against that zone's keys then proves the claim.
-function fetchZone(token: string, config: JwtConfig): string {
-  if (config.zoneId) return config.zoneId
-  let claimedZone: unknown
-  try {
-    claimedZone = decodeJwt(token)['zone_id']
-  } catch (err) {
-    throw new TokenInvalidError('Token validation failed', err)
-  }
-  if (typeof claimedZone !== 'string' || claimedZone === '') throw new ZoneInvalidError()
-  return claimedZone
-}
-
 export async function verify(token: string, config: JwtConfig & { jwksCache?: JwksCache }): Promise<Claims> {
-  const zone = fetchZone(token, config)
+  // The configured zone is the only trust anchor: it selects the signing keyset
+  // and must equal the zone_id claim. Verification never reads the zone from the
+  // unverified token, so key selection cannot be influenced by attacker input.
+  const zone = config.zoneId
+  if (typeof zone !== 'string' || zone === '') throw new ZoneInvalidError()
   let payload
   try {
     const keySet = config.jwksCache ? await config.jwksCache.getKeySet(config.issuer, zone) : await getKeySet(config.issuer, zone)
@@ -171,7 +159,7 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   if (typeof scope !== 'string') throw new TokenInvalidError('Token claim scope must be a string')
   const targetResources = readStringList(payload['target'], 'target')
   const rawZoneId = payload['zone_id']
-  if (typeof rawZoneId !== 'string' || rawZoneId === '' || rawZoneId !== zone || (config.zoneId && rawZoneId !== config.zoneId)) {
+  if (typeof rawZoneId !== 'string' || rawZoneId === '' || rawZoneId !== zone) {
     throw new ZoneInvalidError()
   }
   const zoneId = rawZoneId
