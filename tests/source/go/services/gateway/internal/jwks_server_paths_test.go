@@ -145,7 +145,7 @@ func TestGatewayMetricsAuthorizationAndJSONGauges(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap.BindingsLoaded != 1 || snap.RevocationsActive != 1 || snap.RevocationSnapshotFresh != 1 {
+	if snap.RevocationsActive != 1 || snap.RevocationSnapshotFresh != 1 {
 		t.Fatalf("unexpected metric gauges: %+v", snap)
 	}
 
@@ -205,16 +205,6 @@ func (fakeAuditStream) XAdd(context.Context, string, map[string]any) error { ret
 
 func testGatewayServer(t *testing.T, stsURL string) *Server {
 	t.Helper()
-	bindings := newTestBindingStore(&fakeBindingPool{
-		t: t,
-		queries: []bindingQuery{
-			{sql: "SELECT version FROM gateway_binding_revision WHERE id = true", rows: rowValues([]any{int64(1)})},
-			{sql: "SELECT version FROM gateway_binding_revision WHERE id = true", rows: rowValues([]any{int64(1)})},
-		},
-	})
-	cached := map[string]binding{"zone-1\x00resource://api": {ZoneID: "zone-1", ApplicationID: "app-1"}}
-	bindings.cache.Store(&cached)
-	bindings.revision.Store(1)
 	auditClient, err := audit.NewClient(fakeAuditStream{}, audit.ClientConfig{ReplayDir: t.TempDir(), Logger: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +215,6 @@ func testGatewayServer(t *testing.T, stsURL string) *Server {
 		cfg:         Config{},
 		log:         zerolog.Nop(),
 		sts:         newSTSClient(stsURL, time.Second, nil),
-		bindings:    bindings,
 		redis:       &readyRedis{fakeRevocationRedis: fakeRevocationRedis{verify: true}},
 		audit:       auditClient,
 		revocations: revocations,
