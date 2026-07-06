@@ -20,7 +20,7 @@
     "@caracalai/core": "workspace:*",
     "@caracalai/server-core": "workspace:*",
     "@caracalai/engine": "workspace:*",
-    "better-auth": "^1.6.22",
+    "better-auth": "^1.6.23",
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0"
   },
