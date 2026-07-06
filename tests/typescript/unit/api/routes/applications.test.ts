@@ -400,6 +400,28 @@ describe('GET /v1/zones/:zoneId/applications', () => {
     const body = JSON.parse(res.body)
     expect(body.items).toHaveLength(2)
     expect(body.next_cursor).toBeNull()
+    expect(String(db.query.mock.calls[0][0])).toContain('archived_at IS NULL')
+  })
+
+  it('lists archived applications for audit when requested', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({
+      rows: [{ id: 'app-3', name: 'Retired', archived_at: '2026-07-01T00:00:00.000Z' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications?status=archived' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+    expect(String(db.query.mock.calls[0][0])).toContain('archived_at IS NOT NULL')
+  })
+
+  it('rejects an unknown status filter', async () => {
+    const { app } = buildApp()
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications?status=all' })
+    expect(res.statusCode).toBe(400)
   })
 
   it('includes internal traits only for Control callers and paginates full pages', async () => {

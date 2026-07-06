@@ -99,7 +99,8 @@ function errorMessage(error: unknown): string {
 
 function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
   const toast = useToast();
-  const query = useApplications(zoneId);
+  const [view, setView] = useState<"active" | "archived">("active");
+  const query = useApplications(zoneId, view);
   const createApp = useCreateApplication(zoneId);
   const updateApp = useUpdateApplication(zoneId);
   const rotateSecret = useRotateApplicationSecret(zoneId);
@@ -147,7 +148,19 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
     [allRows, typeFilter, credentialFilter],
   );
 
+  const lifecycleFilter: FilterGroup = {
+    id: "lifecycle",
+    label: "Lifecycle",
+    value: view,
+    onChange: (v) => setView(v as "active" | "archived"),
+    options: [
+      { id: "active", label: "Active" },
+      { id: "archived", label: "Archived" },
+    ],
+  };
+
   const filters: FilterGroup[] = [
+    lifecycleFilter,
     {
       id: "type",
       label: "Type",
@@ -159,18 +172,22 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         { id: "dynamic", label: "Dynamic (DCR)", count: counts.dynamic },
       ],
     },
-    {
-      id: "credential",
-      label: "Credential",
-      value: credentialFilter,
-      onChange: (v) => setCredentialFilter(v as CredentialFilter),
-      options: [
-        { id: "all", label: "Any credential", count: allRows.length },
-        { id: "active", label: "Active", count: counts.active },
-        { id: "expiring", label: "Expiring", count: counts.expiring },
-        { id: "expired", label: "Expired", count: counts.expired },
-      ],
-    },
+    ...(view === "archived"
+      ? []
+      : [
+          {
+            id: "credential",
+            label: "Credential",
+            value: credentialFilter,
+            onChange: (v: string) => setCredentialFilter(v as CredentialFilter),
+            options: [
+              { id: "all", label: "Any credential", count: allRows.length },
+              { id: "active", label: "Active", count: counts.active },
+              { id: "expiring", label: "Expiring", count: counts.expiring },
+              { id: "expired", label: "Expired", count: counts.expired },
+            ],
+          },
+        ]),
   ];
 
   const columns: Column<Application>[] = [
@@ -212,6 +229,21 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         </span>
       ),
     },
+    ...(view === "archived"
+      ? [
+          {
+            id: "archived",
+            header: "Archived",
+            sortable: true,
+            align: "right",
+            cell: (app) => (
+              <span className="text-xs text-muted-foreground">
+                {app.archived_at ? new Date(app.archived_at).toLocaleDateString() : "-"}
+              </span>
+            ),
+          } satisfies Column<Application>,
+        ]
+      : []),
   ];
 
   return (
@@ -225,7 +257,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         loading={query.isLoading}
         columns={columns}
         rowKey={(app) => app.id}
-        filters={allRows.length > 0 ? filters : undefined}
+        filters={allRows.length > 0 || view === "archived" ? filters : undefined}
         search={{
           placeholder: "Search applications…",
           match: (app, q) => app.name.toLowerCase().includes(q) || app.id.toLowerCase().includes(q),
@@ -236,12 +268,19 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
           type: (app) => (isManaged(app) ? "0" : "1"),
           credential: (app) => credentialRank(app),
           created: (app) => Date.parse(app.created_at) || 0,
+          archived: (app) => (app.archived_at ? Date.parse(app.archived_at) : 0),
         }}
         empty={{
-          title: query.isError ? "Could not load applications" : "No applications yet",
+          title: query.isError
+            ? "Could not load applications"
+            : view === "archived"
+              ? "No archived applications"
+              : "No applications yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Create an application to give an agent a scoped identity in this zone.",
+            : view === "archived"
+              ? "Applications you archive keep their record here for audit."
+              : "Create an application to give an agent a scoped identity in this zone.",
         }}
         detail={{
           title: (app) => app.name,
@@ -333,17 +372,17 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete application"
-        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens, any agent using its credentials stops authenticating, and any resource bound to it as a Gateway application loses that route. The record is retained for audit.`}
-        confirmLabel="Delete application"
+        title="Archive application"
+        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens, any agent using its credentials stops authenticating, and any resource bound to it as a Gateway application loses that route. This cannot be undone; the record stays visible under Archived for audit.`}
+        confirmLabel="Archive application"
         tone="danger"
         onConfirm={async () => {
           if (!deleteTarget) return;
           try {
             await deleteApp.mutateAsync(deleteTarget.id);
-            toast({ tone: "info", title: "Application deleted", description: deleteTarget.name });
+            toast({ tone: "info", title: "Application archived", description: deleteTarget.name });
           } catch (err) {
-            toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
+            toast({ tone: "error", title: "Archive failed", description: errorMessage(err) });
           }
         }}
       />
@@ -354,6 +393,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
 /* ------------------------------ list cells ------------------------------ */
 
 function CredentialBadge({ app }: { app: Application }) {
+  if (app.archived_at) return <Badge tone="neutral">Revoked</Badge>;
   const state = credentialState(app);
   if (state === "expired") return <Badge tone="danger">Expired</Badge>;
   if (state === "expiring") return <Badge tone="warning">Expiring</Badge>;
@@ -376,6 +416,7 @@ function ApplicationDetail({
   onDelete: () => void;
 }) {
   const managed = isManaged(app);
+  const archived = Boolean(app.archived_at);
   const state = credentialState(app);
 
   return (
@@ -383,7 +424,11 @@ function ApplicationDetail({
       <DetailHeader>
         <CredentialBadge app={app} />
         <Badge tone="neutral">{managed ? "Managed" : "Dynamic (DCR)"}</Badge>
-        {app.expires_at ? (
+        {archived && app.archived_at ? (
+          <span className="text-xs text-muted-foreground">
+            Archived {new Date(app.archived_at).toLocaleString()}
+          </span>
+        ) : app.expires_at ? (
           <span className="text-xs text-muted-foreground">
             {state === "expired" ? "Expired " : "Expires "}
             {new Date(app.expires_at).toLocaleString()}
@@ -393,7 +438,12 @@ function ApplicationDetail({
 
       <IdentitySection app={app} busy={busy} onRename={onRename} />
 
-      {managed ? (
+      {archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          This application is archived: its identity is revoked and the record is retained for
+          audit.
+        </p>
+      ) : managed ? (
         <CredentialsSection onRotate={onRotate} />
       ) : (
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -402,15 +452,17 @@ function ApplicationDetail({
         </p>
       )}
 
-      <DangerZone
-        description={
-          managed
-            ? "Permanently revoke this identity. This cannot be undone."
-            : "Revoke this dynamic client now instead of waiting for it to expire. This cannot be undone."
-        }
-        actionLabel="Delete"
-        onAction={onDelete}
-      />
+      {archived ? null : (
+        <DangerZone
+          description={
+            managed
+              ? "Archive this application and permanently revoke its identity. This cannot be undone."
+              : "Archive this dynamic client now instead of waiting for it to expire. This cannot be undone."
+          }
+          actionLabel="Archive"
+          onAction={onDelete}
+        />
+      )}
     </div>
   );
 }
@@ -426,6 +478,7 @@ function IdentitySection({
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(app.name);
+  const archived = Boolean(app.archived_at);
 
   useEffect(() => {
     setName(app.name);
@@ -485,9 +538,11 @@ function IdentitySection({
           ) : (
             <div className="flex min-h-9 items-center justify-between gap-2">
               <span className="min-w-0 break-words text-sm text-foreground">{app.name}</span>
-              <Button variant="ghost" size="sm" mutating onClick={() => setEditing(true)}>
-                Rename
-              </Button>
+              {archived ? null : (
+                <Button variant="ghost" size="sm" mutating onClick={() => setEditing(true)}>
+                  Rename
+                </Button>
+              )}
             </div>
           )}
         </dd>
