@@ -116,6 +116,70 @@ def ensure_api_key_provider(
     return existing["id"]
 
 
+def ensure_client_credentials_provider(
+    client: AdminClient,
+    zone_id: str,
+    *,
+    name: str,
+    identifier: str,
+    public_config: dict[str, Any],
+    client_secret: str | None = None,
+    private_key: str | None = None,
+) -> str | None:
+    """Seals the client credential into an oauth2_client_credentials provider
+    so the caller never holds it after the run. When a client secret or
+    signing key is supplied it is reconciled together with the public config
+    (the sealed secret cannot be read back, so setting or rotating re-seals).
+    When no credential is supplied but the public config may have changed, an
+    existing provider is patched without resupplying the credential, so an
+    edit applies and the sealed secret is preserved. Whether a missing
+    provider without a credential is creatable follows the declared
+    authentication: jwt_bearer grants and every client_auth_method except
+    none require a sealed credential, so absence returns None and no resource
+    binds a dead credential; a public client (none) is complete without one
+    and is created. Returns the provider id."""
+    providers = client.providers.list(zone_id)
+    existing = next(
+        (provider for provider in providers if provider["identifier"] == identifier),
+        None,
+    )
+    secrets = {
+        key: value
+        for key, value in (("client_secret", client_secret), ("private_key", private_key))
+        if value is not None
+    }
+    if not secrets:
+        grant_type = public_config.get("grant_type") or "client_credentials"
+        auth_method = public_config.get("client_auth_method") or (
+            "none" if grant_type == "jwt_bearer" else "client_secret_basic"
+        )
+        if grant_type == "jwt_bearer" or auth_method != "none":
+            if existing is None:
+                return None
+            client.providers.patch(
+                zone_id, existing["id"], {"config_json": public_config}
+            )
+            return existing["id"]
+    config = {**public_config, **secrets}
+    if existing is None:
+        created = client.providers.create(
+            zone_id,
+            {
+                "name": name,
+                "identifier": identifier,
+                "kind": "oauth2_client_credentials",
+                "config_json": config,
+            },
+        )
+        return created["id"]
+    client.providers.patch(
+        zone_id,
+        existing["id"],
+        {"kind": "oauth2_client_credentials", "config_json": config},
+    )
+    return existing["id"]
+
+
 def ensure_resource(
     client: AdminClient,
     zone_id: str,

@@ -23,7 +23,10 @@ SUBJECT_TYPE_APPLICATION = "application"
 class JwtConfig:
     issuer: str
     audience: str
-    expected_zone_id: str | None = None
+    # The zone is a mandatory trust anchor. It fixes which zone's signing keyset
+    # verifies the token, so key selection can never be steered by the unverified
+    # zone_id claim. A verifier must know the single zone it serves.
+    expected_zone_id: str
     required_scopes: list[str] = field(default_factory=list)
     required_targets: list[str] = field(default_factory=list)
     required_use: str | None = None

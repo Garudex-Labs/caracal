@@ -40,7 +40,7 @@ async def authenticate(
     issuer: str,
     audience: str,
     required_scopes: list[str] | None,
-    expected_zone_id: str | None,
+    expected_zone_id: str,
     revocations: RevocationStore,
     require_agent: bool = False,
     require_delegation: bool = False,
