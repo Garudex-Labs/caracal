@@ -30,8 +30,6 @@ TABLES=(
   delegation_edges
   delegation_graph_epochs
   event_outbox
-  gateway_binding_revision
-  gateway_resource_bindings
   policies
   policy_set_bindings
   policy_set_versions
@@ -55,6 +53,8 @@ done
 echo ""
 echo "=== Migration: retired tables absent ==="
 RETIRED_TABLES=(
+  gateway_binding_revision
+  gateway_resource_bindings
   invitations
   teams
 )
@@ -106,7 +106,6 @@ RLS_TABLES=(
   delegation_edges
   agent_services
   agent_invocations
-  gateway_resource_bindings
   step_up_challenges
   admin_audit_events
   admin_tokens

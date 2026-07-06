@@ -449,31 +449,6 @@ CREATE TABLE public.event_outbox (
 
 
 --
--- Name: gateway_binding_revision; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.gateway_binding_revision (
-    id boolean DEFAULT true NOT NULL,
-    version bigint DEFAULT 0 NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT gateway_binding_revision_id_check CHECK (id)
-);
-
-
---
--- Name: gateway_resource_bindings; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.gateway_resource_bindings (
-    resource_identifier text NOT NULL,
-    application_id text CONSTRAINT gateway_resource_bindings_client_id_not_null NOT NULL,
-    zone_id text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: operator_ai_providers; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -764,7 +739,7 @@ CREATE TABLE public.providers (
     created_via_operator boolean DEFAULT false NOT NULL,
     updated_by text,
     updated_via_operator boolean DEFAULT false NOT NULL,
-    CONSTRAINT providers_provider_kind_check CHECK ((provider_kind = ANY (ARRAY['none'::text, 'caracal_mandate'::text, 'oauth2_authorization_code'::text, 'oauth2_client_credentials'::text, 'api_key'::text, 'bearer_token'::text])))
+    CONSTRAINT providers_provider_kind_check CHECK ((provider_kind = ANY (ARRAY['none'::text, 'caracal_mandate'::text, 'oauth2_authorization_code'::text, 'oauth2_client_credentials'::text, 'api_key'::text, 'bearer_token'::text, 'http_basic'::text])))
 );
 
 
@@ -1120,22 +1095,6 @@ ALTER TABLE ONLY public.delegation_graph_epochs
 
 ALTER TABLE ONLY public.event_outbox
     ADD CONSTRAINT event_outbox_pkey PRIMARY KEY (id);
-
-
---
--- Name: gateway_binding_revision gateway_binding_revision_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.gateway_binding_revision
-    ADD CONSTRAINT gateway_binding_revision_pkey PRIMARY KEY (id);
-
-
---
--- Name: gateway_resource_bindings gateway_resource_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.gateway_resource_bindings
-    ADD CONSTRAINT gateway_resource_bindings_pkey PRIMARY KEY (zone_id, resource_identifier);
 
 
 --
@@ -1721,13 +1680,6 @@ CREATE INDEX event_outbox_dispatch_ready ON public.event_outbox USING btree (ava
 --
 
 CREATE INDEX event_outbox_undispatched_age ON public.event_outbox USING btree (created_at) WHERE (dispatched_at IS NULL);
-
-
---
--- Name: gateway_resource_bindings_zone_id_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX gateway_resource_bindings_zone_id_idx ON public.gateway_resource_bindings USING btree (zone_id);
 
 
 --
@@ -2599,12 +2551,6 @@ ALTER TABLE public.delegation_edges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.delegation_graph_epochs ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: gateway_resource_bindings; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.gateway_resource_bindings ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: operator_conversations; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2762,13 +2708,6 @@ CREATE POLICY zone_isolation ON public.delegation_edges USING (((current_setting
 --
 
 CREATE POLICY zone_isolation ON public.delegation_graph_epochs USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
-
-
---
--- Name: gateway_resource_bindings zone_isolation; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY zone_isolation ON public.gateway_resource_bindings USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -2982,23 +2921,6 @@ GRANT SELECT ON TABLE public.delegation_graph_epochs TO caracalsts;
 
 
 --
--- Name: TABLE gateway_binding_revision; Type: ACL; Schema: public; Owner: -
---
-
-GRANT SELECT,UPDATE ON TABLE public.gateway_binding_revision TO caracalapi;
-GRANT SELECT ON TABLE public.gateway_binding_revision TO caracalgateway;
-
-
---
--- Name: TABLE gateway_resource_bindings; Type: ACL; Schema: public; Owner: -
---
-
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gateway_resource_bindings TO caracalapi;
-GRANT SELECT ON TABLE public.gateway_resource_bindings TO caracalgateway;
-GRANT SELECT ON TABLE public.gateway_resource_bindings TO caracalcoordinator;
-
-
---
 -- Name: TABLE operator_conversations; Type: ACL; Schema: public; Owner: -
 --
 
@@ -3169,13 +3091,6 @@ BEGIN
     END LOOP;
 END
 $$;
-
-
---
--- Data for Name: gateway_binding_revision; Type: TABLE DATA; Schema: public; Owner: -
---
-
-INSERT INTO public.gateway_binding_revision (id, version) VALUES (true, 0) ON CONFLICT (id) DO NOTHING;
 
 
 --

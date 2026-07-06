@@ -65,7 +65,7 @@ describe('Console focus ring treatment', () => {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       upstream_url: 'https://api.pipernet.example',
-      gateway_application_id: 'app-1',
+      allowed_application_ids: ['app-1'],
       scopes: ['read'],
       credential_provider_id: 'prov-1',
       operations: [{ method: 'GET', path: '/v1/nodes', scope: 'read' }],
