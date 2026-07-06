@@ -47,6 +47,16 @@ describe('fetchRunManifest', () => {
     })
   })
 
+  it('sends the launch correlation header when a launch id is provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => manifestBody() })
+    await fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: fetchMock, launchId: 'launch-uuid' })
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers['X-Caracal-Launch-Id']).toBe('launch-uuid')
+    const bare = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => manifestBody() })
+    await fetchRunManifest('http://sts:8080', 'wl1', 'ws_secret', { fetchImpl: bare })
+    expect((bare.mock.calls[0][1].headers as Record<string, string>)['X-Caracal-Launch-Id']).toBeUndefined()
+  })
+
   it('surfaces the STS error description on failure', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

@@ -10,7 +10,7 @@ describe('@caracalai/engine index', () => {
   it('exports the shared runtime, dispatch, control, and stack helpers', () => {
     expect(engine.buildAdminClient).toEqual(expect.any(Function))
     expect(engine.dispatch).toEqual(expect.any(Function))
-    expect(engine.controlKeyCreate).toEqual(expect.any(Function))
+    expect(engine.controlScopes).toEqual(expect.any(Function))
     expect(engine.stackStatus).toEqual(expect.any(Function))
     expect(engine.formatVersionOutput).toEqual(expect.any(Function))
   })

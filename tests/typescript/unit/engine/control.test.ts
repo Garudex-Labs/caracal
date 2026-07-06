@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Engine Control API key helper tests cover resources, traits, rotation, and validation.
+// Engine control metadata tests cover scope catalogs, key records, and the control resource.
 
 import { describe, expect, it, vi } from 'vitest'
 import type { AdminClient, Application, Resource } from '../../../../packages/admin/ts/src/client.js'
@@ -10,12 +10,7 @@ import {
   CONTROL_INVOKE_TRAIT,
   CONTROL_MAX_TTL_TRAIT_PREFIX,
   CONTROL_SCOPE_TRAIT_PREFIX,
-  controlKeyCreate,
-  controlKeyGet,
-  controlKeyList,
   controlKeyRecord,
-  controlKeyRevoke,
-  controlKeyRotate,
   controlPermissions,
   controlScopes,
   ensureControlResource,
@@ -52,14 +47,6 @@ function client(): AdminClient {
       list: vi.fn(async () => []),
       create: vi.fn(async (_zone: string, body: Partial<Resource>) => resource({ ...body, id: 'res-created' })),
       patch: vi.fn(async (_zone: string, _id: string, body: Partial<Resource>) => resource({ ...body })),
-    },
-    applications: {
-      list: vi.fn(async () => []),
-      get: vi.fn(async () => app()),
-      create: vi.fn(async (_zone: string, body: Partial<Application>) => app({ ...body, id: 'app-created', client_secret: 'secret-once' })),
-      patch: vi.fn(async (_zone: string, id: string, body: Partial<Application>) => app({ id, ...body })),
-      rotateSecret: vi.fn(async (_zone: string, id: string) => app({ id, client_secret: 'secret-rotated' })),
-      delete: vi.fn(async () => undefined),
     },
   } as unknown as AdminClient
 }
@@ -127,65 +114,5 @@ describe('ensureControlResource', () => {
     admin.resources.list = vi.fn(async () => [existing])
     await expect(ensureControlResource(admin, 'z1')).resolves.toBe(existing)
     expect(admin.resources.patch).not.toHaveBeenCalled()
-  })
-})
-
-describe('control key lifecycle', () => {
-  it('lists, reads, creates, rotates, and revokes control key applications', async () => {
-    const admin = client()
-    admin.applications.list = vi.fn(async () => [app({ id: 'control-app' }), app({ id: 'normal-app', traits: [] })])
-    await expect(controlKeyList(admin, 'z1')).resolves.toHaveLength(1)
-
-    await expect(controlKeyGet(admin, 'z1', 'control-app')).resolves.toMatchObject({ client_id: 'app-1' })
-
-    const created = await controlKeyCreate(admin, 'z1', {
-      name: 'CI Control',
-      scopes: ['control:agent:read'],
-      maxTtlSeconds: 120,
-      expiresAt: '2027-01-01T00:00:00.000Z',
-    })
-    expect(created).toMatchObject({
-      name: 'CI Control',
-      clientId: 'app-created',
-      clientSecret: 'secret-once',
-      allowedScopes: ['control:agent:read'],
-      maxTtlSeconds: 120,
-      expiresAt: '2027-01-01T00:00:00.000Z',
-    })
-
-    const rotated = await controlKeyRotate(admin, 'z1', 'control-app')
-    expect(rotated).toMatchObject({ clientId: 'control-app', clientSecret: 'secret-rotated' })
-    expect(admin.applications.rotateSecret).toHaveBeenCalledWith('z1', 'control-app')
-
-    await controlKeyRevoke(admin, 'z1', 'control-app')
-    expect(admin.applications.delete).toHaveBeenCalledWith('z1', 'control-app')
-  })
-
-  it('rejects invalid key definitions and non-control applications', async () => {
-    const admin = client()
-    admin.applications.get = vi.fn(async () => app({ traits: [] }))
-    await expect(controlKeyGet(admin, 'z1', 'normal-app')).rejects.toThrow('not a control API key')
-
-    await expect(controlKeyCreate(client(), 'z1', { name: 'No Permissions' })).rejects.toThrow('permissions are required')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad Scope', scopes: ['not-real'] })).rejects.toThrow('unsupported control scope')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Bad TTL', scopes: ['control:agent:read'], maxTtlSeconds: 59 })).rejects.toThrow(
-      'between 60 and 900',
-    )
-    await expect(
-      controlKeyCreate(client(), 'z1', { name: 'Bad Expiry', scopes: ['control:agent:read'], expiresAt: 'bad' }),
-    ).rejects.toThrow('ISO timestamp')
-    await expect(controlKeyCreate(client(), 'z1', { name: 'Global Zone', scopes: ['control:zone:read'] })).rejects.toThrow(
-      'unsupported control scope',
-    )
-  })
-
-  it('can derive permissions from actions and resources', async () => {
-    const admin = client()
-    const created = await controlKeyCreate(admin, 'z1', {
-      name: 'Agent Readers',
-      actions: ['read'],
-      resources: ['agent'],
-    })
-    expect(created.allowedScopes).toEqual(['control:agent:read'])
   })
 })

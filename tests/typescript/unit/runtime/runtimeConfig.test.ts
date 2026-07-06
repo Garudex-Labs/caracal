@@ -37,6 +37,7 @@ afterEach(() => {
   delete process.env.XDG_CONFIG_HOME
   delete process.env.CARACAL_API_URL
   delete process.env.NODE_ENV
+  delete process.env.CARACAL_ENV
 })
 
 function writeSecretFile(path: string, value: string): void {
@@ -97,6 +98,24 @@ describe('loadRuntimeIdentity', () => {
     expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
   })
 
+  it('honors CARACAL_ENV=production for the default secret file gate', () => {
+    process.env.CARACAL_ENV = 'production'
+    process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
+  })
+
+  it('lets CARACAL_ENV override a production NODE_ENV', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.CARACAL_ENV = 'development'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
+  })
+
   it('fails when the workload id is set but no secret source exists', () => {
     process.env.CARACAL_WORKLOAD_ID = 'wl1'
     expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
@@ -125,6 +144,17 @@ describe('loadRuntimeIdentity', () => {
     expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
   })
 
+  it('rejects a group- or world-readable secret file', () => {
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file')
+    chmodSync(secretPath, 0o640)
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(() => loadRuntimeIdentity(true)).toThrow(/owner-only/)
+    chmodSync(secretPath, 0o604)
+    expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
+  })
+
   it('rejects an empty secret file', () => {
     const secretPath = join(root, 'secret')
     writeSecretFile(secretPath, '   \n')
@@ -140,12 +170,21 @@ describe('loadRuntimeIdentity', () => {
     expect(loadRuntimeIdentity(true)).toMatchObject({ sts_url: 'https://sts.pipernet.example' })
   })
 
-  it('rejects a plain-http STS URL outside development', () => {
-    process.env.NODE_ENV = 'production'
+  it('rejects a plain-http STS URL for non-local hosts in every environment', () => {
     process.env.CARACAL_WORKLOAD_ID = 'wl1'
     process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
     process.env.CARACAL_STS_URL = 'http://sts.pipernet.example'
-    expect(() => loadRuntimeIdentity(true)).toThrow(/must use https outside local development/)
+    expect(() => loadRuntimeIdentity(true)).toThrow(/must use https for non-local hosts/)
+    process.env.NODE_ENV = 'production'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/must use https for non-local hosts/)
+  })
+
+  it('allows plain-http for non-local hosts only with the explicit insecure override', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_STS_URL = 'http://sts.pipernet.example'
+    process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS = 'true'
+    expect(loadRuntimeIdentity(true)).toMatchObject({ sts_url: 'http://sts.pipernet.example' })
   })
 
   it('requires an explicit STS URL outside development', () => {
@@ -169,6 +208,8 @@ describe('assertCredentialEnvName', () => {
   it('rejects loader-hijack env names', () => {
     expect(() => assertCredentialEnvName('LD_PRELOAD')).toThrow(/blocked credential env/)
     expect(() => assertCredentialEnvName('NODE_OPTIONS')).toThrow(/blocked credential env/)
+    expect(() => assertCredentialEnvName('ld_preload')).toThrow(/blocked credential env/)
+    expect(() => assertCredentialEnvName('Node_Options')).toThrow(/blocked credential env/)
   })
 })
 
@@ -185,5 +226,13 @@ describe('resolveServiceUrl', () => {
   it('throws outside development when the env var is missing', () => {
     process.env.NODE_ENV = 'production'
     expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
+  })
+
+  it('honors CARACAL_ENV over NODE_ENV', () => {
+    process.env.CARACAL_ENV = 'production'
+    expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
+    process.env.CARACAL_ENV = 'development'
+    process.env.NODE_ENV = 'production'
+    expect(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toBe(DEFAULT_API_URL)
   })
 })
