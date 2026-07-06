@@ -21,15 +21,27 @@ describe('buildOperatorAuthority', () => {
       'connectProvider',
       'createPolicy',
       'createPolicySet',
+      'createWorkload',
       'defineResource',
       'deleteApplication',
       'deletePolicy',
+      'deletePolicySet',
       'deleteProvider',
       'deleteResource',
+      'deleteWorkload',
       'grantAccess',
       'registerApplication',
+      'resumeAgent',
+      'revokeDelegation',
       'revokeGrant',
       'rotateApplicationSecret',
+      'rotateWorkloadSecret',
+      'suspendAgent',
+      'terminateAgent',
+      'updateApplication',
+      'updateProvider',
+      'updateResource',
+      'updateWorkload',
       'versionPolicy',
       'versionPolicySet',
     ])
@@ -60,7 +72,7 @@ describe('authorizeCapability', () => {
   const authority = buildOperatorAuthority()
 
   it('always permits read-only capabilities', () => {
-    expect(authorizeCapability(authority, 'explainAccess')).toEqual({ ok: true })
+    expect(authorizeCapability(authority, 'explainRequest')).toEqual({ ok: true })
     expect(authorizeCapability(authority, 'listApplications')).toEqual({ ok: true })
   })
 
@@ -87,7 +99,7 @@ describe('authorizePlanSteps', () => {
     expect(
       authorizePlanSteps(authority, [
         { id: 's1', capability: 'grantAccess' },
-        { id: 's2', capability: 'explainAccess' },
+        { id: 's2', capability: 'explainRequest' },
       ]),
     ).toEqual([])
 

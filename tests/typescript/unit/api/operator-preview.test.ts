@@ -260,6 +260,9 @@ describe('direct-read conformance', () => {
       policies: 'archived_at IS NULL',
       policySets: 'archived_at IS NULL',
       grants: "status <> 'revoked'",
+      workloads: 'id IS NOT NULL',
+      agentSessions: "status IN ('active', 'suspended')",
+      delegations: "status = 'active'",
     }
     expect(Object.keys(PREVIEW_TARGETS).sort()).toEqual(Object.keys(liveness).sort())
     for (const [target, spec] of Object.entries(PREVIEW_TARGETS)) {

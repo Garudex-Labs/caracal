@@ -159,6 +159,7 @@ describe('operator enablement gating', () => {
       'updateApplication',
       'updateProvider',
       'updateResource',
+      'updateWorkload',
       'versionPolicy',
       'versionPolicySet',
     ])
@@ -3330,12 +3331,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // the console renders the real objects the reads surfaced rather than only the prose.
     const providerEvidence = (body.evidence as Record<string, unknown>[]).find((e) => e.domain === 'provider')
     expect(providerEvidence).toMatchObject({ capability: 'listProviders', count: 1, rows: [{ id: 'p1', name: 'GitHub' }] })
-    // The governed reads ran: one control invoke per governed read capability, each a read
-    // verb, so a read answer is grounded in live state and never reaches a mutating command.
+    // The governed reads ran: one control invoke per argument-free governed read capability,
+    // each a read verb, so a read answer is grounded in live state and never reaches a
+    // mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(10)
+    expect(invokeCalls).toHaveLength(13)
     for (const call of invokeCalls) {
-      expect(['list', 'active', 'tail']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
+      expect(['list', 'active', 'tail', 'admin']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
     }
   })
 
