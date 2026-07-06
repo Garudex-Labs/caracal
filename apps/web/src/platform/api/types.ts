@@ -54,6 +54,7 @@ export interface Application {
   registration_method: RegistrationMethod;
   traits?: string[];
   expires_at?: string | null;
+  archived_at?: string | null;
   client_secret?: string;
   created_by: string | null;
   created_via_operator: boolean;

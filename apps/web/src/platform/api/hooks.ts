@@ -563,10 +563,10 @@ export function useDeleteZone() {
   });
 }
 
-export function useApplications(zoneId: string | null) {
+export function useApplications(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.applications(zoneId),
-    queryFn: ({ signal }) => consoleApi.applications.list(zoneId as string, signal),
+    queryKey: [...keys.applications(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.applications.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }

@@ -124,9 +124,13 @@ async function rotateApplicationClientSecret(
 
 function applicationSelect(req: FastifyRequest): string {
   return req.actor?.scope === 'global'
-    ? `id, zone_id, name, registration_method, traits, expires_at, ${APP_ATTRIBUTION}`
-    : `id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`
+    ? `id, zone_id, name, registration_method, traits, expires_at, archived_at, ${APP_ATTRIBUTION}`
+    : `id, zone_id, name, registration_method, expires_at, archived_at, ${APP_ATTRIBUTION}`
 }
+
+const ListStatusQuery = z.object({
+  status: z.enum(['active', 'archived']).default('active'),
+})
 
 export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/applications', async (req, reply) => {
@@ -134,7 +138,12 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const page = parseListPagination(req, reply)
     if (!page) return
-    const keyset = appendKeysetCondition({ conds: ['zone_id = $1', 'archived_at IS NULL'], values: [params.zoneId] }, page)
+    const search = ListStatusQuery.safeParse(req.query ?? {})
+    if (!search.success) return reply.code(400).send({ error: 'invalid_query' })
+    // Archived applications stay listable for audit: their identity is revoked at archive
+    // time, so exposing the records grants nothing beyond visibility into past identities.
+    const lifecycle = search.data.status === 'archived' ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
+    const keyset = appendKeysetCondition({ conds: ['zone_id = $1', lifecycle], values: [params.zoneId] }, page)
     const { rows } = await fastify.db.query(
       `SELECT ${applicationSelect(req)}
        FROM applications WHERE ${keyset.conds.join(' AND ')}

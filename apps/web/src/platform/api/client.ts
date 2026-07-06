@@ -487,10 +487,10 @@ export const consoleApi = {
   },
 
   applications: {
-    list: async (zoneId: string, signal?: AbortSignal) =>
+    list: async (zoneId: string, signal?: AbortSignal, status: "active" | "archived" = "active") =>
       (
         await fetchAllPages<Application>(
-          `/v1/zones/${encodeURIComponent(zoneId)}/applications`,
+          `/v1/zones/${encodeURIComponent(zoneId)}/applications${status === "archived" ? "?status=archived" : ""}`,
           signal,
         )
       ).rows,
