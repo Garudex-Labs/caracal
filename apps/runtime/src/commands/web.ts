@@ -8,6 +8,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { scrubTokens } from '@caracalai/engine/crash'
 import { printError, printInfo, printWarn, style } from '../style.ts'
+import { CARACAL_VERSION } from '../runtime/version.gen.ts'
 import { devAllowlistFile, devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
 import { killTree, resolvePnpm, spawnSyncTree, spawnTree } from '../processTree.ts'
 
@@ -53,6 +54,9 @@ function authStoreEnv(): NodeJS.ProcessEnv {
   }
   if (!process.env.CARACAL_AUTH_SECRET) env.CARACAL_AUTH_SECRET = devAuthSecret()
   if (!process.env.CARACAL_OPERATOR_ALLOWLIST_FILE) env.CARACAL_OPERATOR_ALLOWLIST_FILE = devAllowlistFile()
+  // The stamped runtime version identifies this launcher's binary; the BFF reports it to the
+  // console footer, mirroring what the packaged stack injects into the web container.
+  if (!process.env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
   return env
 }
 

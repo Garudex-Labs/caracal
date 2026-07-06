@@ -609,6 +609,7 @@ services:
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
       CARACAL_AUTH_AUTO_MIGRATE: "true"
       CARACAL_AUTH_URL: http://localhost:3001
+      CARACAL_VERSION: ${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
       CARACAL_API_URL: http://api:3000
       CARACAL_COORDINATOR_URL: http://coordinator:4000
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken

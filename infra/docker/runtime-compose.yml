@@ -492,6 +492,7 @@ services:
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
       CARACAL_AUTH_AUTO_MIGRATE: "true"
       CARACAL_AUTH_URL: ${CARACAL_WEB_URL:-http://localhost:3001}
+      CARACAL_VERSION: v${CARACAL_VERSION}
       CARACAL_WEB_ORIGIN: ${CARACAL_WEB_ORIGIN:-}
       CARACAL_AUTH_TRUST_PROXY: ${CARACAL_AUTH_TRUST_PROXY:-}
       CARACAL_OPERATOR_ALLOWLIST_FILE: /run/caracalHostSecrets/operatorAllowlist.json
