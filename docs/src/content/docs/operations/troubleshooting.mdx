@@ -51,7 +51,7 @@ When an SDK call returns access denied and you are not sure why, walk these in o
 4. **Check the grant and policy.** Confirm a grant binds the application and subject to the resource scopes, and that the active policy set authorizes them. See [Debug Authorization Decisions](/guides/authorize-access/).
 5. **Check policy-set activation.** A policy that exists but is not the active set will not take effect. See [Activate a Policy Set](/guides/activate-policy-set/).
 6. **Check the requested scopes.** Confirm the SDK requests scopes the resource defines and the policy allows; a typo'd scope denies silently.
-7. **Check the Gateway route or verifier.** If STS allowed the exchange but the resource rejected it, inspect the resource's upstream URL and caller allowlist, or the in-process verifier's scope and identity checks. See [Proxy Through Gateway](/api/gateway/).
+7. **Check the Gateway route or verifier.** If STS allowed the exchange but the resource rejected it, inspect the resource's upstream URL, or the in-process verifier's scope and identity checks. See [Proxy Through Gateway](/api/gateway/).
 8. **Confirm the audit trace.** Open Console `audit` for the request ID to read the final decision and diagnostics.
 
 ## Diagnostic Bundle

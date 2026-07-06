@@ -122,7 +122,6 @@ const results = await ensureGovernedUpstreams(admin, zoneId, {
         identifier: "resource://openai",
         scopes: ["models:read", "chat:write"],
         upstream_url: "https://api.openai.com",
-        allowed_application_ids: [agentAppId],
       },
       grants: [{ applicationId: agentAppId, scopes: ["models:read", "chat:write"] }],
     },
