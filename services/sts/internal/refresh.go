@@ -96,7 +96,9 @@ func openZEK(zek, packed []byte) ([]byte, error) {
 }
 
 // tryRefreshBrokeredGrant fetches the delegated grant for userID+resourceID,
-// refreshes the provider access token if expired, and updates the grant.
+// refreshes the provider access token if it is expired or inside the refresh
+// skew, and updates the grant. Grants without an expiry are non-expiring
+// upstream tokens and are served as stored.
 func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
 	if userID == "" {
 		return nil
@@ -105,19 +107,35 @@ func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, re
 	if err != nil {
 		return nil
 	}
+	if grant.ExpiresAt == nil {
+		return nil
+	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
-		return nil
-	}
-	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
+	renewable := len(grant.RefreshTokenCt) > 0 && grant.ProviderID != nil
+	if !renewable {
+		if grant.ExpiresAt.After(now) {
+			return nil
+		}
+		s.markProviderGrantExpired(ctx, grant.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
+	}
+	// Renewable grants refresh inside the same skew the service-token cache uses, so
+	// the gateway is never handed an upstream token that dies mid-request.
+	if grant.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+		return nil
 	}
 	return s.coordinatedGrantRefresh(ctx, refreshGrantKey(zoneID, userID, resourceID, providerID, grant), func(runCtx context.Context) *sharederr.CaracalError {
 		return s.refreshExpiredBrokeredGrant(runCtx, zoneID, userID, resourceID, providerID)
 	})
+}
+
+func (s *Server) markProviderGrantExpired(ctx context.Context, grantID string) {
+	if err := s.db.MarkProviderGrantExpired(ctx, grantID); err != nil {
+		s.log.Warn().Err(err).Str("grant_id", grantID).Msg("provider grant expiry transition failed")
+	}
 }
 
 func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
@@ -125,15 +143,22 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err != nil {
 		return nil
 	}
+	if grant.ExpiresAt == nil {
+		return nil
+	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
-		return nil
-	}
 	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
+		if grant.ExpiresAt.After(now) {
+			return nil
+		}
+		s.markProviderGrantExpired(ctx, grant.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
+	}
+	if grant.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+		return nil
 	}
 	provider, err := s.db.GetProvider(ctx, *grant.ProviderID)
 	if err != nil {

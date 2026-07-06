@@ -70,6 +70,7 @@ type DBQuerier interface {
 	GetResourceByIdentifier(ctx context.Context, zoneID, identifier string) (*Resource, error)
 	GetProviderGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) (*ProviderGrant, error)
 	UpdateProviderGrantTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error
+	MarkProviderGrantExpired(ctx context.Context, id string) error
 	GetProvider(ctx context.Context, id string) (*ProviderConfig, error)
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetSession(ctx context.Context, sid string) (*Session, error)
@@ -872,6 +873,15 @@ func (d *DB) UpdateProviderGrantTokens(ctx context.Context, id string, expectedV
 		return ErrConcurrentGrantUpdate
 	}
 	return nil
+}
+
+// MarkProviderGrantExpired transitions a dead grant out of 'active' so the console
+// shows the connection needs reconsent and the active-grant unique index frees up
+// for the replacement created by the next authorization.
+func (d *DB) MarkProviderGrantExpired(ctx context.Context, id string) error {
+	_, err := d.pool.Exec(ctx,
+		`UPDATE provider_grants SET status = 'expired', updated_at = now() WHERE id = $1 AND status = 'active'`, id)
+	return err
 }
 
 // ProviderConfig holds the provider config needed for token refresh.
