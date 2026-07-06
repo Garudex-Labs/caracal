@@ -321,7 +321,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		return values
 	}
 
-	basic, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_basic", "", "")
+	basic, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_basic", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("basic auth body must not carry the secret: %v", values)
 	}
 
-	post, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_post", "", "")
+	post, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_post", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_post must carry credentials in the form: %v", values)
 	}
 
-	public, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "none", "", "")
+	public, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "none", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("public client must carry only client_id: %v", values)
 	}
 
-	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "kid-1", ecKeyPEM(t, elliptic.P256()))
+	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "kid-1", ecKeyPEM(t, elliptic.P256()), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("assertion must carry key id header: %#v", parsed.Header)
 	}
 
-	if _, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "", "not pem"); err == nil {
+	if _, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "", "not pem", ""); err == nil {
 		t.Fatal("bad signing key must fail request construction")
 	}
 }
@@ -524,13 +524,13 @@ func TestRefreshProviderTokenValidatesClientConfiguration(t *testing.T) {
 	endpoint := &url.URL{Scheme: "https", Host: "login.hooli.example", Path: "/oauth/token"}
 	form := url.Values{"grant_type": {"refresh_token"}}
 
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "", "secret", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "", "secret", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("missing client_id must fail")
 	}
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "private_key_jwt", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "private_key_jwt", "", "", ""); err == nil {
 		t.Fatal("missing private key must fail")
 	}
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("missing client secret must fail")
 	}
 }
@@ -541,7 +541,7 @@ func TestRefreshProviderTokenRecordsFailureOnBlockedEndpoint(t *testing.T) {
 	endpoint := &url.URL{Scheme: "https", Host: "localhost:1", Path: "/oauth/token"}
 	form := url.Values{"grant_type": {"refresh_token"}}
 
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "secret", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "secret", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("loopback endpoint must be blocked by the SSRF dialer")
 	}
 	r.mu.Lock()

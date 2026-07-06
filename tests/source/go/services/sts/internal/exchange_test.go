@@ -1276,7 +1276,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic", "", "")
+	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1292,7 +1292,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_basic must not put client_secret in the form body: %s", string(body))
 	}
 
-	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post", "", "")
+	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1320,7 +1320,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("marshal client assertion key: %v", err)
 	}
 	pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "private_key_jwt", "key-1", string(pemKey))
+	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "private_key_jwt", "key-1", string(pemKey), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1358,7 +1358,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client assertion claims mismatch: %#v", claims)
 	}
 
-	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none", "", "")
+	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
