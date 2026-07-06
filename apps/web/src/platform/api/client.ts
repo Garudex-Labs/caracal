@@ -50,11 +50,12 @@ import type {
   PolicyTemplate,
   PolicyValidateResult,
   Provider,
-  ProviderGrant,
-  ProviderGrantAuthorizeInput,
-  ProviderGrantAuthorizeResult,
-  ProviderGrantListQuery,
-  ProviderGrantRevokeInput,
+  ProviderConnection,
+  ProviderConnectionAuthorizeInput,
+  ProviderConnectionAuthorizeResult,
+  ProviderConnectionListQuery,
+  ProviderConnectionRevokeInput,
+  ProviderConnectionRevokeResult,
   ProviderDiscovery,
   ProviderInput,
   ProviderPatchInput,
@@ -1159,28 +1160,30 @@ export const consoleApi = {
     },
   },
 
-  providerGrants: {
-    list: async (zoneId: string, query: ProviderGrantListQuery = {}) =>
+  providerConnections: {
+    list: async (zoneId: string, query: ProviderConnectionListQuery = {}) =>
       (
-        await fetchAllPages<ProviderGrant>(
-          `/v1/zones/${encodeURIComponent(zoneId)}/provider-grants${queryString({
+        await fetchAllPages<ProviderConnection>(
+          `/v1/zones/${encodeURIComponent(zoneId)}/provider-connections${queryString({
             provider_id: query.provider_id,
-            resource_id: query.resource_id,
-            user_id: query.user_id,
+            subject_id: query.subject_id,
             status: query.status,
           })}`,
         )
       ).rows,
-    authorize: (zoneId: string, input: ProviderGrantAuthorizeInput) =>
-      request<ProviderGrantAuthorizeResult>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/provider-grants/oauth/authorize`,
+    authorize: (zoneId: string, input: ProviderConnectionAuthorizeInput) =>
+      request<ProviderConnectionAuthorizeResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/provider-connections/oauth/authorize`,
         { method: "POST", body: JSON.stringify(input) },
       ),
-    revoke: (zoneId: string, input: ProviderGrantRevokeInput) =>
-      request<ProviderGrant>(`/v1/zones/${encodeURIComponent(zoneId)}/provider-grants/revoke`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+    revoke: (zoneId: string, input: ProviderConnectionRevokeInput) =>
+      request<ProviderConnectionRevokeResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/provider-connections/revoke`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
   },
 
   control: {

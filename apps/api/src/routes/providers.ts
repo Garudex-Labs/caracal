@@ -390,6 +390,13 @@ function splitProviderConfig(
         'oauth2_authorization_code provider config authorization_endpoint must be an HTTPS URL',
       )
       requireAbsoluteUri(publicConfig, 'redirect_uri', 'oauth2_authorization_code provider config redirect_uri must be an absolute URI')
+      if (publicConfig.revocation_endpoint !== undefined) {
+        requireHttpsUrl(
+          publicConfig,
+          'revocation_endpoint',
+          'oauth2_authorization_code provider config revocation_endpoint must be an HTTPS URL',
+        )
+      }
       requireOptionalStringRecord(
         publicConfig,
         'authorization_params',
@@ -976,6 +983,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       issuer: trimSlash(issuer.toString()),
       token_endpoint: tokenEndpoint,
       ...(httpsEndpoint(metadata.authorization_endpoint) ? { authorization_endpoint: httpsEndpoint(metadata.authorization_endpoint) } : {}),
+      ...(httpsEndpoint(metadata.revocation_endpoint) ? { revocation_endpoint: httpsEndpoint(metadata.revocation_endpoint) } : {}),
       ...(scopes.length > 0 ? { scopes_supported: scopes } : {}),
       ...(authMethods.length > 0 ? { token_endpoint_auth_methods_supported: authMethods } : {}),
     }

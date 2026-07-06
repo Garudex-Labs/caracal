@@ -566,18 +566,12 @@ export interface DelegationImpactRow extends DelegationHop {
 
 /* ------------------------------ Provider grants ----------------------------- */
 
-export interface ProviderGrant {
+export interface ProviderConnection {
   id: string;
   zone_id: string;
-  user_id: string;
-  resource_id: string;
+  subject_id: string;
   provider_id: string;
-  scopes: string[];
   status: string;
-  created_by?: string | null;
-  created_via_operator?: boolean;
-  updated_by?: string | null;
-  updated_via_operator?: boolean;
   expires_at: string | null;
   refreshed_at?: string | null;
   renewable?: boolean;
@@ -585,30 +579,32 @@ export interface ProviderGrant {
   updated_at: string;
 }
 
-export interface ProviderGrantAuthorizeInput {
-  user_id: string;
-  resource_id: string;
-  provider_id: string;
-  scopes: string[];
+export interface ProviderConnectionListQuery {
+  provider_id?: string;
+  subject_id?: string;
+  status?: string;
 }
 
-export interface ProviderGrantAuthorizeResult {
+export interface ProviderConnectionAuthorizeInput {
+  subject_id: string;
+  provider_id: string;
+}
+
+export interface ProviderConnectionAuthorizeResult {
   authorization_url: string;
   state: string;
   expires_at: string;
 }
 
-export interface ProviderGrantRevokeInput {
-  user_id: string;
-  resource_id: string;
+export interface ProviderConnectionRevokeInput {
+  subject_id: string;
   provider_id: string;
 }
 
-export interface ProviderGrantListQuery {
-  provider_id?: string;
-  resource_id?: string;
-  user_id?: string;
-  status?: string;
+export type UpstreamRevocation = "revoked" | "unsupported" | "failed";
+
+export interface ProviderConnectionRevokeResult extends ProviderConnection {
+  upstream_revocation: UpstreamRevocation;
 }
 
 /* -------------------------------- Control API ------------------------------- */
