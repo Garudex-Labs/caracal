@@ -88,6 +88,7 @@ interface ListResponse<T> {
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 const MAX_RETRY_AFTER_MS = 30_000
+const MAX_LIST_PAGES = 50
 
 function grantListQuery(query?: GrantQuery): Record<string, string | number | undefined> | undefined {
   if (!query) return undefined
@@ -232,13 +233,25 @@ export class AdminClient {
     throw lastErr ?? new Error('admin_request_exhausted')
   }
 
+  // Drains a keyset-paginated collection by following next_cursor until exhausted, so a
+  // list is the complete collection rather than a silently truncated first page. The page
+  // cap bounds the walk against a server bug that never terminates the cursor chain.
+  private async listAll<T>(path: string, label: string, query?: Record<string, string | number | undefined>): Promise<T[]> {
+    const items: T[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      const response = await this.request<ListResponse<T>>(path, { query: { ...query, cursor } })
+      if (!Array.isArray(response.items)) throw new Error(`${label} response missing items`)
+      items.push(...response.items)
+      if (!response.next_cursor) return items
+      cursor = response.next_cursor
+    }
+    throw new Error(`${label} pagination did not terminate`)
+  }
+
   // Zones
   zones = {
-    list: async () => {
-      const response = await this.request<ListResponse<Zone>>('/v1/zones')
-      if (!Array.isArray(response.items)) throw new Error('zones response missing items')
-      return response.items
-    },
+    list: () => this.listAll<Zone>('/v1/zones', 'zones'),
     get: (id: string) => this.request<Zone>(`/v1/zones/${id}`),
     dcrStatus: (id: string) => this.request<ZoneDcrStatus>(`/v1/zones/${id}/dcr-status`),
     create: (input: ZoneInput) => this.request<Zone>('/v1/zones', { method: 'POST', body: input }),
@@ -248,11 +261,7 @@ export class AdminClient {
 
   // Applications
   applications = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<Application>>(`/v1/zones/${zoneId}/applications`)
-      if (!Array.isArray(response.items)) throw new Error('applications response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<Application>(`/v1/zones/${zoneId}/applications`, 'applications'),
     get: (zoneId: string, id: string) => this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`),
     create: (zoneId: string, input: ApplicationInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
@@ -274,11 +283,7 @@ export class AdminClient {
 
   // Resources
   resources = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<Resource>>(`/v1/zones/${zoneId}/resources`)
-      if (!Array.isArray(response.items)) throw new Error('resources response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<Resource>(`/v1/zones/${zoneId}/resources`, 'resources'),
     get: (zoneId: string, id: string) => this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`),
     create: (zoneId: string, input: ResourceInput) =>
       this.request<Resource>(`/v1/zones/${zoneId}/resources`, {
@@ -296,11 +301,7 @@ export class AdminClient {
 
   // Providers
   providers = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<Provider>>(`/v1/zones/${zoneId}/providers`)
-      if (!Array.isArray(response.items)) throw new Error('providers response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<Provider>(`/v1/zones/${zoneId}/providers`, 'providers'),
     get: (zoneId: string, id: string) => this.request<Provider>(`/v1/zones/${zoneId}/providers/${id}`),
     create: (zoneId: string, input: ProviderInput) =>
       this.request<Provider>(`/v1/zones/${zoneId}/providers`, { method: 'POST', body: input }),
@@ -312,11 +313,7 @@ export class AdminClient {
 
   // Policies (immutable Rego versions)
   policies = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<Policy>>(`/v1/zones/${zoneId}/policies`)
-      if (!Array.isArray(response.items)) throw new Error('policies response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<Policy>(`/v1/zones/${zoneId}/policies`, 'policies'),
     get: (zoneId: string, id: string) => this.request<Policy & { versions: PolicyVersion[] }>(`/v1/zones/${zoneId}/policies/${id}`),
     create: (zoneId: string, input: PolicyInput) =>
       this.request<Policy & { version_id: string; version: PolicyVersion }>(`/v1/zones/${zoneId}/policies`, {
@@ -349,11 +346,7 @@ export class AdminClient {
 
   // Policy sets
   policySets = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<PolicySet>>(`/v1/zones/${zoneId}/policy-sets`)
-      if (!Array.isArray(response.items)) throw new Error('policy sets response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<PolicySet>(`/v1/zones/${zoneId}/policy-sets`, 'policy sets'),
     get: (zoneId: string, id: string) => this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets/${id}`),
     create: (zoneId: string, name: string, description?: string) =>
       this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets`, {
@@ -365,11 +358,8 @@ export class AdminClient {
         method: 'POST',
         body: { manifest },
       }),
-    listVersions: async (zoneId: string, id: string) => {
-      const response = await this.request<ListResponse<PolicySetVersion>>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`)
-      if (!Array.isArray(response.items)) throw new Error('policy set versions response missing items')
-      return response.items
-    },
+    listVersions: (zoneId: string, id: string) =>
+      this.listAll<PolicySetVersion>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`, 'policy set versions'),
     simulate: (zoneId: string, id: string, versionId: string, input?: Record<string, unknown>) =>
       this.request<PolicySetSimulation>(`/v1/zones/${zoneId}/policy-sets/${id}/simulate`, {
         method: 'POST',
@@ -393,11 +383,7 @@ export class AdminClient {
 
   // Grants
   grants = {
-    list: async (zoneId: string, query?: GrantQuery) => {
-      const response = await this.request<ListResponse<Grant>>(`/v1/zones/${zoneId}/grants`, { query: grantListQuery(query) })
-      if (!Array.isArray(response.items)) throw new Error('grants response missing items')
-      return response.items
-    },
+    list: (zoneId: string, query?: GrantQuery) => this.listAll<Grant>(`/v1/zones/${zoneId}/grants`, 'grants', grantListQuery(query)),
     get: (zoneId: string, id: string) => this.request<Grant>(`/v1/zones/${zoneId}/grants/${id}`),
     create: (zoneId: string, input: GrantInput) => this.request<Grant>(`/v1/zones/${zoneId}/grants`, { method: 'POST', body: input }),
     revoke: (zoneId: string, id: string) => this.request<void>(`/v1/zones/${zoneId}/grants/${id}`, { method: 'DELETE', expectEmpty: true }),
@@ -455,11 +441,7 @@ export class AdminClient {
   }
 
   stepUpChallenges = {
-    list: async (zoneId: string) => {
-      const response = await this.request<ListResponse<StepUpChallenge>>(`/v1/zones/${zoneId}/step-up-challenges`)
-      if (!Array.isArray(response.items)) throw new Error('step-up challenges response missing items')
-      return response.items
-    },
+    list: (zoneId: string) => this.listAll<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges`, 'step-up challenges'),
     get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
     approve: (zoneId: string, id: string, reason?: string) =>
       this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/approve`, {

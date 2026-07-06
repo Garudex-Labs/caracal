@@ -21,7 +21,6 @@ export interface CommandDescriptor {
   readonly requiresArgs?: boolean
   readonly requiresZone?: boolean
   readonly hidden?: boolean
-  readonly localOnly?: boolean
   /**
    * Command performs its own per-object scope checks instead of carrying a single static scope.
    * The declarative surface (state, ensure) asserts each touched noun's scope at runtime, so a
@@ -43,14 +42,11 @@ const READ_VERBS = new Set([
   'inbound',
   'outbound',
   'traverse',
-  'read',
-  'inspect',
-  'use',
   'validate',
   'simulate',
 ])
 
-const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke', 'purge'])
+const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke'])
 
 /** Derive a default scope verb for a subcommand using verb conventions. Explicit `scopes` map wins. */
 export function scopeFor(desc: CommandDescriptor, sub: string): ScopeVerb {
@@ -124,65 +120,15 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 
 export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
-    name: 'doctor',
-    group: 'admin',
-    summary: 'Run operator diagnostics for the local control plane',
-    flags: {
-      '': [
-        { name: '--preflight', summary: 'Run local deployment preflight checks only' },
-        { name: '--ready', summary: 'Treat warnings as not ready for automation gates' },
-        { name: '--zone', summary: 'Inspect one zone instead of every visible zone' },
-        { name: '--json', summary: 'Emit structured machine-readable diagnostics' },
-      ],
-    },
-  },
-  {
-    name: 'manifest',
-    group: 'admin',
-    summary: 'Validate interoperability extension manifests',
-    subcommands: ['validate'],
-    hidden: true,
-    flags: {
-      validate: [
-        { name: '--file', summary: 'Manifest JSON file' },
-        { name: '--kind', summary: 'Manifest kind override' },
-        { name: '--json', summary: 'Emit machine-readable result' },
-      ],
-    },
-    scopes: { validate: 'read' },
-  },
-  {
-    name: 'zone',
-    group: 'admin',
-    summary: 'Manage zones',
-    subcommands: ['use', 'list', 'get', 'create', 'patch', 'delete'],
-    flags: {
-      create: [
-        { name: '--name', summary: 'Zone display name (required)' },
-        { name: '--slug', summary: 'URL-safe slug' },
-        { name: '--dcr', summary: 'Enable dynamic client registration' },
-      ],
-      patch: [
-        { name: '--name', summary: 'Zone display name' },
-        { name: '--slug', summary: 'URL-safe slug' },
-        { name: '--dcr', summary: 'Enable/disable DCR (=true|false)' },
-        { name: '--dcr-shutdown', summary: 'When disabling DCR with live apps: keep_live or revoke_live' },
-      ],
-    },
-  },
-
-  {
     name: 'app',
     group: 'admin',
     summary: 'Manage applications',
     requiresZone: true,
-    subcommands: ['list', 'get', 'create', 'patch', 'delete', 'dcr'],
+    subcommands: ['list', 'get', 'create', 'patch', 'rotate-secret', 'delete', 'dcr'],
     flags: {
       create: [{ name: '--name', summary: 'Application name' }],
-      patch: [
-        { name: '--name', summary: 'Application name' },
-        { name: '--client-secret', summary: 'Client secret' },
-      ],
+      patch: [{ name: '--name', summary: 'Application name' }],
+      'rotate-secret': [{ name: '--id', summary: 'Application ID' }],
       dcr: [
         { name: '--name', summary: 'Application name' },
         { name: '--expires-in', summary: 'Client lifetime seconds (1-3600)' },
@@ -325,13 +271,16 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     subcommands: ['application', 'identity-provider', 'resource', 'policy', 'policy-set'],
     requiresZone: true,
     delegatesScope: true,
-    flags: {
-      application: [
-        { name: '--spec', summary: 'Object spec JSON keyed by its stable identity field' },
-        { name: '--dry-run', summary: 'Compute the plan without writing' },
-        { name: '--idempotency-key', summary: 'Caller correlation key recorded in the audit trail' },
-      ],
-    },
+    flags: Object.fromEntries(
+      ['application', 'identity-provider', 'resource', 'policy', 'policy-set'].map((kind) => [
+        kind,
+        [
+          { name: '--spec', summary: 'Object spec JSON keyed by its stable identity field' },
+          { name: '--dry-run', summary: 'Compute the plan without writing' },
+          { name: '--idempotency-key', summary: 'Caller correlation key recorded in the audit trail' },
+        ],
+      ]),
+    ),
   },
 
   {
@@ -392,23 +341,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'debug',
-    group: 'observability',
-    summary: 'Trace one request through decisions and diagnostics',
-    subcommands: ['request'],
-    requiresZone: true,
-    hidden: true,
-    flags: {
-      request: [
-        { name: '--request-id', summary: 'Request ID from an audit event' },
-        { name: '--json', summary: 'Emit machine-readable DecisionTrace JSON' },
-        { name: '--flow', summary: 'Render the authority path as Mermaid' },
-      ],
-    },
-    scopes: { request: 'read' },
-  },
-
-  {
     name: 'agent',
     group: 'multiagent',
     summary: 'Manage agent sessions',
@@ -429,29 +361,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     summary: 'Manage delegated grants binding an application and user to resource scopes',
     subcommands: ['list', 'get', 'create', 'revoke'],
     requiresZone: true,
-  },
-
-  {
-    name: 'control',
-    group: 'admin',
-    summary: 'Manage the optional in-process API control plane',
-    subcommands: ['enable', 'disable', 'status', 'key', 'rotate', 'revoke'],
-    localOnly: true,
-    flags: {
-      key: [
-        { name: '--name', summary: 'Credential display name' },
-        { name: '--audience', summary: 'Control resource audience' },
-      ],
-      rotate: [{ name: '--client-secret', summary: 'New client secret' }],
-    },
-  },
-
-  {
-    name: 'completion',
-    group: 'runtime',
-    summary: 'Generate shell completions',
-    subcommands: ['bash', 'zsh', 'fish', 'powershell'],
-    hidden: true,
   },
 ])
 

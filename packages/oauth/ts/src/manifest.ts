@@ -28,6 +28,8 @@ export interface RunCredentialResponse {
 export interface RunRequestOptions {
   timeoutMs?: number
   fetchImpl?: typeof fetch
+  // Client-generated UUID that correlates every STS call of one launch in the audit stream.
+  launchId?: string
 }
 
 interface RunErrorResponse {
@@ -44,10 +46,12 @@ interface RunErrorResponse {
 async function postRunForm(stsUrl: string, path: string, body: URLSearchParams, opts: RunRequestOptions): Promise<Response> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000)
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  if (opts.launchId) headers['X-Caracal-Launch-Id'] = opts.launchId
   try {
     return await (opts.fetchImpl ?? fetch)(`${stsUrl}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers,
       body,
       signal: controller.signal,
     })
