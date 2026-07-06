@@ -176,7 +176,6 @@ describe('ensureResource', () => {
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
-      allowed_application_ids: ['app-son-of-anton'],
       operation_enforcement: 'transport_uniform',
     })
 
@@ -186,7 +185,6 @@ describe('ensureResource', () => {
       identifier: 'resource://pipernet',
       scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
-      allowed_application_ids: ['app-son-of-anton'],
       operation_enforcement: 'transport_uniform',
     })
   })
@@ -217,7 +215,7 @@ describe('ensureResource', () => {
         identifier: 'resource://pipernet',
         scopes: ['data:read', 'agent:lifecycle'],
         upstream_url: 'https://stale.pipernet.example',
-        allowed_application_ids: ['app-unmanaged'],
+        credential_provider_id: 'prov-unmanaged',
       },
     ])
     await ensureResource(client as unknown as AdminClient, ZONE, {
@@ -227,51 +225,10 @@ describe('ensureResource', () => {
       upstream_url: 'https://api.pipernet.example',
     })
 
-    // allowed_application_ids was not part of the desired state, so the patch never touches it.
+    // credential_provider_id was not part of the desired state, so the patch never touches it.
     expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
       scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
-    })
-  })
-
-  it('treats the caller allowlist as an unordered set when checking drift', async () => {
-    const client = admin([
-      {
-        id: 'res-1',
-        identifier: 'resource://pipernet',
-        scopes: ['data:read'],
-        allowed_application_ids: ['app-fiona', 'app-son-of-anton'],
-      },
-    ])
-    await ensureResource(client as unknown as AdminClient, ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
-      scopes: ['data:read'],
-      allowed_application_ids: ['app-son-of-anton', 'app-fiona'],
-    })
-
-    expect(client.resources.patch).not.toHaveBeenCalled()
-  })
-
-  it('patches the caller allowlist when its membership drifts', async () => {
-    const client = admin([
-      {
-        id: 'res-1',
-        identifier: 'resource://pipernet',
-        scopes: ['data:read'],
-        allowed_application_ids: ['app-fiona'],
-      },
-    ])
-    await ensureResource(client as unknown as AdminClient, ZONE, {
-      name: 'PiperNet',
-      identifier: 'resource://pipernet',
-      scopes: ['data:read'],
-      allowed_application_ids: ['app-son-of-anton'],
-    })
-
-    expect(client.resources.patch).toHaveBeenCalledWith(ZONE, 'res-1', {
-      scopes: ['data:read'],
-      allowed_application_ids: ['app-son-of-anton'],
     })
   })
 
@@ -584,7 +541,6 @@ describe('ensureGovernedUpstreams', () => {
       identifier: 'resource://pipernet',
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
-      allowed_application_ids: ['app-son-of-anton'],
     },
     grants: [{ applicationId: 'app-son-of-anton', scopes: ['data:read'] }],
   }
@@ -605,7 +561,6 @@ describe('ensureGovernedUpstreams', () => {
       scopes: ['data:read', 'agent:lifecycle'],
       upstream_url: 'https://api.pipernet.example',
       credential_provider_id: 'prov-created',
-      allowed_application_ids: ['app-son-of-anton'],
     })
     expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
       name: 'application-grants',

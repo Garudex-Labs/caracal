@@ -24,7 +24,6 @@ interface FakeResource {
   scopes: string[]
   upstream_url?: string | null
   credential_provider_id?: string | null
-  allowed_application_ids?: string[]
   operation_enforcement?: string
 }
 interface FakeProvider {
@@ -386,12 +385,11 @@ describe('provisionSystemZone with governed upstreams', () => {
     expect(provider.config_json).toMatchObject({ api_key: 'sk-live-secret', allow_runtime_injection: true, header_name: 'Authorization' })
 
     // The resource declares the data scope (the admin reconciler adds agent:lifecycle to
-    // every gateway-routed resource), binds the credential provider, and caps callers to
-    // the base LLM identity through its allowlist.
+    // every gateway-routed resource) and binds the credential provider; the zone's grant
+    // policy alone decides which identities may mint on it.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     expect([...resource.scopes].sort()).toEqual(['agent:lifecycle', 'llm:invoke'])
     expect(resource.credential_provider_id).toBe(provider.id)
-    expect(resource.allowed_application_ids).toEqual([result.llm.applicationId])
     expect(resource.operation_enforcement).toBe('transport_uniform')
 
     // Exactly one policy and one policy-set, activated, granting the base identity the resource.
@@ -504,7 +502,6 @@ describe('provisionSystemZone with governed upstreams', () => {
     // The single resource (never archived) is re-bound to the freshly created provider.
     const resource = state.resources.find((r) => r.identifier === 'caracal-sys://operator-llm-openai')!
     const provider = state.providers.find((p) => p.identifier === 'provider://caracal-sys-operator-llm-openai')!
-    expect(resource.allowed_application_ids).toEqual([result.llm.applicationId])
     expect(resource.credential_provider_id).toBe(provider.id)
     expect(state.resources.filter((r) => r.identifier === 'caracal-sys://operator-llm-openai')).toHaveLength(1)
     expect(result.governedResources).toEqual([{ id: 'openai', resourceIdentifier: 'caracal-sys://operator-llm-openai' }])

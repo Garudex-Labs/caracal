@@ -620,13 +620,10 @@ describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
 })
 
 describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
-  function deleteClient(appRowCount: number, allowlistedIdentifier: string | null) {
+  function deleteClient(appRowCount: number) {
     return {
       query: vi.fn().mockImplementation((sql: string) => {
         if (sql.includes('UPDATE applications')) return Promise.resolve({ rowCount: appRowCount })
-        if (sql.includes('ANY(allowed_application_ids)')) {
-          return Promise.resolve({ rows: allowlistedIdentifier ? [{ identifier: allowlistedIdentifier }] : [] })
-        }
         return Promise.resolve({ rows: [], rowCount: 0 })
       }),
       release: vi.fn(),
@@ -635,7 +632,7 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
 
   it('archives an existing application', async () => {
     const { app, db } = buildApp()
-    db.connect.mockResolvedValueOnce(deleteClient(1, null))
+    db.connect.mockResolvedValueOnce(deleteClient(1))
 
     await app.ready()
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })
@@ -643,23 +640,9 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
     expect(res.statusCode).toBe(204)
   })
 
-  it('refuses to archive an application still named in a resource caller allowlist', async () => {
-    const { app, db } = buildApp()
-    const client = deleteClient(1, 'resource://pipernet')
-    db.connect.mockResolvedValueOnce(client)
-
-    await app.ready()
-    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })
-
-    expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_in_resource_allowlist' })
-    expect(client.query).not.toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), expect.anything())
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
-  })
-
   it('returns 404 when archiving a missing application', async () => {
     const { app, db } = buildApp()
-    db.connect.mockResolvedValueOnce(deleteClient(0, null))
+    db.connect.mockResolvedValueOnce(deleteClient(0))
 
     await app.ready()
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/missing' })
