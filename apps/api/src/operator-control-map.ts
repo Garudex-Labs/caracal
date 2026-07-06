@@ -69,16 +69,32 @@ function countLabel(rows: unknown[], singular: string): string {
 // plural key with a counted, pluralized detail. command names the control command; noun is
 // the singular surfaced to the human, so identity-provider rows still read as “providers”.
 // The read verb and its fixed flags default to a plain list but a read whose control
-// command pages differently (delegation active, audit tail) names its own verb and bounds.
-function readControl(command: string, noun: string, subcommand: string = 'list', flags: Record<string, unknown> = {}): ControlCapability {
+// command pages differently (delegation active, audit tail) names its own verb and bounds,
+// and a filtered read derives its flags from the capability arguments.
+function readControl(
+  command: string,
+  noun: string,
+  subcommand: string = 'list',
+  flags: Record<string, unknown> | ((args: Record<string, unknown>) => Record<string, unknown>) = {},
+): ControlCapability {
   return {
     scopes: [`control:${command}:read`],
-    buildInvocation: () => ({ command, subcommand, flags }),
+    buildInvocation: (args) => ({ command, subcommand, flags: typeof flags === 'function' ? flags(args) : flags }),
     describeOutcome: (result) => {
       const rows = asRows(result)
       return { detail: `${countLabel(rows, noun)} in this zone.`, output: { [pluralize(noun)]: rows } }
     },
   }
+}
+
+// Carries a read's optional filters into control flags, mapping argument names to their
+// control flag spellings and dropping absent values.
+function filterFlags(args: Record<string, unknown>, names: Record<string, string>): Record<string, unknown> {
+  const flags: Record<string, unknown> = {}
+  for (const [arg, flag] of Object.entries(names)) {
+    if (args[arg] !== undefined) flags[flag] = args[arg]
+  }
+  return flags
 }
 
 // A governed remove capability: applies a delete or revoke that needs only the object id,
@@ -113,12 +129,68 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   listPolicies: readControl('policy', 'policy'),
   listPolicySets: readControl('policy-set', 'policy set'),
   listGrants: readControl('grant', 'grant'),
-  listSessions: readControl('session', 'session'),
+  listSessions: readControl('session', 'session', 'list', (args) => filterFlags(args, { subject: 'subject', status: 'status', limit: 'limit' })),
   listAgents: readControl('agent', 'agent session'),
   listDelegations: readControl('delegation', 'delegation', 'active'),
   // The audit read tails the most recent decisions; the bound keeps a read small while still
   // showing what the zone decided last.
-  listAuditEvents: readControl('audit', 'audit event', 'tail', { limit: 50 }),
+  listAuditEvents: readControl('audit', 'audit event', 'tail', (args) => ({
+    limit: 50,
+    ...filterFlags(args, { since: 'since', until: 'until', decision: 'decision', event_type: 'event-type', request_id: 'request-id', limit: 'limit' }),
+  })),
+  listAdminActivity: readControl('audit', 'admin event', 'admin', { limit: 50 }),
+  listWorkloads: readControl('workload', 'workload'),
+  listApprovals: readControl('approval', 'approval'),
+
+  // The explain read reconstructs one request's decision trace; it is the audit domain's
+  // deep read and carries the whole trace as its output.
+  explainRequest: {
+    scopes: ['control:explain:read'],
+    buildInvocation: (args) => ({ command: 'explain', subcommand: '', flags: { 'request-id': asString(args.request_id) } }),
+    describeOutcome: (result, args) => {
+      const trace = asRecord(result)
+      const decision = typeof trace.final_decision === 'string' ? ` Final decision: ${trace.final_decision}.` : ''
+      return { detail: `Explained request ${asString(args.request_id)}.${decision}`, output: { trace } }
+    },
+  },
+  // Validation runs the control plane's own policy validator against the authored document
+  // without creating anything; the full validation result rides as output so the Operator can
+  // reason about the output contract and any preview.
+  validatePolicy: {
+    scopes: ['control:policy:read'],
+    buildInvocation: (args) => ({ command: 'policy', subcommand: 'validate', flags: { content: asString(args.content) } }),
+    describeOutcome: (result) => {
+      const validation = asRecord(result)
+      return {
+        detail: validation.valid === true ? 'The policy document is valid.' : 'The policy document failed validation.',
+        output: { validation },
+      }
+    },
+  },
+  // Simulation evaluates a sealed policy set version against a hypothetical input without
+  // activating it - the dry run the console offers before an activation.
+  simulatePolicySet: {
+    scopes: ['control:policy-set:read'],
+    buildInvocation: (args) => ({
+      command: 'policy-set',
+      subcommand: 'simulate',
+      flags: {
+        id: asString(args.policy_set_id),
+        version: asString(args.policy_set_version_id),
+        ...(args.input === undefined ? {} : { input: JSON.stringify(asRecord(args.input)) }),
+      },
+    }),
+    describeOutcome: (result, args) => {
+      const simulation = asRecord(result)
+      const decision = asRecord(simulation.result).decision
+      return {
+        detail: `Simulated version ${asString(args.policy_set_version_id)} of policy set ${asString(args.policy_set_id)}.${
+          typeof decision === 'string' ? ` Decision: ${decision}.` : ''
+        }`,
+        output: { simulation },
+      }
+    },
+  },
 
   registerApplication: {
     scopes: ['control:app:write'],
@@ -203,6 +275,57 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   deleteResource: removeControl('resource', 'delete', 'resource_id', (id) => `Deleted resource ${id} from this zone.`),
   deleteProvider: removeControl('identity-provider', 'delete', 'provider_id', (id) => `Deleted provider ${id} from this zone.`),
   deletePolicy: removeControl('policy', 'delete', 'policy_id', (id) => `Deleted policy ${id} from this zone.`),
+  deletePolicySet: removeControl('policy-set', 'delete', 'policy_set_id', (id) => `Deleted policy set ${id} from this zone.`),
+  updateApplication: {
+    scopes: ['control:app:write'],
+    buildInvocation: (args) => ({
+      command: 'app',
+      subcommand: 'patch',
+      flags: { id: asString(args.application_id), name: asString(args.name) },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Renamed application ${asString(args.application_id)} to “${asString(args.name)}”.`,
+      output: { application_id: asString(args.application_id) },
+    }),
+  },
+  // A provider patch carries only the display name and non-secret config; the catalog refuses
+  // credential keys and the kind never rides here, so a patch can never touch sealed material.
+  updateProvider: {
+    scopes: ['control:identity-provider:write'],
+    buildInvocation: (args) => ({
+      command: 'identity-provider',
+      subcommand: 'patch',
+      flags: {
+        id: asString(args.provider_id),
+        ...(args.name === undefined ? {} : { name: asString(args.name) }),
+        ...(args.config === undefined ? {} : { config: JSON.stringify(asRecord(args.config)) }),
+      },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Updated provider ${asString(args.provider_id)}.`,
+      output: { provider_id: asString(args.provider_id) },
+    }),
+  },
+  updateResource: {
+    scopes: ['control:resource:write'],
+    buildInvocation: (args) => ({
+      command: 'resource',
+      subcommand: 'patch',
+      flags: {
+        id: asString(args.resource_id),
+        ...(args.name === undefined ? {} : { name: asString(args.name) }),
+        ...(args.scopes === undefined ? {} : { scopes: asScopes(args.scopes) }),
+        ...(args.upstream_url === undefined ? {} : { 'upstream-url': asString(args.upstream_url) }),
+        ...(args.credential_provider_id === undefined ? {} : { 'credential-provider-id': asString(args.credential_provider_id) }),
+        ...(args.operations === undefined ? {} : { operations: args.operations }),
+        ...(args.operation_enforcement === undefined ? {} : { 'operation-enforcement': asString(args.operation_enforcement) }),
+      },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Updated resource ${asString(args.resource_id)}.`,
+      output: { resource_id: asString(args.resource_id) },
+    }),
+  },
   // Creates a policy from an authored data document and seals its first immutable version. The
   // Rego content rides inline - it is the policy logic, not a secret - and the control plane
   // validates it on create, so an invalid document is rejected there rather than applied. The
@@ -296,6 +419,65 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
     }),
   },
   revokeGrant: removeControl('grant', 'revoke', 'grant_id', (id) => `Revoked grant ${id} and the active sessions it authorized.`),
+  // Runtime authority interventions ride the same governed apply as topology changes: the
+  // suspend and resume verbs are lifecycle writes, terminate and revoke are removals.
+  suspendAgent: {
+    scopes: ['control:agent:write'],
+    buildInvocation: (args) => ({ command: 'agent', subcommand: 'suspend', flags: { id: asString(args.agent_session_id) } }),
+    describeOutcome: (_result, args) => ({
+      detail: `Suspended agent session ${asString(args.agent_session_id)}.`,
+      output: { agent_session_id: asString(args.agent_session_id) },
+    }),
+  },
+  resumeAgent: {
+    scopes: ['control:agent:write'],
+    buildInvocation: (args) => ({ command: 'agent', subcommand: 'resume', flags: { id: asString(args.agent_session_id) } }),
+    describeOutcome: (_result, args) => ({
+      detail: `Resumed agent session ${asString(args.agent_session_id)}.`,
+      output: { agent_session_id: asString(args.agent_session_id) },
+    }),
+  },
+  terminateAgent: removeControl('agent', 'terminate', 'agent_session_id', (id) => `Terminated agent session ${id} and its descendants.`),
+  revokeDelegation: removeControl('delegation', 'revoke', 'delegation_id', (id) => `Revoked delegation ${id}.`),
+  // The control plane mints the workload secret server-side and returns it once in the create
+  // and rotate responses; it reaches the caller through the step output only and is never
+  // persisted to the plan or the ledger.
+  createWorkload: {
+    scopes: ['control:workload:write'],
+    buildInvocation: (args) => ({ command: 'workload', subcommand: 'create', flags: { name: asString(args.name) } }),
+    describeOutcome: (result, args) => {
+      const workload = asRecord(result)
+      return {
+        detail: `Created workload “${asString(args.name)}” and issued its one-time secret.`,
+        output: { workload_id: workload.id, secret: workload.secret },
+      }
+    },
+  },
+  updateWorkload: {
+    scopes: ['control:workload:write'],
+    buildInvocation: (args) => ({
+      command: 'workload',
+      subcommand: 'patch',
+      flags: {
+        id: asString(args.workload_id),
+        ...(args.name === undefined ? {} : { name: asString(args.name) }),
+        ...(args.bindings === undefined ? {} : { bindings: args.bindings }),
+      },
+    }),
+    describeOutcome: (_result, args) => ({
+      detail: `Updated workload ${asString(args.workload_id)}.`,
+      output: { workload_id: asString(args.workload_id) },
+    }),
+  },
+  rotateWorkloadSecret: {
+    scopes: ['control:workload:write'],
+    buildInvocation: (args) => ({ command: 'workload', subcommand: 'rotate-secret', flags: { id: asString(args.workload_id) } }),
+    describeOutcome: (result, args) => ({
+      detail: `Rotated the secret for workload ${asString(args.workload_id)} and retired the old one.`,
+      output: { workload_id: asString(args.workload_id), secret: asString(asRecord(result).secret) },
+    }),
+  },
+  deleteWorkload: removeControl('workload', 'delete', 'workload_id', (id) => `Deleted workload ${id} from this zone.`),
   grantAccess: {
     scopes: ['control:grant:write'],
     buildInvocation: (args) => ({

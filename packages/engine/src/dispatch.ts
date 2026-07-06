@@ -339,18 +339,16 @@ const workloadHandler = bySubcommand({
   get: ({ principal, flags, ctx }) => ctx.admin.workloads.get(requireZone(principal), mustStr(flags, 'id')),
   create: ({ principal, flags, ctx }) => ctx.admin.workloads.create(requireZone(principal), { name: mustStr(flags, 'name') }),
   patch: ({ principal, flags, ctx }) => {
-    const raw = getStr(flags, 'bindings')
-    let bindings: Record<string, unknown>[] | undefined
-    if (raw) {
-      let parsed: unknown
+    const raw = flags?.bindings
+    let bindings: unknown = raw
+    if (typeof raw === 'string') {
       try {
-        parsed = JSON.parse(raw)
+        bindings = JSON.parse(raw)
       } catch {
         invalid('flag "bindings" must be valid JSON')
       }
-      if (!Array.isArray(parsed)) invalid('flag "bindings" must be a JSON array')
-      bindings = parsed as Record<string, unknown>[]
     }
+    if (bindings !== undefined && !Array.isArray(bindings)) invalid('flag "bindings" must be a JSON array')
     return ctx.admin.workloads.update(requireZone(principal), mustStr(flags, 'id'), {
       name: getStr(flags, 'name'),
       bindings,

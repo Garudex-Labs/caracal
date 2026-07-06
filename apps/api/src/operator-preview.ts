@@ -59,6 +59,12 @@ export const PREVIEW_TARGETS: Record<PreviewTarget, { table: string; live: strin
   policies: { table: 'policies', live: 'archived_at IS NULL' },
   policySets: { table: 'policy_sets', live: 'archived_at IS NULL' },
   grants: { table: 'delegated_grants', live: "status <> 'revoked'" },
+  // Workload deletion is hard, so every stored row is live.
+  workloads: { table: 'workloads', live: 'id IS NOT NULL' },
+  // Suspend, resume, and terminate all act on a session that is still running or paused;
+  // a terminated or expired session is beyond intervention.
+  agentSessions: { table: 'agent_sessions', live: "status IN ('active', 'suspended')" },
+  delegations: { table: 'delegation_edges', live: "status = 'active'" },
 }
 
 // Whether a live object of the named target already carries the given name in the zone.
