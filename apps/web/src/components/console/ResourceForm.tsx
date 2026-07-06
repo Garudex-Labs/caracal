@@ -7,7 +7,11 @@ This file builds the create and edit dialog for Gateway-routed resources, coveri
 import { useMemo, useState } from "react";
 
 import { Button, Disclosure, Field, Modal, Select } from "@/components/ui";
-import { validateResourceIdentifier } from "@/platform/api/validation";
+import {
+  RESOURCE_IDENTIFIER_PREFIX,
+  stripResourceIdentifierPrefix,
+  validateResourceIdentifier,
+} from "@/platform/api/validation";
 import type {
   Application,
   Provider,
@@ -88,7 +92,9 @@ function ResourceFormBody({
   );
 
   const [name, setName] = useState(resource?.name ?? "");
-  const [identifier, setIdentifier] = useState(resource?.identifier ?? "");
+  const [identifier, setIdentifier] = useState(
+    stripResourceIdentifierPrefix(resource?.identifier ?? ""),
+  );
   const [upstreamUrl, setUpstreamUrl] = useState(resource?.upstream_url ?? "");
   const [scopesText, setScopesText] = useState((resource?.scopes ?? []).join(", "));
   // When the zone has exactly one candidate the choice is unambiguous, so the dialog
@@ -117,7 +123,10 @@ function ResourceFormBody({
   );
 
   const slug = slugOf(name);
-  const previewIdentifier = identifier.trim() || (slug ? `resource://${slug}` : "");
+  const overrideSlug = identifier.trim();
+  const previewSlug =
+    overrideSlug && !validateResourceIdentifier(overrideSlug) ? overrideSlug : slug;
+  const previewIdentifier = previewSlug ? `${RESOURCE_IDENTIFIER_PREFIX}${previewSlug}` : "";
 
   const errors = useMemo<FieldErrors>(() => {
     const next: FieldErrors = {};
@@ -200,7 +209,9 @@ function ResourceFormBody({
       upstream_url: upstreamUrl.trim(),
       gateway_application_id: gatewayApp,
       credential_provider_id: credentialProvider,
-      ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
+      ...(identifier.trim()
+        ? { identifier: `${RESOURCE_IDENTIFIER_PREFIX}${identifier.trim()}` }
+        : {}),
     };
     onSubmit(input);
   }
@@ -477,8 +488,9 @@ function ResourceFormBody({
         >
           <Field
             label="Identifier"
-            info="Stable audience URI used in tokens, grants, and policy references."
-            placeholder="resource://pipernet"
+            info="Stable audience URI used in tokens, grants, and policy references. The resource:// namespace is fixed, so only the slug varies."
+            prefix="resource://"
+            placeholder="pipernet"
             hint={
               isEdit
                 ? "Grants and policies reference this URI; changing it breaks them until they are updated."
@@ -486,7 +498,7 @@ function ResourceFormBody({
             }
             value={identifier}
             error={show("identifier")}
-            onChange={(e) => setIdentifier(e.target.value)}
+            onChange={(e) => setIdentifier(stripResourceIdentifierPrefix(e.target.value))}
           />
         </Disclosure>
       </div>
