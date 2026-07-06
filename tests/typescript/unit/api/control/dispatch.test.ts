@@ -61,10 +61,10 @@ describe('dispatch', () => {
     await expect(dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx)).rejects.toMatchObject({ code: 'denied' })
   })
 
-  it('denies a zone-bound command when the principal has no zone', async () => {
+  it('rejects a zone-bound command when the principal has no zone', async () => {
     await expect(
       dispatch({ command: 'resource', subcommand: 'list' }, { subject: 'console', scopes: ['control:resource:read'] }, ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    ).rejects.toMatchObject({ code: 'invalid', message: 'zone_id is required' })
   })
 
   it('accepts a matching per-resource scope', async () => {

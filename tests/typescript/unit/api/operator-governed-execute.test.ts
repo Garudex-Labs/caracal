@@ -26,8 +26,6 @@ function fakeClient(results: (unknown | Error)[]): {
   return { client, calls }
 }
 
-const secret = () => 'cs_fixed_secret'
-
 describe('executeViaControlPlane', () => {
   it('applies a grantAccess step through the grant create command with its least-privilege scope', async () => {
     const { client, calls } = fakeClient([{ id: 'grant-1' }])
@@ -41,7 +39,6 @@ describe('executeViaControlPlane', () => {
         },
       ],
       {},
-      secret,
     )
 
     expect(result.failure).toBeNull()
@@ -57,25 +54,24 @@ describe('executeViaControlPlane', () => {
     })
   })
 
-  it('rotates an application secret by generating one and setting it, returning it as a one-time output', async () => {
-    const { client, calls } = fakeClient([{ id: 'app-1' }])
+  it('rotates an application secret server-side and returns the minted secret as a one-time output', async () => {
+    const { client, calls } = fakeClient([{ id: 'app-1', client_secret: 'cs_rotated' }])
     const result = await executeViaControlPlane(
       client,
       [{ id: 's1', capability: 'rotateApplicationSecret', args: { application_id: 'app-1' } }],
       {},
-      secret,
     )
 
     expect(result.failure).toBeNull()
-    expect(calls[0]).toMatchObject({ command: 'app', subcommand: 'patch', flags: { id: 'app-1', 'client-secret': 'cs_fixed_secret' } })
-    expect(result.applied[0].output).toEqual({ application_id: 'app-1', client_secret: 'cs_fixed_secret' })
-    // The generated secret must never appear in the ledger-safe detail.
-    expect(result.applied[0].detail).not.toContain('cs_fixed_secret')
+    expect(calls[0]).toMatchObject({ command: 'app', subcommand: 'rotate-secret', scopes: ['control:app:write'], flags: { id: 'app-1' } })
+    expect(result.applied[0].output).toEqual({ application_id: 'app-1', client_secret: 'cs_rotated' })
+    // The minted secret must never appear in the ledger-safe detail.
+    expect(result.applied[0].detail).not.toContain('cs_rotated')
   })
 
   it('surfaces live read output for a list capability', async () => {
     const { client } = fakeClient([[{ id: 'a' }, { id: 'b' }]])
-    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'listApplications', args: {} }], {}, secret)
+    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'listApplications', args: {} }], {})
     expect(result.applied[0].output).toEqual({ applications: [{ id: 'a' }, { id: 'b' }] })
     expect(result.applied[0].detail).toBe('Found 2 applications in this zone.')
   })
@@ -89,7 +85,6 @@ describe('executeViaControlPlane', () => {
         { id: 's2', capability: 'grantAccess', args: { application_id: 'app-1', user_id: 'u', resource_id: 'r', scopes: ['read'] } },
       ],
       {},
-      secret,
     )
     expect(result.failure).toBeNull()
     expect(result.applied.map((s) => s.id)).toEqual(['s1', 's2'])
@@ -109,7 +104,6 @@ describe('executeViaControlPlane', () => {
         { id: 's3', capability: 'listProviders', args: {}, depends_on: ['s2'] },
       ],
       {},
-      secret,
     )
 
     expect(result.applied.map((s) => s.id)).toEqual(['s1'])
@@ -126,12 +120,7 @@ describe('executeViaControlPlane', () => {
 
   it('fails closed when a step is not governed-executable, before any invoke', async () => {
     const { client, calls } = fakeClient([])
-    const result = await executeViaControlPlane(
-      client,
-      [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }],
-      {},
-      secret,
-    )
+    const result = await executeViaControlPlane(client, [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }], {})
     expect(result.applied).toHaveLength(0)
     expect(result.failure).toMatchObject({ stepId: 's1', capability: 'explainAccess' })
     expect(calls).toHaveLength(0)
@@ -156,7 +145,6 @@ describe('executeViaControlPlane', () => {
         },
       ],
       {},
-      secret,
     )
     expect(result.failure).toBeNull()
     expect(calls[1].flags['credential-provider-id']).toBe('prov-9')
@@ -180,7 +168,6 @@ describe('executeViaControlPlane', () => {
         },
       ],
       { s1: { provider_id: 'prov-9' } },
-      secret,
     )
     expect(result.failure).toBeNull()
     expect(calls[0].flags['credential-provider-id']).toBe('prov-9')
@@ -203,7 +190,6 @@ describe('executeViaControlPlane', () => {
         },
       ],
       {},
-      secret,
     )
     expect(calls).toHaveLength(0)
     expect(result.failure).toMatchObject({ stepId: 's2', terminal: false })
@@ -228,7 +214,6 @@ describe('executeViaControlPlane', () => {
         { id: 's3', capability: 'listProviders', args: {} },
       ],
       {},
-      secret,
     )
     expect(result.failure).toBeNull()
     expect(invoked).toEqual(['app:list', 'identity-provider:list', 'app:create'])
@@ -239,12 +224,7 @@ describe('executeViaControlPlane', () => {
     // The client owns transient token retries; a token failure that still surfaces is
     // definitive - no token was minted, nothing applied - so the step stays retryable.
     const { client, calls } = fakeClient([new ControlClientError('token', 503, 'sts unavailable', 'unavailable')])
-    const tokenFail = await executeViaControlPlane(
-      client,
-      [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
-      {},
-      secret,
-    )
+    const tokenFail = await executeViaControlPlane(client, [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }], {})
     expect(calls).toHaveLength(1)
     expect(tokenFail.failure).toMatchObject({ stepId: 's1', terminal: false })
 
@@ -253,7 +233,6 @@ describe('executeViaControlPlane', () => {
       invokeFail.client,
       [{ id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } }],
       {},
-      secret,
     )
     expect(invokeFail.calls).toHaveLength(1)
     expect(stopped.failure).toMatchObject({ stepId: 's1', terminal: true })

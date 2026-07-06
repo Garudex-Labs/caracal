@@ -44,6 +44,11 @@ describe('auditEventLabel', () => {
     expect(auditEventLabel('step_up_decided', 'rejected')).toBe('Approval rejected')
   })
 
+  it('labels workload launches by their decision', () => {
+    expect(auditEventLabel('run_launch', 'allow')).toBe('Workload launch')
+    expect(auditEventLabel('run_launch', 'deny')).toBe('Workload launch denied')
+  })
+
   it('humanizes unknown types', () => {
     expect(auditEventLabel('custom_thing')).toBe('custom thing')
   })
@@ -52,6 +57,7 @@ describe('auditEventLabel', () => {
 describe('auditCategory', () => {
   it('assigns every emitted event type to exactly one domain', () => {
     expect(auditCategory('token_exchange')?.id).toBe('authority')
+    expect(auditCategory('run_launch')?.id).toBe('authority')
     expect(auditCategory('gateway_resource_request')?.id).toBe('resource')
     expect(auditCategory('step_up_issued')?.id).toBe('approvals')
     expect(auditCategory('step_up_decided')?.id).toBe('approvals')
@@ -82,6 +88,11 @@ describe('auditActor', () => {
     expect(auditActor(event('gateway_resource_request', 'allow', { application_id: 'app-1' }))).toBe('app-1')
     expect(auditActor(event('control.invoke', 'allow', { subject: 'richard.hendricks' }))).toBe('richard.hendricks')
     expect(auditActor(event('replay_detected', 'deny', {}))).toBeNull()
+  })
+
+  it('resolves the workload name for run events', () => {
+    expect(auditActor(event('run_launch', 'allow', { workload_name: 'Son of Anton', workload_id: 'wl-1' }))).toBe('Son of Anton')
+    expect(auditActor(event('run_launch', 'deny', { workload_id: 'wl-1' }))).toBe('wl-1')
   })
 })
 
