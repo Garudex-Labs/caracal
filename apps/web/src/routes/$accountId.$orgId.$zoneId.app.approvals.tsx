@@ -18,8 +18,8 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
-import { useApprovalsFeed, useDecideApproval } from "@/platform/api/hooks";
-import type { StepUpChallenge, StepUpState } from "@/platform/api/types";
+import { useApprovalCounts, useApprovalsFeed, useDecideApproval } from "@/platform/api/hooks";
+import type { ApprovalCounts, StepUpChallenge, StepUpState } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/approvals")({
   component: ApprovalsRoute,
@@ -58,6 +58,12 @@ const APPROVER_CLASS_LABELS: Record<StepUpChallenge["approver_class"], string> =
   operator: "Zone operator",
   subject: "End user only",
   any: "Operator or end user",
+};
+
+const PRIVACY_MODE_LABELS: Record<StepUpChallenge["privacy_mode"], string> = {
+  identified: "Identified — approvers see who is asking",
+  pseudonymous: "Pseudonymous — approvers see a stable alias",
+  anonymous: "Anonymous — approvers see only what is requested",
 };
 
 // A hold is decidable in the console while it is pending and the policy that raised it
@@ -99,14 +105,25 @@ function requestedAuthority(challenge: StepUpChallenge): string[] {
   return parts;
 }
 
+// The requesting agent run, when the exchange carried lineage. Lets an approver jump from
+// the hold to the exact run asking for authority before deciding.
+function agentLineage(challenge: StepUpChallenge): { agentSession?: string; edge?: string } {
+  const meta = challenge.metadata_json;
+  if (!meta) return {};
+  return {
+    agentSession: typeof meta.agent_session_id === "string" ? meta.agent_session_id : undefined,
+    edge: typeof meta.delegation_edge_id === "string" ? meta.delegation_edge_id : undefined,
+  };
+}
+
 function ApprovalsPage({ zoneId }: { zoneId: string }) {
   const [state, setState] = useState<string>("all");
-  const feed = useApprovalsFeed(zoneId);
-  const loaded = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
-  const rows = useMemo(
-    () => (state === "all" ? loaded : loaded.filter((c) => c.state === state)),
-    [loaded, state],
+  const feed = useApprovalsFeed(
+    zoneId,
+    state === "all" ? {} : { state: state as StepUpState },
   );
+  const counts = useApprovalCounts(zoneId);
+  const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
   const now = Date.now();
 
   const columns: Column<StepUpChallenge>[] = [
@@ -178,7 +195,14 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
         fetching: feed.isFetchingNextPage,
         loadMore: () => feed.fetchNextPage(),
       }}
-      toolbarExtra={<ApprovalFilterBar state={state} loaded={rows.length} onState={setState} />}
+      toolbarExtra={
+        <ApprovalFilterBar
+          state={state}
+          loaded={rows.length}
+          counts={counts.data}
+          onState={setState}
+        />
+      }
       search={{
         placeholder: "Search loaded holds by principal, session, or binding…",
         match: (c, q) =>
@@ -214,26 +238,31 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
 function ApprovalFilterBar({
   state,
   loaded,
+  counts,
   onState,
 }: {
   state: string;
   loaded: number;
+  counts: ApprovalCounts | undefined;
   onState: (v: string) => void;
 }) {
+  const withCount = (label: string, count: number | undefined) =>
+    count === undefined ? label : `${label} (${count})`;
   return (
     <FeedToolbar activeFilters={state !== "all" ? 1 : 0} loaded={loaded} noun="hold">
       <Select label="State" value={state} onChange={(e) => onState(e.target.value)}>
         <option value="all">All states</option>
-        <option value="pending">Pending</option>
-        <option value="approved">Approved</option>
-        <option value="consumed">Consumed</option>
-        <option value="rejected">Rejected</option>
-        <option value="expired">Expired</option>
+        <option value="pending">{withCount("Pending", counts?.pending)}</option>
+        <option value="approved">{withCount("Approved", counts?.approved)}</option>
+        <option value="consumed">{withCount("Consumed", counts?.consumed)}</option>
+        <option value="rejected">{withCount("Rejected", counts?.rejected)}</option>
+        <option value="expired">{withCount("Expired", counts?.expired)}</option>
       </Select>
       <p className="text-[11px] text-muted-foreground sm:col-span-2">
         States derive from the same rule the token service enforces: an approved hold past its
         window reads as <span className="font-medium">expired</span>, and a consumed hold already
-        released its token.
+        released its token. Settled holds age out of this list after a day; the zone audit
+        stream keeps the permanent record of every decision.
       </p>
     </FeedToolbar>
   );
@@ -242,6 +271,7 @@ function ApprovalFilterBar({
 function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zoneId: string }) {
   const now = Date.now();
   const authority = requestedAuthority(challenge);
+  const lineage = agentLineage(challenge);
 
   return (
     <div className="flex flex-col gap-5">
@@ -280,6 +310,16 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
         <DetailField label="Session">
           <CopyValue value={challenge.session_id} />
         </DetailField>
+        {lineage.agentSession ? (
+          <DetailField label="Agent run">
+            <CopyValue value={lineage.agentSession} />
+          </DetailField>
+        ) : null}
+        {lineage.edge ? (
+          <DetailField label="Delegation edge">
+            <CopyValue value={lineage.edge} />
+          </DetailField>
+        ) : null}
         {authority.length > 0 ? (
           <DetailField label="Requested authority">
             <div className="flex flex-wrap gap-1">
@@ -297,6 +337,11 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
             Fingerprint of the exact resources and scopes held. The agent prints the same value
             beside the challenge id, so compare them before approving.
           </p>
+        </DetailField>
+        <DetailField label="Privacy">
+          <span className="text-xs text-muted-foreground">
+            {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
+          </span>
         </DetailField>
       </DetailGroup>
 
