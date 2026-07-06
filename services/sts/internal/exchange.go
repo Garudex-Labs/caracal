@@ -342,6 +342,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	action := gatewayActionInput(req)
 	mandate := mandateScopeSet(subjectClaims)
 	var grantedResources []string
+	// Tracks the last user-consent credential failure so a fully denied exchange can
+	// answer with the operational reason instead of a generic policy verdict.
+	var providerDenial *sharederr.CaracalError
 	grantedDirectives := map[string]UpstreamDirective{}
 	grantedResourceRows := map[string]*Resource{}
 	var gateDecls []tierDeclaration
@@ -427,6 +430,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_user_principal"})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(sharederr.AccessDenied,
+						"resource "+resource.Identifier+" uses a user-consent provider and this call carries no user subject")
 					continue
 				}
 				if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID); rerr != nil {
@@ -434,6 +439,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(rerr.Code,
+						"provider credential for resource "+resource.Identifier+" is expired and could not be refreshed; reconnect the user from the provider's Connections panel")
 					continue
 				}
 				grant, gerr := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
@@ -442,6 +449,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_grant"})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(sharederr.AccessDenied,
+						"no provider grant for subject "+userID+" on resource "+resource.Identifier+"; connect the user from the provider's Connections panel")
 					continue
 				}
 			}
@@ -551,6 +560,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "exchange_denied", &OPAResult{},
 			mergeAuditMeta(appMeta, map[string]any{"requested": req.Resources})); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
+		}
+		// A missing or dead user-consent credential is an operational condition, not a
+		// policy verdict; surfacing the precise reason lets the caller fix the connection
+		// instead of debugging policy.
+		if providerDenial != nil {
+			return nil, nil, http.StatusForbidden, providerDenial
 		}
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}

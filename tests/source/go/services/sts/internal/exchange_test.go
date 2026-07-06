@@ -282,6 +282,7 @@ type stubDB struct {
 	now           time.Time
 	workload      *Workload
 	workloadErr   error
+	markedExpired []string
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -325,6 +326,10 @@ func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID 
 	return nil, errors.New("stub")
 }
 func (s *stubDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+	return nil
+}
+func (s *stubDB) MarkProviderGrantExpired(_ context.Context, id string) error {
+	s.markedExpired = append(s.markedExpired, id)
 	return nil
 }
 func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, error) {
