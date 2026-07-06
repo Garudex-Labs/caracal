@@ -70,7 +70,7 @@ client := admin.NewAdminClient(admin.AdminClientOptions{
 | `providers` | `list`, `get`, `create`, `patch`, `delete` |
 | `policies` | `list`, `get`, `create`, `validate`, `addVersion`, `delete` |
 | `policyTemplates` | `list`, `get` |
-| `policySets` | `list`, `get`, `create`, `addVersion`, `simulate`, `activate`, `delete` |
+| `policySets` | `list`, `get`, `create`, `addVersion`, `listVersions`, `simulate`, `activate`, `activationStatus`, `delete` |
 | `grants` | `list`, `get`, `create`, `revoke` |
 | `providerGrants` | `create`, `authorizeOAuth`, `revoke` |
 | `sessions` | `list` |
@@ -97,6 +97,12 @@ const version = await admin.policySets.addVersion(zoneId, set.id, [
 ]);
 
 await admin.policySets.activate(zoneId, set.id, version.id);
+
+let status = await admin.policySets.activationStatus(zoneId, set.id, version.id);
+while (status.propagation_status !== "loaded" && status.propagation_status !== "failed") {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  status = await admin.policySets.activationStatus(zoneId, set.id, version.id);
+}
 ```
 
 ## Idempotent provisioning

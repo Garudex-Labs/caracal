@@ -20,6 +20,13 @@ You edit by creating a **new** version and moving the active pointer to it.
 Nothing already evaluated is ever rewritten, so every audit decision ties back to
 the exact policy-set version and manifest hash that produced it.
 
+A zone is governed by exactly one policy set at a time. Activating a version of
+one set deactivates any other set in the zone in the same transaction, so which
+policies govern a zone is never ambiguous. Saving or activating a version also
+compiles the full policy bundle on the STS runtime engine, so a manifest whose
+policies conflict (for example, two documents defining the same data key) is
+rejected before it can be pinned or promoted.
+
 ## Activation flow
 
 ```mermaid
@@ -69,6 +76,30 @@ if (!simulation.would_activate) {
 await admin.policySets.activate(process.env.CARACAL_ZONE_ID!, set.id, version.id);
 ```
 
+## Wait for propagation
+
+Activation returns `202 Accepted`: the active pointer moves durably, then the
+STS runtime reloads the bundle through a durable invalidation stream. Poll the
+activation status until the runtime reports the version as loaded before
+treating the rollout as live:
+
+```ts
+let status = await admin.policySets.activationStatus(zoneId, set.id, version.id);
+while (status.propagation_status !== "loaded") {
+  if (status.propagation_status === "failed") {
+    throw new Error(status.outbox.last_error ?? "policy rollout failed");
+  }
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  status = await admin.policySets.activationStatus(zoneId, set.id, version.id);
+}
+```
+
+`propagation_status` moves through `waiting_for_outbox` → `waiting_for_sts` →
+`loaded`. With several STS replicas, the replica that receives the invalidation
+reloads within about a second; the rest converge through a periodic database
+poll (60 seconds by default), so a brief mixed-version window across replicas
+is expected during rollout.
+
 ## Validation checklist
 
 | Check | Expected result |
@@ -76,6 +107,7 @@ await admin.policySets.activate(process.env.CARACAL_ZONE_ID!, set.id, version.id
 | Policy validation | `valid: true` and no blocking warnings. |
 | Simulation | Representative input returns the intended decision. |
 | Activation | Zone has the expected active policy-set version. |
+| Propagation | `activationStatus` reports `propagation_status: "loaded"`. |
 | First exchange | Audit shows the new policy as a determining policy. |
 
 If activation changes expected access, keep the old policy-set version ID in the rollout notes so you can promote it again if needed.
