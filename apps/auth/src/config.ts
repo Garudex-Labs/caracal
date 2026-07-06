@@ -24,6 +24,9 @@ export interface AuthConfig {
   databaseUrl: string
   ssl: PostgresSsl
   production: boolean
+  // The release version of the binary serving this deployment, surfaced to the console UI.
+  // Injected by the stack as CARACAL_VERSION (the image tag); local source runs report "dev".
+  version: string
   secureCookies: boolean
   autoProvisionDatabase: boolean
   // Whether the immediate reverse proxy's x-forwarded-for is trusted when resolving the client
@@ -186,6 +189,7 @@ export function loadConfig(): AuthConfig {
     databaseUrl: resolveDatabaseUrl(),
     ssl: resolveSsl(production),
     production,
+    version: process.env.CARACAL_VERSION?.trim() || 'dev',
     secureCookies,
     autoProvisionDatabase,
     trustProxy,

@@ -10,7 +10,8 @@ import type { ProviderKind } from "@/platform/api/types";
 // and the Console doctor). Enforcing them in the browser gives operators immediate,
 // field-level feedback instead of a round-trip error, and keeps the web at parity with the
 // TUI rather than laxer than the backend it submits to.
-export const PROVIDER_IDENTIFIER_PATTERN = /^provider:\/\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const PROVIDER_IDENTIFIER_PREFIX = "provider://";
 const HEADER_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
 const OAUTH_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/;
@@ -201,8 +202,18 @@ export function crossFieldIssues(
   return issues;
 }
 
+// Validates the slug the operator types after the locked provider:// prefix; the form owns
+// the prefix, so the value here never carries it.
 export function validateIdentifier(value: string): string | undefined {
   const text = value.trim();
-  if (!text || PROVIDER_IDENTIFIER_PATTERN.test(text)) return undefined;
-  return "Must match provider://lowercase-slug.";
+  if (!text || PROVIDER_SLUG_PATTERN.test(text)) return undefined;
+  return "Use lowercase letters, numbers, and hyphens (e.g. hooli-oidc).";
+}
+
+// Accepts pasted full identifiers gracefully: the locked prefix is removed so the slug field
+// never displays a doubled namespace.
+export function stripIdentifierPrefix(value: string): string {
+  return value.startsWith(PROVIDER_IDENTIFIER_PREFIX)
+    ? value.slice(PROVIDER_IDENTIFIER_PREFIX.length)
+    : value;
 }

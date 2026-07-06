@@ -115,6 +115,14 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
     return
   }
 
+  // The release version of the web binary, shown in the console footer.
+  if (url === '/version') {
+    res.statusCode = 200
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ version: cfg.version }))
+    return
+  }
+
   if (url.startsWith('/api/console')) {
     // CORS gates response reads, not the sending of credentialed requests. Cookie-authenticated
     // mutations must independently verify the browser Origin against the trusted allowlist, so a
