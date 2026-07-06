@@ -682,7 +682,15 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		for _, identifier := range grantedResources {
 			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated, false)
 			if err != nil {
-				return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "upstream directive build failed")
+				// The mint already passed policy; a failure here is the upstream credential
+				// plumbing (IdP outage, rejected client, circuit open), so the caller gets
+				// the operational reason and the audit trail records the denial.
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_credential_unavailable", &OPAResult{},
+					mergeAuditMeta(appMeta, map[string]any{"resource": identifier, "reason": err.Error()})); auditErr != nil {
+					return nil, nil, http.StatusInternalServerError, auditErr
+				}
+				return nil, nil, http.StatusBadGateway, sharederr.New(sharederr.HTTPRequestFailed,
+					"upstream credential for resource "+identifier+" is unavailable: "+err.Error())
 			}
 			grantedDirectives[identifier] = directive
 		}

@@ -326,10 +326,18 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 
 	directive, derr := s.buildUpstreamDirective(ctx, zoneID, nil, resource, true, true)
 	if derr != nil || directive.ProviderToken == "" {
+		reason := "provider token missing"
 		if derr != nil {
+			reason = derr.Error()
 			s.log.Error().Err(derr).Str("zone_id", zoneID).Str("workload_id", workload.ID).Msg("run credential directive build failed")
 		}
-		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "provider credential unavailable"))
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_credential_unavailable", &OPAResult{},
+			mergeAuditMeta(resourceMeta, map[string]any{"reason": reason})); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusBadGateway, sharederr.New(sharederr.HTTPRequestFailed,
+			"upstream credential for resource "+resource.Identifier+" is unavailable: "+reason))
 		return
 	}
 

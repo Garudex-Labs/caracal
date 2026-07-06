@@ -158,7 +158,7 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 		}
 		srv := runCredentialFlowServer(t, &db, runCredentialAllowPolicy)
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
-		if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "provider credential unavailable") {
+		if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "upstream credential for resource") {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 		}
 	})
