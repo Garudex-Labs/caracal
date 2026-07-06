@@ -111,7 +111,7 @@ function isGlobalReadPath(method: string, url: string): boolean {
 function isPublicOAuthCallback(method: string, url: string): boolean {
   if (method !== 'GET' && method !== 'HEAD') return false
   const path = url.split('?')[0]
-  return /^\/v1\/zones\/[^/]+\/provider-grants\/oauth\/callback$/.test(path)
+  return /^\/v1\/zones\/[^/]+\/provider-connections\/oauth\/callback$/.test(path)
 }
 
 function isControlInvoke(method: string, url: string): boolean {

@@ -78,7 +78,7 @@ function actionSegment(url: string): string | null {
     if (
       candidate &&
       segments[i + 1] &&
-      /^(zones|applications|workloads|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
+      /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
         candidate,
       )
     ) {
@@ -132,7 +132,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
     if (
       candidate &&
       next &&
-      /^(zones|applications|workloads|resources|providers|provider-grants|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
+      /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
         candidate,
       )
     ) {
@@ -144,7 +144,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
 
 function isProviderOAuthCallback(method: string, url: string): boolean {
   if (method !== 'GET') return false
-  return /^\/v1\/zones\/[^/]+\/provider-grants\/oauth\/callback(?:\?|$)/.test(url)
+  return /^\/v1\/zones\/[^/]+\/provider-connections\/oauth\/callback(?:\?|$)/.test(url)
 }
 
 export interface AuditPluginOptions {
