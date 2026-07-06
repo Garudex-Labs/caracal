@@ -96,7 +96,7 @@ const DOMAIN_ROW_FIELDS: Record<string, { idField: string; fields: string[] }> =
   application: { idField: 'id', fields: ['name', 'registration_method', 'created_at'] },
   provider: { idField: 'id', fields: ['name', 'identifier', 'kind', 'created_at'] },
   resource: { idField: 'id', fields: ['name', 'identifier', 'upstream_url', 'scopes', 'created_at'] },
-  policy: { idField: 'id', fields: ['name', 'description', 'owner_type', 'created_at'] },
+  policy: { idField: 'id', fields: ['name', 'description', 'created_at'] },
   grant: {
     idField: 'id',
     fields: ['application_name', 'application_id', 'user_id', 'resource_name', 'resource_id', 'scopes', 'status', 'created_at'],

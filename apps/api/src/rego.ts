@@ -20,7 +20,7 @@ const FORBIDDEN_BUILTINS = [
 ] as const
 const REGEX_META = /[\\^$.*+?()[\]{}|]/g
 export const OPA_INPUT_SCHEMA_VERSION = '2026-05-20'
-export const POLICY_SCHEMA_VERSIONS = new Set(['2026-03-16', OPA_INPUT_SCHEMA_VERSION])
+export const POLICY_SCHEMA_VERSIONS = new Set([OPA_INPUT_SCHEMA_VERSION])
 
 // Caps adopter policy source so oversized documents are rejected upfront instead of
 // straining storage and OPA bundle compilation inside STS.
