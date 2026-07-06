@@ -197,6 +197,9 @@ func TestVerifyRejectsInvalidClaims(t *testing.T) {
 			cfg := tt.cfg
 			cfg.Issuer = srv.URL
 			cfg.Audience = "resource://pipernet"
+			if cfg.ZoneID == "" {
+				cfg.ZoneID = "zone-1"
+			}
 			_, err := Verify(token, cfg)
 			if err == nil {
 				t.Fatal("expected error")
