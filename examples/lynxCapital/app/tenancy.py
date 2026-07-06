@@ -443,8 +443,8 @@ def resource_commands(
     provider_ids: dict[str, str],
     application_ids: dict[str, str],
 ) -> list[dict]:
-    """Control invoke payloads that register every per-application resource view and bind
-    it to its credential provider and its one gateway application."""
+    """Control invoke payloads that register every per-application resource view, bind
+    it to its credential provider, and cap its callers to its one owning application."""
     commands: list[dict] = []
     for resource in model.resources:
         provider = model.provider(resource.provider)
@@ -459,11 +459,11 @@ def resource_commands(
                     "scopes": resource.registered_scopes(),
                     "upstream-url": provider.upstream_url(),
                     "credential-provider-id": provider_ids[provider.identifier],
-                    "gateway-application-id": application_ids[resource.application],
+                    "allowed-application-ids": [application_ids[resource.application]],
                     "operations": operations,
-                    "operation-enforcement": "enforced"
-                    if operations
-                    else "transport_uniform",
+                    "operation-enforcement": (
+                        "enforced" if operations else "transport_uniform"
+                    ),
                 },
             }
         )
@@ -556,7 +556,8 @@ def policy_files(
     overrides: dict[str, str] | None = None,
 ) -> list[tuple[str, str]]:
     """The policy library as ordered (name, content) pairs. `overrides`
-    replaces a file's content by stem (used to author real bindings at provision time)."""
+    replaces a file's content by stem (used to author real bindings at provision time).
+    """
     directory = Path(policies_dir) if policies_dir is not None else DEFAULT_POLICIES_DIR
     overrides = overrides or {}
     files = sorted(

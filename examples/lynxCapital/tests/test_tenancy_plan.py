@@ -165,7 +165,7 @@ def test_provider_commands_fail_closed_on_missing_credential_env():
         tenancy.provider_commands(model, env={})
 
 
-def test_resource_commands_bind_provider_and_gateway_application():
+def test_resource_commands_bind_provider_and_cap_callers():
     model = tenancy.load_model()
     provider_ids = {p.identifier: f"cp_{p.id}" for p in model.providers}
     application_ids = {a.id: f"app_{a.id}" for a in model.applications}
@@ -176,7 +176,9 @@ def test_resource_commands_bind_provider_and_gateway_application():
     for command in commands:
         view = model.resource(command["flags"]["identifier"])
         assert command["flags"]["credential-provider-id"] == f"cp_{view.provider}"
-        assert command["flags"]["gateway-application-id"] == f"app_{view.application}"
+        assert command["flags"]["allowed-application-ids"] == [
+            f"app_{view.application}"
+        ]
         assert tenancy.LIFECYCLE_SCOPE in command["flags"]["scopes"]
         assert set(view.scopes) <= set(command["flags"]["scopes"])
 

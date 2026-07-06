@@ -298,11 +298,11 @@ def _caracal_steps() -> list[dict[str, object]]:
                     "value": f"{len(model.resources)} resources, identifier resource://<app>-<provider>",
                 },
                 {
-                    "label": "Gateway binding",
-                    "value": "each view binds to exactly one application",
+                    "label": "Caller allowlist",
+                    "value": "each view admits exactly one application",
                 },
             ],
-            "why": "Every view binds to exactly one application and carries only the scopes that boundary may hold.",
+            "why": "Every view admits exactly one application and carries only the scopes that boundary may hold.",
         },
         {
             "step": "05",
