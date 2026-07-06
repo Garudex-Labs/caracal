@@ -19,7 +19,7 @@ type UpstreamDirective struct {
 	AllowedTokenHosts      []string `json:"allowed_token_hosts,omitempty"`
 	ProviderToken          string   `json:"provider_token,omitempty"`
 	ProviderID             string   `json:"provider_id,omitempty"`
-	GrantID                string   `json:"grant_id,omitempty"`
+	ConnectionID           string   `json:"connection_id,omitempty"`
 	ForwardCaracalIdentity bool     `json:"forward_caracal_identity,omitempty"`
 	ExpiresAt              int64    `json:"expires_at,omitempty"`
 }

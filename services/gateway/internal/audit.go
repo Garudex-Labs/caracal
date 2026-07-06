@@ -30,7 +30,7 @@ type gatewayAuditInput struct {
 	UpstreamHost       string
 	AuthMode           string
 	ProviderID         string
-	GrantID            string
+	ConnectionID       string
 	GatewayStatus      int
 	UpstreamStatus     int
 	Latency            time.Duration
@@ -65,8 +65,8 @@ func gatewayActionEvent(input gatewayAuditInput) (audit.Event, error) {
 	if input.ProviderID != "" {
 		meta["provider_id"] = input.ProviderID
 	}
-	if input.GrantID != "" {
-		meta["grant_id"] = input.GrantID
+	if input.ConnectionID != "" {
+		meta["connection_id"] = input.ConnectionID
 	}
 	if input.UpstreamStatus > 0 {
 		meta["upstream_status"] = input.UpstreamStatus

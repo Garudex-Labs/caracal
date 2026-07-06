@@ -432,26 +432,26 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
 					providerDenial = sharederr.New(sharederr.AccessDenied,
-						"resource "+resource.Identifier+" uses a user-consent provider and this call carries no user subject")
+						"resource "+resource.Identifier+" uses a user-consent provider and this call carries no subject")
 					continue
 				}
-				if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID); rerr != nil {
+				if rerr := s.tryRefreshProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID); rerr != nil {
 					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
 					providerDenial = sharederr.New(rerr.Code,
-						"provider credential for resource "+resource.Identifier+" is expired and could not be refreshed; reconnect the user from the provider's Connections panel")
+						"provider connection for resource "+resource.Identifier+" is expired and could not be refreshed; reconnect the subject from the provider's Connections panel")
 					continue
 				}
-				grant, gerr := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-				if gerr != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
+				connection, gerr := s.db.GetProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID)
+				if gerr != nil || connection == nil || len(connection.AccessTokenCt) == 0 {
 					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_grant"})); auditErr != nil {
+						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_connection"})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
 					providerDenial = sharederr.New(sharederr.AccessDenied,
-						"no provider grant for subject "+userID+" on resource "+resource.Identifier+"; connect the user from the provider's Connections panel")
+						"no provider connection for subject "+userID+" on resource "+resource.Identifier+"; connect the subject from the provider's Connections panel")
 					continue
 				}
 			}
@@ -737,21 +737,21 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		if userID == "" {
 			return directive, fmt.Errorf("provider directive requires subject")
 		}
-		grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-		if err != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
-			return directive, fmt.Errorf("provider grant unavailable")
+		connection, err := s.db.GetProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID)
+		if err != nil || connection == nil || len(connection.AccessTokenCt) == 0 {
+			return directive, fmt.Errorf("provider connection unavailable")
 		}
-		if grant.ProviderID == nil || *grant.ProviderID != provider.ID {
-			return directive, fmt.Errorf("provider grant missing provider")
+		if connection.ProviderID == nil || *connection.ProviderID != provider.ID {
+			return directive, fmt.Errorf("provider connection missing provider")
 		}
-		at, err := openZEK(s.keys.zek, grant.AccessTokenCt)
+		at, err := openZEK(s.keys.zek, connection.AccessTokenCt)
 		if err != nil {
-			return directive, fmt.Errorf("provider grant decrypt failed")
+			return directive, fmt.Errorf("provider connection decrypt failed")
 		}
 		directive.ProviderToken = string(at)
-		directive.GrantID = grant.ID
-		if grant.ExpiresAt != nil {
-			directive.ExpiresAt = grant.ExpiresAt.Unix()
+		directive.ConnectionID = connection.ID
+		if connection.ExpiresAt != nil {
+			directive.ExpiresAt = connection.ExpiresAt.Unix()
 		}
 		return directive, nil
 	}
@@ -868,6 +868,7 @@ type oauthClientCredentialsConfig struct {
 	AssertionAudience string            `json:"assertion_audience"`
 	KeyID             string            `json:"key_id"`
 	Certificate       string            `json:"certificate"`
+	AuthScheme        string            `json:"auth_scheme"`
 	AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 	Scopes            []string          `json:"scopes"`
 	Audience          string            `json:"audience"`
@@ -970,10 +971,14 @@ func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *Provid
 	}
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
 		return "", time.Time{}, fmt.Errorf("provider token response invalid")
+	}
+	if !validProviderTokenType(tokenResp.TokenType, cfg.AuthScheme) {
+		return "", time.Time{}, fmt.Errorf("provider token type unsupported")
 	}
 	return tokenResp.AccessToken, time.Now().Add(providerServiceTokenTTL(tokenResp.ExpiresIn, s.cfg.MaxGrantTTLSeconds)), nil
 }
