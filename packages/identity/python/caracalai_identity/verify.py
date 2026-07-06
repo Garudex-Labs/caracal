@@ -141,8 +141,8 @@ async def verify_token(
     token: str,
     issuer: str,
     audience: str,
+    expected_zone_id: str,
     required_scopes: list[str] | None = None,
-    expected_zone_id: str | None = None,
     required_use: str | None = None,
 ) -> dict[str, JsonValue]:
     try:
@@ -150,20 +150,12 @@ async def verify_token(
     except Exception as e:
         raise TokenInvalidError(f"Token validation failed: {e}") from e
 
-    # STS serves one signing keyset per zone, so the JWKS fetch needs a zone.
-    # The configured zone wins; otherwise the unverified zone_id claim selects
-    # the keyset, which is safe because it only routes the key lookup - the
-    # signature check against that zone's keys then proves the claim.
+    # The configured zone is the only trust anchor: it selects the signing keyset
+    # and must equal the zone_id claim. Verification never reads the zone from the
+    # unverified token, so key selection cannot be influenced by attacker input.
+    if not expected_zone_id:
+        raise ZoneInvalidError("Token zone validation failed")
     fetch_zone = expected_zone_id
-    if not fetch_zone:
-        try:
-            unverified = jwt.decode(token, options={"verify_signature": False})
-        except Exception as e:
-            raise TokenInvalidError(f"Token validation failed: {e}") from e
-        claimed_zone = unverified.get("zone_id")
-        if not isinstance(claimed_zone, str) or not claimed_zone:
-            raise ZoneInvalidError("Token zone validation failed")
-        fetch_zone = claimed_zone
     keys = await _cache.get_keys(issuer, fetch_zone)
 
     token_kid = header.get("kid")
@@ -229,7 +221,6 @@ async def verify_token(
         not isinstance(zone_id, str)
         or not zone_id
         or zone_id != fetch_zone
-        or (expected_zone_id and zone_id != expected_zone_id)
     ):
         raise ZoneInvalidError("Token zone validation failed")
     for required in required_scopes or []:

@@ -1343,7 +1343,9 @@ class Caracal:
             app = FastAPI()
 
             async def verify(token: str) -> None:
-                await verify_token(token, issuer=ISSUER, audience=AUDIENCE)
+                await verify_token(
+                    token, issuer=ISSUER, audience=AUDIENCE, expected_zone_id=ZONE_ID
+                )
 
             app.add_middleware(caracal.context_middleware(verifier=verify))
         """

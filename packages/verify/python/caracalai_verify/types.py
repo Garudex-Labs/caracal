@@ -49,8 +49,10 @@ class AuthOptions:
     issuer: str
     audience: str
     revocations: RevocationStore
+    # The zone is a mandatory trust anchor fixed at construction; it selects the
+    # signing keyset and can never be steered by the unverified zone_id claim.
+    expected_zone_id: str
     required_scopes: list[str] = field(default_factory=list)
-    expected_zone_id: str | None = None
     require_agent: bool = False
     require_delegation: bool = False
     require_chain_contains: list[str] = field(default_factory=list)
