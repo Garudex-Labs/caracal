@@ -157,6 +157,92 @@ func EnsureAPIKeyProvider(ctx context.Context, client *AdminClient, zoneID strin
 	return existing.ID, nil
 }
 
+// ClientCredentialsProviderEnsure is the desired state for
+// EnsureClientCredentialsProvider. An empty ClientSecret or PrivateKey means
+// that credential was not supplied.
+type ClientCredentialsProviderEnsure struct {
+	Name         string
+	Identifier   string
+	PublicConfig map[string]any
+	ClientSecret string
+	PrivateKey   string
+}
+
+// EnsureClientCredentialsProvider seals the client credential into an
+// oauth2_client_credentials provider so the caller never holds it after the
+// run. When a client secret or signing key is supplied it is reconciled
+// together with the public config (the sealed secret cannot be read back, so
+// setting or rotating re-seals). When no credential is supplied but the
+// public config may have changed, an existing provider is patched without
+// resupplying the credential, so an edit applies and the sealed secret is
+// preserved. Whether a missing provider without a credential is creatable
+// follows the declared authentication: jwt_bearer grants and every
+// client_auth_method except none require a sealed credential, so absence
+// returns an empty id and no resource binds a dead credential; a public
+// client (none) is complete without one and is created.
+func EnsureClientCredentialsProvider(ctx context.Context, client *AdminClient, zoneID string, input ClientCredentialsProviderEnsure) (string, error) {
+	providers, err := client.Providers.List(ctx, zoneID)
+	if err != nil {
+		return "", err
+	}
+	var existing *Provider
+	for index := range providers {
+		if providers[index].Identifier == input.Identifier {
+			existing = &providers[index]
+			break
+		}
+	}
+	if input.ClientSecret == "" && input.PrivateKey == "" {
+		grantType, _ := input.PublicConfig["grant_type"].(string)
+		if grantType == "" {
+			grantType = "client_credentials"
+		}
+		authMethod, _ := input.PublicConfig["client_auth_method"].(string)
+		if authMethod == "" {
+			if grantType == "jwt_bearer" {
+				authMethod = "none"
+			} else {
+				authMethod = "client_secret_basic"
+			}
+		}
+		if grantType == "jwt_bearer" || authMethod != "none" {
+			if existing == nil {
+				return "", nil
+			}
+			if _, err := client.Providers.Patch(ctx, zoneID, existing.ID, map[string]any{"config_json": input.PublicConfig}); err != nil {
+				return "", err
+			}
+			return existing.ID, nil
+		}
+	}
+	config := make(map[string]any, len(input.PublicConfig)+2)
+	for key, value := range input.PublicConfig {
+		config[key] = value
+	}
+	if input.ClientSecret != "" {
+		config["client_secret"] = input.ClientSecret
+	}
+	if input.PrivateKey != "" {
+		config["private_key"] = input.PrivateKey
+	}
+	if existing == nil {
+		created, err := client.Providers.Create(ctx, zoneID, map[string]any{
+			"name":        input.Name,
+			"identifier":  input.Identifier,
+			"kind":        "oauth2_client_credentials",
+			"config_json": config,
+		})
+		if err != nil {
+			return "", err
+		}
+		return created.ID, nil
+	}
+	if _, err := client.Providers.Patch(ctx, zoneID, existing.ID, map[string]any{"kind": "oauth2_client_credentials", "config_json": config}); err != nil {
+		return "", err
+	}
+	return existing.ID, nil
+}
+
 // ResourceEnsure is the desired state for EnsureResource. Nil pointer and
 // slice fields are not managed: they are excluded from both the drift
 // comparison and the patch.

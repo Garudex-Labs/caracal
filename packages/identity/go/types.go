@@ -22,8 +22,11 @@ const (
 
 // Config configures JWT verification.
 type Config struct {
-	Issuer               string
-	Audience             string
+	Issuer   string
+	Audience string
+	// ZoneID is a mandatory trust anchor. It fixes which zone's signing keyset
+	// verifies the token, so key selection can never be steered by the
+	// unverified zone_id claim. Verification fails closed when it is empty.
 	ZoneID               string
 	RequiredScopes       []string
 	RequiredTargets      []string

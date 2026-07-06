@@ -165,23 +165,15 @@ func requiredInt64(claims jwt.MapClaims, name string) (int64, bool) {
 	return int64(value), true
 }
 
-// fetchZone resolves the zone whose JWKS keyset can verify the token: the
-// configured zone wins; otherwise the unverified zone_id claim routes the key
-// lookup, which is safe because the signature check against that zone's keys
-// then proves the claim.
-func fetchZone(tokenStr string, cfg Config) (string, error) {
-	if cfg.ZoneID != "" {
-		return cfg.ZoneID, nil
-	}
-	unverified := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, unverified); err != nil {
-		return "", ErrTokenInvalid
-	}
-	zoneID, _ := unverified["zone_id"].(string)
-	if zoneID == "" {
+// requireZone returns the configured zone that anchors keyset selection and the
+// zone_id claim check. The zone is mandatory: verification never derives its
+// trust anchor from the unverified token, so key selection cannot be steered by
+// attacker-controlled input.
+func requireZone(cfg Config) (string, error) {
+	if cfg.ZoneID == "" {
 		return "", ErrZoneInvalid
 	}
-	return zoneID, nil
+	return cfg.ZoneID, nil
 }
 
 // Verify parses and validates a JWT, returning typed Claims on success.
@@ -192,7 +184,7 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 // VerifyContext is Verify with caller-supplied cancellation, propagated to the
 // JWKS fetch so verification honors the caller's deadline.
 func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, error) {
-	zone, err := fetchZone(tokenStr, cfg)
+	zone, err := requireZone(cfg)
 	if err != nil {
 		return Claims{}, err
 	}
@@ -220,7 +212,7 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		return Claims{}, ErrTokenInvalid
 	}
 	zoneID, _ := mapClaims["zone_id"].(string)
-	if zoneID == "" || zoneID != zone || (cfg.ZoneID != "" && zoneID != cfg.ZoneID) {
+	if zoneID == "" || zoneID != zone {
 		return Claims{}, ErrZoneInvalid
 	}
 	jti, ok := requiredString(mapClaims, "jti")

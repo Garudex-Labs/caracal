@@ -230,9 +230,6 @@ func mergeOptions(base Options, override Options) Options {
 	if override.Audience != "" {
 		base.Audience = override.Audience
 	}
-	if override.ZoneID != "" {
-		base.ZoneID = override.ZoneID
-	}
 	if override.RequiredScopes != nil {
 		base.RequiredScopes = override.RequiredScopes
 	}
