@@ -109,6 +109,31 @@ type ProviderConnectionAuthorize struct {
 	ExpiresAt        string `json:"expires_at"`
 }
 
+// WorkloadBinding maps an environment variable to a governed resource
+// credential for caracal run.
+type WorkloadBinding struct {
+	Env       string   `json:"env"`
+	Resource  string   `json:"resource"`
+	Scopes    []string `json:"scopes,omitempty"`
+	Optional  bool     `json:"optional,omitempty"`
+	OnFailure string   `json:"on_failure,omitempty"`
+}
+
+// Workload is the admin API workload row: a launcher identity with its
+// credential bindings.
+type Workload struct {
+	ID                 string            `json:"id"`
+	ZoneID             string            `json:"zone_id"`
+	Name               string            `json:"name"`
+	Bindings           []WorkloadBinding `json:"bindings"`
+	CreatedBy          *string           `json:"created_by"`
+	CreatedViaOperator bool              `json:"created_via_operator"`
+	CreatedAt          string            `json:"created_at"`
+	UpdatedBy          *string           `json:"updated_by"`
+	UpdatedViaOperator bool              `json:"updated_via_operator"`
+	UpdatedAt          string            `json:"updated_at"`
+}
+
 // Session is the admin API subject session row.
 type Session struct {
 	ID              string  `json:"id"`
@@ -525,6 +550,50 @@ func (s *ProviderConnectionsService) Revoke(ctx context.Context, zoneID string, 
 		return nil, err
 	}
 	return &out, nil
+}
+
+// WorkloadsService covers /v1/zones/{zone}/workloads: launcher identities and
+// their credential bindings.
+type WorkloadsService struct{ client *AdminClient }
+
+func (s *WorkloadsService) List(ctx context.Context, zoneID string) ([]Workload, error) {
+	return listAll[Workload](ctx, s.client, "/v1/zones/"+zoneID+"/workloads", "workloads")
+}
+
+func (s *WorkloadsService) Get(ctx context.Context, zoneID, workloadID string) (*Workload, error) {
+	var out Workload
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/workloads/"+workloadID, nil, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create returns the row plus the one-time plaintext workload secret; the
+// secret is never retrievable again.
+func (s *WorkloadsService) Create(ctx context.Context, zoneID string, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/workloads", body, &out, false)
+	return out, err
+}
+
+func (s *WorkloadsService) Update(ctx context.Context, zoneID, workloadID string, body map[string]any) (*Workload, error) {
+	var out Workload
+	if err := s.client.do(ctx, http.MethodPut, "/v1/zones/"+zoneID+"/workloads/"+workloadID, body, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RotateSecret rotates the credential server-side; the response carries the
+// one-time plaintext secret.
+func (s *WorkloadsService) RotateSecret(ctx context.Context, zoneID, workloadID string) (map[string]any, error) {
+	var out map[string]any
+	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/workloads/"+workloadID+"/rotate-secret", nil, &out, false)
+	return out, err
+}
+
+func (s *WorkloadsService) Delete(ctx context.Context, zoneID, workloadID string) error {
+	return s.client.do(ctx, http.MethodDelete, "/v1/zones/"+zoneID+"/workloads/"+workloadID, nil, nil, true)
 }
 
 // SessionsService covers /v1/zones/{zone}/sessions reads; revocation is a

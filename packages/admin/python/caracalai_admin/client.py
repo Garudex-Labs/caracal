@@ -115,6 +115,7 @@ class AdminClient:
         self.policy_sets = _PolicySets(self)
         self.grants = _Grants(self)
         self.provider_connections = _ProviderConnections(self)
+        self.workloads = _Workloads(self)
         self.sessions = _Sessions(self)
         self.agent_sessions = _AgentSessions(self)
         self.audit = _Audit(self)
@@ -519,6 +520,43 @@ class _ProviderConnections:
     def revoke(self, zone_id: str, body: dict[str, Any]) -> Any:
         return self._client._request(
             f"/v1/zones/{zone_id}/provider-connections/revoke", method="POST", body=body
+        )
+
+
+class _Workloads:
+    """Workload launcher identities and their credential bindings; create and
+    rotate_secret responses carry the one-time plaintext secret."""
+
+    def __init__(self, client: AdminClient) -> None:
+        self._client = client
+
+    def list(self, zone_id: str) -> list[Any]:
+        return self._client._list_all(f"/v1/zones/{zone_id}/workloads", "workloads")
+
+    def get(self, zone_id: str, workload_id: str) -> Any:
+        return self._client._request(f"/v1/zones/{zone_id}/workloads/{workload_id}")
+
+    def create(self, zone_id: str, body: dict[str, Any]) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/workloads", method="POST", body=body
+        )
+
+    def update(self, zone_id: str, workload_id: str, body: dict[str, Any]) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/workloads/{workload_id}", method="PUT", body=body
+        )
+
+    def rotate_secret(self, zone_id: str, workload_id: str) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/workloads/{workload_id}/rotate-secret",
+            method="POST",
+        )
+
+    def delete(self, zone_id: str, workload_id: str) -> None:
+        self._client._request(
+            f"/v1/zones/{zone_id}/workloads/{workload_id}",
+            method="DELETE",
+            expect_empty=True,
         )
 
 
