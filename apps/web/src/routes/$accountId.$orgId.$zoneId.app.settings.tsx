@@ -7,7 +7,7 @@ This file defines the Settings layout route with grouped navigation over the /se
 import { Link, Outlet, createFileRoute, useLocation } from "@tanstack/react-router";
 
 import { ModulePage } from "@/components/console/ModulePage";
-import { systemZoneViewPath, useSystemZoneId } from "@/platform/api/hooks";
+import { systemZoneViewPath, useConsoleVersion, useSystemZoneId } from "@/platform/api/hooks";
 import { appLink } from "@/platform/nav/appLink";
 import { SETTINGS_GROUPS, settingsItem } from "@/platform/nav/settingsNav";
 
@@ -38,6 +38,7 @@ function SettingsLayout() {
   const segment = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
   const current = settingsItem(segment);
   const systemZone = useSystemZoneId();
+  const version = useConsoleVersion();
 
   return (
     <ModulePage
@@ -129,6 +130,10 @@ function SettingsLayout() {
           <div className="scrollbar-thin min-w-0 xl:flex-1 xl:overflow-y-auto xl:pb-4 xl:pr-3">
             <Outlet />
           </div>
+          <footer className="mt-8 flex flex-shrink-0 items-center justify-between gap-3 border-t border-border pb-1 pt-3 text-xs text-muted-foreground/80 xl:mt-0">
+            <span>© Garudex Labs 2026</span>
+            {version.data ? <span className="font-mono">{version.data}</span> : null}
+          </footer>
         </section>
       </div>
     </ModulePage>

@@ -23,6 +23,8 @@ import {
   serializeParams,
   validateFieldFormat,
   validateIdentifier,
+  PROVIDER_IDENTIFIER_PREFIX,
+  stripIdentifierPrefix,
 } from "@/components/console/providerValidation";
 import type {
   Provider,
@@ -450,7 +452,7 @@ export function ProviderFormModal({
   if (open && seedKey !== seedRef) {
     setSeedRef(seedKey);
     setName(provider?.name ?? "");
-    setIdentifier(provider?.identifier ?? "");
+    setIdentifier(stripIdentifierPrefix(provider?.identifier ?? ""));
     setKind(provider?.kind ?? "caracal_mandate");
     setValues(initialValues(provider));
     setTouched(false);
@@ -524,7 +526,9 @@ export function ProviderFormModal({
     const input: ProviderInput = {
       kind,
       ...(name.trim() ? { name: name.trim() } : {}),
-      ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
+      ...(identifier.trim()
+        ? { identifier: `${PROVIDER_IDENTIFIER_PREFIX}${identifier.trim()}` }
+        : {}),
       ...(kind === "none" || kind === "caracal_mandate" ? {} : { config_json: config }),
       ...(check ? { check: true } : {}),
     };
@@ -645,12 +649,13 @@ export function ProviderFormModal({
           ))}
           <Field
             label="Identifier"
-            info="The stable identifier used to reference this provider in resources and tokens. Generated from the name when blank; must use the provider:// namespace."
-            placeholder="provider://hooli-oidc"
-            hint="Optional. Generated from the name when blank. Must match provider://lowercase-slug."
+            info="The stable identifier used to reference this provider in resources and tokens. Generated from the name when blank; the provider:// namespace is fixed, so only the slug varies."
+            prefix="provider://"
+            placeholder="hooli-oidc"
+            hint="Optional. Lowercase letters, numbers, and hyphens."
             value={identifier}
             error={errors.identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
+            onChange={(e) => setIdentifier(stripIdentifierPrefix(e.target.value))}
           />
         </Disclosure>
 

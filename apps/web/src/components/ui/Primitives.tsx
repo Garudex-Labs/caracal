@@ -140,30 +140,61 @@ export function Field({
   error,
   className,
   id,
+  prefix,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
   info?: string;
   hint?: string;
   error?: string;
+  // A locked namespace rendered inside the control, ahead of the editable text. The value the
+  // caller manages excludes it, so users type only the part that varies.
+  prefix?: string;
 }) {
   // On a read-only surface every editable field is disabled, so a view-only page cannot be used
   // to stage a change. Search is a separate control, so inspection stays fully usable.
   const { readOnly } = useViewOnly();
+  const disabled = readOnly || props.disabled;
   return (
     <label className="block" htmlFor={id}>
       <FieldLabel label={label} info={info} />
-      <input
-        id={id}
-        className={cx(
-          fieldBase,
-          "h-9",
-          error && "border-destructive focus:ring-destructive/25",
-          className,
-        )}
-        {...props}
-        disabled={readOnly || props.disabled}
-      />
+      {prefix ? (
+        <span
+          className={cx(
+            "flex h-9 w-full items-stretch overflow-hidden rounded-md border border-input bg-background text-sm transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25",
+            error && "border-destructive focus-within:ring-destructive/25",
+            disabled && "cursor-not-allowed opacity-50",
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className="flex select-none items-center whitespace-nowrap border-r border-input bg-muted/60 px-2.5 font-mono text-xs text-muted-foreground"
+          >
+            {prefix}
+          </span>
+          <input
+            id={id}
+            className={cx(
+              "h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed",
+              className,
+            )}
+            {...props}
+            disabled={disabled}
+          />
+        </span>
+      ) : (
+        <input
+          id={id}
+          className={cx(
+            fieldBase,
+            "h-9",
+            error && "border-destructive focus:ring-destructive/25",
+            className,
+          )}
+          {...props}
+          disabled={disabled}
+        />
+      )}
       {error ? (
         <span className="mt-1 block text-xs text-destructive">{error}</span>
       ) : hint ? (
