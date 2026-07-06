@@ -155,6 +155,12 @@ describe('operator registration gating', () => {
     reset({ CARACAL_OPERATOR_ALLOWLIST_FILE: ' /run/caracalHostSecrets/operatorAllowlist.json ' })
     expect(loadConfig().operatorAllowlistFile).toBe('/run/caracalHostSecrets/operatorAllowlist.json')
   })
+
+  it('keeps the reverse proxy untrusted unless explicitly declared', () => {
+    expect(loadConfig().trustProxy).toBe(false)
+    reset({ CARACAL_AUTH_TRUST_PROXY: 'true' })
+    expect(loadConfig().trustProxy).toBe(true)
+  })
 })
 
 describe('password sign-up gating', () => {
