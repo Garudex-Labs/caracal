@@ -19,6 +19,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
 }))
 
 import { webCommand } from '../../../../apps/runtime/src/commands/web.ts'
+import { CARACAL_VERSION } from '../../../../apps/runtime/src/runtime/version.gen.ts'
 
 // Repo root resolved from this test's own location (tests/typescript/unit/runtime), so the
 // preflight finds apps/web and apps/auth regardless of the runner's working directory.
@@ -190,6 +191,7 @@ describe('webCommand stack preflight', () => {
     expect(backendSpawn).toBeDefined()
     expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_AUTH_PORT).toBe('4102')
     expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_WEB_ORIGIN).toBe('http://localhost:4101')
+    expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_VERSION).toBe(CARACAL_VERSION)
     // A custom web port leaves the packaged console container alone.
     const stopped = spawnSyncMock.mock.calls.find((call) => call[0] === 'docker' && (call[1] as string[])[0] === 'stop')
     expect(stopped).toBeUndefined()

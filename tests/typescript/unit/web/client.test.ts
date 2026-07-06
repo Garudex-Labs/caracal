@@ -98,6 +98,28 @@ describe('request cancellation', () => {
   })
 })
 
+describe('applications list', () => {
+  it('lists active applications without a status parameter', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, { items: [{ id: 'app-1', name: 'Son of Anton' }], next_cursor: null }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const rows = await consoleApi.applications.list('z1')
+    expect(rows).toEqual([{ id: 'app-1', name: 'Son of Anton' }])
+    const url = String(fetchMock.mock.calls[0]![0])
+    expect(url).toContain('/v1/zones/z1/applications')
+    expect(url).not.toContain('status=')
+  })
+
+  it('requests the archived listing when asked', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { items: [{ id: 'app-2', name: 'Fiona', archived_at: '2026-07-01T00:00:00.000Z' }], next_cursor: null }),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const rows = await consoleApi.applications.list('z1', undefined, 'archived')
+    expect(rows[0]).toMatchObject({ id: 'app-2', archived_at: '2026-07-01T00:00:00.000Z' })
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/v1/zones/z1/applications?status=archived')
+  })
+})
+
 describe('operator capabilities', () => {
   it('reports whether the operator service is enabled', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { enabled: false }))
