@@ -95,72 +95,72 @@ func openZEK(zek, packed []byte) ([]byte, error) {
 	return aead.Open(nil, packed[:ns], packed[ns:], nil)
 }
 
-// tryRefreshBrokeredGrant fetches the delegated grant for userID+resourceID,
-// refreshes the provider access token if it is expired or inside the refresh
-// skew, and updates the grant. Grants without an expiry are non-expiring
-// upstream tokens and are served as stored.
-func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
-	if userID == "" {
+// tryRefreshProviderConnection fetches the subject's provider connection, refreshes
+// the upstream access token if it is expired or inside the refresh skew, and updates
+// the connection. Connections without an expiry are non-expiring upstream tokens and
+// are served as stored.
+func (s *Server) tryRefreshProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) *sharederr.CaracalError {
+	if subjectID == "" {
 		return nil
 	}
-	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
+	connection, err := s.db.GetProviderConnection(ctx, zoneID, subjectID, providerID)
 	if err != nil {
 		return nil
 	}
-	if grant.ExpiresAt == nil {
+	if connection.ExpiresAt == nil {
 		return nil
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	renewable := len(grant.RefreshTokenCt) > 0 && grant.ProviderID != nil
+	renewable := len(connection.RefreshTokenCt) > 0 && connection.ProviderID != nil
 	if !renewable {
-		if grant.ExpiresAt.After(now) {
+		if connection.ExpiresAt.After(now) {
 			return nil
 		}
-		s.markProviderGrantExpired(ctx, grant.ID)
+		s.markProviderConnectionExpired(ctx, connection.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	// Renewable grants refresh inside the same skew the service-token cache uses, so
-	// the gateway is never handed an upstream token that dies mid-request.
-	if grant.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+	// Renewable connections refresh inside the same skew the service-token cache uses,
+	// so the gateway is never handed an upstream token that dies mid-request.
+	if connection.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
 		return nil
 	}
-	return s.coordinatedGrantRefresh(ctx, refreshGrantKey(zoneID, userID, resourceID, providerID, grant), func(runCtx context.Context) *sharederr.CaracalError {
-		return s.refreshExpiredBrokeredGrant(runCtx, zoneID, userID, resourceID, providerID)
+	return s.coordinatedGrantRefresh(ctx, refreshConnectionKey(zoneID, subjectID, providerID, connection), func(runCtx context.Context) *sharederr.CaracalError {
+		return s.refreshExpiredProviderConnection(runCtx, zoneID, subjectID, providerID)
 	})
 }
 
-func (s *Server) markProviderGrantExpired(ctx context.Context, grantID string) {
-	if err := s.db.MarkProviderGrantExpired(ctx, grantID); err != nil {
-		s.log.Warn().Err(err).Str("grant_id", grantID).Msg("provider grant expiry transition failed")
+func (s *Server) markProviderConnectionExpired(ctx context.Context, connectionID string) {
+	if err := s.db.MarkProviderConnectionExpired(ctx, connectionID); err != nil {
+		s.log.Warn().Err(err).Str("connection_id", connectionID).Msg("provider connection expiry transition failed")
 	}
 }
 
-func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
-	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
+func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) *sharederr.CaracalError {
+	connection, err := s.db.GetProviderConnection(ctx, zoneID, subjectID, providerID)
 	if err != nil {
 		return nil
 	}
-	if grant.ExpiresAt == nil {
+	if connection.ExpiresAt == nil {
 		return nil
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
-		if grant.ExpiresAt.After(now) {
+	if len(connection.RefreshTokenCt) == 0 || connection.ProviderID == nil {
+		if connection.ExpiresAt.After(now) {
 			return nil
 		}
-		s.markProviderGrantExpired(ctx, grant.ID)
+		s.markProviderConnectionExpired(ctx, connection.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	if grant.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+	if connection.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
 		return nil
 	}
-	provider, err := s.db.GetProvider(ctx, *grant.ProviderID)
+	provider, err := s.db.GetProvider(ctx, *connection.ProviderID)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -171,6 +171,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 		TokenEndpoint     string            `json:"token_endpoint"`
 		ClientID          string            `json:"client_id"`
 		ClientAuthMethod  string            `json:"client_auth_method"`
+		AuthScheme        string            `json:"auth_scheme"`
 		AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 		TokenParams       map[string]string `json:"token_params"`
 	}
@@ -188,7 +189,7 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return sharederr.New(sharederr.CredentialExpired, "provider refresh circuit open")
 	}
-	refreshToken, err := openZEK(s.keys.zek, grant.RefreshTokenCt)
+	refreshToken, err := openZEK(s.keys.zek, connection.RefreshTokenCt)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -204,10 +205,15 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	var tokenResp struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		TokenType    string `json:"token_type"`
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
+	}
+	if !validProviderTokenType(tokenResp.TokenType, provCfg.AuthScheme) {
+		s.log.Warn().Str("provider", provider.ID).Str("token_type", tokenResp.TokenType).Msg("provider returned unsupported token_type")
+		return sharederr.New(sharederr.CredentialExpired, "provider token type unsupported")
 	}
 	newAccessCt, err := sealZEK(s.keys.zek, []byte(tokenResp.AccessToken))
 	if err != nil {
@@ -235,10 +241,21 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 			Int("max_grant_ttl_seconds", s.cfg.MaxGrantTTLSeconds).
 			Msg("capped provider token ttl")
 	}
-	if err := s.persistRefreshedGrant(ctx, zoneID, userID, resourceID, grant, newAccessCt, newRefreshCt, expiresAt); err != nil {
-		return sharederr.New(sharederr.Internal, "grant update failed")
+	if err := s.persistRefreshedConnection(ctx, zoneID, subjectID, connection, newAccessCt, newRefreshCt, expiresAt); err != nil {
+		return sharederr.New(sharederr.Internal, "connection update failed")
 	}
 	return nil
+}
+
+// validProviderTokenType enforces RFC 6749 section 7.1: a token of an unrecognized
+// type must not be forwarded under the Bearer scheme. An explicit upstream auth
+// scheme on the provider is the operator's assertion that the type is intentional.
+func validProviderTokenType(tokenType, authScheme string) bool {
+	trimmed := strings.TrimSpace(tokenType)
+	if trimmed == "" || strings.EqualFold(trimmed, "bearer") {
+		return true
+	}
+	return strings.TrimSpace(authScheme) != ""
 }
 
 func (s *Server) coordinatedGrantRefresh(ctx context.Context, key string, refresh func(context.Context) *sharederr.CaracalError) *sharederr.CaracalError {
@@ -385,15 +402,15 @@ func (s *Server) readRefreshResult(ctx context.Context, key string) (*sharederr.
 	return sharederr.New(result.Code, result.Description), true, nil
 }
 
-func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, grant *ProviderGrant) string {
-	if grant != nil && grant.ID != "" {
-		return "grant\x00" + grant.ID
+func refreshConnectionKey(zoneID, subjectID string, providerID *string, connection *ProviderConnection) string {
+	if connection != nil && connection.ID != "" {
+		return "connection\x00" + connection.ID
 	}
 	provider := ""
 	if providerID != nil {
 		provider = *providerID
 	}
-	return zoneID + "\x00" + userID + "\x00" + resourceID + "\x00" + provider
+	return zoneID + "\x00" + subjectID + "\x00" + provider
 }
 
 type providerSecretConfig struct {
@@ -441,26 +458,26 @@ func capGrantTTL(providerSeconds, maxSeconds int) time.Duration {
 	return time.Duration(providerSeconds) * time.Second
 }
 
-// persistRefreshedGrant writes the refreshed tokens with optimistic-lock retries.
-// On version conflict it re-reads the grant; if a peer already produced fresh
+// persistRefreshedConnection writes the refreshed tokens with optimistic-lock retries.
+// On version conflict it re-reads the connection; if a peer already produced fresh
 // tokens, the call returns nil without re-writing.
-func (s *Server) persistRefreshedGrant(
+func (s *Server) persistRefreshedConnection(
 	ctx context.Context,
-	zoneID, userID, resourceID string,
-	grant *ProviderGrant,
+	zoneID, subjectID string,
+	connection *ProviderConnection,
 	accessCt, refreshCt []byte,
 	expiresAt time.Time,
 ) error {
-	expectedVersion := grant.RefreshTokenVersion
+	expectedVersion := connection.RefreshTokenVersion
 	for attempt := 0; attempt < grantPersistAttempts; attempt++ {
-		err := s.db.UpdateProviderGrantTokens(ctx, grant.ID, expectedVersion, accessCt, refreshCt, expiresAt)
+		err := s.db.UpdateProviderConnectionTokens(ctx, connection.ID, expectedVersion, accessCt, refreshCt, expiresAt)
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, ErrConcurrentGrantUpdate) {
 			return err
 		}
-		latest, readErr := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, grant.ProviderID)
+		latest, readErr := s.db.GetProviderConnection(ctx, zoneID, subjectID, connection.ProviderID)
 		if readErr != nil {
 			return readErr
 		}

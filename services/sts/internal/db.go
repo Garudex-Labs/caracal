@@ -68,9 +68,9 @@ type DBQuerier interface {
 	CurrentTime(ctx context.Context) (time.Time, error)
 	GetApplicationByID(ctx context.Context, id, zoneID string) (*Application, error)
 	GetResourceByIdentifier(ctx context.Context, zoneID, identifier string) (*Resource, error)
-	GetProviderGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) (*ProviderGrant, error)
-	UpdateProviderGrantTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error
-	MarkProviderGrantExpired(ctx context.Context, id string) error
+	GetProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) (*ProviderConnection, error)
+	UpdateProviderConnectionTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error
+	MarkProviderConnectionExpired(ctx context.Context, id string) error
 	GetProvider(ctx context.Context, id string) (*ProviderConfig, error)
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetSession(ctx context.Context, sid string) (*Session, error)
@@ -826,12 +826,12 @@ func (d *DB) ListBoundZoneIDs(ctx context.Context) ([]string, error) {
 	return zones, rows.Err()
 }
 
-// ProviderGrant holds provider-native delegated tokens for a user+resource pair.
-type ProviderGrant struct {
+// ProviderConnection holds the brokered upstream tokens for one subject's
+// authenticated account on a provider, shared by every resource bound to it.
+type ProviderConnection struct {
 	ID                  string
 	ZoneID              string
-	UserID              string
-	ResourceID          string
+	SubjectID           string
 	ProviderID          *string
 	AccessTokenCt       []byte
 	RefreshTokenCt      []byte
@@ -839,28 +839,28 @@ type ProviderGrant struct {
 	RefreshTokenVersion int
 }
 
-func (d *DB) GetProviderGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) (*ProviderGrant, error) {
-	var g ProviderGrant
+func (d *DB) GetProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) (*ProviderConnection, error) {
+	var c ProviderConnection
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, user_id, resource_id, provider_id,
+		`SELECT id, zone_id, subject_id, provider_id,
 		        access_token_ct, refresh_token_ct, expires_at, refresh_token_version
-		 FROM provider_grants
-		 WHERE zone_id = $1 AND user_id = $2 AND resource_id = $3 AND status = 'active'
-		   AND ($4::text IS NULL OR provider_id = $4)
-		 ORDER BY created_at DESC LIMIT 1`, zoneID, userID, resourceID, providerID,
-	).Scan(&g.ID, &g.ZoneID, &g.UserID, &g.ResourceID, &g.ProviderID,
-		&g.AccessTokenCt, &g.RefreshTokenCt, &g.ExpiresAt, &g.RefreshTokenVersion)
+		 FROM provider_connections
+		 WHERE zone_id = $1 AND subject_id = $2 AND status = 'active'
+		   AND ($3::text IS NULL OR provider_id = $3)
+		 ORDER BY created_at DESC LIMIT 1`, zoneID, subjectID, providerID,
+	).Scan(&c.ID, &c.ZoneID, &c.SubjectID, &c.ProviderID,
+		&c.AccessTokenCt, &c.RefreshTokenCt, &c.ExpiresAt, &c.RefreshTokenVersion)
 	if err != nil {
 		return nil, err
 	}
-	return &g, nil
+	return &c, nil
 }
 
-// UpdateProviderGrantTokens updates tokens using optimistic locking on refresh_token_version.
+// UpdateProviderConnectionTokens updates tokens using optimistic locking on refresh_token_version.
 // Returns ErrConcurrentGrantUpdate if the row was concurrently modified since it was read.
-func (d *DB) UpdateProviderGrantTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error {
+func (d *DB) UpdateProviderConnectionTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error {
 	tag, err := d.pool.Exec(ctx,
-		`UPDATE provider_grants
+		`UPDATE provider_connections
 		 SET access_token_ct = $3, refresh_token_ct = $4, expires_at = $5,
 		     refreshed_at = now(), refresh_token_version = refresh_token_version + 1
 		 WHERE id = $1 AND refresh_token_version = $2`,
@@ -875,12 +875,12 @@ func (d *DB) UpdateProviderGrantTokens(ctx context.Context, id string, expectedV
 	return nil
 }
 
-// MarkProviderGrantExpired transitions a dead grant out of 'active' so the console
-// shows the connection needs reconsent and the active-grant unique index frees up
+// MarkProviderConnectionExpired transitions a dead connection out of 'active' so the
+// console shows it needs reconsent and the active-connection unique index frees up
 // for the replacement created by the next authorization.
-func (d *DB) MarkProviderGrantExpired(ctx context.Context, id string) error {
+func (d *DB) MarkProviderConnectionExpired(ctx context.Context, id string) error {
 	_, err := d.pool.Exec(ctx,
-		`UPDATE provider_grants SET status = 'expired', updated_at = now() WHERE id = $1 AND status = 'active'`, id)
+		`UPDATE provider_connections SET status = 'expired', updated_at = now() WHERE id = $1 AND status = 'active'`, id)
 	return err
 }
 
