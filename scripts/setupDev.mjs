@@ -38,7 +38,6 @@ function run(command, args, options = {}) {
 }
 
 run('pnpm', ['install', '--frozen-lockfile'])
-run(process.execPath, [join(root, 'scripts/setupHooks.mjs')])
 run('go', ['mod', 'download'])
 
 if (!existsSync(venvPython)) {

@@ -61,18 +61,15 @@ test('binding requires a credential provider', () => {
   assert.equal(checkBinding(resource, provider).status, 'ok')
 })
 
-test('application check validates existence, expiry, and allowlist membership', () => {
+test('application check validates existence and expiry', () => {
   const now = new Date('2026-06-10T00:00:00Z')
-  assert.equal(checkApplication(undefined, undefined, now).status, 'fail')
+  assert.equal(checkApplication(undefined, now).status, 'fail')
   const managed = { id: 'app1', name: 'pied-piper', registration_method: 'managed', expires_at: null }
-  assert.equal(checkApplication(managed, { allowed_application_ids: ['app1'] }, now).status, 'ok')
-  assert.equal(checkApplication(managed, { allowed_application_ids: [] }, now).status, 'ok')
+  assert.equal(checkApplication(managed, now).status, 'ok')
   const expired = { ...managed, registration_method: 'dcr', expires_at: '2026-06-09T00:00:00Z' }
-  assert.equal(checkApplication(expired, undefined, now).status, 'fail')
+  assert.equal(checkApplication(expired, now).status, 'fail')
   const expiring = { ...managed, registration_method: 'dcr', expires_at: '2026-06-10T12:00:00Z' }
-  assert.equal(checkApplication(expiring, undefined, now).status, 'warn')
-  const excluded = checkApplication(managed, { allowed_application_ids: ['app2'] }, now)
-  assert.equal(excluded.status, 'fail')
+  assert.equal(checkApplication(expiring, now).status, 'warn')
 })
 
 test('provider config requires kind-specific fields', () => {
@@ -180,7 +177,6 @@ const healthyInput = () => ({
     identifier: 'resource://pipernet',
     scopes: ['pipernet:read', 'pipernet:write'],
     credential_provider_id: 'p1',
-    allowed_application_ids: ['app1'],
     upstream_url: 'https://api.example.com',
   },
   provider: {

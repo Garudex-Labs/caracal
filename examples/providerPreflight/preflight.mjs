@@ -134,7 +134,7 @@ export function checkBinding(resource, provider) {
   return ok('dependencies', id, `bound to ${provider.identifier} (${provider.kind})`)
 }
 
-export function checkApplication(application, resource, now = new Date()) {
+export function checkApplication(application, now = new Date()) {
   const id = 'application'
   if (!application) {
     return fail(
@@ -163,15 +163,6 @@ export function checkApplication(application, resource, now = new Date()) {
         'Renew the DCR registration before it expires, or traffic will start failing mid-operation.',
       )
     }
-  }
-  const allowlist = resource?.allowed_application_ids ?? []
-  if (allowlist.length > 0 && !allowlist.includes(application.id)) {
-    return fail(
-      'dependencies',
-      id,
-      `resource caps callers to [${allowlist.join(', ')}]; ${application.id} is not in the allowlist`,
-      "Add the application to the resource's allowed_application_ids or run the preflight for an allowed application.",
-    )
   }
   return ok('dependencies', id, `application ${application.name} (${application.registration_method}) is valid`)
 }
@@ -486,7 +477,7 @@ export async function runProviderPreflight(input) {
     checkApiReady(apiProbe),
     checkGatewayReady(gatewayProbe),
     checkBinding(resource, provider),
-    checkApplication(application, resource, now),
+    checkApplication(application, now),
     checkProviderConfig(provider),
     checkScopeCoverage(resource, requestedScopes),
     checkRuntimeInjection(provider, requireInjection),
