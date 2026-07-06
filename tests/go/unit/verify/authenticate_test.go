@@ -96,6 +96,7 @@ func TestAuthenticateRejectsRevokedSession(t *testing.T) {
 	_, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	})
 	if authErr == nil || authErr.Code != verify.ErrSessionRevoked {
@@ -124,6 +125,7 @@ func TestAuthenticateRejectsRevokedAuthorityAnchors(t *testing.T) {
 			_, authErr := verify.Authenticate(token, verify.Options{
 				Issuer:      issuer,
 				Audience:    "resource://api",
+				ZoneID:      "zone-1",
 				Revocations: store,
 			})
 			if authErr == nil || authErr.Code != verify.ErrSessionRevoked {
@@ -158,6 +160,7 @@ func TestAuthenticateRejectsStaleGraphEpochs(t *testing.T) {
 	_, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	})
 	if authErr == nil || authErr.Code != verify.ErrDelegationStale {
@@ -182,6 +185,7 @@ func TestAuthenticateAcceptsCurrentGraphEpochs(t *testing.T) {
 	if _, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	}); authErr != nil {
 		t.Fatalf("expected token at current epoch to verify, got %#v", authErr)
@@ -198,6 +202,7 @@ func TestAuthenticateSkipsGraphEpochCheckWithoutClaimOrCapability(t *testing.T) 
 	if _, authErr := verify.Authenticate(token, verify.Options{
 		Issuer:      issuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	}); authErr != nil {
 		t.Fatalf("expected token without epoch claim to verify, got %#v", authErr)
@@ -211,6 +216,7 @@ func TestAuthenticateSkipsGraphEpochCheckWithoutClaimOrCapability(t *testing.T) 
 	if _, authErr := verify.Authenticate(epochToken, verify.Options{
 		Issuer:      epochIssuer,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: plainStore{},
 	}); authErr != nil {
 		t.Fatalf("expected store without epoch capability to verify, got %#v", authErr)
@@ -244,6 +250,9 @@ func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 			defer closeServer()
 			tt.opts.Issuer = issuer
 			tt.opts.Audience = "resource://api"
+			if tt.opts.ZoneID == "" {
+				tt.opts.ZoneID = "zone-1"
+			}
 			_, authErr := verify.Authenticate(token, tt.opts)
 			if authErr == nil || authErr.Code != tt.code {
 				t.Fatalf("expected %s, got %#v", tt.code, authErr)
@@ -253,7 +262,7 @@ func TestAuthenticateMapsIdentityErrors(t *testing.T) {
 }
 
 func TestAuthenticateMapsInvalidToken(t *testing.T) {
-	_, authErr := verify.Authenticate("not-a-jwt", verify.Options{Issuer: "https://issuer.example.com", Audience: "resource://api"})
+	_, authErr := verify.Authenticate("not-a-jwt", verify.Options{Issuer: "https://issuer.example.com", Audience: "resource://api", ZoneID: "zone-1"})
 	if authErr == nil || authErr.Code != verify.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)
 	}
@@ -276,6 +285,7 @@ func TestAuthenticateContextHonorsCallerDeadline(t *testing.T) {
 	_, authErr := verify.AuthenticateContext(ctx, token, verify.Options{
 		Issuer:      slow.URL,
 		Audience:    "resource://api",
+		ZoneID:      "zone-1",
 		Revocations: store,
 	})
 	if authErr == nil || authErr.Code != verify.ErrInvalidToken {

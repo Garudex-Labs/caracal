@@ -154,7 +154,7 @@ func TestVerifyValidatesSignedClaimsAndChain(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("expected one JWKS fetch, got %d", calls.Load())
 	}
-	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet"}); err != nil {
+	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); err != nil {
 		t.Fatalf("cached verify: %v", err)
 	}
 	if calls.Load() != 1 {
@@ -236,10 +236,10 @@ func TestVerifyRejectsSignatureAndJWKSFailures(t *testing.T) {
 	defer srv.Close()
 
 	token := signedToken(t, key, "kid-1", srv.URL, nil)
-	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet"}); !errors.Is(err, ErrTokenInvalid) {
+	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("expected invalid signature, got %v", err)
 	}
-	if _, err := Verify(strings.TrimSuffix(token, "x")+"x", Config{Issuer: srv.URL, Audience: "resource://pipernet"}); !errors.Is(err, ErrTokenInvalid) {
+	if _, err := Verify(strings.TrimSuffix(token, "x")+"x", Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("expected malformed token error, got %v", err)
 	}
 }

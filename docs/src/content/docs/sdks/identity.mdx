@@ -21,7 +21,7 @@ Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 | --- | --- |
 | `issuer` / `Issuer` | Expected STS issuer. |
 | `audience` / `Audience` | Expected audience for the mandate. |
-| `zoneId` / `expected_zone_id` / `ZoneID` | Zone claim check. When omitted, the verifier reads the unverified `zone_id` claim to select the zone keyset, then proves it through signature verification. |
+| `zoneId` / `expected_zone_id` / `ZoneID` | Required zone trust anchor. It fixes which zone's signing keyset verifies the token and must equal the `zone_id` claim, so key selection is never influenced by the unverified token. Verification fails closed when it is missing. |
 | `requiredScopes` / `required_scopes` / `RequiredScopes` | Scopes every accepted mandate must contain. |
 | `requiredTargets` / `required_targets` / `RequiredTargets` | Target resources every accepted mandate must include. |
 | `requiredUse` / `required_use` / `RequiredUse` | Token use, usually `resource`. |
