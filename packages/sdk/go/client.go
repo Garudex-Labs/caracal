@@ -1627,14 +1627,18 @@ type governedCall struct {
 }
 
 // governedMandate returns a cached or freshly provisioned governed mandate
-// for the resource and scope set under the current resolved identity.
+// for the resource, scope set, labels, and TTL under the current resolved identity.
 // Concurrent requests for the same key share one provisioning cycle.
 func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (string, error) {
 	zoneID, applicationID, err := c.exchanger.identity(ctx)
 	if err != nil {
 		return "", err
 	}
-	key := zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ")
+	sessionLabels := labels
+	if len(sessionLabels) == 0 {
+		sessionLabels = []string{applicationID}
+	}
+	key := zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ") + "::" + strings.Join(sessionLabels, " ") + "::" + strconv.Itoa(mandateTTL)
 	c.governedMu.Lock()
 	if cached, ok := c.governedMandates[key]; ok && time.Until(cached.expiresAt) > governedRefreshMargin {
 		c.governedMu.Unlock()

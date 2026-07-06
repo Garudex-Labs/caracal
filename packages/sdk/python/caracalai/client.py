@@ -1791,7 +1791,11 @@ class Caracal:
         exchanger = self.config.exchanger
         assert exchanger is not None
         zone_id, application_id = exchanger.identity()
-        key = f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}"
+        session_labels = labels if labels else [application_id]
+        key = (
+            f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}::"
+            f"{' '.join(session_labels)}::{mandate_ttl}"
+        )
         cached = self._governed_cached(key)
         if cached is not None:
             return cached

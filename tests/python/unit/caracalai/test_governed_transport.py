@@ -206,6 +206,33 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(platform.mints, 1)
         self.assertEqual(platform.spawns, 2)
 
+    def test_cache_separates_different_labels_and_ttls(self) -> None:
+        platform = _Platform()
+        c = _client(platform)
+        with c.sync_governed_transport(
+            RESOURCE,
+            scopes=["data:read"],
+            labels=["worker"],
+            mandate_ttl_seconds=300,
+            transport=httpx.MockTransport(_gateway_echo),
+        ) as client:
+            client.get("http://gateway/worker")
+        with c.sync_governed_transport(
+            RESOURCE,
+            scopes=["data:read"],
+            labels=["admin"],
+            mandate_ttl_seconds=60,
+            transport=httpx.MockTransport(_gateway_echo),
+        ) as client:
+            client.get("http://gateway/admin")
+
+        self.assertEqual(platform.mints, 2)
+        self.assertEqual(platform.spawns, 4)
+        spawns = platform.spawn_calls()
+        self.assertEqual(spawns[2][1]["labels"], ["admin"])
+        self.assertEqual(spawns[2][1]["ttl_seconds"], 180)
+        self.assertEqual(platform.mint_forms()[-1]["ttl_seconds"], ["60"])
+
     def test_concurrent_requests_share_one_cycle(self) -> None:
         platform = _Platform()
         c = _client(platform)
