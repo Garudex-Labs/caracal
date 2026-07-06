@@ -33,18 +33,7 @@ export interface CommandDescriptor {
   readonly scopes?: { readonly [k: string]: ScopeVerb | undefined }
 }
 
-const READ_VERBS = new Set([
-  'list',
-  'get',
-  'tree',
-  'tail',
-  'active',
-  'inbound',
-  'outbound',
-  'traverse',
-  'validate',
-  'simulate',
-])
+const READ_VERBS = new Set(['list', 'get', 'tree', 'tail', 'active', 'inbound', 'outbound', 'traverse', 'validate', 'simulate'])
 
 const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke'])
 

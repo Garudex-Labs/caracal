@@ -234,7 +234,9 @@ class _Applications:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._list_all(f"/v1/zones/{zone_id}/applications", "applications")
+        return self._client._list_all(
+            f"/v1/zones/{zone_id}/applications", "applications"
+        )
 
     def get(self, zone_id: str, application_id: str) -> Any:
         return self._client._request(

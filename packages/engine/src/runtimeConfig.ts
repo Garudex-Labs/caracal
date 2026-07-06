@@ -93,7 +93,8 @@ function safePathSegment(value: string): string {
 export function assertCredentialEnvName(name: string): void {
   if (!ENV_NAME.test(name)) throw new RuntimeConfigValidationError('runtime config', `invalid credential env '${name}'`)
   // Case-insensitive: Windows environments fold case, so 'ld_preload' must be as blocked as 'LD_PRELOAD'.
-  if (BLOCKED_CREDENTIAL_ENV.has(name.toUpperCase())) throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
+  if (BLOCKED_CREDENTIAL_ENV.has(name.toUpperCase()))
+    throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
 }
 
 // Resolves the workload identity from the environment. The workload id names the
