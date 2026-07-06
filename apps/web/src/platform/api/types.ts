@@ -150,6 +150,15 @@ export type ProviderKind =
   | "api_key"
   | "bearer_token";
 
+export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
+  none: "None",
+  caracal_mandate: "Caracal mandate",
+  oauth2_authorization_code: "OAuth 2.0 (auth code)",
+  oauth2_client_credentials: "OAuth 2.0 (client creds)",
+  api_key: "API key",
+  bearer_token: "Bearer token",
+};
+
 export type ProviderSecretConfigKey = "client_secret" | "private_key" | "api_key" | "bearer_token";
 
 export interface Provider {
