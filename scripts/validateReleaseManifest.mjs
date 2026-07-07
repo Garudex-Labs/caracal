@@ -5,20 +5,14 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pypiFromNpm } from './lib/stamp.mjs'
 
 const repoRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 const files = process.argv.slice(2)
+const releaseTagPattern = /^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
 
 function fail(message) {
   throw new Error(message)
-}
-
-function chartVersion(value) {
-  const [core, pre] = value.split('-', 2)
-  const parts = core.split('.')
-  const recut = parts[3]
-  const base = `${Number(parts[0])}.${Number(parts[1])}.${Number(parts[2])}`
-  return `${base}${pre ? `-${pre}` : ''}${recut ? `+${recut}` : ''}`
 }
 
 function manifestFiles() {
@@ -29,20 +23,17 @@ function manifestFiles() {
     .map((entry) => join(releases, entry.name, 'manifest.json'))
 }
 
-function assertVersions(group, values, version) {
+function assertVersions(group, values, expected) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) fail(`${group} must be an object`)
   for (const [name, value] of Object.entries(values)) {
     if (typeof value !== 'string' || value.length === 0) fail(`${group} ${name} must have a version`)
-    if (/dev\.sha|dev\./.test(value)) fail(`${group} ${name} has dev version ${value}`)
-    if ((group === 'binaries' || group === 'containers') && value !== version) {
-      fail(`${group} ${name} version ${value} does not match ${version}`)
-    }
+    if (value !== expected) fail(`${group} ${name} version ${value} does not match ${expected}`)
   }
 }
 
 function validate(path) {
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
-  if (!manifest.release?.startsWith('v')) fail(`${path}: release must start with v`)
+  if (!releaseTagPattern.test(manifest.release ?? '')) fail(`${path}: release must be a vX.Y.Z or vX.Y.Z-rc.N tag`)
   const version = manifest.release.slice(1)
   const mode = version.includes('-rc.') ? 'rc' : 'stable'
   const packages = manifest.packages?.published ?? {}
@@ -52,12 +43,10 @@ function validate(path) {
   assertVersions('binaries', manifest.binaries, version)
   assertVersions('containers', manifest.containers, version)
   assertVersions('npm', npm, version)
-  assertVersions('pypi', pypi, version)
+  assertVersions('pypi', pypi, pypiFromNpm(version))
   if (manifest.runtimeImage !== version) fail(`${path}: runtimeImage ${manifest.runtimeImage} does not match ${version}`)
-  const expectedChartVersion = chartVersion(version)
   if (!manifest.helm || typeof manifest.helm !== 'object') fail(`${path}: helm metadata is required`)
-  if (manifest.helm.chartVersion !== expectedChartVersion)
-    fail(`${path}: helm chartVersion ${manifest.helm.chartVersion} does not match ${expectedChartVersion}`)
+  if (manifest.helm.chartVersion !== version) fail(`${path}: helm chartVersion ${manifest.helm.chartVersion} does not match ${version}`)
   if (manifest.helm.appVersion !== version) fail(`${path}: helm appVersion ${manifest.helm.appVersion} does not match ${version}`)
   if (manifest.helm.imageTag !== version) fail(`${path}: helm imageTag ${manifest.helm.imageTag} does not match ${version}`)
   if (process.env.CARACAL_VALIDATE_HELM_FILES === '1') {

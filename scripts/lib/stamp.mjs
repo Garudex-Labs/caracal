@@ -64,6 +64,14 @@ function stampTextPins(config, diff) {
   const targets = [
     { path: 'README.md', apply: (text) => text.replace(installPinPattern, `$1v${version}`) },
     {
+      path: 'CITATION.cff',
+      apply: (text) => text.replace(/^version: .*$/m, `version: ${version}`),
+    },
+    {
+      path: 'docs/src/content/docs/operations/kubernetes-helm.mdx',
+      apply: (text) => text.replace(/^(\s*--version )\S+( \\)$/m, `$1${version}$2`),
+    },
+    {
       path: 'infra/tofu/envs/production/terraform.tfvars.example',
       apply: (text) => text.replace(/^chartVersion = "[^"]+"$/m, `chartVersion = "${version}"`),
     },
@@ -167,4 +175,3 @@ export function computeStamp(config = readReleaseConfig()) {
 export function applyStamp(diff) {
   for (const change of diff) writeFileSync(change.path, change.after)
 }
-
