@@ -147,6 +147,20 @@ function isProviderOAuthCallback(method: string, url: string): boolean {
   return /^\/v1\/zones\/[^/]+\/provider-connections\/oauth\/callback(?:\?|$)/.test(url)
 }
 
+// The id of the zone a successful create returned. A zone create is the one mutation whose
+// zone appears nowhere in the URL, so the record derives it from the response body - that
+// keeps the creation event queryable in the zone's own audit trail.
+function createdZoneId(method: string, path: string, statusCode: number, payload: unknown): string | null {
+  if (method !== 'POST' || path !== '/v1/zones' || statusCode !== 201) return null
+  if (typeof payload !== 'string' && !Buffer.isBuffer(payload)) return null
+  try {
+    const body = JSON.parse(payload.toString()) as { id?: unknown }
+    return typeof body.id === 'string' ? body.id : null
+  } catch {
+    return null
+  }
+}
+
 export interface AuditPluginOptions {
   db: DB
   enabled?: boolean
@@ -156,11 +170,12 @@ export interface AuditPluginOptions {
 export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOptions): void {
   if (opts.enabled === false) return
 
-  const record = (req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
+  const record = (req: FastifyRequest, reply: FastifyReply, payload?: unknown): Promise<unknown> => {
     const actor: Actor | null = req.actor ?? null
     const account = req.account ?? null
     const entity = entityFromUrl(req.url)
     const path = pathOnly(req.url)
+    const createdZone = createdZoneId(req.method, path, reply.statusCode, payload)
     const zoneScoped = actor?.scope === 'zone' && actor.zoneId ? actor.zoneId : null
     const rls = zoneScoped
       ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
@@ -181,9 +196,9 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
           action: `${req.method} ${path}`,
           method: req.method,
           path,
-          zoneId: zoneFromUrl(req.url),
-          entityType: entity.type,
-          entityId: entity.id,
+          zoneId: zoneFromUrl(req.url) ?? createdZone,
+          entityType: entity.type ?? (createdZone ? 'zones' : null),
+          entityId: entity.id ?? createdZone,
           statusCode: reply.statusCode,
           payloadJson: { ...rls, ...operator, ...change },
         },
@@ -209,7 +224,7 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
       done(null, payload)
       return
     }
-    record(req, reply).then(
+    record(req, reply, payload).then(
       () => {
         gated.add(req)
         done(null, payload)

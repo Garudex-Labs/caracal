@@ -13,7 +13,7 @@ import {
 
 import type { Actor } from './auth.js'
 
-const TRAIT_MAX_COUNT = 32
+const TRAIT_MAX_COUNT = 64
 const TRAIT_MAX_LENGTH = 128
 const TRAIT_PATTERN = /^[A-Za-z][A-Za-z0-9._:-]*$/
 const PRIVILEGED_NAMESPACES = ['control', 'caracal.sys'] as const
