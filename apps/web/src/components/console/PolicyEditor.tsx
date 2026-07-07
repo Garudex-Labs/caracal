@@ -4,12 +4,12 @@ Caracal, a product of Garudex Labs
 
 This file provides the Rego data-document policy editor with templates and inline validation.
 */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Badge, Button, Field, Modal } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { consoleApi, ConsoleApiError } from "@/platform/api/client";
-import type { PolicyPreview, PolicyTemplate } from "@/platform/api/types";
+import type { PolicyPreview } from "@/platform/api/types";
 
 // A valid adopter policy is a Rego DATA document: it supplies data the signed platform
 // decision contract reads, and must never define `result`. This starter mirrors the
@@ -42,6 +42,31 @@ type ValidationState =
   | { status: "valid"; preview: PolicyPreview | null }
   | { status: "invalid"; message: string };
 
+// GitHub-dark token palette matching the editor surface. Comments, strings, keywords,
+// and literals are colored; everything else renders in the base foreground.
+const REGO_TOKEN =
+  /(#[^\n]*)|("(?:[^"\\\n]|\\.)*"?)|\b(package|import|default|if|else|some|every|in|not|with|as|contains)\b|\b(true|false|null|\d+(?:\.\d+)?)\b/g;
+
+function highlightRego(source: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  for (const match of source.matchAll(REGO_TOKEN)) {
+    const start = match.index ?? 0;
+    if (start > last) nodes.push(source.slice(last, start));
+    const [text, comment, string, keyword] = match;
+    const color = comment ? "#8b949e" : string ? "#a5d6ff" : keyword ? "#ff7b72" : "#79c0f3";
+    nodes.push(
+      <span key={key++} style={{ color }}>
+        {text}
+      </span>,
+    );
+    last = start + text.length;
+  }
+  if (last < source.length) nodes.push(source.slice(last));
+  return nodes;
+}
+
 export function PolicyEditorModal({
   open,
   mode,
@@ -64,7 +89,7 @@ export function PolicyEditorModal({
   const [description, setDescription] = useState("");
   const [content, setContent] = useState("");
   const [validation, setValidation] = useState<ValidationState>({ status: "idle" });
-  const [templates, setTemplates] = useState<PolicyTemplate[] | null>(null);
+  const highlightRef = useRef<HTMLPreElement>(null);
   const seedRef = useRef("");
 
   // Seed on open; clear the seed ref on close so every reopen re-seeds. For "create" the
@@ -80,24 +105,6 @@ export function PolicyEditorModal({
   } else if (!open && seedRef.current !== "") {
     seedRef.current = "";
   }
-
-  // The canonical data-document starters come from the control plane so the editor
-  // always offers the same building blocks the platform contract is designed to read.
-  useEffect(() => {
-    if (!open || templates !== null) return;
-    let cancelled = false;
-    consoleApi.policies
-      .templates()
-      .then((list) => {
-        if (!cancelled) setTemplates(list);
-      })
-      .catch(() => {
-        if (!cancelled) setTemplates([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, templates]);
 
   // Live validation: the validate endpoint is read-only and cheap, so every pause in
   // typing checks the document and surfaces the parsed preview. The contract teaches
@@ -162,13 +169,6 @@ export function PolicyEditorModal({
     });
   }
 
-  function applyTemplate(id: string) {
-    const template = templates?.find((t) => t.id === id);
-    if (!template) return;
-    setContent(template.content);
-    setValidation({ status: "idle" });
-  }
-
   return (
     <Modal
       open={open}
@@ -213,25 +213,6 @@ export function PolicyEditorModal({
           </>
         ) : null}
 
-        {templates && templates.length > 0 ? (
-          <div>
-            <div className="mb-1.5 text-sm font-medium text-foreground">Start from a template</div>
-            <div className="flex flex-wrap gap-2">
-              {templates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  title={template.description}
-                  onClick={() => applyTemplate(template.id)}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:border-foreground/40"
-                >
-                  {template.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-sm font-medium text-foreground">Rego data document</span>
@@ -255,14 +236,31 @@ export function PolicyEditorModal({
               />
             </label>
           </div>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            spellCheck={false}
-            rows={16}
-            className="scrollbar-thin w-full resize-y rounded-md border border-border bg-[#0d1117] px-3 py-2.5 font-mono text-xs leading-relaxed text-[#e6edf3] outline-none focus:border-ring dark:bg-[#0d1117]"
-            placeholder="# caracal:data-document&#10;package caracal.authz…"
-          />
+          <div className="relative overflow-hidden rounded-md border border-border bg-[#0d1117] focus-within:border-ring">
+            <pre
+              ref={highlightRef}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-xs leading-relaxed text-[#e6edf3]"
+            >
+              {highlightRego(content)}
+              {"\n"}
+            </pre>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              onScroll={(e) => {
+                const pre = highlightRef.current;
+                if (pre) {
+                  pre.scrollTop = e.currentTarget.scrollTop;
+                  pre.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+              spellCheck={false}
+              rows={16}
+              className="scrollbar-thin relative block w-full resize-none bg-transparent px-3 py-2.5 font-mono text-xs leading-relaxed text-transparent caret-[#e6edf3] outline-none placeholder:text-[#6e7681]"
+              placeholder="# caracal:data-document&#10;package caracal.authz…"
+            />
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Must start with <span className="font-mono">{"# caracal:data-document"}</span>, use
             package <span className="font-mono">caracal.authz</span>, and define data only, never{" "}

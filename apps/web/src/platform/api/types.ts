@@ -266,13 +266,6 @@ export interface PolicyPreview {
   data_referenced: string[];
 }
 
-export interface PolicyTemplate {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-}
-
 export interface PolicySet {
   id: string;
   zone_id: string;

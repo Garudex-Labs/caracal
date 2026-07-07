@@ -131,7 +131,7 @@ describe('resource and provider endpoints', () => {
 })
 
 describe('policy and policy set endpoints', () => {
-  it('covers policy reads, validation, templates, and writes', async () => {
+  it('covers policy reads, validation, and writes', async () => {
     const calls = record()
     await consoleApi.policies.list('z1')
     expect(last(calls).url).toContain('/v1/zones/z1/policies?limit=500')
@@ -139,8 +139,6 @@ describe('policy and policy set endpoints', () => {
     expect(last(calls).url).toBe('/api/console/v1/zones/z1/policies/pol1')
     await consoleApi.policies.validate('package caracal\n')
     expect(last(calls)).toMatchObject({ method: 'POST', url: '/api/console/v1/policies/validate' })
-    await consoleApi.policies.templates()
-    expect(last(calls).url).toBe('/api/console/v1/policy-templates')
     await consoleApi.policies.create('z1', { name: 'PiperNet baseline v3', content: 'package x' })
     expect(last(calls).method).toBe('POST')
     await consoleApi.policies.addVersion('z1', 'pol1', 'package y')
