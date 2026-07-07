@@ -94,7 +94,7 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 
 ### Prerequisites
 
-- Docker Desktop 4.x or Docker Engine 24+ with Compose v2
+- Docker Desktop 4.27+ or Docker Engine 25+ with Compose v2
 - Git 2.x
 
 ### Install Released Version
