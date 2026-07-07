@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
