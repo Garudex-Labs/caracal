@@ -405,7 +405,10 @@ describe('describeOutcome', () => {
   })
 
   it('surfaces the one-time workload secret as output and keeps it out of the detail', () => {
-    const created = CONTROL_CAPABILITIES.createWorkload.describeOutcome({ id: 'wl-1', name: 'PiperNet AI', secret: 'ws_issued' }, { name: 'PiperNet AI' })
+    const created = CONTROL_CAPABILITIES.createWorkload.describeOutcome(
+      { id: 'wl-1', name: 'PiperNet AI', secret: 'ws_issued' },
+      { name: 'PiperNet AI' },
+    )
     expect(created.detail).not.toContain('ws_issued')
     expect(created.output).toEqual({ workload_id: 'wl-1', secret: 'ws_issued' })
     const rotated = CONTROL_CAPABILITIES.rotateWorkloadSecret.describeOutcome({ id: 'wl-1', secret: 'ws_rotated' }, { workload_id: 'wl-1' })

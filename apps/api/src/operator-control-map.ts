@@ -129,14 +129,23 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   listPolicies: readControl('policy', 'policy'),
   listPolicySets: readControl('policy-set', 'policy set'),
   listGrants: readControl('grant', 'grant'),
-  listSessions: readControl('session', 'session', 'list', (args) => filterFlags(args, { subject: 'subject', status: 'status', limit: 'limit' })),
+  listSessions: readControl('session', 'session', 'list', (args) =>
+    filterFlags(args, { subject: 'subject', status: 'status', limit: 'limit' }),
+  ),
   listAgents: readControl('agent', 'agent session'),
   listDelegations: readControl('delegation', 'delegation', 'active'),
   // The audit read tails the most recent decisions; the bound keeps a read small while still
   // showing what the zone decided last.
   listAuditEvents: readControl('audit', 'audit event', 'tail', (args) => ({
     limit: 50,
-    ...filterFlags(args, { since: 'since', until: 'until', decision: 'decision', event_type: 'event-type', request_id: 'request-id', limit: 'limit' }),
+    ...filterFlags(args, {
+      since: 'since',
+      until: 'until',
+      decision: 'decision',
+      event_type: 'event-type',
+      request_id: 'request-id',
+      limit: 'limit',
+    }),
   })),
   listAdminActivity: readControl('audit', 'admin event', 'admin', { limit: 50 }),
   listWorkloads: readControl('workload', 'workload'),

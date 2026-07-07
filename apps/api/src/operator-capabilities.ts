@@ -35,15 +35,7 @@ export type CapabilityDomain =
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
 export type PreviewTarget =
-  | 'applications'
-  | 'providers'
-  | 'resources'
-  | 'policies'
-  | 'policySets'
-  | 'grants'
-  | 'workloads'
-  | 'agentSessions'
-  | 'delegations'
+  'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants' | 'workloads' | 'agentSessions' | 'delegations'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -94,15 +86,10 @@ const NoArgs = z.object({}).strict()
 // Every config key any provider kind seals, plus the client id the credential vault also
 // carries: an update's config may never touch credential material, whatever kind the
 // provider turns out to be at apply time.
-const PROVIDER_CREDENTIAL_KEYS = new Set([
-  'client_id',
-  ...Object.values(SECRET_PROVIDER_CONFIG_KEYS).flatMap((keys) => [...keys]),
-])
+const PROVIDER_CREDENTIAL_KEYS = new Set(['client_id', ...Object.values(SECRET_PROVIDER_CONFIG_KEYS).flatMap((keys) => [...keys])])
 
 // A resource operation route: the method, path, and scope triple the Gateway enforces.
-const ResourceOperationArg = z
-  .object({ method: z.string().min(1).max(16), path: z.string().min(1).max(2048), scope: Scope })
-  .strict()
+const ResourceOperationArg = z.object({ method: z.string().min(1).max(16), path: z.string().min(1).max(2048), scope: Scope }).strict()
 
 // A workload credential binding: which environment variable carries which governed
 // resource credential when caracal run launches the workload.
@@ -346,7 +333,8 @@ export const CAPABILITIES: Record<string, Capability> = {
       })
       .strict()
       .superRefine((args, ctx) => {
-        if (Object.keys(args).length <= 1) ctx.addIssue({ code: 'custom', message: 'update requires at least one field beyond resource_id' })
+        if (Object.keys(args).length <= 1)
+          ctx.addIssue({ code: 'custom', message: 'update requires at least one field beyond resource_id' })
       }),
     argsHint:
       'resource_id (string), then at least one of: name (string), scopes (array of scope strings), upstream_url (string), credential_provider_id (string), operations (array of {method, path, scope}), operation_enforcement (enforced or transport_uniform)',
@@ -435,7 +423,8 @@ export const CAPABILITIES: Record<string, Capability> = {
   explainRequest: {
     id: 'explainRequest',
     title: 'Explain a request',
-    summary: 'Read the full decision trace for one request id: every recorded event, the final decision, and which policies determined any denial. Changes nothing.',
+    summary:
+      'Read the full decision trace for one request id: every recorded event, the final decision, and which policies determined any denial. Changes nothing.',
     domain: 'audit',
     mutating: false,
     args: z.object({ request_id: IdRef }).strict(),
@@ -788,7 +777,8 @@ export const CAPABILITIES: Record<string, Capability> = {
   updateWorkload: {
     id: 'updateWorkload',
     title: 'Update a workload',
-    summary: 'Change a workload\u2019s name or replace its credential bindings: which environment variables carry which governed resource credentials.',
+    summary:
+      'Change a workload\u2019s name or replace its credential bindings: which environment variables carry which governed resource credentials.',
     domain: 'workload',
     mutating: true,
     args: z
@@ -799,7 +789,8 @@ export const CAPABILITIES: Record<string, Capability> = {
       })
       .strict()
       .superRefine((args, ctx) => {
-        if (args.name === undefined && args.bindings === undefined) ctx.addIssue({ code: 'custom', message: 'update requires name or bindings' })
+        if (args.name === undefined && args.bindings === undefined)
+          ctx.addIssue({ code: 'custom', message: 'update requires name or bindings' })
       }),
     argsHint:
       'workload_id (string), then at least one of: name (string), bindings (array of {env, resource, scopes (optional), optional (boolean, optional), on_failure (warn or error, optional)})',
