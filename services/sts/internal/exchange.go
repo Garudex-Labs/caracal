@@ -797,6 +797,11 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthScheme = "Bearer"
 	case "api_key":
 		directive.AuthMode = UpstreamAuthProviderAPIKey
+		hosts, err := normalizedProviderHosts(cfg.AllowedTokenHosts)
+		if err != nil {
+			return fmt.Errorf("provider allowed token hosts invalid")
+		}
+		directive.AllowedTokenHosts = hosts
 		location := strings.TrimSpace(cfg.AuthLocation)
 		if location == "" {
 			location = "header"
@@ -855,6 +860,11 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		directive.AuthHeader = "Authorization"
 		directive.AuthScheme = "Basic"
+		hosts, err := normalizedProviderHosts(cfg.AllowedTokenHosts)
+		if err != nil {
+			return fmt.Errorf("provider allowed token hosts invalid")
+		}
+		directive.AllowedTokenHosts = hosts
 	case "oauth2_authorization_code", "oauth2_client_credentials":
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		directive.AuthScheme = "Bearer"

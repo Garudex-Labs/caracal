@@ -907,6 +907,61 @@ func TestBuildUpstreamDirectiveSupportsBearerTokenProviderShape(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveCarriesHostGuardrailForStaticKinds(t *testing.T) {
+	cases := []struct {
+		name       string
+		kind       string
+		configJSON string
+		secretJSON string
+	}{
+		{
+			name:       "api key header",
+			kind:       "api_key",
+			configJSON: `{"header_name":"X-API-Key","allowed_token_hosts":["API.Hooli.Example"]}`,
+			secretJSON: `{"api_key":"api-key-value"}`,
+		},
+		{
+			name:       "http basic",
+			kind:       "http_basic",
+			configJSON: `{"username":"svc-hooli","allowed_token_hosts":["API.Hooli.Example"]}`,
+			secretJSON: `{"password":"basic-password"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			providerID := "provider1"
+			upstreamURL := "https://upstream.example"
+			resource := &Resource{
+				ID:                   "res1",
+				Identifier:           "resource://api",
+				UpstreamURL:          &upstreamURL,
+				CredentialProviderID: &providerID,
+			}
+			zek := []byte("12345678901234567890123456789012")
+			secretCt, secretNonce := testProviderSecret(t, zek, tc.secretJSON)
+			srv := &Server{
+				db: &stubDB{
+					provider: &ProviderConfig{
+						ID:                providerID,
+						ProviderKind:      strPtr(tc.kind),
+						ConfigJSON:        []byte(tc.configJSON),
+						SecretConfigCt:    secretCt,
+						SecretConfigNonce: secretNonce,
+					},
+				},
+				keys: &KeyCache{zek: zek},
+			}
+			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
+			if err != nil {
+				t.Fatalf("gateway directive should carry the host guardrail: %v", err)
+			}
+			if len(directive.AllowedTokenHosts) != 1 || directive.AllowedTokenHosts[0] != "api.hooli.example" {
+				t.Fatalf("unexpected %s hosts: %#v", tc.kind, directive.AllowedTokenHosts)
+			}
+		})
+	}
+}
+
 func TestBuildUpstreamDirectiveSupportsCaracalMandateProviderShape(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"
