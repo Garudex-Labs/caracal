@@ -33,10 +33,6 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       images: ${{ steps.images.outputs.images }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
       - id: tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,9 +55,16 @@ jobs:
             echo "::notice::Scanning images at tag ${tag}."
           fi
 
-      # The image list must come from the resolved release's own record, not the current
-      # release.config.json: the container topology changes between releases, and images
-      # only exist in the registry under the tags their release actually published.
+      # The image list must come from the resolved release's own record on its tag, not
+      # the default branch or the current release.config.json: main only keeps the
+      # current train's records, the container topology changes between releases, and
+      # images only exist in the registry under the tags their release actually published.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.tag.outputs.tag != ''
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+
       - id: images
         env:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
@@ -73,7 +76,7 @@ jobs:
           fi
           manifest="releases/${RELEASE_TAG}/manifest.json"
           if [ ! -f "${manifest}" ]; then
-            echo "::error::No release record at ${manifest}; cannot derive the image list for ${RELEASE_TAG}."
+            echo "::error::No release record at ${manifest} on tag ${RELEASE_TAG}; cannot derive the image list."
             exit 1
           fi
           echo "images=$(jq -c '[(.containers | keys[]), (if .runtimeImage then "runtime" else empty end)]' "${manifest}")" >> "$GITHUB_OUTPUT"
