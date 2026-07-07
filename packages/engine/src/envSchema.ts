@@ -236,7 +236,3 @@ export function resolveDefault(spec: EnvSpec, mode: StackMode): string | undefin
   if (spec.defaults && spec.defaults[mode] !== undefined) return spec.defaults[mode]
   return spec.default
 }
-
-export function isPinned(spec: EnvSpec, mode: StackMode): boolean {
-  return Boolean(spec.pinned?.includes(mode))
-}
