@@ -17,6 +17,7 @@ export function posix(path) {
 export function readReleaseConfig() {
   const config = JSON.parse(readFileSync(join(repoRoot, 'release.config.json'), 'utf8'))
   if (!config.product || !config.packages) throw new Error('release.config.json must define product and packages')
+  if (!config.product.version) throw new Error('release.config.json must define product.version')
   return config
 }
 
@@ -32,7 +33,6 @@ export function npmPackages(config = readReleaseConfig()) {
       dir: entry.dir,
       name: entry.name,
       version: pkg.version,
-      configVersion: entry.version,
       tier: entry.tier,
       publish: entry.publish !== false,
       private: Boolean(pkg.private),
@@ -50,17 +50,16 @@ export function goPackages(config = readReleaseConfig()) {
     const text = readFileSync(join(repoRoot, entry.dir, 'go.mod'), 'utf8')
     const module = text.match(/^module (\S+)$/m)?.[1]
     if (module !== entry.module) throw new Error(`${entry.dir}/go.mod module ${module} does not match ${entry.module}`)
-    if (!entry.version) throw new Error(`release.config.json missing version for ${entry.module}`)
     return {
       ecosystem: 'go',
       id: entry.id,
       group: entry.group,
       dir: entry.dir,
       module: entry.module,
-      version: entry.version,
+      version: config.product.version,
       tier: entry.tier,
       publish: entry.publish !== false,
-      tag: `${entry.dir}/v${entry.version}`,
+      tag: `${entry.dir}/v${config.product.version}`,
     }
   })
 }
@@ -80,7 +79,6 @@ export function pypiPackages(config = readReleaseConfig()) {
       name: entry.name,
       module: entry.module,
       version,
-      configVersion: entry.version,
       tier: entry.tier,
       publish: entry.publish !== false,
       dependencies: pythonDependencies(

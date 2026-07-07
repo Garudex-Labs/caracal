@@ -1,7 +1,6 @@
 {
   "product": {
-    "versionScheme": "calver",
-    "version": "2026.07.03-rc.1",
+    "version": "0.2.0",
     "binaries": {
       "shell": {
         "sourceDir": "apps/runtime/dist",
@@ -86,7 +85,6 @@
         "name": "@caracalai/core",
         "dir": "packages/core/ts",
         "group": "core",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -95,7 +93,6 @@
         "name": "@caracalai/oauth",
         "dir": "packages/oauth/ts",
         "group": "oauth",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -104,7 +101,6 @@
         "name": "@caracalai/admin",
         "dir": "packages/admin/ts",
         "group": "admin",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -113,7 +109,6 @@
         "name": "@caracalai/identity",
         "dir": "packages/identity/ts",
         "group": "identity",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -122,7 +117,6 @@
         "name": "@caracalai/revocation",
         "dir": "packages/revocation/ts",
         "group": "revocation",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -131,7 +125,6 @@
         "name": "@caracalai/sdk",
         "dir": "packages/sdk/ts",
         "group": "sdk",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -140,7 +133,6 @@
         "name": "@caracalai/verify",
         "dir": "packages/verify/ts",
         "group": "verify",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -149,7 +141,6 @@
         "name": "@caracalai/express",
         "dir": "packages/adapters/express/ts",
         "group": "express",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -158,7 +149,6 @@
         "name": "@caracalai/fastmcp",
         "dir": "packages/adapters/fastmcp/ts",
         "group": "fastmcp",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -167,7 +157,6 @@
         "name": "@caracalai/revocation-redis",
         "dir": "packages/backends/redis/ts",
         "group": "revocation-redis",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       }
@@ -179,7 +168,6 @@
         "dir": "packages/core/python",
         "module": "caracalai_core",
         "group": "core",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -189,7 +177,6 @@
         "dir": "packages/oauth/python",
         "module": "caracalai_oauth",
         "group": "oauth",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -199,7 +186,6 @@
         "dir": "packages/admin/python",
         "module": "caracalai_admin",
         "group": "admin",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -209,7 +195,6 @@
         "dir": "packages/identity/python",
         "module": "caracalai_identity",
         "group": "identity",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -219,7 +204,6 @@
         "dir": "packages/revocation/python",
         "module": "caracalai_revocation",
         "group": "revocation",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -229,7 +213,6 @@
         "dir": "packages/sdk/python",
         "module": "caracalai",
         "group": "sdk",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -239,7 +222,6 @@
         "dir": "packages/verify/python",
         "module": "caracalai_verify",
         "group": "verify",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -249,7 +231,6 @@
         "dir": "packages/adapters/fastmcp/python",
         "module": "caracalai_fastmcp",
         "group": "fastmcp",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -259,7 +240,6 @@
         "dir": "packages/adapters/asgi/python",
         "module": "caracalai_asgi",
         "group": "asgi",
-        "version": "0.1.6rc3",
         "tier": "connector",
         "publish": true
       },
@@ -269,7 +249,6 @@
         "dir": "packages/backends/redis/python",
         "module": "caracalai_revocation_redis",
         "group": "revocation-redis",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       }
@@ -280,7 +259,6 @@
         "module": "github.com/garudex-labs/caracal/packages/core/go",
         "dir": "packages/core/go",
         "group": "core",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -289,7 +267,6 @@
         "module": "github.com/garudex-labs/caracal/packages/oauth/go",
         "dir": "packages/oauth/go",
         "group": "oauth",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -298,7 +275,6 @@
         "module": "github.com/garudex-labs/caracal/packages/admin/go",
         "dir": "packages/admin/go",
         "group": "admin",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -307,7 +283,6 @@
         "module": "github.com/garudex-labs/caracal/packages/identity/go",
         "dir": "packages/identity/go",
         "group": "identity",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -316,7 +291,6 @@
         "module": "github.com/garudex-labs/caracal/packages/revocation/go",
         "dir": "packages/revocation/go",
         "group": "revocation",
-        "version": "0.1.6-rc.3",
         "tier": "core",
         "publish": true
       },
@@ -325,7 +299,6 @@
         "module": "github.com/garudex-labs/caracal/packages/sdk/go",
         "dir": "packages/sdk/go",
         "group": "sdk",
-        "version": "0.1.6-rc.3",
         "tier": "sdk",
         "publish": true
       },
@@ -334,7 +307,6 @@
         "module": "github.com/garudex-labs/caracal/packages/verify/go",
         "dir": "packages/verify/go",
         "group": "verify",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -343,7 +315,6 @@
         "module": "github.com/garudex-labs/caracal/packages/adapters/nethttp/go",
         "dir": "packages/adapters/nethttp/go",
         "group": "nethttp",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       },
@@ -352,7 +323,6 @@
         "module": "github.com/garudex-labs/caracal/packages/backends/redis/go",
         "dir": "packages/backends/redis/go",
         "group": "revocation-redis",
-        "version": "0.1.6-rc.3",
         "tier": "connector",
         "publish": true
       }
