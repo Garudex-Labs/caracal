@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/core",
-  "version": "0.1.6-rc.3",
+  "version": "0.2.0",
   "description": "Caracal SDK kernel: errors, scope, logging, audit, and stream signing.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
