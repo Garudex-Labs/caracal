@@ -77,9 +77,7 @@ describe('admin audit hook', () => {
     const captured: Captured[] = []
     const app = Fastify({ logger: false })
     registerAdminAuditHook(app, { db: makeDb(captured) })
-    app.post('/v1/zones/:zoneId/applications', async (_req, reply) =>
-      reply.code(201).send({ id: 'app-new', name: 'Atlas Research Agent' }),
-    )
+    app.post('/v1/zones/:zoneId/applications', async (_req, reply) => reply.code(201).send({ id: 'app-new', name: 'Atlas Research Agent' }))
     await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/applications',
@@ -98,9 +96,7 @@ describe('admin audit hook', () => {
     const captured: Captured[] = []
     const app = Fastify({ logger: false })
     registerAdminAuditHook(app, { db: makeDb(captured) })
-    app.post('/v1/zones/:zoneId/providers', async (_req, reply) =>
-      reply.code(201).send({ id: 'prov-new', name: 'Azure OpenAI' }),
-    )
+    app.post('/v1/zones/:zoneId/providers', async (_req, reply) => reply.code(201).send({ id: 'prov-new', name: 'Azure OpenAI' }))
     await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/providers',

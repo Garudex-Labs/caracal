@@ -146,12 +146,7 @@ function isProviderOAuthCallback(method: string, url: string): boolean {
 // entity's id exists only in the response body - deriving it there keeps every creation
 // event queryable by the entity it produced, including zone creates where the zone is
 // absent from the URL entirely.
-function createdEntity(
-  method: string,
-  path: string,
-  statusCode: number,
-  payload: unknown,
-): { type: string; id: string } | null {
+function createdEntity(method: string, path: string, statusCode: number, payload: unknown): { type: string; id: string } | null {
   if (method !== 'POST' || statusCode !== 201) return null
   const collection = path.split('/').filter(Boolean).at(-1)
   if (!collection || !COLLECTION_SEGMENT.test(collection)) return null

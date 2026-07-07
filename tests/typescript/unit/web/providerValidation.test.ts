@@ -62,17 +62,13 @@ describe('validateFieldFormat', () => {
 
 describe('normalizeHostList', () => {
   it('reduces pasted URLs to their bare hostnames', () => {
-    expect(normalizeHostList('https://caracalaus.services.ai.azure.com/openai/v1')).toBe(
-      'caracalaus.services.ai.azure.com',
-    )
+    expect(normalizeHostList('https://caracalaus.services.ai.azure.com/openai/v1')).toBe('caracalaus.services.ai.azure.com')
     expect(normalizeHostList('https://api.github.com:443/v3?x=1#top')).toBe('api.github.com')
     expect(normalizeHostList('https://user:pass@api.github.com/v3')).toBe('api.github.com')
     expect(normalizeHostList('api.github.com/v3')).toBe('api.github.com')
   })
   it('normalizes each entry of a comma-separated list independently', () => {
-    expect(normalizeHostList('https://a.example.com/x, b.example.com')).toBe(
-      'a.example.com, b.example.com',
-    )
+    expect(normalizeHostList('https://a.example.com/x, b.example.com')).toBe('a.example.com, b.example.com')
   })
   it('leaves plain hostnames and in-progress typing untouched', () => {
     expect(normalizeHostList('api.github.com')).toBe('api.github.com')
