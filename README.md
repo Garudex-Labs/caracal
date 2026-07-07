@@ -101,14 +101,14 @@ Read the full documentation at [docs.caracal.run](https://docs.caracal.run).
 
 > Check [GitHub Releases](https://github.com/Garudex-Labs/caracal/releases) for the latest available tag.
 
-> Pin a version: `--version vYYYY.MM.DD` on Unix or `-Version vYYYY.MM.DD` in PowerShell.
+> Pin a version: `--version vX.Y.Z` on Unix or `-Version vX.Y.Z` in PowerShell.
 
 <details>
 <summary><strong>Linux</strong> (amd64 / arm64)</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | \
-  sh -s -- --version v2026.07.03-rc.1
+  sh -s -- --version v0.2.0
 ```
 
 </details>
@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.s
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | \
-  sh -s -- --version v2026.07.03-rc.1
+  sh -s -- --version v0.2.0
 ```
 
 </details>
@@ -129,7 +129,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.s
 ```powershell
 $installer = "$env:TEMP\install.ps1"
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Version v2026.07.03-rc.1
+powershell -ExecutionPolicy Bypass -File $installer -Version v0.2.0
 ```
 
 </details>
@@ -137,11 +137,11 @@ powershell -ExecutionPolicy Bypass -File $installer -Version v2026.07.03-rc.1
 ### Start the stack
 
 ```bash
-caracal up                            # start all services, override with `CARACAL_VERSION=vYYYY.MM.DD caracal up`
+caracal up                            # start all services, override with `CARACAL_VERSION=vX.Y.Z caracal up`
 caracal status [--ready]              # probe all services
 
 caracal down                          # stop; add -v to remove volumes
-caracal purge                         # interactive cleanup (containers, volumes, config, runtime, examples, caches)
+caracal purge                         # interactive cleanup (containers, volumes, config, runtime, caches)
 ```
 
 Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env` - see [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).

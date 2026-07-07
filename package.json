@@ -12,7 +12,6 @@
       "dompurify": "3.4.11",
       "esbuild": "0.28.1",
       "js-yaml": "4.2.0",
-      "read-yaml-file": "^2.1.0",
       "@opentelemetry/core": "2.8.0"
     }
   },
@@ -35,21 +34,15 @@
     "test:python": "node scripts/runPythonTests.mjs",
     "test:typescript": "node scripts/runTsTests.mjs",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 tests/typescript",
-    "packages:changed": "node scripts/releasePlan.mjs",
     "release:plan": "node scripts/releasePlan.mjs",
     "release:stamp": "node scripts/release.mjs stamp",
     "release:stamp:check": "node scripts/release.mjs stamp --check",
-    "release:changesets-ignore": "node scripts/generateChangesetsIgnore.mjs",
-    "release:changesets-ignore:check": "node scripts/generateChangesetsIgnore.mjs --check",
-    "changeset": "changeset",
-    "version": "changeset version",
     "release": "scripts/release.sh",
     "release:dry-run": "scripts/release.sh stable --dry-run",
     "knip": "node ./node_modules/knip/dist/cli.js --include files,dependencies,unlisted,binaries,unresolved,catalog"
   },
   "devDependencies": {
     "@caracalai/admin": "workspace:*",
-    "@changesets/cli": "^2.27.10",
     "@fastify/rate-limit": "^11.1.0",
     "@vitest/coverage-v8": "4.1.10",
     "express": "^5.2.1",

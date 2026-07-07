@@ -327,8 +327,5 @@
         "publish": true
       }
     ]
-  },
-  "ignore": [
-    "examples/**"
-  ]
+  }
 }

@@ -17,7 +17,7 @@ const modules = import.meta.glob<ReleaseRecord>("../data/releases/*.json", {
   eager: true,
   import: "default",
 });
-const releases = Object.values(modules).sort((a, b) => b.release.localeCompare(a.release));
+const releases = Object.values(modules).sort((a, b) => b.release.localeCompare(a.release, undefined, { numeric: true }));
 const latest = releases[0];
 
 const repo = "https://github.com/Garudex-Labs/caracal";

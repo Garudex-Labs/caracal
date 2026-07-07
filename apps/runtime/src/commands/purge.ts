@@ -3,11 +3,11 @@
 //
 // `caracal purge`: centralized cleanup for selectable targets across dev and runtime installs.
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { dirname, join, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import pg from 'pg'
 import { devSecretsHome } from '@caracalai/server-core'
 import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
@@ -26,7 +26,7 @@ import { composeUnavailableReason, dockerComposeAvailable, resolvePaths } from '
 import { showHelp } from './shared.ts'
 import { style, SYMBOL, printError, printWarn, printStep, printSuccess, printHeader } from '../style.ts'
 
-type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'web' | 'cache' | 'examples' | 'images' | 'binary'
+type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'web' | 'cache' | 'images' | 'binary'
 
 type GroupId = 'services' | 'state' | 'dev' | 'artifacts'
 
@@ -46,7 +46,6 @@ const TARGET_GROUP: Record<TargetId, GroupId> = {
   secrets: 'state',
   web: 'state',
   cache: 'dev',
-  examples: 'dev',
   images: 'artifacts',
   binary: 'artifacts',
 }
@@ -85,9 +84,6 @@ interface SecretCleanupTarget {
   label: string
   path: string
 }
-
-const EXAMPLE_COMPOSE_FILES = new Set(['compose.yml', 'compose.yaml', 'docker-compose.yml', 'docker-compose.yaml'])
-const EXAMPLE_COMPOSE_IGNORED_DIRS = new Set(['node_modules', '.venv', 'dist', 'coverage'])
 
 function uniqueSecretTargets(ctx: PurgeContext): SecretCleanupTarget[] {
   const targets: SecretCleanupTarget[] = []
@@ -163,14 +159,13 @@ function purgeHelp(): never {
     '',
     'Developer artifacts (dev) - dev only:',
     '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache',
-    '  examples    Remove example containers, volumes, networks, and example-built images',
     '',
     'Cached images & binaries (artifacts):',
     '  images      Remove cached Caracal docker images (caracal/*, ghcr.io/garudex-labs/caracal-*)',
     '  binary      Uninstall Caracal runtime and web console binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
     '',
     'Aggregate:',
-    '  all         Purge every applicable target (destructive: wipes volumes, runtime, config, web, examples, images, binary)',
+    '  all         Purge every applicable target (destructive: wipes volumes, runtime, config, web, images, binary)',
     '',
     'Options:',
     '  --yes, -y                Skip confirmation prompt',
@@ -217,69 +212,6 @@ function buildContext(dryRun: boolean): PurgeContext {
   }
 }
 
-function collectExampleComposeFiles(dir: string): string[] {
-  const found: string[] = []
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory() && !EXAMPLE_COMPOSE_IGNORED_DIRS.has(entry.name)) {
-      found.push(...collectExampleComposeFiles(path))
-    } else if (entry.isFile() && EXAMPLE_COMPOSE_FILES.has(entry.name)) {
-      found.push(path)
-    }
-  }
-  return found
-}
-
-function exampleComposeStacks(ctx: PurgeContext): ComposeStack[] {
-  if (!ctx.repoRoot) return []
-  const repoRoot = ctx.repoRoot
-  const root = join(ctx.repoRoot, 'examples')
-  if (!existsSync(root)) return []
-  return collectExampleComposeFiles(root).map((composeFile) => ({
-    label: relative(repoRoot, composeFile),
-    composeFile,
-    envFiles: [],
-    cwd: dirname(composeFile),
-    secretsDir: ctx.cwd,
-  }))
-}
-
-function exampleBuiltImagesFromCompose(composeFile: string): string[] {
-  const images: string[] = []
-  let image: string | undefined
-  let build = false
-  const flush = () => {
-    if (build && image) images.push(image)
-    image = undefined
-    build = false
-  }
-  for (const line of readFileSync(composeFile, 'utf8').split(/\r?\n/)) {
-    if (/^  [A-Za-z0-9_.-]+:\s*(?:#.*)?$/.test(line)) {
-      flush()
-      continue
-    }
-    const imageMatch = line.match(/^\s{4}image:\s*['"]?([^'"\s#]+)['"]?/)
-    if (imageMatch) image = imageMatch[1]
-    if (/^\s{4}build:\s*/.test(line)) build = true
-  }
-  flush()
-  return images
-}
-
-function exampleImageNames(ctx: PurgeContext): string[] {
-  return Array.from(new Set(exampleComposeStacks(ctx).flatMap((stack) => exampleBuiltImagesFromCompose(stack.composeFile))))
-}
-
-function listDockerImagesByName(names: readonly string[]): string[] {
-  const wanted = new Set(names)
-  const out = spawnSync('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], { encoding: 'utf8' })
-  if (out.status !== 0 || typeof out.stdout !== 'string') return []
-  return out.stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => wanted.has(s))
-}
-
 async function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStack): Promise<number> {
   const s = stack ?? ctx.stacks[0]!
   if (ctx.dryRun) {
@@ -307,9 +239,9 @@ async function removeImagesStep(images: string[], ctx: PurgeContext): Promise<nu
   return removeImages(images)
 }
 
-async function runComposeAll(args: string[], ctx: PurgeContext, stacks = ctx.stacks): Promise<void> {
-  for (const stack of stacks) {
-    if (stacks.length > 1) {
+async function runComposeAll(args: string[], ctx: PurgeContext): Promise<void> {
+  for (const stack of ctx.stacks) {
+    if (ctx.stacks.length > 1) {
       process.stdout.write(`  ${style.label(`[${stack.label}]`)} ${stack.composeFile}\n`)
     }
     const code = await runCompose(args, ctx, stack)
@@ -464,30 +396,6 @@ const TARGETS: Target[] = [
     },
   },
   {
-    id: 'examples',
-    label: 'Remove example containers, volumes, and images (DESTRUCTIVE)',
-    describe: (ctx) => {
-      const stacks = exampleComposeStacks(ctx)
-      const imgs = listDockerImagesByName(exampleImageNames(ctx))
-      const imageSummary = imgs.length > 0 ? `; ${imgs.length} example image(s)` : ''
-      return stacks.length > 0
-        ? `${stacks.length} compose project(s) under examples/${imageSummary}`
-        : '(dev mode only; no example compose projects found)'
-    },
-    available: (ctx) => ctx.composeAvailable && exampleComposeStacks(ctx).length > 0,
-    run: async (ctx) => {
-      const stacks = exampleComposeStacks(ctx)
-      await runComposeAll(['down', '-v', '--remove-orphans'], ctx, stacks)
-      const imgs = listDockerImagesByName(exampleImageNames(ctx))
-      if (imgs.length === 0) {
-        process.stdout.write(`  ${style.label('(skip) example images: none cached')}\n`)
-        return
-      }
-      const code = await removeImagesStep(imgs, ctx)
-      if (code !== 0) throw new Error(`docker image rm exited ${code}`)
-    },
-  },
-  {
     id: 'images',
     label: 'Remove Caracal docker images (DESTRUCTIVE)',
     describe: () => {
@@ -528,7 +436,7 @@ function targetById(id: string): Target | undefined {
 }
 
 function requiresCompose(t: Target): boolean {
-  return t.id === 'stack' || t.id === 'volumes' || t.id === 'logs' || t.id === 'examples'
+  return t.id === 'stack' || t.id === 'volumes' || t.id === 'logs'
 }
 
 function prompt(question: string): Promise<string> {
@@ -550,7 +458,7 @@ async function selectInteractively(ctx: PurgeContext): Promise<Target[]> {
   const usable = TARGETS.filter((t) => t.available(ctx))
   printHeader('Select purge targets')
   if (!ctx.composeAvailable) {
-    printWarn(`Docker Compose unavailable; stack, volumes, logs, and examples are hidden. ${composeUnavailableReason()}.`)
+    printWarn(`Docker Compose unavailable; stack, volumes, and logs are hidden. ${composeUnavailableReason()}.`)
   }
   process.stdout.write(
     style.label(
@@ -611,7 +519,6 @@ function isDestructive(t: Target): boolean {
     t.id === 'secrets' ||
     t.id === 'web' ||
     t.id === 'config' ||
-    t.id === 'examples' ||
     t.id === 'images' ||
     t.id === 'binary'
   )
@@ -653,7 +560,7 @@ export async function purgeCommand(argv: string[]): Promise<void> {
   } else if (requested.includes('all')) {
     targets = expandAll(safe).filter((t) => t.available(ctx))
     if (!ctx.composeAvailable) {
-      printWarn(`Docker Compose unavailable; skipping stack, volumes, logs, and examples. ${composeUnavailableReason()}.`)
+      printWarn(`Docker Compose unavailable; skipping stack, volumes, and logs. ${composeUnavailableReason()}.`)
     }
   } else {
     targets = []

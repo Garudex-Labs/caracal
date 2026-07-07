@@ -4,8 +4,6 @@
 # Codecov configuration: paths excluded from coverage reporting.
 
 ignore:
-  # Sample code shipped for adopters; never executed by the product.
-  - "examples/**"
   # Documentation site content and configuration.
   - "docs/**"
   # Generated TypeScript artifacts.

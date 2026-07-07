@@ -10,13 +10,11 @@ queries:
 
 # Test code never ships. Scanning it raises alerts about fixtures and stub
 # servers (for example URL prefix matching inside mock fetch implementations
-# under tests/typescript, or documentation assertions in example test suites)
-# that have no security boundary. All production sources under apps/,
-# packages/, services/, control/, and infra/ stay fully covered, as does the
-# example code itself that users copy.
+# under tests/typescript) that have no security boundary. All production
+# sources under apps/, packages/, services/, control/, and infra/ stay fully
+# covered.
 paths-ignore:
   - tests
-  - examples/*/tests
 
 query-filters:
   # js/missing-rate-limiting only recognizes per-route middleware from known
