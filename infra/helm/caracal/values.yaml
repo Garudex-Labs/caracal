@@ -5,7 +5,8 @@
 
 global:
   registry: ghcr.io/garudex-labs
-  tag: "0.2.0"
+  # Image tag override; defaults to the chart appVersion.
+  tag: ""
   imagePullPolicy: IfNotPresent
   # Secret names used to pull images from private registries, e.g. [{name: ghcr-pull}].
   imagePullSecrets: []

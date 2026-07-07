@@ -411,6 +411,7 @@ section "Next steps"
 printf '  Release: %s (%s)\n' "${tag}" "${mode}"
 printf '  Refresh shell cache: hash -r\n'
 printf '  Start the stack: caracal up\n'
+printf '  Existing install? Roll onto this release: caracal upgrade\n'
 printf '  Open the web console: caracal web\n'
 section "Uninstall"
 printf '  install.sh --install-dir %s --uninstall\n' "${INSTALL_DIR}"

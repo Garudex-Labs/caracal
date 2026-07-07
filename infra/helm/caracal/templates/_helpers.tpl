@@ -69,7 +69,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "caracal.image" -}}
 {{- $root := index . "root" -}}
 {{- $image := index . "image" -}}
-{{- printf "%s/%s:v%s" $root.Values.global.registry $image $root.Values.global.tag -}}
+{{- printf "%s/%s:v%s" $root.Values.global.registry $image (default $root.Chart.AppVersion $root.Values.global.tag) -}}
 {{- end -}}
 
 {{- define "caracal.secretVolume" -}}
