@@ -18,11 +18,13 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import {
   Badge,
   Button,
+  ConfirmDialog,
   Field,
   Select,
   Skeleton,
   Tooltip,
   useCopyToClipboard,
+  useToast,
   type Column,
 } from "@/components/ui";
 import { CsvExportButton } from "@/components/console/CsvExportButton";
@@ -31,7 +33,14 @@ import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/aud
 import { formatDuration, relativeTime } from "@/lib/time";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
-import { useSessionActivity, useSessionsFeed } from "@/platform/api/hooks";
+import {
+  useAgent,
+  useAgentInboundDelegations,
+  useAgentLifecycle,
+  useRevokeDelegation,
+  useSessionActivity,
+  useSessionsFeed,
+} from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
@@ -425,11 +434,111 @@ function SessionDetail({ session, zoneId }: { session: Session; zoneId: string }
 
       <SessionActivity zoneId={zoneId} sessionId={session.id} />
 
-      <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        Sessions are read-only here. They end by expiry, grant revocation, or agent termination. To
-        cut off authority now, revoke the delegation or terminate the holding agent.
-      </p>
+      {eff === "active" ? <AuthorityControls zoneId={zoneId} session={session} /> : null}
     </div>
+  );
+}
+
+// Inline authority cutoff. A session's live authority is held by its agent session and
+// fed by inbound delegation edges, so both controls act right here: terminating the agent
+// or revoking an edge takes effect on the runtime immediately, no page change required.
+function AuthorityControls({ zoneId, session }: { zoneId: string; session: Session }) {
+  const toast = useToast();
+  const agent = useAgent(zoneId, session.id);
+  const inbound = useAgentInboundDelegations(zoneId, session.id);
+  const lifecycle = useAgentLifecycle(zoneId);
+  const revoke = useRevokeDelegation(zoneId);
+  const [confirmTerminate, setConfirmTerminate] = useState(false);
+
+  const holdingAgent =
+    agent.data && (agent.data.status === "active" || agent.data.status === "suspended")
+      ? agent.data
+      : null;
+  const edges = (inbound.data ?? []).filter((edge) => !edge.revoked_at);
+
+  if (!holdingAgent && edges.length === 0) {
+    return (
+      <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        This session ends by expiry or grant revocation. No live agent or inbound delegation holds
+        authority for it right now.
+      </p>
+    );
+  }
+
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Cut off authority
+      </h3>
+      <div className="mt-3 flex flex-col gap-2">
+        {holdingAgent ? (
+          <div className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2">
+            <div className="min-w-0">
+              <span className="text-xs font-medium text-foreground">
+                Agent session holds this authority
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {holdingAgent.lifecycle} · {holdingAgent.status} · depth {holdingAgent.depth}
+              </span>
+            </div>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={lifecycle.isPending}
+              onClick={() => setConfirmTerminate(true)}
+            >
+              Terminate agent
+            </Button>
+          </div>
+        ) : null}
+        {edges.map((edge) => (
+          <div
+            key={edge.id}
+            className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <span className="text-xs font-medium text-foreground">Inbound delegation</span>
+              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                {edge.scopes.join(", ") || "no scopes"} · from{" "}
+                <span className="font-mono">{edge.source_session_id.slice(0, 8)}…</span>
+              </span>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={revoke.isPending}
+              onClick={async () => {
+                try {
+                  await revoke.mutateAsync(edge.id);
+                  toast({ tone: "success", title: "Delegation revoked" });
+                } catch (err) {
+                  toast({ tone: "error", title: "Revoke failed", description: errorMessage(err) });
+                }
+              }}
+            >
+              Revoke
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <ConfirmDialog
+        open={confirmTerminate}
+        onClose={() => setConfirmTerminate(false)}
+        title="Terminate agent session"
+        description="Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone."
+        confirmLabel="Terminate"
+        tone="danger"
+        onConfirm={async () => {
+          try {
+            await lifecycle.mutateAsync({ id: session.id, action: "terminate" });
+            toast({ tone: "info", title: "Agent terminated" });
+          } catch (err) {
+            toast({ tone: "error", title: "Terminate failed", description: errorMessage(err) });
+          }
+        }}
+      />
+    </section>
   );
 }
 

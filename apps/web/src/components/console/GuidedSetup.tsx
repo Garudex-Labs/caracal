@@ -108,9 +108,10 @@ function ChainMap() {
 
 // Drives the guided walkthrough from the active zone's real inventory. Each build step is a
 // one-line explanation plus the two fields the operator will fill, with a button that opens
-// the real form. Build steps tick off from live data; the orientation and verify bookends
-// complete when acknowledged. Whether the guide launches, resumes, or stays retired is read
-// from the account-held guide record, so the decision survives restarts and new browsers.
+// the real form. Every step ticks off from live data: the orientation bookend completes once
+// anything is built and the verify bookend once everything is. Whether the guide launches,
+// resumes, or stays retired is read from the account-held guide record, so the decision
+// survives restarts and new browsers.
 export function GuidedSetup() {
   const navigate = useNavigate();
   const systemView = useSystemZoneView();
@@ -134,8 +135,6 @@ export function GuidedSetup() {
   // gates the step-by-step coachmark: after the guide is skipped or dismissed, reopening the
   // list from the launcher shows only the checklist, never the auto-spotlight popup again.
   const [autoStart, setAutoStart] = useState(false);
-  const [ackOrientation, setAckOrientation] = useState(false);
-  const [ackVerify, setAckVerify] = useState(false);
   const launchDecided = useRef(false);
 
   const hasApps = (applications.data?.length ?? 0) > 0;
@@ -156,7 +155,7 @@ export function GuidedSetup() {
         media: STEP_MEDIA.orientation,
         advanceOnAction: true,
         hideInList: true,
-        completed: ackOrientation || anyBuilt,
+        completed: anyBuilt,
         details: (
           <div className="flex flex-col gap-2">
             <ChainMap />
@@ -255,7 +254,7 @@ export function GuidedSetup() {
         media: STEP_MEDIA.verify,
         advanceOnAction: true,
         hideInList: true,
-        completed: ackVerify,
+        completed: buildComplete,
         details: buildComplete ? (
           <p className="text-xs text-muted-foreground">
             Use <span className="text-foreground">Simulate</span> on the policy set to dry-run a
@@ -265,16 +264,7 @@ export function GuidedSetup() {
         ) : undefined,
       },
     ],
-    [
-      ackOrientation,
-      anyBuilt,
-      hasApps,
-      hasProviders,
-      hasResources,
-      hasActivePolicy,
-      buildComplete,
-      ackVerify,
-    ],
+    [anyBuilt, hasApps, hasProviders, hasResources, hasActivePolicy, buildComplete],
   );
 
   const allComplete = settled && steps.every((s) => s.completed);
@@ -326,11 +316,9 @@ export function GuidedSetup() {
         }}
         onActivateStep={(id) => {
           if (id === "orientation") {
-            setAckOrientation(true);
             return;
           }
           if (id === "verify") {
-            setAckVerify(true);
             navigate({ to: "/app" });
             return;
           }
