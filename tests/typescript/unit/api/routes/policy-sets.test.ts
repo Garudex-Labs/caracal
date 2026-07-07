@@ -448,6 +448,29 @@ describe('POST /v1/zones/:zoneId/policy-sets create', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'ps-1' })
   })
 
+  it('returns 409 when the name is already taken in the zone', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    setActor(app)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+    const client = { query: vi.fn(), release: vi.fn() }
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key'), {
+          code: '23505',
+          constraint: 'policy_sets_zone_id_name_key',
+        }),
+      ) // INSERT policy_sets conflict
+      .mockResolvedValueOnce({ rows: [] }) // ROLLBACK
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policy-sets', payload: { name: 'Set' } })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'policy_set_name_conflict' })
+  })
+
   it('returns 404 when the zone does not exist', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     setActor(app)

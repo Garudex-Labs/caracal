@@ -25,6 +25,19 @@ import { resolveAttribution } from '../attribution.js'
 
 const MANIFEST_MAX_ENTRIES = 256
 
+const POLICY_SET_NAME_UNIQUE_CONSTRAINT = 'policy_sets_zone_id_name_key'
+
+function isPolicySetNameConflict(err: unknown): boolean {
+  return Boolean(
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: unknown }).code === '23505' &&
+    'constraint' in err &&
+    (err as { constraint?: unknown }).constraint === POLICY_SET_NAME_UNIQUE_CONSTRAINT,
+  )
+}
+
 const PolicySetBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -106,20 +119,25 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const id = uuidv7()
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
 
-    return withTransaction(fastify.db, async (client) => {
-      const { rows } = await client.query(
-        `INSERT INTO policy_sets (id, zone_id, name, description, created_by, created_via_operator)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, zone_id, name, description, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`,
-        [id, params.zoneId, body.name, body.description ?? null, attribution.actor, attribution.viaOperator],
-      )
-      await client.query(
-        `INSERT INTO policy_set_bindings (zone_id, policy_set_id)
-         VALUES ($1, $2)`,
-        [params.zoneId, id],
-      )
-      return reply.code(201).send(rows[0])
-    })
+    try {
+      return await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query(
+          `INSERT INTO policy_sets (id, zone_id, name, description, created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, zone_id, name, description, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`,
+          [id, params.zoneId, body.name, body.description ?? null, attribution.actor, attribution.viaOperator],
+        )
+        await client.query(
+          `INSERT INTO policy_set_bindings (zone_id, policy_set_id)
+           VALUES ($1, $2)`,
+          [params.zoneId, id],
+        )
+        return reply.code(201).send(rows[0])
+      })
+    } catch (err) {
+      if (isPolicySetNameConflict(err)) return reply.code(409).send({ error: 'policy_set_name_conflict' })
+      throw err
+    }
   })
 
   fastify.post('/zones/:zoneId/policy-sets/:id/versions', async (req, reply) => {

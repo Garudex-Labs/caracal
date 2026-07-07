@@ -102,6 +102,8 @@ function errorMessage(error: unknown): string {
   if (error instanceof ConsoleApiError) {
     if (error.notConfigured) return "Control plane not connected.";
     if (error.unreachable) return "Control plane unreachable.";
+    if (error.code === "policy_set_name_conflict")
+      return "A policy set with this name already exists in this zone.";
     return error.code.replace(/_/g, " ");
   }
   return "Unexpected error.";
@@ -913,16 +915,14 @@ function ActivateVersionDialog({
     | { status: "passed"; result: SimulateResult }
     | { status: "failed"; message: string }
   >({ status: "running" });
-  const [seedKey, setSeedKey] = useState("");
-
-  const key = target ? `${target.set.id}:${target.versionId}` : "";
+  const targetSetId = target?.set.id ?? null;
+  const targetVersionId = target?.versionId ?? null;
   useEffect(() => {
-    if (!target || seedKey === key) return;
-    setSeedKey(key);
+    if (!targetSetId || !targetVersionId) return;
     setCheck({ status: "running" });
     let cancelled = false;
     consoleApi.policySets
-      .simulate(zoneId, target.set.id, target.versionId)
+      .simulate(zoneId, targetSetId, targetVersionId)
       .then((result) => {
         if (!cancelled) setCheck({ status: "passed", result });
       })
@@ -932,7 +932,7 @@ function ActivateVersionDialog({
     return () => {
       cancelled = true;
     };
-  }, [zoneId, target, key, seedKey]);
+  }, [zoneId, targetSetId, targetVersionId]);
 
   const replacing =
     Boolean(target?.set.active_version_id) && target?.set.active_version_id !== target?.versionId;
@@ -949,7 +949,6 @@ function ActivateVersionDialog({
           : "Version activated",
         description: target.set.name,
       });
-      setSeedKey("");
       onClose();
       onActivated?.();
     } catch (err) {
@@ -964,10 +963,7 @@ function ActivateVersionDialog({
   return (
     <Modal
       open={target !== null}
-      onClose={() => {
-        setSeedKey("");
-        onClose();
-      }}
+      onClose={onClose}
       title="Activate version"
       description={
         replacing
@@ -976,13 +972,7 @@ function ActivateVersionDialog({
       }
       footer={
         <>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setSeedKey("");
-              onClose();
-            }}
-          >
+          <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
           <Button

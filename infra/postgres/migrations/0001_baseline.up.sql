@@ -1248,14 +1248,6 @@ ALTER TABLE ONLY public.policies
 
 
 --
--- Name: policies policies_zone_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.policies
-    ADD CONSTRAINT policies_zone_id_name_key UNIQUE (zone_id, name);
-
-
---
 -- Name: policy_set_bindings policy_set_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1285,14 +1277,6 @@ ALTER TABLE ONLY public.policy_set_versions
 
 ALTER TABLE ONLY public.policy_sets
     ADD CONSTRAINT policy_sets_pkey PRIMARY KEY (id);
-
-
---
--- Name: policy_sets policy_sets_zone_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.policy_sets
-    ADD CONSTRAINT policy_sets_zone_id_name_key UNIQUE (zone_id, name);
 
 
 --
@@ -1349,14 +1333,6 @@ ALTER TABLE ONLY public.resources
 
 ALTER TABLE ONLY public.resources
     ADD CONSTRAINT resources_zone_id_id_unique UNIQUE (zone_id, id);
-
-
---
--- Name: resources resources_zone_id_identifier_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resources
-    ADD CONSTRAINT resources_zone_id_identifier_key UNIQUE (zone_id, identifier);
 
 
 --
@@ -1857,10 +1833,24 @@ CREATE INDEX policies_zone_keyset_idx ON public.policies USING btree (zone_id, c
 
 
 --
+-- Name: policies_zone_id_name_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX policies_zone_id_name_key ON public.policies USING btree (zone_id, name) WHERE (archived_at IS NULL);
+
+
+--
 -- Name: policy_sets_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX policy_sets_zone_keyset_idx ON public.policy_sets USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: policy_sets_zone_id_name_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX policy_sets_zone_id_name_key ON public.policy_sets USING btree (zone_id, name) WHERE (archived_at IS NULL);
 
 
 --
@@ -1938,6 +1928,13 @@ CREATE INDEX resources_credential_provider_id_idx ON public.resources USING btre
 --
 
 CREATE INDEX resources_zone_keyset_idx ON public.resources USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: resources_zone_id_identifier_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX resources_zone_id_identifier_key ON public.resources USING btree (zone_id, identifier) WHERE (archived_at IS NULL);
 
 
 --
