@@ -327,6 +327,7 @@ function splitProviderConfig(
   if (kind === 'http_basic') {
     requireString(publicConfig, 'username', 'http_basic provider config requires username')
     requireOptionalText(publicConfig, 'username', 'http_basic provider config requires username')
+    requireOptionalHostList(publicConfig, 'allowed_token_hosts', 'http_basic provider config allowed_token_hosts must be DNS hostnames')
     if (requireSecrets && !secretConfig.password) throw new Error('http_basic provider config requires password')
   } else if (kind === 'api_key') {
     const location = requireAPIKeyAuthLocation(publicConfig)
@@ -344,6 +345,7 @@ function splitProviderConfig(
       }
     }
     if (requireSecrets && !secretConfig.api_key) throw new Error('api_key provider config requires api_key')
+    requireOptionalHostList(publicConfig, 'allowed_token_hosts', 'api_key provider config allowed_token_hosts must be DNS hostnames')
   } else if (kind === 'bearer_token') {
     if (requireSecrets && !secretConfig.bearer_token) throw new Error('bearer_token provider config requires bearer_token')
     requireOptionalHostList(publicConfig, 'allowed_token_hosts', 'bearer_token provider config allowed_token_hosts must be DNS hostnames')

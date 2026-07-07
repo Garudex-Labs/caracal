@@ -76,12 +76,14 @@ function collectChangedFields(body: Record<string, unknown>, prefix: string, dep
 // The trailing verb of a sub-resource action route, such as `test` in
 // POST /v1/zones/z1/providers/p1/test, or null for plain collection and entity routes.
 // The scan walks from the end so the innermost entity wins, matching entityFromUrl.
+// A trailing collection segment is a nested create or list target, never an action verb.
 function actionSegment(url: string): string | null {
   const segments = pathOnly(url).split('/').filter(Boolean)
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
     if (candidate && segments[i + 1] && COLLECTION_SEGMENT.test(candidate)) {
-      return segments[i + 2] ?? null
+      const verb = segments[i + 2]
+      return verb && !COLLECTION_SEGMENT.test(verb) ? verb : null
     }
   }
   return null

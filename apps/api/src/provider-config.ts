@@ -91,6 +91,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'header_name', requirement: 'required', note: 'when auth_location is header' },
     { key: 'query_param_name', requirement: 'required', note: 'when auth_location is query' },
     { key: 'api_key', requirement: 'required', secret: true },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'host allow-list for forwarding' },
     { key: 'auth_scheme', requirement: 'optional', note: 'header auth only' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
     { key: 'allow_runtime_injection', requirement: 'optional' },
@@ -109,6 +110,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
   http_basic: [
     { key: 'username', requirement: 'required', note: 'username or account identifier for HTTP Basic auth' },
     { key: 'password', requirement: 'required', secret: true, note: 'password or API token paired with the username' },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'host allow-list for forwarding' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
   ],
 }
