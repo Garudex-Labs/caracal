@@ -307,7 +307,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const [label, setLabel] = useState("");
   const [confirm, setConfirm] = useState<{
     agent: Agent;
-    action: "suspend" | "resume" | "terminate";
+    action: "suspend" | "terminate";
   } | null>(null);
 
   const serverQuery = useMemo<AgentQuery>(() => {
@@ -500,7 +500,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
               appName={appNames.get(a.application_id) ?? null}
               busy={lifecycle.isPending}
               onSuspend={() => setConfirm({ agent: a, action: "suspend" })}
-              onResume={() => setConfirm({ agent: a, action: "resume" })}
+              onResume={() => void runLifecycle(a, "resume")}
               onTerminate={() => setConfirm({ agent: a, action: "terminate" })}
             />
           ),
@@ -728,7 +728,8 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 
 // Lifecycle confirmation that previews the cascade blast radius. Suspend and terminate
 // recurse the agent subtree and revoke subject sessions on the backend, so the operator
-// sees the direct child sessions that will be affected before committing.
+// sees the direct child sessions that will be affected before committing. Resume is the
+// undo action and runs directly without a confirmation.
 function AgentLifecycleConfirm({
   zoneId,
   request,
@@ -736,31 +737,20 @@ function AgentLifecycleConfirm({
   onConfirm,
 }: {
   zoneId: string;
-  request: { agent: Agent; action: "suspend" | "resume" | "terminate" } | null;
+  request: { agent: Agent; action: "suspend" | "terminate" } | null;
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
-  const cascades = request?.action !== "resume";
-  const children = useAgentChildren(
-    zoneId,
-    cascades && request ? request.agent.agent_session_id : null,
-  );
+  const children = useAgentChildren(zoneId, request ? request.agent.agent_session_id : null);
   const childCount = (children.data ?? []).length;
 
   if (!request) return null;
   const { action } = request;
-  const title =
-    action === "suspend"
-      ? "Suspend agent session"
-      : action === "resume"
-        ? "Resume agent session"
-        : "Terminate agent session";
+  const title = action === "suspend" ? "Suspend agent session" : "Terminate agent session";
   const base =
     action === "suspend"
       ? "Suspending pauses this agent's authority and cascades to its descendant agents. Subject sessions held only by the suspended subtree are revoked. In-flight work may fail until resumed."
-      : action === "resume"
-        ? "Resuming restores this agent's authority and reactivates its suspended subtree."
-        : "Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
+      : "Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
 
   return (
     <Modal
@@ -780,50 +770,45 @@ function AgentLifecycleConfirm({
               onClose();
             }}
           >
-            {action === "suspend" ? "Suspend" : action === "resume" ? "Resume" : "Terminate"}
+            {action === "suspend" ? "Suspend" : "Terminate"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">{base}</p>
-        {cascades ? (
-          <div className="border border-border bg-muted/20 p-3 text-xs">
-            {children.isLoading ? (
-              <span className="flex items-center gap-2 text-muted-foreground">
-                <Spinner className="h-3.5 w-3.5" /> Checking cascade impact…
+        <div className="border border-border bg-muted/20 p-3 text-xs">
+          {children.isLoading ? (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <Spinner className="h-3.5 w-3.5" /> Checking cascade impact…
+            </span>
+          ) : childCount === 0 ? (
+            <span className="text-muted-foreground">
+              No direct child sessions. Only this agent is affected.
+            </span>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-foreground">
+                {childCount} direct child session{childCount === 1 ? "" : "s"} will cascade
+                {action === "suspend" ? " into suspension" : " into termination"} (descendants
+                included):
               </span>
-            ) : childCount === 0 ? (
-              <span className="text-muted-foreground">
-                No direct child sessions. Only this agent is affected.
-              </span>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <span className="font-medium text-foreground">
-                  {childCount} direct child session{childCount === 1 ? "" : "s"} will cascade
-                  {action === "suspend" ? " into suspension" : " into termination"} (descendants
-                  included):
-                </span>
-                <ul className="flex flex-col gap-1">
-                  {(children.data ?? []).slice(0, 6).map((c) => (
-                    <li
-                      key={c.agent_session_id}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <span className="truncate font-mono text-[11px] text-muted-foreground">
-                        {c.agent_session_id}
-                      </span>
-                      <Badge tone={statusTone(c.status)}>{c.status}</Badge>
-                    </li>
-                  ))}
-                </ul>
-                {childCount > 6 ? (
-                  <span className="text-muted-foreground">…and {childCount - 6} more</span>
-                ) : null}
-              </div>
-            )}
-          </div>
-        ) : null}
+              <ul className="flex flex-col gap-1">
+                {(children.data ?? []).slice(0, 6).map((c) => (
+                  <li key={c.agent_session_id} className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-[11px] text-muted-foreground">
+                      {c.agent_session_id}
+                    </span>
+                    <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+              {childCount > 6 ? (
+                <span className="text-muted-foreground">…and {childCount - 6} more</span>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );

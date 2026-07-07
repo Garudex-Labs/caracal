@@ -885,7 +885,7 @@ function DeleteZoneDialog({
             variant="danger"
             onClick={onConfirm}
             loading={busy}
-            disabled={!confirmed || loading || revoking || loadError !== null}
+            disabled={!confirmed || loading || revoking}
           >
             Delete zone
           </Button>
@@ -898,9 +898,19 @@ function DeleteZoneDialog({
             <Spinner /> Checking dependencies…
           </div>
         ) : loadError ? (
-          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Could not load dependencies: {loadError}
-          </p>
+          <>
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              Could not load this zone's dependency counts: {loadError}. Deletion still archives the
+              zone and everything inside it.
+            </p>
+            <Field
+              label={`Type "${zone?.name ?? ""}" to confirm`}
+              placeholder={zone?.name ?? ""}
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              autoFocus
+            />
+          </>
         ) : deps ? (
           <>
             <div>

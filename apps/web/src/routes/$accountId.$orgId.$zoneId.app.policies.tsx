@@ -938,6 +938,29 @@ function ActivateVersionDialog({
     Boolean(target?.set.active_version_id) && target?.set.active_version_id !== target?.versionId;
   const versionLabel = target?.versionNumber ? `Version ${target.versionNumber}` : "This version";
 
+  async function runActivation() {
+    if (!target) return;
+    try {
+      await activate.mutateAsync({ id: target.set.id, versionId: target.versionId });
+      toast({
+        tone: "success",
+        title: target.versionNumber
+          ? `Version ${target.versionNumber} activated`
+          : "Version activated",
+        description: target.set.name,
+      });
+      setSeedKey("");
+      onClose();
+      onActivated?.();
+    } catch (err) {
+      toast({
+        tone: "error",
+        title: "Activation failed",
+        description: errorMessage(err),
+      });
+    }
+  }
+
   return (
     <Modal
       open={target !== null}
@@ -967,31 +990,20 @@ function ActivateVersionDialog({
             mutating
             loading={activate.isPending}
             disabled={check.status !== "passed"}
-            onClick={async () => {
-              if (!target) return;
-              try {
-                await activate.mutateAsync({ id: target.set.id, versionId: target.versionId });
-                toast({
-                  tone: "success",
-                  title: target.versionNumber
-                    ? `Version ${target.versionNumber} activated`
-                    : "Version activated",
-                  description: target.set.name,
-                });
-                setSeedKey("");
-                onClose();
-                onActivated?.();
-              } catch (err) {
-                toast({
-                  tone: "error",
-                  title: "Activation failed",
-                  description: errorMessage(err),
-                });
-              }
-            }}
+            onClick={() => void runActivation()}
           >
             Activate version
           </Button>
+          {check.status === "failed" ? (
+            <button
+              type="button"
+              className="basis-full text-right text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+              onClick={() => void runActivation()}
+              disabled={activate.isPending}
+            >
+              Activate anyway
+            </button>
+          ) : null}
         </>
       }
     >
@@ -1005,7 +1017,8 @@ function ActivateVersionDialog({
             <div className="font-medium">Dry run failed</div>
             <div className="mt-0.5">{check.message}</div>
             <div className="mt-1 text-destructive/80">
-              This version cannot be activated. Fix the policies it pins and save a new version.
+              Fix the policies this version pins and save a new version, or activate anyway if the
+              check itself is wrong.
             </div>
           </div>
         ) : (
@@ -1630,12 +1643,7 @@ function DeletePolicyDialog({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button
-            variant="danger"
-            onClick={onConfirm}
-            loading={busy}
-            disabled={loading || loadError !== null}
-          >
+          <Button variant="danger" onClick={onConfirm} loading={busy} disabled={loading}>
             Delete policy
           </Button>
         </>
@@ -1647,8 +1655,9 @@ function DeletePolicyDialog({
             <Spinner /> Checking references…
           </div>
         ) : loadError ? (
-          <p className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Could not check references: {loadError}
+          <p className="border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            Could not check which policy sets reference this policy: {loadError}. Deleting still
+            works; referencing sets keep enforcing their pinned versions.
           </p>
         ) : refs && refs.length > 0 ? (
           <div className="border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
