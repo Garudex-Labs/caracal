@@ -57,7 +57,7 @@ The migration from CalVer to lockstep SemVer leaves registry state that only a m
 4. Delete the CalVer `ghcr.io` image tags (`v2026.*`, `2026.*`) and CalVer OCI Helm chart versions. CalVer sorts above SemVer, so any surviving `2026.*` tag would outrank `0.2.0` in version resolution.
 5. Mark pre-0.2.0 GitHub Releases as pre-release with a note pointing to the current release line. Do this only after `v0.2.0` is published so `releases/latest` never resolves to nothing.
 6. Keep all git tags: deleting them breaks reproducibility and Go module caching.
-7. Refresh `examples/lynxCapital` dependency pins to the published `0.2.0` packages.
+7. Refresh the `lynxCapital` dependency pins in the [examples repository](https://github.com/Garudex-Labs/examples) to the published `0.2.0` packages.
 
 ## Related Pages
 
