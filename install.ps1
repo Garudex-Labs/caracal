@@ -27,9 +27,9 @@ if ([string]::IsNullOrEmpty($InstallDir)) {
     }
 }
 $VerifyProvenance = $true
-$RequireProvenance = $true
-if ($env:CARACAL_REQUIRE_PROVENANCE -eq '0') {
-    $RequireProvenance = $false
+$RequireProvenance = $false
+if ($env:CARACAL_REQUIRE_PROVENANCE -eq '1') {
+    $RequireProvenance = $true
 }
 if ($env:CARACAL_VERIFY_PROVENANCE -eq '0' -or $NoVerifyProvenance) {
     $VerifyProvenance = $false

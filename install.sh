@@ -14,7 +14,7 @@ INSTALL_DIR_EXPLICIT=0
 DESTDIR_VALUE="${DESTDIR:-}"
 VERSION="${CARACAL_VERSION:-latest}"
 VERIFY_PROVENANCE="${CARACAL_VERIFY_PROVENANCE:-1}"
-REQUIRE_PROVENANCE="${CARACAL_REQUIRE_PROVENANCE:-1}"
+REQUIRE_PROVENANCE="${CARACAL_REQUIRE_PROVENANCE:-0}"
 COLOR_MODE="${CARACAL_INSTALL_COLOR:-default}"
 PROGRESS_MODE="${CARACAL_INSTALL_PROGRESS:-default}"
 UNINSTALL=0
@@ -118,8 +118,10 @@ Usage:
 Installs the thin 'caracal' runtime CLI. Start the stack with 'caracal up' and
 open the web console with 'caracal web'.
 
-Provenance attestation is required by default. Pass --no-verify-provenance only
-when you explicitly need to skip release provenance verification.
+Release archives are always checksum-verified. Provenance attestation is
+verified when the GitHub CLI (gh) is available; set CARACAL_REQUIRE_PROVENANCE=1
+to fail instead of continuing when gh is missing, or pass --no-verify-provenance
+to skip provenance verification entirely.
 
 Color and download progress are enabled by default for local installs. Set
 NO_COLOR=1, CARACAL_INSTALL_COLOR=never, or CARACAL_INSTALL_PROGRESS=never for
@@ -131,7 +133,7 @@ Environment overrides:
   CARACAL_INSTALL_DIR   same as --install-dir
   DESTDIR               staging root prepended to the install directory
   CARACAL_VERIFY_PROVENANCE   set 0 to disable provenance verification
-  CARACAL_REQUIRE_PROVENANCE  set 0 to verify only when gh is available
+  CARACAL_REQUIRE_PROVENANCE  set 1 to fail when gh is unavailable
   CARACAL_INSTALL_COLOR default, auto, always, or never
   CARACAL_INSTALL_PROGRESS default, auto, always, or never
 EOF
