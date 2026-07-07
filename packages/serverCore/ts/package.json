@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/server-core",
-  "version": "0.1.6-rc.3",
+  "version": "0.2.0",
   "private": true,
   "description": "Internal server foundation for Caracal apps: telemetry, env, secrets, and lifecycle.",
   "license": "Apache-2.0",

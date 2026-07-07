@@ -68,9 +68,8 @@ const TS_PATTERNS = [
   /^packages\/.+\.(ts|tsx|js|mjs|cjs)$/,
   /^tests\/typescript\/.+\.(ts|tsx)$/,
   /^scripts\/.+\.(ts|js|mjs|cjs)$/,
-  /^examples\/.+\.(js|mjs|cjs)$/,
 ]
-const PY_PATTERNS = [/^packages\/.+\.py$/, /^tests\/python\/.+\.py$/, /^tests\/shared\/test-utils\/python\/.+\.py$/, /^examples\/.+\.py$/]
+const PY_PATTERNS = [/^packages\/.+\.py$/, /^tests\/python\/.+\.py$/, /^tests\/shared\/test-utils\/python\/.+\.py$/]
 
 const tsFiles = []
 const goFiles = []

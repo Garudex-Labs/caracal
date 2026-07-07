@@ -15,7 +15,7 @@
 
 ## Forbidden
 - Must not implement STS policy evaluation, revocation storage, or JWT verification internals.
-- Must not depend on examples, apps, or services.
+- Must not depend on apps or services.
 - Must not log or persist bearer tokens.
 
 ## Validation

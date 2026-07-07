@@ -15,7 +15,7 @@ function fail(message) {
   process.exit(1)
 }
 
-if (!releaseTag || !/^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/.test(releaseTag)) {
+if (!releaseTag || !/^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/.test(releaseTag)) {
   fail(`expected release tag argument, got ${releaseTag ?? '<empty>'}`)
 }
 

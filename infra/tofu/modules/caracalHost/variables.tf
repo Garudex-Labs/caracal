@@ -10,8 +10,8 @@ variable "caracalVersion" {
   type        = string
 
   validation {
-    condition     = can(regex("^v[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}(\\.[0-9]+)?(-rc\\.[0-9]+)?$", var.caracalVersion))
-    error_message = "caracalVersion must be a release tag like v2026.06.21 or v2026.07.03-rc.1."
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$", var.caracalVersion))
+    error_message = "caracalVersion must be a release tag like v0.2.0 or v0.2.0-rc.1."
   }
 }
 
