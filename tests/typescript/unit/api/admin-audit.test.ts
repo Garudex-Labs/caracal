@@ -59,6 +59,20 @@ describe('admin audit hook', () => {
     expect(params[17]).toBe(1)
   })
 
+  it('records a zone create against the created zone id from the response body', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones', async (_req, reply) => reply.code(201).send({ id: 'zone-new', name: 'Meridian Production' }))
+    await app.inject({ method: 'POST', url: '/v1/zones', payload: { name: 'Meridian Production' } })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('zone-new')
+    expect(ins!.params![9]).toBe('zones')
+    expect(ins!.params![10]).toBe('zone-new')
+  })
+
   it('records the verified console profile id alongside the credential actor', async () => {
     const captured: Captured[] = []
     const app = Fastify({ logger: false })

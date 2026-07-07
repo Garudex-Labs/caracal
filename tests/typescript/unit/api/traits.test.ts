@@ -44,12 +44,18 @@ describe('validateTraits', () => {
   it('rejects too many, empty, oversized, malformed, duplicate, and privileged zone traits', () => {
     expect(
       validateTraits(
-        Array.from({ length: 33 }, (_, i) => `trait${i}`),
+        Array.from({ length: 65 }, (_, i) => `trait${i}`),
         globalActor,
       ),
     ).toMatchObject({
       error: 'trait_count_exceeded',
     })
+    expect(
+      validateTraits(
+        Array.from({ length: 64 }, (_, i) => `trait${i}`),
+        globalActor,
+      ),
+    ).toBeNull()
     expect(validateTraits([''], globalActor)).toMatchObject({ error: 'trait_invalid' })
     expect(validateTraits(['a'.repeat(129)], globalActor)).toMatchObject({ error: 'trait_invalid' })
     expect(validateTraits(['1bad'], globalActor)).toMatchObject({ error: 'trait_invalid' })

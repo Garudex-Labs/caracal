@@ -6,6 +6,9 @@
 import { describe, it, expect } from 'vitest'
 import { researcherRoleScopes, executorRoleScopes } from '../../../../apps/api/src/operator-agent-roles.js'
 import { buildOperatorAuthority } from '../../../../apps/api/src/operator-authority.js'
+import { roleIdentityTraits } from '../../../../apps/api/src/system-zone.js'
+import { validateTraits } from '../../../../apps/api/src/traits.js'
+import type { Actor } from '../../../../apps/api/src/auth.js'
 
 describe('researcherRoleScopes', () => {
   it('is exactly the governed read scopes and no write scope', () => {
@@ -61,5 +64,20 @@ describe('executorRoleScopes', () => {
     // researcher role - which never includes a write scope - is a strict subset of the executor.
     const exec = executorRoleScopes(buildOperatorAuthority())
     for (const scope of researcherRoleScopes()) expect(exec.has(scope)).toBe(true)
+  })
+})
+
+describe('role identity provisioning', () => {
+  it('every derived role trait set passes server-side trait validation', () => {
+    // The provisioner submits these exact trait sets through the applications API, so a
+    // catalog large enough to push a role past the trait validator would break system-zone
+    // bootstrap for every deployment.
+    const globalActor: Actor = { id: 'admin-1', name: 'platform', scope: 'global', zoneId: null }
+    const expiresAt = new Date('2036-01-01T00:00:00.000Z')
+    const roles = [researcherRoleScopes(), executorRoleScopes(buildOperatorAuthority())]
+    for (const scopes of roles) {
+      const traits = roleIdentityTraits([...scopes].sort(), expiresAt)
+      expect(validateTraits(traits, globalActor)).toBeNull()
+    }
   })
 })
