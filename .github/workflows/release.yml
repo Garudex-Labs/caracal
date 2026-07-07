@@ -8,10 +8,7 @@ name: release
 on:
   push:
     tags:
-      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]'
-      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].*'
-      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-rc.*'
-      - 'v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].*-rc.*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       ref:
@@ -20,7 +17,7 @@ on:
         default: ''
         type: string
       releaseVersion:
-        description: 'Release tag to dry-run, such as v2026.07.03-rc.1'
+        description: 'Release tag to dry-run, such as v0.2.0-rc.1'
         required: true
         type: string
       dryRun:
@@ -172,8 +169,8 @@ jobs:
               exit 1
             fi
           fi
-          if ! echo "$release_tag" | grep -qE '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
-            echo "::error::Release tag '${release_tag}' must match vYYYY.MM.DD[.N], vYYYY.MM.DD[.N]-rc.<number>, or vYYYY.MM.DD[.N]-rc.sha<gitsha>."
+          if ! echo "$release_tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
+            echo "::error::Release tag '${release_tag}' must match vX.Y.Z, vX.Y.Z-rc.<number>, or vX.Y.Z-rc.sha<gitsha>."
             exit 1
           fi
           channel="stable"
@@ -217,12 +214,6 @@ jobs:
 
       - name: Stamp drift
         run: node scripts/release.mjs stamp --check
-
-      - name: Changesets ignore drift
-        run: node scripts/generateChangesetsIgnore.mjs --check
-
-      - name: Changeset status
-        run: pnpm changeset status
 
   archives:
     name: Build archives
@@ -517,8 +508,7 @@ jobs:
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishNpm.yml
     with:
-      package: changed
-      baseRef: ''
+      package: all
       dryRun: ${{ needs.context.outputs.dryRun == 'true' }}
       runner: ubuntu-24.04
     permissions:
@@ -532,8 +522,7 @@ jobs:
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishPypi.yml
     with:
-      package: changed
-      baseRef: ''
+      package: all
       dryRun: ${{ needs.context.outputs.dryRun == 'true' }}
       runner: ubuntu-24.04
     permissions:
@@ -617,7 +606,7 @@ jobs:
           CONTAINER_NAMES: ${{ needs.context.outputs.containerNames }}
         run: |
           set -euo pipefail
-          series="${RELEASE_TAG:0:8}"
+          series="$(echo "$RELEASE_TAG" | sed -E 's/^(v[0-9]+\.[0-9]+)\..*$/\1/')"
           for name in $(jq -r '.[]' <<< "$CONTAINER_NAMES"); do
             image="${REGISTRY}/${IMAGE_OWNER}/caracal-${name}"
             docker buildx imagetools create \

@@ -605,9 +605,6 @@ jobs:
       - name: Verify version pins
         run: node scripts/release.mjs stamp --check
 
-      - name: Verify Changesets ignore
-        run: node scripts/generateChangesetsIgnore.mjs --check
-
   coverage:
     name: Upload coverage
     needs:

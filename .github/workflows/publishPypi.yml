@@ -11,24 +11,20 @@ on:
       package:
         description: 'Packages to publish.'
         required: true
-        default: changed
+        default: all
         type: choice
         options:
-          - changed
           - all
           - core
           - oauth
+          - admin
           - identity
           - revocation
           - sdk
           - verify
           - fastmcp
           - redis
-      baseRef:
-        description: 'Diff base. Empty uses latest release tag.'
-        required: false
-        default: ''
-        type: string
+          - asgi
       dryRun:
         description: 'Build only.'
         required: false
@@ -48,11 +44,6 @@ on:
       package:
         description: 'Packages to publish.'
         required: true
-        type: string
-      baseRef:
-        description: 'Diff base. Empty uses latest release tag.'
-        required: false
-        default: ''
         type: string
       dryRun:
         description: 'Build only.'
@@ -101,14 +92,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF_NAME}" != "${{ github.event.repository.default_branch }}" && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
+          if [[ "${GITHUB_REF_NAME}" != "${{ github.event.repository.default_branch }}" && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
             echo "::error::PyPI publishing must run from ${{ github.event.repository.default_branch }} or a Caracal release tag."
             exit 1
           fi
           actor="${{ github.actor }}"
           maintainers="$(mktemp)"
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
-          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "${GITHUB_REF_NAME}" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
+          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
             exit 0
           fi
           if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
@@ -124,16 +115,10 @@ jobs:
         shell: bash
         env:
           PACKAGE: ${{ inputs.package }}
-          BASE_REF: ${{ inputs.baseRef }}
         run: |
           set -euo pipefail
           args=(--ecosystem pypi --format github-matrix)
-          if [[ "$PACKAGE" == 'all' ]]; then
-            args+=(--all-packages)
-          elif [[ -n "$BASE_REF" ]]; then
-            args+=(--since "$BASE_REF")
-          fi
-          if [[ "$PACKAGE" != 'all' && "$PACKAGE" != 'changed' ]]; then
+          if [[ "$PACKAGE" != 'all' ]]; then
             args+=(--package "$PACKAGE")
           fi
           selected="$(node scripts/releasePlan.mjs "${args[@]}")"
