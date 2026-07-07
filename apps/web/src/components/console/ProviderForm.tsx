@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import {
   crossFieldIssues,
+  normalizeHostList,
   parseParams,
   reservedParamsFor,
   serializeParams,
@@ -573,7 +574,8 @@ export function ProviderFormModal({
   const advancedFields = visibleFields.filter((f) => f.advanced);
 
   function setValue(key: string, value: string) {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    const next = key === "allowed_token_hosts" ? normalizeHostList(value) : value;
+    setValues((prev) => ({ ...prev, [key]: next }));
     setCheckFailed(null);
   }
 

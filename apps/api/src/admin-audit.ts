@@ -32,6 +32,11 @@ const SECRET_FIELD_NAMES = new Set([
 // the body, so the mutation classifies as a rotation even though the request is empty.
 const SECRET_ACTION_SEGMENTS = new Set(['rotate-secret'])
 
+// Route segments that name auditable entity collections; a segment matching this pattern
+// is followed by an entity id in entity routes and terminates the path in create routes.
+const COLLECTION_SEGMENT =
+  /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/
+
 const CHANGE_FIELD_DEPTH = 3
 const CHANGE_FIELD_LIMIT = 64
 
@@ -75,13 +80,7 @@ function actionSegment(url: string): string | null {
   const segments = pathOnly(url).split('/').filter(Boolean)
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
-    if (
-      candidate &&
-      segments[i + 1] &&
-      /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
-        candidate,
-      )
-    ) {
+    if (candidate && segments[i + 1] && COLLECTION_SEGMENT.test(candidate)) {
       return segments[i + 2] ?? null
     }
   }
@@ -129,13 +128,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
     const next = segments[i + 1]
-    if (
-      candidate &&
-      next &&
-      /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/.test(
-        candidate,
-      )
-    ) {
+    if (candidate && next && COLLECTION_SEGMENT.test(candidate)) {
       return { type: candidate, id: next }
     }
   }
@@ -147,15 +140,23 @@ function isProviderOAuthCallback(method: string, url: string): boolean {
   return /^\/v1\/zones\/[^/]+\/provider-connections\/oauth\/callback(?:\?|$)/.test(url)
 }
 
-// The id of the zone a successful create returned. A zone create is the one mutation whose
-// zone appears nowhere in the URL, so the record derives it from the response body - that
-// keeps the creation event queryable in the zone's own audit trail.
-function createdZoneId(method: string, path: string, statusCode: number, payload: unknown): string | null {
-  if (method !== 'POST' || path !== '/v1/zones' || statusCode !== 201) return null
+// The entity a successful create returned. Creates post to a collection URL, so the new
+// entity's id exists only in the response body - deriving it there keeps every creation
+// event queryable by the entity it produced, including zone creates where the zone is
+// absent from the URL entirely.
+function createdEntity(
+  method: string,
+  path: string,
+  statusCode: number,
+  payload: unknown,
+): { type: string; id: string } | null {
+  if (method !== 'POST' || statusCode !== 201) return null
+  const collection = path.split('/').filter(Boolean).at(-1)
+  if (!collection || !COLLECTION_SEGMENT.test(collection)) return null
   if (typeof payload !== 'string' && !Buffer.isBuffer(payload)) return null
   try {
     const body = JSON.parse(payload.toString()) as { id?: unknown }
-    return typeof body.id === 'string' ? body.id : null
+    return typeof body.id === 'string' ? { type: collection, id: body.id } : null
   } catch {
     return null
   }
@@ -175,7 +176,7 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
     const account = req.account ?? null
     const entity = entityFromUrl(req.url)
     const path = pathOnly(req.url)
-    const createdZone = createdZoneId(req.method, path, reply.statusCode, payload)
+    const created = createdEntity(req.method, path, reply.statusCode, payload)
     const zoneScoped = actor?.scope === 'zone' && actor.zoneId ? actor.zoneId : null
     const rls = zoneScoped
       ? { rls_mode: 'zone_scoped', rls_zone_guc: zoneScoped }
@@ -196,9 +197,9 @@ export function registerAdminAuditHook(app: FastifyInstance, opts: AuditPluginOp
           action: `${req.method} ${path}`,
           method: req.method,
           path,
-          zoneId: zoneFromUrl(req.url) ?? createdZone,
-          entityType: entity.type ?? (createdZone ? 'zones' : null),
-          entityId: entity.id ?? createdZone,
+          zoneId: zoneFromUrl(req.url) ?? (created?.type === 'zones' ? created.id : null),
+          entityType: created?.type ?? entity.type,
+          entityId: created?.id ?? entity.id,
           statusCode: reply.statusCode,
           payloadJson: { ...rls, ...operator, ...change },
         },

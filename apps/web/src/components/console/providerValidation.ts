@@ -74,6 +74,27 @@ export function isHost(value: string): boolean {
   return HOST_PATTERN.test(value);
 }
 
+// Operators habitually paste full endpoint URLs into host allow-list fields. Each entry
+// that carries a scheme, path, port, or credentials is reduced to its bare hostname so the
+// pasted form of the right value never bounces as a format error; entries already in
+// hostname form pass through untouched, preserving the operator's exact text while typing.
+export function normalizeHostList(raw: string): string {
+  let changed = false;
+  const entries = raw.split(",").map((item) => {
+    const entry = item.trim();
+    const stripped = entry.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
+    if (stripped === entry && !/[/?#]/.test(entry)) return { item, entry };
+    const host = stripped
+      .slice(stripped.indexOf("@") + 1)
+      .split(/[/?#]/)[0]
+      .split(":")[0];
+    if (!host || host === entry) return { item, entry };
+    changed = true;
+    return { item: host, entry: host };
+  });
+  return changed ? entries.map((e) => e.entry).join(", ") : raw;
+}
+
 export interface ParsedParams {
   value: Record<string, string>;
   error?: string;
