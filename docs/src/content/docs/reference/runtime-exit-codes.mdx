@@ -14,7 +14,7 @@ Top-level `caracal` commands are limited to local runtime lifecycle, status, upg
 | `caracal down` | `0` after stack stop succeeds. | Non-zero when Compose stop fails. |
 | `caracal status` | `0` when health probes pass. | `1` when service health fails. |
 | `caracal status --ready` | `0` when readiness probes pass. | `1` when dependency readiness fails. |
-| `caracal upgrade` | `0` after runtime assets upgrade successfully. | Non-zero when download, verification, or replacement fails. |
+| `caracal upgrade` | `0` after images stage, migrations apply, services roll, and readiness passes. | Non-zero when image staging, migration, the roll, or the readiness gate fails. |
 | `caracal purge` | `0` after selected state is removed. | Non-zero when cleanup fails. |
 | `caracal allowlist <add\|remove\|lock\|unlock\|list> [email]` | `0` after the entry change or listing succeeds, including no-op repeats. | `1` on an unknown subcommand, malformed entry, missing entry, locked entry on `add`, or an unreadable allowlist file. |
 | `caracal run -- <command>` | Child process exit code after credentials are acquired; `128 + N` when the child dies from signal N. | `1` before spawn when config, credential exchange, or step-up fails; `127` when the command cannot be spawned. |
