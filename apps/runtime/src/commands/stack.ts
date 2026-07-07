@@ -157,9 +157,10 @@ export async function upgradeCommand(argv: string[]): Promise<void> {
   }
 
   // Roll services onto the new images. Compose recreates only the containers
-  // whose image changed; expand/contract keeps both versions readable.
+  // whose image changed; expand/contract keeps both versions readable. Images
+  // were staged above, so the roll itself skips the build step.
   printInfo('rolling services onto the new version')
-  const handle = stackUp({ paths, args: [], env })
+  const handle = stackUp({ paths, args: [], env, build: false })
   const code = await handle.exitCode
   if (code !== 0) process.exit(code)
 

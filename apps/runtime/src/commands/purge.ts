@@ -3,7 +3,7 @@
 //
 // `caracal purge`: centralized cleanup for selectable targets across dev and runtime installs.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -431,7 +431,7 @@ const TARGETS: Target[] = [
   {
     id: 'cache',
     label: 'Remove build artifacts (dev only)',
-    describe: (ctx) => (ctx.repoRoot ? `apps/*/dist, packages/*/dist, coverage/, node_modules/.cache` : '(dev mode only)'),
+    describe: (ctx) => (ctx.repoRoot ? `all dist/ under apps/ and packages/, coverage/, node_modules/.cache` : '(dev mode only)'),
     available: (ctx) => ctx.repoRoot !== undefined,
     run: async (ctx) => {
       if (!ctx.repoRoot) return
@@ -439,17 +439,26 @@ const TARGETS: Target[] = [
       for (const sub of ['coverage', 'node_modules/.cache', '.turbo']) {
         removePath(join(root, sub), ctx, sub)
       }
+      const findDist = (dir: string, depth: number): string[] => {
+        let entries
+        try {
+          entries = readdirSync(dir, { withFileTypes: true })
+        } catch {
+          return []
+        }
+        const found: string[] = []
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name === 'node_modules') continue
+          const child = join(dir, entry.name)
+          if (entry.name === 'dist') found.push(child)
+          else if (depth > 1) found.push(...findDist(child, depth - 1))
+        }
+        return found
+      }
       for (const group of ['apps', 'packages']) {
         const base = join(root, group)
-        if (!existsSync(base)) continue
-        for (const name of readdirSync(base)) {
-          const child = join(base, name)
-          try {
-            if (!statSync(child).isDirectory()) continue
-          } catch {
-            continue
-          }
-          removePath(join(child, 'dist'), ctx, `${group}/${name}/dist`)
+        for (const dist of findDist(base, 4)) {
+          removePath(dist, ctx, relative(root, dist))
         }
       }
     },
