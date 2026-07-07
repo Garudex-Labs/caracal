@@ -23,7 +23,7 @@
     "setup": "node scripts/setupDev.mjs",
     "caracal": "node apps/runtime/bin/caracal-workspace.mjs",
     "secrets:init": "node infra/secrets/secretInit.mjs",
-    "build:typescript": "pnpm --dir packages/core/ts build && pnpm --dir packages/serverCore/ts build && pnpm --dir packages/oauth/ts build && pnpm --dir packages/admin/ts build && pnpm --dir packages/adminAudit/ts build && pnpm --dir packages/engine build && pnpm --dir packages/sdk/ts build && pnpm --dir packages/identity/ts build && pnpm --dir packages/revocation/ts build && pnpm --dir packages/verify/ts build && pnpm --dir packages/adapters/express/ts build && pnpm --dir packages/adapters/fastmcp/ts build && pnpm --dir packages/backends/redis/ts build && pnpm --dir apps/api build && pnpm --dir apps/coordinator build",
+    "build:typescript": "pnpm --filter @caracalai/core --filter @caracalai/server-core --filter @caracalai/oauth --filter @caracalai/admin --filter @caracalai/admin-audit --filter @caracalai/engine --filter @caracalai/sdk --filter @caracalai/identity --filter @caracalai/revocation --filter @caracalai/verify --filter @caracalai/express --filter @caracalai/fastmcp --filter @caracalai/revocation-redis --filter @caracalai/api --filter @caracalai/coordinator run build",
     "style": "node scripts/checkStyle.mjs",
     "style:all": "node scripts/checkStyle.mjs --all",
     "style:fix": "node scripts/checkStyle.mjs --fix",

@@ -42,11 +42,14 @@ function newestMtime(path) {
   }, stat.mtimeMs)
 }
 
-function sourceIsNewer(source, output) {
+function sourceIsNewer(source, outputs) {
   const sourcePath = join(root, source)
-  const outputPath = join(root, output)
-  if (!existsSync(sourcePath) || !existsSync(outputPath)) return false
-  return newestMtime(sourcePath) > statSync(outputPath).mtimeMs
+  if (!existsSync(sourcePath)) return false
+  const sourceMtime = newestMtime(sourcePath)
+  return outputs.some((output) => {
+    const outputPath = join(root, output)
+    return existsSync(outputPath) && sourceMtime > statSync(outputPath).mtimeMs
+  })
 }
 
 const tsBuilds = [
@@ -59,14 +62,13 @@ const tsBuilds = [
   'packages/engine/dist/stack.js',
 ]
 const staleBuilds = [
-  ['packages/core/ts/src', 'packages/core/ts/dist/index.js'],
-  ['packages/oauth/ts/src', 'packages/oauth/ts/dist/index.js'],
-  ['packages/admin/ts/src', 'packages/admin/ts/dist/index.js'],
-  ['packages/engine/src', 'packages/engine/dist/index.js'],
-  ['packages/engine/src', 'packages/engine/dist/controlState.js'],
-  ['packages/engine/src', 'packages/engine/dist/stack.js'],
+  ['packages/core/ts/src', ['packages/core/ts/dist/index.js']],
+  ['packages/oauth/ts/src', ['packages/oauth/ts/dist/index.js']],
+  ['packages/admin/ts/src', ['packages/admin/ts/dist/index.js']],
+  ['packages/engine/src', ['packages/engine/dist/index.js', 'packages/engine/dist/controlState.js', 'packages/engine/dist/stack.js']],
 ]
-if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some(([source, output]) => sourceIsNewer(source, output))) {
+if (tsBuilds.some((path) => !existsSync(join(root, path))) || staleBuilds.some(([source, outputs]) => sourceIsNewer(source, outputs))) {
+  process.stderr.write('caracal: workspace TypeScript builds are missing or stale; running pnpm run build:typescript\n')
   try {
     execSync('pnpm run build:typescript', { cwd: root, stdio: 'inherit' })
   } catch (err) {

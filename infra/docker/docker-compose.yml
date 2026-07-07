@@ -184,11 +184,14 @@ services:
       - /var/run/postgresql:size=16m,mode=0755
     shm_size: "256m"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h /var/run/postgresql"]
+      # TCP probe: initdb's temporary server only listens on the unix socket, so
+      # health reflects the real postmaster that dependents reach over TCP.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
     deploy:
       resources:
         limits:
@@ -228,6 +231,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+      start_interval: 250ms
     deploy:
       resources:
         limits:
@@ -325,6 +329,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   api:
     <<: [*appService, *appResources]
@@ -417,6 +422,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
   gateway:
     <<: *appService
@@ -484,6 +490,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   audit:
     <<: [*appService, *appResources]
@@ -530,6 +537,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   coordinator:
     <<: [*appService, *appResources]
@@ -578,6 +586,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
   web:
     <<: [*appService, *appResources]
@@ -632,6 +641,7 @@ services:
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
 
 volumes:
