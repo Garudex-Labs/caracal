@@ -67,7 +67,7 @@ rm -rf /tmp/package /tmp/bun.tgz
 bun --version | grep -Fx "${BUN_VERSION}"
 EOF
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY apps/runtime/package.json apps/runtime/package.json
 COPY packages/ packages/
 COPY apps/runtime/ apps/runtime/
