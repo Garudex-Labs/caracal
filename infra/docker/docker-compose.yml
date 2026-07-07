@@ -119,7 +119,7 @@ services:
   postgres:
     build:
       context: ../postgres
-    image: localhost/caracal-postgres:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-postgres:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -203,7 +203,7 @@ services:
   redis:
     build:
       context: ../redis
-    image: localhost/caracal-redis:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-redis:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
@@ -241,7 +241,7 @@ services:
           memory: "${CARACAL_REDIS_MEM_RESERVE:-128M}"
 
   dbMigrate:
-    image: localhost/caracal-postgres:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-postgres:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     build:
       context: ../postgres
     restart: "no"
@@ -276,7 +276,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.go-service
-    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     command: ["/usr/local/bin/sts"]
     depends_on:
       replayVolumeInit:
@@ -336,7 +336,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.node-service
-    image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     command: ["/app/api/dist/main.js"]
     depends_on:
       sts:
@@ -426,7 +426,7 @@ services:
 
   gateway:
     <<: *appService
-    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by sts; never reach for the localhost registry.
     pull_policy: never
     command: ["/usr/local/bin/gateway"]
@@ -494,7 +494,7 @@ services:
 
   audit:
     <<: [*appService, *appResources]
-    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by sts; never reach for the localhost registry.
     pull_policy: never
     command: ["/usr/local/bin/audit"]
@@ -541,7 +541,7 @@ services:
 
   coordinator:
     <<: [*appService, *appResources]
-    image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by api; never reach for the localhost registry.
     pull_policy: never
     command: ["/app/coordinator/dist/main.js"]
@@ -593,7 +593,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.web
-    image: localhost/caracal-web:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+    image: localhost/caracal-web:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     command: ["/app/auth/dist/server.js"]
     depends_on:
       postgres:
@@ -618,7 +618,7 @@ services:
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
       CARACAL_AUTH_AUTO_MIGRATE: "true"
       CARACAL_AUTH_URL: http://localhost:3001
-      CARACAL_VERSION: ${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-2026.05.26}-dev.sha${CARACAL_DEV_SHA:-local}}
+      CARACAL_VERSION: ${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
       CARACAL_API_URL: http://api:3000
       CARACAL_COORDINATOR_URL: http://coordinator:4000
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken

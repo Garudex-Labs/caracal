@@ -120,19 +120,19 @@ describe('loadEnv pinned-var enforcement', () => {
     expect(() =>
       loadEnv({
         mode: 'stable',
-        pins: { CARACAL_VERSION: '2026.05.14' },
-        processEnv: { CARACAL_VERSION: '2026.05.14' },
+        pins: { CARACAL_VERSION: '0.2.0' },
+        processEnv: { CARACAL_VERSION: '0.2.0' },
       }),
     ).not.toThrow()
   })
 
   it('accepts pin matching override file in stable mode', () => {
     const override = join(dir, 'override.env')
-    writeFileSync(override, 'CARACAL_VERSION=2026.05.14\n')
+    writeFileSync(override, 'CARACAL_VERSION=0.2.0\n')
     expect(() =>
       loadEnv({
         mode: 'stable',
-        pins: { CARACAL_VERSION: '2026.05.14' },
+        pins: { CARACAL_VERSION: '0.2.0' },
         overrideFile: override,
         processEnv: {},
       }),

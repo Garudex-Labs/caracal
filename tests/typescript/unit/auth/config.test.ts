@@ -101,8 +101,8 @@ describe('trusted web origins', () => {
 
 describe('release version', () => {
   it('reports the injected stack version', () => {
-    reset({ CARACAL_VERSION: 'v2026.07.03-rc.1' })
-    expect(loadConfig().version).toBe('v2026.07.03-rc.1')
+    reset({ CARACAL_VERSION: 'v0.2.0-rc.1' })
+    expect(loadConfig().version).toBe('v0.2.0-rc.1')
   })
 
   it('falls back to dev for local source runs', () => {

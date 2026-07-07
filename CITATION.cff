@@ -1,8 +1,9 @@
-cff-version: 0.1.0
+cff-version: 1.2.0
 message: "If this project contributes to your research, product, or derivative systems, please consider citing it to help us advance trustworthy AI security research."
 authors:
   - name: "Garudex Labs"
 title: "Caracal: Identity and Authorization for AI Agents"
+version: 0.2.0
 abstract: "Open-source identity and authorization infrastructure for AI agents: short-lived, policy-approved mandates instead of credentials, delegation that can only narrow, instant revocation, and a tamper-evident audit trail."
 date-released: 2026-05-01
 url: "https://github.com/Garudex-Labs/caracal"

@@ -43,8 +43,8 @@ describe('envSchema', () => {
     expect(() =>
       loadEnv({
         mode: 'stable',
-        pins: { CARACAL_VERSION: '2026.05.14' },
-        processEnv: { CARACAL_VERSION: '9999.99.99' },
+        pins: { CARACAL_VERSION: '0.2.0' },
+        processEnv: { CARACAL_VERSION: '9.9.9' },
       }),
     ).toThrow(PinnedVarError)
   })

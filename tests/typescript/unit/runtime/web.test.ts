@@ -200,13 +200,13 @@ describe('webCommand stack preflight', () => {
 
   it('never overrides an operator-provided CARACAL_VERSION for the backend', async () => {
     fetchMock.mockResolvedValue({ ok: true } as Response)
-    process.env.CARACAL_VERSION = 'v2026.09.01'
+    process.env.CARACAL_VERSION = 'v0.3.0'
 
     await webCommand(['--web-port=4101', '--auth-port', '4102'])
 
     const backendSpawn = spawnMock.mock.calls.find((call) => (call[1] as string[]).includes('apps/auth'))
     expect(backendSpawn).toBeDefined()
-    expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_VERSION).toBe('v2026.09.01')
+    expect((backendSpawn![2] as { env: NodeJS.ProcessEnv }).env.CARACAL_VERSION).toBe('v0.3.0')
   })
 
   it('builds both apps first and serves the production build with --build', async () => {

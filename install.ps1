@@ -127,7 +127,7 @@ if ($Version -eq 'latest') {
 } else {
     $tag = $Version
 }
-if ($tag -notmatch '^v\d{4}\.\d{2}\.\d{2}(\.\d+)?(-rc\.(sha[0-9A-Za-z]+|\d+))?$') {
+if ($tag -notmatch '^v\d+\.\d+\.\d+(-rc\.(sha[0-9A-Za-z]+|\d+))?$') {
     throw "release tag $tag is not a supported Caracal release tag"
 }
 $base = "https://github.com/$repo/releases/download/$tag"

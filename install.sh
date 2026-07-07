@@ -113,7 +113,7 @@ usage() {
 caracal-install: download the Caracal runtime CLI from GitHub Releases.
 
 Usage:
-  install.sh [--version vYYYY.MM.DD[.N][-rc.N]] [--prefix PATH] [--install-dir PATH] [--destdir PATH] [--uninstall] [--no-verify-provenance]
+  install.sh [--version vX.Y.Z[-rc.N]] [--prefix PATH] [--install-dir PATH] [--destdir PATH] [--uninstall] [--no-verify-provenance]
 
 Installs the thin 'caracal' runtime CLI. Start the stack with 'caracal up' and
 open the web console with 'caracal web'.
@@ -298,7 +298,7 @@ else
     tag="${VERSION}"
 fi
 case "${tag}" in
-    v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]|v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*|v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-rc.*|v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*-rc.*) ;;
+    v[0-9]*.[0-9]*.[0-9]*) ;;
     *) err "release tag ${tag} is not a supported Caracal release tag" ;;
 esac
 base="https://github.com/${REPO}/releases/download/${tag}"
