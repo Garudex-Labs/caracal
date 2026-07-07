@@ -180,7 +180,7 @@ pnpm caracal down                                          # Stop dev before tes
 
 ### Native build flags
 
-Go-based container builds preserve debug information by default and accept standard build arguments for native toolchains: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; pass linker options through `GO_LDFLAGS` when a release or diagnostic build needs them.
+Go-based container builds strip debug symbols by default (`GO_LDFLAGS` defaults to `-s -w`) and accept standard build arguments for native toolchains: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; override `GO_LDFLAGS` when a diagnostic build needs symbol tables.
 
 ### Release flow
 

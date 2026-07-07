@@ -21,7 +21,7 @@ Every Caracal release artifact shares one Semantic Version: `product.version` in
 
 Runtime release builds compile Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries through Bun compile scripts.
 
-Go-based service container builds preserve debug information by default and honor native build arguments passed to Docker: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; pass linker options through `GO_LDFLAGS` for diagnostic or release-specific builds.
+Go-based service container builds strip debug symbols by default (`GO_LDFLAGS` defaults to `-s -w`) and honor native build arguments passed to Docker: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; override `GO_LDFLAGS` for diagnostic builds that need symbol tables.
 
 ## Release Flow
 
