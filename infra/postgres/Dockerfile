@@ -8,6 +8,10 @@
 # syntax=docker/dockerfile:1.7
 FROM postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
 
+# The pinned base digest lags Alpine security releases between upstream
+# rebuilds; upgrading at build time keeps apk packages at their current fixes.
+RUN apk upgrade --no-cache
+
 ENV POSTGRES_DB=caracal \
     POSTGRES_INITDB_ARGS="--data-checksums --auth-host=scram-sha-256"
 

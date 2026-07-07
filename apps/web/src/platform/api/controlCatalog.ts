@@ -58,6 +58,13 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     summary: "Delete applications.",
   },
   {
+    command: "approval",
+    verb: "read",
+    action: "read",
+    scope: "control:approval:read",
+    summary: "List approval holds raised by policy before a token is released.",
+  },
+  {
     command: "audit",
     verb: "read",
     action: "read",
@@ -197,6 +204,27 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     scope: "control:session:read",
     summary: "List authority sessions.",
   },
+  {
+    command: "workload",
+    verb: "read",
+    action: "read",
+    scope: "control:workload:read",
+    summary: "List and inspect workloads.",
+  },
+  {
+    command: "workload",
+    verb: "write",
+    action: "write",
+    scope: "control:workload:write",
+    summary: "Create and update workloads and rotate their secrets.",
+  },
+  {
+    command: "workload",
+    verb: "delete",
+    action: "delete",
+    scope: "control:workload:delete",
+    summary: "Delete workloads.",
+  },
 ];
 
 export const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission.scope).sort();
@@ -206,6 +234,7 @@ export const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission
 export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
   agent: "Inspect and manage agent sessions.",
   app: "Manage application identities.",
+  approval: "Inspect human-approval holds raised by policy.",
   audit: "Search the audit ledger.",
   delegation: "Inspect and revoke delegated authority.",
   explain: "Explain authorization decisions.",
@@ -215,4 +244,5 @@ export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
   "policy-set": "Group, activate, and simulate policy sets.",
   resource: "Manage protected resources.",
   session: "Inspect authority sessions.",
+  workload: "Manage launcher identities and their credential bindings.",
 };
