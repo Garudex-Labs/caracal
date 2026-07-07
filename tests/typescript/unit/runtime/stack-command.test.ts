@@ -9,9 +9,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const engineMocks = vi.hoisted(() => ({
+  acquireStackLock: vi.fn(() => vi.fn()),
+  appendUpgradeRecord: vi.fn(),
   composeRun: vi.fn(),
   defaultServiceProbes: vi.fn(() => []),
+  readRuntimeVersion: vi.fn(() => '2026.06.09'),
   resolveStackPaths: vi.fn(),
+  runtimePaths: vi.fn(() => ({ home: '/tmp/caracal' })),
   stackDown: vi.fn(),
   stackStatus: vi.fn(),
   stackUp: vi.fn(),
@@ -190,6 +194,15 @@ describe('stack commands', () => {
     const calls = engineMocks.composeRun.mock.calls.map((c) => (c[0] as { args: string[] }).args)
     expect(calls).toContainEqual(['pull'])
     expect(calls).not.toContainEqual(['build'])
+    expect(engineMocks.acquireStackLock).toHaveBeenCalledWith('/tmp/caracal')
+    expect(engineMocks.appendUpgradeRecord).toHaveBeenCalledWith('/tmp/caracal', expect.objectContaining({ outcome: 'success' }))
+  })
+
+  it('upgrade skips the lock and journal in dev mode', async () => {
+    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+
+    expect(engineMocks.acquireStackLock).not.toHaveBeenCalled()
+    expect(engineMocks.appendUpgradeRecord).not.toHaveBeenCalled()
   })
 
   it('upgrade aborts before rolling services when the migration fails', async () => {

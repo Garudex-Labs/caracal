@@ -135,7 +135,8 @@ describe('loadRuntimeIdentity', () => {
     expect(() => loadRuntimeIdentity(true)).toThrow(/looks like a workload secret/)
   })
 
-  it('rejects a group-writable secret file', () => {
+  // Mode-bit enforcement is POSIX-only; the runtime skips the check on Windows.
+  it.runIf(process.platform !== 'win32')('rejects a group-writable secret file', () => {
     const secretPath = join(root, 'secret')
     writeSecretFile(secretPath, 'ws_from_file')
     chmodSync(secretPath, 0o660)
@@ -144,7 +145,7 @@ describe('loadRuntimeIdentity', () => {
     expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
   })
 
-  it('rejects a group- or world-readable secret file', () => {
+  it.runIf(process.platform !== 'win32')('rejects a group- or world-readable secret file', () => {
     const secretPath = join(root, 'secret')
     writeSecretFile(secretPath, 'ws_from_file')
     chmodSync(secretPath, 0o640)

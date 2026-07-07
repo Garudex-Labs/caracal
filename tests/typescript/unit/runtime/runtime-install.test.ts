@@ -1,13 +1,22 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the runtime asset installer.
+// Unit tests for the runtime asset installer, version guard, stack lock, and upgrade journal.
 
-import { mkdtempSync, readFileSync, statSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { installRuntimeAssets, runtimePaths } from '@caracalai/engine'
+import {
+  acquireStackLock,
+  appendUpgradeRecord,
+  compareCaracalVersions,
+  installRuntimeAssets,
+  readRuntimeVersion,
+  RuntimeDowngradeError,
+  runtimePaths,
+  StackLockError,
+} from '@caracalai/engine'
 
 describe('runtime installer', () => {
   it('runtimePaths honours CARACAL_HOME for end-user package installs', () => {
@@ -162,5 +171,93 @@ describe('runtime installer', () => {
       expect(compose).not.toContain(`\n      ${tail} `)
     }
     expect(compose).toMatch(/POSTGRES_PASSWORD_FILE/)
+  })
+
+  it('records the installing version in the runtime marker', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
+    const paths = runtimePaths(home)
+
+    installRuntimeAssets(paths, 'stable', '2026.06.21')
+
+    expect(readRuntimeVersion(home)).toBe('2026.06.21')
+    installRuntimeAssets(paths, 'stable', '2026.07.01')
+    expect(readRuntimeVersion(home)).toBe('2026.07.01')
+  })
+
+  it('refuses to install assets from an older binary and leaves the home untouched', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
+    const paths = runtimePaths(home)
+    installRuntimeAssets(paths, 'stable', '2026.07.01')
+    writeFileSync(paths.composeFile, 'name: current\n')
+
+    expect(() => installRuntimeAssets(paths, 'stable', '2026.06.21')).toThrow(RuntimeDowngradeError)
+
+    expect(readFileSync(paths.composeFile, 'utf8')).toBe('name: current\n')
+    expect(readRuntimeVersion(home)).toBe('2026.07.01')
+  })
+
+  it('skips the downgrade guard when no version is supplied or no marker exists', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-runtime-'))
+    const paths = runtimePaths(home)
+    installRuntimeAssets(paths, 'stable', '2026.07.01')
+
+    expect(() => installRuntimeAssets(paths, 'stable')).not.toThrow()
+    expect(readRuntimeVersion(home)).toBe('2026.07.01')
+
+    const fresh = runtimePaths(mkdtempSync(join(tmpdir(), 'caracal-runtime-')))
+    expect(() => installRuntimeAssets(fresh, 'stable', '2026.06.21')).not.toThrow()
+  })
+})
+
+describe('compareCaracalVersions', () => {
+  it('orders calver, rc suffixes, and the semver baseline consistently', () => {
+    expect(compareCaracalVersions('2026.06.21', '2026.06.09')).toBeGreaterThan(0)
+    expect(compareCaracalVersions('2026.06.09', '2026.06.21')).toBeLessThan(0)
+    expect(compareCaracalVersions('2026.06.21', '2026.06.21')).toBe(0)
+    expect(compareCaracalVersions('2026.06.21-rc.1', '2026.06.21')).toBeLessThan(0)
+    expect(compareCaracalVersions('2026.06.21-rc.2', '2026.06.21-rc.1')).toBeGreaterThan(0)
+    expect(compareCaracalVersions('v2026.06.21', '2026.06.21')).toBe(0)
+    expect(compareCaracalVersions('1.0.0', '1.0.0-rc.1')).toBeGreaterThan(0)
+    expect(compareCaracalVersions('1.1.0', '1.0.9')).toBeGreaterThan(0)
+  })
+})
+
+describe('stack lock', () => {
+  it('serializes concurrent commands and releases on completion', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-lock-'))
+
+    const release = acquireStackLock(home)
+    expect(existsSync(join(home, '.lock'))).toBe(true)
+    expect(() => acquireStackLock(home)).toThrow(StackLockError)
+
+    release()
+    expect(existsSync(join(home, '.lock'))).toBe(false)
+    acquireStackLock(home)()
+  })
+
+  it('takes over a stale lock left by a dead process', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-lock-'))
+    writeFileSync(join(home, '.lock'), '999999999\n')
+
+    const release = acquireStackLock(home)
+
+    expect(readFileSync(join(home, '.lock'), 'utf8').trim()).toBe(String(process.pid))
+    release()
+  })
+})
+
+describe('upgrade journal', () => {
+  it('appends JSON lines with timestamp, versions, and outcome', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-journal-'))
+
+    appendUpgradeRecord(home, { from: '2026.06.09', to: '2026.06.21', outcome: 'success' })
+    appendUpgradeRecord(home, { to: '2026.06.21', outcome: 'migrationFailed' })
+
+    const lines = readFileSync(join(home, 'upgrade.log'), 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(2)
+    const first = JSON.parse(lines[0])
+    expect(first).toMatchObject({ from: '2026.06.09', to: '2026.06.21', outcome: 'success' })
+    expect(new Date(first.at).getTime()).toBeGreaterThan(0)
+    expect(JSON.parse(lines[1]).outcome).toBe('migrationFailed')
   })
 })
