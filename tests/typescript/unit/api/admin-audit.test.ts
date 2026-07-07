@@ -73,6 +73,42 @@ describe('admin audit hook', () => {
     expect(ins!.params![10]).toBe('zone-new')
   })
 
+  it('records a nested create against the created entity, not its parent zone', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/applications', async (_req, reply) =>
+      reply.code(201).send({ id: 'app-new', name: 'Atlas Research Agent' }),
+    )
+    await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'Atlas Research Agent' },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('z1')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-new')
+  })
+
+  it('keeps the action route entity when a POST is a sub-resource verb, not a create', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/applications/:id/rotate-secret', async (_req, reply) =>
+      reply.code(201).send({ id: 'ignored-secret-envelope-id' }),
+    )
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('z1')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-1')
+  })
+
   it('records the verified console profile id alongside the credential actor', async () => {
     const captured: Captured[] = []
     const app = Fastify({ logger: false })

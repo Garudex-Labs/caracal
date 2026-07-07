@@ -83,16 +83,16 @@ export function normalizeHostList(raw: string): string {
   const entries = raw.split(",").map((item) => {
     const entry = item.trim();
     const stripped = entry.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
-    if (stripped === entry && !/[/?#]/.test(entry)) return { item, entry };
+    if (stripped === entry && !/[/?#]/.test(entry)) return entry;
     const host = stripped
       .slice(stripped.indexOf("@") + 1)
       .split(/[/?#]/)[0]
       .split(":")[0];
-    if (!host || host === entry) return { item, entry };
+    if (!host || host === entry) return entry;
     changed = true;
-    return { item: host, entry: host };
+    return host;
   });
-  return changed ? entries.map((e) => e.entry).join(", ") : raw;
+  return changed ? entries.join(", ") : raw;
 }
 
 export interface ParsedParams {
