@@ -9,7 +9,6 @@ applyTo: "{apps/web/**,tests/typescript/unit/web/**}"
 - Use the approved naming universe when example, demo, placeholder, or reference data is needed.
 - Keep names contextually appropriate, realistic, operational, and internally consistent.
 - Do not introduce random placeholder names such as `payments-api`, `payments-worker`, `alice`, `bob`, `Acme`, generic GitHub examples, or unrelated fake brands.
-- Do not modify anything inside the `examples/` directory for this rule.
 
 ## Approved Naming Universe
 
