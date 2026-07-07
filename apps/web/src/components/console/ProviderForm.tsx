@@ -349,6 +349,13 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
     },
     { key: "api_key", label: "API key", kind: "secret", required: true },
     {
+      key: "allowed_token_hosts",
+      label: "Allowed upstream hosts",
+      kind: "list",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
+    },
+    {
       key: "auth_scheme",
       label: "Authorization scheme",
       kind: "text",
@@ -375,7 +382,8 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       key: "allowed_token_hosts",
       label: "Allowed upstream hosts",
       kind: "list",
-      hint: "Host allow-list for static bearer-token forwarding.",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
     },
     {
       key: "auth_header",
@@ -419,6 +427,13 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       kind: "secret",
       required: true,
       hint: "Password or API token, sealed at rest. Gateway sends Authorization: Basic.",
+    },
+    {
+      key: "allowed_token_hosts",
+      label: "Allowed upstream hosts",
+      kind: "list",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
     },
     {
       key: "forward_caracal_identity",

@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { ConfirmModal, InfoGrid, SettingsGroup } from "@/components/console/SettingsPanels";
+import { InfoGrid, SettingsGroup } from "@/components/console/SettingsPanels";
 import {
   AvatarPicker,
   Button,
@@ -45,7 +45,6 @@ function ProfilePage() {
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [avatar, setAvatar] = useState(profile.avatar);
   const [saving, setSaving] = useState(false);
-  const [signOutOpen, setSignOutOpen] = useState(false);
 
   useEffect(() => {
     setFullName(profile.fullName || session.data?.user?.name || "");
@@ -127,7 +126,7 @@ function ProfilePage() {
         title="Account identifiers"
         description="Identifiers for this owner account."
         action={
-          <Button variant="secondary" onClick={() => setSignOutOpen(true)}>
+          <Button variant="secondary" onClick={() => void confirmSignOut()}>
             Sign out
           </Button>
         }
@@ -175,15 +174,6 @@ function ProfilePage() {
           </div>
         </InfoGrid>
       </SettingsGroup>
-
-      <ConfirmModal
-        open={signOutOpen}
-        title="Sign out"
-        description="Are you sure you want to sign out of Caracal? You will need to sign in again to continue."
-        confirmLabel="Sign out"
-        onClose={() => setSignOutOpen(false)}
-        onConfirm={confirmSignOut}
-      />
     </div>
   );
 }
