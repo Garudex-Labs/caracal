@@ -51,15 +51,12 @@ function validate(path) {
   if (manifest.helm.imageTag !== version) fail(`${path}: helm imageTag ${manifest.helm.imageTag} does not match ${version}`)
   if (process.env.CARACAL_VALIDATE_HELM_FILES === '1') {
     const chart = readFileSync(join(repoRoot, 'infra/helm/caracal/Chart.yaml'), 'utf8')
-    const values = readFileSync(join(repoRoot, 'infra/helm/caracal/values.yaml'), 'utf8')
     const chartFileVersion = chart.match(/^version: ([^ \n]+)/m)?.[1]
     const appVersion = chart.match(/^appVersion: "([^"]+)"/m)?.[1]
-    const imageTag = values.match(/^  tag: "([^"]+)"/m)?.[1]
     if (chartFileVersion !== manifest.helm.chartVersion)
       fail(`${path}: Chart.yaml version ${chartFileVersion} does not match ${manifest.helm.chartVersion}`)
     if (appVersion !== manifest.helm.appVersion)
       fail(`${path}: Chart.yaml appVersion ${appVersion} does not match ${manifest.helm.appVersion}`)
-    if (imageTag !== manifest.helm.imageTag) fail(`${path}: values.yaml global.tag ${imageTag} does not match ${manifest.helm.imageTag}`)
   }
 }
 

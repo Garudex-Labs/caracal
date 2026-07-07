@@ -117,14 +117,10 @@ function stampGoModules(config, diff) {
 function stampHelm(config, diff) {
   const version = config.product.version
   const chartPath = join(repoRoot, 'infra/helm/caracal/Chart.yaml')
-  const valuesPath = join(repoRoot, 'infra/helm/caracal/values.yaml')
   const chartBefore = readFileSync(chartPath, 'utf8')
-  const valuesBefore = readFileSync(valuesPath, 'utf8')
   let chartAfter = chartBefore.replace(/^version: .*/m, `version: ${version}`)
   chartAfter = chartAfter.replace(/^appVersion: .*/m, `appVersion: "${version}"`)
-  const valuesAfter = valuesBefore.replace(/^( {2}tag: ).*/m, `$1"${version}"`)
   if (chartAfter !== chartBefore) diff.push({ path: chartPath, before: chartBefore, after: chartAfter })
-  if (valuesAfter !== valuesBefore) diff.push({ path: valuesPath, before: valuesBefore, after: valuesAfter })
 }
 
 function stampDevStack(config, diff) {

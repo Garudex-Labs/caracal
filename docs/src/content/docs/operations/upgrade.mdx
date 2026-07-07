@@ -15,7 +15,7 @@ Contract-phase changes (dropping, renaming, retyping, or tightening a column to 
 1. Install the new release binary (re-run the install script from the release page).
 2. Run `caracal upgrade`.
 
-Upgrade one stable release at a time. Each release's migrations are validated against the immediately previous release; jumping across releases applies every pending migration in one pass, which is outside the validated path. Run one upgrade per host at a time - concurrent invocations are not coordinated.
+Upgrade one stable release at a time. Each release's migrations are validated against the immediately previous release; jumping across releases applies every pending migration in one pass, which is outside the validated path. A lock file (`$CARACAL_HOME/.lock`) serializes `caracal up`, `caracal down`, and `caracal upgrade` on a host; a concurrent invocation exits with an error instead of interleaving. A lock left by a crashed process is taken over automatically.
 
 ## One-Command Upgrade (Runtime)
 
@@ -31,7 +31,7 @@ The command performs the expand-then-roll sequence in order:
 4. **Roll services.** `up -d` recreates only containers whose image or configuration changed. Each service restarts briefly as it rolls; removed services are cleaned up.
 5. **Gate readiness.** Poll the core services' `/ready` endpoints (API, STS, Gateway, Audit, Coordinator) for up to two minutes, exiting non-zero if any fails.
 
-Every phase is idempotent. If the process is interrupted at any point - including power loss mid-roll - run `caracal upgrade` again; staged images, applied migrations, and rolled services all converge.
+Every phase is idempotent. If the process is interrupted at any point - including power loss mid-roll - run `caracal upgrade` again; staged images, applied migrations, and rolled services all converge. Each attempt appends its outcome to `$CARACAL_HOME/upgrade.log` (JSON lines with timestamp, versions, and the phase reached), which records the upgrade history for the host.
 
 ## What Is Preserved
 
@@ -93,7 +93,7 @@ On Windows PowerShell, set the version with `$env:CARACAL_VERSION = "<new-versio
 
 ## Rollback
 
-Prefer roll-forward fixes after migrations. Applied migrations are never rolled back automatically. If rolling back app images, verify the previous version understands the current schema and config values, and note that running an older binary's `caracal up` rewrites `compose.yml` to that older release - roll back deliberately, not by mixing binary versions.
+Prefer roll-forward fixes after migrations. Applied migrations are never rolled back automatically. An older binary refuses to touch a home directory whose stack was installed by a newer release (`$CARACAL_HOME/runtime.json` records the installed version). To roll back deliberately: verify the previous version understands the current schema and config values, remove `$CARACAL_HOME/runtime.json`, then run the older binary's `caracal upgrade`. Never remove the secrets directory - sealed data is unrecoverable without it.
 
 ## Limitations
 
