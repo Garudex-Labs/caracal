@@ -4,7 +4,7 @@ description: Validate service readiness, dependencies, provider configuration, r
 pageType: workflow
 ---
 
-Provider Preflight is an automatable readiness check under `examples/providerPreflight`. Use it after creating a provider-backed resource, before cutting traffic over, and from CI before each deploy. It walks the same chain a real Gateway request depends on - control plane, Gateway dependencies, application identity, provider binding and configuration, network paths, and the active policy decision - and reports exactly which link is broken and how to fix it.
+Provider Preflight is an automatable readiness check in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `providerPreflight/`. Use it after creating a provider-backed resource, before cutting traffic over, and from CI before each deploy. It walks the same chain a real Gateway request depends on - control plane, Gateway dependencies, application identity, provider binding and configuration, network paths, and the active policy decision - and reports exactly which link is broken and how to fix it.
 
 ## What it checks
 
@@ -29,7 +29,8 @@ The preflight fails closed. Any failed check exits non-zero, and every failure o
 ## Run the preflight
 
 ```bash
-cd examples/providerPreflight
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/providerPreflight
 CARACAL_API_URL=http://127.0.0.1:3000 \
 CARACAL_ADMIN_TOKEN=<admin-token> \
 PREFLIGHT_ZONE_ID=<zone-id> \
@@ -56,7 +57,7 @@ Exit codes: `0` when all checks pass, `1` when any check fails, `2` when the pre
 ## Test
 
 ```bash
-cd examples/providerPreflight
+cd caracal-examples/providerPreflight
 npm test
 ```
 

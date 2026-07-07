@@ -64,7 +64,7 @@ Caracal exposes the triage bundle through existing surfaces rather than a separa
 | Service readiness and dependencies | Console `diagnostics` (Doctor: `health`, `readiness`) |
 | Visible zones, resources, and policy sets | Console `diagnostics` (Doctor: `zones`) |
 | Deployment and operator environment checks | Console `diagnostics` (Doctor: `preflight`) |
-| Resource-to-provider binding and policy allow | [Check Provider Readiness](/examples/provider-preflight/) (`examples/providerPreflight`) |
+| Resource-to-provider binding and policy allow | [Check Provider Readiness](/examples/provider-preflight/) |
 | Last denial and request trace | Console `audit` and `request trace` |
 
 The Console `diagnostics` Doctor view runs `health`, `readiness`, `zones`, and `preflight` in one place, including strict readiness for automation gates. Use it as the single bundle the rest of this page points back to.

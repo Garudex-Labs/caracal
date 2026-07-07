@@ -4,7 +4,7 @@ description: Run a plain CLI agent with Google and OpenAI provider credentials i
 pageType: workflow
 ---
 
-Research Agent is a `caracal run` example under `examples/ResearchAgent`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
+Research Agent is a `caracal run` example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `ResearchAgent/`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
 
 ## What it demonstrates
 
@@ -58,7 +58,8 @@ Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `O
 ## Launch the agent
 
 ```bash
-cd examples/ResearchAgent
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/ResearchAgent
 export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
 caracal run -- node agent.mjs
 ```
@@ -79,7 +80,7 @@ Started directly with `node agent.mjs`, the preflight fails with exit code 2 bef
 ## Test
 
 ```bash
-cd examples/ResearchAgent
+cd caracal-examples/ResearchAgent
 pnpm test
 ```
 

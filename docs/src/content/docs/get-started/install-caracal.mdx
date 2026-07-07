@@ -21,12 +21,12 @@ To verify a download yourself, or to verify archives and container images fetche
 ### Linux and macOS
 
 ```sh
-gh release download vYYYY.MM.DD \
+gh release download vX.Y.Z \
   --repo Garudex-Labs/caracal \
   --pattern 'caracal-runtime-linux-amd64-*.tar.gz' \
   --pattern SHA256SUMS
 sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
-tar -xzf caracal-runtime-linux-amd64-vYYYY.MM.DD.tar.gz
+tar -xzf caracal-runtime-linux-amd64-vX.Y.Z.tar.gz
 install -m 0755 caracal ~/.local/bin/caracal
 ```
 
@@ -35,12 +35,12 @@ Choose the `linux-arm64`, `darwin-amd64`, or `darwin-arm64` archive when that ma
 ### Windows
 
 ```powershell
-gh release download vYYYY.MM.DD `
+gh release download vX.Y.Z `
   --repo Garudex-Labs/caracal `
   --pattern 'caracal-runtime-windows-amd64-*.zip' `
   --pattern SHA256SUMS
-Get-FileHash .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -Algorithm SHA256
-Expand-Archive .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
+Get-FileHash .\caracal-runtime-windows-amd64-vX.Y.Z.zip -Algorithm SHA256
+Expand-Archive .\caracal-runtime-windows-amd64-vX.Y.Z.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
 ```
 
 Compare the PowerShell hash with the matching entry in `SHA256SUMS`, then add `%LOCALAPPDATA%\Programs\caracal` to the user `Path` and open a new shell.

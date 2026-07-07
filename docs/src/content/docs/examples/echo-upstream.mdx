@@ -4,7 +4,7 @@ description: Start the local protected target that proves Gateway-brokered reque
 pageType: workflow
 ---
 
-Echo Upstream is a zero-dependency HTTP service under `examples/echoUpstream`. It stands in for the API you would put behind Caracal, so you can verify a Gateway-mediated request end to end without hosting your own upstream. Every response states whether the call was brokered by the Gateway or hit the service directly, and shows the evidence behind that verdict.
+Echo Upstream is a zero-dependency HTTP service in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `echoUpstream/`. It stands in for the API you would put behind Caracal, so you can verify a Gateway-mediated request end to end without hosting your own upstream. Every response states whether the call was brokered by the Gateway or hit the service directly, and shows the evidence behind that verdict.
 
 ## What it demonstrates
 
@@ -18,7 +18,8 @@ Echo Upstream is a zero-dependency HTTP service under `examples/echoUpstream`. I
 ## Run with Docker
 
 ```bash
-cd examples/echoUpstream
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/echoUpstream
 docker compose -f compose.yml up --build
 ```
 
@@ -31,7 +32,7 @@ curl http://127.0.0.1:8088/healthz
 ## Run with Node
 
 ```bash
-cd examples/echoUpstream
+cd caracal-examples/echoUpstream
 npm start
 ```
 
@@ -69,7 +70,7 @@ Calling `http://127.0.0.1:8088/` directly returns `"viaGateway": false`, which m
 ## Test
 
 ```bash
-cd examples/echoUpstream
+cd caracal-examples/echoUpstream
 npm test
 ```
 

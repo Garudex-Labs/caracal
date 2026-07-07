@@ -4,7 +4,7 @@ description: Run the agent-swarm reference protected by one Caracal managed appl
 pageType: workflow
 ---
 
-Lynx Capital is a runnable reference under `examples/lynxCapital`. It models a
+Lynx Capital is a runnable reference in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `lynxCapital/`. It models a
 finance-operations platform: an LLM swarm of orchestrators, regional workflows, and
 thousands of ephemeral domain workers executes payout cycles across twenty partner
 providers, with every agent and every provider call governed by Caracal. It is the primary
@@ -67,7 +67,8 @@ flowchart LR
 ## Commands
 
 ```bash
-cd examples/lynxCapital
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/lynxCapital
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"

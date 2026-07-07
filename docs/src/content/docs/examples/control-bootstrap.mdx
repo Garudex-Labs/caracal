@@ -4,7 +4,7 @@ description: Keep an agent environment in sync with a declared plan through a sc
 pageType: workflow
 ---
 
-Control Bootstrap is the canonical Control API automation example under `examples/controlBootstrap`. A small CI/CD-style pipeline keeps one agent's environment - application, provider, resource, and policy - matching a declared plan, without adding product-management verbs to the runtime CLI.
+Control Bootstrap is the canonical Control API automation example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `controlBootstrap/`. A small CI/CD-style pipeline keeps one agent's environment - application, provider, resource, and policy - matching a declared plan, without adding product-management verbs to the runtime CLI.
 
 ## What it demonstrates
 
@@ -35,7 +35,8 @@ The plan describes the PiperNet reporter agent's environment: the agent applicat
 ## Run the pipeline
 
 ```bash
-cd examples/controlBootstrap
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/controlBootstrap
 cp env.example .env
 $EDITOR .env
 . .env
@@ -62,7 +63,7 @@ npm run teardown
 ## Test
 
 ```bash
-cd examples/controlBootstrap
+cd caracal-examples/controlBootstrap
 npm test
 ```
 

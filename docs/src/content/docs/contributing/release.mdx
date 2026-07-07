@@ -1,16 +1,16 @@
 ---
 title: Release Caracal
-description: CalVer releases, package publishing, protected workflows, and rollback rules.
+description: Lockstep SemVer releases, package publishing, protected workflows, and rollback rules.
 pageType: reference
 ---
 
-Caracal release artifacts use CalVer product versions and package versions defined in `release.config.json`.
+Every Caracal release artifact shares one Semantic Version: `product.version` in `release.config.json`. Release candidates append `-rc.N`; `scripts/release.sh stamp` propagates the version into every package manifest, image reference, chart, and install pin.
 
 ## Release Surfaces
 
 | Surface | Source |
 | --- | --- |
-| Product version | `release.config.json` product version, currently `2026.07.03-rc.1`. |
+| Product version | `release.config.json` `product.version`, currently `0.2.0`. |
 | Runtime binary | `apps/runtime/dist/caracal-*`. |
 | Containers | API, STS, Gateway, Audit, Coordinator, Control, Postgres, Redis, Runtime. |
 | Helm | `infra/helm/caracal`. |
@@ -27,20 +27,37 @@ Go-based service container builds preserve debug information by default and hono
 
 | Stage | Command pattern |
 | --- | --- |
-| RC prepare | `scripts/release.sh rc prepare --base-version <YYYY.MM.DD> --suffix rc.1` |
-| RC dry run | `scripts/release.sh rc dry-run --base-version <YYYY.MM.DD> --suffix rc.1 --local` |
+| RC prepare | Set `product.version` to `X.Y.Z-rc.N`, then `scripts/release.sh rc prepare` |
+| RC dry run | `scripts/release.sh rc dry-run --local` |
+| Stable stamp | Set `product.version` to `X.Y.Z`, then `scripts/release.sh stamp` and commit |
 | Stable dry run | `scripts/release.sh stable --dry-run` |
 | Stable publish | `scripts/release.sh stable` |
+| Promote an rc | `scripts/release.sh promote --from vX.Y.Z-rc.N` |
 
-Protected GitHub workflows publish npm and PyPI packages. Local stable publishing requires explicit approval and environment override.
-
-## Changesets
-
-Only public `@caracalai/*` packages under `packages/` are released through Changesets. Internal-only packages must stay in the Changesets ignore list.
+Protected GitHub workflows publish npm and PyPI packages. Every release publishes all publishable packages at the shared version; `package=<name>` exists only to resume a partially failed publish. Local stable publishing requires explicit approval and environment override.
 
 ## Rollback Rule
 
-Do not delete published tags. Roll forward with a new CalVer tag. Pinned `v<calver>` tags are immutable; floating monthly tags move with the new cut.
+Do not delete published tags. Roll forward with a new SemVer tag. Pinned `vX.Y.Z` tags are immutable; the floating `vX.Y` series tag moves with the new cut.
+
+## Registry Cleanup After the SemVer Cutover
+
+The migration from CalVer to lockstep SemVer leaves registry state that only a maintainer with registry access can retire. Complete these steps manually after the first `v0.2.0` stable release is live:
+
+1. Deprecate dead npm names with a pointer to their successors — never unpublish:
+   ```bash
+   npm deprecate @caracalai/transport-mcp@'*' 'renamed: use the current @caracalai packages'
+   npm deprecate @caracalai/transport-a2a@'*' 'renamed: use the current @caracalai packages'
+   npm deprecate @caracalai/mcp-express@'*' 'renamed: use @caracalai/express'
+   npm deprecate @caracalai/mcp-fastmcp@'*' 'renamed: use @caracalai/fastmcp'
+   npm deprecate @caracalai/tokenstate-postgres@'*' 'renamed: use the current @caracalai packages'
+   ```
+2. Deprecate the pre-0.2.0 CalVer and `0.1.x` versions on live npm names the same way.
+3. Yank (PEP 592) the pre-0.2.0 versions on live PyPI projects and all versions of dead-name PyPI projects. Yanking keeps files installable by exact pin while removing them from resolution.
+4. Delete the CalVer `ghcr.io` image tags (`v2026.*`, `2026.*`) and CalVer OCI Helm chart versions. CalVer sorts above SemVer, so any surviving `2026.*` tag would outrank `0.2.0` in version resolution.
+5. Mark pre-0.2.0 GitHub Releases as pre-release with a note pointing to the current release line. Do this only after `v0.2.0` is published so `releases/latest` never resolves to nothing.
+6. Keep all git tags: deleting them breaks reproducibility and Go module caching.
+7. Refresh `examples/lynxCapital` dependency pins to the published `0.2.0` packages.
 
 ## Related Pages
 
