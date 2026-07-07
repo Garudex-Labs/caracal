@@ -48,6 +48,7 @@ export function Modal({
   description,
   children,
   footer,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -55,14 +56,15 @@ export function Modal({
   description?: string;
   children?: ReactNode;
   footer?: ReactNode;
+  dismissible?: boolean;
 }) {
-  useEscape(open, onClose);
+  useEscape(open && dismissible, onClose);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:pt-[8vh]">
       <div
         className="animate-overlay-in fixed inset-0 bg-overlay/40 backdrop-blur-[1px]"
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
       />
       <div
         role="dialog"
@@ -75,9 +77,11 @@ export function Modal({
           <h2 className="min-w-0 break-words text-sm font-semibold tracking-tight text-foreground">
             {title}
           </h2>
-          <IconButton label="Close" onClick={onClose} className="flex-shrink-0">
-            <CloseIcon />
-          </IconButton>
+          {dismissible ? (
+            <IconButton label="Close" onClick={onClose} className="flex-shrink-0">
+              <CloseIcon />
+            </IconButton>
+          ) : null}
         </div>
         {description || children ? (
           <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">

@@ -544,13 +544,23 @@ function ControlSecretModal({
   onClose: () => void;
 }) {
   const copy = useCopyToClipboard();
+  const [copyClicked, setCopyClicked] = useState(false);
+  const close = () => {
+    setCopyClicked(false);
+    onClose();
+  };
   return (
     <Modal
       open={secret !== null}
-      onClose={onClose}
+      onClose={close}
+      dismissible={false}
       title="Control key secret"
-      description="Copy the client secret now. It is never shown again."
-      footer={<Button onClick={onClose}>Done</Button>}
+      description="Copy the client secret now. It is never shown again. Copy it to unlock Done."
+      footer={
+        <Button onClick={close} disabled={!copyClicked}>
+          Done
+        </Button>
+      }
     >
       {secret ? (
         <div className="flex flex-col gap-4">
@@ -570,7 +580,10 @@ function ControlSecretModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => void copy(secret.secret, { successTitle: "Secret copied" })}
+                onClick={() => {
+                  setCopyClicked(true);
+                  void copy(secret.secret, { successTitle: "Secret copied" });
+                }}
               >
                 Copy
               </Button>

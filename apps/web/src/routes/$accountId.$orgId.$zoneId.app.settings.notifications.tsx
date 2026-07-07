@@ -453,31 +453,42 @@ function SecretRevealModal({
 }) {
   const copy = useCopyToClipboard();
   const toast = useToast();
+  const [copyClicked, setCopyClicked] = useState(false);
+  const close = () => {
+    setCopyClicked(false);
+    onClose();
+  };
   return (
     <Modal
       open={revealed !== null}
-      onClose={onClose}
+      onClose={close}
+      dismissible={false}
       title={
         revealed?.rotated ? "Store the new signing secret now" : "Store the signing secret now"
       }
-      description="This secret is shown once and cannot be retrieved later. The receiving endpoint uses it to verify the X-Caracal-Signature header."
-      footer={<Button onClick={onClose}>Done</Button>}
+      description="This secret is shown once and cannot be retrieved later. The receiving endpoint uses it to verify the X-Caracal-Signature header. Copy it to unlock Done."
+      footer={
+        <Button onClick={close} disabled={!copyClicked}>
+          Done
+        </Button>
+      }
     >
       {revealed ? (
         <div className="flex flex-col gap-3">
           <div className="text-sm text-muted-foreground">{revealed.name}</div>
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs">
+            <code className="min-w-0 flex-1 break-all rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs">
               {revealed.secret}
             </code>
             <Button
               variant="secondary"
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                setCopyClicked(true);
                 void copy(revealed.secret, {
                   onSuccess: () => toast({ tone: "success", title: "Secret copied" }),
-                })
-              }
+                });
+              }}
             >
               Copy
             </Button>
