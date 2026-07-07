@@ -160,6 +160,25 @@ function ResourceFormBody({
     if (!credentialProvider) {
       next.credentialProvider = "Select the provider that supplies upstream credentials.";
     }
+    // A static credential's host guardrail is enforced by the Gateway per request, so a
+    // mismatch configured here would only surface as a 502 at call time. Checking it in
+    // the form turns that runtime failure into an immediate, fixable field error.
+    if (upstream && !next.upstreamUrl && credentialProvider) {
+      const provider = providers.find((p) => p.id === credentialProvider);
+      const guardrailed =
+        provider?.kind === "bearer_token" ||
+        provider?.kind === "api_key" ||
+        provider?.kind === "http_basic";
+      const hosts = Array.isArray(provider?.config_json?.allowed_token_hosts)
+        ? (provider.config_json.allowed_token_hosts as string[])
+        : [];
+      if (guardrailed && hosts.length > 0) {
+        const host = new URL(upstream).hostname.toLowerCase();
+        if (!hosts.some((allowed) => allowed.trim().toLowerCase() === host)) {
+          next.upstreamUrl = `${provider.name} only forwards its credential to ${hosts.join(", ")}. Add ${host} to that provider's allowed upstream hosts, or change the URL.`;
+        }
+      }
+    }
     const identifierError = validateResourceIdentifier(identifier);
     if (identifierError) next.identifier = identifierError;
     if (enforcement === "enforced") {
@@ -184,7 +203,16 @@ function ResourceFormBody({
       }
     }
     return next;
-  }, [name, grantable, upstreamUrl, credentialProvider, identifier, enforcement, operations]);
+  }, [
+    name,
+    grantable,
+    upstreamUrl,
+    credentialProvider,
+    providers,
+    identifier,
+    enforcement,
+    operations,
+  ]);
 
   const show = (key: keyof FieldErrors) => (touched ? errors[key] : undefined);
 

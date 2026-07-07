@@ -328,6 +328,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
         config_json: {
           header_name: 'Authorization',
           auth_scheme: 'Bearer',
+          allowed_token_hosts: ['api.hooli.example'],
           forward_caracal_identity: true,
           allow_runtime_injection: true,
           api_key: 'hooli-api-key',
@@ -342,6 +343,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       auth_location: 'header',
       header_name: 'Authorization',
       auth_scheme: 'Bearer',
+      allowed_token_hosts: ['api.hooli.example'],
       forward_caracal_identity: true,
       allow_runtime_injection: true,
     })
@@ -416,6 +418,11 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       },
       {
         auth_location: 'cookie',
+        api_key: 'hooli-api-key',
+      },
+      {
+        header_name: 'Authorization',
+        allowed_token_hosts: ['not a host'],
         api_key: 'hooli-api-key',
       },
       {
@@ -1361,14 +1368,21 @@ describe('POST /v1/zones/:zoneId/providers with http_basic kind', () => {
       payload: {
         identifier: 'provider://hoolibox-basic',
         kind: 'http_basic',
-        config_json: { username: 'richard.hendricks@piedpiper.example', password: 'jira-api-token' },
+        config_json: {
+          username: 'richard.hendricks@piedpiper.example',
+          password: 'jira-api-token',
+          allowed_token_hosts: ['api.hoolibox.example'],
+        },
       },
     })
 
     const values = db.query.mock.calls[1][1] as unknown[]
     expect(res.statusCode).toBe(201)
     expect(values[4]).toBe('http_basic')
-    expect(JSON.parse(values[5] as string)).toEqual({ username: 'richard.hendricks@piedpiper.example' })
+    expect(JSON.parse(values[5] as string)).toEqual({
+      username: 'richard.hendricks@piedpiper.example',
+      allowed_token_hosts: ['api.hoolibox.example'],
+    })
     expect(values[8]).toEqual(['password'])
     expect(values[5]).not.toContain('jira-api-token')
   })

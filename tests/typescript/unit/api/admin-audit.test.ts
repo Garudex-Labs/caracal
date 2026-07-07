@@ -91,6 +91,28 @@ describe('admin audit hook', () => {
     expect(ins!.params![8]).toBe('z1')
     expect(ins!.params![9]).toBe('applications')
     expect(ins!.params![10]).toBe('app-new')
+    expect(ins!.params![12]).toMatchObject({ change_kind: 'create' })
+  })
+
+  it('classifies a nested create carrying a secret as a create with the rotation flag', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/providers', async (_req, reply) =>
+      reply.code(201).send({ id: 'prov-new', name: 'Azure OpenAI' }),
+    )
+    await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: { name: 'Azure OpenAI', kind: 'bearer_token', config_json: { bearer_token: 'sk-x' } },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('create')
+    expect(payload.secret_rotated).toBe(true)
+    expect(payload.changed_fields).not.toContain('config_json.bearer_token')
   })
 
   it('keeps the action route entity when a POST is a sub-resource verb, not a create', async () => {
