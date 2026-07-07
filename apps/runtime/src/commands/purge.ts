@@ -153,7 +153,7 @@ function purgeHelp(): never {
     '',
     'Local install & operator state (state):',
     '  config      Remove local SDK profile (caracal.toml) and stored workload client secrets',
-    '  runtime     Remove runtime assets at $CARACAL_HOME (.env, compose.yml)',
+    '  runtime     Remove runtime assets at $CARACAL_HOME (compose.yml, caracal.env, version marker)',
     '  secrets     Remove operator overrides and generated secret files',
     '  web         Drop the web console operator database (PostgreSQL caracal_auth)',
     '',
@@ -177,7 +177,7 @@ function purgeHelp(): never {
 }
 
 function buildContext(dryRun: boolean): PurgeContext {
-  const paths = resolvePaths()
+  const paths = resolvePaths(false, false)
   const runtime = runtimePaths()
   const configDir = defaultCaracalConfigDir()
   const tomlPath = process.env.CARACAL_CONFIG ?? join(configDir, 'caracal.toml')
@@ -323,7 +323,7 @@ const TARGETS: Target[] = [
   {
     id: 'runtime',
     label: 'Remove runtime assets (DESTRUCTIVE)',
-    describe: (ctx) => `${ctx.runtimeHome}: bundled compose.yml, .env, provision script`,
+    describe: (ctx) => `${ctx.runtimeHome}: bundled compose.yml, caracal.env, version marker, upgrade journal`,
     available: (ctx) => existsSync(ctx.runtimeHome),
     run: async (ctx) => {
       removePath(ctx.runtimeHome, ctx, 'runtime')
