@@ -21,7 +21,7 @@ Use this checklist before exposing Caracal to production workloads or protected 
 | --- | --- |
 | Secret delivery | Mounted secret files or platform secret manager, not inline production secrets. |
 | HMAC keys | `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, and `GATEWAY_STS_HMAC_KEY` are strong and rotated under control. |
-| Zone KEK | `ZONE_KEK` is protected and backed up with the database. |
+| Secret Store KEK | `SECRET_STORE_KEK` is strong, held outside the database, and backed up alongside it. |
 | Admin/Coordinator tokens | Stored privately, rotated, and scoped to operator need. |
 | Runtime secrets | Client-secret files and SDK `caracal.toml` profiles are owner-only when written locally. |
 

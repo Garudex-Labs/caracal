@@ -10,7 +10,7 @@ Caracal uses secret material for zone encryption, mandate signing, audit integri
 
 | Material | Purpose |
 | --- | --- |
-| `ZONE_KEK` | Encrypts zone secrets and signing material. |
+| `SECRET_STORE_KEK` | Root key for Secret Store envelopes: provider credentials, zone signing material, connection tokens, sink secrets. |
 | Zone signing keys | Sign mandates exposed through STS JWKS. |
 | `AUDIT_HMAC_KEY` | Signs/verifies audit evidence. |
 | `STREAMS_HMAC_KEY` | Signs Redis stream messages. |
@@ -46,7 +46,7 @@ flowchart LR
 
 | Key | Services to roll | Verify |
 | --- | --- | --- |
-| `ZONE_KEK` | API and STS after coordinated key plan. | Zone secrets decrypt and STS can read active signing material. |
+| `SECRET_STORE_KEK` | API and STS after re-encrypting stored envelopes under the new key. | Provider credentials decrypt and STS can read active signing material. |
 | Zone signing key | STS, then verifiers after JWKS cache windows. | JWKS exposes expected key IDs and old mandates expire or verify during overlap. |
 | `AUDIT_HMAC_KEY` | Producers and Audit verifier: API, STS, Gateway, Audit, Control. | Audit ingestion accepts new events and rejects mismatched signatures. |
 | `STREAMS_HMAC_KEY` | Producers and consumers: API, STS, Gateway, Coordinator, Audit. | Consumers accept new stream messages and pending entries drain. |
