@@ -81,7 +81,7 @@ The console opens **Guided setup**, a short walkthrough that explains each build
 
 | Step | What you create |
 | --- | --- |
-| Application | A confidential agent app for the workload. The create form shows the client secret **once** - copy it now; it cannot be retrieved later, only rotated. |
+| Application | A confidential agent app for the workload. The client secret is held sealed in the Secret Store - copy it now or reveal it later from the application's detail panel; every reveal is recorded in the zone audit timeline. |
 | Provider | The upstream credential source. Skip this step for an internal HTTP API that needs no upstream credential. |
 | Resource | A stable resource identifier, its scopes, and the upstream URL you chose (for example `http://caracalDemoUpstream:80`), bound to a Gateway application. |
 | Policy | A starter policy. Activate it - the zone denies every request until a policy is active. |
@@ -92,13 +92,13 @@ Guided setup ticks each step off from live zone data and opens the same Applicat
 
 The console does not write configuration to your machine, and `caracal run` needs no local config file. The workload carries only its identity; everything else lives in the console:
 
-1. Open the **Launcher** page and create a workload. The create form shows the workload secret **once** - copy it now; it cannot be retrieved later, only rotated.
+1. Open the **Launcher** page and create a workload. The workload secret is held sealed in the Secret Store - copy it now or reveal it later from the workload's detail panel; every reveal is recorded in the zone audit timeline.
 2. Add a launch binding to the workload: an environment variable name (for example `EXAMPLE_API_TOKEN`) bound to the resource you created, with the scopes the credential should carry. The page then shows the exact launch commands.
 3. Give the workload its identity:
 
 ```sh
 export CARACAL_WORKLOAD_ID=<workload ID>
-export CARACAL_WORKLOAD_SECRET=<workload secret shown once>
+export CARACAL_WORKLOAD_SECRET=<workload secret>
 ```
 
 These configure the launcher itself; they are not passed through to the child process. Instead of the inline secret, local dev and stable launches can read the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, and cloud deployments can point `CARACAL_WORKLOAD_SECRET_FILE` at a mounted secret; see [Configure Workloads](/runtime-console/config-file/).
@@ -115,7 +115,7 @@ On Windows PowerShell:
 
 ```powershell
 $env:CARACAL_WORKLOAD_ID = "<workload ID>"
-$env:CARACAL_WORKLOAD_SECRET = "<workload secret shown once>"
+$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
 caracal run -- .\start-agent.ps1
 ```
 

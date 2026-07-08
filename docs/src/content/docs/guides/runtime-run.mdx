@@ -9,7 +9,7 @@ description: Launch a workload with console-managed credential bindings injected
 
 1. Run `caracal up`.
 2. Sign in to the web console and use **Guided setup** to create the zone, provider, resource, and policy.
-3. On the console's **Launcher** page, create a workload. Store its one-time secret in the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, or export `CARACAL_WORKLOAD_SECRET`.
+3. On the console's **Launcher** page, create a workload. Store its secret in the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, or export `CARACAL_WORKLOAD_SECRET`; the secret stays retrievable from the Launcher page, with every reveal audited.
 4. On the same page, bind an environment variable to each resource the workload needs and select the scopes each credential should carry. The page then shows the exact launch commands. See [Configure Workloads](/runtime-console/config-file/).
 
 ## Run a command

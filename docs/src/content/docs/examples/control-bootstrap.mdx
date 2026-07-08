@@ -30,7 +30,7 @@ The plan describes the PiperNet reporter agent's environment: the agent applicat
 
 2. Create or select the target zone.
 3. Create a control key with only the scopes the stage needs: read/write on app, provider, resource, and policy for `apply`; read for `verify`; read/delete for `teardown`.
-4. Save the one-time `client_id` and `client_secret`. STS resolves the zone from the bound control key.
+4. Save the `client_id` and `client_secret`. STS resolves the zone from the bound control key; the secret stays retrievable from the Applications page through an audited reveal.
 
 ## Run the pipeline
 

@@ -22,7 +22,7 @@ resource = "resource://example-api"
 upstream_prefix = "http://caracalDemoUpstream:80"
 ```
 
-On the local stack this is the whole file: the SDK defaults cover the STS, Coordinator, and Gateway URLs, and the client secret is read from the owner-only file you create at `<Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret`, holding the secret shown once when the application was created. For cloud or custom deployments add `zone_url`, `coordinator_url`, `gateway_url`, and `app_client_secret_file`; see [Configuration File](/runtime-console/config-file/) for the full schema.
+On the local stack this is the whole file: the SDK defaults cover the STS, Coordinator, and Gateway URLs, and the client secret is read from the owner-only file you create at `<Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret`, holding the secret from when the application was created - retrievable any time from the application's detail panel, with every reveal audited. For cloud or custom deployments add `zone_url`, `coordinator_url`, `gateway_url`, and `app_client_secret_file`; see [Configuration File](/runtime-console/config-file/) for the full schema.
 
 The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every agent session the SDK spawns executes under that application identity, so one profile serves all the agents your workload creates.
 

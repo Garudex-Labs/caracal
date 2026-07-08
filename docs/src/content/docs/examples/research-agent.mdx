@@ -44,12 +44,12 @@ Select the read-only scopes on the Drive and Calendar bindings so each injected 
 
 ## Store the workload secret
 
-The launcher needs one local file: the workload's one-time secret at the runtime secret path.
+The launcher needs one local file: the workload's secret at the runtime secret path. Copy it from the Launcher page - it stays retrievable there, with every reveal audited.
 
 ```bash
 export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
 mkdir -p ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID
-printf '%s' '<one-time workload secret>' > ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
+printf '%s' '<workload secret>' > ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
 chmod 600 ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
 ```
 
