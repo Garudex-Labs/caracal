@@ -17,6 +17,7 @@ import type { RedisClient } from './redis.js'
 import { redisMinuteBucket } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
+import { buildSecretBackend } from './secret-store.js'
 import { controlPlugin } from './control/plugin.js'
 import { AdminClient } from '@caracalai/admin'
 import { Caracal } from '@caracalai/sdk'
@@ -189,6 +190,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   app.decorate('db', db)
   app.decorate('redis', redis)
   app.decorate('cfg', cfg)
+  app.decorate('secrets', buildSecretBackend(db))
   instrumentFastifyApp(app, 'caracal-api')
 
   app.addHook('onRequest', async (req) => {

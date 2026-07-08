@@ -3,7 +3,7 @@
 //
 // The plan credential vault: derives which credential fields a plan step needs and holds pasted values sealed at rest until the step applies them.
 
-import { loadZoneKek, open, seal } from '@caracalai/server-core'
+import { AAD_OPERATOR_PLAN_SECRETS, loadSecretStoreKek, openEnvelope, sealEnvelope } from '@caracalai/server-core'
 import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, type ProviderKind } from './provider-config.js'
 
 // The longest single credential value accepted: bounded to hold a PEM private key while
@@ -81,7 +81,7 @@ export async function storePlanStepSecrets(
   stepId: string,
   values: Record<string, string>,
 ): Promise<void> {
-  const sealed = seal(loadZoneKek(), Buffer.from(JSON.stringify(values), 'utf8'))
+  const sealed = sealEnvelope(loadSecretStoreKek(), Buffer.from(JSON.stringify(values), 'utf8'), AAD_OPERATOR_PLAN_SECRETS)
   const expiresAt = new Date(Date.now() + PLAN_SECRET_TTL_MS).toISOString()
   await db.query(
     `DELETE FROM operator_plan_secrets
@@ -89,11 +89,11 @@ export async function storePlanStepSecrets(
     [ref.conversationId, ref.zoneId],
   )
   await db.query(
-    `INSERT INTO operator_plan_secrets (conversation_id, zone_id, plan_seq, step_id, ciphertext, nonce, secret_keys, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO operator_plan_secrets (conversation_id, zone_id, plan_seq, step_id, envelope, secret_keys, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (conversation_id, plan_seq, step_id)
-     DO UPDATE SET ciphertext = $5, nonce = $6, secret_keys = $7, expires_at = $8, created_at = now()`,
-    [ref.conversationId, ref.zoneId, ref.planSeq, stepId, sealed.ciphertext, sealed.nonce, Object.keys(values).sort(), expiresAt],
+     DO UPDATE SET envelope = $5, secret_keys = $6, expires_at = $7, created_at = now()`,
+    [ref.conversationId, ref.zoneId, ref.planSeq, stepId, sealed, Object.keys(values).sort(), expiresAt],
   )
 }
 
@@ -116,13 +116,13 @@ export async function openPlanStepSecrets(
   ref: PlanSecretRef,
   stepId: string,
 ): Promise<Record<string, string> | null> {
-  const { rows } = await db.query<{ ciphertext: Buffer; nonce: Buffer }>(
-    `SELECT ciphertext, nonce FROM operator_plan_secrets
+  const { rows } = await db.query<{ envelope: Buffer }>(
+    `SELECT envelope FROM operator_plan_secrets
      WHERE conversation_id = $1 AND zone_id = $2 AND plan_seq = $3 AND step_id = $4 AND expires_at > now()`,
     [ref.conversationId, ref.zoneId, ref.planSeq, stepId],
   )
   if (!rows[0]) return null
-  const plaintext = open(loadZoneKek(), { nonce: rows[0].nonce, ciphertext: rows[0].ciphertext })
+  const plaintext = openEnvelope(loadSecretStoreKek(), rows[0].envelope, AAD_OPERATOR_PLAN_SECRETS)
   return JSON.parse(plaintext.toString('utf8')) as Record<string, string>
 }
 
