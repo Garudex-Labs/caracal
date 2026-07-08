@@ -58,9 +58,11 @@ Console, because both run through the shared engine dispatch. Automation never
 receives the root admin token; it uses a scoped control key.
 
 1. Create a control key once in Console from the Control menu. Console returns a
-   one-time `client_id` and `client_secret` and records the `control:<command>:<verb>`
+   `client_id` and `client_secret` and records the `control:<command>:<verb>`
    scopes the key may request, along with an optional maximum token TTL. The key
-   is bound to the zone where it was created.
+   is bound to the zone where it was created; its secret is held sealed in the
+   Secret Store and stays retrievable from the Applications page through an
+   audited reveal.
 2. Exchange the key for a short-lived token at the STS token endpoint.
 
    ```bash

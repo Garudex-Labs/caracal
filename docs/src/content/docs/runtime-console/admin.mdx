@@ -23,7 +23,7 @@ Web console **Guided setup** walks the first version of that flow, opening the r
 | Section | What it manages |
 | --- | --- |
 | **Zones** | Zone records and active zone selection. |
-| **Applications** | Confidential agent applications and one-time client secrets. |
+| **Applications** | Confidential agent applications and their client secrets. |
 | **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
 | **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
 | **Policies** | Policy content and versions. |
@@ -33,7 +33,7 @@ Web console **Guided setup** walks the first version of that flow, opening the r
 
 ## Secrets and Credentials
 
-Application client secrets are shown once when created. Provider secrets are accepted only in provider create or rotation-style edit flows and are stored sealed by the Control API. Copy an application secret into a secret manager or mounted secret file before leaving the create screen. The web console masks secret-shaped fields and error output.
+Application client secrets and workload secrets are held sealed in the Secret Store: copy one at creation, or reveal it later from the object's detail panel - every reveal is recorded in the zone audit timeline. Provider secrets are accepted only in provider create or rotation-style edit flows and are stored sealed by the Control API. The web console masks secret-shaped fields and error output.
 
 ## Automation Handoff
 
@@ -44,7 +44,7 @@ Use the web console's **Control** section when management needs to move from int
 | Symptom | Check |
 | --- | --- |
 | A page says a zone is required | Select a zone before opening zone-scoped pages. |
-| A created client secret is no longer visible | Generate or rotate a new secret; one-time secrets are not recoverable. |
+| A created client secret is no longer visible | Reveal it from the application's detail panel (the reveal is audited); applications created before credential custody must rotate first. |
 | Policy activation fails | Run simulation, inspect validation errors, and confirm the policy set references the intended policy versions. |
 | Control API calls fail | Confirm Control is enabled from the web console's **Control** section and the automation token targets the Control resource. |
 

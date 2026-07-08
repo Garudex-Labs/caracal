@@ -53,13 +53,13 @@ workload identity -> binding fetch -> credential mint -> env injection -> child 
 | Workload secret | `CARACAL_WORKLOAD_SECRET`, `CARACAL_WORKLOAD_SECRET_FILE`, or the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. |
 | Launch bindings | Authored on the console's **Launcher** page and served by STS. |
 
-Web console **Guided setup** is the recommended way to create the first zone, provider, resource, and policy; the **Launcher** page then creates the workload and its bindings. The workload's one-time secret is shown once at creation; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
+Web console **Guided setup** is the recommended way to create the first zone, provider, resource, and policy; the **Launcher** page then creates the workload and its bindings. The workload's secret is held sealed in the Secret Store and stays retrievable from the Launcher page with every reveal audited; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
 
 ## Credential Lifecycle
 
 | Stage | Behavior |
 | --- | --- |
-| Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its one-time secret into an owner-only file at the runtime path. |
+| Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its secret into an owner-only file at the runtime path. |
 | Consumption | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. The binding fetch and every mint are recorded in the zone's audit ledger, correlated by a per-launch id. |
 | TTL | Injected credentials carry the expiry of the minted mandate or provider token; when the provider reports one, it is also injected as `<ENV>_EXPIRES_AT` in epoch seconds. |
 | Renewal | None. The launcher never re-mints after spawn; long-running workloads use a Caracal SDK. |

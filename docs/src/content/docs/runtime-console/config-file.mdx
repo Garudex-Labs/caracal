@@ -27,7 +27,7 @@ When neither secret variable is set, local dev and stable launches read the owne
 
 The OS Caracal config directory is `$XDG_CONFIG_HOME/caracal` (or `~/.config/caracal`) on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. Set `CARACAL_CONFIG_HOME` to override it on any platform.
 
-You create the secret file yourself. The web console shows the one-time workload secret at creation but never writes to your machine:
+You create the secret file yourself. The web console holds the workload secret sealed in the Secret Store - reveal it from the Launcher page whenever you provision - but never writes to your machine:
 
 ```bash
 mkdir -p ~/.config/caracal/runtime/<workload_id>

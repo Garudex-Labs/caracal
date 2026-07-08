@@ -62,7 +62,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 | **Guided setup** | First zone, agent app, provider, resource, and access policy. |
 | **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope. |
 | **Zones** | Zone records and active zone selection. |
-| **Applications** | Confidential agent applications and one-time client secrets. |
+| **Applications** | Confidential agent applications and their client secrets. |
 | **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
 | **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
 | **Policies** | Policy content and versions. |
@@ -103,9 +103,9 @@ Work happens in a session - an auditable conversation scoped to the active zone.
 1. **Propose.** Intent becomes a plan whose every step is validated against the capability catalog. A step that names an unknown action or invalid arguments is rejected before anything runs.
 2. **Preview.** The plan is resolved against your live state as a read-only dry run, so each step is marked as a create, an update, a no-op against an object that already exists, or blocked when a referenced object is missing. Nothing is written.
 3. **Decide.** You approve or reject the plan. A plan is decided once, and only an approved plan is eligible to apply.
-4. **Apply.** An approved plan is executed step by step. Before any write, the plan is re-validated and re-previewed against current state so drift since approval cannot apply a stale change. Each step is then applied as its own authenticated, audited control-plane call under the Operator's least-privilege identity. If a step fails, the plan stops there rather than pressing on, so it never blindly pushes past an error; the steps that already applied remain applied, and the apply response records exactly which steps succeeded and which one stopped the plan. So that a change which may already have taken effect can never be applied twice, a plan that has begun applying is not re-run, while a plan that fails before anything is applied stays available to retry. Each applied step is written to the conversation as an execution record, and one-time material such as a newly issued client secret is returned to you once and never stored.
+4. **Apply.** An approved plan is executed step by step. Before any write, the plan is re-validated and re-previewed against current state so drift since approval cannot apply a stale change. Each step is then applied as its own authenticated, audited control-plane call under the Operator's least-privilege identity. If a step fails, the plan stops there rather than pressing on, so it never blindly pushes past an error; the steps that already applied remain applied, and the apply response records exactly which steps succeeded and which one stopped the plan. So that a change which may already have taken effect can never be applied twice, a plan that has begun applying is not re-run, while a plan that fails before anything is applied stays available to retry. Each applied step is written to the conversation as an execution record, and secret material such as a newly issued client secret is surfaced in the apply response and never written to the conversation.
 
-A plan applies only once. Any one-time secret it produces is surfaced in the apply response and is never written to the conversation or the audit log.
+A plan applies only once. Any secret it produces is surfaced in the apply response and is never written to the conversation or the audit log; issued credentials stay retrievable from Secret Store custody through the owning object's audited reveal.
 
 ### Operator authority and isolation
 
