@@ -766,7 +766,7 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		if connection.ProviderID == nil || *connection.ProviderID != provider.ID {
 			return directive, fmt.Errorf("provider connection missing provider")
 		}
-		at, err := secretstore.Open(s.keys.kek, connection.AccessTokenCt, secretstore.AADConnectionAccessToken)
+		at, err := s.keys.keyring.Open(connection.AccessTokenCt, secretstore.AADConnectionAccessToken)
 		if err != nil {
 			return directive, fmt.Errorf("provider connection decrypt failed")
 		}

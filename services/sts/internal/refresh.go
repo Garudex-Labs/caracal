@@ -163,7 +163,7 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return sharederr.New(sharederr.CredentialExpired, "provider refresh circuit open")
 	}
-	refreshToken, err := secretstore.Open(s.keys.kek, connection.RefreshTokenCt, secretstore.AADConnectionRefreshToken)
+	refreshToken, err := s.keys.keyring.Open(connection.RefreshTokenCt, secretstore.AADConnectionRefreshToken)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -189,15 +189,15 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 		s.log.Warn().Str("provider", provider.ID).Str("token_type", tokenResp.TokenType).Msg("provider returned unsupported token_type")
 		return sharederr.New(sharederr.CredentialExpired, "provider token type unsupported")
 	}
-	newAccessCt, err := secretstore.Seal(s.keys.kek, []byte(tokenResp.AccessToken), secretstore.AADConnectionAccessToken)
+	newAccessCt, err := s.keys.keyring.Seal([]byte(tokenResp.AccessToken), secretstore.AADConnectionAccessToken)
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
 	}
 	var newRefreshCt []byte
 	if tokenResp.RefreshToken != "" {
-		newRefreshCt, err = secretstore.Seal(s.keys.kek, []byte(tokenResp.RefreshToken), secretstore.AADConnectionRefreshToken)
+		newRefreshCt, err = s.keys.keyring.Seal([]byte(tokenResp.RefreshToken), secretstore.AADConnectionRefreshToken)
 	} else {
-		newRefreshCt, err = secretstore.Seal(s.keys.kek, refreshToken, secretstore.AADConnectionRefreshToken)
+		newRefreshCt, err = s.keys.keyring.Seal(refreshToken, secretstore.AADConnectionRefreshToken)
 	}
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")

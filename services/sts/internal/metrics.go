@@ -23,6 +23,8 @@ type STSMetrics struct {
 	ProviderRefreshWaited atomic.Uint64
 	ProviderRefreshErrors atomic.Uint64
 	ProviderCircuitOpen   atomic.Uint64
+	SecretBackendReads    atomic.Uint64
+	SecretBackendErrors   atomic.Uint64
 }
 
 type STSMetricsSnapshot struct {
@@ -41,6 +43,8 @@ type STSMetricsSnapshot struct {
 	ProviderRefreshWaited uint64 `json:"provider_refresh_waited"`
 	ProviderRefreshErrors uint64 `json:"provider_refresh_errors"`
 	ProviderCircuitOpen   uint64 `json:"provider_circuit_open"`
+	SecretBackendReads    uint64 `json:"secret_backend_reads"`
+	SecretBackendErrors   uint64 `json:"secret_backend_errors"`
 }
 
 func (m *STSMetrics) Snapshot() STSMetricsSnapshot {
@@ -60,5 +64,7 @@ func (m *STSMetrics) Snapshot() STSMetricsSnapshot {
 		ProviderRefreshWaited: m.ProviderRefreshWaited.Load(),
 		ProviderRefreshErrors: m.ProviderRefreshErrors.Load(),
 		ProviderCircuitOpen:   m.ProviderCircuitOpen.Load(),
+		SecretBackendReads:    m.SecretBackendReads.Load(),
+		SecretBackendErrors:   m.SecretBackendErrors.Load(),
 	}
 }

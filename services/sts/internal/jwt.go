@@ -44,15 +44,15 @@ type KeyCache struct {
 	entries      map[string]*zoneCacheEntry
 	pubKeysCache map[string]*publicKeysCacheEntry
 	db           DBQuerier
-	kek          []byte
+	keyring      *secretstore.Keyring
 }
 
-func newKeyCache(db DBQuerier, kek []byte) *KeyCache {
+func newKeyCache(db DBQuerier, keyring *secretstore.Keyring) *KeyCache {
 	return &KeyCache{
 		entries:      make(map[string]*zoneCacheEntry),
 		pubKeysCache: make(map[string]*publicKeysCacheEntry),
 		db:           db,
-		kek:          kek,
+		keyring:      keyring,
 	}
 }
 
@@ -74,7 +74,7 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 		}
 	}
 
-	keyBytes, err := secretstore.Open(k.kek, secret.Envelope, secretstore.AADZoneSigningKey)
+	keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("decrypt signing key: %w", err)
 	}
@@ -127,7 +127,7 @@ func (k *KeyCache) sealZoneSigningKey() ([]byte, error) {
 	if len(keyBytes) == 0 {
 		return nil, fmt.Errorf("encode signing key")
 	}
-	envelope, err := secretstore.Seal(k.kek, keyBytes, secretstore.AADZoneSigningKey)
+	envelope, err := k.keyring.Seal(keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("seal signing key: %w", err)
 	}
@@ -164,7 +164,7 @@ func (k *KeyCache) getPublicKeysByZone(ctx context.Context, zoneID string) (map[
 	var decryptFailedKids []string
 	var parseFailedKids []string
 	for _, secret := range secrets {
-		keyBytes, err := secretstore.Open(k.kek, secret.Envelope, secretstore.AADZoneSigningKey)
+		keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			decryptFailedKids = append(decryptFailedKids, secret.ID)
 			continue
