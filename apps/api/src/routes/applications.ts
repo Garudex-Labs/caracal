@@ -7,8 +7,10 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
+import { SecretBackendError, applicationClientSecretRef } from '@caracalai/server-core'
 import { hashClientSecret } from '../hash-secret.js'
-import { withTransaction, TxAbort } from '../db.js'
+import { withTransaction, TxAbort, type TxClient } from '../db.js'
+import { enqueueCredentialRevealAudit } from '../credential-audit.js'
 import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
 import { resolveAttribution, type Attribution } from '../attribution.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
@@ -72,46 +74,43 @@ async function activeNameTaken(
   return rows.length > 0
 }
 
-// Registers a managed application with a freshly generated one-time client secret;
-// the plaintext secret is returned to the caller and never persisted beyond its hash.
+// Registers a managed application with a freshly generated client secret. Authentication
+// verifies only the argon2 hash on the row; the plaintext is sealed into the Secret Store
+// in the same transaction so authorized operators can retrieve it later without couriering
+// it by hand. A secret backend failure rolls the registration back.
 async function createManagedApplication(
-  db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
+  client: TxClient,
+  secrets: { put: (ref: string, value: Buffer) => Promise<void> },
   zoneId: string,
   input: { name: string; traits?: string[]; attribution: Attribution },
 ): Promise<{ row: Record<string, unknown>; clientSecret: string }> {
   const clientSecret = generateClientSecret()
   const secretHash = await hashClientSecret(clientSecret)
-  const { rows } = await db.query<Record<string, unknown>>(
+  const id = uuidv7()
+  const { rows } = await client.query<Record<string, unknown>>(
     `INSERT INTO applications (id, zone_id, name, registration_method, credential_type, client_secret_hash, traits, created_by, created_via_operator)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, zone_id, name, registration_method, expires_at, ${APP_ATTRIBUTION}`,
-    [
-      uuidv7(),
-      zoneId,
-      input.name,
-      'managed',
-      'token',
-      secretHash,
-      input.traits ?? [],
-      input.attribution.actor,
-      input.attribution.viaOperator,
-    ],
+    [id, zoneId, input.name, 'managed', 'token', secretHash, input.traits ?? [], input.attribution.actor, input.attribution.viaOperator],
   )
+  await secrets.put(applicationClientSecretRef(zoneId, id), Buffer.from(clientSecret))
   return { row: rows[0], clientSecret }
 }
 
-// Issues a fresh client secret for an existing application and retires the old one; the
-// new plaintext secret is returned to the caller and never persisted beyond its hash.
-// Returns null when the application does not exist.
+// Issues a fresh client secret for an existing application and retires the old one. The
+// hash and the sealed custody copy are replaced together; a secret backend failure rolls
+// the rotation back so the old secret keeps working. Returns null when the application
+// does not exist.
 async function rotateApplicationClientSecret(
-  db: { query: <T = unknown>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
+  client: TxClient,
+  secrets: { put: (ref: string, value: Buffer) => Promise<void> },
   zoneId: string,
   applicationId: string,
   attribution: Attribution,
 ): Promise<{ row: Record<string, unknown>; clientSecret: string } | null> {
   const clientSecret = generateClientSecret()
   const secretHash = await hashClientSecret(clientSecret)
-  const { rows } = await db.query<Record<string, unknown>>(
+  const { rows } = await client.query<Record<string, unknown>>(
     `UPDATE applications
         SET client_secret_hash = $3, updated_by = $4, updated_via_operator = $5, updated_at = now()
       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
@@ -119,6 +118,7 @@ async function rotateApplicationClientSecret(
     [applicationId, zoneId, secretHash, attribution.actor, attribution.viaOperator],
   )
   if (!rows[0]) return null
+  await secrets.put(applicationClientSecretRef(zoneId, applicationId), Buffer.from(clientSecret))
   return { row: rows[0], clientSecret }
 }
 
@@ -181,21 +181,77 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (await activeNameTaken(fastify.db, params.zoneId, body.name)) {
       return reply.code(409).send({ error: 'application_name_taken' })
     }
-    const { row, clientSecret } = await createManagedApplication(fastify.db, params.zoneId, {
-      name: body.name,
-      traits: body.traits,
-      attribution: await resolveAttribution(req, fastify.db, params.zoneId),
-    })
-    return reply.code(201).send({ ...row, client_secret: clientSecret })
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    try {
+      const created = await withTransaction(fastify.db, (client) =>
+        createManagedApplication(client, fastify.secrets, params.zoneId, {
+          name: body.name,
+          traits: body.traits,
+          attribution,
+        }),
+      )
+      return reply.code(201).send({ ...created.row, client_secret: created.clientSecret })
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected application credential write')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
   })
 
   fastify.post('/zones/:zoneId/applications/:id/rotate-secret', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    const rotated = await rotateApplicationClientSecret(fastify.db, params.zoneId, params.id, attribution)
-    if (!rotated) return reply.code(404).send({ error: 'application_not_found' })
-    return { ...rotated.row, client_secret: rotated.clientSecret }
+    try {
+      const rotated = await withTransaction(fastify.db, async (client) => {
+        const result = await rotateApplicationClientSecret(client, fastify.secrets, params.zoneId, params.id, attribution)
+        if (!result) throw new TxAbort(null)
+        return result
+      })
+      if (!rotated) return reply.code(404).send({ error: 'application_not_found' })
+      return { ...rotated.row, client_secret: rotated.clientSecret }
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected application credential write')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
+  })
+
+  fastify.get('/zones/:zoneId/applications/:id/client-secret', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query<{ name: string }>(
+      `SELECT name FROM applications WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL AND registration_method = 'managed'`,
+      [params.id, params.zoneId],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
+    let value: Buffer | null
+    try {
+      value = await fastify.secrets.get(applicationClientSecretRef(params.zoneId, params.id))
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected application credential read')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
+    // Applications created before credential custody have only their hash; rotating
+    // issues a fresh secret and stores it.
+    if (value === null) return reply.code(404).send({ error: 'client_secret_not_stored' })
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    await withTransaction(fastify.db, (client) =>
+      enqueueCredentialRevealAudit(client, fastify.cfg?.auditHmacKey ?? null, req, params.zoneId, {
+        credential: 'application_client_secret',
+        application_id: params.id,
+        application_name: rows[0].name,
+        actor: attribution.actor,
+      }),
+    )
+    return { client_secret: value.toString() }
   })
 
   fastify.patch('/zones/:zoneId/applications/:id', async (req, reply) => {
@@ -226,14 +282,29 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
     appendAttribution(update, await resolveAttribution(req, fastify.db, params.zoneId))
-    const { rows } = await fastify.db.query(
-      `UPDATE applications SET ${update.sets.join(', ')}, updated_at = now()
-       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-       RETURNING ${applicationSelect(req)}`,
-      update.values,
-    )
-    if (!rows[0]) return reply.code(404).send({ error: 'application_not_found' })
-    return rows[0]
+    try {
+      const row = await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query(
+          `UPDATE applications SET ${update.sets.join(', ')}, updated_at = now()
+           WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+           RETURNING ${applicationSelect(req)}`,
+          update.values,
+        )
+        if (!rows[0]) throw new TxAbort(null)
+        if (body.client_secret !== undefined) {
+          await fastify.secrets.put(applicationClientSecretRef(params.zoneId, params.id), Buffer.from(body.client_secret))
+        }
+        return rows[0]
+      })
+      if (!row) return reply.code(404).send({ error: 'application_not_found' })
+      return row
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected application credential write')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
   })
 
   fastify.delete('/zones/:zoneId/applications/:id', async (req, reply) => {
@@ -247,6 +318,13 @@ export const applicationsRoutes: FastifyPluginAsync = async (fastify) => {
         [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       if (!rowCount) throw new TxAbort(reply.code(404).send({ error: 'application_not_found' }))
+      // Archival is the authority change; custody cleanup is best-effort because the
+      // revoked credential no longer authenticates anything.
+      try {
+        await fastify.secrets.delete(applicationClientSecretRef(params.zoneId, params.id))
+      } catch (err) {
+        req.log.warn({ err }, 'archived application credential could not be deleted from the secret backend')
+      }
       return reply.code(204).send()
     })
   })
