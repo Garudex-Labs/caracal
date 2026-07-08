@@ -18,9 +18,17 @@ interface BuildRouteAppExtras {
 
 export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions = { prefix: '/v1' }, extras: BuildRouteAppExtras = {}) {
   const app = Fastify({ logger: false })
+  // Transaction control is transparent here: BEGIN/COMMIT/ROLLBACK and the zone
+  // GUC resolve locally so route assertions keep indexing only business queries.
   const db = {
     query: vi.fn(),
-    connect: vi.fn(),
+    connect: vi.fn(async () => ({
+      query: (text: string, params?: unknown[]) => {
+        if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text) || text.includes('set_config')) return Promise.resolve({ rows: [] })
+        return db.query(text, params)
+      },
+      release: () => undefined,
+    })),
   }
   const redis = {
     incr: vi.fn(),

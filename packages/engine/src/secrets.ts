@@ -33,6 +33,12 @@ export const SECRET_FILES: readonly SecretFile[] = [
   { envKey: 'AUDIT_HMAC_KEY', fileName: 'auditHmacKey', bytes: 32 },
   { envKey: 'STREAMS_HMAC_KEY', fileName: 'streamsHmacKey', bytes: 32 },
   { envKey: 'GATEWAY_STS_HMAC_KEY', fileName: 'gatewayStsHmacKey', bytes: 32 },
+  { envKey: 'CARACAL_API_DB_PASSWORD', fileName: 'apiDbPassword', bytes: 24 },
+  { envKey: 'CARACAL_STS_DB_PASSWORD', fileName: 'stsDbPassword', bytes: 24 },
+  { envKey: 'CARACAL_GATEWAY_DB_PASSWORD', fileName: 'gatewayDbPassword', bytes: 24 },
+  { envKey: 'CARACAL_AUDIT_DB_PASSWORD', fileName: 'auditDbPassword', bytes: 24 },
+  { envKey: 'CARACAL_COORDINATOR_DB_PASSWORD', fileName: 'coordinatorDbPassword', bytes: 24 },
+  { envKey: 'CARACAL_AUTH_DB_PASSWORD', fileName: 'authDbPassword', bytes: 24 },
 ] as const
 
 // DerivedSecrets are composite secret files (e.g. fully formed URLs) materialised
@@ -43,15 +49,37 @@ interface DerivedSecret {
   render: (values: Record<string, string>) => string
 }
 
+// The administrative databaseUrl is reserved for migrations and restore tooling;
+// every service receives a DSN for its own least-privilege role, provisioned by
+// the migration job from the matching password file.
 const DERIVED_SECRETS: readonly DerivedSecret[] = [
   {
     fileName: 'databaseUrl',
     render: (v) => `postgres://${v.POSTGRES_USER ?? 'caracal'}:${v.POSTGRES_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
   },
   {
+    fileName: 'apiDatabaseUrl',
+    render: (v) => `postgres://caracalapi:${v.CARACAL_API_DB_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
+  },
+  {
+    fileName: 'stsDatabaseUrl',
+    render: (v) => `postgres://caracalsts:${v.CARACAL_STS_DB_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
+  },
+  {
+    fileName: 'gatewayDatabaseUrl',
+    render: (v) => `postgres://caracalgateway:${v.CARACAL_GATEWAY_DB_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
+  },
+  {
+    fileName: 'auditDatabaseUrl',
+    render: (v) => `postgres://caracalaudit:${v.CARACAL_AUDIT_DB_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
+  },
+  {
+    fileName: 'coordinatorDatabaseUrl',
+    render: (v) => `postgres://caracalcoordinator:${v.CARACAL_COORDINATOR_DB_PASSWORD}@postgres:5432/${v.POSTGRES_DB ?? 'caracal'}`,
+  },
+  {
     fileName: 'authDatabaseUrl',
-    render: (v) =>
-      `postgres://${v.POSTGRES_USER ?? 'caracal'}:${v.POSTGRES_PASSWORD}@postgres:5432/${v.POSTGRES_AUTH_DB ?? 'caracal_auth'}`,
+    render: (v) => `postgres://caracalauth:${v.CARACAL_AUTH_DB_PASSWORD}@postgres:5432/${v.POSTGRES_AUTH_DB ?? 'caracal_auth'}`,
   },
   {
     fileName: 'redisUrl',
