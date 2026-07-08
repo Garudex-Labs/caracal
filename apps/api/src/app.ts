@@ -17,7 +17,7 @@ import type { RedisClient } from './redis.js'
 import { redisMinuteBucket } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
-import { buildSecretBackend } from './secret-store.js'
+import { MeteredBackend, buildSecretBackend, secretBackendCounters } from './secret-store.js'
 import { controlPlugin } from './control/plugin.js'
 import { AdminClient } from '@caracalai/admin'
 import { Caracal } from '@caracalai/sdk'
@@ -38,7 +38,14 @@ import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiMana
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
 import { getTraceContext, parseTraceparent, bindTrace, buildPinoRedactPaths, CaracalError, createLogger } from '@caracalai/core'
-import { isPublished, renderObservabilityMetrics, instrumentFastifyApp, withTimeout, pathOnly } from '@caracalai/server-core'
+import {
+  isPublished,
+  renderObservabilityMetrics,
+  instrumentFastifyApp,
+  withTimeout,
+  pathOnly,
+  loadSecretStoreKeks,
+} from '@caracalai/server-core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
 import { workloadsRoutes } from './routes/workloads.js'
@@ -190,7 +197,11 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   app.decorate('db', db)
   app.decorate('redis', redis)
   app.decorate('cfg', cfg)
-  app.decorate('secrets', buildSecretBackend(db))
+  // Machine-tier envelopes need the KEK on every code path regardless of the
+  // configured backend, so a missing or malformed keyring fails the boot here
+  // instead of surfacing at the first secret operation.
+  loadSecretStoreKeks()
+  app.decorate('secrets', new MeteredBackend(buildSecretBackend(db)))
   instrumentFastifyApp(app, 'caracal-api')
 
   app.addHook('onRequest', async (req) => {
@@ -554,7 +565,15 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     }
     const health = await withTimeout(queryOutboxHealth(db), READY_CHECK_TIMEOUT_MS, 'metrics outbox check timed out')
     reply.type('text/plain; version=0.0.4')
-    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n`
+    const secretMetrics = [
+      '# HELP caracal_secret_backend_operations_total Secret backend operations attempted',
+      '# TYPE caracal_secret_backend_operations_total counter',
+      `caracal_secret_backend_operations_total ${secretBackendCounters.operations}`,
+      '# HELP caracal_secret_backend_errors_total Secret backend operations that failed',
+      '# TYPE caracal_secret_backend_errors_total counter',
+      `caracal_secret_backend_errors_total ${secretBackendCounters.errors}`,
+    ].join('\n')
+    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n${secretMetrics}\n`
   })
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {

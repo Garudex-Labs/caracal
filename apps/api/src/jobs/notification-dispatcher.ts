@@ -7,7 +7,7 @@ import { createHmac } from 'node:crypto'
 import type { FastifyBaseLogger } from 'fastify'
 import { v7 as uuidv7 } from 'uuid'
 import { newTraceContext, runWithTrace } from '@caracalai/core'
-import { AAD_NOTIFICATION_SINK_SECRET, loadSecretStoreKek, openEnvelope } from '@caracalai/server-core'
+import { AAD_NOTIFICATION_SINK_SECRET, openSecretEnvelope } from '@caracalai/server-core'
 import type { DB } from '../db.js'
 import { withTransaction } from '../db.js'
 
@@ -85,7 +85,7 @@ export function sinkBackoffSeconds(attempts: number): number {
 }
 
 function openSecret(packed: Buffer): string {
-  const plaintext = openEnvelope(loadSecretStoreKek(), packed, AAD_NOTIFICATION_SINK_SECRET)
+  const plaintext = openSecretEnvelope(packed, AAD_NOTIFICATION_SINK_SECRET)
   try {
     return plaintext.toString('utf8')
   } finally {
