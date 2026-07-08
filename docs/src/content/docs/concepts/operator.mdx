@@ -29,7 +29,7 @@ flowchart LR
 1. **Propose.** Intent becomes a plan whose every step is validated against the capability catalog. A step that names an unknown action or invalid arguments is rejected before anything runs.
 2. **Preview.** The plan is resolved against your live state as a read-only dry run, so each step is marked as a create, an update, a no-op, or blocked when a referenced object is missing. Nothing is written.
 3. **Decide.** You approve or reject the plan. A plan is decided once, and only an approved plan is eligible to apply.
-4. **Apply.** An approved plan is re-validated and re-previewed, then executed step by step. A plan applies only once, and any one-time secret it produces is surfaced in the apply response, never written to the conversation or the audit log.
+4. **Apply.** An approved plan is re-validated and re-previewed, then executed step by step. A plan applies only once, and any secret it produces is surfaced in the apply response, never written to the conversation or the audit log; issued credentials stay retrievable from Secret Store custody through the owning object's audited reveal.
 
 ## Authority and Isolation
 

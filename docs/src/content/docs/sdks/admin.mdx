@@ -137,6 +137,15 @@ const results = await ensureGovernedUpstreams(admin, zoneId, {
 
 Each run seals the provider key, binds the resource to it, and rewrites the zone's grant document to exactly the declared set - an upstream removed from the input loses its grants on the next run, which is the revocation. An upstream whose provider has no sealed key fails closed before any resource binds a dead credential. The same reconcilers ship in the Python package (`caracalai-admin`, as `ensure_governed_upstreams`) and the Go module (`github.com/garudex-labs/caracal/packages/admin/go`, as `EnsureGovernedUpstreams`).
 
+## Credential custody
+
+Managed application client secrets and workload secrets are generated server-side, verified only by hash, and held sealed in the Secret Store. Create and rotate responses carry the plaintext for immediate delivery, and `applications.getClientSecret()` / `workloads.getSecret()` retrieve it later - each retrieval is recorded in the zone audit timeline as a credential reveal, so provisioning pipelines can fetch a credential at deploy time instead of persisting it at creation time.
+
+```ts
+const { client_secret } = await admin.applications.getClientSecret(zoneId, appId);
+const { secret } = await admin.workloads.getSecret(zoneId, workloadId);
+```
+
 ## Dynamic Client Registration (DCR)
 
 DCR is the **only** way to create short-lived, self-registering client identities, and it is **programmatic-only** - Console creates managed applications, not DCR applications. Use `applications.dcr()` from a control-plane workload (per-tenant onboarding, a CI job, a per-integration identity) that already holds an admin token.

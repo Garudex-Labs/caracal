@@ -49,12 +49,12 @@ Every non-2xx `/v1` response carries a single JSON envelope:
 | Resource | Collection | Item | Extra |
 | --- | --- | --- | --- |
 | Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | `GET /v1/zones/:id/dcr-status`, `GET /v1/zones/:id/overview` |
-| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr`, `POST /v1/zones/:zoneId/applications/:id/rotate-secret` |
+| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr`, `POST /v1/zones/:zoneId/applications/:id/rotate-secret`, `GET /v1/zones/:zoneId/applications/:id/client-secret` |
 | Providers | `GET`, `POST /v1/zones/:zoneId/providers` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/providers/:id` | - |
 | Resources | `GET`, `POST /v1/zones/:zoneId/resources` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/resources/:id` | - |
-| Workloads | `GET`, `POST /v1/zones/:zoneId/workloads` | `GET`, `PUT`, `DELETE /v1/zones/:zoneId/workloads/:id` | `POST /v1/zones/:zoneId/workloads/:id/rotate-secret` |
+| Workloads | `GET`, `POST /v1/zones/:zoneId/workloads` | `GET`, `PUT`, `DELETE /v1/zones/:zoneId/workloads/:id` | `POST /v1/zones/:zoneId/workloads/:id/rotate-secret`, `GET /v1/zones/:zoneId/workloads/:id/secret` |
 
-Workloads are the launcher identities `caracal run` uses. Create a workload, store its one-time secret, and rotate the secret here when you automate runtime setup.
+Workloads are the launcher identities `caracal run` uses. Create a workload, deliver its secret to the launch environment, and rotate the secret here when you automate runtime setup; the secret stays retrievable from Secret Store custody through an audited reveal endpoint.
 
 ## Policy and Access
 

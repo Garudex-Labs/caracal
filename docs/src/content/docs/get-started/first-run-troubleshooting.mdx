@@ -60,7 +60,7 @@ $env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
 
 ## Lost Workload Secret
 
-The workload secret is shown once when the workload is created. If you lose it, rotate the secret from the web console **Launcher** page and update your secret file or environment with the new value.
+The workload secret is held sealed in the Secret Store. If you lose your local copy, reveal it again from the web console **Launcher** page - each reveal is recorded in the zone audit timeline - or rotate the secret and update your secret file or environment with the new value.
 
 ## STS 403
 
