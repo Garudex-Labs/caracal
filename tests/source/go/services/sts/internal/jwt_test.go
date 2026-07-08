@@ -36,7 +36,7 @@ func (s *signingKeyDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, e
 
 func TestKeyCacheGeneratesMissingZoneSigningKey(t *testing.T) {
 	db := &signingKeyDB{}
-	cache := newKeyCache(db, bytes.Repeat([]byte{7}, 32))
+	cache := newKeyCache(db, testKeyring(bytes.Repeat([]byte{7}, 32)))
 
 	key, kid, err := cache.getKeyAndKid(context.Background(), "zone-1")
 	if err != nil {

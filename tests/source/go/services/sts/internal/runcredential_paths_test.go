@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/rs/zerolog"
 )
 
@@ -24,8 +25,8 @@ func runCredentialFlowServer(t *testing.T, db DBQuerier, policy string) *Server 
 		redis:       newMemSTSRedis(),
 		opa:         runCredentialZoneEngine(t, "z1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100), log: zerolog.Nop()},
-		keys:        &KeyCache{kek: zek},
-		secrets:     &builtinSecretBackend{db: db, kek: zek},
+		keys:        &KeyCache{keyring: testKeyring(zek)},
+		secrets:     secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(zek)),
 		metrics:     &STSMetrics{},
 		log:         zerolog.Nop(),
 	}

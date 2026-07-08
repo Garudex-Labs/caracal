@@ -285,7 +285,7 @@ func TestAuditBufferReplayPendingRemovesOnlyDrainedFiles(t *testing.T) {
 }
 
 func TestHandleKeyInvalidationRequiresZoneAndClearsCache(t *testing.T) {
-	keys := newKeyCache(&stubDB{}, []byte("12345678901234567890123456789012"))
+	keys := newKeyCache(&stubDB{}, testKeyring([]byte("12345678901234567890123456789012")))
 	keys.entries["zone-1"] = &zoneCacheEntry{expiresAt: time.Now().Add(time.Hour)}
 	keys.pubKeysCache["zone-1"] = &publicKeysCacheEntry{expiresAt: time.Now().Add(time.Hour)}
 	s := &Server{keys: keys}

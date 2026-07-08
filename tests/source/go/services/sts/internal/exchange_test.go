@@ -51,8 +51,8 @@ func testProviderSecret(t *testing.T, kek []byte, providerID, config string) map
 func providerServer(db *stubDB, kek []byte) *Server {
 	return &Server{
 		db:      db,
-		keys:    &KeyCache{kek: kek},
-		secrets: &builtinSecretBackend{db: db, kek: kek},
+		keys:    &KeyCache{keyring: testKeyring(kek)},
+		secrets: secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(kek)),
 	}
 }
 
@@ -745,7 +745,7 @@ func TestBuildUpstreamDirectiveIncludesProviderTokenOnlyForGateway(t *testing.T)
 			grant:    &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
 			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2_authorization_code")},
 		},
-		keys: &KeyCache{kek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
@@ -770,7 +770,7 @@ func TestBuildUpstreamDirectiveBindsGrantToConfiguredProvider(t *testing.T) {
 	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db:   &stubDB{grant: &ProviderConnection{ProviderID: &otherProviderID, AccessTokenCt: token}},
-		keys: &KeyCache{kek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("gateway directive must reject grants from a different provider")
@@ -1230,7 +1230,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 				ConfigJSON:   []byte(`{bad json`),
 			},
 		},
-		keys: &KeyCache{kek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed provider config")
@@ -1257,7 +1257,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 				ConfigJSON:   []byte(`{"auth_scheme":"Bearer Token"}`),
 			},
 		},
-		keys: &KeyCache{kek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed auth schemes")
@@ -2231,7 +2231,7 @@ func makeTestSecretRow(t *testing.T, zek []byte, priv *ecdsa.PrivateKey, kid str
 func TestValidateSubjectTokenGracePeriodAndRotation(t *testing.T) {
 	// Setup keys and environment
 	zek := []byte("12345678901234567890123456789012")
-	keyCache := newKeyCache(nil, zek) // We will supply the db below
+	keyCache := newKeyCache(nil, testKeyring(zek)) // We will supply the db below
 
 	keyA, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -2315,7 +2315,7 @@ func TestValidateSubjectTokenGracePeriodAndRotation(t *testing.T) {
 		}
 		activeOnlySrv := &Server{
 			cfg:  Config{IssuerURL: "https://sts.example.com"},
-			keys: newKeyCache(activeOnlyDB, zek),
+			keys: newKeyCache(activeOnlyDB, testKeyring(zek)),
 			db:   activeOnlyDB,
 		}
 		tok := mintToken(keyA, "key-A", true)
