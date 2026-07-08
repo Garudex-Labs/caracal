@@ -28,7 +28,7 @@ import { downstreamHeaders, safeTarget } from './security.ts'
 import { selectProxyCredential, shouldRetryWithFallback } from './proxyCredential.ts'
 import { coordZoneId, resolveZoneAccess, type ZoneProbeResult } from './zoneAccess.ts'
 import { enforceDenial, resolveAccess } from './allowlist.ts'
-import { parseProfileIds, resolveProfiles } from './profiles.ts'
+import { parseProfileIds, resolveProfiles, adminTokenProfiles, type Profile } from './profiles.ts'
 import { loadConfig } from './config.ts'
 import { logger } from './logger.ts'
 
@@ -851,7 +851,7 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     return true
   }
   if (path === '/profiles' || path.startsWith('/profiles?')) {
-    await handleProfiles(res, url)
+    await handleProfiles(res, url, ctx.id)
     return true
   }
   if (path === '/diagnostics') {
@@ -873,15 +873,41 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
 }
 
 // Resolves profile ids to current display names for attribution rendering. Session-guarded and
-// allowlist-gated like every console route; answers from the auth store directly, so a rename
-// is visible on the next render without touching the control plane.
-async function handleProfiles(res: ServerResponse, url: string): Promise<void> {
+// allowlist-gated like every console route; profile ids answer from the auth store directly, so
+// a rename is visible on the next render, while `admin:<id>` identities resolve to their admin
+// token's name through the control plane.
+async function handleProfiles(res: ServerResponse, url: string, id: string): Promise<void> {
+  const ids = parseProfileIds(url)
+  const profiles: Profile[] = []
   try {
     const ctx = await auth.$context
-    const profiles = await resolveProfiles(ctx.adapter, parseProfileIds(url))
-    sendJson(res, 200, { profiles })
+    profiles.push(...(await resolveProfiles(ctx.adapter, ids.profiles)))
   } catch (err) {
     logger.warn('profile resolution failed', { err })
-    sendJson(res, 200, { profiles: [] })
+  }
+  profiles.push(...(await resolveAdminIdentities(ids.admins, id)))
+  sendJson(res, 200, { profiles })
+}
+
+// Looks up admin token names for `admin:<id>` attribution identities. A failed or unconfigured
+// lookup resolves nothing: the console then renders the stored identity verbatim.
+async function resolveAdminIdentities(ids: string[], reqId: string): Promise<Profile[]> {
+  if (ids.length === 0) return []
+  const admin = adminToken()
+  if (!admin) return []
+  try {
+    const upstream = await fetch(`${apiUrl()}/v1/admin-tokens`, {
+      headers: { ...downstreamHeaders(reqId), Authorization: `Bearer ${admin}` },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    if (!upstream.ok) {
+      await upstream.body?.cancel().catch(() => {})
+      return []
+    }
+    const body = (await upstream.json()) as { items?: unknown[] }
+    return adminTokenProfiles(body.items ?? [], ids)
+  } catch (err) {
+    logger.warn('admin identity resolution failed', { err })
+    return []
   }
 }

@@ -516,6 +516,10 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/rotate-secret`,
         { method: "POST", body: "{}" },
       ),
+    revealSecret: (zoneId: string, id: string) =>
+      request<{ client_secret: string }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}/client-secret`,
+      ),
     delete: (zoneId: string, id: string) =>
       request<void>(
         `/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(id)}`,
@@ -541,6 +545,10 @@ export const consoleApi = {
       request<Workload>(
         `/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}/rotate-secret`,
         { method: "POST", body: "{}" },
+      ),
+    revealSecret: (zoneId: string, id: string) =>
+      request<{ secret: string }>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}/secret`,
       ),
     delete: (zoneId: string, id: string) =>
       request<void>(`/v1/zones/${encodeURIComponent(zoneId)}/workloads/${encodeURIComponent(id)}`, {
