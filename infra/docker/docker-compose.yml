@@ -52,6 +52,34 @@ x-appResources: &appResources
         cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
         memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
 
+# Secret backend selection for user-entered provider credentials. The builtin Secret
+# Store needs nothing beyond SECRET_STORE_KEK; the remaining values configure an
+# external backend and stay empty (treated as unset) under builtin.
+x-secretBackendEnv: &secretBackendEnv
+  CARACAL_SECRET_BACKEND: ${CARACAL_SECRET_BACKEND:-builtin}
+  CARACAL_VAULT_ADDR: ${CARACAL_VAULT_ADDR:-}
+  CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-}
+  CARACAL_VAULT_MOUNT: ${CARACAL_VAULT_MOUNT:-}
+  CARACAL_VAULT_NAMESPACE: ${CARACAL_VAULT_NAMESPACE:-}
+  CARACAL_INFISICAL_URL: ${CARACAL_INFISICAL_URL:-}
+  CARACAL_INFISICAL_TOKEN: ${CARACAL_INFISICAL_TOKEN:-}
+  CARACAL_INFISICAL_PROJECT_ID: ${CARACAL_INFISICAL_PROJECT_ID:-}
+  CARACAL_INFISICAL_ENV: ${CARACAL_INFISICAL_ENV:-}
+  CARACAL_INFISICAL_PATH: ${CARACAL_INFISICAL_PATH:-}
+  CARACAL_AZURE_VAULT_URL: ${CARACAL_AZURE_VAULT_URL:-}
+  CARACAL_AZURE_TENANT_ID: ${CARACAL_AZURE_TENANT_ID:-}
+  CARACAL_AZURE_CLIENT_ID: ${CARACAL_AZURE_CLIENT_ID:-}
+  CARACAL_AZURE_CLIENT_SECRET: ${CARACAL_AZURE_CLIENT_SECRET:-}
+  CARACAL_AWS_REGION: ${CARACAL_AWS_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+  CARACAL_GCP_PROJECT: ${CARACAL_GCP_PROJECT:-}
+  CARACAL_GCP_CREDENTIALS_FILE: ${CARACAL_GCP_CREDENTIALS_FILE:-}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  CARACAL_CUSTOM_SECRETS_URL: ${CARACAL_CUSTOM_SECRETS_URL:-}
+  CARACAL_CUSTOM_SECRETS_TOKEN: ${CARACAL_CUSTOM_SECRETS_TOKEN:-}
+
 networks:
   caracalData:
     driver: bridge
@@ -71,8 +99,8 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/caracalCoordinatorToken
   metricsBearer:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/metricsBearer
-  zoneKek:
-    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/zoneKek
+  secretStoreKek:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/secretStoreKek
   auditHmacKey:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/auditHmacKey
   streamsHmacKey:
@@ -292,8 +320,8 @@ services:
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
-      - source: zoneKek
-        target: zoneKek
+      - source: secretStoreKek
+        target: secretStoreKek
       - source: auditHmacKey
         target: auditHmacKey
       - source: streamsHmacKey
@@ -303,14 +331,14 @@ services:
       - source: metricsBearer
         target: metricsBearer
     environment:
+      <<: *secretBackendEnv
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
-      ZONE_KEK_FILE: /run/secrets/zoneKek
+      SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
-      ZONE_KEK_PROVIDER: local
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
@@ -350,8 +378,8 @@ services:
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
-      - source: zoneKek
-        target: zoneKek
+      - source: secretStoreKek
+        target: secretStoreKek
       - source: streamsHmacKey
         target: streamsHmacKey
       - source: gatewayStsHmacKey
@@ -363,6 +391,7 @@ services:
       - source: auditHmacKey
         target: auditHmacKey
     environment:
+      <<: *secretBackendEnv
       CARACAL_MODE: ${CARACAL_MODE:-dev}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
@@ -372,7 +401,7 @@ services:
       # Service-to-service traffic stays on the compose-internal bridge network and is
       # authenticated with HMAC keys and tokens, so plain http between containers is safe.
       CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
-      ZONE_KEK_FILE: /run/secrets/zoneKek
+      SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken

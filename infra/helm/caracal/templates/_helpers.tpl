@@ -80,8 +80,8 @@ secret:
       path: databaseUrl
     - key: redisUrl
       path: redisUrl
-    - key: zoneKek
-      path: zoneKek
+    - key: secretStoreKek
+      path: secretStoreKek
     - key: auditHmacKey
       path: auditHmacKey
     - key: streamsHmacKey
