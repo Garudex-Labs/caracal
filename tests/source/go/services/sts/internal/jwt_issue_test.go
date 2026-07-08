@@ -148,7 +148,7 @@ func TestGetPublicKeysByZoneAccumulatesFailures(t *testing.T) {
 	t.Run("mixed failures name the kids", func(t *testing.T) {
 		db := &stubDB{secrets: []SecretRow{
 			sealedSecret(t, zek, "kid-good", []byte(pemKey)),
-			{ID: "kid-garbled", Ciphertext: []byte("garbage"), Nonce: make([]byte, 12)},
+			{ID: "kid-garbled", Envelope: []byte("garbage")},
 			sealedSecret(t, zek, "kid-not-ec", []byte("not a key")),
 		}}
 		keys := newKeyCache(db, zek)

@@ -63,6 +63,7 @@ func exchangeFlowServer(t *testing.T, db DBQuerier, policy string) *Server {
 		opa:         runCredentialZoneEngine(t, "zone1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 256), log: zerolog.Nop()},
 		keys:        newKeyCache(db, exchangeFlowZEK()),
+		secrets:     &builtinSecretBackend{db: db, kek: exchangeFlowZEK()},
 		metrics:     &STSMetrics{},
 		cfg:         Config{IssuerURL: "https://sts.piedpiper.example", MaxGrantTTLSeconds: 3600},
 		log:         zerolog.Nop(),
