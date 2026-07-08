@@ -28,9 +28,9 @@ func (s *signingKeyDB) GetZoneSigningKeySecret(_ context.Context, _ string) (*Se
 	return s.secret, nil
 }
 
-func (s *signingKeyDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, ciphertext, nonce []byte) (*SecretRow, error) {
+func (s *signingKeyDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, envelope []byte) (*SecretRow, error) {
 	s.ensureCalls++
-	s.secret = &SecretRow{ID: "generated-key", Ciphertext: ciphertext, Nonce: nonce, DEKID: "zoneKek"}
+	s.secret = &SecretRow{ID: "generated-key", Envelope: envelope}
 	return s.secret, nil
 }
 

@@ -37,19 +37,14 @@ func TestBuildUpstreamDirectiveSupportsHTTPBasicProvider(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"password":"piper-pass"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("http_basic"),
-				ConfigJSON:        []byte(`{"username":"richard"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("http_basic"),
+			ConfigJSON:   []byte(`{"username":"richard"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"password":"piper-pass"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support http_basic provider shape: %v", err)
@@ -70,19 +65,14 @@ func TestBuildUpstreamDirectiveRejectsHTTPBasicRuntimeInjection(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"password":"piper-pass"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("http_basic"),
-				ConfigJSON:        []byte(`{"username":"richard","allow_runtime_injection":true}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("http_basic"),
+			ConfigJSON:   []byte(`{"username":"richard","allow_runtime_injection":true}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"password":"piper-pass"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", nil, resource, true, true); err == nil {
 		t.Fatal("http_basic must never be eligible for runtime credential injection")
 	}
@@ -92,14 +82,12 @@ func TestExchangeSurfacesProviderCredentialFailure(t *testing.T) {
 	providerID := "provider1"
 	db := exchangeFlowDB(t)
 	db.resource.CredentialProviderID = &providerID
-	secretCt, secretNonce := testProviderSecret(t, exchangeFlowZEK(), `{}`)
 	db.provider = &ProviderConfig{
-		ID:                providerID,
-		ProviderKind:      strPtr("oauth2_client_credentials"),
-		ConfigJSON:        []byte(`{"token_endpoint":"https://issuer.example/token","client_id":"hooli-client","allowed_token_hosts":["issuer.example"]}`),
-		SecretConfigCt:    secretCt,
-		SecretConfigNonce: secretNonce,
+		ID:           providerID,
+		ProviderKind: strPtr("oauth2_client_credentials"),
+		ConfigJSON:   []byte(`{"token_endpoint":"https://issuer.example/token","client_id":"hooli-client","allowed_token_hosts":["issuer.example"]}`),
 	}
+	db.storeEnvelopes = testProviderSecret(t, exchangeFlowZEK(), providerID, `{}`)
 	db.session = activeUserSession("sess-1")
 	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 	req := baseExchangeRequest()

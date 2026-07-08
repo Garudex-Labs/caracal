@@ -25,6 +25,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -166,27 +167,10 @@ func refreshTestServer(db DBQuerier, r stsRedis) *Server {
 		db:      db,
 		redis:   r,
 		keys:    newKeyCache(db, zek),
+		secrets: &builtinSecretBackend{db: db, kek: zek},
 		metrics: &STSMetrics{},
 		cfg:     Config{MaxGrantTTLSeconds: 3600},
 		log:     zerolog.Nop(),
-	}
-}
-
-func TestOpenZEKRejectsTamperedCiphertext(t *testing.T) {
-	zek := make([]byte, 32)
-	packed, err := sealZEK(zek, []byte("refresh-token"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	packed[len(packed)-1] ^= 0xff
-	if _, err := openZEK(zek, packed); err == nil {
-		t.Fatal("tampered ciphertext must fail to open")
-	}
-	if _, err := openZEK(zek, []byte("short")); err == nil {
-		t.Fatal("truncated ciphertext must fail to open")
-	}
-	if _, err := sealZEK([]byte("bad-key"), []byte("x")); err == nil {
-		t.Fatal("invalid key length must fail to seal")
 	}
 }
 
@@ -680,7 +664,7 @@ func TestRefreshExpiredBrokeredGrantDenyMatrix(t *testing.T) {
 	for i := range zek {
 		zek[i] = byte(i + 1)
 	}
-	sealedRefresh, err := sealZEK(zek, []byte("refresh-token"))
+	sealedRefresh, err := secretstore.Seal(zek, []byte("refresh-token"), secretstore.AADConnectionRefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,13 +698,14 @@ func TestRefreshExpiredBrokeredGrantDenyMatrix(t *testing.T) {
 		},
 		"secret decrypt fails": {
 			db: &grantDB{
+				stubDB: stubDB{storeEnvelopes: map[string][]byte{
+					secretstore.ProviderSecretConfigRef("", providerID): []byte("garbage"),
+				}},
 				grant: expiredGrant(sealedRefresh, &providerID),
 				providerRow: &ProviderConfig{
-					ID:                providerID,
-					ProviderKind:      strPtr("oauth2_authorization_code"),
-					ConfigJSON:        json.RawMessage(`{"token_endpoint":"https://login.hooli.example/token","client_id":"c1"}`),
-					SecretConfigCt:    []byte("garbage"),
-					SecretConfigNonce: make([]byte, 12),
+					ID:           providerID,
+					ProviderKind: strPtr("oauth2_authorization_code"),
+					ConfigJSON:   json.RawMessage(`{"token_endpoint":"https://login.hooli.example/token","client_id":"c1"}`),
 				},
 			},
 			description: "credential_expired_not_renewable",
