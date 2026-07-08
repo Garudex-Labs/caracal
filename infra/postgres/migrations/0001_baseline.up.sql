@@ -3215,6 +3215,7 @@ GRANT SELECT ON TABLE public.sessions TO caracalcoordinator;
 --
 
 GRANT SELECT,INSERT,UPDATE ON TABLE public.step_up_challenges TO caracalsts;
+GRANT SELECT,UPDATE ON TABLE public.step_up_challenges TO caracalapi;
 
 
 --

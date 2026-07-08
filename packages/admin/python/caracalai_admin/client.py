@@ -258,10 +258,18 @@ class _Applications:
 
     def rotate_secret(self, zone_id: str, application_id: str) -> Any:
         """Rotates the credential server-side; the response carries the
-        one-time plaintext secret."""
+        plaintext secret and the sealed custody copy in the Secret Store is
+        replaced with it."""
         return self._client._request(
             f"/v1/zones/{zone_id}/applications/{application_id}/rotate-secret",
             method="POST",
+        )
+
+    def get_client_secret(self, zone_id: str, application_id: str) -> Any:
+        """Retrieves the client secret from Secret Store custody. Every call
+        is recorded in the zone audit timeline as a credential reveal."""
+        return self._client._request(
+            f"/v1/zones/{zone_id}/applications/{application_id}/client-secret"
         )
 
     def delete(self, zone_id: str, application_id: str) -> None:
@@ -525,7 +533,8 @@ class _ProviderConnections:
 
 class _Workloads:
     """Workload launcher identities and their credential bindings; create and
-    rotate_secret responses carry the one-time plaintext secret."""
+    rotate_secret responses carry the plaintext secret, and a sealed custody
+    copy stays retrievable through get_secret."""
 
     def __init__(self, client: AdminClient) -> None:
         self._client = client
@@ -550,6 +559,13 @@ class _Workloads:
         return self._client._request(
             f"/v1/zones/{zone_id}/workloads/{workload_id}/rotate-secret",
             method="POST",
+        )
+
+    def get_secret(self, zone_id: str, workload_id: str) -> Any:
+        """Retrieves the workload secret from Secret Store custody. Every call
+        is recorded in the zone audit timeline as a credential reveal."""
+        return self._client._request(
+            f"/v1/zones/{zone_id}/workloads/{workload_id}/secret"
         )
 
     def delete(self, zone_id: str, workload_id: str) -> None:

@@ -194,11 +194,12 @@ class AdminClientTests(unittest.TestCase):
 
     def test_covers_provisioning_surface_with_paths_and_methods(self):
         requests: list[httpx.Request] = []
-        responses = [httpx.Response(200, json={"items": [], "next_cursor": None})] * 16
+        responses = [httpx.Response(200, json={"items": [], "next_cursor": None})] * 17
         client = make_client(responses, requests)
 
         client.applications.list("z1")
         client.applications.rotate_secret("z1", "app-1")
+        client.applications.get_client_secret("z1", "app-1")
         client.applications.dcr("z1", {"name": "ephemeral"})
         client.resources.create(
             "z1", {"name": "PiperNet", "identifier": "resource://pipernet"}
@@ -229,65 +230,69 @@ class AdminClientTests(unittest.TestCase):
             ("http://api/v1/zones/z1/applications/app-1/rotate-secret", "POST"),
         )
         self.assertEqual(
-            observed[2][:2], ("http://api/v1/zones/z1/applications/dcr", "POST")
-        )
-        self.assertEqual(observed[3][:2], ("http://api/v1/zones/z1/resources", "POST"))
-        self.assertEqual(
-            observed[4][:2], ("http://api/v1/zones/z1/providers/prov-1", "PATCH")
-        )
-        self.assertEqual(observed[5][:2], ("http://api/v1/policies/validate", "POST"))
-        self.assertEqual(
-            json.loads(observed[5][2]), {"content": "package caracal.authz\n"}
+            observed[2][:2],
+            ("http://api/v1/zones/z1/applications/app-1/client-secret", "GET"),
         )
         self.assertEqual(
-            observed[6][:2], ("http://api/v1/zones/z1/policies/pol-1/versions", "POST")
+            observed[3][:2], ("http://api/v1/zones/z1/applications/dcr", "POST")
+        )
+        self.assertEqual(observed[4][:2], ("http://api/v1/zones/z1/resources", "POST"))
+        self.assertEqual(
+            observed[5][:2], ("http://api/v1/zones/z1/providers/prov-1", "PATCH")
+        )
+        self.assertEqual(observed[6][:2], ("http://api/v1/policies/validate", "POST"))
+        self.assertEqual(
+            json.loads(observed[6][2]), {"content": "package caracal.authz\n"}
         )
         self.assertEqual(
-            json.loads(observed[6][2]),
+            observed[7][:2], ("http://api/v1/zones/z1/policies/pol-1/versions", "POST")
+        )
+        self.assertEqual(
+            json.loads(observed[7][2]),
             {"content": "content"},
         )
-        self.assertEqual(observed[7][:2], ("http://api/v1/zones/z1/policy-sets", "GET"))
+        self.assertEqual(observed[8][:2], ("http://api/v1/zones/z1/policy-sets", "GET"))
         self.assertEqual(
-            observed[8][:2], ("http://api/v1/zones/z1/policy-sets", "POST")
+            observed[9][:2], ("http://api/v1/zones/z1/policy-sets", "POST")
         )
-        self.assertEqual(json.loads(observed[8][2]), {"name": "PiperNet set"})
+        self.assertEqual(json.loads(observed[9][2]), {"name": "PiperNet set"})
         self.assertEqual(
-            json.loads(observed[9][2]),
+            json.loads(observed[10][2]),
             {"name": "PiperNet set", "description": "baseline"},
         )
         self.assertEqual(
-            observed[10][:2],
+            observed[11][:2],
             ("http://api/v1/zones/z1/policy-sets/set-1/versions", "POST"),
         )
         self.assertEqual(
-            json.loads(observed[10][2]), {"manifest": [{"policy_version_id": "ver-1"}]}
-        )
-        self.assertEqual(
-            observed[11][:2],
-            ("http://api/v1/zones/z1/policy-sets/set-1/versions", "GET"),
+            json.loads(observed[11][2]), {"manifest": [{"policy_version_id": "ver-1"}]}
         )
         self.assertEqual(
             observed[12][:2],
-            ("http://api/v1/zones/z1/policy-sets/set-1/simulate", "POST"),
-        )
-        self.assertEqual(
-            json.loads(observed[12][2]),
-            {"version_id": "setver-1", "input": {"subject": "richard"}},
+            ("http://api/v1/zones/z1/policy-sets/set-1/versions", "GET"),
         )
         self.assertEqual(
             observed[13][:2],
-            ("http://api/v1/zones/z1/policy-sets/set-1/activate", "POST"),
+            ("http://api/v1/zones/z1/policy-sets/set-1/simulate", "POST"),
         )
-        self.assertEqual(json.loads(observed[13][2]), {"version_id": "setver-1"})
+        self.assertEqual(
+            json.loads(observed[13][2]),
+            {"version_id": "setver-1", "input": {"subject": "richard"}},
+        )
         self.assertEqual(
             observed[14][:2],
+            ("http://api/v1/zones/z1/policy-sets/set-1/activate", "POST"),
+        )
+        self.assertEqual(json.loads(observed[14][2]), {"version_id": "setver-1"})
+        self.assertEqual(
+            observed[15][:2],
             (
                 "http://api/v1/zones/z1/policy-sets/set-1/activation-status?version_id=setver-1&outbox_id=outbox-1",
                 "GET",
             ),
         )
         self.assertEqual(
-            observed[15][:2], ("http://api/v1/zones/z1/policy-sets/set-1", "DELETE")
+            observed[16][:2], ("http://api/v1/zones/z1/policy-sets/set-1", "DELETE")
         )
 
 
@@ -473,17 +478,18 @@ class AdminOperationsTests(unittest.TestCase):
         )
         self.assertTrue(all(req.method == "POST" for req in requests))
 
-    def test_workload_surface_paths_and_one_time_secret(self):
+    def test_workload_surface_paths_and_custody_secret(self):
         requests: list[httpx.Request] = []
         client = make_client(
             [
                 httpx.Response(200, json={"items": [], "next_cursor": None}),
                 httpx.Response(200, json={"id": "wl1"}),
                 httpx.Response(
-                    200, json={"id": "wl1", "name": "launcher", "secret": "ws_one_time"}
+                    200, json={"id": "wl1", "name": "launcher", "secret": "ws_created"}
                 ),
                 httpx.Response(200, json={"id": "wl1", "name": "launcher-2"}),
                 httpx.Response(200, json={"id": "wl1", "secret": "ws_rotated"}),
+                httpx.Response(200, json={"secret": "ws_revealed"}),
                 httpx.Response(204),
             ],
             requests,
@@ -494,10 +500,12 @@ class AdminOperationsTests(unittest.TestCase):
         created = client.workloads.create("z1", {"name": "launcher"})
         client.workloads.update("z1", "wl1", {"name": "launcher-2"})
         rotated = client.workloads.rotate_secret("z1", "wl1")
+        revealed = client.workloads.get_secret("z1", "wl1")
         client.workloads.delete("z1", "wl1")
 
-        self.assertEqual(created["secret"], "ws_one_time")
+        self.assertEqual(created["secret"], "ws_created")
         self.assertEqual(rotated["secret"], "ws_rotated")
+        self.assertEqual(revealed["secret"], "ws_revealed")
         self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/workloads")
         self.assertEqual(str(requests[1].url), "http://api/v1/zones/z1/workloads/wl1")
         self.assertEqual(requests[2].method, "POST")
@@ -509,7 +517,11 @@ class AdminOperationsTests(unittest.TestCase):
             "http://api/v1/zones/z1/workloads/wl1/rotate-secret",
         )
         self.assertEqual(requests[4].method, "POST")
-        self.assertEqual(requests[5].method, "DELETE")
+        self.assertEqual(
+            str(requests[5].url), "http://api/v1/zones/z1/workloads/wl1/secret"
+        )
+        self.assertEqual(requests[5].method, "GET")
+        self.assertEqual(requests[6].method, "DELETE")
 
     def test_coordinator_surfaces_use_coordinator_base_and_token(self):
         requests: list[httpx.Request] = []

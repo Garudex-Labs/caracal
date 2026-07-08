@@ -307,8 +307,8 @@ func TestHonoursDateBasedRetryAfter(t *testing.T) {
 }
 
 func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
-	steps := make([]any, 0, 16)
-	for range 16 {
+	steps := make([]any, 0, 17)
+	for range 17 {
 		steps = append(steps, ok(`{"items":[],"next_cursor":null}`))
 	}
 	transport := &scripted{steps: steps}
@@ -317,6 +317,7 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 
 	client.Applications.List(ctx, "z1")
 	client.Applications.RotateSecret(ctx, "z1", "app-1")
+	client.Applications.GetClientSecret(ctx, "z1", "app-1")
 	client.Applications.DCR(ctx, "z1", map[string]any{"name": "ephemeral"})
 	client.Resources.Create(ctx, "z1", map[string]any{"name": "PiperNet", "identifier": "resource://pipernet"})
 	client.Providers.Patch(ctx, "z1", "prov-1", map[string]any{"config_json": map[string]any{}})
@@ -338,6 +339,7 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 	}{
 		{"http://api/v1/zones/z1/applications", http.MethodGet},
 		{"http://api/v1/zones/z1/applications/app-1/rotate-secret", http.MethodPost},
+		{"http://api/v1/zones/z1/applications/app-1/client-secret", http.MethodGet},
 		{"http://api/v1/zones/z1/applications/dcr", http.MethodPost},
 		{"http://api/v1/zones/z1/resources", http.MethodPost},
 		{"http://api/v1/zones/z1/providers/prov-1", http.MethodPatch},
@@ -362,11 +364,11 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 			t.Fatalf("request %d: got %s %s, want %s %s", index, got.method, got.url, want.method, want.url)
 		}
 	}
-	assertJSONEqual(t, transport.requests[5].body, map[string]any{"content": "package caracal.authz\n"})
-	assertJSONEqual(t, transport.requests[6].body, map[string]any{"content": "content"})
-	assertJSONEqual(t, transport.requests[8].body, map[string]any{"name": "PiperNet set"})
-	assertJSONEqual(t, transport.requests[9].body, map[string]any{"name": "PiperNet set", "description": "baseline"})
-	assertJSONEqual(t, transport.requests[10].body, map[string]any{"manifest": []any{map[string]any{"policy_version_id": "ver-1"}}})
-	assertJSONEqual(t, transport.requests[12].body, map[string]any{"version_id": "setver-1", "input": map[string]any{"subject": "richard"}})
-	assertJSONEqual(t, transport.requests[13].body, map[string]any{"version_id": "setver-1"})
+	assertJSONEqual(t, transport.requests[6].body, map[string]any{"content": "package caracal.authz\n"})
+	assertJSONEqual(t, transport.requests[7].body, map[string]any{"content": "content"})
+	assertJSONEqual(t, transport.requests[9].body, map[string]any{"name": "PiperNet set"})
+	assertJSONEqual(t, transport.requests[10].body, map[string]any{"name": "PiperNet set", "description": "baseline"})
+	assertJSONEqual(t, transport.requests[11].body, map[string]any{"manifest": []any{map[string]any{"policy_version_id": "ver-1"}}})
+	assertJSONEqual(t, transport.requests[13].body, map[string]any{"version_id": "setver-1", "input": map[string]any{"subject": "richard"}})
+	assertJSONEqual(t, transport.requests[14].body, map[string]any{"version_id": "setver-1"})
 }
