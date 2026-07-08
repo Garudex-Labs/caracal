@@ -19,6 +19,7 @@ import (
 	"time"
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -43,15 +44,15 @@ type KeyCache struct {
 	entries      map[string]*zoneCacheEntry
 	pubKeysCache map[string]*publicKeysCacheEntry
 	db           DBQuerier
-	zek          []byte
+	kek          []byte
 }
 
-func newKeyCache(db DBQuerier, zek []byte) *KeyCache {
+func newKeyCache(db DBQuerier, kek []byte) *KeyCache {
 	return &KeyCache{
 		entries:      make(map[string]*zoneCacheEntry),
 		pubKeysCache: make(map[string]*publicKeysCacheEntry),
 		db:           db,
-		zek:          zek,
+		kek:          kek,
 	}
 }
 
@@ -73,7 +74,7 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 		}
 	}
 
-	keyBytes, err := sharedcrypto.Open(k.zek, secret.Nonce, secret.Ciphertext)
+	keyBytes, err := secretstore.Open(k.kek, secret.Envelope, secretstore.AADZoneSigningKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("decrypt signing key: %w", err)
 	}
@@ -90,22 +91,22 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 }
 
 func (k *KeyCache) generateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
-	ciphertext, nonce, err := k.sealZoneSigningKey()
+	envelope, err := k.sealZoneSigningKey()
 	if err != nil {
 		return nil, err
 	}
-	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, envelope)
 }
 
 func (k *KeyCache) RotateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
 	if zoneID == "" {
 		return nil, errors.New("zone_id required")
 	}
-	ciphertext, nonce, err := k.sealZoneSigningKey()
+	envelope, err := k.sealZoneSigningKey()
 	if err != nil {
 		return nil, err
 	}
-	secret, err := k.db.InsertZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	secret, err := k.db.InsertZoneSigningKeySecret(ctx, zoneID, envelope)
 	if err != nil {
 		return nil, err
 	}
@@ -113,24 +114,24 @@ func (k *KeyCache) RotateZoneSigningKey(ctx context.Context, zoneID string) (*Se
 	return secret, nil
 }
 
-func (k *KeyCache) sealZoneSigningKey() ([]byte, []byte, error) {
+func (k *KeyCache) sealZoneSigningKey() ([]byte, error) {
 	priv, err := sharedcrypto.GenerateP256Key()
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate signing key: %w", err)
+		return nil, fmt.Errorf("generate signing key: %w", err)
 	}
 	der, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal signing key: %w", err)
+		return nil, fmt.Errorf("marshal signing key: %w", err)
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	if len(keyBytes) == 0 {
-		return nil, nil, fmt.Errorf("encode signing key")
+		return nil, fmt.Errorf("encode signing key")
 	}
-	ciphertext, nonce, err := sharedcrypto.Seal(k.zek, keyBytes)
+	envelope, err := secretstore.Seal(k.kek, keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("seal signing key: %w", err)
+		return nil, fmt.Errorf("seal signing key: %w", err)
 	}
-	return ciphertext, nonce, nil
+	return envelope, nil
 }
 
 func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PublicKey, string, error) {
@@ -163,7 +164,7 @@ func (k *KeyCache) getPublicKeysByZone(ctx context.Context, zoneID string) (map[
 	var decryptFailedKids []string
 	var parseFailedKids []string
 	for _, secret := range secrets {
-		keyBytes, err := sharedcrypto.Open(k.zek, secret.Nonce, secret.Ciphertext)
+		keyBytes, err := secretstore.Open(k.kek, secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			decryptFailedKids = append(decryptFailedKids, secret.ID)
 			continue

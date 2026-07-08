@@ -28,12 +28,11 @@ import (
 	"strings"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -68,31 +67,6 @@ type distributedRefreshResult struct {
 	OK          bool           `json:"ok"`
 	Code        sharederr.Code `json:"code,omitempty"`
 	Description string         `json:"description,omitempty"`
-}
-
-func sealZEK(zek, plaintext []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.New(zek)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	ct := aead.Seal(nil, nonce, plaintext, nil)
-	return append(nonce, ct...), nil
-}
-
-func openZEK(zek, packed []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.New(zek)
-	if err != nil {
-		return nil, err
-	}
-	ns := aead.NonceSize()
-	if len(packed) < ns {
-		return nil, errors.New("ciphertext too short")
-	}
-	return aead.Open(nil, packed[:ns], packed[ns:], nil)
 }
 
 // tryRefreshProviderConnection fetches the subject's provider connection, refreshes
@@ -178,7 +152,7 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 	if err := json.Unmarshal(provider.ConfigJSON, &provCfg); err != nil || provCfg.TokenEndpoint == "" || provCfg.ClientID == "" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	secretConfig, _, err := s.providerSecretConfig(ctx, provider)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -189,7 +163,7 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return sharederr.New(sharederr.CredentialExpired, "provider refresh circuit open")
 	}
-	refreshToken, err := openZEK(s.keys.zek, connection.RefreshTokenCt)
+	refreshToken, err := secretstore.Open(s.keys.kek, connection.RefreshTokenCt, secretstore.AADConnectionRefreshToken)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -215,15 +189,15 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 		s.log.Warn().Str("provider", provider.ID).Str("token_type", tokenResp.TokenType).Msg("provider returned unsupported token_type")
 		return sharederr.New(sharederr.CredentialExpired, "provider token type unsupported")
 	}
-	newAccessCt, err := sealZEK(s.keys.zek, []byte(tokenResp.AccessToken))
+	newAccessCt, err := secretstore.Seal(s.keys.kek, []byte(tokenResp.AccessToken), secretstore.AADConnectionAccessToken)
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
 	}
 	var newRefreshCt []byte
 	if tokenResp.RefreshToken != "" {
-		newRefreshCt, err = sealZEK(s.keys.zek, []byte(tokenResp.RefreshToken))
+		newRefreshCt, err = secretstore.Seal(s.keys.kek, []byte(tokenResp.RefreshToken), secretstore.AADConnectionRefreshToken)
 	} else {
-		newRefreshCt, err = sealZEK(s.keys.zek, refreshToken)
+		newRefreshCt, err = secretstore.Seal(s.keys.kek, refreshToken, secretstore.AADConnectionRefreshToken)
 	}
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
@@ -421,20 +395,26 @@ type providerSecretConfig struct {
 	Password     string `json:"password"`
 }
 
-func openProviderSecretConfig(zek []byte, provider *ProviderConfig) (providerSecretConfig, error) {
+// providerSecretConfig fetches and parses a provider's credential document through
+// the configured secret backend. The digest fingerprints the raw payload so cached
+// provider service tokens are invalidated when credentials rotate. Providers with
+// no stored credentials (for example public OAuth clients) resolve to an empty
+// config with an empty digest.
+func (s *Server) providerSecretConfig(ctx context.Context, provider *ProviderConfig) (providerSecretConfig, string, error) {
 	var cfg providerSecretConfig
-	if len(provider.SecretConfigCt) == 0 {
-		return cfg, nil
-	}
-	plaintext, err := sharedcrypto.Open(zek, provider.SecretConfigNonce, provider.SecretConfigCt)
+	value, found, err := s.secrets.Get(ctx, secretstore.ProviderSecretConfigRef(provider.ZoneID, provider.ID))
 	if err != nil {
-		return cfg, err
+		return cfg, "", err
 	}
-	defer clear(plaintext)
-	if err := json.Unmarshal(plaintext, &cfg); err != nil {
-		return cfg, err
+	if !found {
+		return cfg, "", nil
 	}
-	return cfg, nil
+	defer clear(value)
+	digest := sha256.Sum256(value)
+	if err := json.Unmarshal(value, &cfg); err != nil {
+		return cfg, "", err
+	}
+	return cfg, hex.EncodeToString(digest[:]), nil
 }
 
 func normalizeOAuthClientAuthMethod(method string) string {

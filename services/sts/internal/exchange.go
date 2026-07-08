@@ -23,6 +23,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -765,7 +766,7 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		if connection.ProviderID == nil || *connection.ProviderID != provider.ID {
 			return directive, fmt.Errorf("provider connection missing provider")
 		}
-		at, err := openZEK(s.keys.zek, connection.AccessTokenCt)
+		at, err := secretstore.Open(s.keys.kek, connection.AccessTokenCt, secretstore.AADConnectionAccessToken)
 		if err != nil {
 			return directive, fmt.Errorf("provider connection decrypt failed")
 		}
@@ -914,9 +915,9 @@ type providerServiceTokenCacheEntry struct {
 }
 
 func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderConfig) (string, error) {
-	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	secretConfig, secretDigest, err := s.providerSecretConfig(ctx, provider)
 	if err != nil {
-		return "", fmt.Errorf("provider secret decrypt failed")
+		return "", fmt.Errorf("provider secret fetch failed")
 	}
 	switch derefStr(provider.ProviderKind) {
 	case "api_key":
@@ -943,7 +944,7 @@ func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderCon
 		if err := json.Unmarshal(provider.ConfigJSON, &cfg); err != nil || cfg.TokenEndpoint == "" || cfg.ClientID == "" {
 			return "", fmt.Errorf("provider oauth2 config invalid")
 		}
-		fingerprint := providerServiceTokenFingerprint(provider)
+		fingerprint := providerServiceTokenFingerprint(provider, secretDigest)
 		if token, ok := s.cachedProviderServiceToken(provider.ID, fingerprint, time.Now()); ok {
 			return token, nil
 		}
@@ -1038,13 +1039,13 @@ func providerServiceTokenTTL(providerSeconds, maxSeconds int) time.Duration {
 	return capGrantTTL(providerSeconds, maxSeconds)
 }
 
-func providerServiceTokenFingerprint(provider *ProviderConfig) string {
+func providerServiceTokenFingerprint(provider *ProviderConfig, secretDigest string) string {
 	h := sha256.New()
 	h.Write([]byte(derefStr(provider.ProviderKind)))
 	h.Write([]byte{0})
 	h.Write(provider.ConfigJSON)
 	h.Write([]byte{0})
-	h.Write(provider.SecretConfigCt)
+	h.Write([]byte(secretDigest))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 

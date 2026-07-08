@@ -85,35 +85,17 @@ type DBQuerier interface {
 	ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error
 	SessionsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error)
 	DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error)
-	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
-	InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error)
+	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error)
+	InsertZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error)
 	GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*SecretRow, error)
 	GetZoneSigningKeySecrets(ctx context.Context, zoneID string) ([]SecretRow, error)
+	GetSecretStoreEnvelope(ctx context.Context, ref string) ([]byte, error)
 	GetActivePolicySetBinding(ctx context.Context, zoneID string) (*PolicySetBinding, error)
 	GetPolicySetVersion(ctx context.Context, id string) (*PolicySetVersion, error)
 	GetPolicyVersionsByIDs(ctx context.Context, ids []string) ([]PolicyVersion, error)
 	GetApplicationByIDGlobal(ctx context.Context, id string) (*Application, error)
 	GetWorkloadByID(ctx context.Context, id string) (*Workload, error)
 	ListBoundZoneIDs(ctx context.Context) ([]string, error)
-}
-
-// Zone holds the fields STS needs from the zones table.
-type Zone struct {
-	ID            string
-	DEKCiphertext []byte
-	KEKArn        *string
-}
-
-func (d *DB) GetZone(ctx context.Context, id string) (*Zone, error) {
-	var z Zone
-	err := d.pool.QueryRow(ctx,
-		`SELECT id, dek_ciphertext, kek_arn
-		 FROM zones WHERE id = $1`, id,
-	).Scan(&z.ID, &z.DEKCiphertext, &z.KEKArn)
-	if err != nil {
-		return nil, err
-	}
-	return &z, nil
 }
 
 // Application holds the fields STS needs from the applications table.
@@ -687,27 +669,37 @@ func (d *DB) DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time
 	return tag.RowsAffected(), nil
 }
 
-// SecretRow holds an encrypted secret blob.
+// SecretRow holds a sealed secret envelope.
 type SecretRow struct {
-	ID         string
-	Ciphertext []byte
-	Nonce      []byte
-	DEKID      string
+	ID       string
+	Envelope []byte
 }
 
 func (d *DB) GetZoneSigningKeySecret(ctx context.Context, zoneID string) (*SecretRow, error) {
 	var s SecretRow
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, ciphertext, nonce, dek_id FROM secrets
+		`SELECT id, envelope FROM secrets
 		 WHERE zone_id = $1 AND name = 'zone_signing_key' ORDER BY version DESC LIMIT 1`, zoneID,
-	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
+	).Scan(&s.ID, &s.Envelope)
 	if err != nil {
 		return nil, err
 	}
 	return &s, nil
 }
 
-func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error) {
+// GetSecretStoreEnvelope reads one builtin Secret Store envelope by ref.
+func (d *DB) GetSecretStoreEnvelope(ctx context.Context, ref string) ([]byte, error) {
+	var envelope []byte
+	err := d.pool.QueryRow(ctx,
+		`SELECT envelope FROM secret_store WHERE ref = $1`, ref,
+	).Scan(&envelope)
+	if err != nil {
+		return nil, err
+	}
+	return envelope, nil
+}
+
+func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error) {
 	current, err := d.GetZoneSigningKeySecret(ctx, zoneID)
 	if err == nil {
 		return current, nil
@@ -725,11 +717,11 @@ func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciph
 		   SELECT COALESCE(MAX(version), 0) + 1 AS version
 		   FROM secrets WHERE zone_id = $1 AND entity_id = $1 AND name = 'zone_signing_key'
 		 )
-		 INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id, version)
-		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, $4, 'zoneKek', next.version FROM next
-		 RETURNING id, ciphertext, nonce, dek_id`,
-		zoneID, id.String(), ciphertext, nonce,
-	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
+		 INSERT INTO secrets (id, zone_id, entity_id, name, type, envelope, version)
+		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, next.version FROM next
+		 RETURNING id, envelope`,
+		zoneID, id.String(), envelope,
+	).Scan(&s.ID, &s.Envelope)
 	if err != nil {
 		if current, getErr := d.GetZoneSigningKeySecret(ctx, zoneID); getErr == nil {
 			return current, nil
@@ -739,7 +731,7 @@ func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, ciph
 	return &s, nil
 }
 
-func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciphertext, nonce []byte) (*SecretRow, error) {
+func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
@@ -758,11 +750,11 @@ func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciph
 		   SELECT COALESCE(MAX(version), 0) + 1 AS version
 		   FROM secrets WHERE zone_id = $1 AND entity_id = $1 AND name = 'zone_signing_key'
 		 )
-		 INSERT INTO secrets (id, zone_id, entity_id, name, type, ciphertext, nonce, dek_id, version)
-		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, $4, 'zoneKek', next.version FROM next
-		 RETURNING id, ciphertext, nonce, dek_id`,
-		zoneID, id.String(), ciphertext, nonce,
-	).Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID)
+		 INSERT INTO secrets (id, zone_id, entity_id, name, type, envelope, version)
+		 SELECT $2, $1, $1, 'zone_signing_key', 'token', $3, next.version FROM next
+		 RETURNING id, envelope`,
+		zoneID, id.String(), envelope,
+	).Scan(&s.ID, &s.Envelope)
 	if err != nil {
 		return nil, err
 	}
@@ -777,14 +769,14 @@ func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, ciph
 func (d *DB) GetZoneSigningKeySecrets(ctx context.Context, zoneID string) ([]SecretRow, error) {
 	rows, err := d.pool.Query(ctx,
 		`WITH ranked AS (
-		   SELECT id, ciphertext, nonce, dek_id, created_at,
+		   SELECT id, envelope, created_at,
 		          row_number() OVER (ORDER BY version DESC, created_at DESC) AS key_rank
 		     FROM secrets
 		    WHERE zone_id = $1 AND name = 'zone_signing_key'
 		 ), active AS (
 		   SELECT created_at FROM ranked WHERE key_rank = 1
 		 )
-		 SELECT ranked.id, ranked.ciphertext, ranked.nonce, ranked.dek_id
+		 SELECT ranked.id, ranked.envelope
 		   FROM ranked CROSS JOIN active
 		  WHERE key_rank = 1 OR (key_rank = 2 AND active.created_at >= now() - interval '24 hours')
 		  ORDER BY key_rank`, zoneID,
@@ -796,7 +788,7 @@ func (d *DB) GetZoneSigningKeySecrets(ctx context.Context, zoneID string) ([]Sec
 	var secrets []SecretRow
 	for rows.Next() {
 		var s SecretRow
-		if err := rows.Scan(&s.ID, &s.Ciphertext, &s.Nonce, &s.DEKID); err != nil {
+		if err := rows.Scan(&s.ID, &s.Envelope); err != nil {
 			return nil, err
 		}
 		secrets = append(secrets, s)
@@ -886,19 +878,18 @@ func (d *DB) MarkProviderConnectionExpired(ctx context.Context, id string) error
 
 // ProviderConfig holds the provider config needed for token refresh.
 type ProviderConfig struct {
-	ID                string
-	ProviderKind      *string
-	ConfigJSON        json.RawMessage
-	SecretConfigCt    []byte
-	SecretConfigNonce []byte
+	ID           string
+	ZoneID       string
+	ProviderKind *string
+	ConfigJSON   json.RawMessage
 }
 
 func (d *DB) GetProvider(ctx context.Context, id string) (*ProviderConfig, error) {
 	var p ProviderConfig
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, provider_kind, config_json, secret_config_ct, secret_config_nonce
+		`SELECT id, zone_id, provider_kind, config_json
 		 FROM providers WHERE id = $1 AND archived_at IS NULL`, id,
-	).Scan(&p.ID, &p.ProviderKind, &p.ConfigJSON, &p.SecretConfigCt, &p.SecretConfigNonce)
+	).Scan(&p.ID, &p.ZoneID, &p.ProviderKind, &p.ConfigJSON)
 	if err != nil {
 		return nil, err
 	}
