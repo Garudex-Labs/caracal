@@ -22,7 +22,9 @@ import {
   loadSecretStoreKeks,
   openSecretEnvelope,
   sealSecretEnvelope,
+  applicationClientSecretRef,
   providerSecretConfigRef,
+  workloadSecretRef,
   resolveFileSecrets,
   secretBackendKind,
   AAD_CONNECTION_ACCESS_TOKEN,
@@ -112,33 +114,52 @@ await sweep(
   () => AAD_OPERATOR_PLAN_SECRETS,
 )
 
-// Provider credential documents in an external backend are envelopes too; they
-// are re-sealed in place through the same store the services read from.
+// Documents held in an external backend are envelopes too; every ref family the
+// backend can hold is re-sealed in place through the same store the services read.
 const kind = secretBackendKind()
 if (kind !== 'builtin') {
   const external = buildRawSecretBackend(pool, kind)
-  const { rows } = await pool.query(`SELECT zone_id, id FROM providers WHERE archived_at IS NULL AND secret_config_keys <> '{}'`)
-  for (const row of rows) {
-    const ref = providerSecretConfigRef(row.zone_id, row.id)
-    try {
-      const envelope = await external.get(ref)
-      if (!envelope) {
-        totals.skipped++
-        continue
+  const families = [
+    {
+      label: 'provider documents',
+      query: `SELECT zone_id, id FROM providers WHERE archived_at IS NULL AND secret_config_keys <> '{}'`,
+      ref: (row) => providerSecretConfigRef(row.zone_id, row.id),
+    },
+    {
+      label: 'application custody copies',
+      query: `SELECT zone_id, id FROM applications WHERE archived_at IS NULL AND registration_method = 'managed'`,
+      ref: (row) => applicationClientSecretRef(row.zone_id, row.id),
+    },
+    {
+      label: 'workload custody copies',
+      query: `SELECT zone_id, id FROM workloads`,
+      ref: (row) => workloadSecretRef(row.zone_id, row.id),
+    },
+  ]
+  for (const family of families) {
+    const { rows } = await pool.query(family.query)
+    for (const row of rows) {
+      const ref = family.ref(row)
+      try {
+        const envelope = await external.get(ref)
+        if (!envelope) {
+          totals.skipped++
+          continue
+        }
+        const sealed = reseal(envelope, ref)
+        if (!sealed) {
+          totals.skipped++
+          continue
+        }
+        await external.put(ref, sealed)
+        totals.resealed++
+      } catch (err) {
+        totals.failed++
+        console.error(`${kind}: ${ref}: ${err instanceof Error ? err.message : String(err)}`)
       }
-      const sealed = reseal(envelope, ref)
-      if (!sealed) {
-        totals.skipped++
-        continue
-      }
-      await external.put(ref, sealed)
-      totals.resealed++
-    } catch (err) {
-      totals.failed++
-      console.error(`${kind}: ${ref}: ${err instanceof Error ? err.message : String(err)}`)
     }
+    console.log(`${kind}: ${rows.length} ${family.label} examined`)
   }
-  console.log(`${kind}: ${rows.length} provider documents examined`)
 }
 
 await pool.end()

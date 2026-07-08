@@ -244,9 +244,9 @@ function SecretRow({ app, secret }: { app: string | null; secret: string }) {
   );
 }
 
-// The one-time credentials an apply issued, surfaced inside the plan card so a secret created through
-// the chat is not lost. It states plainly that the secret is shown once and never stored, matching how
-// the Console reveals a secret elsewhere, and holds the value only in memory for the operator to copy.
+// The credentials an apply issued, surfaced inside the plan card so a secret created through
+// the chat is easy to deliver immediately. The value is held only in memory here; the credential
+// stays retrievable from the owning object's detail panel, where every reveal is audited.
 function IssuedCredentials({
   secrets,
 }: {
@@ -261,7 +261,7 @@ function IssuedCredentials({
         </span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Shown once and never stored - copy and keep it somewhere safe before leaving this chat.
+        Copy it now, or reveal it later from the Applications page. Reveals are audited.
       </p>
       <div className="mt-2 flex flex-col gap-2.5">
         {secrets.map((item) => (

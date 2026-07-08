@@ -59,7 +59,9 @@ export function CreatedBy({
     staleTime: 60_000,
   });
   const name = profile.data ?? null;
-  const accountId = identity && name ? accountIdFor(identity) : null;
+  // Account IDs exist only for profile identities; prefixed identities such as
+  // admin tokens keep the recorded identity on hover even when a name resolves.
+  const accountId = identity && name && !identity.includes(":") ? accountIdFor(identity) : null;
   return (
     <span className={cx("inline-flex items-center gap-1.5", className)}>
       {identity ? (
