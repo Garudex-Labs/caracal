@@ -269,9 +269,14 @@ export class AdminClient {
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
     patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
-    // Rotates the credential server-side; the response carries the one-time plaintext secret.
+    // Rotates the credential server-side; the response carries the plaintext secret and
+    // the sealed custody copy in the Secret Store is replaced with it.
     rotateSecret: (zoneId: string, id: string) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}/rotate-secret`, { method: 'POST' }),
+    // Retrieves the client secret from Secret Store custody. Every call is recorded
+    // in the zone audit timeline as a credential reveal.
+    getClientSecret: (zoneId: string, id: string) =>
+      this.request<{ client_secret: string }>(`/v1/zones/${zoneId}/applications/${id}/client-secret`),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),
     // DCR (Dynamic Client Registration) is the sole programmatic path for minting
@@ -407,14 +412,19 @@ export class AdminClient {
   workloads = {
     list: (zoneId: string) => this.listAll<Workload>(`/v1/zones/${zoneId}/workloads`, 'workloads'),
     get: (zoneId: string, id: string) => this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`),
-    // The response carries the one-time plaintext workload secret; it is never retrievable again.
+    // The response carries the plaintext workload secret; a sealed custody copy stays
+    // retrievable through getSecret.
     create: (zoneId: string, input: { name: string }) =>
       this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads`, { method: 'POST', body: input }),
     update: (zoneId: string, id: string, input: WorkloadUpdateInput) =>
       this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'PUT', body: input }),
-    // Rotates the credential server-side; the response carries the one-time plaintext secret.
+    // Rotates the credential server-side; the response carries the plaintext secret and
+    // the sealed custody copy in the Secret Store is replaced with it.
     rotateSecret: (zoneId: string, id: string) =>
       this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads/${id}/rotate-secret`, { method: 'POST' }),
+    // Retrieves the workload secret from Secret Store custody. Every call is recorded
+    // in the zone audit timeline as a credential reveal.
+    getSecret: (zoneId: string, id: string) => this.request<{ secret: string }>(`/v1/zones/${zoneId}/workloads/${id}/secret`),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'DELETE', expectEmpty: true }),
   }

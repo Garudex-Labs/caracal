@@ -604,6 +604,14 @@ export function useRotateApplicationSecret(zoneId: string | null) {
   });
 }
 
+// A reveal is a mutation, not a query: every call is an audited credential access
+// that must reach the server, never a cached read.
+export function useRevealApplicationSecret(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.applications.revealSecret(zoneId as string, id),
+  });
+}
+
 export function useWorkloads(zoneId: string | null) {
   return useQuery({
     queryKey: keys.workloads(zoneId),
@@ -634,6 +642,14 @@ export function useRotateWorkloadSecret(zoneId: string | null) {
   return useMutation({
     mutationFn: (id: string) => consoleApi.workloads.rotateSecret(zoneId as string, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+// A reveal is a mutation, not a query: every call is an audited credential access
+// that must reach the server, never a cached read.
+export function useRevealWorkloadSecret(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.revealSecret(zoneId as string, id),
   });
 }
 
