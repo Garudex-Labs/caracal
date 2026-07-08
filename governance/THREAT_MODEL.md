@@ -93,10 +93,20 @@ Out of scope: enterprise-only code, customer deployments outside the provided de
 
 These are the consciously-accepted limits of the open-source product. Each names the limit honestly, the containment Caracal already enforces, and the path to closing it.
 
-- **Row-level security is enabled and fail-closed, but not yet self-enforcing.**
-  - *The limit.* Services connect with the bootstrap database login, which owns the tables and therefore bypasses `ENABLE`-only RLS, so database-level zone isolation is not yet independent of the application layer.
-  - *How Caracal contains it.* Application-layer zone and account guards mediate every mutation (T1), each request binds a per-request Postgres `caracal.zone_id`, and dedicated non-owner service roles (`NOLOGIN`, `NOBYPASSRLS`, per-table grants) with `zone_isolation` policies are already provisioned by the migrations - so RLS activates the moment services adopt those roles, without an application rewrite.
-  - *Path to closure.* Connect each service as (or `SET ROLE` to) its non-owner role, or enable `FORCE ROW LEVEL SECURITY`.
+- **Row-level security is enforced for service sessions, but the zone sentinel is cooperative.**
+  - *The limit.* Services connect as dedicated non-owner roles (`NOBYPASSRLS`, per-table grants), so `zone_isolation` policies apply to every service session; the administrative login is reserved for migrations and restore tooling. The policies, however, admit a `'*'` sentinel that any session may set on its own connection, so database-level zone isolation backstops application bugs rather than a fully compromised service process.
+  - *How Caracal contains it.* The control plane binds a per-request `caracal.zone_id` for zone-scoped actors and application-layer zone and account guards mediate every mutation (T1); data-plane services, which are cross-zone by design, set the sentinel once at connect. The migration job provisions each role's login credential from its own secret file, so no service holds the administrative password.
+  - *Path to closure.* Move sentinel assignment behind a `SECURITY DEFINER` gate or per-zone database roles so a compromised service session cannot widen its own scope.
+
+- **A database writer can substitute an older sealed value for the same reference.**
+  - *The limit.* Envelope authentication binds a secret to its logical location, not to its version, so an attacker with direct database write access can restore a previously valid envelope for the same reference without detection.
+  - *How Caracal contains it.* Reaching this requires database write access, which already implies control over provider configurations, grants, and policy state; every envelope still authenticates its location, so substitution cannot move a secret between references, zones, or tables. Credential rotation invalidates superseded upstream secrets at the provider, independent of Caracal's storage.
+  - *Path to closure.* Bind the row version into the envelope's associated data, trading the single-statement upsert for a read-verify-write cycle.
+
+- **The master key transits process memory as ordinary allocations.**
+  - *The limit.* `SECRET_STORE_KEK` arrives through file-backed environment resolution and is decoded per operation; Node and Go runtimes do not pin, lock, or reliably zero those allocations, so a memory-disclosure primitive against a service process can recover the key.
+  - *How Caracal contains it.* Data keys are zeroized after each seal and open, decrypted values are wiped where the runtime allows, the KEK never reaches logs or the database, and weak keys are rejected at startup. A memory-disclosure primitive against the API or STS already implies access to plaintext secrets in flight, so the KEK adds no marginal authority within one deployment.
+  - *Path to closure.* KMS- or HSM-held root keys with per-deployment unwrap, so process memory only ever holds short-lived data keys.
 
 - **The bootstrap admin token can administer every zone.**
   - *The limit.* A single shared credential carries cross-zone authority.

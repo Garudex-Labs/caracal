@@ -109,6 +109,28 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/gatewayStsHmacKey
   databaseUrl:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/databaseUrl
+  apiDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/apiDatabaseUrl
+  stsDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/stsDatabaseUrl
+  gatewayDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/gatewayDatabaseUrl
+  auditDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/auditDatabaseUrl
+  coordinatorDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/coordinatorDatabaseUrl
+  apiDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/apiDbPassword
+  stsDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/stsDbPassword
+  gatewayDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/gatewayDbPassword
+  auditDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/auditDbPassword
+  coordinatorDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/coordinatorDbPassword
+  authDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-../secrets/files}/authDbPassword
   authDatabaseUrl:
     file: ${CARACAL_SECRETS_DIR:-../secrets/files}/authDatabaseUrl
   caracalAuthSecret:
@@ -290,6 +312,18 @@ services:
     secrets:
       - source: postgresPassword
         target: postgresPassword
+      - source: apiDbPassword
+        target: apiDbPassword
+      - source: stsDbPassword
+        target: stsDbPassword
+      - source: gatewayDbPassword
+        target: gatewayDbPassword
+      - source: auditDbPassword
+        target: auditDbPassword
+      - source: coordinatorDbPassword
+        target: coordinatorDbPassword
+      - source: authDbPassword
+        target: authDbPassword
     environment:
       PGHOST: postgres
       PGPORT: "5432"
@@ -297,6 +331,12 @@ services:
       PGPASSWORD_FILE: /run/secrets/postgresPassword
       PGDATABASE: ${POSTGRES_DB:-caracal}
       PGSSLMODE: disable
+      CARACAL_API_DB_PASSWORD_FILE: /run/secrets/apiDbPassword
+      CARACAL_STS_DB_PASSWORD_FILE: /run/secrets/stsDbPassword
+      CARACAL_GATEWAY_DB_PASSWORD_FILE: /run/secrets/gatewayDbPassword
+      CARACAL_AUDIT_DB_PASSWORD_FILE: /run/secrets/auditDbPassword
+      CARACAL_COORDINATOR_DB_PASSWORD_FILE: /run/secrets/coordinatorDbPassword
+      CARACAL_AUTH_DB_PASSWORD_FILE: /run/secrets/authDbPassword
     entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
 
   sts:
@@ -316,7 +356,7 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: stsDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -374,7 +414,7 @@ services:
     networks:
       - caracalData
     secrets:
-      - source: databaseUrl
+      - source: apiDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -480,7 +520,7 @@ services:
     networks:
       - caracalData
     secrets:
-      - source: databaseUrl
+      - source: gatewayDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -535,7 +575,7 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: auditDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -580,7 +620,7 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: coordinatorDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl

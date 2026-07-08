@@ -8,6 +8,10 @@ CREATE ROLE caracalapi;
 ALTER ROLE caracalapi WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
 CREATE ROLE caracalaudit;
 ALTER ROLE caracalaudit WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE caracalauth;
+-- The auth service creates and owns its dedicated database; it holds no grants
+-- in the control-plane schema.
+ALTER ROLE caracalauth WITH NOSUPERUSER INHERIT NOCREATEROLE CREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
 CREATE ROLE caracalcoordinator;
 ALTER ROLE caracalcoordinator WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOLOGIN NOREPLICATION NOBYPASSRLS;
 CREATE ROLE caracalgateway;
@@ -3221,6 +3225,27 @@ GRANT SELECT ON TABLE public.zones TO caracalsts;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.zones TO caracalapi;
 GRANT SELECT ON TABLE public.zones TO caracalcoordinator;
 GRANT SELECT ON TABLE public.zones TO caracalgateway;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_tokens TO caracalapi;
+GRANT SELECT,INSERT ON TABLE public.admin_audit_events TO caracalapi;
+GRANT INSERT ON TABLE public.admin_audit_events TO caracalcoordinator;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_retention TO caracalapi;
+GRANT SELECT ON TABLE public.audit_retention TO caracalaudit;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_chain_rehash TO caracalaudit;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.event_outbox TO caracalapi;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_ai_providers TO caracalapi;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_conversation_counters TO caracalapi;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.workloads TO caracalapi;
+GRANT SELECT ON TABLE public.workloads TO caracalsts;
+GRANT SELECT ON TABLE public.agent_sessions TO caracalsts;
+GRANT SELECT ON TABLE public.sessions TO caracalgateway;
+GRANT SELECT ON TABLE public.agent_sessions TO caracalgateway;
+GRANT SELECT ON TABLE public.delegation_edges TO caracalgateway;
+
+-- The audit retention worker creates and drops monthly partitions, so the audit
+-- role owns the partitioned event store; ownership carries its DML implicitly.
+ALTER TABLE public.audit_events OWNER TO caracalaudit;
+ALTER TABLE public.audit_events_default OWNER TO caracalaudit;
+GRANT CREATE ON SCHEMA public TO caracalaudit;
 
 
 --
@@ -3248,6 +3273,7 @@ BEGIN
         EXECUTE format(
             'CREATE TABLE IF NOT EXISTS public.%I PARTITION OF public.audit_events FOR VALUES FROM (%L) TO (%L)',
             part_name, start_month, end_month);
+        EXECUTE format('ALTER TABLE public.%I OWNER TO caracalaudit', part_name);
     END LOOP;
 END
 $$;
