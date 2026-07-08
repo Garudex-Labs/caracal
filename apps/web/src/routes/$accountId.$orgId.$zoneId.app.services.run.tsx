@@ -39,6 +39,7 @@ import {
   useProviders,
   useResources,
   useRotateWorkloadSecret,
+  useRevealWorkloadSecret,
   useUpdateWorkload,
   useWorkloads,
 } from "@/platform/api/hooks";
@@ -81,6 +82,8 @@ function errorMessage(error: unknown): string {
       return "That environment variable name is reserved or invalid.";
     if (error.code === "duplicate_credential_env")
       return "Each binding must use a unique environment variable name.";
+    if (error.code === "workload_secret_not_stored")
+      return "No stored secret for this workload. Rotate to store one.";
     return error.code;
   }
   return "Unexpected error.";
@@ -91,6 +94,7 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
   const query = useWorkloads(zoneId);
   const createWorkload = useCreateWorkload(zoneId);
   const rotateSecret = useRotateWorkloadSecret(zoneId);
+  const revealSecret = useRevealWorkloadSecret(zoneId);
   const deleteWorkload = useDeleteWorkload(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -222,6 +226,20 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
               workload={workload}
               zoneId={zoneId}
               onRotate={() => setRotateTarget(workload)}
+              onReveal={async () => {
+                try {
+                  const revealed = await revealSecret.mutateAsync(workload.id);
+                  setSecret({
+                    kind: "workload",
+                    name: workload.name,
+                    id: workload.id,
+                    value: revealed.secret,
+                    rotated: false,
+                  });
+                } catch (err) {
+                  toast({ tone: "error", title: "Reveal failed", description: errorMessage(err) });
+                }
+              }}
               onDelete={() => setDeleteTarget(workload)}
             />
           ),
@@ -313,11 +331,13 @@ function WorkloadDetail({
   workload,
   zoneId,
   onRotate,
+  onReveal,
   onDelete,
 }: {
   workload: Workload;
   zoneId: string;
   onRotate: () => void;
+  onReveal: () => void;
   onDelete: () => void;
 }) {
   const configured = workload.bindings.length > 0;
@@ -365,18 +385,16 @@ function WorkloadDetail({
       <DetailSection title="Secret">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-3">
           <p className="min-w-0 text-xs text-muted-foreground">
-            The workload secret is shown only once. Rotate to issue a new secret and invalidate the
-            old one immediately.
+            Reveals are audited. Rotating invalidates the current secret immediately.
           </p>
-          <Button
-            variant="secondary"
-            size="sm"
-            mutating
-            onClick={onRotate}
-            className="flex-shrink-0"
-          >
-            Rotate secret
-          </Button>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Button variant="secondary" size="sm" mutating onClick={onReveal}>
+              Reveal secret
+            </Button>
+            <Button variant="secondary" size="sm" mutating onClick={onRotate}>
+              Rotate secret
+            </Button>
+          </div>
         </div>
       </DetailSection>
 

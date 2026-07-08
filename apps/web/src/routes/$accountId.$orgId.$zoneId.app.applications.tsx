@@ -36,6 +36,7 @@ import {
   useCreateApplication,
   useDeleteApplication,
   useRotateApplicationSecret,
+  useRevealApplicationSecret,
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
@@ -92,6 +93,8 @@ function errorMessage(error: unknown): string {
     if (error.unreachable) return "Control plane unreachable.";
     if (error.code === "application_name_taken")
       return "An application with this name already exists in this zone.";
+    if (error.code === "client_secret_not_stored")
+      return "No stored secret for this application. Rotate to store one.";
     return error.code;
   }
   return "Unexpected error.";
@@ -104,6 +107,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
   const createApp = useCreateApplication(zoneId);
   const updateApp = useUpdateApplication(zoneId);
   const rotateSecret = useRotateApplicationSecret(zoneId);
+  const revealSecret = useRevealApplicationSecret(zoneId);
   const deleteApp = useDeleteApplication(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -302,6 +306,20 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
                 }
               }}
               onRotate={() => setRotateTarget(app)}
+              onReveal={async () => {
+                try {
+                  const revealed = await revealSecret.mutateAsync(app.id);
+                  setSecret({
+                    kind: "application",
+                    name: app.name,
+                    id: app.id,
+                    value: revealed.client_secret,
+                    rotated: false,
+                  });
+                } catch (err) {
+                  toast({ tone: "error", title: "Reveal failed", description: errorMessage(err) });
+                }
+              }}
               onDelete={() => setDeleteTarget(app)}
             />
           ),
@@ -407,12 +425,14 @@ function ApplicationDetail({
   busy,
   onRename,
   onRotate,
+  onReveal,
   onDelete,
 }: {
   app: Application;
   busy: boolean;
   onRename: (name: string) => Promise<boolean>;
   onRotate: () => void;
+  onReveal: () => void;
   onDelete: () => void;
 }) {
   const managed = isManaged(app);
@@ -444,7 +464,7 @@ function ApplicationDetail({
           audit.
         </p>
       ) : managed ? (
-        <CredentialsSection onRotate={onRotate} />
+        <CredentialsSection onRotate={onRotate} onReveal={onReveal} />
       ) : (
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           Dynamic clients are registered programmatically and expire automatically. Their client
@@ -579,16 +599,27 @@ function IdentitySection({
   );
 }
 
-function CredentialsSection({ onRotate }: { onRotate: () => void }) {
+function CredentialsSection({
+  onRotate,
+  onReveal,
+}: {
+  onRotate: () => void;
+  onReveal: () => void;
+}) {
   return (
     <DetailSection title="Credentials">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-3">
         <p className="min-w-0 text-xs text-muted-foreground">
-          Rotate to issue a new secret and invalidate the old one immediately.
+          Reveals are audited. Rotating invalidates the current secret immediately.
         </p>
-        <Button variant="secondary" size="sm" mutating onClick={onRotate} className="flex-shrink-0">
-          Rotate secret
-        </Button>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <Button variant="secondary" size="sm" mutating onClick={onReveal}>
+            Reveal secret
+          </Button>
+          <Button variant="secondary" size="sm" mutating onClick={onRotate}>
+            Rotate secret
+          </Button>
+        </div>
       </div>
     </DetailSection>
   );

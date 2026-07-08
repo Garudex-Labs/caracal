@@ -555,7 +555,7 @@ function ControlSecretModal({
       onClose={close}
       dismissible={false}
       title="Control key secret"
-      description="Copy the client secret now. It is never shown again. Copy it to unlock Done."
+      description="Copy it into your automation's secret source. It stays retrievable from Applications; reveals are audited. Copy to unlock Done."
       footer={
         <Button onClick={close} disabled={!copyClicked}>
           Done
@@ -692,8 +692,8 @@ function ControlKeyInspector({
           Exchange for an invocation token
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Paste the key&apos;s one-time secret to mint a short-lived, least-privilege STS token
-          scoped to this key. The token is generated on demand and never stored.
+          Paste the key&apos;s client secret to mint a short-lived, least-privilege STS token scoped
+          to this key. The token is generated on demand and never stored.
         </p>
         <div className="mt-3">
           <Button
@@ -806,7 +806,7 @@ function IssueTokenModal({
           label="Client secret"
           type="password"
           placeholder="cs_…"
-          hint="The one-time secret shown when the key was created or rotated."
+          hint="The key's client secret; retrievable from Applications."
           value={clientSecret}
           onChange={(e) => setClientSecret(e.target.value)}
           autoFocus
@@ -1161,7 +1161,7 @@ agents = control.agents.list()`,
         <ol className="flex flex-col gap-3 text-sm text-muted-foreground">
           <Step n={1}>
             Create a control key in the <span className="font-medium text-foreground">Keys</span>{" "}
-            tab. The one-time secret is shown once, in your browser.
+            tab. Its secret stays retrievable from Applications; reveals are audited.
           </Step>
           <Step n={2}>
             Exchange the key for a short-lived, least-privilege STS token scoped as{" "}
