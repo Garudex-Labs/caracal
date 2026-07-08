@@ -13,12 +13,18 @@ import {
   DetailGroup,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import { FeedToolbar } from "@/components/console/FeedToolbar";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
-import { useApprovalCounts, useApprovalsFeed, useDecideApproval } from "@/platform/api/hooks";
+import {
+  useApplications,
+  useApprovalCounts,
+  useApprovalsFeed,
+  useDecideApproval,
+} from "@/platform/api/hooks";
 import type { ApprovalCounts, StepUpChallenge, StepUpState } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/approvals")({
@@ -93,16 +99,14 @@ function decidedAt(challenge: StepUpChallenge): string | null {
 
 // Requested scopes and resources travel in the challenge metadata as authorization facts.
 // Anything else in the metadata stays visible through the raw record, not the summary.
-function requestedAuthority(challenge: StepUpChallenge): string[] {
+function requestedAuthority(challenge: StepUpChallenge): { scopes: string[]; resources: string[] } {
   const meta = challenge.metadata_json;
-  if (!meta) return [];
-  const parts: string[] = [];
-  for (const key of ["requested_scopes", "resources"]) {
-    const value = meta[key];
-    if (Array.isArray(value)) parts.push(...value.filter((v) => typeof v === "string"));
-    else if (typeof value === "string" && value) parts.push(value);
-  }
-  return parts;
+  const pick = (key: string): string[] => {
+    const value = meta?.[key];
+    if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
+    return typeof value === "string" && value ? [value] : [];
+  };
+  return { scopes: pick("requested_scopes"), resources: pick("resources") };
 }
 
 // The requesting agent run, when the exchange carried lineage. Lets an approver jump from
@@ -120,6 +124,13 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
   const [state, setState] = useState<string>("all");
   const feed = useApprovalsFeed(zoneId, state === "all" ? {} : { state: state as StepUpState });
   const counts = useApprovalCounts(zoneId);
+  const apps = useApplications(zoneId);
+  const appNames = useMemo(
+    () => new Map((apps.data ?? []).map((app) => [app.id, app.name])),
+    [apps.data],
+  );
+  const appName = (c: StepUpChallenge) =>
+    (c.application_id && appNames.get(c.application_id)) || null;
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
   const now = Date.now();
 
@@ -128,12 +139,23 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
       id: "principal",
       header: "Requested by",
       sortable: true,
-      cell: (c) => (
-        <div>
-          <div className="font-mono text-xs text-foreground">{c.principal_id}</div>
-          <div className="font-mono text-[10px] text-muted-foreground">{c.session_id}</div>
-        </div>
-      ),
+      cell: (c) => {
+        const name = appName(c);
+        return (
+          <div>
+            <div
+              className={
+                name ? "text-xs font-medium text-foreground" : "font-mono text-xs text-foreground"
+              }
+            >
+              {name ?? c.principal_id}
+            </div>
+            <div className="font-mono text-[10px] text-muted-foreground">
+              {c.session_id || c.principal_id}
+            </div>
+          </div>
+        );
+      },
     },
     {
       id: "tier",
@@ -201,9 +223,10 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
         />
       }
       search={{
-        placeholder: "Search loaded holds by principal, session, or binding…",
+        placeholder: "Search loaded holds by application, principal, session, or binding…",
         match: (c, q) =>
           c.id.toLowerCase().includes(q) ||
+          (appName(c) ?? "").toLowerCase().includes(q) ||
           c.principal_id.toLowerCase().includes(q) ||
           c.session_id.toLowerCase().includes(q) ||
           c.binding.toLowerCase().includes(q) ||
@@ -224,9 +247,11 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
           : "Holds appear here when a policy declares an approval tier and an agent requests matching authority.",
       }}
       detail={{
-        title: (c) => c.principal_id,
+        title: (c) => appName(c) ?? c.principal_id,
         description: (c) => (c.tier ? `Approval tier: ${c.tier}` : "Approval hold"),
-        render: (c) => <ApprovalDetail challenge={c} zoneId={zoneId} />,
+        render: (c) => (
+          <ApprovalDetail challenge={c} zoneId={zoneId} applicationName={appName(c)} />
+        ),
       }}
     />
   );
@@ -265,10 +290,20 @@ function ApprovalFilterBar({
   );
 }
 
-function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zoneId: string }) {
+function ApprovalDetail({
+  challenge,
+  zoneId,
+  applicationName,
+}: {
+  challenge: StepUpChallenge;
+  zoneId: string;
+  applicationName: string | null;
+}) {
   const now = Date.now();
   const authority = requestedAuthority(challenge);
   const lineage = agentLineage(challenge);
+  const subjectPrincipal =
+    challenge.principal_id && challenge.principal_id !== challenge.application_id;
 
   return (
     <div className="flex flex-col gap-5">
@@ -276,6 +311,36 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
         <Badge tone={stateTone(challenge.state)}>{challenge.state}</Badge>
         {challenge.tier ? <Badge tone="neutral">{challenge.tier}</Badge> : null}
         <Badge tone="neutral">{APPROVER_CLASS_LABELS[challenge.approver_class]}</Badge>
+      </div>
+
+      <div className="rounded-md border border-border bg-card px-3 py-2.5 text-sm leading-6">
+        <span className="font-medium text-foreground">{applicationName ?? "An application"}</span>{" "}
+        {lineage.agentSession ? "is running an agent that wants" : "wants"}{" "}
+        {authority.scopes.length > 0 ? (
+          <span className="inline-flex flex-wrap gap-1 align-middle">
+            {authority.scopes.map((scope) => (
+              <Badge key={scope} tone="neutral">
+                {scope}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          "the authority fingerprinted below"
+        )}
+        {authority.resources.length > 0 ? (
+          <>
+            {" on "}
+            <span className="inline-flex flex-wrap gap-1 align-middle">
+              {authority.resources.map((resource) => (
+                <Badge key={resource} tone="neutral">
+                  {resource}
+                </Badge>
+              ))}
+            </span>
+          </>
+        ) : null}
+        . The policy tier {challenge.tier ? <Badge tone="neutral">{challenge.tier}</Badge> : null}{" "}
+        holds the token until someone decides.
       </div>
 
       {isDecidable(challenge) ? (
@@ -296,31 +361,39 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
       )}
 
       <DetailGroup title="Request">
-        <DetailField label="Principal">
-          <CopyValue value={challenge.principal_id} />
-        </DetailField>
         {challenge.application_id ? (
           <DetailField label="Application">
+            {applicationName ? (
+              <span className="text-sm text-foreground">{applicationName}</span>
+            ) : null}
             <CopyValue value={challenge.application_id} />
           </DetailField>
         ) : null}
-        <DetailField label="Session">
-          <CopyValue value={challenge.session_id} />
-        </DetailField>
-        {lineage.agentSession ? (
-          <DetailField label="Agent run">
-            <CopyValue value={lineage.agentSession} />
+        {subjectPrincipal ? (
+          <DetailField label="Principal">
+            <CopyValue value={challenge.principal_id} />
           </DetailField>
         ) : null}
-        {lineage.edge ? (
-          <DetailField label="Delegation edge">
-            <CopyValue value={lineage.edge} />
+        {challenge.session_id ? (
+          <DetailField label="Session">
+            <CopyValue value={challenge.session_id} />
           </DetailField>
         ) : null}
-        {authority.length > 0 ? (
-          <DetailField label="Requested authority">
+        {authority.scopes.length > 0 ? (
+          <DetailField label="Scopes">
             <div className="flex flex-wrap gap-1">
-              {authority.map((item) => (
+              {authority.scopes.map((item) => (
+                <Badge key={item} tone="neutral">
+                  {item}
+                </Badge>
+              ))}
+            </div>
+          </DetailField>
+        ) : null}
+        {authority.resources.length > 0 ? (
+          <DetailField label="Resources">
+            <div className="flex flex-wrap gap-1">
+              {authority.resources.map((item) => (
                 <Badge key={item} tone="neutral">
                   {item}
                 </Badge>
@@ -341,6 +414,27 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
           </span>
         </DetailField>
       </DetailGroup>
+
+      {lineage.agentSession || lineage.edge ? (
+        <DetailGroup title="Provenance">
+          {lineage.agentSession ? (
+            <DetailField label="Agent session">
+              <CopyValue value={lineage.agentSession} />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                The spawned agent run asking for this token.
+              </p>
+            </DetailField>
+          ) : null}
+          {lineage.edge ? (
+            <DetailField label="Delegation edge">
+              <CopyValue value={lineage.edge} />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                The narrowed grant the agent holds; the token can never exceed it.
+              </p>
+            </DetailField>
+          ) : null}
+        </DetailGroup>
+      ) : null}
 
       <DetailGroup title="Lifecycle">
         <DetailField label="Raised">{new Date(challenge.created_at).toLocaleString()}</DetailField>
@@ -367,7 +461,7 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
         ) : null}
         {challenge.approver_subject_id ? (
           <DetailField label="Decided by">
-            <CopyValue value={challenge.approver_subject_id} />
+            <CreatedBy id={challenge.approver_subject_id} />
           </DetailField>
         ) : null}
         {challenge.decision_reason ? (
@@ -375,15 +469,17 @@ function ApprovalDetail({ challenge, zoneId }: { challenge: StepUpChallenge; zon
         ) : null}
       </DetailGroup>
 
-      <div className="border-t border-border pt-3">
-        <Link
-          to={appLink("/audit")}
-          search={{ session: challenge.session_id }}
-          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-        >
-          Open session activity in Audit
-        </Link>
-      </div>
+      {challenge.session_id ? (
+        <div className="border-t border-border pt-3">
+          <Link
+            to={appLink("/audit")}
+            search={{ session: challenge.session_id }}
+            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Open session activity in Audit
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

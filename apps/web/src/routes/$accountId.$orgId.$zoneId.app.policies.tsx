@@ -910,6 +910,7 @@ function ActivateVersionDialog({
 }) {
   const toast = useToast();
   const activate = useActivatePolicySet(zoneId);
+  const [activateError, setActivateError] = useState<string | null>(null);
   const [check, setCheck] = useState<
     | { status: "running" }
     | { status: "passed"; result: SimulateResult }
@@ -920,6 +921,7 @@ function ActivateVersionDialog({
   useEffect(() => {
     if (!targetSetId || !targetVersionId) return;
     setCheck({ status: "running" });
+    setActivateError(null);
     let cancelled = false;
     consoleApi.policySets
       .simulate(zoneId, targetSetId, targetVersionId)
@@ -940,6 +942,7 @@ function ActivateVersionDialog({
 
   async function runActivation() {
     if (!target) return;
+    setActivateError(null);
     try {
       await activate.mutateAsync({ id: target.set.id, versionId: target.versionId });
       toast({
@@ -952,11 +955,7 @@ function ActivateVersionDialog({
       onClose();
       onActivated?.();
     } catch (err) {
-      toast({
-        tone: "error",
-        title: "Activation failed",
-        description: errorMessage(err),
-      });
+      setActivateError(errorMessage(err));
     }
   }
 
@@ -1030,6 +1029,12 @@ function ActivateVersionDialog({
             ) : null}
           </div>
         )}
+        {activateError ? (
+          <div className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="font-medium">Activation failed</div>
+            <div className="mt-0.5">{activateError}</div>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

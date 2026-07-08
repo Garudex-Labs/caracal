@@ -3155,7 +3155,9 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.policy_sets TO caracalapi;
 --
 
 GRANT SELECT ON TABLE public.policy_versions TO caracalsts;
-GRANT SELECT,INSERT ON TABLE public.policy_versions TO caracalapi;
+-- UPDATE is required for the SELECT ... FOR SHARE row locks taken while activating a
+-- policy set; actual mutation stays blocked by the policy_versions_immutable trigger.
+GRANT SELECT,INSERT,UPDATE ON TABLE public.policy_versions TO caracalapi;
 
 
 --
@@ -3214,7 +3216,7 @@ GRANT SELECT ON TABLE public.sessions TO caracalcoordinator;
 -- Name: TABLE step_up_challenges; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.step_up_challenges TO caracalsts;
+GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.step_up_challenges TO caracalsts;
 GRANT SELECT,UPDATE ON TABLE public.step_up_challenges TO caracalapi;
 
 
