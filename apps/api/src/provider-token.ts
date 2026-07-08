@@ -7,18 +7,20 @@ import { createHash, createPrivateKey, randomUUID, sign, X509Certificate, type K
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
-import { loadZoneKek, open } from '@caracalai/server-core'
+import { providerSecretConfigRef, type SecretBackend } from '@caracalai/server-core'
 
 const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
 const PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES = 64 * 1024
 
-export function openSecretConfig(ciphertext: Buffer | null, nonce: Buffer | null): Record<string, string> {
-  if (!ciphertext || !nonce) return {}
-  const plaintext = open(loadZoneKek(), { nonce, ciphertext })
+// Resolves a provider's stored credential document from the secret backend. An empty
+// record means the provider has no secrets, which is valid for public-client kinds.
+export async function readProviderSecrets(secrets: SecretBackend, zoneId: string, providerId: string): Promise<Record<string, string>> {
+  const value = await secrets.get(providerSecretConfigRef(zoneId, providerId))
+  if (!value) return {}
   try {
-    return JSON.parse(plaintext.toString('utf8')) as Record<string, string>
+    return JSON.parse(value.toString('utf8')) as Record<string, string>
   } finally {
-    plaintext.fill(0)
+    value.fill(0)
   }
 }
 

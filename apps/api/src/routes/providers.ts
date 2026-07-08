@@ -5,7 +5,7 @@
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { createPrivateKey, X509Certificate } from 'node:crypto'
-import { loadZoneKek, seal } from '@caracalai/server-core'
+import { SecretBackendError, providerSecretConfigRef } from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn, patchExpression, appendAttribution } from './patch.js'
@@ -27,7 +27,7 @@ import {
   ensureAllowedTokenEndpoint,
   exchangeProviderToken,
   fetchProviderMetadata,
-  openSecretConfig,
+  readProviderSecrets,
   recordConfig,
   stringConfig,
   stringListConfig,
@@ -470,9 +470,9 @@ function splitProviderConfig(
   return { publicConfig, secretConfig, secretKeys: Object.keys(secretConfig).sort() }
 }
 
-function sealSecretConfig(secretConfig: Record<string, string>): { ciphertext: Buffer; nonce: Buffer } | null {
+function secretConfigPayload(secretConfig: Record<string, string>): Buffer | null {
   if (Object.keys(secretConfig).length === 0) return null
-  return seal(loadZoneKek(), Buffer.from(JSON.stringify(secretConfig), 'utf8'))
+  return Buffer.from(JSON.stringify(secretConfig), 'utf8')
 }
 
 interface ProviderRow {
@@ -531,8 +531,6 @@ async function outboundProbeAllowed(redis: FastifyInstance['redis'], bucket: str
 interface ProviderTestRow {
   kind: ProviderKind
   config_json: Record<string, unknown>
-  secret_config_ct: Buffer | null
-  secret_config_nonce: Buffer | null
 }
 
 interface ProviderTestResult {
@@ -769,7 +767,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     } else if (OAUTH_PROVIDER_KINDS.has(body.kind)) {
       connectivityFailedAt = new Date()
     }
-    const sealed = sealSecretConfig(config.secretConfig)
+    const secretPayload = secretConfigPayload(config.secretConfig)
     const explicitIdentifier = body.identifier !== undefined
     let identifier = body.identifier
     if (identifier === undefined) {
@@ -783,9 +781,9 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const { rows } = await fastify.db.query<ProviderRow>(
           `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json,
-                                  secret_config_ct, secret_config_nonce, secret_config_keys, connectivity_failed_at,
+                                  secret_config_keys, connectivity_failed_at,
                                   created_by, created_via_operator)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
            RETURNING ${RETURNING}`,
           [
             id,
@@ -794,14 +792,24 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
             identifier,
             body.kind,
             JSON.stringify(config.publicConfig),
-            sealed?.ciphertext ?? null,
-            sealed?.nonce ?? null,
             config.secretKeys,
             connectivityFailedAt,
             attribution.actor,
             attribution.viaOperator,
           ],
         )
+        if (secretPayload) {
+          try {
+            await fastify.secrets.put(providerSecretConfigRef(params.zoneId, id), secretPayload)
+          } catch (err) {
+            await fastify.db.query(`DELETE FROM providers WHERE id = $1 AND zone_id = $2`, [id, params.zoneId])
+            if (err instanceof SecretBackendError) {
+              req.log.error({ err }, 'secret backend rejected provider credential write')
+              return reply.code(502).send({ error: 'secret_backend_unavailable' })
+            }
+            throw err
+          }
+        }
         return reply.code(201).send(rows[0])
       } catch (err) {
         if (!isProviderIdentifierConflict(err)) throw err
@@ -829,7 +837,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(400).send({ error: 'provider_config_required' })
     }
     let config: ReturnType<typeof splitProviderConfig> | undefined
-    let sealed: { ciphertext: Buffer; nonce: Buffer } | null = null
+    let secretPayload: Buffer | null = null
     if (body.config_json !== undefined) {
       let kind = body.kind
       let secretKeys: string[] = []
@@ -847,7 +855,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         if (body.kind === undefined) {
           requireExistingOAuthSecret(kind, config.publicConfig, config.secretConfig, secretKeys)
         }
-        sealed = sealSecretConfig(config.secretConfig)
+        secretPayload = secretConfigPayload(config.secretConfig)
       } catch (err) {
         return reply
           .code(400)
@@ -855,7 +863,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    const clearSecrets = body.kind !== undefined && config !== undefined && sealed === null
+    const clearSecrets = body.kind !== undefined && config !== undefined && secretPayload === null
     const update = buildPatchUpdate(
       [params.id, params.zoneId],
       [
@@ -863,9 +871,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         patchColumn('identifier', body.identifier),
         patchColumn('provider_kind', body.kind),
         patchExpression(config ? JSON.stringify(config.publicConfig) : undefined, (placeholder) => `config_json = ${placeholder}::jsonb`),
-        patchColumn('secret_config_ct', sealed?.ciphertext ?? (clearSecrets ? null : undefined)),
-        patchColumn('secret_config_nonce', sealed?.nonce ?? (clearSecrets ? null : undefined)),
-        patchColumn('secret_config_keys', config && (sealed || clearSecrets) ? config.secretKeys : undefined),
+        patchColumn('secret_config_keys', config && (secretPayload || clearSecrets) ? config.secretKeys : undefined),
         patchColumn('connectivity_failed_at', body.kind !== undefined && !OAUTH_PROVIDER_KINDS.has(body.kind) ? null : undefined),
       ],
     )
@@ -885,6 +891,19 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       throw err
     }
     if (!rows[0]) return reply.code(404).send({ error: 'provider_not_found' })
+    if (secretPayload || clearSecrets) {
+      const ref = providerSecretConfigRef(params.zoneId, params.id)
+      try {
+        if (secretPayload) await fastify.secrets.put(ref, secretPayload)
+        else await fastify.secrets.delete(ref)
+      } catch (err) {
+        if (err instanceof SecretBackendError) {
+          req.log.error({ err }, 'secret backend rejected provider credential update')
+          return reply.code(502).send({ error: 'secret_backend_unavailable' })
+        }
+        throw err
+      }
+    }
     return rows[0]
   })
 
@@ -898,6 +917,15 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
     )
     if (!rowCount) return reply.code(404).send({ error: 'provider_not_found' })
+    // Archival is terminal for providers, so the stored credential document is
+    // discarded with the row. A backend outage here cannot unwind the archive;
+    // the leftover entry is unreachable and removal is retried by operators.
+    try {
+      await fastify.secrets.delete(providerSecretConfigRef(params.zoneId, params.id))
+    } catch (err) {
+      if (!(err instanceof SecretBackendError)) throw err
+      req.log.warn({ err }, 'secret backend rejected credential delete for archived provider')
+    }
     return reply.code(204).send()
   })
 
@@ -908,7 +936,7 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query<ProviderTestRow>(
-      `SELECT provider_kind AS kind, config_json, secret_config_ct, secret_config_nonce
+      `SELECT provider_kind AS kind, config_json
        FROM providers WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
       [params.id, params.zoneId],
     )
@@ -920,7 +948,13 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     if (!(await outboundProbeAllowed(fastify.redis, `providertest:${params.zoneId}`))) {
       return reply.code(429).send({ error: 'provider_test_rate_limited' })
     }
-    const secrets = openSecretConfig(row.secret_config_ct, row.secret_config_nonce)
+    let secrets: Record<string, string>
+    try {
+      secrets = await readProviderSecrets(fastify.secrets, params.zoneId, params.id)
+    } catch (err) {
+      if (!(err instanceof SecretBackendError)) throw err
+      return reply.code(502).send({ error: 'secret_backend_unavailable' })
+    }
     const check = await runProviderCheck(row.kind, row.config_json, secrets, req.log)
     await fastify.db.query(`UPDATE providers SET connectivity_failed_at = $3 WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
       params.id,
