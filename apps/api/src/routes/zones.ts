@@ -126,8 +126,8 @@ export async function createZoneRecord(
   for (let attempt = 0; ; attempt++) {
     try {
       const { rows } = await db.query<ZoneRow>(
-        `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id, created_by, created_via_operator)
-         VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5, $6, $7)
+        `INSERT INTO zones (id, name, slug, dcr_enabled, owner_account_id, created_by, created_via_operator)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING ${ZONE_SELECT}`,
         [
           mintZoneId(uuidv7),

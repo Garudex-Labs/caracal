@@ -5,7 +5,14 @@
 
 import type { FastifyBaseLogger, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import { createHash, randomBytes } from 'node:crypto'
-import { loadZoneKek, open, seal } from '@caracalai/server-core'
+import {
+  AAD_CONNECTION_ACCESS_TOKEN,
+  AAD_CONNECTION_REFRESH_TOKEN,
+  SecretBackendError,
+  loadSecretStoreKek,
+  openEnvelope,
+  sealEnvelope,
+} from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { scopesAllowed } from '@caracalai/core'
@@ -21,7 +28,7 @@ import {
   ensureAllowedTokenEndpoint,
   ensureHttpsEndpoint,
   exchangeProviderToken,
-  openSecretConfig,
+  readProviderSecrets,
   recordConfig,
   stringConfig,
   stringListConfig,
@@ -107,19 +114,14 @@ interface ProviderOAuthRow {
   id: string
   provider_kind: string
   config_json: Record<string, unknown>
-  secret_config_ct: Buffer | null
-  secret_config_nonce: Buffer | null
 }
 
-function sealText(value: string): Buffer {
-  const sealed = seal(loadZoneKek(), Buffer.from(value, 'utf8'))
-  return Buffer.concat([sealed.nonce, sealed.ciphertext])
+function sealToken(value: string, aad: string): Buffer {
+  return sealEnvelope(loadSecretStoreKek(), Buffer.from(value, 'utf8'), aad)
 }
 
-const SEAL_NONCE_BYTES = 12
-
-function openText(packed: Buffer): string {
-  const plaintext = open(loadZoneKek(), { nonce: packed.subarray(0, SEAL_NONCE_BYTES), ciphertext: packed.subarray(SEAL_NONCE_BYTES) })
+function openToken(envelope: Buffer, aad: string): string {
+  const plaintext = openEnvelope(loadSecretStoreKek(), envelope, aad)
   try {
     return plaintext.toString('utf8')
   } finally {
@@ -140,9 +142,8 @@ async function revokeUpstreamTokens(
     access_token_ct: Buffer | null
     refresh_token_ct: Buffer | null
     config_json: Record<string, unknown>
-    secret_config_ct: Buffer | null
-    secret_config_nonce: Buffer | null
   },
+  secrets: Record<string, string>,
   log: FastifyBaseLogger,
 ): Promise<UpstreamRevocation> {
   const config = row.config_json
@@ -150,12 +151,11 @@ async function revokeUpstreamTokens(
   if (!endpointRaw) return 'unsupported'
   try {
     const endpoint = ensureHttpsEndpoint(endpointRaw, 'provider revocation endpoint')
-    const secrets = openSecretConfig(row.secret_config_ct, row.secret_config_nonce)
     const clientId = stringConfig(config, 'client_id')
     const method = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
     const tokens: { value: string; hint: string }[] = []
-    if (row.refresh_token_ct) tokens.push({ value: openText(row.refresh_token_ct), hint: 'refresh_token' })
-    else if (row.access_token_ct) tokens.push({ value: openText(row.access_token_ct), hint: 'access_token' })
+    if (row.refresh_token_ct) tokens.push({ value: openToken(row.refresh_token_ct, AAD_CONNECTION_REFRESH_TOKEN), hint: 'refresh_token' })
+    else if (row.access_token_ct) tokens.push({ value: openToken(row.access_token_ct, AAD_CONNECTION_ACCESS_TOKEN), hint: 'access_token' })
     if (tokens.length === 0) return 'failed'
     for (const token of tokens) {
       const form = new URLSearchParams({ token: token.value, token_type_hint: token.hint })
@@ -172,10 +172,6 @@ async function revokeUpstreamTokens(
     log.warn({ err }, 'upstream token revocation failed')
     return 'failed'
   }
-}
-
-function openProviderSecretConfig(row: ProviderOAuthRow): { client_secret?: string } {
-  return openSecretConfig(row.secret_config_ct, row.secret_config_nonce)
 }
 
 function randomUrlToken(): string {
@@ -408,8 +404,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       })
     }
     const id = uuidv7()
-    const accessTokenCt = sealText(body.access_token)
-    const refreshTokenCt = body.refresh_token ? sealText(body.refresh_token) : null
+    const accessTokenCt = sealToken(body.access_token, AAD_CONNECTION_ACCESS_TOKEN)
+    const refreshTokenCt = body.refresh_token ? sealToken(body.refresh_token, AAD_CONNECTION_REFRESH_TOKEN) : null
     const { rows } = await fastify.db.query(
       `INSERT INTO provider_connections (id, zone_id, subject_id, provider_id,
                                          access_token_ct, refresh_token_ct, expires_at, status)
@@ -437,7 +433,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_provider_oauth_authorize' })
     const body = parsed.data
     const { rows } = await fastify.db.query<ProviderOAuthRow>(
-      `SELECT id, provider_kind, config_json, secret_config_ct, secret_config_nonce
+      `SELECT id, provider_kind, config_json
        FROM providers
        WHERE zone_id = $1 AND id = $2 AND archived_at IS NULL`,
       [params.zoneId, body.provider_id],
@@ -510,10 +506,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       access_token_ct: Buffer | null
       refresh_token_ct: Buffer | null
       config_json: Record<string, unknown>
-      secret_config_ct: Buffer | null
-      secret_config_nonce: Buffer | null
     }>(
-      `SELECT pc.access_token_ct, pc.refresh_token_ct, p.config_json, p.secret_config_ct, p.secret_config_nonce
+      `SELECT pc.access_token_ct, pc.refresh_token_ct, p.config_json
        FROM provider_connections pc
        JOIN providers p ON p.zone_id = pc.zone_id AND p.id = pc.provider_id
        WHERE pc.zone_id = $1 AND pc.subject_id = $2 AND pc.provider_id = $3 AND pc.status = 'active'`,
@@ -530,7 +524,15 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       [params.zoneId, body.subject_id, body.provider_id],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'provider_connection_not_found' })
-    const upstream = tokenRows[0] ? await revokeUpstreamTokens(tokenRows[0], req.log) : 'failed'
+    let upstream: UpstreamRevocation = 'failed'
+    if (tokenRows[0]) {
+      try {
+        const secrets = await readProviderSecrets(fastify.secrets, params.zoneId, body.provider_id)
+        upstream = await revokeUpstreamTokens(tokenRows[0], secrets, req.log)
+      } catch (err) {
+        req.log.warn({ err }, 'provider secrets unavailable for upstream revocation')
+      }
+    }
     return { ...rows[0], upstream_revocation: upstream }
   })
 
@@ -608,7 +610,7 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       )
 
     const { rows } = await fastify.db.query<ProviderOAuthRow>(
-      `SELECT id, provider_kind, config_json, secret_config_ct, secret_config_nonce
+      `SELECT id, provider_kind, config_json
        FROM providers
        WHERE zone_id = $1 AND id = $2 AND archived_at IS NULL`,
       [state.zone_id, state.provider_id],
@@ -636,7 +638,22 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       )
 
     const config = row.config_json
-    const secretConfig = openProviderSecretConfig(row)
+    let secretConfig: Record<string, string>
+    try {
+      secretConfig = await readProviderSecrets(fastify.secrets, state.zone_id, state.provider_id)
+    } catch (err) {
+      if (!(err instanceof SecretBackendError)) throw err
+      req.log.error({ err }, 'secret backend unavailable during OAuth callback')
+      return sendOAuthCallback(
+        req,
+        reply,
+        502,
+        { error: 'secret_backend_unavailable' },
+        'OAuth callback failed',
+        'Caracal could not reach its secret backend to load the provider client credentials.',
+        'error',
+      )
+    }
     const clientId = stringConfig(config, 'client_id')
     const clientAuthMethod = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
     const clientSecret = secretConfig.client_secret ?? ''
@@ -747,8 +764,8 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const connectionId = uuidv7()
-    const accessTokenCt = sealText(accessToken)
-    const refreshTokenCt = refreshToken ? sealText(refreshToken) : null
+    const accessTokenCt = sealToken(accessToken, AAD_CONNECTION_ACCESS_TOKEN)
+    const refreshTokenCt = refreshToken ? sealToken(refreshToken, AAD_CONNECTION_REFRESH_TOKEN) : null
     const { rows: connectionRows } = await fastify.db.query<Record<string, unknown>>(
       `INSERT INTO provider_connections (id, zone_id, subject_id, provider_id,
                                          access_token_ct, refresh_token_ct, expires_at, status)

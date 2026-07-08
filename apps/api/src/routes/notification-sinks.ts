@@ -7,7 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
-import { loadZoneKek, seal } from '@caracalai/server-core'
+import { AAD_NOTIFICATION_SINK_SECRET, loadSecretStoreKek, sealEnvelope } from '@caracalai/server-core'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { zoneExists } from '../zone-guard.js'
@@ -54,8 +54,7 @@ function newSinkSecret(): string {
 }
 
 function sealSecret(secret: string): Buffer {
-  const sealed = seal(loadZoneKek(), Buffer.from(secret, 'utf8'))
-  return Buffer.concat([sealed.nonce, sealed.ciphertext])
+  return sealEnvelope(loadSecretStoreKek(), Buffer.from(secret, 'utf8'), AAD_NOTIFICATION_SINK_SECRET)
 }
 
 // Every read returns the sink's configuration and delivery health, never its signing
