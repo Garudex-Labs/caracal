@@ -3228,7 +3228,7 @@ GRANT SELECT ON TABLE public.zones TO caracalcoordinator;
 GRANT SELECT ON TABLE public.zones TO caracalgateway;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_tokens TO caracalapi;
 GRANT SELECT,INSERT ON TABLE public.admin_audit_events TO caracalapi;
-GRANT INSERT ON TABLE public.admin_audit_events TO caracalcoordinator;
+GRANT SELECT,INSERT ON TABLE public.admin_audit_events TO caracalcoordinator;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_retention TO caracalapi;
 GRANT SELECT ON TABLE public.audit_retention TO caracalaudit;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_chain_rehash TO caracalaudit;
