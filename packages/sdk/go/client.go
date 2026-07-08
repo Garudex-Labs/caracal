@@ -1428,9 +1428,9 @@ type GovernedTransportOptions struct {
 // across them bounded to resourceID, and mints the mandate from that edge, so
 // each call is policy-checked, delegation-bounded, and fully audited without
 // a caller-supplied CaracalContext. Mandates are cached per resolved
-// identity, resource, and scope set and re-provisioned before expiry.
-// Requests are rewritten through the gateway. Requires a client-secret
-// configuration.
+// identity, resource, scope set, effective labels, and mandate TTL, then
+// re-provisioned before expiry. Requests are rewritten through the gateway.
+// Requires a client-secret configuration.
 func (c *Caracal) GovernedTransport(base *http.Client, resourceID string, opts GovernedTransportOptions) (*http.Client, error) {
 	if c.exchanger == nil {
 		return nil, fmt.Errorf("caracal: GovernedTransport requires a client-secret configuration")
@@ -1627,14 +1627,18 @@ type governedCall struct {
 }
 
 // governedMandate returns a cached or freshly provisioned governed mandate
-// for the resource and scope set under the current resolved identity.
+// for the resource, scope set, labels, and TTL under the current resolved identity.
 // Concurrent requests for the same key share one provisioning cycle.
 func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (string, error) {
 	zoneID, applicationID, err := c.exchanger.identity(ctx)
 	if err != nil {
 		return "", err
 	}
-	key := zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ")
+	sessionLabels := labels
+	if len(sessionLabels) == 0 {
+		sessionLabels = []string{applicationID}
+	}
+	key := governedMandateKey(zoneID, applicationID, resourceID, scopes, sessionLabels, mandateTTL)
 	c.governedMu.Lock()
 	if cached, ok := c.governedMandates[key]; ok && time.Until(cached.expiresAt) > governedRefreshMargin {
 		c.governedMu.Unlock()
@@ -1669,6 +1673,11 @@ func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes
 	c.governedMu.Unlock()
 	close(call.done)
 	return token, err
+}
+
+func governedMandateKey(zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) string {
+	encodedLabels, _ := json.Marshal(labels)
+	return zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ") + "::" + string(encodedLabels) + "::" + strconv.Itoa(mandateTTL)
 }
 
 // governedCycle provisions one governed mandate under the application's own

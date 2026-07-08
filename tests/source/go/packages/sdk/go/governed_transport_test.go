@@ -304,6 +304,53 @@ func TestGovernedTransportCachesMandateAcrossRequests(t *testing.T) {
 	}
 }
 
+func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
+	platform := &governedPlatform{}
+	server := httptest.NewServer(platform.handler())
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	c := governedClient(t, server.URL, gateway.URL, nil)
+	worker, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+		Scopes:            []string{"data:read"},
+		Labels:            []string{"a b"},
+		MandateTTLSeconds: 300,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+		Scopes:            []string{"data:read"},
+		Labels:            []string{"a", "b"},
+		MandateTTLSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	governedGet(t, worker, governedUpstream+"/worker")
+	governedGet(t, admin, governedUpstream+"/admin")
+
+	if mints := platform.finalMints(); len(mints) != 2 {
+		t.Fatalf("expected 2 provisioning cycles, got %d", len(mints))
+	} else if mints[1].Get("ttl_seconds") != "60" {
+		t.Fatalf("expected second mandate ttl 60, got %v", mints[1])
+	}
+	platform.mu.Lock()
+	defer platform.mu.Unlock()
+	if platform.agentN != 4 {
+		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
+	}
+	labels, _ := platform.spawnBodies[2]["labels"].([]any)
+	if len(labels) != 2 || labels[0] != "a" || labels[1] != "b" {
+		t.Fatalf("expected second cycle split labels, got %v", platform.spawnBodies[2]["labels"])
+	}
+	if platform.spawnBodies[2]["ttl_seconds"] != float64(180) {
+		t.Fatalf("expected second session ttl 180, got %v", platform.spawnBodies[2]["ttl_seconds"])
+	}
+}
+
 func TestGovernedTransportSharesConcurrentCycle(t *testing.T) {
 	platform := &governedPlatform{}
 	server := httptest.NewServer(platform.handler())
