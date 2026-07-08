@@ -72,6 +72,17 @@ export function providerSecretConfigRef(zoneId: string, providerId: string): str
   return `zones/${zoneId}/providers/${providerId}/secretConfig`
 }
 
+// Custody refs for credentials Caracal issues: the control plane keeps the sealed
+// plaintext so authorized operators and automation can retrieve it after creation,
+// while authentication continues to verify only the stored hash.
+export function applicationClientSecretRef(zoneId: string, applicationId: string): string {
+  return `zones/${zoneId}/applications/${applicationId}/clientSecret`
+}
+
+export function workloadSecretRef(zoneId: string, workloadId: string): string {
+  return `zones/${zoneId}/workloads/${workloadId}/secret`
+}
+
 // AAD strings for machine-generated runtime material sealed with the builtin envelope
 // in its owning table. Fixed per column family so control-plane writes and data-plane
 // reads agree; the connection token strings must match the Go constants.

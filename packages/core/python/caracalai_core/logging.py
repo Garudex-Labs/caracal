@@ -262,12 +262,10 @@ def _shutdown_listener() -> None:
 
 
 def flush_for_test() -> None:
-    """Block until the background queue is drained; intended for tests only."""
-    _log_queue.join() if hasattr(_log_queue, "join") and False else None
-    # QueueListener's internal queue does not support join(); poll instead.
+    """Block until queued records reach the sink; intended for tests only."""
     deadline = time.time() + 1.0
     while time.time() < deadline:
-        if _log_queue.empty():
+        if _log_queue.unfinished_tasks == 0:
             return
         time.sleep(0.005)
 

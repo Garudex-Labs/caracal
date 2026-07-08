@@ -8,7 +8,10 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
 import { assertCredentialEnvName } from '@caracalai/engine/runtime-config'
+import { SecretBackendError, workloadSecretRef } from '@caracalai/server-core'
 import { hashClientSecret } from '../hash-secret.js'
+import { withTransaction, TxAbort } from '../db.js'
+import { enqueueCredentialRevealAudit } from '../credential-audit.js'
 import { buildPatchUpdate, patchColumn } from './patch.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
@@ -136,13 +139,28 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
     const secret = generateWorkloadSecret()
     const secretHash = await hashClientSecret(secret)
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    const { rows } = await fastify.db.query<Record<string, unknown>>(
-      `INSERT INTO workloads (id, zone_id, name, secret_hash, created_by, created_via_operator)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING ${WORKLOAD_SELECT}`,
-      [uuidv7(), params.zoneId, parsed.data.name, secretHash, attribution.actor, attribution.viaOperator],
-    )
-    return reply.code(201).send({ ...rows[0], secret })
+    const id = uuidv7()
+    try {
+      const row = await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query<Record<string, unknown>>(
+          `INSERT INTO workloads (id, zone_id, name, secret_hash, created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING ${WORKLOAD_SELECT}`,
+          [id, params.zoneId, parsed.data.name, secretHash, attribution.actor, attribution.viaOperator],
+        )
+        // Authentication verifies only the hash; the sealed custody copy lets operators
+        // retrieve the secret later instead of couriering it at creation time.
+        await fastify.secrets.put(workloadSecretRef(params.zoneId, id), Buffer.from(secret))
+        return rows[0]
+      })
+      return reply.code(201).send({ ...row, secret })
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected workload credential write')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
   })
 
   fastify.put('/zones/:zoneId/workloads/:id', async (req, reply) => {
@@ -188,14 +206,60 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
     const secret = generateWorkloadSecret()
     const secretHash = await hashClientSecret(secret)
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    const { rows } = await fastify.db.query(
-      `UPDATE workloads SET secret_hash = $3, updated_by = $4, updated_via_operator = $5, updated_at = now()
-       WHERE id = $1 AND zone_id = $2
-       RETURNING ${WORKLOAD_SELECT}`,
-      [params.id, params.zoneId, secretHash, attribution.actor, attribution.viaOperator],
-    )
+    try {
+      const row = await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query(
+          `UPDATE workloads SET secret_hash = $3, updated_by = $4, updated_via_operator = $5, updated_at = now()
+           WHERE id = $1 AND zone_id = $2
+           RETURNING ${WORKLOAD_SELECT}`,
+          [params.id, params.zoneId, secretHash, attribution.actor, attribution.viaOperator],
+        )
+        if (!rows[0]) throw new TxAbort(null)
+        await fastify.secrets.put(workloadSecretRef(params.zoneId, params.id), Buffer.from(secret))
+        return rows[0]
+      })
+      if (!row) return reply.code(404).send({ error: 'workload_not_found' })
+      return { ...row, secret }
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected workload credential write')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
+  })
+
+  fastify.get('/zones/:zoneId/workloads/:id/secret', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query<{ name: string }>(`SELECT name FROM workloads WHERE id = $1 AND zone_id = $2`, [
+      params.id,
+      params.zoneId,
+    ])
     if (!rows[0]) return reply.code(404).send({ error: 'workload_not_found' })
-    return { ...rows[0], secret }
+    let value: Buffer | null
+    try {
+      value = await fastify.secrets.get(workloadSecretRef(params.zoneId, params.id))
+    } catch (err) {
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected workload credential read')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
+      throw err
+    }
+    // Workloads created before credential custody have only their hash; rotating
+    // issues a fresh secret and stores it.
+    if (value === null) return reply.code(404).send({ error: 'workload_secret_not_stored' })
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    await withTransaction(fastify.db, (client) =>
+      enqueueCredentialRevealAudit(client, fastify.cfg?.auditHmacKey ?? null, req, params.zoneId, {
+        credential: 'workload_secret',
+        workload_id: params.id,
+        workload_name: rows[0].name,
+        actor: attribution.actor,
+      }),
+    )
+    return { secret: value.toString() }
   })
 
   fastify.delete('/zones/:zoneId/workloads/:id', async (req, reply) => {
@@ -203,6 +267,13 @@ export const workloadsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { rowCount } = await fastify.db.query(`DELETE FROM workloads WHERE id = $1 AND zone_id = $2`, [params.id, params.zoneId])
     if (!rowCount) return reply.code(404).send({ error: 'workload_not_found' })
+    // Deletion is the authority change; custody cleanup is best-effort because the
+    // deleted identity no longer authenticates anything.
+    try {
+      await fastify.secrets.delete(workloadSecretRef(params.zoneId, params.id))
+    } catch (err) {
+      req.log.warn({ err }, 'deleted workload credential could not be deleted from the secret backend')
+    }
     return reply.code(204).send()
   })
 }
