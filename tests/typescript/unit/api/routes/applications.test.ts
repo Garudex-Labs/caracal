@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import { createHmac } from 'node:crypto'
 import { SecretBackendError, applicationClientSecretRef } from '@caracalai/server-core'
 import type { DB } from '../../../../../apps/api/src/db.js'
 import type { RedisClient } from '../../../../../apps/api/src/redis.js'
@@ -122,6 +123,27 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
     expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
     expect(secrets.values.size).toBe(0)
+  })
+
+  it('returns 500 when registration fails for reasons other than the secret backend', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO applications')) return Promise.reject(new Error('connection reset'))
+      return Promise.resolve({ rows: [] })
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'Runner', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.put).not.toHaveBeenCalled()
   })
 
   it('rejects a duplicate active managed application name', async () => {
@@ -651,6 +673,74 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
   })
+
+  it('replaces the client secret and its custody copy', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    const clientSecret = `cs_${'a'.repeat(43)}`
+    db.query.mockResolvedValueOnce({ rows: [{ client_secret_hash: 'argon2id$existing' }] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/applications/app-1',
+      payload: { client_secret: clientSecret },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1' })
+    expect(secrets.values.get(applicationClientSecretRef('z1', 'app-1'))?.toString()).toBe(clientSecret)
+  })
+
+  it('rolls the patch back when the secret backend rejects the custody write', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ client_secret_hash: 'argon2id$existing' }] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/applications/app-1',
+      payload: { client_secret: `cs_${'a'.repeat(43)}` },
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('returns 500 when the patch fails for reasons other than the secret backend', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ client_secret_hash: 'argon2id$existing' }] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new Error('connection reset'))
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/applications/app-1',
+      payload: { client_secret: `cs_${'a'.repeat(43)}` },
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+  })
 })
 
 describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
@@ -685,6 +775,43 @@ describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
     expect(secrets.put).not.toHaveBeenCalled()
+  })
+
+  it('rolls the rotation back when the secret backend rejects the custody write', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    secrets.values.set(applicationClientSecretRef('z1', 'app-1'), Buffer.from('cs_previous'))
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.values.get(applicationClientSecretRef('z1', 'app-1'))?.toString()).toBe('cs_previous')
+  })
+
+  it('returns 500 when rotation fails for reasons other than the secret backend', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new Error('connection reset'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
+
+    expect(res.statusCode).toBe(500)
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
   })
 })
 
@@ -739,6 +866,34 @@ describe('GET /v1/zones/:zoneId/applications/:id/client-secret', () => {
 
     expect(res.statusCode).toBe(502)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+  })
+
+  it('returns 500 when the custody read fails for reasons other than the secret backend', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Runner' }] })
+    secrets.get.mockRejectedValueOnce(new Error('connection reset'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/client-secret' })
+
+    expect(res.statusCode).toBe(500)
+  })
+
+  it('signs the reveal audit record when an audit HMAC key is configured', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    const hmacKey = Buffer.from('a'.repeat(64), 'hex')
+    app.decorate('cfg', { auditHmacKey: hmacKey })
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Runner' }] })
+    secrets.values.set(applicationClientSecretRef('z1', 'app-1'), Buffer.from('cs_stored'))
+    clientQuery.mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/client-secret' })
+
+    expect(res.statusCode).toBe(200)
+    const outboxCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO event_outbox'))
+    const payload = JSON.parse(String(outboxCall?.[1]?.[2]))
+    expect(payload.sig).toBe(createHmac('sha256', hmacKey).update(payload.data).digest('hex'))
   })
 })
 

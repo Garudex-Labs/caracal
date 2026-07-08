@@ -115,6 +115,23 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     expect(secrets.values.size).toBe(0)
   })
 
+  it('returns 500 when creation fails for reasons other than the secret backend', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO workloads')) return Promise.reject(new Error('connection reset'))
+      return Promise.resolve({ rows: [] })
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+
+    expect(res.statusCode).toBe(500)
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.put).not.toHaveBeenCalled()
+  })
+
   it('rejects a duplicate workload name', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
@@ -310,6 +327,39 @@ describe('POST /v1/zones/:zoneId/workloads/:id/rotate-secret', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'workload_not_found' })
     expect(secrets.put).not.toHaveBeenCalled()
   })
+
+  it('rolls the rotation back when the secret backend rejects the custody write', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    secrets.values.set(workloadSecretRef('z1', 'wl-1'), Buffer.from('ws_previous'))
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE workloads')) return Promise.resolve({ rows: [workloadRow] })
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads/wl-1/rotate-secret' })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.values.get(workloadSecretRef('z1', 'wl-1'))?.toString()).toBe('ws_previous')
+  })
+
+  it('returns 500 when rotation fails for reasons other than the secret backend', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE workloads')) return Promise.resolve({ rows: [workloadRow] })
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new Error('connection reset'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads/wl-1/rotate-secret' })
+
+    expect(res.statusCode).toBe(500)
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+  })
 })
 
 describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
@@ -363,6 +413,17 @@ describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
 
     expect(res.statusCode).toBe(502)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+  })
+
+  it('returns 500 when the custody read fails for reasons other than the secret backend', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    secrets.get.mockRejectedValueOnce(new Error('connection reset'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1/secret' })
+
+    expect(res.statusCode).toBe(500)
   })
 })
 
