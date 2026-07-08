@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/open-policy-agent/opa/rego"
 	"github.com/rs/zerolog"
 )
@@ -73,8 +74,8 @@ func runCredentialServer(t *testing.T, db *stubDB, policy string) (*Server, stri
 		redis:       newMemSTSRedis(),
 		opa:         runCredentialZoneEngine(t, "z1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100)},
-		keys:        &KeyCache{kek: zek},
-		secrets:     &builtinSecretBackend{db: db, kek: zek},
+		keys:        &KeyCache{keyring: testKeyring(zek)},
+		secrets:     secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(zek)),
 		log:         zerolog.Nop(),
 	}
 	return srv, "ws_good"

@@ -81,7 +81,7 @@ func stepUpDecisionServer(t *testing.T, db DBQuerier) *Server {
 	t.Helper()
 	srv := testSTSServer(t)
 	srv.db = db
-	srv.keys = newKeyCache(db, exchangeFlowZEK())
+	srv.keys = newKeyCache(db, testKeyring(exchangeFlowZEK()))
 	srv.cfg.IssuerURL = "https://sts.piedpiper.example"
 	return srv
 }
@@ -275,7 +275,7 @@ func (rotateFailDB) InsertZoneSigningKeySecret(context.Context, string, []byte) 
 func TestRotateZoneSigningKeyValidation(t *testing.T) {
 	srv := testSTSServer(t)
 	srv.cfg.AdminToken = "admin-token"
-	srv.keys = newKeyCache(srv.db, exchangeFlowZEK())
+	srv.keys = newKeyCache(srv.db, testKeyring(exchangeFlowZEK()))
 
 	authorize := func(req *http.Request) *http.Request {
 		req.Header.Set("Authorization", "Bearer admin-token")
@@ -296,26 +296,26 @@ func TestRotateZoneSigningKeyValidation(t *testing.T) {
 	failing := testSTSServer(t)
 	failing.cfg.AdminToken = "admin-token"
 	failing.db = &rotateFailDB{}
-	failing.keys = newKeyCache(failing.db, exchangeFlowZEK())
+	failing.keys = newKeyCache(failing.db, testKeyring(exchangeFlowZEK()))
 	if w := rotate(failing, "zone-1"); w.Code != http.StatusInternalServerError {
 		t.Fatalf("insert failure status = %d", w.Code)
 	}
 }
 
 func TestRotateZoneSigningKeyRequiresZone(t *testing.T) {
-	if _, err := newKeyCache(&stubDB{}, exchangeFlowZEK()).RotateZoneSigningKey(context.Background(), ""); err == nil {
+	if _, err := newKeyCache(&stubDB{}, testKeyring(exchangeFlowZEK())).RotateZoneSigningKey(context.Background(), ""); err == nil {
 		t.Fatal("rotation without a zone id must fail")
 	}
 }
 
 func TestGetPublicKeyAndKidPropagatesLoadFailure(t *testing.T) {
-	cache := newKeyCache(&stubDB{secretsErr: errors.New("pg down")}, exchangeFlowZEK())
+	cache := newKeyCache(&stubDB{secretsErr: errors.New("pg down")}, testKeyring(exchangeFlowZEK()))
 	if _, _, err := cache.getPublicKeyAndKid(context.Background(), "zone-1"); err == nil {
 		t.Fatal("missing signing key must fail")
 	}
 
 	db := &stubDB{secrets: []SecretRow{sealedSecret(t, exchangeFlowZEK(), "kid-1", []byte(ecKeyPEM(t, elliptic.P256())))}}
-	cache = newKeyCache(db, exchangeFlowZEK())
+	cache = newKeyCache(db, testKeyring(exchangeFlowZEK()))
 	pub, kid, err := cache.getPublicKeyAndKid(context.Background(), "zone-1")
 	if err != nil || pub == nil || kid != "kid-1" {
 		t.Fatalf("pub=%v kid=%q err=%v", pub, kid, err)

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -28,6 +29,14 @@ func testKEK(fill byte) []byte {
 		kek[i] = fill
 	}
 	return kek
+}
+
+func testKeyring(keys ...[]byte) *secretstore.Keyring {
+	ring, err := secretstore.NewKeyring(keys...)
+	if err != nil {
+		panic(err)
+	}
+	return ring
 }
 
 func TestRotateZoneSigningKeyEndpointRequiresAdmin(t *testing.T) {
@@ -53,7 +62,7 @@ func TestRotateZoneSigningKeyEndpointCreatesKeyAndInvalidatesCache(t *testing.T)
 	srv := &Server{
 		cfg:  Config{AdminToken: "secret"},
 		db:   db,
-		keys: newKeyCache(db, testKEK(1)),
+		keys: newKeyCache(db, testKeyring(testKEK(1))),
 	}
 	cached := map[string]*ecdsa.PublicKey{}
 	srv.keys.entries["z1"] = &zoneCacheEntry{expiresAt: time.Now().Add(time.Hour)}

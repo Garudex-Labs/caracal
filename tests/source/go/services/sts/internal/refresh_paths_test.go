@@ -166,8 +166,8 @@ func refreshTestServer(db DBQuerier, r stsRedis) *Server {
 	return &Server{
 		db:      db,
 		redis:   r,
-		keys:    newKeyCache(db, zek),
-		secrets: &builtinSecretBackend{db: db, kek: zek},
+		keys:    newKeyCache(db, testKeyring(zek)),
+		secrets: secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(zek)),
 		metrics: &STSMetrics{},
 		cfg:     Config{MaxGrantTTLSeconds: 3600},
 		log:     zerolog.Nop(),
