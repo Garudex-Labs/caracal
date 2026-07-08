@@ -9,9 +9,8 @@ import {
   AAD_CONNECTION_ACCESS_TOKEN,
   AAD_CONNECTION_REFRESH_TOKEN,
   SecretBackendError,
-  loadSecretStoreKek,
-  openEnvelope,
-  sealEnvelope,
+  openSecretEnvelope,
+  sealSecretEnvelope,
 } from '@caracalai/server-core'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
@@ -117,11 +116,11 @@ interface ProviderOAuthRow {
 }
 
 function sealToken(value: string, aad: string): Buffer {
-  return sealEnvelope(loadSecretStoreKek(), Buffer.from(value, 'utf8'), aad)
+  return sealSecretEnvelope(Buffer.from(value, 'utf8'), aad)
 }
 
 function openToken(envelope: Buffer, aad: string): string {
-  const plaintext = openEnvelope(loadSecretStoreKek(), envelope, aad)
+  const plaintext = openSecretEnvelope(envelope, aad)
   try {
     return plaintext.toString('utf8')
   } finally {

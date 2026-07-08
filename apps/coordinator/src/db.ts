@@ -13,7 +13,10 @@ export function buildDB(config: Cfg = cfg): pg.Pool {
     idleTimeoutMillis: config.dbIdleTimeoutMs,
     connectionTimeoutMillis: config.dbConnectionTimeoutMs,
     statement_timeout: config.dbStatementTimeoutMs,
-    options: `-c statement_timeout=${config.dbStatementTimeoutMs}`,
+    // The coordinator reads sessions and zones across zones by design, so every
+    // session carries the RLS sentinel; row-level security stays a backstop for
+    // the per-request zone scoping in the control plane.
+    options: `-c statement_timeout=${config.dbStatementTimeoutMs} -c caracal.zone_id=*`,
   })
   // An idle pooled connection can be dropped by Postgres or the network at any time; pg surfaces
   // that as an 'error' event on the pool, which Node treats as fatal and crashes the process
