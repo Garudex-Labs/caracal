@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { buildPatchUpdate, patchColumn, patchExpression, appendAttribution } from './patch.js'
 import { resolveAttribution } from '../attribution.js'
+import { TxAbort, withTransaction } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
@@ -776,42 +777,43 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     const reservedErr = assertReservedNamespace('providerIdentifier', identifier, req.actor)
     if (reservedErr) return reply.code(409).send(reservedErr)
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    // The row insert and the credential write commit or fail together: the
+    // transaction stays open across the put, so a backend failure rolls the row
+    // back and an identifier conflict retries before any credential is written.
+    const id = uuidv7()
     for (let attempt = 0; attempt < 3; attempt++) {
-      const id = uuidv7()
       try {
-        const { rows } = await fastify.db.query<ProviderRow>(
-          `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json,
-                                  secret_config_keys, connectivity_failed_at,
-                                  created_by, created_via_operator)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
-           RETURNING ${RETURNING}`,
-          [
-            id,
-            params.zoneId,
-            body.name ?? identifier,
-            identifier,
-            body.kind,
-            JSON.stringify(config.publicConfig),
-            config.secretKeys,
-            connectivityFailedAt,
-            attribution.actor,
-            attribution.viaOperator,
-          ],
-        )
-        if (secretPayload) {
-          try {
+        const row = await withTransaction(fastify.db, async (client) => {
+          const { rows } = await client.query<ProviderRow>(
+            `INSERT INTO providers (id, zone_id, name, identifier, provider_kind, config_json,
+                                    secret_config_keys, connectivity_failed_at,
+                                    created_by, created_via_operator)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+             RETURNING ${RETURNING}`,
+            [
+              id,
+              params.zoneId,
+              body.name ?? identifier,
+              identifier,
+              body.kind,
+              JSON.stringify(config.publicConfig),
+              config.secretKeys,
+              connectivityFailedAt,
+              attribution.actor,
+              attribution.viaOperator,
+            ],
+          )
+          if (secretPayload) {
             await fastify.secrets.put(providerSecretConfigRef(params.zoneId, id), secretPayload)
-          } catch (err) {
-            await fastify.db.query(`DELETE FROM providers WHERE id = $1 AND zone_id = $2`, [id, params.zoneId])
-            if (err instanceof SecretBackendError) {
-              req.log.error({ err }, 'secret backend rejected provider credential write')
-              return reply.code(502).send({ error: 'secret_backend_unavailable' })
-            }
-            throw err
           }
-        }
-        return reply.code(201).send(rows[0])
+          return rows[0]
+        })
+        return reply.code(201).send(row)
       } catch (err) {
+        if (err instanceof SecretBackendError) {
+          req.log.error({ err }, 'secret backend rejected provider credential write')
+          return reply.code(502).send({ error: 'secret_backend_unavailable' })
+        }
         if (!isProviderIdentifierConflict(err)) throw err
         if (explicitIdentifier) {
           return reply.code(409).send({ error: 'provider_identifier_conflict' })
@@ -877,34 +879,35 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
     appendAttribution(update, await resolveAttribution(req, fastify.db, params.zoneId))
-    let rows: ProviderRow[]
+    // The row update and the credential write commit or fail together: the
+    // transaction stays open across the put, so a backend failure rolls the row
+    // back to its previous state and an identifier conflict never touches the
+    // stored credential document.
+    const ref = providerSecretConfigRef(params.zoneId, params.id)
+    let row: ProviderRow | undefined
     try {
-      const result = await fastify.db.query<ProviderRow>(
-        `UPDATE providers SET ${update.sets.join(', ')}, updated_at = now()
-         WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
-         RETURNING ${RETURNING}`,
-        update.values,
-      )
-      rows = result.rows
+      row = await withTransaction(fastify.db, async (client) => {
+        const result = await client.query<ProviderRow>(
+          `UPDATE providers SET ${update.sets.join(', ')}, updated_at = now()
+           WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL
+           RETURNING ${RETURNING}`,
+          update.values,
+        )
+        if (!result.rows[0]) throw new TxAbort<ProviderRow | undefined>(undefined)
+        if (secretPayload) await fastify.secrets.put(ref, secretPayload)
+        else if (clearSecrets) await fastify.secrets.delete(ref)
+        return result.rows[0]
+      })
     } catch (err) {
       if (isProviderIdentifierConflict(err)) return reply.code(409).send({ error: 'provider_identifier_conflict' })
+      if (err instanceof SecretBackendError) {
+        req.log.error({ err }, 'secret backend rejected provider credential update')
+        return reply.code(502).send({ error: 'secret_backend_unavailable' })
+      }
       throw err
     }
-    if (!rows[0]) return reply.code(404).send({ error: 'provider_not_found' })
-    if (secretPayload || clearSecrets) {
-      const ref = providerSecretConfigRef(params.zoneId, params.id)
-      try {
-        if (secretPayload) await fastify.secrets.put(ref, secretPayload)
-        else await fastify.secrets.delete(ref)
-      } catch (err) {
-        if (err instanceof SecretBackendError) {
-          req.log.error({ err }, 'secret backend rejected provider credential update')
-          return reply.code(502).send({ error: 'secret_backend_unavailable' })
-        }
-        throw err
-      }
-    }
-    return rows[0]
+    if (!row) return reply.code(404).send({ error: 'provider_not_found' })
+    return row
   })
 
   fastify.delete('/zones/:zoneId/providers/:id', async (req, reply) => {

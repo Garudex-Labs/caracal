@@ -9,37 +9,34 @@ import {
   CustomBackend,
   GcpSecretManagerBackend,
   InfisicalBackend,
+  SealedBackend,
   VaultBackend,
-  loadSecretStoreKek,
-  openEnvelope,
-  sealEnvelope,
   secretBackendKind,
   type SecretBackend,
+  type SecretBackendKind,
 } from '@caracalai/server-core'
 import type { DB } from './db.js'
 
-// The builtin Secret Store: CSS1 envelopes in the secret_store table, sealed under
-// the master KEK held only in process memory. The ref doubles as AAD so a row
-// copied to another ref fails authentication.
+// The builtin Secret Store: rows in the secret_store table keyed by ref. Values
+// arrive already sealed by the crypto boundary, so this layer only moves bytes.
 export class BuiltinSecretBackend implements SecretBackend {
   readonly kind = 'builtin'
 
   constructor(private readonly db: DB) {}
 
   async put(ref: string, value: Buffer): Promise<void> {
-    const envelope = sealEnvelope(loadSecretStoreKek(), value, ref)
     await this.db.query(
       `INSERT INTO secret_store (ref, zone_id, envelope)
        VALUES ($1, $2, $3)
        ON CONFLICT (ref) DO UPDATE SET envelope = EXCLUDED.envelope, version = secret_store.version + 1, updated_at = now()`,
-      [ref, zoneFromRef(ref), envelope],
+      [ref, zoneFromRef(ref), value],
     )
   }
 
   async get(ref: string): Promise<Buffer | null> {
     const { rows } = await this.db.query<{ envelope: Buffer }>(`SELECT envelope FROM secret_store WHERE ref = $1`, [ref])
     if (rows.length === 0) return null
-    return openEnvelope(loadSecretStoreKek(), rows[0].envelope, ref)
+    return rows[0].envelope
   }
 
   async delete(ref: string): Promise<void> {
@@ -55,8 +52,9 @@ function zoneFromRef(ref: string): string {
   return segments[1]
 }
 
-export function buildSecretBackend(db: DB): SecretBackend {
-  const kind = secretBackendKind()
+// The storage layer beneath the crypto boundary. Exposed separately so backend
+// migration can move sealed envelopes between stores without opening them.
+export function buildRawSecretBackend(db: DB, kind: SecretBackendKind): SecretBackend {
   switch (kind) {
     case 'builtin':
       return new BuiltinSecretBackend(db)
@@ -72,5 +70,43 @@ export function buildSecretBackend(db: DB): SecretBackend {
       return new GcpSecretManagerBackend()
     case 'custom':
       return new CustomBackend()
+  }
+}
+
+export function buildSecretBackend(db: DB): SecretBackend {
+  return new SealedBackend(buildRawSecretBackend(db, secretBackendKind()))
+}
+
+export const secretBackendCounters = { operations: 0, errors: 0 }
+
+// Counts every secret backend operation and failure for the /metrics surface,
+// so operators can see backend outages and unusual credential access volumes.
+export class MeteredBackend implements SecretBackend {
+  constructor(private readonly inner: SecretBackend) {}
+
+  get kind(): SecretBackendKind {
+    return this.inner.kind
+  }
+
+  private async count<T>(operation: Promise<T>): Promise<T> {
+    secretBackendCounters.operations++
+    try {
+      return await operation
+    } catch (err) {
+      secretBackendCounters.errors++
+      throw err
+    }
+  }
+
+  put(ref: string, value: Buffer): Promise<void> {
+    return this.count(this.inner.put(ref, value))
+  }
+
+  get(ref: string): Promise<Buffer | null> {
+    return this.count(this.inner.get(ref))
+  }
+
+  delete(ref: string): Promise<void> {
+    return this.count(this.inner.delete(ref))
   }
 }

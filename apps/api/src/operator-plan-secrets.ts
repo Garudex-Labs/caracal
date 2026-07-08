@@ -3,7 +3,7 @@
 //
 // The plan credential vault: derives which credential fields a plan step needs and holds pasted values sealed at rest until the step applies them.
 
-import { AAD_OPERATOR_PLAN_SECRETS, loadSecretStoreKek, openEnvelope, sealEnvelope } from '@caracalai/server-core'
+import { AAD_OPERATOR_PLAN_SECRETS, openSecretEnvelope, sealSecretEnvelope } from '@caracalai/server-core'
 import { PROVIDER_KINDS, PUBLIC_PROVIDER_CONFIG_KEYS, type ProviderKind } from './provider-config.js'
 
 // The longest single credential value accepted: bounded to hold a PEM private key while
@@ -81,7 +81,7 @@ export async function storePlanStepSecrets(
   stepId: string,
   values: Record<string, string>,
 ): Promise<void> {
-  const sealed = sealEnvelope(loadSecretStoreKek(), Buffer.from(JSON.stringify(values), 'utf8'), AAD_OPERATOR_PLAN_SECRETS)
+  const sealed = sealSecretEnvelope(Buffer.from(JSON.stringify(values), 'utf8'), AAD_OPERATOR_PLAN_SECRETS)
   const expiresAt = new Date(Date.now() + PLAN_SECRET_TTL_MS).toISOString()
   await db.query(
     `DELETE FROM operator_plan_secrets
@@ -122,7 +122,7 @@ export async function openPlanStepSecrets(
     [ref.conversationId, ref.zoneId, ref.planSeq, stepId],
   )
   if (!rows[0]) return null
-  const plaintext = openEnvelope(loadSecretStoreKek(), rows[0].envelope, AAD_OPERATOR_PLAN_SECRETS)
+  const plaintext = openSecretEnvelope(rows[0].envelope, AAD_OPERATOR_PLAN_SECRETS)
   return JSON.parse(plaintext.toString('utf8')) as Record<string, string>
 }
 
