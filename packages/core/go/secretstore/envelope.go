@@ -145,35 +145,95 @@ func weakKEKReason(b []byte) string {
 	}
 	switch {
 	case allSame && b[0] == 0:
-		return "SECRET_STORE_KEK must not be all zeros"
+		return "must not be all zeros"
 	case allSame:
-		return "SECRET_STORE_KEK must not repeat the same byte"
+		return "must not repeat the same byte"
 	case ascending || descending:
-		return "SECRET_STORE_KEK must not use a sequential byte pattern"
+		return "must not use a sequential byte pattern"
 	case alternating:
-		return "SECRET_STORE_KEK must not use a repeating byte pattern"
+		return "must not use a repeating byte pattern"
 	default:
 		return ""
 	}
 }
 
-// LoadKEK reads the Secret Store master key: 32 bytes of hex delivered by file-backed
-// environment, never stored in the database, so a database compromise alone cannot
-// decrypt secrets.
-func LoadKEK() ([]byte, error) {
-	raw := os.Getenv("SECRET_STORE_KEK")
+func loadKEK(name string) ([]byte, error) {
+	raw := os.Getenv(name)
 	if raw == "" {
-		return nil, errors.New("SECRET_STORE_KEK is required")
+		return nil, fmt.Errorf("%s is required", name)
 	}
 	b, err := hex.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("SECRET_STORE_KEK: %w", err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	if len(b) != keyBytes {
-		return nil, fmt.Errorf("SECRET_STORE_KEK must be %d bytes, got %d", keyBytes, len(b))
+		return nil, fmt.Errorf("%s must be %d bytes, got %d", name, keyBytes, len(b))
 	}
 	if reason := weakKEKReason(b); reason != "" {
-		return nil, errors.New(reason)
+		return nil, fmt.Errorf("%s %s", name, reason)
 	}
 	return b, nil
+}
+
+// Keyring holds the active Secret Store master keys, current first. Seal always
+// uses the current key; Open routes each envelope by its embedded kekId so reads
+// keep working across a KEK rotation window.
+type Keyring struct {
+	keys [][]byte
+	ids  [][]byte
+}
+
+func NewKeyring(keys ...[]byte) (*Keyring, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("keyring requires at least one key")
+	}
+	ring := &Keyring{}
+	for _, key := range keys {
+		if len(key) != keyBytes {
+			return nil, fmt.Errorf("kek must be %d bytes", keyBytes)
+		}
+		ring.keys = append(ring.keys, key)
+		ring.ids = append(ring.ids, KEKID(key))
+	}
+	return ring, nil
+}
+
+// LoadKeyring reads the master keys: 32 bytes of hex delivered by file-backed
+// environment, never stored in the database, so a database compromise alone cannot
+// decrypt secrets. SECRET_STORE_KEK_PREVIOUS keeps the retiring key readable while
+// envelopes are re-sealed during a rotation.
+func LoadKeyring() (*Keyring, error) {
+	current, err := loadKEK("SECRET_STORE_KEK")
+	if err != nil {
+		return nil, err
+	}
+	keys := [][]byte{current}
+	if os.Getenv("SECRET_STORE_KEK_PREVIOUS") != "" {
+		previous, err := loadKEK("SECRET_STORE_KEK_PREVIOUS")
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, previous)
+	}
+	return NewKeyring(keys...)
+}
+
+func (k *Keyring) Seal(plaintext []byte, aad string) ([]byte, error) {
+	return Seal(k.keys[0], plaintext, aad)
+}
+
+func (k *Keyring) Open(envelope []byte, aad string) ([]byte, error) {
+	if len(envelope) < minEnvelopeLen() {
+		return nil, errors.New("secret envelope too short")
+	}
+	if !bytes.Equal(envelope[:len(magic)], magic) {
+		return nil, errors.New("secret envelope has unknown format")
+	}
+	id := envelope[len(magic) : len(magic)+kekIDBytes]
+	for i, keyID := range k.ids {
+		if bytes.Equal(id, keyID) {
+			return Open(k.keys[i], envelope, aad)
+		}
+	}
+	return nil, errors.New("secret envelope was sealed under a different KEK")
 }

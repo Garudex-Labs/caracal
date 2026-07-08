@@ -43,11 +43,31 @@ func requireEnv(name string) (string, error) {
 	return value, nil
 }
 
+// External backend endpoints must be TLS so bearer credentials and payloads never
+// cross the network in the clear; plain http is allowed only for loopback hosts,
+// which keeps local development against a same-host backend working.
+func httpsBaseURL(name, raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("%s must be a valid URL", name)
+	}
+	host := parsed.Hostname()
+	loopback := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if parsed.Scheme != "https" && !loopback {
+		return "", fmt.Errorf("%s must be an https URL", name)
+	}
+	return strings.TrimRight(raw, "/"), nil
+}
+
+func unreachable(err error) error {
+	return fmt.Errorf("secret backend unreachable: %w", err)
+}
+
 func statusError(operation string, status int) error {
 	return fmt.Errorf("secret backend %s failed with status %d", operation, status)
 }
 
-// String-valued stores hold base64 payloads so arbitrary bytes survive every backend
+// String-valued stores hold base64 payloads so envelope bytes survive every backend
 // unchanged; the builtin backend stores raw bytes and never round-trips through this.
 func decodeValue(value string) ([]byte, error) {
 	decoded, err := base64.StdEncoding.DecodeString(value)
@@ -90,6 +110,10 @@ func newVaultBackend() (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	addr, err = httpsBaseURL("CARACAL_VAULT_ADDR", addr)
+	if err != nil {
+		return nil, err
+	}
 	token, err := requireEnv("CARACAL_VAULT_TOKEN")
 	if err != nil {
 		return nil, err
@@ -99,7 +123,7 @@ func newVaultBackend() (Backend, error) {
 		mount = "secret"
 	}
 	return &vaultBackend{
-		addr:      strings.TrimRight(addr, "/"),
+		addr:      addr,
 		token:     token,
 		mount:     mount,
 		namespace: strings.TrimSpace(os.Getenv("CARACAL_VAULT_NAMESPACE")),
@@ -119,7 +143,7 @@ func (v *vaultBackend) Get(ctx context.Context, ref string) ([]byte, bool, error
 	}
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
@@ -166,6 +190,10 @@ func newInfisicalBackend() (Backend, error) {
 	if baseURL == "" {
 		baseURL = "https://app.infisical.com"
 	}
+	baseURL, err = httpsBaseURL("CARACAL_INFISICAL_URL", baseURL)
+	if err != nil {
+		return nil, err
+	}
 	environment := strings.TrimSpace(os.Getenv("CARACAL_INFISICAL_ENV"))
 	if environment == "" {
 		environment = "prod"
@@ -175,7 +203,7 @@ func newInfisicalBackend() (Backend, error) {
 		path = "/"
 	}
 	return &infisicalBackend{
-		baseURL:     strings.TrimRight(baseURL, "/"),
+		baseURL:     baseURL,
 		token:       token,
 		projectID:   projectID,
 		environment: environment,
@@ -199,7 +227,7 @@ func (i *infisicalBackend) Get(ctx context.Context, ref string) ([]byte, bool, e
 	req.Header.Set("Authorization", "Bearer "+i.token)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
@@ -257,43 +285,57 @@ func newAzureKeyVaultBackend() (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := requireEnv("CARACAL_AZURE_TENANT_ID")
+	vaultURL, err = httpsBaseURL("CARACAL_AZURE_VAULT_URL", vaultURL)
 	if err != nil {
 		return nil, err
 	}
-	clientID, err := requireEnv("CARACAL_AZURE_CLIENT_ID")
-	if err != nil {
-		return nil, err
+	backend := &azureKeyVaultBackend{
+		vaultURL:     vaultURL,
+		clientSecret: strings.TrimSpace(os.Getenv("CARACAL_AZURE_CLIENT_SECRET")),
 	}
-	clientSecret, err := requireEnv("CARACAL_AZURE_CLIENT_SECRET")
-	if err != nil {
-		return nil, err
+	if backend.clientSecret != "" {
+		if backend.tenantID, err = requireEnv("CARACAL_AZURE_TENANT_ID"); err != nil {
+			return nil, err
+		}
+		if backend.clientID, err = requireEnv("CARACAL_AZURE_CLIENT_ID"); err != nil {
+			return nil, err
+		}
 	}
-	return &azureKeyVaultBackend{
-		vaultURL:     strings.TrimRight(vaultURL, "/"),
-		tenantID:     tenantID,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-	}, nil
+	return backend, nil
 }
 
 func (a *azureKeyVaultBackend) Kind() string { return KindAzureKeyVault }
 
+// Tokens come from the AAD client-credentials flow when a client secret is
+// configured, otherwise from the IMDS managed-identity endpoint. IMDS is
+// link-local and unroutable, reachable only from the VM or pod itself, so plain
+// http is the platform contract there.
 func (a *azureKeyVaultBackend) accessToken(ctx context.Context) (string, error) {
 	return a.cache.get(func() (string, time.Duration, error) {
-		form := url.Values{
-			"grant_type":    {"client_credentials"},
-			"client_id":     {a.clientID},
-			"client_secret": {a.clientSecret},
-			"scope":         {"https://vault.azure.net/.default"},
+		var req *http.Request
+		var err error
+		if a.clientSecret != "" {
+			form := url.Values{
+				"grant_type":    {"client_credentials"},
+				"client_id":     {a.clientID},
+				"client_secret": {a.clientSecret},
+				"scope":         {"https://vault.azure.net/.default"},
+			}
+			req, err = http.NewRequestWithContext(ctx, http.MethodPost,
+				"https://login.microsoftonline.com/"+a.tenantID+"/oauth2/v2.0/token",
+				strings.NewReader(form.Encode()))
+			if err != nil {
+				return "", 0, err
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			return fetchOAuthToken(req)
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-			"https://login.microsoftonline.com/"+a.tenantID+"/oauth2/v2.0/token",
-			strings.NewReader(form.Encode()))
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet,
+			"http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net", nil)
 		if err != nil {
 			return "", 0, err
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Metadata", "true")
 		return fetchOAuthToken(req)
 	})
 }
@@ -301,20 +343,23 @@ func (a *azureKeyVaultBackend) accessToken(ctx context.Context) (string, error) 
 func fetchOAuthToken(req *http.Request) (string, time.Duration, error) {
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return "", 0, errors.New("secret backend unreachable")
+		return "", 0, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return "", 0, statusError("auth", res.StatusCode)
 	}
+	// expires_in arrives as a JSON number from OAuth token endpoints and as a
+	// string from the Azure IMDS endpoint, so both shapes are accepted.
 	var body struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
+		AccessToken string      `json:"access_token"`
+		ExpiresIn   json.Number `json:"expires_in"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&body); err != nil || body.AccessToken == "" {
 		return "", 0, errors.New("secret backend auth returned no token")
 	}
-	ttl := time.Duration(body.ExpiresIn) * time.Second
+	seconds, _ := body.ExpiresIn.Int64()
+	ttl := time.Duration(seconds) * time.Second
 	if ttl <= 0 {
 		ttl = time.Hour
 	}
@@ -334,7 +379,7 @@ func (a *azureKeyVaultBackend) Get(ctx context.Context, ref string) ([]byte, boo
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
@@ -356,11 +401,18 @@ func (a *azureKeyVaultBackend) Get(ctx context.Context, ref string) ([]byte, boo
 	return value, true, nil
 }
 
-type awsSecretsManagerBackend struct {
-	region          string
+type awsCredentials struct {
 	accessKeyID     string
 	secretAccessKey string
 	sessionToken    string
+	expiresAt       time.Time
+}
+
+type awsSecretsManagerBackend struct {
+	region                  string
+	containerCredentialsURL string
+	mu                      sync.Mutex
+	creds                   *awsCredentials
 }
 
 func newAWSSecretsManagerBackend() (Backend, error) {
@@ -371,23 +423,91 @@ func newAWSSecretsManagerBackend() (Backend, error) {
 	if region == "" {
 		return nil, errors.New("CARACAL_AWS_REGION or AWS_REGION is required for the configured secret backend")
 	}
-	accessKeyID, err := requireEnv("AWS_ACCESS_KEY_ID")
-	if err != nil {
-		return nil, err
+	backend := &awsSecretsManagerBackend{region: region}
+	if strings.TrimSpace(os.Getenv("AWS_ACCESS_KEY_ID")) != "" {
+		accessKeyID, err := requireEnv("AWS_ACCESS_KEY_ID")
+		if err != nil {
+			return nil, err
+		}
+		secretAccessKey, err := requireEnv("AWS_SECRET_ACCESS_KEY")
+		if err != nil {
+			return nil, err
+		}
+		backend.creds = &awsCredentials{
+			accessKeyID:     accessKeyID,
+			secretAccessKey: secretAccessKey,
+			sessionToken:    strings.TrimSpace(os.Getenv("AWS_SESSION_TOKEN")),
+		}
+		return backend, nil
 	}
-	secretAccessKey, err := requireEnv("AWS_SECRET_ACCESS_KEY")
-	if err != nil {
-		return nil, err
+	// The container credentials endpoint (EKS Pod Identity / ECS task roles) is a
+	// link-local or localhost address injected by the platform, so plain http is
+	// the platform contract here.
+	full := strings.TrimSpace(os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"))
+	relative := strings.TrimSpace(os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"))
+	switch {
+	case full != "":
+		backend.containerCredentialsURL = full
+	case relative != "":
+		backend.containerCredentialsURL = "http://169.254.170.2" + relative
+	default:
+		return nil, errors.New("AWS_ACCESS_KEY_ID or a container credentials endpoint is required for the configured secret backend")
 	}
-	return &awsSecretsManagerBackend{
-		region:          region,
-		accessKeyID:     accessKeyID,
-		secretAccessKey: secretAccessKey,
-		sessionToken:    strings.TrimSpace(os.Getenv("AWS_SESSION_TOKEN")),
-	}, nil
+	return backend, nil
 }
 
 func (a *awsSecretsManagerBackend) Kind() string { return KindAWSSecretsManager }
+
+func (a *awsSecretsManagerBackend) credentials(ctx context.Context) (awsCredentials, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.creds != nil && (a.creds.expiresAt.IsZero() || time.Now().Before(a.creds.expiresAt)) {
+		return *a.creds, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.containerCredentialsURL, nil)
+	if err != nil {
+		return awsCredentials{}, err
+	}
+	token := strings.TrimSpace(os.Getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN"))
+	if tokenFile := strings.TrimSpace(os.Getenv("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE")); tokenFile != "" {
+		raw, err := os.ReadFile(tokenFile)
+		if err != nil {
+			return awsCredentials{}, fmt.Errorf("aws container authorization token file: %w", err)
+		}
+		token = strings.TrimSpace(string(raw))
+	}
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return awsCredentials{}, unreachable(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return awsCredentials{}, statusError("auth", res.StatusCode)
+	}
+	var body struct {
+		AccessKeyID     string `json:"AccessKeyId"`
+		SecretAccessKey string `json:"SecretAccessKey"`
+		Token           string `json:"Token"`
+		Expiration      string `json:"Expiration"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&body); err != nil || body.AccessKeyID == "" || body.SecretAccessKey == "" {
+		return awsCredentials{}, errors.New("secret backend auth returned no credentials")
+	}
+	expiresAt := time.Now().Add(time.Hour - tokenExpirySkew)
+	if parsed, err := time.Parse(time.RFC3339, body.Expiration); err == nil {
+		expiresAt = parsed.Add(-tokenExpirySkew)
+	}
+	a.creds = &awsCredentials{
+		accessKeyID:     body.AccessKeyID,
+		secretAccessKey: body.SecretAccessKey,
+		sessionToken:    body.Token,
+		expiresAt:       expiresAt,
+	}
+	return *a.creds, nil
+}
 
 func hmacSHA256(key, data []byte) []byte {
 	mac := hmac.New(sha256.New, key)
@@ -396,6 +516,10 @@ func hmacSHA256(key, data []byte) []byte {
 }
 
 func (a *awsSecretsManagerBackend) Get(ctx context.Context, ref string) ([]byte, bool, error) {
+	creds, err := a.credentials(ctx)
+	if err != nil {
+		return nil, false, err
+	}
 	host := "secretsmanager." + a.region + ".amazonaws.com"
 	payload, err := json.Marshal(map[string]string{"SecretId": ref})
 	if err != nil {
@@ -410,8 +534,8 @@ func (a *awsSecretsManagerBackend) Get(ctx context.Context, ref string) ([]byte,
 		"x-amz-date":   amzDate,
 		"x-amz-target": "secretsmanager.GetSecretValue",
 	}
-	if a.sessionToken != "" {
-		headers["x-amz-security-token"] = a.sessionToken
+	if creds.sessionToken != "" {
+		headers["x-amz-security-token"] = creds.sessionToken
 	}
 	names := make([]string, 0, len(headers))
 	for name := range headers {
@@ -430,7 +554,7 @@ func (a *awsSecretsManagerBackend) Get(ctx context.Context, ref string) ([]byte,
 	scope := dateStamp + "/" + a.region + "/secretsmanager/aws4_request"
 	requestHash := sha256.Sum256([]byte(canonicalRequest))
 	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", amzDate, scope, hex.EncodeToString(requestHash[:])}, "\n")
-	kDate := hmacSHA256([]byte("AWS4"+a.secretAccessKey), []byte(dateStamp))
+	kDate := hmacSHA256([]byte("AWS4"+creds.secretAccessKey), []byte(dateStamp))
 	kRegion := hmacSHA256(kDate, []byte(a.region))
 	kService := hmacSHA256(kRegion, []byte("secretsmanager"))
 	kSigning := hmacSHA256(kService, []byte("aws4_request"))
@@ -445,10 +569,10 @@ func (a *awsSecretsManagerBackend) Get(ctx context.Context, ref string) ([]byte,
 		}
 	}
 	req.Header.Set("Authorization",
-		"AWS4-HMAC-SHA256 Credential="+a.accessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+		"AWS4-HMAC-SHA256 Credential="+creds.accessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
@@ -493,7 +617,7 @@ func newGCPSecretManagerBackend() (Backend, error) {
 		credentialsPath = strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
 	}
 	if credentialsPath == "" {
-		return nil, errors.New("CARACAL_GCP_CREDENTIALS_FILE or GOOGLE_APPLICATION_CREDENTIALS is required for the configured secret backend")
+		return &gcpSecretManagerBackend{project: project}, nil
 	}
 	raw, err := os.ReadFile(credentialsPath)
 	if err != nil {
@@ -533,8 +657,21 @@ func newGCPSecretManagerBackend() (Backend, error) {
 
 func (g *gcpSecretManagerBackend) Kind() string { return KindGCPSecretManager }
 
+// Tokens come from the service-account JWT bearer flow when a credentials file is
+// configured, otherwise from the metadata server. The metadata server is
+// link-local and unroutable, reachable only from the VM or pod itself, so plain
+// http is the platform contract there.
 func (g *gcpSecretManagerBackend) accessToken(ctx context.Context) (string, error) {
 	return g.cache.get(func() (string, time.Duration, error) {
+		if g.privateKey == nil {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+				"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", nil)
+			if err != nil {
+				return "", 0, err
+			}
+			req.Header.Set("Metadata-Flavor", "Google")
+			return fetchOAuthToken(req)
+		}
 		now := time.Now().Unix()
 		encode := func(part map[string]any) (string, error) {
 			raw, err := json.Marshal(part)
@@ -590,7 +727,7 @@ func (g *gcpSecretManagerBackend) Get(ctx context.Context, ref string) ([]byte, 
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
@@ -624,11 +761,15 @@ func newCustomBackend() (Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	baseURL, err = httpsBaseURL("CARACAL_CUSTOM_SECRETS_URL", baseURL)
+	if err != nil {
+		return nil, err
+	}
 	token, err := requireEnv("CARACAL_CUSTOM_SECRETS_TOKEN")
 	if err != nil {
 		return nil, err
 	}
-	return &customBackend{baseURL: strings.TrimRight(baseURL, "/"), token: token}, nil
+	return &customBackend{baseURL: baseURL, token: token}, nil
 }
 
 func (c *customBackend) Kind() string { return KindCustom }
@@ -641,7 +782,7 @@ func (c *customBackend) Get(ctx context.Context, ref string) ([]byte, bool, erro
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, false, errors.New("secret backend unreachable")
+		return nil, false, unreachable(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {

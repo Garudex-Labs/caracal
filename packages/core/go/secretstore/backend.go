@@ -67,6 +67,11 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
+// A stale entry may still be served for this long when the backend errors, so a
+// short external outage does not stop token exchange; rotation converges as soon
+// as the backend answers again.
+const maxStaleOnError = 10 * time.Minute
+
 type cachedBackend struct {
 	inner Backend
 	ttl   time.Duration
@@ -76,7 +81,8 @@ type cachedBackend struct {
 
 // NewCached bounds external backend read traffic with a short in-memory TTL, so hot
 // token-exchange paths do not turn every mint into a network round trip. Credential
-// rotation propagates within one TTL.
+// rotation propagates within one TTL. Entries hold whatever the inner backend
+// stores; behind the Opened wrapper that is sealed envelopes, never plaintext.
 func NewCached(inner Backend, ttl time.Duration) Backend {
 	return &cachedBackend{inner: inner, ttl: ttl, byRef: make(map[string]cacheEntry)}
 }
@@ -87,15 +93,45 @@ func (c *cachedBackend) Get(ctx context.Context, ref string) ([]byte, bool, erro
 	c.mu.RLock()
 	entry, ok := c.byRef[ref]
 	c.mu.RUnlock()
-	if ok && time.Now().Before(entry.expiresAt) {
+	now := time.Now()
+	if ok && now.Before(entry.expiresAt) {
 		return entry.value, entry.found, nil
 	}
 	value, found, err := c.inner.Get(ctx, ref)
 	if err != nil {
+		if ok && now.Before(entry.expiresAt.Add(maxStaleOnError)) {
+			return entry.value, entry.found, nil
+		}
 		return nil, false, err
 	}
 	c.mu.Lock()
-	c.byRef[ref] = cacheEntry{value: value, found: found, expiresAt: time.Now().Add(c.ttl)}
+	c.byRef[ref] = cacheEntry{value: value, found: found, expiresAt: now.Add(c.ttl)}
 	c.mu.Unlock()
 	return value, found, nil
+}
+
+type openedBackend struct {
+	inner   Backend
+	keyring *Keyring
+}
+
+// Opened is the crypto boundary of the data plane read path: every stored value
+// is a CSS1 envelope sealed with the ref as AAD, so backends and caches beneath
+// this wrapper only ever carry ciphertext.
+func Opened(inner Backend, keyring *Keyring) Backend {
+	return &openedBackend{inner: inner, keyring: keyring}
+}
+
+func (o *openedBackend) Kind() string { return o.inner.Kind() }
+
+func (o *openedBackend) Get(ctx context.Context, ref string) ([]byte, bool, error) {
+	envelope, found, err := o.inner.Get(ctx, ref)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	value, err := o.keyring.Open(envelope, ref)
+	if err != nil {
+		return nil, false, err
+	}
+	return value, true, nil
 }
