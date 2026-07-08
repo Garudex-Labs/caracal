@@ -568,8 +568,8 @@ func (s *WorkloadsService) Get(ctx context.Context, zoneID, workloadID string) (
 	return &out, nil
 }
 
-// Create returns the row plus the one-time plaintext workload secret; the
-// secret is never retrievable again.
+// Create returns the row plus the plaintext workload secret; a sealed custody
+// copy stays retrievable through GetSecret.
 func (s *WorkloadsService) Create(ctx context.Context, zoneID string, body map[string]any) (map[string]any, error) {
 	var out map[string]any
 	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/workloads", body, &out, false)
@@ -585,10 +585,19 @@ func (s *WorkloadsService) Update(ctx context.Context, zoneID, workloadID string
 }
 
 // RotateSecret rotates the credential server-side; the response carries the
-// one-time plaintext secret.
+// plaintext secret and the sealed custody copy in the Secret Store is
+// replaced with it.
 func (s *WorkloadsService) RotateSecret(ctx context.Context, zoneID, workloadID string) (map[string]any, error) {
 	var out map[string]any
 	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/workloads/"+workloadID+"/rotate-secret", nil, &out, false)
+	return out, err
+}
+
+// GetSecret retrieves the workload secret from Secret Store custody. Every
+// call is recorded in the zone audit timeline as a credential reveal.
+func (s *WorkloadsService) GetSecret(ctx context.Context, zoneID, workloadID string) (map[string]any, error) {
+	var out map[string]any
+	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/workloads/"+workloadID+"/secret", nil, &out, false)
 	return out, err
 }
 

@@ -504,10 +504,19 @@ func (s *ApplicationsService) Patch(ctx context.Context, zoneID, applicationID s
 }
 
 // RotateSecret rotates the credential server-side; the response carries the
-// one-time plaintext secret.
+// plaintext secret and the sealed custody copy in the Secret Store is
+// replaced with it.
 func (s *ApplicationsService) RotateSecret(ctx context.Context, zoneID, applicationID string) (map[string]any, error) {
 	var out map[string]any
 	err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/applications/"+applicationID+"/rotate-secret", nil, &out, false)
+	return out, err
+}
+
+// GetClientSecret retrieves the client secret from Secret Store custody.
+// Every call is recorded in the zone audit timeline as a credential reveal.
+func (s *ApplicationsService) GetClientSecret(ctx context.Context, zoneID, applicationID string) (map[string]any, error) {
+	var out map[string]any
+	err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/applications/"+applicationID+"/client-secret", nil, &out, false)
 	return out, err
 }
 

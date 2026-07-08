@@ -93,6 +93,9 @@ func TestWorkloadsUpdateRotateAndDelete(t *testing.T) {
 		if r.URL.Path == "/v1/zones/z1/workloads/wl1/rotate-secret" {
 			return http.StatusOK, map[string]any{"id": "wl1", "secret": "ws_rotated"}
 		}
+		if r.URL.Path == "/v1/zones/z1/workloads/wl1/secret" {
+			return http.StatusOK, map[string]any{"secret": "ws_revealed"}
+		}
 		return http.StatusOK, map[string]any{"id": "wl1", "name": "launcher-2"}
 	})
 
@@ -110,6 +113,13 @@ func TestWorkloadsUpdateRotateAndDelete(t *testing.T) {
 	if rotated["secret"] != "ws_rotated" {
 		t.Fatalf("expected rotated secret, got %+v", rotated)
 	}
+	revealed, err := client.Workloads.GetSecret(context.Background(), "z1", "wl1")
+	if err != nil {
+		t.Fatalf("unexpected reveal error: %v", err)
+	}
+	if revealed["secret"] != "ws_revealed" {
+		t.Fatalf("expected custody secret, got %+v", revealed)
+	}
 	if err := client.Workloads.Delete(context.Background(), "z1", "wl1"); err != nil {
 		t.Fatalf("unexpected delete error: %v", err)
 	}
@@ -121,7 +131,10 @@ func TestWorkloadsUpdateRotateAndDelete(t *testing.T) {
 	if reqs[1].Method != http.MethodPost || reqs[1].Path != "/v1/zones/z1/workloads/wl1/rotate-secret" {
 		t.Fatalf("unexpected rotate request: %+v", reqs[1])
 	}
-	if reqs[2].Method != http.MethodDelete || reqs[2].Path != "/v1/zones/z1/workloads/wl1" {
-		t.Fatalf("unexpected delete request: %+v", reqs[2])
+	if reqs[2].Method != http.MethodGet || reqs[2].Path != "/v1/zones/z1/workloads/wl1/secret" {
+		t.Fatalf("unexpected reveal request: %+v", reqs[2])
+	}
+	if reqs[3].Method != http.MethodDelete || reqs[3].Path != "/v1/zones/z1/workloads/wl1" {
+		t.Fatalf("unexpected delete request: %+v", reqs[3])
 	}
 }
