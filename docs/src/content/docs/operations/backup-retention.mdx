@@ -75,7 +75,7 @@ After restore, verify with `infra/scripts/smokeTest.sh` and the [restore validat
 
 | Symptom                          | Check                                                                                      |
 | -------------------------------- | ------------------------------------------------------------------------------------------ |
-| Restored STS cannot decrypt keys | `ZONE_KEK` does not match the database secrets.                                            |
+| Restored STS cannot decrypt keys | `SECRET_STORE_KEK` does not match the envelopes in the database.                             |
 | Audit chain verification fails   | Missing audit rows, wrong `AUDIT_HMAC_KEY`, or partial restore.                            |
 | Gateway cannot route             | Missing resource rows or resources restored without their upstream URL and provider.       |
 | Revocation state is incomplete   | Restore Postgres revocation/session state and replay Redis revocation events where needed. |

@@ -71,7 +71,8 @@ custom infrastructure.
 | `STREAMS_HMAC_KEY` / `STREAMS_HMAC_KEY_FILE` | Stream producers and consumers. |
 | `AUDIT_HMAC_KEY` / `AUDIT_HMAC_KEY_FILE` | Audit producers and Audit service. |
 | `GATEWAY_STS_HMAC_KEY` / `GATEWAY_STS_HMAC_KEY_FILE` | API, STS, Gateway. |
-| `ZONE_KEK` / `ZONE_KEK_FILE` | API and STS. |
+| `SECRET_STORE_KEK` / `SECRET_STORE_KEK_FILE` | API and STS. |
+| `CARACAL_SECRET_BACKEND` | API and STS; selects the secret backend, default `builtin`. |
 | `CARACAL_ADMIN_TOKEN` / `CARACAL_ADMIN_TOKEN_FILE` | API and management clients. |
 | `CARACAL_COORDINATOR_TOKEN` / `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator and Console agent/delegation views. |
 
