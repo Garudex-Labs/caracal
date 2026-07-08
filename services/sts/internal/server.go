@@ -108,23 +108,23 @@ func New(ctx context.Context) (*Server, error) {
 	}
 	rdb.SetStreamSigning(streamKey, cfg.IsPublished())
 
-	kek, err := secretstore.LoadKEK()
+	keyring, err := secretstore.LoadKeyring()
 	if err != nil {
 		return nil, fmt.Errorf("kek: %w", err)
 	}
 
-	secrets, err := newSecretBackend(cfg.SecretBackend, db, kek)
+	metrics := &STSMetrics{}
+	secrets, err := newSecretBackend(cfg.SecretBackend, db, keyring, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("secret backend: %w", err)
 	}
 
-	keys := newKeyCache(db, kek)
+	keys := newKeyCache(db, keyring)
 	opa := newOPAEngine(db, log)
 	if err := verifyDecisionContract(); err != nil {
 		return nil, fmt.Errorf("decision contract: %w", err)
 	}
 	opa.SetPollInterval(time.Duration(cfg.OPAPollSeconds) * time.Second)
-	metrics := &STSMetrics{}
 	buf, err := newAuditBuffer(rdb, log, cfg.IsPublished(), cfg.AuditReplayDir, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("audit: %w", err)
@@ -223,7 +223,7 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]JWKSEntry, 0, len(secrets))
 	for _, secret := range secrets {
-		keyBytes, err := secretstore.Open(s.keys.kek, secret.Envelope, secretstore.AADZoneSigningKey)
+		keyBytes, err := s.keys.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			s.metrics.JWKSInvalidKeys.Add(1)
 			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "decrypt").Msg("jwks: skipped invalid signing key")
@@ -592,6 +592,8 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_sts_audit_replay_replayed_total", Help: "STS audit events replayed after sink recovery", Type: coremetrics.Counter, Value: float64(sts.AuditReplayReplayed)},
 		{Name: "caracal_sts_audit_sink_errors_total", Help: "STS audit sink publish errors", Type: coremetrics.Counter, Value: float64(sts.AuditSinkErrors)},
 		{Name: "caracal_sts_jwks_invalid_keys_total", Help: "STS signing keys skipped because JWKS validation failed", Type: coremetrics.Counter, Value: float64(sts.JWKSInvalidKeys)},
+		{Name: "caracal_sts_secret_backend_reads_total", Help: "Secret backend reads attempted by the data plane", Type: coremetrics.Counter, Value: float64(sts.SecretBackendReads)},
+		{Name: "caracal_sts_secret_backend_errors_total", Help: "Secret backend reads that failed", Type: coremetrics.Counter, Value: float64(sts.SecretBackendErrors)},
 		{Name: "caracal_sts_provider_refresh_shared_total", Help: "STS provider credential refresh calls served by a shared in-process result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshShared)},
 		{Name: "caracal_sts_provider_refresh_leased_total", Help: "STS provider credential refresh calls that acquired the distributed refresh lease", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshLeased)},
 		{Name: "caracal_sts_provider_refresh_waited_total", Help: "STS provider credential refresh calls that waited for a distributed peer result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshWaited)},

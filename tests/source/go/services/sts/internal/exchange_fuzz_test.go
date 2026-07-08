@@ -47,7 +47,7 @@ func FuzzExchangeRequestParsing(f *testing.F) {
 		db:          stub,
 		redis:       nil,
 		opa:         newOPAEngine(stub),
-		keys:        newKeyCache(stub, make([]byte, 32)),
+		keys:        newKeyCache(stub, testKeyring(make([]byte, 32))),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, auditBufCap), log: zerolog.Nop()},
 		metrics:     &STSMetrics{},
 	}

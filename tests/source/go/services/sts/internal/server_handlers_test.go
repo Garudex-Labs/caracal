@@ -160,7 +160,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 
 	t.Run("invalid session mandate", func(t *testing.T) {
 		server := testSTSServer(t)
-		server.keys = newKeyCache(&stubDB{}, testKEK(1))
+		server.keys = newKeyCache(&stubDB{}, testKeyring(testKEK(1)))
 		server.db = &stepUpDB{challenge: &StepUpChallengePG{
 			ID:            id,
 			ZoneID:        "zone-1",
@@ -225,7 +225,7 @@ func TestJWKSKeyDecryptionBranches(t *testing.T) {
 	jwksServer := func(db DBQuerier) *Server {
 		server := testSTSServer(t)
 		server.db = db
-		server.keys = newKeyCache(db, zek)
+		server.keys = newKeyCache(db, testKeyring(zek))
 		return server
 	}
 
