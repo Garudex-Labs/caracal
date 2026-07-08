@@ -34,7 +34,7 @@ secrets:
     metricsBearer: ""
     caracalCoordinatorToken: ""
     caracalAuthSecret: ""
-    zoneKek: ""
+    secretStoreKek: ""
     auditHmacKey: ""
     streamsHmacKey: ""
     gatewayStsHmacKey: ""
