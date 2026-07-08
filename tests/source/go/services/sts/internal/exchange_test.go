@@ -22,10 +22,11 @@ import (
 	"testing"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/open-policy-agent/opa/rego"
 )
 
@@ -33,13 +34,35 @@ func strPtr(value string) *string {
 	return &value
 }
 
-func testProviderSecret(t *testing.T, zek []byte, config string) ([]byte, []byte) {
+// testProviderSecret seals a provider credential document the way the control plane
+// does: a CSS1 envelope bound to the provider's Secret Store ref.
+func testProviderSecret(t *testing.T, kek []byte, providerID, config string) map[string][]byte {
 	t.Helper()
-	ct, nonce, err := sharedcrypto.Seal(zek, []byte(config))
+	ref := secretstore.ProviderSecretConfigRef("", providerID)
+	envelope, err := secretstore.Seal(kek, []byte(config), ref)
 	if err != nil {
 		t.Fatalf("seal provider secret: %v", err)
 	}
-	return ct, nonce
+	return map[string][]byte{ref: envelope}
+}
+
+// providerServer wires a Server the way newServer does for provider credential
+// paths: builtin secret backend over the same test double and KEK.
+func providerServer(db *stubDB, kek []byte) *Server {
+	return &Server{
+		db:      db,
+		keys:    &KeyCache{kek: kek},
+		secrets: &builtinSecretBackend{db: db, kek: kek},
+	}
+}
+
+func sealConnectionToken(t *testing.T, kek []byte, token string) []byte {
+	t.Helper()
+	envelope, err := secretstore.Seal(kek, []byte(token), secretstore.AADConnectionAccessToken)
+	if err != nil {
+		t.Fatalf("seal provider token: %v", err)
+	}
+	return envelope
 }
 
 func TestDerefStr(t *testing.T) {
@@ -254,35 +277,36 @@ func TestBuildJWKSIncludesP256PublicKeyMetadata(t *testing.T) {
 
 // stubDB satisfies DBQuerier with preset return values for the exchange path.
 type stubDB struct {
-	app           *Application
-	appErr        error
-	appGlobal     *Application
-	appGlobalErr  error
-	resource      *Resource
-	resErr        error
-	grant         *ProviderConnection
-	grantErr      error
-	provider      *ProviderConfig
-	session       *Session
-	sessionErr    error
-	agentSessions []*AgentSession
-	agentIndex    int
-	agentErr      error
-	edge          *DelegationEdge
-	edgeErr       error
-	edgesMap      map[string]*DelegationEdge
-	path          []string
-	pathErr       error
-	graphEpoch    int64
-	epochErr      error
-	sessErr       error
-	secrets       []SecretRow
-	secretsErr    error
-	insertedKey   *SecretRow
-	now           time.Time
-	workload      *Workload
-	workloadErr   error
-	markedExpired []string
+	app            *Application
+	appErr         error
+	appGlobal      *Application
+	appGlobalErr   error
+	resource       *Resource
+	resErr         error
+	grant          *ProviderConnection
+	grantErr       error
+	provider       *ProviderConfig
+	session        *Session
+	sessionErr     error
+	agentSessions  []*AgentSession
+	agentIndex     int
+	agentErr       error
+	edge           *DelegationEdge
+	edgeErr        error
+	edgesMap       map[string]*DelegationEdge
+	path           []string
+	pathErr        error
+	graphEpoch     int64
+	epochErr       error
+	sessErr        error
+	secrets        []SecretRow
+	secretsErr     error
+	insertedKey    *SecretRow
+	storeEnvelopes map[string][]byte
+	now            time.Time
+	workload       *Workload
+	workloadErr    error
+	markedExpired  []string
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -385,11 +409,11 @@ func (s *stubDB) SessionsRelated(_ context.Context, _, _, _ string) (bool, error
 func (s *stubDB) DeleteExpiredStepUpChallenges(_ context.Context, _ time.Time) (int64, error) {
 	return 0, nil
 }
-func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _, _ []byte) (*SecretRow, error) {
+func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _ []byte) (*SecretRow, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubDB) InsertZoneSigningKeySecret(_ context.Context, _ string, ciphertext, nonce []byte) (*SecretRow, error) {
-	row := &SecretRow{ID: "kid-rotated", Ciphertext: ciphertext, Nonce: nonce, DEKID: "zoneKek"}
+func (s *stubDB) InsertZoneSigningKeySecret(_ context.Context, _ string, envelope []byte) (*SecretRow, error) {
+	row := &SecretRow{ID: "kid-rotated", Envelope: envelope}
 	s.insertedKey = row
 	return row, nil
 }
@@ -410,6 +434,12 @@ func (s *stubDB) GetZoneSigningKeySecrets(_ context.Context, _ string) ([]Secret
 		return s.secrets, nil
 	}
 	return nil, errors.New("stub")
+}
+func (s *stubDB) GetSecretStoreEnvelope(_ context.Context, ref string) ([]byte, error) {
+	if envelope, ok := s.storeEnvelopes[ref]; ok {
+		return envelope, nil
+	}
+	return nil, pgx.ErrNoRows
 }
 func (s *stubDB) GetActivePolicySetBinding(_ context.Context, _ string) (*PolicySetBinding, error) {
 	return nil, errors.New("stub")
@@ -708,17 +738,14 @@ func TestBuildUpstreamDirectiveIncludesProviderTokenOnlyForGateway(t *testing.T)
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	expiresAt := time.Now().Add(time.Minute)
 	srv := &Server{
 		db: &stubDB{
 			grant:    &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
 			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2_authorization_code")},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{kek: zek},
 	}
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
@@ -740,13 +767,10 @@ func TestBuildUpstreamDirectiveBindsGrantToConfiguredProvider(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db:   &stubDB{grant: &ProviderConnection{ProviderID: &otherProviderID, AccessTokenCt: token}},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{kek: zek},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("gateway directive must reject grants from a different provider")
@@ -763,19 +787,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key provider shape: %v", err)
@@ -795,19 +814,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyAuthorizationScheme(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"Authorization","auth_scheme":"Bearer"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"Authorization","auth_scheme":"Bearer"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key auth scheme: %v", err)
@@ -827,19 +841,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyQueryParameter(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"auth_location":"query","query_param_name":"api_key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"auth_location":"query","query_param_name":"api_key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key query parameter: %v", err)
@@ -880,19 +889,14 @@ func TestBuildUpstreamDirectiveSupportsBearerTokenProviderShape(t *testing.T) {
 				CredentialProviderID: &providerID,
 			}
 			zek := []byte("12345678901234567890123456789012")
-			secretCt, secretNonce := testProviderSecret(t, zek, `{"bearer_token":"provider-bearer-token"}`)
-			srv := &Server{
-				db: &stubDB{
-					provider: &ProviderConfig{
-						ID:                providerID,
-						ProviderKind:      strPtr("bearer_token"),
-						ConfigJSON:        []byte(tc.configJSON),
-						SecretConfigCt:    secretCt,
-						SecretConfigNonce: secretNonce,
-					},
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr("bearer_token"),
+					ConfigJSON:   []byte(tc.configJSON),
 				},
-				keys: &KeyCache{zek: zek},
-			}
+				storeEnvelopes: testProviderSecret(t, zek, providerID, `{"bearer_token":"provider-bearer-token"}`),
+			}, zek)
 			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 			if err != nil {
 				t.Fatalf("gateway directive should support bearer token provider shape: %v", err)
@@ -938,19 +942,14 @@ func TestBuildUpstreamDirectiveCarriesHostGuardrailForStaticKinds(t *testing.T) 
 				CredentialProviderID: &providerID,
 			}
 			zek := []byte("12345678901234567890123456789012")
-			secretCt, secretNonce := testProviderSecret(t, zek, tc.secretJSON)
-			srv := &Server{
-				db: &stubDB{
-					provider: &ProviderConfig{
-						ID:                providerID,
-						ProviderKind:      strPtr(tc.kind),
-						ConfigJSON:        []byte(tc.configJSON),
-						SecretConfigCt:    secretCt,
-						SecretConfigNonce: secretNonce,
-					},
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr(tc.kind),
+					ConfigJSON:   []byte(tc.configJSON),
 				},
-				keys: &KeyCache{zek: zek},
-			}
+				storeEnvelopes: testProviderSecret(t, zek, providerID, tc.secretJSON),
+			}, zek)
 			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 			if err != nil {
 				t.Fatalf("gateway directive should carry the host guardrail: %v", err)
@@ -1029,19 +1028,14 @@ func TestBuildUpstreamDirectiveReadsIdentityForwardingOptIn(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support identity forwarding opt-in: %v", err)
@@ -1061,19 +1055,14 @@ func TestBuildUpstreamDirectiveRequiresRuntimeInjectionOptIn(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, true); err == nil {
 		t.Fatal("runtime provider injection must require provider opt-in")
 	}
@@ -1089,19 +1078,14 @@ func TestBuildUpstreamDirectiveAllowsRuntimeProviderInjection(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, true)
 	if err != nil {
 		t.Fatalf("runtime provider injection should decrypt opted-in provider token: %v", err)
@@ -1121,19 +1105,14 @@ func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("apikey provider directive must require an explicit auth header")
 	}
@@ -1149,19 +1128,14 @@ func TestBuildUpstreamDirectiveRejectsLegacyAPIKeyAuthHeader(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"auth_header":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"auth_header":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("apikey provider directive must use header_name, not auth_header")
 	}
@@ -1200,19 +1174,14 @@ func TestBuildUpstreamDirectiveRejectsInvalidAPIKeyQueryConfig(t *testing.T) {
 				CredentialProviderID: &providerID,
 			}
 			zek := []byte("12345678901234567890123456789012")
-			secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-			srv := &Server{
-				db: &stubDB{
-					provider: &ProviderConfig{
-						ID:                providerID,
-						ProviderKind:      strPtr("api_key"),
-						ConfigJSON:        []byte(tc.configJSON),
-						SecretConfigCt:    secretCt,
-						SecretConfigNonce: secretNonce,
-					},
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr("api_key"),
+					ConfigJSON:   []byte(tc.configJSON),
 				},
-				keys: &KeyCache{zek: zek},
-			}
+				storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+			}, zek)
 			if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 				t.Fatal("apikey provider directive must reject invalid query config")
 			}
@@ -1229,16 +1198,13 @@ func TestBuildUpstreamDirectiveRejectsBearerTokenWithoutSecret(t *testing.T) {
 		UpstreamURL:          &upstreamURL,
 		CredentialProviderID: &providerID,
 	}
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:           providerID,
-				ProviderKind: strPtr("bearer_token"),
-				ConfigJSON:   []byte(`{}`),
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("bearer_token"),
+			ConfigJSON:   []byte(`{}`),
 		},
-		keys: &KeyCache{zek: []byte("12345678901234567890123456789012")},
-	}
+	}, []byte("12345678901234567890123456789012"))
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("bearer token provider directive must require a sealed bearer token")
 	}
@@ -1254,10 +1220,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db: &stubDB{
 			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
@@ -1267,7 +1230,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 				ConfigJSON:   []byte(`{bad json`),
 			},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{kek: zek},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed provider config")
@@ -1284,10 +1247,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db: &stubDB{
 			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
@@ -1297,7 +1257,7 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 				ConfigJSON:   []byte(`{"auth_scheme":"Bearer Token"}`),
 			},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{kek: zek},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed auth schemes")
@@ -2258,15 +2218,13 @@ func makeTestSecretRow(t *testing.T, zek []byte, priv *ecdsa.PrivateKey, kid str
 		t.Fatalf("marshal private key: %v", err)
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
-	ciphertext, nonce, err := sharedcrypto.Seal(zek, keyBytes)
+	envelope, err := secretstore.Seal(zek, keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
 		t.Fatalf("seal key: %v", err)
 	}
 	return SecretRow{
-		ID:         kid,
-		Ciphertext: ciphertext,
-		Nonce:      nonce,
-		DEKID:      "zoneKek",
+		ID:       kid,
+		Envelope: envelope,
 	}
 }
 

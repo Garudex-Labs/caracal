@@ -12,6 +12,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 )
 
 func TestRefreshExpiredBrokeredGrantShortCircuits(t *testing.T) {
@@ -40,54 +41,57 @@ func TestProviderServiceTokenKinds(t *testing.T) {
 	for i := range zek {
 		zek[i] = byte(i + 1)
 	}
-	sealed := func(config string) ([]byte, []byte) {
-		return testProviderSecret(t, zek, config)
-	}
-	provider := func(kind, config string, secretCt, secretNonce []byte) *ProviderConfig {
+	provider := func(id, kind, config string) *ProviderConfig {
 		return &ProviderConfig{
-			ID:                "provider1",
-			ProviderKind:      strPtr(kind),
-			ConfigJSON:        []byte(config),
-			SecretConfigCt:    secretCt,
-			SecretConfigNonce: secretNonce,
+			ID:           id,
+			ProviderKind: strPtr(kind),
+			ConfigJSON:   []byte(config),
 		}
 	}
-	srv := refreshTestServer(&stubDB{}, nil)
+	store := map[string][]byte{}
+	for id, secret := range map[string]string{
+		"provider-api":    `{"api_key":"pipernet-api-key"}`,
+		"provider-bearer": `{"bearer_token":"pipernet-bearer"}`,
+		"provider-empty":  `{}`,
+	} {
+		for ref, envelope := range testProviderSecret(t, zek, id, secret) {
+			store[ref] = envelope
+		}
+	}
+	store[secretstore.ProviderSecretConfigRef("", "provider-garbage")] = []byte("garbage")
+	srv := refreshTestServer(&stubDB{storeEnvelopes: store}, nil)
 
-	apiCt, apiNonce := sealed(`{"api_key":"pipernet-api-key"}`)
-	if token, err := srv.providerServiceToken(context.Background(), provider("api_key", `{}`, apiCt, apiNonce)); err != nil || token != "pipernet-api-key" {
+	if token, err := srv.providerServiceToken(context.Background(), provider("provider-api", "api_key", `{}`)); err != nil || token != "pipernet-api-key" {
 		t.Fatalf("api key token=%q err=%v", token, err)
 	}
-	emptyCt, emptyNonce := sealed(`{}`)
-	if _, err := srv.providerServiceToken(context.Background(), provider("api_key", `{}`, emptyCt, emptyNonce)); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-empty", "api_key", `{}`)); err == nil {
 		t.Fatal("missing api key must fail")
 	}
-	bearerCt, bearerNonce := sealed(`{"bearer_token":"pipernet-bearer"}`)
-	if token, err := srv.providerServiceToken(context.Background(), provider("bearer_token", `{}`, bearerCt, bearerNonce)); err != nil || token != "pipernet-bearer" {
+	if token, err := srv.providerServiceToken(context.Background(), provider("provider-bearer", "bearer_token", `{}`)); err != nil || token != "pipernet-bearer" {
 		t.Fatalf("bearer token=%q err=%v", token, err)
 	}
-	if _, err := srv.providerServiceToken(context.Background(), provider("bearer_token", `{}`, emptyCt, emptyNonce)); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-empty", "bearer_token", `{}`)); err == nil {
 		t.Fatal("missing bearer token must fail")
 	}
-	if _, err := srv.providerServiceToken(context.Background(), provider("none", `{}`, emptyCt, emptyNonce)); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-empty", "none", `{}`)); err == nil {
 		t.Fatal("unsupported provider kind must fail")
 	}
-	if _, err := srv.providerServiceToken(context.Background(), provider("api_key", `{}`, []byte("garbage"), make([]byte, 12))); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-garbage", "api_key", `{}`)); err == nil {
 		t.Fatal("undecryptable secret must fail")
 	}
-	if _, err := srv.providerServiceToken(context.Background(), provider("oauth2_client_credentials", `{broken`, emptyCt, emptyNonce)); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-empty", "oauth2_client_credentials", `{broken`)); err == nil {
 		t.Fatal("malformed oauth2 config must fail")
 	}
-	if _, err := srv.providerServiceToken(context.Background(), provider("oauth2_client_credentials", `{"token_endpoint":"","client_id":""}`, emptyCt, emptyNonce)); err == nil {
+	if _, err := srv.providerServiceToken(context.Background(), provider("provider-empty", "oauth2_client_credentials", `{"token_endpoint":"","client_id":""}`)); err == nil {
 		t.Fatal("incomplete oauth2 config must fail")
 	}
 
 	oauthConfig := `{"token_endpoint":"http://login.hooli.example/token","client_id":"cid"}`
-	oauth := provider("oauth2_client_credentials", oauthConfig, emptyCt, emptyNonce)
+	oauth := provider("provider1", "oauth2_client_credentials", oauthConfig)
 	if _, err := srv.providerServiceToken(context.Background(), oauth); err == nil {
 		t.Fatal("non-https oauth2 endpoint must fail the fetch")
 	}
-	srv.storeProviderServiceToken(oauth.ID, providerServiceTokenFingerprint(oauth), "cached-token", time.Now().Add(time.Hour))
+	srv.storeProviderServiceToken(oauth.ID, providerServiceTokenFingerprint(oauth, ""), "cached-token", time.Now().Add(time.Hour))
 	if token, err := srv.providerServiceToken(context.Background(), oauth); err != nil || token != "cached-token" {
 		t.Fatalf("cached token=%q err=%v", token, err)
 	}
@@ -130,7 +134,7 @@ func TestCachedProviderServiceTokenWindow(t *testing.T) {
 
 	distinct := &ProviderConfig{ID: "provider1", ProviderKind: strPtr("oauth2_client_credentials"), ConfigJSON: []byte(`{"a":1}`)}
 	other := &ProviderConfig{ID: "provider1", ProviderKind: strPtr("oauth2_client_credentials"), ConfigJSON: []byte(`{"a":2}`)}
-	if providerServiceTokenFingerprint(distinct) == providerServiceTokenFingerprint(other) {
+	if providerServiceTokenFingerprint(distinct, "") == providerServiceTokenFingerprint(other, "") {
 		t.Fatal("config changes must change the fingerprint")
 	}
 }

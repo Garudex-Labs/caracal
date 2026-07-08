@@ -18,12 +18,14 @@ import (
 
 func runCredentialFlowServer(t *testing.T, db DBQuerier, policy string) *Server {
 	t.Helper()
+	zek := []byte("12345678901234567890123456789012")
 	return &Server{
 		db:          db,
 		redis:       newMemSTSRedis(),
 		opa:         runCredentialZoneEngine(t, "z1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100), log: zerolog.Nop()},
-		keys:        &KeyCache{zek: []byte("12345678901234567890123456789012")},
+		keys:        &KeyCache{kek: zek},
+		secrets:     &builtinSecretBackend{db: db, kek: zek},
 		metrics:     &STSMetrics{},
 		log:         zerolog.Nop(),
 	}
@@ -119,7 +121,8 @@ func TestRunCredentialPolicyFailures(t *testing.T) {
 	t.Run("policy engine unavailable", func(t *testing.T) {
 		db := runCredentialFlowStub(t)
 		db.resource = runCredentialResource("provider1")
-		db.provider = runCredentialProvider(t, zek, true)
+		db.provider = runCredentialProvider(true)
+		db.storeEnvelopes = runCredentialProviderSecret(t, zek)
 		srv := runCredentialFlowServer(t, &db, runCredentialAllowPolicy)
 		srv.opa = newOPAEngine(&stubDB{})
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
@@ -131,7 +134,8 @@ func TestRunCredentialPolicyFailures(t *testing.T) {
 	t.Run("evaluation incomplete", func(t *testing.T) {
 		db := runCredentialFlowStub(t)
 		db.resource = runCredentialResource("provider1")
-		db.provider = runCredentialProvider(t, zek, true)
+		db.provider = runCredentialProvider(true)
+		db.storeEnvelopes = runCredentialProviderSecret(t, zek)
 		partial := `
 package caracal.authz
 result := {"decision": "deny", "evaluation_status": "partial", "determining_policies": [], "diagnostics": []}
@@ -148,14 +152,12 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 	t.Run("directive build failure", func(t *testing.T) {
 		db := runCredentialFlowStub(t)
 		db.resource = runCredentialResource("provider1")
-		secretCt, secretNonce := testProviderSecret(t, zek, `{}`)
 		db.provider = &ProviderConfig{
-			ID:                "provider1",
-			ProviderKind:      strPtr("api_key"),
-			ConfigJSON:        []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
-			SecretConfigCt:    secretCt,
-			SecretConfigNonce: secretNonce,
+			ID:           "provider1",
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
 		}
+		db.storeEnvelopes = testProviderSecret(t, zek, "provider1", `{}`)
 		srv := runCredentialFlowServer(t, &db, runCredentialAllowPolicy)
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
 		if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "upstream credential for resource") {
@@ -194,7 +196,8 @@ func TestRunCredentialChallengeLifecycle(t *testing.T) {
 			consumeErr: consumeErr,
 		}
 		db.stubDB.resource = runCredentialResource("provider1")
-		db.stubDB.provider = runCredentialProvider(t, zek, true)
+		db.stubDB.provider = runCredentialProvider(true)
+		db.stubDB.storeEnvelopes = runCredentialProviderSecret(t, zek)
 		srv := runCredentialFlowServer(t, db, runCredentialAllowPolicy)
 		w := runCredentialRequest(t, srv, runCredentialForm(url.Values{"challenge_id": {challenge.ID}}))
 		return w.Code, w.Body.String()
@@ -251,7 +254,8 @@ func TestRunCredentialGateReleasesGrantedHold(t *testing.T) {
 		t.Helper()
 		db := &approvalFlowDB{stepUpDB: stepUpDB{stubDB: runCredentialFlowStub(t)}, hold: hold}
 		db.stubDB.resource = runCredentialResource("provider1")
-		db.stubDB.provider = runCredentialProvider(t, zek, true)
+		db.stubDB.provider = runCredentialProvider(true)
+		db.stubDB.storeEnvelopes = runCredentialProviderSecret(t, zek)
 		srv := runCredentialFlowServer(t, db, runCredentialGatedPolicy)
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
 		return w.Code, w.Body.String()

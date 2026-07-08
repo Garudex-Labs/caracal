@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Targeted security tests for STS hardening: KEK guard, Argon2id, challenge binding,
+// Targeted security tests for STS hardening: Argon2id, challenge binding,
 // SSRF defenses, JWKS zone scoping, and policy reload safety.
 
 package internal
@@ -28,35 +28,6 @@ func testKEK(fill byte) []byte {
 		kek[i] = fill
 	}
 	return kek
-}
-
-func TestResolveKEKRejectsEmpty(t *testing.T) {
-	t.Setenv("ZONE_KEK", "")
-	_, err := resolveKEK("local")
-	if err == nil {
-		t.Fatal("must reject empty ZONE_KEK")
-	}
-}
-
-func TestResolveKEKRejectsAllZeros(t *testing.T) {
-	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 32)))
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("must reject all-zero ZONE_KEK")
-	}
-}
-
-func TestResolveKEKRejectsBadHex(t *testing.T) {
-	t.Setenv("ZONE_KEK", "not-hex")
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("expected hex decode error")
-	}
-}
-
-func TestResolveKEKRejectsWrongLength(t *testing.T) {
-	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 16)))
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("expected length error")
-	}
 }
 
 func TestRotateZoneSigningKeyEndpointRequiresAdmin(t *testing.T) {
@@ -96,7 +67,7 @@ func TestRotateZoneSigningKeyEndpointCreatesKeyAndInvalidatesCache(t *testing.T)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	if db.insertedKey == nil || len(db.insertedKey.Ciphertext) == 0 || len(db.insertedKey.Nonce) == 0 {
+	if db.insertedKey == nil || len(db.insertedKey.Envelope) == 0 {
 		t.Fatal("rotation did not insert encrypted signing key")
 	}
 	if _, ok := srv.keys.entries["z1"]; ok {
