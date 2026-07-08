@@ -126,11 +126,19 @@ export const ENV_SCHEMA = {
     secret: true,
     file: 'metricsBearer',
   },
-  ZONE_KEK: {
+  SECRET_STORE_KEK: {
     kind: 'secret',
-    description: '32-byte zone key-encryption-key. Rotating destroys existing zones.',
+    description: '32-byte master key for the built-in Secret Store. Rotating destroys every stored secret.',
     secret: true,
-    file: 'zoneKek',
+    file: 'secretStoreKek',
+  },
+  CARACAL_SECRET_BACKEND: {
+    kind: 'enum',
+    values: ['builtin', 'vault', 'infisical', 'azurekeyvault', 'awssecretsmanager', 'gcpsecretmanager', 'custom'],
+    description:
+      'Where user-entered provider credentials are stored. builtin uses the encrypted Secret Store in Postgres; external backends read their connection settings from CARACAL_* backend variables.',
+    default: 'builtin',
+    exposed: true,
   },
   AUDIT_HMAC_KEY: {
     kind: 'secret',
