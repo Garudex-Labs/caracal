@@ -64,6 +64,13 @@ export function SecretModal({
               Copy
             </Button>
           </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Paste it straight into the secret manager that feeds this workload — a vault entry,
+            cloud secret, or Kubernetes secret the SDK credentials resolver reads. For a local
+            agent, an owner-only file such as{" "}
+            <code className="font-mono">~/.config/caracal/son-of-anton-client-secret</code> works;
+            avoid shell commands that leave the value in history.
+          </p>
         </div>
       ) : null}
     </Modal>

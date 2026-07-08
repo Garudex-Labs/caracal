@@ -338,6 +338,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Configure Service Environment', link: '/operations/env-vars/' },
+                { label: 'Configure Secret Backends', link: '/operations/secret-backends/' },
                 { label: 'Harden Production', link: '/operations/tls-hardening/' },
                 { label: 'Rotate Keys and Secrets', link: '/operations/key-management/' },
                 { label: 'Operate PostgreSQL', link: '/operations/postgres/' },

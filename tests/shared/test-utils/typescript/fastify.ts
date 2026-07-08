@@ -31,8 +31,24 @@ export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions =
     call: vi.fn(),
     xadd: vi.fn(),
   }
+  const secretValues = new Map<string, Buffer>()
+  const secrets = {
+    kind: 'builtin' as const,
+    values: secretValues,
+    put: vi.fn(async (ref: string, value: Buffer) => {
+      secretValues.set(ref, Buffer.from(value))
+    }),
+    get: vi.fn(async (ref: string) => {
+      const value = secretValues.get(ref)
+      return value ? Buffer.from(value) : null
+    }),
+    delete: vi.fn(async (ref: string) => {
+      secretValues.delete(ref)
+    }),
+  }
   app.decorate('db', db as never)
   app.decorate('redis', redis as never)
+  app.decorate('secrets', secrets as never)
   app.decorateRequest('account', null)
   const actor = extras.actor === undefined ? { id: 'test-admin', name: 'test-admin' } : extras.actor
   app.addHook('preHandler', async (req) => {
@@ -40,5 +56,5 @@ export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions =
     if (extras.account !== undefined) (req as unknown as { account: unknown }).account = extras.account
   })
   app.register(route, options)
-  return { app, db, redis }
+  return { app, db, redis, secrets }
 }
