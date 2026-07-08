@@ -38,7 +38,7 @@ describe('envSchema', () => {
     expect(secrets).toContain('REDIS_PASSWORD')
     expect(secrets).toContain('CARACAL_ADMIN_TOKEN')
     expect(secrets).toContain('CARACAL_COORDINATOR_TOKEN')
-    expect(secrets).toContain('ZONE_KEK')
+    expect(secrets).toContain('SECRET_STORE_KEK')
     expect(secrets).toContain('AUDIT_HMAC_KEY')
     expect(secrets).toContain('STREAMS_HMAC_KEY')
   })

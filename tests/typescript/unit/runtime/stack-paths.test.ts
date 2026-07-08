@@ -59,7 +59,7 @@ describe('resolvePaths', () => {
     const paths = resolvePaths()
 
     expect(paths.mode).toBe('dev')
-    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek', 'auditHmacKey', 'streamsHmacKey']) {
+    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'secretStoreKek', 'auditHmacKey', 'streamsHmacKey']) {
       const file = join(paths.secretsDir, name)
       expect(existsSync(file)).toBe(true)
       expect(readFileSync(file, 'utf8').trim().length).toBeGreaterThan(0)

@@ -121,7 +121,7 @@ describe('runtime installer', () => {
     if (process.platform !== 'win32') {
       expect(statSync(join(home, 'secrets')).mode & 0o777).toBe(0o700)
     }
-    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek']) {
+    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'secretStoreKek']) {
       const secretPath = join(home, 'secrets', name)
       if (process.platform !== 'win32') {
         expect(statSync(secretPath).mode & 0o777).toBe(0o444)
