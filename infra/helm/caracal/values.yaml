@@ -25,6 +25,10 @@ serviceAccount:
 secrets:
   create: false
   runtimeSecretName: caracal-runtime
+  # During a KEK rotation window the runtime secret carries the retiring key as
+  # secretStoreKekPrevious; enabling this wires it into the services until the
+  # re-seal sweep completes and the key is removed.
+  kekRotation: false
   plaintext:
     postgresPassword: ""
     redisPassword: ""
@@ -35,6 +39,7 @@ secrets:
     caracalCoordinatorToken: ""
     caracalAuthSecret: ""
     secretStoreKek: ""
+    secretStoreKekPrevious: ""
     auditHmacKey: ""
     streamsHmacKey: ""
     gatewayStsHmacKey: ""
