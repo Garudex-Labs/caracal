@@ -33,7 +33,7 @@ import type {
   DecisionTrace,
   DelegationEdge,
   DelegationHop,
-  DelegationImpactRow,
+  DelegationImpact,
   DelegationQuery,
   DiagnosticsReport,
   EffectiveAuthority,
@@ -1131,20 +1131,24 @@ export const consoleApi = {
       );
       return { rows: res.items, nextCursor: res.next_cursor };
     },
-    inbound: (zoneId: string, sessionId: string) =>
-      request<DelegationEdge[]>(
+    inbound: async (zoneId: string, sessionId: string) => {
+      const res = await request<CoordinatorList<DelegationEdge>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/inbound/${encodeURIComponent(sessionId)}`,
-      ),
-    outbound: (zoneId: string, sessionId: string) =>
-      request<DelegationEdge[]>(
+      );
+      return res.items;
+    },
+    outbound: async (zoneId: string, sessionId: string) => {
+      const res = await request<CoordinatorList<DelegationEdge>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/outbound/${encodeURIComponent(sessionId)}`,
-      ),
+      );
+      return res.items;
+    },
     traverse: (zoneId: string, id: string) =>
       request<DelegationHop[]>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/traverse`,
       ),
     impact: (zoneId: string, id: string) =>
-      request<DelegationImpactRow[]>(
+      request<DelegationImpact>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/impact`,
       ),
     revoke: (zoneId: string, id: string) =>

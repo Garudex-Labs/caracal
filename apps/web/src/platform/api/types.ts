@@ -607,8 +607,13 @@ export interface DelegationHop {
   depth: number;
 }
 
-export interface DelegationImpactRow extends DelegationHop {
-  subject_session_id: string | null;
+// The coordinator's revocation-impact envelope: the downstream edges a revocation
+// cascades through, plus the distinct agent and subject sessions losing authority.
+export interface DelegationImpact {
+  edge_id: string;
+  affected_edges: DelegationHop[];
+  affected_agents: string[];
+  affected_subject_sessions: string[];
 }
 
 /* ------------------------------ Provider grants ----------------------------- */

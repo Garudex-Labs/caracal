@@ -16,7 +16,7 @@ import { DetailField, DetailGroup, Mono } from "@/components/console/ResourceWor
 import { Badge, Button, ConfirmDialog, Skeleton, useToast } from "@/components/ui";
 import { consoleApi } from "@/platform/api/client";
 import { useApplications, useResources, useRevokeDelegation } from "@/platform/api/hooks";
-import type { DelegationEdge, DelegationHop, DelegationImpactRow } from "@/platform/api/types";
+import type { DelegationEdge, DelegationHop, DelegationImpact } from "@/platform/api/types";
 
 interface DecodedConstraint {
   label: string;
@@ -68,7 +68,7 @@ export function DelegationInspector({
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [tab, setTab] = useState<"chain" | "impact">("chain");
   const [chain, setChain] = useState<DelegationHop[] | null>(null);
-  const [impact, setImpact] = useState<DelegationImpactRow[] | null>(null);
+  const [impact, setImpact] = useState<DelegationImpact | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState("");
@@ -83,9 +83,9 @@ export function DelegationInspector({
       consoleApi.delegations.traverse(zoneId, edge.id),
       consoleApi.delegations.impact(zoneId, edge.id),
     ])
-      .then(([traverseRows, impactRows]) => {
+      .then(([traverseRows, impactRes]) => {
         setChain(traverseRows);
-        setImpact(impactRows);
+        setImpact(impactRes);
       })
       .catch((err) => setError(delegationErrorMessage(err)))
       .finally(() => setLoading(false));
@@ -218,7 +218,7 @@ export function DelegationInspector({
             Authority chain {chain ? `(${chain.length})` : ""}
           </TabButton>
           <TabButton active={tab === "impact"} onClick={() => setTab("impact")}>
-            Revocation impact {impact ? `(${impact.length})` : ""}
+            Revocation impact {impact ? `(${impact.affected_edges.length})` : ""}
           </TabButton>
         </div>
 
@@ -229,7 +229,7 @@ export function DelegationInspector({
         ) : tab === "chain" ? (
           <ChainView hops={chain ?? []} />
         ) : (
-          <ImpactView rows={impact ?? []} />
+          <ImpactView impact={impact} />
         )}
       </section>
 
@@ -312,7 +312,8 @@ function ChainView({ hops }: { hops: DelegationHop[] }) {
   );
 }
 
-function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
+function ImpactView({ impact }: { impact: DelegationImpact | null }) {
+  const rows = impact?.affected_edges ?? [];
   if (rows.length === 0) {
     return (
       <p className="mt-3 text-sm text-muted-foreground">
@@ -320,12 +321,12 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
       </p>
     );
   }
+  const subjects = impact?.affected_subject_sessions ?? [];
   return (
     <div className="mt-4">
       <p className="mb-3 text-xs text-muted-foreground">
-        Revoking this delegation cascades to {rows.length} downstream session
-        {rows.length === 1 ? "" : "s"}. Each row shows the agent session that loses authority and
-        the subject session whose access is revoked.
+        Revoking this delegation cascades to {rows.length} downstream edge
+        {rows.length === 1 ? "" : "s"}. Each row shows the agent session that loses authority.
       </p>
       <div className="overflow-hidden border border-border">
         <table className="w-full text-sm">
@@ -333,9 +334,6 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
             <tr className="border-b border-border bg-muted/30 text-left">
               <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Agent session
-              </th>
-              <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Subject session
               </th>
               <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Depth
@@ -348,9 +346,6 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
                 <td className="px-3 py-2 font-mono text-xs text-foreground">
                   {shortId(row.target_session_id)}
                 </td>
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                  {row.subject_session_id ? shortId(row.subject_session_id) : "-"}
-                </td>
                 <td className="px-3 py-2 text-right font-mono text-[11px] text-muted-foreground">
                   depth {row.depth}
                 </td>
@@ -359,6 +354,12 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
           </tbody>
         </table>
       </div>
+      {subjects.length > 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Subject sessions losing access:{" "}
+          <span className="font-mono">{subjects.map((s) => shortId(s)).join(", ")}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

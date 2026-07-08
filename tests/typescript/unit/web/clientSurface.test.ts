@@ -295,10 +295,14 @@ describe('coordinator endpoints', () => {
     expect(last(calls).url).toContain('status=running')
     await consoleApi.delegations.active('z1', { limit: 10 })
     expect(last(calls).url).toContain('/delegations/active?limit=10')
-    await consoleApi.delegations.inbound('z1', 's1')
+    // Coordinator per-agent edge lists arrive as {items, next_cursor} envelopes; the
+    // client hands components the bare rows so `edges.map` can never see the envelope.
+    const inboundRows = await consoleApi.delegations.inbound('z1', 's1')
     expect(last(calls).url).toContain('/delegations/inbound/s1')
-    await consoleApi.delegations.outbound('z1', 's1')
+    expect(Array.isArray(inboundRows)).toBe(true)
+    const outboundRows = await consoleApi.delegations.outbound('z1', 's1')
     expect(last(calls).url).toContain('/delegations/outbound/s1')
+    expect(Array.isArray(outboundRows)).toBe(true)
     await consoleApi.delegations.traverse('z1', 'd1')
     expect(last(calls).url).toContain('/delegations/d1/traverse')
     await consoleApi.delegations.impact('z1', 'd1')
