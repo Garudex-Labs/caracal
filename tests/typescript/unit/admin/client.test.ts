@@ -62,17 +62,22 @@ describe('AdminClient', () => {
     await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing items/)
   })
 
-  it('carries the one-time workload secret on create and rotate', async () => {
+  it('carries the workload secret on create and rotate and reveals the custody copy', async () => {
     const row = { id: 'wl1', zone_id: 'z1', name: 'launcher', bindings: [], secret: 'ws_one_time' }
     const f = fetchOk(row)
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
 
     await expect(c.workloads.create('z1', { name: 'launcher' })).resolves.toMatchObject({ id: 'wl1', secret: 'ws_one_time' })
     await expect(c.workloads.rotateSecret('z1', 'wl1')).resolves.toMatchObject({ secret: 'ws_one_time' })
+    await expect(c.workloads.getSecret('z1', 'wl1')).resolves.toMatchObject({ secret: 'ws_one_time' })
+    await expect(c.applications.getClientSecret('z1', 'a1')).resolves.toBeDefined()
     const calls = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls
     expect(calls[0][0]).toBe('http://api/v1/zones/z1/workloads')
     expect(JSON.parse(calls[0][1].body as string)).toEqual({ name: 'launcher' })
     expect(calls[1][0]).toBe('http://api/v1/zones/z1/workloads/wl1/rotate-secret')
+    expect(calls[2][0]).toBe('http://api/v1/zones/z1/workloads/wl1/secret')
+    expect(calls[2][1].method ?? 'GET').toBe('GET')
+    expect(calls[3][0]).toBe('http://api/v1/zones/z1/applications/a1/client-secret')
   })
 
   it('drains list cursors so a list is the complete collection', async () => {

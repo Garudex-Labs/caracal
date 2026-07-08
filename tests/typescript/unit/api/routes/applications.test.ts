@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import { SecretBackendError, applicationClientSecretRef } from '@caracalai/server-core'
 import type { DB } from '../../../../../apps/api/src/db.js'
 import type { RedisClient } from '../../../../../apps/api/src/redis.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
@@ -25,8 +26,24 @@ function buildApp(scope: 'zone' | 'global' | 'provisioner' = 'zone') {
     incr: vi.fn(),
     expire: vi.fn(),
   }
+  const secretValues = new Map<string, Buffer>()
+  const secrets = {
+    kind: 'builtin' as const,
+    values: secretValues,
+    put: vi.fn(async (ref: string, value: Buffer) => {
+      secretValues.set(ref, Buffer.from(value))
+    }),
+    get: vi.fn(async (ref: string) => {
+      const value = secretValues.get(ref)
+      return value ? Buffer.from(value) : null
+    }),
+    delete: vi.fn(async (ref: string) => {
+      secretValues.delete(ref)
+    }),
+  }
   app.decorate('db', db as unknown as DB)
   app.decorate('redis', redis as unknown as RedisClient)
+  app.decorate('secrets', secrets as never)
   app.addHook('preHandler', async (req) => {
     ;(req as unknown as { actor: unknown }).actor =
       scope === 'zone'
@@ -36,7 +53,7 @@ function buildApp(scope: 'zone' | 'global' | 'provisioner' = 'zone') {
           : { id: 'actor-1', name: 'operator', scope: 'global', capability: 'write', zoneId: null, createdBy: 'env-derived-write' }
   })
   app.register(applicationsRoutes, { prefix: '/v1' })
-  return { app, db, clientQuery, redis }
+  return { app, db, clientQuery, redis, secrets }
 }
 
 describe('POST /v1/zones/:zoneId/applications', () => {
@@ -55,11 +72,16 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'zone_not_found' })
   })
 
-  it('creates managed applications with a generated one-time client secret', async () => {
-    const { app, db } = buildApp()
+  it('creates managed applications and stores the client secret in custody', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
 
     await app.ready()
     const res = await app.inject({
@@ -69,8 +91,37 @@ describe('POST /v1/zones/:zoneId/applications', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
-    expect(db.query).toHaveBeenCalledTimes(3)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
+    expect(secrets.put).toHaveBeenCalledTimes(1)
+    const [ref, stored] = secrets.put.mock.calls[0]
+    expect(ref).toMatch(/^zones\/z1\/applications\/[0-9a-f-]+\/clientSecret$/)
+    expect(stored.toString()).toBe(body.client_secret)
+  })
+
+  it('rolls the registration back when the secret backend rejects the custody write', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'Runner', registration_method: 'managed' },
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.values.size).toBe(0)
   })
 
   it('rejects a duplicate active managed application name', async () => {
@@ -175,11 +226,16 @@ describe('POST /v1/zones/:zoneId/applications', () => {
   })
 
   it('allows the internal provisioner to register a reserved caracal.sys application', async () => {
-    const { app, db } = buildApp('provisioner')
+    const { app, db, clientQuery } = buildApp('provisioner')
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({
-      rows: [{ id: 'app-sys', zone_id: 'z1', name: 'caracal.sys/operator', registration_method: 'managed' }],
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO applications')) {
+        return Promise.resolve({
+          rows: [{ id: 'app-sys', zone_id: 'z1', name: 'caracal.sys/operator', registration_method: 'managed' }],
+        })
+      }
+      return Promise.resolve({ rows: [] })
     })
 
     await app.ready()
@@ -486,24 +542,29 @@ describe('GET /v1/zones/:zoneId/applications/:id', () => {
 
 describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
   it('updates the application name', async () => {
-    const { app, db } = buildApp()
+    const { app, db, clientQuery } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'app-1',
-          zone_id: 'z1',
-          name: 'Renamed',
-          registration_method: 'managed',
-          expires_at: null,
-          created_by: 'admin:op-1',
-          created_via_operator: false,
-          updated_by: 'admin:op-1',
-          updated_via_operator: false,
-          created_at: '2026-01-01T00:00:00.000Z',
-          updated_at: '2026-01-02T00:00:00.000Z',
-        },
-      ],
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'app-1',
+              zone_id: 'z1',
+              name: 'Renamed',
+              registration_method: 'managed',
+              expires_at: null,
+              created_by: 'admin:op-1',
+              created_via_operator: false,
+              updated_by: 'admin:op-1',
+              updated_via_operator: false,
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-02T00:00:00.000Z',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({ rows: [] })
     })
 
     await app.ready()
@@ -535,9 +596,9 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
   })
 
   it('returns 404 when patching a missing application', async () => {
-    const { app, db } = buildApp()
+    const { app, db, clientQuery } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockResolvedValue({ rows: [] })
 
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/applications/missing', payload: { name: 'X' } })
@@ -593,29 +654,91 @@ describe('PATCH /v1/zones/:zoneId/applications/:id', () => {
 })
 
 describe('POST /v1/zones/:zoneId/applications/:id/rotate-secret', () => {
-  it('issues a fresh server-generated client secret', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+  it('issues a fresh client secret and replaces the custody copy', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    secrets.values.set(applicationClientSecretRef('z1', 'app-1'), Buffer.from('cs_previous'))
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE applications')) {
+        return Promise.resolve({ rows: [{ id: 'app-1', zone_id: 'z1', name: 'Runner', registration_method: 'managed' }] })
+      }
+      return Promise.resolve({ rows: [] })
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
-    const updateCall = db.query.mock.calls[0]
-    expect(String(updateCall[0])).toContain('SET client_secret_hash')
-    expect(updateCall[1]).toEqual(['app-1', 'z1', expect.any(String), 'admin:actor-1', false])
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ id: 'app-1', client_secret: expect.stringMatching(/^cs_[A-Za-z0-9_-]+$/) })
+    const updateCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('SET client_secret_hash'))
+    expect(updateCall?.[1]).toEqual(['app-1', 'z1', expect.any(String), 'admin:actor-1', false])
+    expect(secrets.values.get(applicationClientSecretRef('z1', 'app-1'))?.toString()).toBe(body.client_secret)
   })
 
   it('returns 404 when rotating a missing application', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [] })
+    const { app, clientQuery, secrets } = buildApp()
+    clientQuery.mockResolvedValue({ rows: [] })
 
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/missing/rotate-secret', payload: {} })
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+    expect(secrets.put).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/zones/:zoneId/applications/:id/client-secret', () => {
+  it('reveals the custody copy and records the reveal in the audit outbox', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Runner' }] })
+    secrets.values.set(applicationClientSecretRef('z1', 'app-1'), Buffer.from('cs_stored'))
+    clientQuery.mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/client-secret' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ client_secret: 'cs_stored' })
+    const outboxCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO event_outbox'))
+    expect(outboxCall).toBeDefined()
+    expect(String(outboxCall?.[1]?.[2])).toContain('credential_revealed')
+  })
+
+  it('returns 404 when the application predates credential custody', async () => {
+    const { app, db, clientQuery } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Runner' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/client-secret' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'client_secret_not_stored' })
+    expect(clientQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for a missing or unmanaged application', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/missing/client-secret' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
+    expect(secrets.get).not.toHaveBeenCalled()
+  })
+
+  it('returns 502 when the secret backend is unavailable', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Runner' }] })
+    secrets.get.mockRejectedValueOnce(new SecretBackendError('secret backend read failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/applications/app-1/client-secret' })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
   })
 })
 
@@ -630,9 +753,23 @@ describe('DELETE /v1/zones/:zoneId/applications/:id', () => {
     }
   }
 
-  it('archives an existing application', async () => {
-    const { app, db } = buildApp()
+  it('archives an existing application and deletes the custody copy', async () => {
+    const { app, db, secrets } = buildApp()
+    secrets.values.set(applicationClientSecretRef('z1', 'app-1'), Buffer.from('cs_stored'))
     db.connect.mockResolvedValueOnce(deleteClient(1))
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })
+
+    expect(res.statusCode).toBe(204)
+    expect(secrets.delete).toHaveBeenCalledWith(applicationClientSecretRef('z1', 'app-1'))
+    expect(secrets.values.size).toBe(0)
+  })
+
+  it('archives even when the custody delete fails', async () => {
+    const { app, db, secrets } = buildApp()
+    db.connect.mockResolvedValueOnce(deleteClient(1))
+    secrets.delete.mockRejectedValueOnce(new SecretBackendError('secret backend delete failed with status 503'))
 
     await app.ready()
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/applications/app-1' })

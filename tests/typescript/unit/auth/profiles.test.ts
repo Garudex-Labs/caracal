@@ -5,22 +5,37 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { parseProfileIds, resolveProfiles, type ProfileAdapter } from '../../../../apps/auth/src/profiles.ts'
+import { adminTokenProfiles, parseProfileIds, resolveProfiles, type ProfileAdapter } from '../../../../apps/auth/src/profiles.ts'
+
+const ADMIN_ID = 'admin:019f3be3-a15e-75ef-bb36-6d02e8d206ba'
 
 describe('parseProfileIds', () => {
   it('parses, trims, and deduplicates well-formed ids', () => {
-    expect(parseProfileIds('/api/console/profiles?ids=a1, b2 ,a1,c-3_x')).toEqual(['a1', 'b2', 'c-3_x'])
+    expect(parseProfileIds('/api/console/profiles?ids=a1, b2 ,a1,c-3_x')).toEqual({
+      profiles: ['a1', 'b2', 'c-3_x'],
+      admins: [],
+    })
+  })
+
+  it('separates admin credential identities from profile ids', () => {
+    expect(parseProfileIds(`/api/console/profiles?ids=a1,${ADMIN_ID},${ADMIN_ID}`)).toEqual({
+      profiles: ['a1'],
+      admins: [ADMIN_ID],
+    })
   })
 
   it('drops malformed ids and empty input', () => {
-    expect(parseProfileIds('/api/console/profiles')).toEqual([])
-    expect(parseProfileIds('/api/console/profiles?ids=')).toEqual([])
-    expect(parseProfileIds('/api/console/profiles?ids=ok,admin:tok,%00,sp ace,' + 'y'.repeat(129))).toEqual(['ok'])
+    expect(parseProfileIds('/api/console/profiles')).toEqual({ profiles: [], admins: [] })
+    expect(parseProfileIds('/api/console/profiles?ids=')).toEqual({ profiles: [], admins: [] })
+    expect(parseProfileIds('/api/console/profiles?ids=ok,admin:tok,%00,sp ace,' + 'y'.repeat(129))).toEqual({
+      profiles: ['ok'],
+      admins: [],
+    })
   })
 
   it('caps the batch size', () => {
     const ids = Array.from({ length: 150 }, (_, i) => `id${i}`).join(',')
-    expect(parseProfileIds(`/api/console/profiles?ids=${ids}`)).toHaveLength(100)
+    expect(parseProfileIds(`/api/console/profiles?ids=${ids}`).profiles).toHaveLength(100)
   })
 })
 
@@ -47,5 +62,22 @@ describe('resolveProfiles', () => {
     const findMany = vi.fn(async () => [])
     expect(await resolveProfiles({ findMany }, [])).toEqual([])
     expect(findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('adminTokenProfiles', () => {
+  it('shapes requested admin identities to token names, exposing nothing else', () => {
+    const tokens = [
+      { id: '019f3be3-a15e-75ef-bb36-6d02e8d206ba', name: 'dev root', scope: 'global', created_by: 'env-bootstrap' },
+      { id: '019f3be3-ffff-75ef-bb36-6d02e8d206ba', name: 'unrequested' },
+      { id: 42, name: 'bad id' },
+      { id: '019f3be3-aaaa-75ef-bb36-6d02e8d206ba', name: '' },
+    ]
+    expect(adminTokenProfiles(tokens, [ADMIN_ID])).toEqual([{ id: ADMIN_ID, name: 'dev root' }])
+  })
+
+  it('matches identities case-insensitively', () => {
+    const tokens = [{ id: '019F3BE3-A15E-75EF-BB36-6D02E8D206BA', name: 'ci' }]
+    expect(adminTokenProfiles(tokens, [ADMIN_ID])).toEqual([{ id: 'admin:019F3BE3-A15E-75EF-BB36-6D02E8D206BA', name: 'ci' }])
   })
 })

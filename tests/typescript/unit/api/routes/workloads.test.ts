@@ -5,14 +5,38 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
+import { SecretBackendError, workloadSecretRef } from '@caracalai/server-core'
 import type { DB } from '../../../../../apps/api/src/db.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
 import { workloadsRoutes } from '../../../../../apps/api/src/routes/workloads.js'
 
 function buildApp() {
   const app = Fastify({ logger: false })
-  const db = { query: vi.fn() }
+  const clientQuery = vi.fn()
+  const db = {
+    query: vi.fn(),
+    connect: vi.fn().mockResolvedValue({
+      query: clientQuery,
+      release: vi.fn(),
+    }),
+  }
+  const secretValues = new Map<string, Buffer>()
+  const secrets = {
+    kind: 'builtin' as const,
+    values: secretValues,
+    put: vi.fn(async (ref: string, value: Buffer) => {
+      secretValues.set(ref, Buffer.from(value))
+    }),
+    get: vi.fn(async (ref: string) => {
+      const value = secretValues.get(ref)
+      return value ? Buffer.from(value) : null
+    }),
+    delete: vi.fn(async (ref: string) => {
+      secretValues.delete(ref)
+    }),
+  }
   app.decorate('db', db as unknown as DB)
+  app.decorate('secrets', secrets as never)
   app.addHook('preHandler', async (req) => {
     ;(req as unknown as { actor: unknown }).actor = {
       id: 'actor-1',
@@ -24,7 +48,7 @@ function buildApp() {
     }
   })
   app.register(workloadsRoutes, { prefix: '/v1' })
-  return { app, db }
+  return { app, db, clientQuery, secrets }
 }
 
 const workloadRow = {
@@ -49,19 +73,46 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'zone_not_found' })
   })
 
-  it('creates a workload with a generated one-time secret', async () => {
-    const { app, db } = buildApp()
+  it('creates a workload and stores the secret in custody', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     db.query.mockResolvedValueOnce({ rows: [] })
-    db.query.mockResolvedValueOnce({ rows: [workloadRow] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO workloads')) return Promise.resolve({ rows: [workloadRow] })
+      return Promise.resolve({ rows: [] })
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'wl-1', secret: expect.stringMatching(/^ws_[A-Za-z0-9_-]+$/) })
-    const insertValues = db.query.mock.calls[2][1] as unknown[]
-    expect(insertValues[3]).toMatch(/^argon2id\$/)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ id: 'wl-1', secret: expect.stringMatching(/^ws_[A-Za-z0-9_-]+$/) })
+    const insertCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO workloads'))
+    expect((insertCall?.[1] as unknown[])[3]).toMatch(/^argon2id\$/)
+    expect(secrets.put).toHaveBeenCalledTimes(1)
+    const [ref, stored] = secrets.put.mock.calls[0]
+    expect(ref).toMatch(/^zones\/z1\/workloads\/[0-9a-f-]+\/secret$/)
+    expect(stored.toString()).toBe(body.secret)
+  })
+
+  it('rolls the creation back when the secret backend rejects the custody write', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [] })
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('INSERT INTO workloads')) return Promise.resolve({ rows: [workloadRow] })
+      return Promise.resolve({ rows: [] })
+    })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
+    expect(secrets.values.size).toBe(0)
   })
 
   it('rejects a duplicate workload name', async () => {
@@ -231,32 +282,94 @@ describe('PUT /v1/zones/:zoneId/workloads/:id', () => {
 })
 
 describe('POST /v1/zones/:zoneId/workloads/:id/rotate-secret', () => {
-  it('issues a fresh one-time secret', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [workloadRow] })
+  it('issues a fresh secret and replaces the custody copy', async () => {
+    const { app, clientQuery, secrets } = buildApp()
+    secrets.values.set(workloadSecretRef('z1', 'wl-1'), Buffer.from('ws_previous'))
+    clientQuery.mockImplementation((sql: string) => {
+      if (String(sql).includes('UPDATE workloads')) return Promise.resolve({ rows: [workloadRow] })
+      return Promise.resolve({ rows: [] })
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads/wl-1/rotate-secret' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'wl-1', secret: expect.stringMatching(/^ws_[A-Za-z0-9_-]+$/) })
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ id: 'wl-1', secret: expect.stringMatching(/^ws_[A-Za-z0-9_-]+$/) })
+    expect(secrets.values.get(workloadSecretRef('z1', 'wl-1'))?.toString()).toBe(body.secret)
   })
 
   it('returns 404 for a missing workload', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [] })
+    const { app, clientQuery, secrets } = buildApp()
+    clientQuery.mockResolvedValue({ rows: [] })
 
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads/missing/rotate-secret' })
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'workload_not_found' })
+    expect(secrets.put).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
+  it('reveals the custody copy and records the reveal in the audit outbox', async () => {
+    const { app, db, clientQuery, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    secrets.values.set(workloadSecretRef('z1', 'wl-1'), Buffer.from('ws_stored'))
+    clientQuery.mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1/secret' })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ secret: 'ws_stored' })
+    const outboxCall = clientQuery.mock.calls.find((call) => String(call[0]).includes('INSERT INTO event_outbox'))
+    expect(outboxCall).toBeDefined()
+    expect(String(outboxCall?.[1]?.[2])).toContain('credential_revealed')
+  })
+
+  it('returns 404 when the workload predates credential custody', async () => {
+    const { app, db, clientQuery } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1/secret' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'workload_secret_not_stored' })
+    expect(clientQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for a missing workload', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/missing/secret' })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'workload_not_found' })
+    expect(secrets.get).not.toHaveBeenCalled()
+  })
+
+  it('returns 502 when the secret backend is unavailable', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    secrets.get.mockRejectedValueOnce(new SecretBackendError('secret backend read failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1/secret' })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
   })
 })
 
 describe('DELETE /v1/zones/:zoneId/workloads/:id', () => {
-  it('hard-deletes the workload so its credentials stop resolving', async () => {
-    const { app, db } = buildApp()
+  it('hard-deletes the workload and its custody copy', async () => {
+    const { app, db, secrets } = buildApp()
+    secrets.values.set(workloadSecretRef('z1', 'wl-1'), Buffer.from('ws_stored'))
     db.query.mockResolvedValueOnce({ rowCount: 1 })
 
     await app.ready()
@@ -264,6 +377,19 @@ describe('DELETE /v1/zones/:zoneId/workloads/:id', () => {
 
     expect(res.statusCode).toBe(204)
     expect(db.query.mock.calls[0][0]).toContain('DELETE FROM workloads')
+    expect(secrets.delete).toHaveBeenCalledWith(workloadSecretRef('z1', 'wl-1'))
+    expect(secrets.values.size).toBe(0)
+  })
+
+  it('deletes even when the custody delete fails', async () => {
+    const { app, db, secrets } = buildApp()
+    db.query.mockResolvedValueOnce({ rowCount: 1 })
+    secrets.delete.mockRejectedValueOnce(new SecretBackendError('secret backend delete failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/workloads/wl-1' })
+
+    expect(res.statusCode).toBe(204)
   })
 
   it('returns 404 for a missing workload', async () => {
