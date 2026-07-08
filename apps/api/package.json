@@ -10,6 +10,8 @@
     "dev": "node bin/dev.mjs",
     "build": "tsc",
     "build:docs-corpus": "node scripts/build-docs-corpus.mjs",
+    "rotate:secret-store-kek": "node scripts/rotate-secret-store-kek.mjs",
+    "migrate:secret-backend": "node scripts/migrate-secret-backend.mjs",
     "start": "node dist/main.js",
     "test": "vitest run --root ../.. tests/typescript/unit/api tests/typescript/security/api tests/typescript/property/api tests/typescript/contract/api tests/typescript/fuzz/api tests/typescript/integration/api"
   },
