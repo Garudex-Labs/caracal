@@ -268,7 +268,7 @@ func TestStepUpStatusWaitReturnsTerminalState(t *testing.T) {
 // rotateFailDB fails signing key inserts on top of the shared stub.
 type rotateFailDB struct{ stubDB }
 
-func (rotateFailDB) InsertZoneSigningKeySecret(context.Context, string, []byte, []byte) (*SecretRow, error) {
+func (rotateFailDB) InsertZoneSigningKeySecret(context.Context, string, []byte) (*SecretRow, error) {
 	return nil, errors.New("insert failed")
 }
 

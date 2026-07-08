@@ -73,7 +73,8 @@ func runCredentialServer(t *testing.T, db *stubDB, policy string) (*Server, stri
 		redis:       newMemSTSRedis(),
 		opa:         runCredentialZoneEngine(t, "z1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 100)},
-		keys:        &KeyCache{zek: zek},
+		keys:        &KeyCache{kek: zek},
+		secrets:     &builtinSecretBackend{db: db, kek: zek},
 		log:         zerolog.Nop(),
 	}
 	return srv, "ws_good"
@@ -98,20 +99,21 @@ func runCredentialResource(providerID string) *Resource {
 	}
 }
 
-func runCredentialProvider(t *testing.T, zek []byte, allowInjection bool) *ProviderConfig {
-	t.Helper()
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"pipernet-api-key"}`)
+func runCredentialProvider(allowInjection bool) *ProviderConfig {
 	config := `{"header_name":"X-Api-Key","allow_runtime_injection":true}`
 	if !allowInjection {
 		config = `{"header_name":"X-Api-Key"}`
 	}
 	return &ProviderConfig{
-		ID:                "provider1",
-		ProviderKind:      strPtr("api_key"),
-		ConfigJSON:        []byte(config),
-		SecretConfigCt:    secretCt,
-		SecretConfigNonce: secretNonce,
+		ID:           "provider1",
+		ProviderKind: strPtr("api_key"),
+		ConfigJSON:   []byte(config),
 	}
+}
+
+func runCredentialProviderSecret(t *testing.T, zek []byte) map[string][]byte {
+	t.Helper()
+	return testProviderSecret(t, zek, "provider1", `{"api_key":"pipernet-api-key"}`)
 }
 
 func TestRunCredentialRequiresParams(t *testing.T) {
@@ -148,9 +150,10 @@ func TestRunCredentialUnknownEnv(t *testing.T) {
 func TestRunCredentialProviderMustAllowInjection(t *testing.T) {
 	zek := []byte("12345678901234567890123456789012")
 	db := &stubDB{
-		workload: runCredentialWorkload(),
-		resource: runCredentialResource("provider1"),
-		provider: runCredentialProvider(t, zek, false),
+		workload:       runCredentialWorkload(),
+		resource:       runCredentialResource("provider1"),
+		provider:       runCredentialProvider(false),
+		storeEnvelopes: runCredentialProviderSecret(t, zek),
 	}
 	srv, secret := runCredentialServer(t, db, runCredentialAllowPolicy)
 	w := runCredentialRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {secret}, "env": {"PIPERNET_TOKEN"}})
@@ -185,9 +188,10 @@ func TestRunCredentialUserGrantProviderDenied(t *testing.T) {
 func TestRunCredentialPolicyDeny(t *testing.T) {
 	zek := []byte("12345678901234567890123456789012")
 	db := &stubDB{
-		workload: runCredentialWorkload(),
-		resource: runCredentialResource("provider1"),
-		provider: runCredentialProvider(t, zek, true),
+		workload:       runCredentialWorkload(),
+		resource:       runCredentialResource("provider1"),
+		provider:       runCredentialProvider(true),
+		storeEnvelopes: runCredentialProviderSecret(t, zek),
 	}
 	srv, secret := runCredentialServer(t, db, runCredentialDenyPolicy)
 	w := runCredentialRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {secret}, "env": {"PIPERNET_TOKEN"}})
@@ -202,9 +206,10 @@ func TestRunCredentialPolicyDeny(t *testing.T) {
 func TestRunCredentialStepUpHold(t *testing.T) {
 	zek := []byte("12345678901234567890123456789012")
 	db := &stubDB{
-		workload: runCredentialWorkload(),
-		resource: runCredentialResource("provider1"),
-		provider: runCredentialProvider(t, zek, true),
+		workload:       runCredentialWorkload(),
+		resource:       runCredentialResource("provider1"),
+		provider:       runCredentialProvider(true),
+		storeEnvelopes: runCredentialProviderSecret(t, zek),
 	}
 	srv, secret := runCredentialServer(t, db, runCredentialGatedPolicy)
 	w := runCredentialRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {secret}, "env": {"PIPERNET_TOKEN"}})
@@ -223,9 +228,10 @@ func TestRunCredentialStepUpHold(t *testing.T) {
 func TestRunCredentialSuccess(t *testing.T) {
 	zek := []byte("12345678901234567890123456789012")
 	db := &stubDB{
-		workload: runCredentialWorkload(),
-		resource: runCredentialResource("provider1"),
-		provider: runCredentialProvider(t, zek, true),
+		workload:       runCredentialWorkload(),
+		resource:       runCredentialResource("provider1"),
+		provider:       runCredentialProvider(true),
+		storeEnvelopes: runCredentialProviderSecret(t, zek),
 	}
 	srv, secret := runCredentialServer(t, db, runCredentialAllowPolicy)
 	w := runCredentialRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {secret}, "env": {"PIPERNET_TOKEN"}})

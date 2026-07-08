@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
+	secretstore "github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/rs/zerolog"
 )
 
@@ -208,11 +208,11 @@ func (d *jwksDB) GetZoneSigningKeySecrets(_ context.Context, _ string) ([]Secret
 
 func sealedSecret(t *testing.T, zek []byte, kid string, plaintext []byte) SecretRow {
 	t.Helper()
-	ct, nonce, err := sharedcrypto.Seal(zek, plaintext)
+	envelope, err := secretstore.Seal(zek, plaintext, secretstore.AADZoneSigningKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return SecretRow{ID: kid, Ciphertext: ct, Nonce: nonce}
+	return SecretRow{ID: kid, Envelope: envelope}
 }
 
 func TestJWKSKeyDecryptionBranches(t *testing.T) {
@@ -238,7 +238,7 @@ func TestJWKSKeyDecryptionBranches(t *testing.T) {
 	})
 
 	t.Run("all keys undecryptable is 500", func(t *testing.T) {
-		server := jwksServer(&jwksDB{rows: []SecretRow{{ID: "kid-bad", Ciphertext: []byte("garbage"), Nonce: make([]byte, 12)}}})
+		server := jwksServer(&jwksDB{rows: []SecretRow{{ID: "kid-bad", Envelope: []byte("garbage")}}})
 		w := httptest.NewRecorder()
 		server.handleJWKS(w, httptest.NewRequest(http.MethodGet, "/jwks?zone_id=zone-1", nil))
 		if w.Code != http.StatusInternalServerError {
@@ -253,7 +253,7 @@ func TestJWKSKeyDecryptionBranches(t *testing.T) {
 		server := jwksServer(&jwksDB{rows: []SecretRow{
 			sealedSecret(t, zek, "kid-good", pemKey),
 			sealedSecret(t, zek, "kid-not-ec", []byte("not a key")),
-			{ID: "kid-bad", Ciphertext: []byte("garbage"), Nonce: make([]byte, 12)},
+			{ID: "kid-bad", Envelope: []byte("garbage")},
 		}})
 		w := httptest.NewRecorder()
 		server.handleJWKS(w, httptest.NewRequest(http.MethodGet, "/jwks?zone_id=zone-1", nil))
