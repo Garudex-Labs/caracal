@@ -6,12 +6,13 @@ This file defines the Approvals route for deciding human-approval holds.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   CopyValue,
   DetailField,
   DetailGroup,
+  DetailSection,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
 import { CreatedBy } from "@/components/console/CreatedBy";
@@ -19,6 +20,7 @@ import { FeedToolbar } from "@/components/console/FeedToolbar";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
+import { cx } from "@/lib/cx";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import {
   useApplications,
@@ -357,6 +359,153 @@ function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
   return null;
 }
 
+type HoldEvent = {
+  label: string;
+  at: string;
+  tone: "neutral" | "success" | "danger" | "muted";
+  future?: boolean;
+  detail?: ReactNode;
+};
+
+const EVENT_DOT: Record<HoldEvent["tone"], string> = {
+  neutral: "bg-muted-foreground",
+  success: "bg-emerald-500",
+  danger: "bg-destructive",
+  muted: "bg-muted-foreground/40",
+};
+
+// The hold's recorded history as ordered events. Decision events carry the deciding
+// identity and rationale inline, and the terminal event states what the outcome means,
+// so the story reads top to bottom without a separate explanation box.
+function holdEvents(challenge: StepUpChallenge, now: number): HoldEvent[] {
+  const windowLive = Date.parse(challenge.expires_at) > now;
+  const decidedBy = challenge.approver_subject_id ? (
+    <>
+      by <CreatedBy id={challenge.approver_subject_id} />
+      {challenge.decision_reason ? (
+        <>
+          {" \u00b7 \u201c"}
+          {challenge.decision_reason}
+          {"\u201d"}
+        </>
+      ) : null}
+    </>
+  ) : challenge.decision_reason ? (
+    <>
+      {"\u201c"}
+      {challenge.decision_reason}
+      {"\u201d"}
+    </>
+  ) : undefined;
+
+  const events: HoldEvent[] = [{ label: "Raised", at: challenge.created_at, tone: "neutral" }];
+  if (challenge.satisfied_at) {
+    events.push({
+      label: "Approved",
+      at: challenge.satisfied_at,
+      tone: "success",
+      detail: decidedBy,
+    });
+  }
+  if (challenge.rejected_at) {
+    events.push({
+      label: "Rejected",
+      at: challenge.rejected_at,
+      tone: "danger",
+      detail: (
+        <>
+          {decidedBy}
+          {windowLive ? (
+            <span className="block">
+              Identical re-asks are refused until the window closes{" "}
+              {relativeTime(challenge.expires_at, now)}.
+            </span>
+          ) : null}
+        </>
+      ),
+    });
+  }
+  if (challenge.consumed_at) {
+    events.push({
+      label: "Consumed",
+      at: challenge.consumed_at,
+      tone: "neutral",
+      detail: "Released exactly one token; the approval cannot be reused.",
+    });
+  }
+  if (challenge.state === "expired") {
+    events.push({
+      label: "Expired",
+      at: challenge.expires_at,
+      tone: "muted",
+      detail: challenge.satisfied_at
+        ? "The approval lapsed unused; the exchange fails closed."
+        : "No decision arrived; the exchange fails closed.",
+    });
+  }
+  if (challenge.state === "pending") {
+    events.push({ label: "Expires", at: challenge.expires_at, tone: "muted", future: true });
+  }
+  if (challenge.state === "approved") {
+    events.push({
+      label: "Lapses",
+      at: challenge.expires_at,
+      tone: "muted",
+      future: true,
+      detail: "The agent's next exchange mints the held token until then.",
+    });
+  }
+  return events;
+}
+
+function HoldTimeline({ challenge, now }: { challenge: StepUpChallenge; now: number }) {
+  return (
+    <DetailSection title="Timeline">
+      <ol className="rounded-lg border border-border bg-card px-3 py-3">
+        {holdEvents(challenge, now).map((event) => (
+          <li key={event.label} className="group flex gap-2.5">
+            <div className="flex flex-col items-center">
+              <span
+                className={cx(
+                  "mt-1 h-2 w-2 flex-shrink-0 rounded-full",
+                  event.future
+                    ? "border border-muted-foreground/50 bg-transparent"
+                    : EVENT_DOT[event.tone],
+                )}
+              />
+              <span className="w-px flex-1 bg-border group-last:hidden" />
+            </div>
+            <div className="min-w-0 flex-1 pb-3 group-last:pb-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className={cx(
+                    "text-xs font-medium",
+                    event.future ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {event.label}
+                </span>
+                <time
+                  dateTime={event.at}
+                  className="text-[11px] tabular-nums text-muted-foreground"
+                  title={new Date(event.at).toLocaleString()}
+                >
+                  {relativeTime(event.at, now)}
+                </time>
+              </div>
+              {event.detail ? (
+                <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {event.detail}
+                </div>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </DetailSection>
+  );
+}
+
 function ApprovalDetail({
   challenge,
   zoneId,
@@ -430,32 +579,53 @@ function ApprovalDetail({
             expires {relativeTime(challenge.expires_at, now)}.
           </p>
         </div>
-      ) : (
-        <SettledSummary challenge={challenge} now={now} />
-      )}
+      ) : null}
 
-      <DetailGroup title="Request">
+      <HoldTimeline challenge={challenge} now={now} />
+
+      <DetailGroup title="Identifiers">
+        <DetailField
+          label="Hold"
+          hint="The challenge id the agent received; decisions land on this id"
+        >
+          <CopyValue value={challenge.id} />
+        </DetailField>
         {challenge.application_id ? (
-          <DetailField label="Application">
+          <DetailField
+            label="Application"
+            hint="The application whose credential requested this authority"
+          >
             <CopyValue value={challenge.application_id} />
           </DetailField>
         ) : null}
         {subjectPrincipal ? (
-          <DetailField label="Principal">
+          <DetailField label="Principal" hint="The subject principal the token is minted for">
             <CopyValue value={challenge.principal_id} />
           </DetailField>
         ) : null}
         {challenge.session_id ? (
-          <DetailField label="Session">
+          <DetailField label="Session" hint="The subject session the exchange rode on">
             <CopyValue value={challenge.session_id} />
           </DetailField>
         ) : null}
-        <DetailField label="Binding">
+        {lineage.agentSession ? (
+          <DetailField label="Agent session" hint="The spawned agent run asking for this token">
+            <CopyValue value={lineage.agentSession} />
+          </DetailField>
+        ) : null}
+        {lineage.edge ? (
+          <DetailField
+            label="Delegation edge"
+            hint="The narrowed grant the agent holds; the token cannot exceed it"
+          >
+            <CopyValue value={lineage.edge} />
+          </DetailField>
+        ) : null}
+        <DetailField
+          label="Binding"
+          hint="Fingerprint of the exact resources and scopes held. The agent prints the same value beside the challenge id."
+        >
           <CopyValue value={challenge.binding} />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Fingerprint of the exact resources and scopes held. The agent prints the same value
-            beside the challenge id.
-          </p>
         </DetailField>
         {challenge.privacy_mode !== "identified" ? (
           <DetailField label="Privacy">
@@ -463,60 +633,6 @@ function ApprovalDetail({
               {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
             </span>
           </DetailField>
-        ) : null}
-      </DetailGroup>
-
-      {lineage.agentSession || lineage.edge ? (
-        <DetailGroup title="Provenance">
-          {lineage.agentSession ? (
-            <DetailField label="Agent session">
-              <CopyValue value={lineage.agentSession} />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                The spawned agent run asking for this token.
-              </p>
-            </DetailField>
-          ) : null}
-          {lineage.edge ? (
-            <DetailField label="Delegation edge">
-              <CopyValue value={lineage.edge} />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                The narrowed grant the agent holds; the token can never exceed it.
-              </p>
-            </DetailField>
-          ) : null}
-        </DetailGroup>
-      ) : null}
-
-      <DetailGroup title="Lifecycle">
-        <DetailField label="Raised">{new Date(challenge.created_at).toLocaleString()}</DetailField>
-        <DetailField label="Expires">
-          {new Date(challenge.expires_at).toLocaleString()}
-          <span className="ml-2 text-xs text-muted-foreground">
-            ({relativeTime(challenge.expires_at, now)})
-          </span>
-        </DetailField>
-        {challenge.satisfied_at ? (
-          <DetailField label="Approved">
-            {new Date(challenge.satisfied_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {challenge.rejected_at ? (
-          <DetailField label="Rejected">
-            {new Date(challenge.rejected_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {challenge.consumed_at ? (
-          <DetailField label="Consumed">
-            {new Date(challenge.consumed_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {challenge.approver_subject_id ? (
-          <DetailField label="Decided by">
-            <CreatedBy id={challenge.approver_subject_id} />
-          </DetailField>
-        ) : null}
-        {challenge.decision_reason ? (
-          <DetailField label="Reason">{challenge.decision_reason}</DetailField>
         ) : null}
       </DetailGroup>
 
@@ -623,53 +739,6 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
           Reject
         </Button>
       </div>
-    </div>
-  );
-}
-
-// States the terminal outcome of a settled hold in the same terms the runtime enforced it.
-function SettledSummary({ challenge, now }: { challenge: StepUpChallenge; now: number }) {
-  if (challenge.state === "consumed") {
-    return (
-      <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <div className="font-medium text-foreground">Approval consumed</div>
-        <p className="mt-0.5">
-          The approval released exactly one token and cannot be reused. New authority requires a
-          fresh hold.
-        </p>
-      </div>
-    );
-  }
-  if (challenge.state === "approved") {
-    return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-        <div className="font-medium">Approved, not yet consumed</div>
-        <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
-          The agent&apos;s next exchange attempt mints the held token. The approval expires with the
-          hold {relativeTime(challenge.expires_at, now)}.
-        </p>
-      </div>
-    );
-  }
-  if (challenge.state === "rejected") {
-    return (
-      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <div className="font-medium">Rejected</div>
-        <p className="mt-0.5 text-destructive/80">
-          The runtime refuses this authority for the rest of the hold&apos;s window (
-          {relativeTime(challenge.expires_at, now)}) — repeat requests fail without raising a new
-          hold. A fresh request is possible after the window closes.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-      <div className="font-medium text-foreground">Expired undecided</div>
-      <p className="mt-0.5">
-        The approval window closed {relativeTime(challenge.expires_at, now)} without a decision, so
-        the exchange failed closed.
-      </p>
     </div>
   );
 }

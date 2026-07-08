@@ -391,10 +391,29 @@ export function DetailGroup({
   );
 }
 
-export function DetailField({ label, children }: { label: string; children: ReactNode }) {
+export function DetailField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid grid-cols-1 gap-0.5 px-3 py-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-3">
-      <dt className="text-xs font-medium text-muted-foreground sm:pt-px">{label}</dt>
+      <dt className="text-xs font-medium text-muted-foreground sm:pt-px">
+        {hint ? (
+          <span
+            title={hint}
+            className="cursor-help underline decoration-muted-foreground/40 decoration-dotted underline-offset-2"
+          >
+            {label}
+          </span>
+        ) : (
+          label
+        )}
+      </dt>
       <dd className="min-w-0 break-words text-sm text-foreground">{children}</dd>
     </div>
   );
