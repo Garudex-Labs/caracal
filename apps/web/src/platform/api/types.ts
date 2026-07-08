@@ -386,6 +386,8 @@ export interface StepUpChallenge {
   rejected_at: string | null;
   consumed_at: string | null;
   approver_subject_id: string | null;
+  prior_approved: number;
+  prior_rejected: number;
   state: StepUpState;
 }
 

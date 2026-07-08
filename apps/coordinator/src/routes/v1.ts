@@ -19,6 +19,7 @@ const BeginBody = z.object({
   lifecycle: Lifecycle.optional(),
   labels: AgentLabels,
   ttl_seconds: z.number().int().min(1).max(86400).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const EndBody = z.object({
@@ -115,6 +116,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         ...(body.lifecycle ? { lifecycle: body.lifecycle } : {}),
         labels: body.labels,
         ...(body.ttl_seconds ? { ttl_seconds: body.ttl_seconds } : {}),
+        ...(body.metadata ? { metadata: body.metadata } : {}),
       },
     })
     return reply.code(res.statusCode).send(res.json())
@@ -147,6 +149,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         ...(body.lifecycle ? { lifecycle: body.lifecycle } : {}),
         labels: body.labels,
         ...(body.ttl_seconds ? { ttl_seconds: body.ttl_seconds } : {}),
+        ...(body.metadata ? { metadata: body.metadata } : {}),
       },
     })
     return reply.code(res.statusCode).send(res.json())

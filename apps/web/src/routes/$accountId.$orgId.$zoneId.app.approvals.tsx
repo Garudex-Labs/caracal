@@ -5,6 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the Approvals route for deciding human-approval holds.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import {
@@ -18,7 +19,7 @@ import { FeedToolbar } from "@/components/console/FeedToolbar";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
-import { ConsoleApiError } from "@/platform/api/client";
+import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import {
   useApplications,
   useApprovalCounts,
@@ -35,7 +36,7 @@ function ApprovalsRoute() {
   return (
     <ZoneScopedPage
       title="Approvals"
-      description="Human-approval holds raised by policy before a token is released."
+      description="Holds that park an agent's token exchange until someone with authority decides."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Approvals" }]}
     >
       {(zone) => <ApprovalsPage zoneId={zone.id} />}
@@ -203,7 +204,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
   return (
     <ResourceWorkspace
       title="Approvals"
-      description="Holds raised by approval-tier policies. A pending hold parks the agent's token exchange until someone with authority decides it."
+      description="Holds that park an agent's token exchange until someone with authority decides."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Approvals" }]}
       rows={rows}
       loading={feed.isLoading}
@@ -248,7 +249,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
       }}
       detail={{
         title: (c) => appName(c) ?? c.principal_id,
-        description: (c) => (c.tier ? `Approval tier: ${c.tier}` : "Approval hold"),
+        description: (c) => `Raised ${relativeTime(c.created_at)}`,
         render: (c) => (
           <ApprovalDetail challenge={c} zoneId={zoneId} applicationName={appName(c)} />
         ),
@@ -281,13 +282,79 @@ function ApprovalFilterBar({
         <option value="expired">{withCount("Expired", counts?.expired)}</option>
       </Select>
       <p className="text-[11px] text-muted-foreground sm:col-span-2">
-        States derive from the same rule the token service enforces: an approved hold past its
-        window reads as <span className="font-medium">expired</span>, and a consumed hold already
-        released its token. Settled holds age out of this list after a day; the zone audit stream
-        keeps the permanent record of every decision.
+        Settled holds age out of this list after a day; the zone audit stream keeps the permanent
+        record of every decision.
       </p>
     </FeedToolbar>
   );
+}
+
+// What the requesting agent says about itself, read live from the coordinator: the
+// task its developer annotated at spawn, its role labels, and how recently it started.
+// The context a policy cannot evaluate but an approver can. Renders nothing when the
+// agent is gone or carries no annotations - absence over empty ritual.
+function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSessionId: string }) {
+  const agent = useQuery({
+    queryKey: ["approvalAgent", zoneId, agentSessionId],
+    queryFn: () => consoleApi.agents.get(zoneId, agentSessionId),
+    staleTime: 30_000,
+    retry: false,
+  });
+  if (!agent.data) return null;
+  const task = typeof agent.data.metadata?.task === "string" ? agent.data.metadata.task : null;
+  const labels = agent.data.labels ?? [];
+  if (!task && labels.length === 0) return null;
+  return (
+    <p className="mt-1.5 text-xs text-muted-foreground">
+      {task ? (
+        <>
+          Task: <span className="text-foreground">{task}</span>
+          {" \u00b7 "}
+        </>
+      ) : null}
+      {labels.length > 0 ? (
+        <>
+          acting as {labels.join(", ")}
+          {" \u00b7 "}
+        </>
+      ) : null}
+      spawned {relativeTime(agent.data.spawned_at)}
+    </p>
+  );
+}
+
+// The recent history of this exact authority (same binding hash, last day - the
+// challenge store's retention window). One sentence, strongest signal first: a
+// recent rejection is a warning; a pile of identical approvals is policy debt.
+function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
+  if (challenge.prior_rejected > 0) {
+    return (
+      <p className="mt-1.5 text-xs font-medium text-destructive">
+        An identical hold was rejected in the last day
+        {challenge.prior_approved > 0 ? ` (${challenge.prior_approved} approved)` : ""} — check why
+        before approving.
+      </p>
+    );
+  }
+  if (challenge.prior_approved >= 5) {
+    return (
+      <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
+        Approved {challenge.prior_approved} times in the last day for identical authority. If this
+        is routine, encode it as policy instead of approving it by hand.
+      </p>
+    );
+  }
+  if (challenge.prior_approved > 0) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {challenge.prior_approved === 1
+          ? "1 identical hold approved"
+          : `${challenge.prior_approved} identical holds approved`}{" "}
+        in the last day.
+      </p>
+    );
+  }
+  return null;
 }
 
 function ApprovalDetail({
@@ -309,7 +376,11 @@ function ApprovalDetail({
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <Badge tone={stateTone(challenge.state)}>{challenge.state}</Badge>
-        {challenge.tier ? <Badge tone="neutral">{challenge.tier}</Badge> : null}
+        {challenge.tier ? (
+          <Badge tone="neutral" title="The policy risk tier that raised this hold">
+            {challenge.tier}
+          </Badge>
+        ) : null}
         <Badge tone="neutral">{APPROVER_CLASS_LABELS[challenge.approver_class]}</Badge>
       </div>
 
@@ -339,8 +410,11 @@ function ApprovalDetail({
             </span>
           </>
         ) : null}
-        . The policy tier {challenge.tier ? <Badge tone="neutral">{challenge.tier}</Badge> : null}{" "}
-        holds the token until someone decides.
+        . Policy parked the token for a human decision.
+        {lineage.agentSession ? (
+          <AgentContext zoneId={zoneId} agentSessionId={lineage.agentSession} />
+        ) : null}
+        {challenge.state === "pending" ? <PatternLine challenge={challenge} /> : null}
       </div>
 
       {isDecidable(challenge) ? (
@@ -363,9 +437,6 @@ function ApprovalDetail({
       <DetailGroup title="Request">
         {challenge.application_id ? (
           <DetailField label="Application">
-            {applicationName ? (
-              <span className="text-sm text-foreground">{applicationName}</span>
-            ) : null}
             <CopyValue value={challenge.application_id} />
           </DetailField>
         ) : null}
@@ -379,40 +450,20 @@ function ApprovalDetail({
             <CopyValue value={challenge.session_id} />
           </DetailField>
         ) : null}
-        {authority.scopes.length > 0 ? (
-          <DetailField label="Scopes">
-            <div className="flex flex-wrap gap-1">
-              {authority.scopes.map((item) => (
-                <Badge key={item} tone="neutral">
-                  {item}
-                </Badge>
-              ))}
-            </div>
-          </DetailField>
-        ) : null}
-        {authority.resources.length > 0 ? (
-          <DetailField label="Resources">
-            <div className="flex flex-wrap gap-1">
-              {authority.resources.map((item) => (
-                <Badge key={item} tone="neutral">
-                  {item}
-                </Badge>
-              ))}
-            </div>
-          </DetailField>
-        ) : null}
         <DetailField label="Binding">
           <CopyValue value={challenge.binding} />
           <p className="mt-1 text-[11px] text-muted-foreground">
             Fingerprint of the exact resources and scopes held. The agent prints the same value
-            beside the challenge id, so compare them before approving.
+            beside the challenge id.
           </p>
         </DetailField>
-        <DetailField label="Privacy">
-          <span className="text-xs text-muted-foreground">
-            {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
-          </span>
-        </DetailField>
+        {challenge.privacy_mode !== "identified" ? (
+          <DetailField label="Privacy">
+            <span className="text-xs text-muted-foreground">
+              {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
+            </span>
+          </DetailField>
+        ) : null}
       </DetailGroup>
 
       {lineage.agentSession || lineage.edge ? (
@@ -491,6 +542,7 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
   const toast = useToast();
   const decide = useDecideApproval(zoneId);
   const [reason, setReason] = useState("");
+  const now = Date.now();
 
   const submit = async (decision: "approve" | "reject") => {
     try {
@@ -531,10 +583,17 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
       <div className="text-xs font-medium text-amber-700 dark:text-amber-400">
         Awaiting a decision
       </div>
-      <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/80">
-        The agent&apos;s token exchange is parked on this hold. Approving releases one token for
-        exactly the bound resources and scopes; rejecting fails it closed.
-      </p>
+      <div className="mt-1.5 flex flex-col gap-1 text-xs text-amber-700/90 dark:text-amber-400/90">
+        <div>
+          <span className="font-medium">If you approve:</span> one short-lived token is released for
+          exactly the authority above, once; unused, it lapses with the hold{" "}
+          {relativeTime(challenge.expires_at, now)}.
+        </div>
+        <div>
+          <span className="font-medium">If you reject:</span> the exchange fails closed for the rest
+          of the window.
+        </div>
+      </div>
       <div className="mt-3">
         <Textarea
           label="Reason (optional)"
@@ -597,8 +656,9 @@ function SettledSummary({ challenge, now }: { challenge: StepUpChallenge; now: n
       <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
         <div className="font-medium">Rejected</div>
         <p className="mt-0.5 text-destructive/80">
-          The hold is settled terminally; the runtime refuses the exchange. The agent must raise a
-          new request for this authority.
+          The runtime refuses this authority for the rest of the hold&apos;s window (
+          {relativeTime(challenge.expires_at, now)}) — repeat requests fail without raising a new
+          hold. A fresh request is possible after the window closes.
         </p>
       </div>
     );

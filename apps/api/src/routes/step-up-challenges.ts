@@ -42,11 +42,21 @@ const STATE_PREDICATES: Record<string, string> = {
 // hold past its window reads expired - so both planes always report the same state for the same
 // row. The binding is the canonical resource+scope hash the agent printed alongside the
 // challenge id, exposed so an approver can cross-check that the hold they see is the hold the
-// agent asked about.
+// agent asked about. The prior_* counts are the recent history of the same binding in this
+// zone: the challenge store retains terminal rows for a day, so they honestly answer "has this
+// exact authority been decided recently?" without reaching into the audit stream.
 const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id, challenge_type,
        tier, approver_class, privacy_mode, encode(resource_set_hash, 'hex') AS binding,
        metadata_json, decision_reason, created_at, expires_at,
        satisfied_at, rejected_at, consumed_at, approver_subject_id,
+       (SELECT COUNT(*)::int FROM step_up_challenges p
+         WHERE p.zone_id = step_up_challenges.zone_id
+           AND p.resource_set_hash = step_up_challenges.resource_set_hash
+           AND p.id <> step_up_challenges.id AND p.satisfied_at IS NOT NULL) AS prior_approved,
+       (SELECT COUNT(*)::int FROM step_up_challenges p
+         WHERE p.zone_id = step_up_challenges.zone_id
+           AND p.resource_set_hash = step_up_challenges.resource_set_hash
+           AND p.id <> step_up_challenges.id AND p.rejected_at IS NOT NULL) AS prior_rejected,
        CASE
          WHEN consumed_at IS NOT NULL THEN 'consumed'
          WHEN rejected_at IS NOT NULL THEN 'rejected'
