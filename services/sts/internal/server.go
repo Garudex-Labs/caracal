@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +23,7 @@ import (
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 	"github.com/garudex-labs/caracal/packages/core/go/logging"
 	coremetrics "github.com/garudex-labs/caracal/packages/core/go/metrics"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/garudex-labs/caracal/packages/core/go/telemetry"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -49,6 +49,7 @@ type Server struct {
 	redis              stsRedis
 	opa                *OPAEngine
 	keys               *KeyCache
+	secrets            secretstore.Backend
 	auditBuffer        *AuditBuffer
 	metrics            *STSMetrics
 	refreshGroup       singleflight.Group
@@ -107,9 +108,14 @@ func New(ctx context.Context) (*Server, error) {
 	}
 	rdb.SetStreamSigning(streamKey, cfg.IsPublished())
 
-	kek, err := resolveKEK(cfg.ZoneKEKProvider)
+	kek, err := secretstore.LoadKEK()
 	if err != nil {
 		return nil, fmt.Errorf("kek: %w", err)
+	}
+
+	secrets, err := newSecretBackend(cfg.SecretBackend, db, kek)
+	if err != nil {
+		return nil, fmt.Errorf("secret backend: %w", err)
 	}
 
 	keys := newKeyCache(db, kek)
@@ -130,6 +136,7 @@ func New(ctx context.Context) (*Server, error) {
 		redis:          rdb,
 		opa:            opa,
 		keys:           keys,
+		secrets:        secrets,
 		auditBuffer:    buf,
 		metrics:        metrics,
 		consumersReady: make(chan struct{}),
@@ -216,7 +223,7 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]JWKSEntry, 0, len(secrets))
 	for _, secret := range secrets {
-		keyBytes, err := sharedcrypto.Open(s.keys.zek, secret.Nonce, secret.Ciphertext)
+		keyBytes, err := secretstore.Open(s.keys.kek, secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			s.metrics.JWKSInvalidKeys.Add(1)
 			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "decrypt").Msg("jwks: skipped invalid signing key")
@@ -613,63 +620,4 @@ func (s *Server) handleMetricsJSON(w http.ResponseWriter, r *http.Request) {
 		"opa":           s.opa.MetricsSnapshot(),
 		"audit_dropped": s.auditBuffer.Dropped(),
 	})
-}
-
-// resolveKEK loads the 32-byte zone encryption key. ZONE_KEK is mandatory in every
-// environment: an all-zero fallback would let any database snapshot decrypt every
-// zone's signing keys.
-func resolveKEK(provider string) ([]byte, error) {
-	switch provider {
-	case "local", "":
-		raw := os.Getenv("ZONE_KEK")
-		if raw == "" {
-			return nil, errors.New("ZONE_KEK is required")
-		}
-		b, err := hex.DecodeString(raw)
-		if err != nil {
-			return nil, fmt.Errorf("ZONE_KEK: %w", err)
-		}
-		if len(b) != 32 {
-			return nil, fmt.Errorf("ZONE_KEK must be 32 bytes, got %d", len(b))
-		}
-		if reason := weakKEKReason(b); reason != "" {
-			return nil, errors.New(reason)
-		}
-		return b, nil
-	default:
-		return nil, fmt.Errorf("unsupported KEK provider: %s", provider)
-	}
-}
-
-func weakKEKReason(b []byte) string {
-	allSame := true
-	ascending := true
-	descending := true
-	alternating := true
-	for i := 1; i < len(b); i++ {
-		if b[i] != b[0] {
-			allSame = false
-		}
-		if int(b[i]) != int(b[i-1])+1 {
-			ascending = false
-		}
-		if int(b[i]) != int(b[i-1])-1 {
-			descending = false
-		}
-		if i >= 2 && b[i] != b[i%2] {
-			alternating = false
-		}
-	}
-	switch {
-	case allSame && b[0] == 0:
-		return "ZONE_KEK must not be all zeros"
-	case allSame:
-		return "ZONE_KEK must not repeat the same byte"
-	case ascending || descending:
-		return "ZONE_KEK must not use a sequential byte pattern"
-	case alternating:
-		return "ZONE_KEK must not use a repeating byte pattern"
-	default:
-		return ""
-	}
 }
