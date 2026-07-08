@@ -173,7 +173,7 @@ func TestGoldenVectorFromTypeScript(t *testing.T) {
 	}
 }
 
-func TestLoadKEK(t *testing.T) {
+func TestLoadKeyring(t *testing.T) {
 	strong := "8f3d9a712c45e6b0d18f2a4c6e9b3d57a1c4f8020e6a9c3d5b7f1a2c4e6d8b90"
 	cases := []struct {
 		name    string
@@ -193,13 +193,14 @@ func TestLoadKEK(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("SECRET_STORE_KEK", tc.value)
-			kek, err := LoadKEK()
+			t.Setenv("SECRET_STORE_KEK_PREVIOUS", "")
+			ring, err := LoadKeyring()
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("want success, got %v", err)
 				}
-				if len(kek) != keyBytes {
-					t.Fatalf("want %d byte kek, got %d", keyBytes, len(kek))
+				if len(ring.keys) != 1 || len(ring.keys[0]) != keyBytes {
+					t.Fatalf("want one %d byte key, got %d keys", keyBytes, len(ring.keys))
 				}
 				return
 			}
@@ -207,5 +208,59 @@ func TestLoadKEK(t *testing.T) {
 				t.Errorf("want error containing %q, got %v", tc.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestLoadKeyringValidatesPreviousKey(t *testing.T) {
+	t.Setenv("SECRET_STORE_KEK", "8f3d9a712c45e6b0d18f2a4c6e9b3d57a1c4f8020e6a9c3d5b7f1a2c4e6d8b90")
+	t.Setenv("SECRET_STORE_KEK_PREVIOUS", strings.Repeat("aa", 32))
+	if _, err := LoadKeyring(); err == nil || !strings.Contains(err.Error(), "SECRET_STORE_KEK_PREVIOUS") {
+		t.Errorf("weak previous key must be rejected with its own name, got %v", err)
+	}
+	t.Setenv("SECRET_STORE_KEK_PREVIOUS", "d1c4f8020e6a9c3d5b7f1a2c4e6d8b908f3d9a712c45e6b0d18f2a4c6e9b3d57")
+	ring, err := LoadKeyring()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ring.keys) != 2 {
+		t.Fatalf("want current and previous key, got %d", len(ring.keys))
+	}
+}
+
+func TestKeyringRotationRouting(t *testing.T) {
+	current := testKEK()
+	previous := make([]byte, keyBytes)
+	for i := range previous {
+		previous[i] = byte(255 - i*7)
+	}
+	oldRing, err := NewKeyring(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := oldRing.Seal([]byte("rotate me"), "caracal/test/rotation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := NewKeyring(current, previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := rotated.Open(envelope, "caracal/test/rotation")
+	if err != nil || string(value) != "rotate me" {
+		t.Fatalf("previous-key envelope must open through the keyring: %q %v", value, err)
+	}
+	resealed, err := rotated.Seal([]byte("rotate me"), "caracal/test/rotation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(previous, resealed, "caracal/test/rotation"); err == nil {
+		t.Error("seal must always use the current key")
+	}
+	currentOnly, err := NewKeyring(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := currentOnly.Open(envelope, "caracal/test/rotation"); err == nil || !strings.Contains(err.Error(), "different KEK") {
+		t.Errorf("unknown kekId must be rejected, got %v", err)
 	}
 }

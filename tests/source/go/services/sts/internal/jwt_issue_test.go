@@ -29,7 +29,7 @@ func signingKeyCache(t *testing.T) (*KeyCache, *stubDB, string) {
 	zek := signingZEK()
 	pemKey := ecKeyPEM(t, elliptic.P256())
 	db := &stubDB{secrets: []SecretRow{sealedSecret(t, zek, "kid-active", []byte(pemKey))}}
-	return newKeyCache(db, zek), db, pemKey
+	return newKeyCache(db, testKeyring(zek)), db, pemKey
 }
 
 func TestIssueTokenSessionAndResourceClaims(t *testing.T) {
@@ -109,7 +109,7 @@ func TestIssueTokenSessionAndResourceClaims(t *testing.T) {
 }
 
 func TestIssueTokenFailsWithoutSigningKey(t *testing.T) {
-	keys := newKeyCache(&stubDB{secretsErr: errors.New("pg down")}, signingZEK())
+	keys := newKeyCache(&stubDB{secretsErr: errors.New("pg down")}, testKeyring(signingZEK()))
 	if _, _, err := issueToken(context.Background(), IssueParams{ZoneID: "zone-1", TTL: time.Minute}, keys, "https://sts.piedpiper.example"); err == nil {
 		t.Fatal("missing signing key must fail issuance")
 	}
@@ -139,7 +139,7 @@ func TestGetPublicKeysByZoneAccumulatesFailures(t *testing.T) {
 	pemKey := ecKeyPEM(t, elliptic.P256())
 
 	t.Run("no keys", func(t *testing.T) {
-		keys := newKeyCache(&stubDB{}, zek)
+		keys := newKeyCache(&stubDB{}, testKeyring(zek))
 		if _, err := keys.getPublicKeysByZone(context.Background(), "zone-1"); err == nil {
 			t.Fatal("zone without keys must fail")
 		}
@@ -151,7 +151,7 @@ func TestGetPublicKeysByZoneAccumulatesFailures(t *testing.T) {
 			{ID: "kid-garbled", Envelope: []byte("garbage")},
 			sealedSecret(t, zek, "kid-not-ec", []byte("not a key")),
 		}}
-		keys := newKeyCache(db, zek)
+		keys := newKeyCache(db, testKeyring(zek))
 		_, err := keys.getPublicKeysByZone(context.Background(), "zone-1")
 		if err == nil || !strings.Contains(err.Error(), "kid-garbled") || !strings.Contains(err.Error(), "kid-not-ec") {
 			t.Fatalf("error must name the failed kids: %v", err)
@@ -163,7 +163,7 @@ func TestGetPublicKeysByZoneAccumulatesFailures(t *testing.T) {
 			sealedSecret(t, zek, "kid-active", []byte(pemKey)),
 			sealedSecret(t, zek, "kid-previous", []byte(ecKeyPEM(t, elliptic.P256()))),
 		}}
-		keys := newKeyCache(db, zek)
+		keys := newKeyCache(db, testKeyring(zek))
 		result, err := keys.getPublicKeysByZone(context.Background(), "zone-1")
 		if err != nil || len(result) != 2 {
 			t.Fatalf("expected both rotation keys: %v err=%v", result, err)

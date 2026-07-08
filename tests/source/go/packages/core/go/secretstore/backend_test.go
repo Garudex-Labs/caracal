@@ -138,6 +138,55 @@ func TestCachedBackendDoesNotCacheErrors(t *testing.T) {
 	}
 }
 
+func TestCachedBackendServesStaleOnError(t *testing.T) {
+	inner := &countingBackend{kind: KindVault, value: []byte("v"), found: true}
+	cached := NewCached(inner, time.Nanosecond)
+	if _, _, err := cached.Get(context.Background(), "ref"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+	inner.err = errors.New("down")
+	value, found, err := cached.Get(context.Background(), "ref")
+	if err != nil || !found || string(value) != "v" {
+		t.Fatalf("expired entry must be served while the backend errors: %q %v %v", value, found, err)
+	}
+	if inner.calls != 2 {
+		t.Errorf("stale serve must still attempt the upstream read, got %d calls", inner.calls)
+	}
+}
+
+func TestOpenedBackendUnsealsEnvelopes(t *testing.T) {
+	kek := make([]byte, 32)
+	for i := range kek {
+		kek[i] = byte(i*3 + 1)
+	}
+	ring, err := NewKeyring(kek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ProviderSecretConfigRef("z1", "p1")
+	envelope, err := ring.Seal([]byte(`{"api_key":"k"}`), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := &countingBackend{kind: KindVault, value: envelope, found: true}
+	opened := Opened(inner, ring)
+	if opened.Kind() != KindVault {
+		t.Errorf("opened backend must report the inner kind")
+	}
+	value, found, err := opened.Get(context.Background(), ref)
+	if err != nil || !found || string(value) != `{"api_key":"k"}` {
+		t.Fatalf("get: %q %v %v", value, found, err)
+	}
+	if _, _, err := Opened(inner, ring).Get(context.Background(), "zones/z1/providers/other/secretConfig"); err == nil {
+		t.Error("an envelope served for the wrong ref must fail authentication")
+	}
+	missing := &countingBackend{kind: KindVault}
+	if _, found, err := Opened(missing, ring).Get(context.Background(), ref); found || err != nil {
+		t.Fatalf("missing ref must pass through: %v %v", found, err)
+	}
+}
+
 func TestCachedBackendExpires(t *testing.T) {
 	inner := &countingBackend{kind: KindVault, value: []byte("v"), found: true}
 	cached := NewCached(inner, time.Nanosecond)

@@ -150,7 +150,7 @@ func TestConsumeKeyInvalidationsFlushesSigningKeyCache(t *testing.T) {
 	db := &stubDB{secrets: []SecretRow{sealedSecret(t, zek, "kid-active", []byte(ecKeyPEM(t, elliptic.P256())))}}
 	server := testSTSServer(t)
 	server.redis = fake
-	server.keys = newKeyCache(db, zek)
+	server.keys = newKeyCache(db, testKeyring(zek))
 	if _, _, err := server.keys.getKeyAndKid(context.Background(), "zone-1"); err != nil {
 		t.Fatal(err)
 	}

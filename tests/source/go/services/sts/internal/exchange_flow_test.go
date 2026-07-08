@@ -19,6 +19,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 	"github.com/rs/zerolog"
 )
@@ -62,8 +63,8 @@ func exchangeFlowServer(t *testing.T, db DBQuerier, policy string) *Server {
 		redis:       newMemSTSRedis(),
 		opa:         runCredentialZoneEngine(t, "zone1", policy),
 		auditBuffer: &AuditBuffer{ch: make(chan AuditEvent, 256), log: zerolog.Nop()},
-		keys:        newKeyCache(db, exchangeFlowZEK()),
-		secrets:     &builtinSecretBackend{db: db, kek: exchangeFlowZEK()},
+		keys:        newKeyCache(db, testKeyring(exchangeFlowZEK())),
+		secrets:     secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(exchangeFlowZEK())),
 		metrics:     &STSMetrics{},
 		cfg:         Config{IssuerURL: "https://sts.piedpiper.example", MaxGrantTTLSeconds: 3600},
 		log:         zerolog.Nop(),
