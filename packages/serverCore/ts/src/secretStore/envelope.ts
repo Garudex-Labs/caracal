@@ -88,11 +88,21 @@ function weakKekReason(key: Buffer): string {
     if (key[i] !== key[i - 1]! - 1) descending = false
     if (i >= 2 && key[i] !== key[i % 2]) alternating = false
   }
-  if (allSame && key[0] === 0) return 'SECRET_STORE_KEK must not be all zeros'
-  if (allSame) return 'SECRET_STORE_KEK must not repeat the same byte'
-  if (ascending || descending) return 'SECRET_STORE_KEK must not use a sequential byte pattern'
-  if (alternating) return 'SECRET_STORE_KEK must not use a repeating byte pattern'
+  if (allSame && key[0] === 0) return 'must not be all zeros'
+  if (allSame) return 'must not repeat the same byte'
+  if (ascending || descending) return 'must not use a sequential byte pattern'
+  if (alternating) return 'must not use a repeating byte pattern'
   return ''
+}
+
+function parseKek(name: string, raw: string): Buffer {
+  const key = Buffer.from(raw, 'hex')
+  if (key.length !== KEY_BYTES) {
+    throw new Error(`${name} must be ${KEY_BYTES} bytes, got ${key.length}`)
+  }
+  const reason = weakKekReason(key)
+  if (reason) throw new Error(`${name} ${reason}`)
+  return key
 }
 
 // The Secret Store master key: 32 bytes of hex delivered by file-backed environment,
@@ -100,11 +110,37 @@ function weakKekReason(key: Buffer): string {
 export function loadSecretStoreKek(): Buffer {
   const raw = process.env.SECRET_STORE_KEK
   if (!raw) throw new Error('SECRET_STORE_KEK is required')
-  const key = Buffer.from(raw, 'hex')
-  if (key.length !== KEY_BYTES) {
-    throw new Error(`SECRET_STORE_KEK must be ${KEY_BYTES} bytes, got ${key.length}`)
+  return parseKek('SECRET_STORE_KEK', raw)
+}
+
+// The active keyring, current key first. SECRET_STORE_KEK_PREVIOUS keeps the
+// retiring key readable during a rotation window while envelopes are re-sealed.
+export function loadSecretStoreKeks(): Buffer[] {
+  const keys = [loadSecretStoreKek()]
+  const previous = process.env.SECRET_STORE_KEK_PREVIOUS
+  if (previous) keys.push(parseKek('SECRET_STORE_KEK_PREVIOUS', previous))
+  return keys
+}
+
+// The key identifier embedded in an envelope, for rotation tooling that routes
+// or skips rows without decrypting them.
+export function envelopeKekId(envelope: Buffer): Buffer {
+  if (envelope.length < MIN_ENVELOPE_BYTES) throw new Error('secret envelope too short')
+  if (!envelope.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('secret envelope has unknown format')
+  return envelope.subarray(MAGIC.length, MAGIC.length + KEK_ID_BYTES)
+}
+
+// The operational seal path: always the current key.
+export function sealSecretEnvelope(plaintext: Buffer, aad: string): Buffer {
+  return sealEnvelope(loadSecretStoreKek(), plaintext, aad)
+}
+
+// The operational open path: the embedded kekId routes each envelope to the key
+// that sealed it, so reads keep working across a KEK rotation window.
+export function openSecretEnvelope(envelope: Buffer, aad: string): Buffer {
+  const id = envelopeKekId(envelope)
+  for (const kek of loadSecretStoreKeks()) {
+    if (id.equals(kekId(kek))) return openEnvelope(kek, envelope, aad)
   }
-  const reason = weakKekReason(key)
-  if (reason) throw new Error(reason)
-  return key
+  throw new Error('secret envelope was sealed under a different KEK')
 }

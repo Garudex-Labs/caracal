@@ -24,6 +24,8 @@ export interface ApiDeps {
 }
 
 export function apiAppDeps(opts: ApiDepsOptions = {}): ApiDeps {
+  // buildApp validates the Secret Store keyring at boot.
+  process.env.SECRET_STORE_KEK ??= '8f3d9a712c45e6b0d18f2a4c6e9b3d57a1c4f8020e6a9c3d5b7f1a2c4e6d8b90'
   const adminToken = opts.adminToken ?? 'admin-secret'
   const adminScope = opts.adminScope ?? 'global'
   const adminZoneId = opts.adminZoneId ?? null
