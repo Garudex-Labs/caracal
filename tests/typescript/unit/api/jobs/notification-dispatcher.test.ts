@@ -7,17 +7,16 @@ import { describe, it, expect, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
-process.env.ZONE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
+process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
 const { runNotificationDispatch, signSinkPayload, sinkBackoffSeconds, sinkPayload } =
   await import('../../../../../apps/api/src/jobs/notification-dispatcher.js')
-const { seal, loadZoneKek } = await import('@caracalai/server-core')
+const { AAD_NOTIFICATION_SINK_SECRET, loadSecretStoreKek, sealEnvelope } = await import('@caracalai/server-core')
 import type { DB } from '../../../../../apps/api/src/db.js'
 import type { SinkFetch } from '../../../../../apps/api/src/jobs/notification-dispatcher.js'
 
 function sealedSecret(secret: string): Buffer {
-  const sealed = seal(loadZoneKek(), Buffer.from(secret, 'utf8'))
-  return Buffer.concat([sealed.nonce, sealed.ciphertext])
+  return sealEnvelope(loadSecretStoreKek(), Buffer.from(secret, 'utf8'), AAD_NOTIFICATION_SINK_SECRET)
 }
 
 describe('signSinkPayload', () => {
