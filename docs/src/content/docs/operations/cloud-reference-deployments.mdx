@@ -27,12 +27,12 @@ Load the Caracal secret material into your secret manager under the keys the `Ex
 
 | Secret manager key | Contents |
 | --- | --- |
-| `caracal/postgres` | `username`, `password`, `host`, `port`, `database`, plus an auth-session database named `caracal_auth`. |
+| `caracal/postgres` | `username`, `password`, `host`, `port`, `database`, and `authDatabase` naming the dedicated web session database (`caracal_auth`). |
 | `caracal/redis` | `password`, `host`, `port`, `database`. |
 | `caracal/zone-kek` | Zone key-encryption key. |
 | `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity keys. |
 | `caracal/admin-token`, `caracal/coordinator-token` | Control-plane tokens held by services and the web BFF. |
-| `caracal/auth-secret`, `caracal/auth-database-url` | Better Auth signing secret and the dedicated web session database URL. |
+| `caracal/auth-secret` | Better Auth signing secret; the `ExternalSecret` composes the web session database URL from `caracal/postgres`. |
 | `caracal/sts-admin-token`, `caracal/audit-admin-token`, `caracal/metrics-bearer` | Optional service tokens. |
 
 ## 2. Apply the Secret Store and ExternalSecret
@@ -45,7 +45,7 @@ kubectl apply -f external-secrets/secretstore-aws.yaml
 kubectl apply -f external-secrets/externalsecret-runtime.yaml
 ```
 
-The `ExternalSecret` composes `databaseUrl`, `authDatabaseUrl`, and `redisUrl` and materializes the exact keys the chart mounts, so `secrets.create` stays `false`.
+The `ExternalSecret` composes `databaseUrl`, `redisUrl`, and the per-service connection strings - each service connects as its own least-privilege database role, with passwords derived from the administrative password and provisioned by the migration job - and materializes the exact keys the chart mounts, so `secrets.create` stays `false`.
 
 ## 3. Install the Chart with the Overlay
 

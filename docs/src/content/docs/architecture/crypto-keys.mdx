@@ -19,7 +19,7 @@ Caracal uses separate keys for encryption, mandate signing, audit integrity, str
 
 ## Secret Envelopes
 
-Every stored secret is sealed into a self-describing envelope: a fresh data-encryption key encrypts the value with ChaCha20-Poly1305, and `SECRET_STORE_KEK` wraps that data key. Envelopes bind a key fingerprint and a purpose-specific associated-data string, so a value decrypts only under the correct key and in the context it was written for. The KEK lives in the service environment, never beside the ciphertext, and startup rejects weak or short keys. [Configure Secret Backends](/operations/secret-backends/) covers where envelopes and user-entered credentials are stored.
+Every stored secret is sealed into a self-describing envelope: a fresh data-encryption key encrypts the value with ChaCha20-Poly1305, and `SECRET_STORE_KEK` wraps that data key. Envelopes bind a key fingerprint and a purpose-specific associated-data string, so a value decrypts only under the correct key and in the context it was written for. The embedded fingerprint also routes each read to the right key while `SECRET_STORE_KEK_PREVIOUS` carries a retiring key through a rotation window. The KEK lives in the service environment, never beside the ciphertext, and startup rejects weak or short keys. [Configure Secret Backends](/operations/secret-backends/) covers where envelopes and user-entered credentials are stored and how the master key rotates.
 
 ## Mandate Verification
 
