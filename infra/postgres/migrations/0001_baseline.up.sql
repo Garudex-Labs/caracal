@@ -604,8 +604,7 @@ CREATE TABLE public.operator_plan_secrets (
     zone_id text NOT NULL,
     plan_seq bigint NOT NULL,
     step_id text NOT NULL,
-    ciphertext bytea NOT NULL,
-    nonce bytea NOT NULL,
+    envelope bytea NOT NULL,
     secret_keys text[] NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone NOT NULL,
@@ -768,8 +767,6 @@ CREATE TABLE public.providers (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     archived_at timestamp with time zone,
-    secret_config_ct bytea,
-    secret_config_nonce bytea,
     secret_config_keys text[] DEFAULT '{}'::text[] NOT NULL,
     provider_kind text NOT NULL,
     connectivity_failed_at timestamp with time zone,
@@ -807,6 +804,20 @@ CREATE TABLE public.resources (
 
 
 --
+-- Name: secret_store; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.secret_store (
+    ref text NOT NULL,
+    zone_id text NOT NULL,
+    envelope bytea NOT NULL,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: secrets; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -816,9 +827,7 @@ CREATE TABLE public.secrets (
     entity_id text NOT NULL,
     name text NOT NULL,
     type text NOT NULL,
-    ciphertext bytea NOT NULL,
-    nonce bytea NOT NULL,
-    dek_id text NOT NULL,
+    envelope bytea NOT NULL,
     version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -905,8 +914,6 @@ CREATE TABLE public.zones (
     id text NOT NULL,
     name text NOT NULL,
     slug text NOT NULL,
-    dek_ciphertext bytea NOT NULL,
-    kek_arn text,
     dcr_enabled boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1333,6 +1340,14 @@ ALTER TABLE ONLY public.resources
 
 ALTER TABLE ONLY public.resources
     ADD CONSTRAINT resources_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
+-- Name: secret_store secret_store_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.secret_store
+    ADD CONSTRAINT secret_store_pkey PRIMARY KEY (ref);
 
 
 --
@@ -1938,6 +1953,13 @@ CREATE UNIQUE INDEX resources_zone_id_identifier_key ON public.resources USING b
 
 
 --
+-- Name: secret_store_zone_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX secret_store_zone_id_idx ON public.secret_store USING btree (zone_id);
+
+
+--
 -- Name: secrets_zone_id_entity_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2537,6 +2559,14 @@ ALTER TABLE ONLY public.resources
 
 
 --
+-- Name: secret_store secret_store_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.secret_store
+    ADD CONSTRAINT secret_store_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
 -- Name: secrets secrets_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2717,6 +2747,12 @@ ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resources ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: secret_store; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.secret_store ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: secrets; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2886,6 +2922,13 @@ CREATE POLICY zone_isolation ON public.providers USING (((current_setting('carac
 --
 
 CREATE POLICY zone_isolation ON public.resources USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: secret_store zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.secret_store USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -3136,6 +3179,14 @@ GRANT SELECT ON TABLE public.resources TO caracalsts;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.resources TO caracalapi;
 GRANT SELECT ON TABLE public.resources TO caracalgateway;
 GRANT SELECT ON TABLE public.resources TO caracalcoordinator;
+
+
+--
+-- Name: TABLE secret_store; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.secret_store TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.secret_store TO caracalapi;
 
 
 --

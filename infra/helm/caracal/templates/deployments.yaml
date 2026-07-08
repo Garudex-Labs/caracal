@@ -101,10 +101,8 @@ spec:
               value: /run/secrets/databaseUrl
             - name: REDIS_URL_FILE
               value: /run/secrets/redisUrl
-            - name: ZONE_KEK_FILE
-              value: /run/secrets/zoneKek
-            - name: ZONE_KEK_PROVIDER
-              value: local
+            - name: SECRET_STORE_KEK_FILE
+              value: /run/secrets/secretStoreKek
             - name: AUDIT_HMAC_KEY_FILE
               value: /run/secrets/auditHmacKey
             - name: STREAMS_HMAC_KEY_FILE
