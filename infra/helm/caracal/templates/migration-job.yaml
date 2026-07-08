@@ -57,6 +57,10 @@ spec:
               value: /run/secrets/{{ .Values.secrets.database.passwordKey }}
             - name: PGSSLMODE
               value: {{ .Values.secrets.database.sslMode | quote }}
+            {{- range $role := list "api" "sts" "gateway" "audit" "coordinator" "auth" }}
+            - name: CARACAL_{{ upper $role }}_DB_PASSWORD_FILE
+              value: /run/secrets/{{ $role }}DbPassword
+            {{- end }}
           volumeMounts:
             - name: runtime-secrets
               mountPath: /run/secrets
@@ -76,4 +80,8 @@ spec:
             items:
               - key: {{ .Values.secrets.database.passwordKey }}
                 path: {{ .Values.secrets.database.passwordKey }}
+              {{- range $role := list "api" "sts" "gateway" "audit" "coordinator" "auth" }}
+              - key: {{ $role }}DbPassword
+                path: {{ $role }}DbPassword
+              {{- end }}
 {{- end }}

@@ -98,11 +98,15 @@ spec:
             - name: LOG_LEVEL
               value: {{ $root.Values.global.logLevel | quote }}
             - name: DATABASE_URL_FILE
-              value: /run/secrets/databaseUrl
+              value: /run/secrets/{{ $name }}DatabaseUrl
             - name: REDIS_URL_FILE
               value: /run/secrets/redisUrl
             - name: SECRET_STORE_KEK_FILE
               value: /run/secrets/secretStoreKek
+            {{- if $root.Values.secrets.kekRotation }}
+            - name: SECRET_STORE_KEK_PREVIOUS_FILE
+              value: /run/secrets/secretStoreKekPrevious
+            {{- end }}
             - name: AUDIT_HMAC_KEY_FILE
               value: /run/secrets/auditHmacKey
             - name: STREAMS_HMAC_KEY_FILE
