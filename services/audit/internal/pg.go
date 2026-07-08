@@ -48,6 +48,10 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg.MaxConnIdleTime = config.DurationEnv("DB_MAX_CONN_IDLE", dbDefaultMaxConnIdle)
 	cfg.HealthCheckPeriod = config.DurationEnv("DB_HEALTH_CHECK_PERIOD", dbDefaultHealthCheck)
 	cfg.ConnConfig.ConnectTimeout = config.DurationEnv("DB_CONNECT_TIMEOUT", dbDefaultConnectTimeout)
+	// The audit writer records events for every zone, so each session carries the
+	// RLS sentinel; row-level security stays a backstop for the per-request zone
+	// scoping in the control plane.
+	cfg.ConnConfig.RuntimeParams["caracal.zone_id"] = "*"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)
