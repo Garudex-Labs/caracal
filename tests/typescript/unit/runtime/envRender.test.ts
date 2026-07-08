@@ -35,7 +35,7 @@ describe('renderDevEnv', () => {
     expect(out).not.toMatch(/^POSTGRES_PASSWORD=/m)
     expect(out).not.toMatch(/^REDIS_PASSWORD=/m)
     expect(out).not.toMatch(/^CARACAL_ADMIN_TOKEN=/m)
-    expect(out).not.toMatch(/^ZONE_KEK=/m)
+    expect(out).not.toMatch(/^SECRET_STORE_KEK=/m)
     expect(out).not.toMatch(/^AUDIT_HMAC_KEY=/m)
     expect(out).not.toMatch(/^STREAMS_HMAC_KEY=/m)
   })

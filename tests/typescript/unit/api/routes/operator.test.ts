@@ -16,7 +16,7 @@ import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-
 import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 
 // Test-only deterministic KEK fixture (32-byte hex) so the plan credential vault can seal. Never use in production.
-process.env.ZONE_KEK = '2222222222222222222222222222222222222222222222222222222222222222'
+process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
 function buildApp(
   enabled = true,
@@ -1077,7 +1077,7 @@ describe('plan credential vault endpoints', () => {
     const insert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO operator_plan_secrets'))
     expect(insert).toBeDefined()
     expect(JSON.stringify(insert![1])).not.toContain('cs_live_value')
-    expect(insert![1][6]).toEqual(['client_id', 'client_secret'])
+    expect(insert![1][5]).toEqual(['client_id', 'client_secret'])
   })
 
   it('completes the deferred autopilot approval once the vault satisfies the plan', async () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { loadZoneKek, seal } from '@caracalai/server-core'
+import { AAD_CONNECTION_REFRESH_TOKEN, loadSecretStoreKek, providerSecretConfigRef, sealEnvelope } from '@caracalai/server-core'
 import { grantsRoutes } from '../../../../../apps/api/src/routes/grants.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 
@@ -15,7 +15,7 @@ vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }))
 vi.mock('node:https', () => ({ request: vi.fn() }))
 
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
-process.env.ZONE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
+process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
 const grantBody = {
   application_id: 'app-1',
@@ -24,8 +24,15 @@ const grantBody = {
   scopes: ['read'],
 }
 
-function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffer; nonce: Buffer } {
-  return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
+function seedProviderSecret(
+  secrets: { values: Map<string, Buffer> },
+  values: Record<string, string> = { client_secret: 'google-secret' },
+): void {
+  secrets.values.set(providerSecretConfigRef('z1', 'provider-1'), Buffer.from(JSON.stringify(values), 'utf8'))
+}
+
+function sealedRefreshToken(): Buffer {
+  return sealEnvelope(loadSecretStoreKek(), Buffer.from('google-refresh', 'utf8'), AAD_CONNECTION_REFRESH_TOKEN)
 }
 
 function mockProviderTokenResponse(
@@ -293,8 +300,6 @@ describe('OAuth provider grant browser flow', () => {
             allowed_token_hosts: ['oauth2.googleapis.com'],
             authorization_params: { access_type: 'offline', prompt: 'consent' },
           },
-          secret_config_ct: null,
-          secret_config_nonce: null,
         },
       ],
     })
@@ -335,8 +340,6 @@ describe('OAuth provider grant browser flow', () => {
             redirect_uri: 'http://localhost/cb',
             client_id: 'client',
           },
-          secret_config_ct: null,
-          secret_config_nonce: null,
         },
       ],
     })
@@ -356,9 +359,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('exchanges callback authorization codes and stores provider grants', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -381,8 +384,6 @@ describe('OAuth provider grant browser flow', () => {
               allowed_token_hosts: ['oauth2.googleapis.com'],
               token_params: { tenant: 'hooli' },
             },
-            secret_config_ct: sealed.ciphertext,
-            secret_config_nonce: sealed.nonce,
           },
         ],
       })
@@ -440,8 +441,6 @@ describe('OAuth provider grant browser flow', () => {
             client_auth_method: 'none',
             allowed_token_hosts: ['login.example.com'],
           },
-          secret_config_ct: null,
-          secret_config_nonce: null,
         },
       ],
     })
@@ -457,9 +456,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('rejects callback token endpoints that resolve to private addresses', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -480,8 +479,6 @@ describe('OAuth provider grant browser flow', () => {
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
         },
       ],
     })
@@ -499,9 +496,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('rejects callback token endpoints that resolve to NAT64-embedded metadata addresses', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -522,8 +519,6 @@ describe('OAuth provider grant browser flow', () => {
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
         },
       ],
     })
@@ -541,9 +536,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('rejects callback token endpoints that resolve to IPv4-mapped metadata addresses', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -564,8 +559,6 @@ describe('OAuth provider grant browser flow', () => {
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
         },
       ],
     })
@@ -583,9 +576,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('renders browser-facing callback success pages', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -607,8 +600,6 @@ describe('OAuth provider grant browser flow', () => {
               client_auth_method: 'client_secret_basic',
               allowed_token_hosts: ['oauth2.googleapis.com'],
             },
-            secret_config_ct: sealed.ciphertext,
-            secret_config_nonce: sealed.nonce,
           },
         ],
       })
@@ -631,9 +622,9 @@ describe('OAuth provider grant browser flow', () => {
   })
 
   it('rejects token responses with a non-bearer token_type', async () => {
-    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(grantsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    seedProviderSecret(secrets)
     redis.call.mockResolvedValue(
       JSON.stringify({
         zone_id: 'z1',
@@ -654,8 +645,6 @@ describe('OAuth provider grant browser flow', () => {
             client_auth_method: 'client_secret_basic',
             allowed_token_hosts: ['oauth2.googleapis.com'],
           },
-          secret_config_ct: sealed.ciphertext,
-          secret_config_nonce: sealed.nonce,
         },
       ],
     })
@@ -718,8 +707,8 @@ describe('OAuth provider grant browser flow', () => {
 
 describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
   it('revokes locally and reports unsupported upstream revocation without an endpoint', async () => {
-    const { app, db } = buildRouteApp(grantsRoutes)
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
+    const { app, db, secrets } = buildRouteApp(grantsRoutes)
+    seedProviderSecret(secrets)
     db.query
       .mockResolvedValueOnce({
         rows: [
@@ -727,8 +716,6 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
             access_token_ct: Buffer.from('ct'),
             refresh_token_ct: null,
             config_json: { client_id: 'google-client', client_auth_method: 'client_secret_basic' },
-            secret_config_ct: sealed.ciphertext,
-            secret_config_nonce: sealed.nonce,
           },
         ],
       })
@@ -754,22 +741,19 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
   })
 
   it('revokes the upstream refresh token through RFC 7009 when the provider advertises an endpoint', async () => {
-    const { app, db } = buildRouteApp(grantsRoutes)
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
-    const refreshSealed = seal(loadZoneKek(), Buffer.from('google-refresh', 'utf8'))
+    const { app, db, secrets } = buildRouteApp(grantsRoutes)
+    seedProviderSecret(secrets)
     db.query
       .mockResolvedValueOnce({
         rows: [
           {
             access_token_ct: null,
-            refresh_token_ct: Buffer.concat([refreshSealed.nonce, refreshSealed.ciphertext]),
+            refresh_token_ct: sealedRefreshToken(),
             config_json: {
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
             },
-            secret_config_ct: sealed.ciphertext,
-            secret_config_nonce: sealed.nonce,
           },
         ],
       })
@@ -797,22 +781,19 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
   })
 
   it('keeps local revocation successful when the upstream rejects the revocation call', async () => {
-    const { app, db } = buildRouteApp(grantsRoutes)
-    const sealed = sealedSecretConfig({ client_secret: 'google-secret' })
-    const refreshSealed = seal(loadZoneKek(), Buffer.from('google-refresh', 'utf8'))
+    const { app, db, secrets } = buildRouteApp(grantsRoutes)
+    seedProviderSecret(secrets)
     db.query
       .mockResolvedValueOnce({
         rows: [
           {
             access_token_ct: null,
-            refresh_token_ct: Buffer.concat([refreshSealed.nonce, refreshSealed.ciphertext]),
+            refresh_token_ct: sealedRefreshToken(),
             config_json: {
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
             },
-            secret_config_ct: sealed.ciphertext,
-            secret_config_nonce: sealed.nonce,
           },
         ],
       })

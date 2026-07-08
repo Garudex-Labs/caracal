@@ -8,17 +8,18 @@ import { generateKeyPairSync } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { loadZoneKek, open, seal } from '@caracalai/server-core'
+import { providerSecretConfigRef } from '@caracalai/server-core'
 import { providersRoutes } from '../../../../../apps/api/src/routes/providers.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 
 vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }))
 vi.mock('node:https', () => ({ request: vi.fn() }))
 
-process.env.ZONE_KEK = '1111111111111111111111111111111111111111111111111111111111111111'
-
-function sealedSecretConfig(config: Record<string, string>): { ciphertext: Buffer; nonce: Buffer } {
-  return seal(loadZoneKek(), Buffer.from(JSON.stringify(config), 'utf8'))
+function seedProviderSecret(
+  secrets: { values: Map<string, Buffer> },
+  values: Record<string, string> = { client_secret: 'hooli-secret' },
+): void {
+  secrets.values.set(providerSecretConfigRef('z1', 'provider-1'), Buffer.from(JSON.stringify(values), 'utf8'))
 }
 
 function mockTokenResponse(body: Record<string, unknown> | string, statusCode: number): string[] {
@@ -50,12 +51,9 @@ function mockTokenResponse(body: Record<string, unknown> | string, statusCode: n
 }
 
 function oauthProviderRow(kind: string, config: Record<string, unknown>): Record<string, unknown> {
-  const sealed = sealedSecretConfig({ client_secret: 'hooli-secret' })
   return {
     kind,
     config_json: config,
-    secret_config_ct: sealed.ciphertext,
-    secret_config_nonce: sealed.nonce,
   }
 }
 
@@ -115,7 +113,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       allowed_token_hosts: ['issuer.example'],
       allow_runtime_injection: true,
     })
-    expect(values[8]).toEqual(['client_secret'])
+    expect(values[6]).toEqual(['client_secret'])
   })
 
   it('stores private-key JWT client credentials with sealed private keys', async () => {
@@ -156,7 +154,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       key_id: 'key-1',
       allowed_token_hosts: ['issuer.example'],
     })
-    expect(values[8]).toEqual(['private_key'])
+    expect(values[6]).toEqual(['private_key'])
   })
 
   it('rejects OAuth 2.0 client-credentials providers with invalid endpoint or token parameter config', async () => {
@@ -238,9 +236,8 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-1', kind: 'caracal_mandate' })
     expect(values[4]).toBe('caracal_mandate')
     expect(JSON.parse(values[5] as string)).toEqual({})
-    expect(values[6]).toBeNull()
+    expect(values[6]).toEqual([])
     expect(values[7]).toBeNull()
-    expect(values[8]).toEqual([])
   })
 
   it('creates none providers without credential config', async () => {
@@ -264,9 +261,8 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(JSON.parse(res.body)).toMatchObject({ id: 'provider-1', kind: 'none' })
     expect(values[4]).toBe('none')
     expect(JSON.parse(values[5] as string)).toEqual({})
-    expect(values[6]).toBeNull()
+    expect(values[6]).toEqual([])
     expect(values[7]).toBeNull()
-    expect(values[8]).toEqual([])
   })
 
   it('rejects provider-native config on none providers', async () => {
@@ -347,7 +343,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       forward_caracal_identity: true,
       allow_runtime_injection: true,
     })
-    expect(values[8]).toEqual(['api_key'])
+    expect(values[6]).toEqual(['api_key'])
   })
 
   it('stores API key provider query parameter placement and sealed secrets', async () => {
@@ -378,7 +374,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       auth_location: 'query',
       query_param_name: 'api_key',
     })
-    expect(values[8]).toEqual(['api_key'])
+    expect(values[6]).toEqual(['api_key'])
   })
 
   it('rejects API key providers with unsupported or malformed forwarding configuration', async () => {
@@ -476,7 +472,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       forward_caracal_identity: true,
       allow_runtime_injection: true,
     })
-    expect(values[8]).toEqual(['bearer_token'])
+    expect(values[6]).toEqual(['bearer_token'])
   })
 
   it('rejects bearer token providers with unsupported or malformed forwarding config', async () => {
@@ -651,7 +647,7 @@ describe('POST /v1/zones/:zoneId/providers', () => {
       auth_header: 'Authorization',
       auth_scheme: 'Bearer',
     })
-    expect(values[8]).toEqual(['client_secret'])
+    expect(values[6]).toEqual(['client_secret'])
   })
 
   it('rejects OAuth 2.0 auth-code providers with invalid URLs, unsupported client auth, or malformed forwarding schemes', async () => {
@@ -913,7 +909,7 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   it('rejects checks for kinds without a checkable endpoint instead of faking a pass', async () => {
     const { app, db, redis } = buildRouteApp(providersRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ kind: 'api_key', config_json: { header_name: 'X-API-Key' }, secret_config_ct: null, secret_config_nonce: null }],
+      rows: [{ kind: 'api_key', config_json: { header_name: 'X-API-Key' } }],
     })
 
     await app.ready()
@@ -927,7 +923,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('rate limits OAuth connectivity checks per zone', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     db.query.mockResolvedValueOnce({
       rows: [
         oauthProviderRow('oauth2_client_credentials', {
@@ -948,7 +945,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('verifies client-credentials providers with a real token request and never returns the token', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -978,7 +976,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('classifies rejected client credentials as auth_failed', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -1003,7 +1002,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('treats invalid_grant for the placeholder code as a verified authorization-code provider', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -1051,7 +1051,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
         'auth_failed',
       ],
     ] as const) {
-      const { app, db, redis } = buildRouteApp(providersRoutes)
+      const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+      seedProviderSecret(secrets)
       redis.incr.mockResolvedValueOnce(1)
       db.query.mockResolvedValueOnce({ rows: [oauthProviderRow(kind, config)] })
       vi.mocked(lookup).mockResolvedValue([{ address: '203.0.113.10', family: 4 }] as never)
@@ -1067,7 +1068,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('classifies scope and audience rejections as configuration errors', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -1092,7 +1094,8 @@ describe('POST /v1/zones/:zoneId/providers/:id/test', () => {
   })
 
   it('reports a non-allowlisted token endpoint as config_error without any outbound request', async () => {
-    const { app, db, redis } = buildRouteApp(providersRoutes)
+    const { app, db, redis, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
     redis.incr.mockResolvedValueOnce(1)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -1145,7 +1148,7 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
     expect(res.body).not.toContain('issued-token')
     expect(bodies.join('')).toContain('grant_type=client_credentials')
     const values = db.query.mock.calls[1][1] as unknown[]
-    expect(values[9]).toBeNull()
+    expect(values[7]).toBeNull()
   })
 
   it('returns the check result and creates nothing when the check fails', async () => {
@@ -1224,7 +1227,7 @@ describe('POST /v1/zones/:zoneId/providers with connectivity check', () => {
     expect(res.statusCode).toBe(201)
     expect(httpsRequest).not.toHaveBeenCalled()
     const values = db.query.mock.calls[1][1] as unknown[]
-    expect(values[9]).toBeInstanceOf(Date)
+    expect(values[7]).toBeInstanceOf(Date)
   })
 
   it('rejects check requests for kinds without a checkable endpoint', async () => {
@@ -1272,7 +1275,7 @@ sFS7xLIfVHHIVGneMcctcboFRI+0Y1yeIAjXdsB6GDpRtU1ebH1IcElQ
 
 describe('POST /v1/zones/:zoneId/providers secret intake hygiene', () => {
   it('trims outer whitespace from a pasted secret before sealing', async () => {
-    const { app, db } = buildRouteApp(providersRoutes)
+    const { app, db, secrets } = buildRouteApp(providersRoutes)
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
       rows: [{ id: 'provider-1', zone_id: 'z1', identifier: 'provider://hoolibox-token', kind: 'bearer_token' }],
     })
@@ -1290,8 +1293,8 @@ describe('POST /v1/zones/:zoneId/providers secret intake hygiene', () => {
 
     expect(res.statusCode).toBe(201)
     const values = db.query.mock.calls[1][1] as unknown[]
-    const sealed = open(loadZoneKek(), { nonce: values[7] as Buffer, ciphertext: values[6] as Buffer })
-    expect(JSON.parse(sealed.toString('utf8'))).toEqual({ bearer_token: 'hoolibox-static-token' })
+    const stored = secrets.values.get(providerSecretConfigRef('z1', values[0] as string))
+    expect(JSON.parse(stored!.toString('utf8'))).toEqual({ bearer_token: 'hoolibox-static-token' })
   })
 
   it('rejects embedded control characters in single-line secrets', async () => {
@@ -1383,7 +1386,7 @@ describe('POST /v1/zones/:zoneId/providers with http_basic kind', () => {
       username: 'richard.hendricks@piedpiper.example',
       allowed_token_hosts: ['api.hoolibox.example'],
     })
-    expect(values[8]).toEqual(['password'])
+    expect(values[6]).toEqual(['password'])
     expect(values[5]).not.toContain('jira-api-token')
   })
 
@@ -1464,7 +1467,7 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
       client_auth_method: 'none',
       assertion_subject: 'monica.hall@piedpiper.example',
     })
-    expect(values[8]).toEqual(['private_key'])
+    expect(values[6]).toEqual(['private_key'])
   })
 
   it('rejects invalid jwt_bearer combinations', async () => {

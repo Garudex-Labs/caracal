@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
-process.env.ZONE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
+process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
 const { notificationSinksRoutes, validateSinkUrl } = await import('../../../../../apps/api/src/routes/notification-sinks.js')
 const { buildRouteApp } = await import('../../../../shared/test-utils/typescript/fastify.js')
