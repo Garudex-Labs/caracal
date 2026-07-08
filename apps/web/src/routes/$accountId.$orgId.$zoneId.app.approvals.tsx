@@ -11,7 +11,6 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   CopyValue,
   DetailField,
-  DetailGroup,
   DetailSection,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
@@ -27,6 +26,7 @@ import {
   useApprovalCounts,
   useApprovalsFeed,
   useDecideApproval,
+  useResources,
 } from "@/platform/api/hooks";
 import type { ApprovalCounts, StepUpChallenge, StepUpState } from "@/platform/api/types";
 
@@ -128,9 +128,14 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
   const feed = useApprovalsFeed(zoneId, state === "all" ? {} : { state: state as StepUpState });
   const counts = useApprovalCounts(zoneId);
   const apps = useApplications(zoneId);
+  const resources = useResources(zoneId);
   const appNames = useMemo(
     () => new Map((apps.data ?? []).map((app) => [app.id, app.name])),
     [apps.data],
+  );
+  const resourceNames = useMemo(
+    () => new Map((resources.data ?? []).map((r) => [r.identifier, r.name])),
+    [resources.data],
   );
   const appName = (c: StepUpChallenge) =>
     (c.application_id && appNames.get(c.application_id)) || null;
@@ -144,6 +149,8 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
       sortable: true,
       cell: (c) => {
         const name = appName(c);
+        const sub =
+          c.session_id || (name && c.principal_id !== c.application_id ? c.principal_id : "");
         return (
           <div>
             <div
@@ -153,9 +160,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
             >
               {name ?? c.principal_id}
             </div>
-            <div className="font-mono text-[10px] text-muted-foreground">
-              {c.session_id || c.principal_id}
-            </div>
+            {sub ? <div className="font-mono text-[10px] text-muted-foreground">{sub}</div> : null}
           </div>
         );
       },
@@ -253,7 +258,12 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
         title: (c) => appName(c) ?? c.principal_id,
         description: (c) => `Raised ${relativeTime(c.created_at)}`,
         render: (c) => (
-          <ApprovalDetail challenge={c} zoneId={zoneId} applicationName={appName(c)} />
+          <ApprovalDetail
+            challenge={c}
+            zoneId={zoneId}
+            applicationName={appName(c)}
+            resourceNames={resourceNames}
+          />
         ),
       }}
     />
@@ -293,8 +303,9 @@ function ApprovalFilterBar({
 
 // What the requesting agent says about itself, read live from the coordinator: the
 // task its developer annotated at spawn, its role labels, and how recently it started.
-// The context a policy cannot evaluate but an approver can. Renders nothing when the
-// agent is gone or carries no annotations - absence over empty ritual.
+// The context a policy cannot evaluate but an approver can. A missing task annotation
+// is stated outright - not knowing why an agent wants authority is itself a signal.
+// Renders nothing only when the agent record is gone.
 function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSessionId: string }) {
   const agent = useQuery({
     queryKey: ["approvalAgent", zoneId, agentSessionId],
@@ -305,22 +316,31 @@ function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSession
   if (!agent.data) return null;
   const task = typeof agent.data.metadata?.task === "string" ? agent.data.metadata.task : null;
   const labels = agent.data.labels ?? [];
-  if (!task && labels.length === 0) return null;
   return (
     <p className="mt-1.5 text-xs text-muted-foreground">
       {task ? (
         <>
           Task: <span className="text-foreground">{task}</span>
-          {" \u00b7 "}
         </>
-      ) : null}
+      ) : (
+        "No task annotation"
+      )}
       {labels.length > 0 ? (
         <>
-          acting as {labels.join(", ")}
-          {" \u00b7 "}
+          {" \u00b7 acting as "}
+          {labels.join(", ")}
         </>
       ) : null}
-      spawned {relativeTime(agent.data.spawned_at)}
+      {" \u00b7 spawned "}
+      {relativeTime(agent.data.spawned_at)}
+      {" \u00b7 "}
+      <Link
+        to={appLink("/agents")}
+        search={{ focus: agentSessionId }}
+        className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
+      >
+        View run
+      </Link>
     </p>
   );
 }
@@ -356,7 +376,11 @@ function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
       </p>
     );
   }
-  return null;
+  return (
+    <p className="mt-1.5 text-xs text-muted-foreground">
+      First request for this authority in the last day.
+    </p>
+  );
 }
 
 type HoldEvent = {
@@ -510,10 +534,12 @@ function ApprovalDetail({
   challenge,
   zoneId,
   applicationName,
+  resourceNames,
 }: {
   challenge: StepUpChallenge;
   zoneId: string;
   applicationName: string | null;
+  resourceNames: Map<string, string>;
 }) {
   const now = Date.now();
   const authority = requestedAuthority(challenge);
@@ -552,8 +578,8 @@ function ApprovalDetail({
             {" on "}
             <span className="inline-flex flex-wrap gap-1 align-middle">
               {authority.resources.map((resource) => (
-                <Badge key={resource} tone="neutral">
-                  {resource}
+                <Badge key={resource} tone="neutral" title={resource}>
+                  {resourceNames.get(resource) ?? resource}
                 </Badge>
               ))}
             </span>
@@ -581,60 +607,71 @@ function ApprovalDetail({
         </div>
       ) : null}
 
-      <HoldTimeline challenge={challenge} now={now} />
+      {challenge.state !== "pending" ? <HoldTimeline challenge={challenge} now={now} /> : null}
 
-      <DetailGroup title="Identifiers">
-        <DetailField
-          label="Hold"
-          hint="The challenge id the agent received; decisions land on this id"
-        >
-          <CopyValue value={challenge.id} />
-        </DetailField>
-        {challenge.application_id ? (
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="transition-transform group-open:rotate-90">
+            {"\u25b8"}
+          </span>
+          Technical details
+        </summary>
+        <dl className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
           <DetailField
-            label="Application"
-            hint="The application whose credential requested this authority"
+            label="Hold"
+            hint="The challenge id the agent received; decisions land on this id"
           >
-            <CopyValue value={challenge.application_id} />
+            <CopyValue value={challenge.id} />
           </DetailField>
-        ) : null}
-        {subjectPrincipal ? (
-          <DetailField label="Principal" hint="The subject principal the token is minted for">
-            <CopyValue value={challenge.principal_id} />
-          </DetailField>
-        ) : null}
-        {challenge.session_id ? (
-          <DetailField label="Session" hint="The subject session the exchange rode on">
-            <CopyValue value={challenge.session_id} />
-          </DetailField>
-        ) : null}
-        {lineage.agentSession ? (
-          <DetailField label="Agent session" hint="The spawned agent run asking for this token">
-            <CopyValue value={lineage.agentSession} />
-          </DetailField>
-        ) : null}
-        {lineage.edge ? (
+          {challenge.application_id ? (
+            <DetailField
+              label="Application"
+              hint="The application whose credential requested this authority"
+            >
+              {applicationName ? (
+                <div className="mb-0.5 text-sm text-foreground">{applicationName}</div>
+              ) : null}
+              <CopyValue value={challenge.application_id} />
+            </DetailField>
+          ) : null}
+          {subjectPrincipal ? (
+            <DetailField label="Principal" hint="The subject principal the token is minted for">
+              <CopyValue value={challenge.principal_id} />
+            </DetailField>
+          ) : null}
+          {challenge.session_id ? (
+            <DetailField label="Session" hint="The subject session the exchange rode on">
+              <CopyValue value={challenge.session_id} />
+            </DetailField>
+          ) : null}
+          {lineage.agentSession ? (
+            <DetailField label="Agent session" hint="The spawned agent run asking for this token">
+              <CopyValue value={lineage.agentSession} />
+            </DetailField>
+          ) : null}
+          {lineage.edge ? (
+            <DetailField
+              label="Delegation edge"
+              hint="The narrowed grant the agent holds; the token cannot exceed it"
+            >
+              <CopyValue value={lineage.edge} />
+            </DetailField>
+          ) : null}
           <DetailField
-            label="Delegation edge"
-            hint="The narrowed grant the agent holds; the token cannot exceed it"
+            label="Binding"
+            hint="Fingerprint of the exact resources and scopes held. The agent prints the same value beside the challenge id."
           >
-            <CopyValue value={lineage.edge} />
+            <CopyValue value={challenge.binding} />
           </DetailField>
-        ) : null}
-        <DetailField
-          label="Binding"
-          hint="Fingerprint of the exact resources and scopes held. The agent prints the same value beside the challenge id."
-        >
-          <CopyValue value={challenge.binding} />
-        </DetailField>
-        {challenge.privacy_mode !== "identified" ? (
-          <DetailField label="Privacy">
-            <span className="text-xs text-muted-foreground">
-              {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
-            </span>
-          </DetailField>
-        ) : null}
-      </DetailGroup>
+          {challenge.privacy_mode !== "identified" ? (
+            <DetailField label="Privacy">
+              <span className="text-xs text-muted-foreground">
+                {PRIVACY_MODE_LABELS[challenge.privacy_mode]}
+              </span>
+            </DetailField>
+          ) : null}
+        </dl>
+      </details>
 
       {challenge.session_id ? (
         <div className="border-t border-border pt-3">
@@ -706,8 +743,8 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
           {relativeTime(challenge.expires_at, now)}.
         </div>
         <div>
-          <span className="font-medium">If you reject:</span> the exchange fails closed for the rest
-          of the window.
+          <span className="font-medium">If you reject:</span> the exchange fails closed and
+          identical re-asks are refused for the rest of the window.
         </div>
       </div>
       <div className="mt-3">
