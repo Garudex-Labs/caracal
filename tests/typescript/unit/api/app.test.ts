@@ -70,6 +70,9 @@ let envBackup: NodeJS.ProcessEnv
 
 beforeEach(() => {
   envBackup = { ...process.env }
+  // buildApp validates the Secret Store keyring at boot.
+  process.env.SECRET_STORE_KEK = '8f3d9a712c45e6b0d18f2a4c6e9b3d57a1c4f8020e6a9c3d5b7f1a2c4e6d8b90'
+  delete process.env.SECRET_STORE_KEK_PREVIOUS
 })
 afterEach(() => {
   process.env = envBackup

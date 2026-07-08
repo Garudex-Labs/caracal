@@ -8,7 +8,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { providerSecretConfigRef } from '@caracalai/server-core'
+import { SecretBackendError, providerSecretConfigRef } from '@caracalai/server-core'
 import { providersRoutes } from '../../../../../apps/api/src/routes/providers.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 
@@ -733,6 +733,28 @@ describe('POST /v1/zones/:zoneId/providers', () => {
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_identifier' })
   })
+
+  it('answers 502 and rolls the insert back when the secret backend rejects the credential write', async () => {
+    const { app, db, secrets } = buildRouteApp(providersRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'provider-1', zone_id: 'z1', kind: 'api_key' }] })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: { identifier: 'provider://piper-api', kind: 'api_key', config_json: { header_name: 'X-Api-Key', api_key: 'piper-key' } },
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(db.connect).toHaveBeenCalled()
+    expect(secrets.values.size).toBe(0)
+    const issuedStatements = db.query.mock.calls.map((call) => String(call[0]))
+    expect(issuedStatements.some((sql) => sql.includes('DELETE FROM providers'))).toBe(false)
+  })
 })
 
 describe('PATCH /v1/zones/:zoneId/providers/:id', () => {
@@ -834,6 +856,41 @@ describe('PATCH /v1/zones/:zoneId/providers/:id', () => {
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_identifier_conflict' })
+  })
+
+  it('answers 502 and rolls the row update back when the secret backend rejects the credential write', async () => {
+    const { app, db, secrets } = buildRouteApp(providersRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'provider-1', zone_id: 'z1', kind: 'api_key' }] })
+    secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/providers/provider-1',
+      payload: { kind: 'api_key', config_json: { header_name: 'X-Api-Key', api_key: 'piper-key' } },
+    })
+
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
+    expect(db.connect).toHaveBeenCalled()
+    expect(secrets.values.size).toBe(0)
+  })
+
+  it('clears the stored credential document when a kind change drops the secret config', async () => {
+    const { app, db, secrets } = buildRouteApp(providersRoutes)
+    seedProviderSecret(secrets)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'provider-1', zone_id: 'z1', kind: 'none' }] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/providers/provider-1',
+      payload: { kind: 'none', config_json: {} },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(secrets.delete).toHaveBeenCalledWith(providerSecretConfigRef('z1', 'provider-1'))
+    expect(secrets.values.size).toBe(0)
   })
 })
 
