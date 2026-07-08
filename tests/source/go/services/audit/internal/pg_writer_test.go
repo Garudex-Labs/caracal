@@ -70,6 +70,7 @@ type writerPool struct {
 	rows     []pgx.Row
 	rowIdx   int
 	execSQL  []string
+	execArgs [][]any
 	execErr  error
 	query    pgx.Rows
 	queryErr error
@@ -92,8 +93,9 @@ func (p *writerPool) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return p.query, p.queryErr
 }
 
-func (p *writerPool) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (p *writerPool) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	p.execSQL = append(p.execSQL, sql)
+	p.execArgs = append(p.execArgs, args)
 	return pgconn.CommandTag{}, p.execErr
 }
 
@@ -308,11 +310,12 @@ func TestEnsurePartitionFormatsMonthlyRange(t *testing.T) {
 	if err := w.EnsurePartition(context.Background(), time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("EnsurePartition: %v", err)
 	}
-	if len(pool.execSQL) != 1 || !strings.Contains(pool.execSQL[0], "audit_events_y2026m03") {
-		t.Fatalf("partition ddl = %v", pool.execSQL)
+	if len(pool.execSQL) != 1 || !strings.Contains(pool.execSQL[0], "audit_partition_ensure") {
+		t.Fatalf("partition call = %v", pool.execSQL)
 	}
-	if !strings.Contains(pool.execSQL[0], "'2026-03-01'") || !strings.Contains(pool.execSQL[0], "'2026-04-01'") {
-		t.Fatalf("partition bounds = %v", pool.execSQL)
+	want := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	if len(pool.execArgs[0]) != 1 || pool.execArgs[0][0] != want {
+		t.Fatalf("partition month = %v", pool.execArgs[0])
 	}
 }
 
@@ -331,8 +334,11 @@ func TestDropPartitionsBeforeDropsOnlyExpiredMonths(t *testing.T) {
 	if len(dropped) != 1 || dropped[0] != "audit_events_y2025m01" {
 		t.Fatalf("dropped = %v", dropped)
 	}
-	if len(pool.execSQL) != 1 || !strings.Contains(pool.execSQL[0], "audit_events_y2025m01") {
-		t.Fatalf("drop ddl = %v", pool.execSQL)
+	if len(pool.execSQL) != 1 || !strings.Contains(pool.execSQL[0], "audit_partition_drop") {
+		t.Fatalf("drop call = %v", pool.execSQL)
+	}
+	if len(pool.execArgs[0]) != 1 || pool.execArgs[0][0] != "audit_events_y2025m01" {
+		t.Fatalf("drop target = %v", pool.execArgs[0])
 	}
 }
 

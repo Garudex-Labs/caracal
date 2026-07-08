@@ -3241,11 +3241,52 @@ GRANT SELECT ON TABLE public.sessions TO caracalgateway;
 GRANT SELECT ON TABLE public.agent_sessions TO caracalgateway;
 GRANT SELECT ON TABLE public.delegation_edges TO caracalgateway;
 
--- The audit retention worker creates and drops monthly partitions, so the audit
--- role owns the partitioned event store; ownership carries its DML implicitly.
-ALTER TABLE public.audit_events OWNER TO caracalaudit;
-ALTER TABLE public.audit_events_default OWNER TO caracalaudit;
-GRANT CREATE ON SCHEMA public TO caracalaudit;
+-- The audit retention worker maintains the monthly partition window through
+-- definer functions owned by the administrative role, so the audit role can
+-- create and drop partitions without holding UPDATE or DELETE on the event
+-- store and the append-only guarantee stays intact.
+CREATE FUNCTION public.audit_partition_ensure(month date) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public
+    AS $$
+DECLARE
+    start_month date := date_trunc('month', month)::date;
+    end_month date := start_month + make_interval(months => 1);
+    part_name text := format('audit_events_y%sm%s',
+                             to_char(start_month, 'YYYY'),
+                             to_char(start_month, 'MM'));
+BEGIN
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS public.%I PARTITION OF public.audit_events FOR VALUES FROM (%L) TO (%L)',
+        part_name, start_month, end_month);
+END
+$$;
+
+CREATE FUNCTION public.audit_partition_drop(part_name text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public
+    AS $$
+BEGIN
+    IF part_name !~ '^audit_events_y[0-9]{4}m[0-9]{2}$' THEN
+        RAISE EXCEPTION 'not an audit_events monthly partition: %', part_name;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_inherits
+        JOIN pg_class child ON child.oid = inhrelid
+        JOIN pg_class parent ON parent.oid = inhparent
+        WHERE parent.relname = 'audit_events' AND child.relname = part_name
+    ) THEN
+        RETURN;
+    END IF;
+    EXECUTE format('DROP TABLE public.%I', part_name);
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.audit_partition_ensure(date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.audit_partition_drop(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.audit_partition_ensure(date) TO caracalaudit;
+GRANT EXECUTE ON FUNCTION public.audit_partition_drop(text) TO caracalaudit;
 
 
 --
@@ -3273,7 +3314,6 @@ BEGIN
         EXECUTE format(
             'CREATE TABLE IF NOT EXISTS public.%I PARTITION OF public.audit_events FOR VALUES FROM (%L) TO (%L)',
             part_name, start_month, end_month);
-        EXECUTE format('ALTER TABLE public.%I OWNER TO caracalaudit', part_name);
     END LOOP;
 END
 $$;

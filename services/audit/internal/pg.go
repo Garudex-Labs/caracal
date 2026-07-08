@@ -421,13 +421,7 @@ func (w *PGWriter) ConfiguredRetentionDays(ctx context.Context) (int, bool, erro
 func (w *PGWriter) EnsurePartition(ctx context.Context, t time.Time) error {
 	t = t.UTC()
 	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
-	name := fmt.Sprintf("audit_events_y%04dm%02d", start.Year(), int(start.Month()))
-	_, err := w.db.Exec(ctx,
-		fmt.Sprintf(
-			`CREATE TABLE IF NOT EXISTS %s PARTITION OF audit_events
-			 FOR VALUES FROM ('%s') TO ('%s')`,
-			name, start.Format("2006-01-02"), end.Format("2006-01-02")))
+	_, err := w.db.Exec(ctx, `SELECT public.audit_partition_ensure($1)`, start)
 	return err
 }
 
@@ -465,7 +459,7 @@ func (w *PGWriter) DropPartitionsBefore(ctx context.Context, cutoff time.Time) (
 		}
 		end := time.Date(y, time.Month(m)+1, 1, 0, 0, 0, 0, time.UTC)
 		if !end.After(cutoff) {
-			if _, err := w.db.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, n)); err != nil {
+			if _, err := w.db.Exec(ctx, `SELECT public.audit_partition_drop($1)`, n); err != nil {
 				return dropped, err
 			}
 			dropped = append(dropped, n)
