@@ -499,6 +499,34 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
       'sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked',
     )
   })
+
+  it('neutralizes spreadsheet formula triggers in issuer-controlled CSV cells', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'sess-10',
+          session_type: 'user',
+          subject_id: '=HYPERLINK("https://evil.hooli.example")',
+          parent_id: null,
+          status: 'active',
+          authenticated_at: '2026-05-02T00:00:00.000Z',
+          created_at: '2026-05-02T00:00:00.000Z',
+          expires_at: '2026-05-02T01:00:00.000Z',
+          revoked_at: null,
+          revoked_reason: null,
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions?format=csv' })
+
+    expect(res.statusCode).toBe(200)
+    const lines = res.body.trim().split('\r\n')
+    expect(lines[1]).toContain(`"'=HYPERLINK(""https://evil.hooli.example"")"`)
+    expect(lines[1]).not.toMatch(/(^|,)=/)
+  })
 })
 
 describe('GET /v1/zones/:zoneId/agent-sessions', () => {

@@ -148,7 +148,12 @@ const AGENT_SESSION_CSV_COLUMNS = [
 
 function toCsvCell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
+  let text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
+  // Formula-injection guard: a cell starting with a formula trigger is prefixed
+  // with a single quote so spreadsheet applications render it as text. Exported
+  // values such as federated subject identifiers are issuer-controlled, so every
+  // cell is treated as hostile.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
