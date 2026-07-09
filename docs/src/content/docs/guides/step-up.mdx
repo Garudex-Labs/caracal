@@ -44,32 +44,34 @@ approval_tiers := [
 
 When one mint matches several tiers, the hold merges them strictly: the most trusted approver class, the shortest window, and the most protective privacy mode win.
 
+Tune `ttl_seconds` to the tier's real decision window: it bounds how long an approved-but-unconsumed hold stays spendable, so a shorter TTL shrinks the window in which a leaked approval could be consumed, while a TTL shorter than your approvers' actual response time just converts legitimate requests into expiries. High-value, rarely exercised operations warrant minutes; routine operator flows can keep the 30-minute default.
+
 ## Handle the hold in the agent
 
-The `interaction_required` error carries the challenge id, the tier, the expiry, and a `binding` - a hash of the exact resource and scope set held. `waitForApproval` long-polls the hold and resolves when someone decides:
+The `interaction_required` error carries the approval id, the tier, the expiry, and a `binding` - a hash of the exact resource and scope set held. The SDK runs the whole flow - catch the hold, wait for the decision, retry with the approval id so the retried mint consumes it - in one call:
 
 ```ts
-import { OAuthClient, ApprovalRequiredError } from "@caracalai/oauth";
+import { Caracal } from "@caracalai/sdk";
 
-const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
-const request = { scopes: ["pipernet:refund"], sessionId };
+const caracal = new Caracal();
 
-try {
-  return await oauth.exchange(subjectToken, "resource://pipernet", request);
-} catch (error) {
-  if (error instanceof ApprovalRequiredError) {
-    console.log(`approval needed: ${error.approvalId} binding ${error.binding}`);
-    await oauth.waitForApproval(error.approvalId);
-    return oauth.exchange(subjectToken, "resource://pipernet", {
-      ...request,
-      challengeId: error.approvalId,
-    });
-  }
-  throw error;
-}
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate("resource://pipernet", ["pipernet:refund"], { approvalId }),
+);
 ```
 
-The Python and Go clients expose the same surface as `wait_for_approval` and `WaitForApproval`. Under `caracal run` none of this is hand-written: the engine prints an `approval_required` notice with the challenge id and binding, waits on the hold, and retries the exchange itself.
+When the wait outcome is anything but `approved` - rejected, expired, already consumed, or the wait timed out - `withApproval` rethrows the original `ApprovalRequiredError`. Its `approvalId` is durable: persist it and resume later with `waitForApproval`, which long-polls and returns the typed final state without re-raising the hold:
+
+```ts
+const state = await caracal.waitForApproval(persistedApprovalId, { timeoutMs: 600_000 });
+// 'approved'  -> retry the mint with { approvalId } to consume the decision
+// 'pending'   -> nobody has decided; waiting again is safe
+// 'rejected' | 'expired' | 'consumed' -> terminal; re-request the operation
+```
+
+An approval is **single-use**: the first mint that presents the approval id spends it. When two workers race one approval - a retried queue message, a redeployed worker resuming the same persisted id - one wins and the other fails with the hold in state `consumed`. Consumed is not an error to wait out: the operation was already performed once, so check for its effect before re-requesting a fresh approval.
+
+The Python and Go clients expose the same surface as `with_approval`/`wait_for_approval` and `WithApproval`/`WaitForApproval`. The lower-level `@caracalai/oauth` client offers `waitForApproval` directly for integrations that drive the exchange themselves. Under `caracal run` none of this is hand-written: the engine prints an `approval_required` notice with the approval id and binding, waits on the hold, and retries the exchange itself.
 
 ## Decide as an operator
 
@@ -96,7 +98,7 @@ curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
   -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
 ```
 
-The SDK OAuth clients wrap both steps: `federateSubject(idToken)` mints the user session, and `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly, so an approval prompt that does not know the precise held resource and scope set cannot decide it. The session that raised the hold cannot approve itself, and the deciding user must have federated through the application that raised the hold. Without a registered subject issuer, a subject-reserved hold can only expire - declare `operator` or `any` tiers instead.
+The SDKs wrap both steps: `caracal.federateSubject(idToken)` on the main client mints the user session and returns its `subjectSessionId` and mandate, and the OAuth client's `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly, so an approval prompt that does not know the precise held resource and scope set cannot decide it. The session that raised the hold cannot approve itself, and the deciding user must have federated through the application that raised the hold. Without a registered subject issuer, a subject-reserved hold can only expire - declare `operator` or `any` tiers instead.
 
 ## Retry the exchange
 

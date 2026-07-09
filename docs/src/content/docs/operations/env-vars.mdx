@@ -125,13 +125,17 @@ SDK profile loading reads:
 | Variable | Meaning |
 | --- | --- |
 | `CARACAL_CONFIG` | Explicit SDK profile path. |
+| `CARACAL_CONFIG_HOME` | Overrides the OS Caracal config directory used for profile and credential auto-detection. |
 | `CARACAL_ENV` | Set to `production` to require explicit service URLs and disable local credential auto-detection. |
+| `CARACAL_ALLOW_INSECURE_CONFIG_URLS` | Set to `true` to allow plaintext `http` control-plane URLs in production; the SDK logs a warning banner while it is active. |
 | `CARACAL_STS_URL` or `CARACAL_ZONE_URL` | Cloud/custom STS URL override for token exchange. |
 | `CARACAL_GATEWAY_URL` | Cloud/custom Gateway URL override for SDK transports. |
 | `CARACAL_ZONE_ID` | Zone identifier. |
 | `CARACAL_APPLICATION_ID` | Confidential application ID. |
+| `CARACAL_BOOTSTRAP_TOKEN` | Static bootstrap subject token for deployments that do not exchange a client secret. Expired or `alg: none` JWTs are rejected at startup. |
 | `CARACAL_APP_CLIENT_SECRET` | Cloud/custom workload client secret when a file-backed secret is not used. |
 | `CARACAL_APP_CLIENT_SECRET_FILE` | Cloud/custom workload secret file. |
+| `CARACAL_APP_RESOURCES` | Comma-separated resource audiences for client-secret exchanges when no credential manifest supplies them. |
 | `CARACAL_RUN_CREDENTIALS` | Inline JSON credential manifest for resource audiences. |
 | `CARACAL_RUN_CREDENTIALS_FILE` | Cloud/custom JSON credential manifest. |
 | `CARACAL_RESOURCES` | Comma-separated `resource_id=upstream_prefix` bindings for Gateway routing. |
