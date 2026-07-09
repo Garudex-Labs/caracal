@@ -132,7 +132,6 @@ export class OAuthClient {
     return [
       this.identityKey,
       secretCacheId(subjectToken),
-      secretCacheId(opts.actorToken),
       opts.sessionId ?? '',
       opts.agentSessionId ?? '',
       opts.delegationEdgeId ?? '',
@@ -177,7 +176,6 @@ export class OAuthClient {
     if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
     if (opts.clientAssertion) body.set('client_assertion', opts.clientAssertion)
     if (opts.clientAssertionType) body.set('client_assertion_type', opts.clientAssertionType)
-    if (opts.actorToken) body.set('actor_token', opts.actorToken)
     if (opts.sessionId) body.set('session_id', opts.sessionId)
     if (opts.agentSessionId) body.set('agent_session_id', opts.agentSessionId)
     if (opts.delegationEdgeId) body.set('delegation_edge_id', opts.delegationEdgeId)

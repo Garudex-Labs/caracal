@@ -27,6 +27,10 @@ export interface CoordinatorClient {
 
 const DEFAULT_TIMEOUT_MS = 10_000
 
+// Error bodies are capped so an oversized or sensitive-payload response never
+// lands wholesale in logs and error trackers.
+const ERROR_BODY_CAP = 2048
+
 /** Coordinator rejected a request; carries the HTTP status so callers can branch on it. */
 export class CoordinatorError extends Error {
   constructor(
@@ -34,10 +38,24 @@ export class CoordinatorError extends Error {
     readonly path: string,
     readonly status: number,
     body: string,
+    /** Server-requested retry delay parsed from Retry-After, when present. */
+    readonly retryAfterSeconds?: number,
   ) {
-    super(`coordinator ${method} ${path} failed: ${status} ${body}`)
+    super(
+      `coordinator ${method} ${path} failed: ${status} ${body.length > ERROR_BODY_CAP ? `${body.slice(0, ERROR_BODY_CAP)}… (truncated)` : body}`,
+    )
     this.name = 'CoordinatorError'
   }
+}
+
+function retryAfterSeconds(res: Response): number | undefined {
+  const raw = res.headers.get('retry-after')
+  if (!raw) return undefined
+  const secs = Number(raw)
+  if (Number.isFinite(secs) && secs >= 0) return secs
+  const at = Date.parse(raw)
+  if (Number.isNaN(at)) return undefined
+  return Math.max(0, (at - Date.now()) / 1000)
 }
 
 /**
@@ -156,7 +174,7 @@ async function call<T>(
   if (!res.ok) {
     const text = await res.text()
     emit(res.status, false)
-    throw new CoordinatorError(method, path, res.status, text)
+    throw new CoordinatorError(method, path, res.status, text, retryAfterSeconds(res))
   }
   emit(res.status, true)
   if (res.status === 204) return undefined as T

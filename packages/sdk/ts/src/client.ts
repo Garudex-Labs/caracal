@@ -41,6 +41,9 @@ const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
 const APP_MANDATE_TTL_SECONDS = 900
 const APP_MANDATE_REFRESH_MARGIN_SECONDS = 60
+// Cache keys are config-derived, so growth is operator-bounded; the cap is a
+// safety valve against a pathological configuration exhausting memory.
+const APP_MANDATE_CACHE_CAP = 128
 const APP_SESSION_TTL_BUFFER_SECONDS = 120
 
 export interface ResourceBinding {
@@ -74,9 +77,17 @@ export class CredentialsUnavailableError extends Error {
   }
 }
 
-/** A minted resource mandate and the lifetime the STS granted it, in seconds. */
 /** A minted resource mandate and the lifetime the STS granted it. */
 export interface MintedMandate {
+  token: string
+  expiresInSeconds: number
+}
+
+/** A federated end user identity: the subject session anchoring the user and the mandate proving it. */
+export interface FederatedSubject {
+  /** Anchors governed work to the user: pass as subjectSessionId when starting sessions on their behalf. */
+  subjectSessionId: string
+  /** The user's subject session mandate, e.g. for approval decisions; it carries no resource authority. */
   token: string
   expiresInSeconds: number
 }
@@ -98,6 +109,8 @@ export interface ClientSecretExchanger {
     scopes: string[],
     opts?: { sessionId?: string; delegationId?: string; ttlSeconds?: number; approvalId?: string; signal?: AbortSignal },
   ): Promise<MintedMandate>
+  /** Exchanges an end user's external identity token for the user's subject session mandate; never cached. */
+  federateSubject(idToken: string, opts?: { ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal }): Promise<MintedMandate>
   waitForApproval(approvalId: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<ApprovalState>
   /** Attaches the observability sink token-exchange events report to. */
   onEvent(cb: (event: OAuthEvent) => void): void
@@ -125,11 +138,15 @@ export interface SessionOptions {
   subjectSessionId?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
+  /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
+  task?: string
   metadata?: JsonObject
   /** Role labels the zone's grant policy matches (`input.principal.labels`); descriptive for policy and audit, never grants. */
   labels?: string[]
   /** W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent. */
   traceId?: string
+  /** Caller-supplied spawn idempotency key: redelivering the same trigger (queue retry, webhook replay) resumes the session instead of minting a duplicate. */
+  idempotencyKey?: string
   signal?: AbortSignal
 }
 
@@ -139,11 +156,15 @@ export interface StartSessionOptions {
   subjectSessionId?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
+  /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
+  task?: string
   metadata?: JsonObject
   /** Role labels the zone's grant policy matches (`input.principal.labels`); descriptive for policy and audit, never grants. */
   labels?: string[]
   /** W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent. */
   traceId?: string
+  /** Caller-supplied spawn idempotency key: redelivering the same trigger (queue retry, webhook replay) resumes the session instead of minting a duplicate. */
+  idempotencyKey?: string
   /**
    * Auto-heartbeat cadence. Leave unset to derive it from the server lease;
    * a positive value fixes the interval; zero or a negative value disables
@@ -167,8 +188,23 @@ export interface DelegateOptions {
 
 export type LifecycleHook = (ctx: CaracalContext) => void | Promise<void>
 
-/** Control-plane operation reported to onEvent subscribers: a token exchange, an approval wait, or a coordinator call. */
-export type CaracalEvent = OAuthEvent | CoordinatorCallEvent
+/**
+ * One delegation presentation by this client. Emitted whenever
+ * acceptDelegation binds a delegation - and with `ok: false` when an
+ * up-front validation rejects it - so a forensic consumer can correlate
+ * which workload presented which delegation on which session.
+ */
+export interface DelegationAcceptEvent {
+  type: 'delegation.accept'
+  delegationId: string
+  sessionId?: string
+  validated: boolean
+  ok: boolean
+  durationMs: number
+}
+
+/** Control-plane operation reported to onEvent subscribers: a token exchange, an approval wait, a coordinator call, or a delegation acceptance. */
+export type CaracalEvent = OAuthEvent | CoordinatorCallEvent | DelegationAcceptEvent
 
 export type EventHook = (event: CaracalEvent) => void
 
@@ -377,9 +413,10 @@ export class Caracal {
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentSessionId: opts.parentSessionId,
-      metadata: opts.metadata,
+      metadata: taskMetadata(opts),
       labels: opts.labels,
       traceId: opts.traceId,
+      idempotencyKey: opts.idempotencyKey,
       signal: opts.signal,
       warn: this.config.logger,
       onSessionStart: this.sessionStartHooks.length ? (c) => this.fire(this.sessionStartHooks, c) : undefined,
@@ -405,9 +442,10 @@ export class Caracal {
       subjectSessionId: opts.subjectSessionId,
       parentSessionId: opts.parentSessionId,
       authority: opts.authority,
-      metadata: opts.metadata,
+      metadata: taskMetadata(opts),
       labels: opts.labels,
       traceId: opts.traceId,
+      idempotencyKey: opts.idempotencyKey,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       onLeaseLost: opts.onLeaseLost,
       signal: opts.signal,
@@ -448,16 +486,28 @@ export class Caracal {
   async acceptDelegation<T>(delegationId: string, fn: () => Promise<T>, opts: { validate?: boolean } = {}): Promise<T> {
     const ctx = current()
     if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
+    const start = performance.now()
+    const emit = (ok: boolean) =>
+      this.emitEvent({
+        type: 'delegation.accept',
+        delegationId,
+        sessionId: ctx.sessionId,
+        validated: opts.validate === true,
+        ok,
+        durationMs: performance.now() - start,
+      })
     if (opts.validate) {
       if (!ctx.sessionId) throw new Error('acceptDelegation validation requires an active session in context')
       const inbound = await listInboundDelegations(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId)
       const match = inbound.find((item) => item.delegationEdgeId === delegationId)
       if (!match || match.status !== 'active') {
+        emit(false)
         throw new Error(
           `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
         )
       }
     }
+    emit(true)
     return bind(acceptDelegation(ctx, delegationId), fn)
   }
 
@@ -761,6 +811,29 @@ export class Caracal {
   }
 
   /**
+   * Exchange an end user's identity token from a zone-trusted external issuer
+   * for the user's Caracal subject session. The returned subjectSessionId
+   * anchors governed work to that user (`session(fn, { subjectSessionId })`),
+   * and the returned token is the user's own mandate for user-facing flows
+   * such as approval decisions. Never cached: each federation is an explicit
+   * identity event, recorded in the audit stream. Requires a client-secret
+   * configuration and a subject issuer registered on the zone.
+   */
+  async federateSubject(
+    idToken: string,
+    opts: { ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<FederatedSubject> {
+    const exchanger = this.config.exchanger
+    if (!exchanger) throw new Error('Caracal.federateSubject(): requires a client-secret configuration')
+    const minted = await exchanger.federateSubject(idToken, opts)
+    const sid = decodeJwtPayload(minted.token)?.sid
+    if (typeof sid !== 'string' || !sid) {
+      throw new Error('Caracal.federateSubject(): the minted subject session mandate carries no session id')
+    }
+    return { subjectSessionId: sid, token: minted.token, expiresInSeconds: minted.expiresInSeconds }
+  }
+
+  /**
    * Long-polls an approval until an approver decides it, it
    * expires, or the timeout elapses. Returns the final lifecycle state:
    * 'approved' means retrying the mint with `approvalId` set will succeed;
@@ -893,6 +966,16 @@ export class Caracal {
       try {
         const fresh = await this.appMandateCycle(exchanger, identity, resourceId, scopes, opts)
         this.appMandates.set(key, fresh)
+        if (this.appMandates.size > APP_MANDATE_CACHE_CAP) {
+          const now = Date.now() / 1000
+          for (const [k, entry] of this.appMandates) {
+            if (entry.expiresAt <= now) this.appMandates.delete(k)
+          }
+          for (const k of this.appMandates.keys()) {
+            if (this.appMandates.size <= APP_MANDATE_CACHE_CAP) break
+            if (k !== key) this.appMandates.delete(k)
+          }
+        }
         return fresh
       } finally {
         this.appInflight.delete(key)
@@ -1049,6 +1132,8 @@ function productionEnv(env: NodeJS.ProcessEnv): boolean {
   return env.NODE_ENV === 'production'
 }
 
+let insecureConfigWarned = false
+
 function defaultWarn(message: string, err?: unknown): void {
   if (err === undefined) console.warn(message)
   else console.warn(message, err)
@@ -1065,7 +1150,7 @@ function lifecycleAuthorityHint(err: unknown, ctx: CaracalContext | undefined): 
   if (!ctx?.sessionId || ctx.delegationId) return err
   return new CaracalError(
     err.code,
-    `${err.message} (hint: the bound session has no delegation, so it holds lifecycle-only authority; narrow the session with Authority.narrow, accept one with acceptDelegation, or call as the application with applicationTransport)`,
+    `${err.message} (hint: the bound session has no delegation, so it holds lifecycle-only authority; narrow the session with Authority.narrow, accept one with acceptDelegation, or call as the application with applicationTransport; decision contract: https://docs.caracal.run/concepts/policy/)`,
     { requestId: err.requestId, httpStatus: err.httpStatus, details: err.details },
   )
 }
@@ -1078,7 +1163,17 @@ function isLoopbackHost(host: string): boolean {
 
 function assertProductionTransport(name: string, value: string | undefined, env: NodeJS.ProcessEnv): void {
   if (!value || !productionEnv(env)) return
-  if (env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true') return
+  if (env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true') {
+    // The override disables the https requirement for the whole control
+    // plane, so its presence in production must be loud and unmissable.
+    if (!insecureConfigWarned) {
+      insecureConfigWarned = true
+      defaultWarn(
+        'caracal: CARACAL_ALLOW_INSECURE_CONFIG_URLS is active in production; control-plane traffic may travel over plaintext http - remove the override once TLS is in place',
+      )
+    }
+    return
+  }
   let parsed: URL
   try {
     parsed = new URL(value)
@@ -1715,6 +1810,16 @@ function createClientSecretTokenSource(
       })
       return { token: token.accessToken, expiresInSeconds: token.expiresIn }
     },
+    federateSubject: async (idToken, opts = {}) => {
+      const { creds, client } = await resolve()
+      const token = await client.federateSubject(idToken, {
+        clientSecret: creds.clientSecret,
+        ttlSeconds: opts.ttlSeconds,
+        timeoutMs: opts.timeoutMs,
+        signal: opts.signal,
+      })
+      return { token: token.accessToken, expiresInSeconds: token.expiresIn }
+    },
     waitForApproval: async (approvalId, opts = {}) => (await resolve()).client.waitForApproval(approvalId, opts),
     onEvent: (cb) => {
       events = cb
@@ -1727,28 +1832,42 @@ function sortBindingsLongestFirst(bindings: ResourceBinding[]): ResourceBinding[
 
 /**
  * Local sanity check on the bootstrap subject token. When the token has a JWT
- * shape, decodes the payload and rejects tokens that are malformed or already
- * expired. Opaque tokens are accepted.
+ * shape, rejects `alg: none` tokens - the platform never issues them, so the
+ * shape only appears in forgeries and miswired test fixtures - and rejects
+ * tokens that are malformed or already expired. Opaque tokens are accepted.
  */
 function validateBootstrapToken(token: string): void {
-  const parts = token.split('.')
-  if (parts.length !== 3) return
-  let payloadJson: string
-  try {
-    const padded = parts[1] + '='.repeat((4 - (parts[1].length % 4)) % 4)
-    const b64 = padded.replace(/-/g, '+').replace(/_/g, '/')
-    payloadJson = typeof Buffer !== 'undefined' ? Buffer.from(b64, 'base64').toString('utf-8') : atob(b64)
-  } catch {
-    return
+  const alg = decodeJwtSegment(token, 0)?.alg
+  if (typeof alg === 'string' && alg.toLowerCase() === 'none') {
+    throw new Error('CARACAL_BOOTSTRAP_TOKEN uses alg "none": unsigned tokens are never valid; supply a token minted by the platform')
   }
-  let payload: { exp?: number }
-  try {
-    payload = JSON.parse(payloadJson)
-  } catch {
-    return
-  }
-  if (typeof payload.exp !== 'number') return
-  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+  const exp = decodeJwtPayload(token)?.exp
+  if (typeof exp !== 'number') return
+  if (exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('CARACAL_BOOTSTRAP_TOKEN is expired: refresh the bootstrap token before starting the application')
   }
+}
+
+/** Decodes a JWT payload without verifying it - verification is the STS's job. Returns undefined for opaque or malformed tokens. */
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  return decodeJwtSegment(token, 1)
+}
+
+function decodeJwtSegment(token: string, index: number): Record<string, unknown> | undefined {
+  const parts = token.split('.')
+  if (parts.length !== 3) return undefined
+  try {
+    const padded = parts[index] + '='.repeat((4 - (parts[index].length % 4)) % 4)
+    const b64 = padded.replace(/-/g, '+').replace(/_/g, '/')
+    const json = typeof Buffer !== 'undefined' ? Buffer.from(b64, 'base64').toString('utf-8') : atob(b64)
+    const payload: unknown = JSON.parse(json)
+    return isRecord(payload) ? payload : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Folds the task option into session metadata; an explicit task wins over a metadata.task the caller also set. */
+function taskMetadata(opts: { task?: string; metadata?: JsonObject }): JsonObject | undefined {
+  return opts.task === undefined ? opts.metadata : { ...opts.metadata, task: opts.task }
 }

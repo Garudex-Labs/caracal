@@ -14,7 +14,6 @@ export interface TokenExchangeRequest {
   clientSecret?: string
   clientAssertion?: string
   clientAssertionType?: string
-  actorToken?: string
   sessionId?: string
   agentSessionId?: string
   delegationEdgeId?: string
@@ -50,7 +49,6 @@ export interface ExchangeOptions {
   clientSecret?: string
   clientAssertion?: string
   clientAssertionType?: string
-  actorToken?: string
   sessionId?: string
   agentSessionId?: string
   delegationEdgeId?: string
