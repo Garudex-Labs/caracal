@@ -111,10 +111,25 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       constraints.broad_reason ??= 'resource_null_delegation'
       constraints.policy_approved = true
     }
+    const idempotencyKey = (req.headers['idempotency-key'] as string | undefined)?.trim() || null
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
+      if (idempotencyKey) {
+        const { rows: existing } = await client.query(
+          `SELECT id AS delegation_edge_id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+                  parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
+           FROM delegation_edges
+           WHERE zone_id = $1 AND issuer_application_id = $2 AND idempotency_key = $3 AND status = 'active'
+           LIMIT 1`,
+          [zoneId, body.issuer_application_id, idempotencyKey],
+        )
+        if (existing[0]) {
+          await client.query('ROLLBACK')
+          return reply.code(200).send(existing[0])
+        }
+      }
       const endpoints = await activeAgentEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
       if (!endpoints.source || !endpoints.target) {
         await client.query('ROLLBACK')
@@ -179,8 +194,8 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
          )
          INSERT INTO delegation_edges
           (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-           parent_edge_id, resource_id, scopes, constraints_json, expires_at)
-          SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,expiry.expires_at
+           parent_edge_id, resource_id, scopes, constraints_json, expires_at, idempotency_key)
+          SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,expiry.expires_at,$13
           FROM expiry
           WHERE expiry.expires_at > now()
             AND (
@@ -204,6 +219,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           constraints,
           requestedExpiresAt ?? null,
           ttlSeconds,
+          idempotencyKey,
         ],
       )
       if (!rows[0]) {

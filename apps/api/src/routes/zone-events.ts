@@ -99,6 +99,7 @@ function parseEventTypes(raw: string): string[] | null {
 }
 
 const SessionQuery = z.object({
+  id: z.string().min(1).max(128).optional(),
   status: z.enum(['active', 'revoked', 'expired']).optional(),
   subject_id: z.string().min(1).optional(),
   format: z.enum(['json', 'csv']).default('json'),
@@ -495,6 +496,10 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
+    if (q.id) {
+      values.push(q.id)
+      conds.push(`id = $${values.length}`)
+    }
     if (q.status) {
       values.push(q.status)
       conds.push(`status = $${values.length}`)

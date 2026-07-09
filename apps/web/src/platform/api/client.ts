@@ -65,6 +65,9 @@ import type {
   ListEnvelope,
   Session,
   SessionQuery,
+  SubjectOverview,
+  SubjectQuery,
+  SubjectSummary,
   SimulateResult,
   StepUpChallenge,
   StepUpDecision,
@@ -720,12 +723,33 @@ export const consoleApi = {
         `/v1/zones/${encodeURIComponent(zoneId)}/sessions${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
+          id: query.id,
           status: query.status,
           subject_id: query.subject_id,
         })}`,
       );
       return { rows: res.items, nextCursor: res.next_cursor };
     },
+  },
+
+  // Subject-level reads: one aggregate row per identity work is done for, plus the
+  // investigation overview bundling governed sessions, approvals, and connections.
+  subjects: {
+    list: async (zoneId: string, query: SubjectQuery = {}): Promise<Paged<SubjectSummary>> => {
+      const res = await request<ListEnvelope<SubjectSummary>>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/subjects${queryString({
+          limit: query.limit ?? 100,
+          cursor: query.cursor,
+          kind: query.kind,
+          search: query.search,
+        })}`,
+      );
+      return { rows: res.items, nextCursor: res.next_cursor };
+    },
+    overview: (zoneId: string, subjectId: string): Promise<SubjectOverview> =>
+      request<SubjectOverview>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/subjects/overview${queryString({ subject_id: subjectId })}`,
+      ),
   },
 
   // Human-approval holds raised by policy. Reads return the full approval fact with a derived
