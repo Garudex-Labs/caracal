@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-SDK primitives unit tests: spawn, delegation, and service lease flows.
+SDK primitives unit tests: session, delegation, and service lease flows.
 """
 
 import unittest
@@ -12,7 +12,7 @@ import httpx
 from caracalai.coordinator import CoordinatorClient
 from caracalai.context import current
 from caracalai.errors import CoordinatorError
-from caracalai.primitives import Grant, adopt_delegation, spawn, delegate
+from caracalai.primitives import Authority, accept_delegation, session, delegate
 
 
 def _coord(handler) -> CoordinatorClient:
@@ -35,19 +35,19 @@ def _default_handler(req: httpx.Request) -> httpx.Response:
 class SpawnTests(unittest.IsolatedAsyncioTestCase):
     async def test_yields_context_with_agent_session_id(self) -> None:
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
         ) as ctx:
-            self.assertEqual(ctx.agent_session_id, "agent-1")
+            self.assertEqual(ctx.session_id, "agent-1")
             self.assertEqual(ctx.zone_id, "z")
             self.assertIsNotNone(current())
 
     async def test_sets_ambient_context_and_clears_on_exit(self) -> None:
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
             self.assertIsNotNone(current())
@@ -63,7 +63,7 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -74,37 +74,37 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
         methods = [r.method for r in requests]
         self.assertIn("DELETE", methods)
 
-    async def test_on_agent_start_hook_called(self) -> None:
+    async def test_on_session_start_hook_called(self) -> None:
         events: list[str] = []
 
         async def on_start(ctx) -> None:
-            events.append(f"start:{ctx.agent_session_id}")
+            events.append(f"start:{ctx.session_id}")
 
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
-            on_agent_start=on_start,
+            on_session_start=on_start,
         ):
             pass
 
         self.assertEqual(events, ["start:agent-1"])
 
-    async def test_on_agent_end_hook_called(self) -> None:
+    async def test_on_session_end_hook_called(self) -> None:
         events: list[str] = []
 
         async def on_end(ctx) -> None:
-            events.append(f"end:{ctx.agent_session_id}")
+            events.append(f"end:{ctx.session_id}")
 
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
-            on_agent_end=on_end,
+            on_session_end=on_end,
         ):
             pass
 
@@ -121,21 +121,21 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async def on_start(ctx) -> None:
-            events.append(f"start:{ctx.agent_session_id}")
+            events.append(f"start:{ctx.session_id}")
             raise RuntimeError("start failed")
 
         async def on_end(ctx) -> None:
-            events.append(f"end:{ctx.agent_session_id}")
+            events.append(f"end:{ctx.session_id}")
 
         coord = _coord(handler)
         with self.assertRaises(RuntimeError):
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                on_agent_start=on_start,
-                on_agent_end=on_end,
+                on_session_start=on_start,
+                on_session_end=on_end,
             ):
                 pass  # pragma: no cover
 
@@ -148,7 +148,7 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
 
         coord = _coord(handler)
         with self.assertRaises(CoordinatorError):
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app",
@@ -170,13 +170,13 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
         ) as ctx:
-            self.assertEqual(ctx.agent_session_id, "agent-1")
+            self.assertEqual(ctx.session_id, "agent-1")
 
         self.assertEqual(len(keys), 2)
         self.assertIsNotNone(keys[0])
@@ -192,7 +192,7 @@ class SpawnTests(unittest.IsolatedAsyncioTestCase):
 
         coord = _coord(handler)
         with self.assertRaises(CoordinatorError):
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app",
@@ -208,49 +208,49 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await delegate(
                 coordinator=coord,
-                to_agent_session_id="agent-2",
+                to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
             )
 
     async def test_returns_edge_without_rebinding_issuer_context(self) -> None:
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ) as parent:
             res = await delegate(
                 coordinator=coord,
-                to_agent_session_id="agent-2",
+                to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
             )
-            self.assertEqual(res.delegation_edge_id, "edge-1")
-            self.assertEqual(current().agent_session_id, parent.agent_session_id)
-            self.assertEqual(current().delegation_edge_id, parent.delegation_edge_id)
+            self.assertEqual(res.delegation_id, "edge-1")
+            self.assertEqual(current().session_id, parent.session_id)
+            self.assertEqual(current().delegation_id, parent.delegation_id)
             self.assertEqual(current().hop, parent.hop)
 
     async def test_adopt_delegation_derives_receiver_context(self) -> None:
         coord = _coord(_default_handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ) as receiver:
-            adopted = adopt_delegation(receiver, "edge-42")
-            self.assertEqual(adopted.delegation_edge_id, "edge-42")
-            self.assertEqual(adopted.parent_edge_id, receiver.delegation_edge_id)
-            self.assertEqual(adopted.hop, receiver.hop + 1)
-            self.assertIsNone(receiver.delegation_edge_id)
+            accepted = accept_delegation(receiver, "edge-42")
+            self.assertEqual(accepted.delegation_id, "edge-42")
+            self.assertEqual(accepted.parent_delegation_id, receiver.delegation_id)
+            self.assertEqual(accepted.hop, receiver.hop + 1)
+            self.assertIsNone(receiver.delegation_id)
 
 
 class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
     async def test_raises_without_active_parent(self) -> None:
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                grant=Grant.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"]),
             ):
                 pass  # pragma: no cover
 
@@ -269,19 +269,19 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(404)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ) as parent:
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app-child",
                 subject_token="tok",
-                grant=Grant.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"]),
             ) as child:
-                self.assertEqual(child.agent_session_id, "child-1")
-                self.assertEqual(child.delegation_edge_id, "edge-9")
-                self.assertEqual(child.parent_edge_id, parent.delegation_edge_id)
+                self.assertEqual(child.session_id, "child-1")
+                self.assertEqual(child.delegation_id, "edge-9")
+                self.assertEqual(child.parent_delegation_id, parent.delegation_id)
                 self.assertEqual(child.hop, parent.hop + 1)
 
         posts = [c for c in calls if c[0] == "POST"]
@@ -304,16 +304,16 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(404)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
             with self.assertRaises(CoordinatorError):
-                async with spawn(
+                async with session(
                     coordinator=coord,
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    grant=Grant.narrow(["tool:call"]),
+                    authority=Authority.narrow(["tool:call"]),
                 ):
                     pass  # pragma: no cover
 
@@ -341,25 +341,25 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(404)
 
         async def on_start(ctx) -> None:
-            events.append(f"start:{ctx.agent_session_id}")
+            events.append(f"start:{ctx.session_id}")
             raise RuntimeError("start failed")
 
         async def on_end(ctx) -> None:
-            events.append(f"end:{ctx.agent_session_id}")
+            events.append(f"end:{ctx.session_id}")
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
             with self.assertRaises(RuntimeError):
-                async with spawn(
+                async with session(
                     coordinator=coord,
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    grant=Grant.narrow(["tool:call"]),
-                    on_agent_start=on_start,
-                    on_agent_end=on_end,
+                    authority=Authority.narrow(["tool:call"]),
+                    on_session_start=on_start,
+                    on_session_end=on_end,
                 ):
                     pass  # pragma: no cover
 
@@ -387,20 +387,20 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="parent-app",
-            agent_session_id="parent-session",
+            session_id="parent-session",
             hop=2,
             trace_id="11111111111111111111111111111111",
         )
         coord = _coord(handler)
         self.assertIsNone(current())
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="child-app",
             subject_token="tok",
             parent_ctx=parent,
         ) as ctx:
-            self.assertEqual(ctx.agent_session_id, "agent-2")
+            self.assertEqual(ctx.session_id, "agent-2")
             self.assertEqual(ctx.hop, 2)
             self.assertEqual(ctx.trace_id, "11111111111111111111111111111111")
         self.assertEqual(captured["body"].get("parent_id"), "parent-session")
@@ -424,22 +424,22 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="parent-app",
-            agent_session_id="parent-session",
+            session_id="parent-session",
             hop=1,
             trace_id="11111111111111111111111111111111",
         )
         coord = _coord(handler)
         self.assertIsNone(current())
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="child-app",
             subject_token="tok",
-            grant=Grant.narrow(["tool:call"]),
+            authority=Authority.narrow(["tool:call"]),
             parent_ctx=parent,
         ) as ctx:
             self.assertEqual(ctx.hop, 2)
-            self.assertEqual(ctx.delegation_edge_id, "edge-9")
+            self.assertEqual(ctx.delegation_id, "edge-9")
         self.assertEqual(seen["delegations"], 1)
         self.assertEqual(seen["agents"], 1)
 
@@ -451,15 +451,15 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="parent-app",
-            agent_session_id=None,
+            session_id=None,
         )
         with self.assertRaises(RuntimeError):
-            async with spawn(
+            async with session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="child-app",
                 subject_token="tok",
-                grant=Grant.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"]),
                 parent_ctx=bare,
             ):
                 pass
@@ -489,21 +489,21 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="parent-session",
-            delegation_edge_id="edge-parent",
+            session_id="parent-session",
+            delegation_id="edge-parent",
             hop=1,
             trace_id="11111111111111111111111111111111",
         )
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
             parent_ctx=parent,
         ) as ctx:
-            self.assertEqual(ctx.delegation_edge_id, "edge-child")
-            self.assertEqual(ctx.parent_edge_id, "edge-parent")
+            self.assertEqual(ctx.delegation_id, "edge-child")
+            self.assertEqual(ctx.parent_delegation_id, "edge-parent")
             self.assertEqual(ctx.hop, parent.hop + 1)
         self.assertEqual(captured["body"].get("parent_authority"), "inherit")
         self.assertNotIn("inherit_parent_edge_id", captured["body"])
@@ -525,19 +525,19 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="parent-app",
-            agent_session_id="parent-session",
-            delegation_edge_id="edge-parent",
+            session_id="parent-session",
+            delegation_id="edge-parent",
             hop=1,
         )
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="child-app",
             subject_token="tok",
             parent_ctx=parent,
         ) as ctx:
-            self.assertIsNone(ctx.delegation_edge_id)
+            self.assertIsNone(ctx.delegation_id)
             self.assertEqual(ctx.hop, parent.hop)
         self.assertEqual(captured["body"].get("parent_authority"), "inherit")
         self.assertNotIn("inherit_parent_edge_id", captured["body"])
@@ -559,19 +559,19 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="parent-session",
-            delegation_edge_id=None,
+            session_id="parent-session",
+            delegation_id=None,
             hop=0,
         )
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
             parent_ctx=parent,
         ) as ctx:
-            self.assertIsNone(ctx.delegation_edge_id)
+            self.assertIsNone(ctx.delegation_id)
             self.assertEqual(ctx.hop, 0)
         self.assertEqual(captured["body"].get("parent_authority"), "inherit")
 
@@ -594,25 +594,25 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="parent-tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="parent-session",
-            delegation_edge_id="edge-parent",
+            session_id="parent-session",
+            delegation_id="edge-parent",
             hop=1,
         )
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
             subject_token="tok",
             parent_ctx=parent,
-            grant=Grant.narrow(["tool:call"]),
+            authority=Authority.narrow(["tool:call"]),
         ) as ctx:
-            self.assertEqual(ctx.delegation_edge_id, "edge-n")
+            self.assertEqual(ctx.delegation_id, "edge-n")
         self.assertEqual(captured["body"].get("parent_authority"), "none")
 
     async def test_auto_heartbeat_renews_in_background(self) -> None:
         import asyncio
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         heartbeats = 0
 
@@ -626,7 +626,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -642,7 +642,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_auto_heartbeat_survives_transient_failure(self) -> None:
         import asyncio
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         calls = 0
 
@@ -658,7 +658,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -671,7 +671,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_auto_heartbeat_disabled_with_nonpositive_interval(self) -> None:
         import asyncio
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         heartbeats = 0
 
@@ -685,7 +685,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -700,7 +700,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         await agent.aclose()
 
     async def test_auto_heartbeat_defaults_to_lease_derived_cadence(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         def handler(req: httpx.Request) -> httpx.Response:
             if req.method == "POST" and str(req.url).endswith("/agents"):
@@ -708,7 +708,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -724,7 +724,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_next_delay_derives_from_lease_deadline(self) -> None:
         import time
         from datetime import datetime, timezone
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         deadline = datetime.fromtimestamp(time.time() + 30, tz=timezone.utc)
 
@@ -740,7 +740,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -753,7 +753,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_lease_lost_stops_auto_heartbeat_and_notifies_once(self) -> None:
         import asyncio
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         heartbeats = 0
         lost: list[BaseException] = []
@@ -768,7 +768,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         coord = _coord(handler)
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=coord,
             zone_id="z",
             application_id="app",
@@ -783,7 +783,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         await agent.aclose()
 
     async def test_narrow_grant_issues_delegation_edge(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         calls: list[tuple[str, str]] = []
         captured: dict = {}
@@ -802,28 +802,28 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(404)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ) as parent:
-            agent = await spawn_service(
+            agent = await start_session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app-worker",
                 subject_token="tok",
-                grant=Grant.narrow(["ledger:read"], resource_id="resource://ledger"),
+                authority=Authority.narrow(["ledger:read"], resource_id="resource://ledger"),
             )
-            self.assertEqual(agent.context.delegation_edge_id, "edge-svc")
-            self.assertEqual(agent.context.parent_edge_id, parent.delegation_edge_id)
+            self.assertEqual(agent.context.delegation_id, "edge-svc")
+            self.assertEqual(agent.context.parent_delegation_id, parent.delegation_id)
             self.assertEqual(agent.context.hop, parent.hop + 1)
             self.assertEqual(
-                captured["body"]["source_session_id"], parent.agent_session_id
+                captured["body"]["source_session_id"], parent.session_id
             )
             self.assertEqual(captured["body"]["target_session_id"], "svc-1")
             self.assertEqual(captured["body"]["scopes"], ["ledger:read"])
             await agent.aclose()
 
     async def test_narrow_grant_failure_terminates_service_agent(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         calls: list[tuple[str, str]] = []
 
@@ -838,38 +838,38 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(404)
 
         coord = _coord(handler)
-        async with spawn(
+        async with session(
             coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
         ):
             with self.assertRaises(CoordinatorError):
-                await spawn_service(
+                await start_session(
                     coordinator=coord,
                     zone_id="z",
                     application_id="app",
                     subject_token="tok",
-                    grant=Grant.narrow(["x:y"]),
+                    authority=Authority.narrow(["x:y"]),
                 )
         deletes = [path for method, path in calls if method == "DELETE"]
         self.assertTrue(any("svc-1" in path for path in deletes))
 
     async def test_narrow_grant_requires_parent_session(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
-            await spawn_service(
+            await start_session(
                 coordinator=coord,
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                grant=Grant.narrow(["x:y"]),
+                authority=Authority.narrow(["x:y"]),
             )
 
     async def test_inherit_grant_carries_parent_edge_forward(self) -> None:
         import json
 
         from caracalai.context import CaracalContext
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         captured: dict = {}
 
@@ -891,11 +891,11 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="parent-1",
-            delegation_edge_id="edge-parent",
+            session_id="parent-1",
+            delegation_id="edge-parent",
             hop=1,
         )
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=_coord(handler),
             zone_id="z",
             application_id="app",
@@ -903,12 +903,12 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
             parent_ctx=parent,
         )
         self.assertEqual(captured["body"]["parent_authority"], "inherit")
-        self.assertEqual(agent.context.delegation_edge_id, "edge-mirror")
+        self.assertEqual(agent.context.delegation_id, "edge-mirror")
         self.assertEqual(agent.context.hop, 2)
         await agent.aclose()
 
     async def test_on_agent_end_runs_once_before_terminate(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         order: list[str] = []
 
@@ -923,20 +923,20 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
         async def on_end(ctx) -> None:
             order.append("end")
 
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=_coord(handler),
             zone_id="z",
             application_id="app",
             subject_token="tok",
             heartbeat_interval=0,
-            on_agent_end=on_end,
+            on_session_end=on_end,
         )
         await agent.aclose()
         await agent.aclose()
         self.assertEqual(order, ["end", "terminate"])
 
     async def test_heartbeat_single_flights_token_refresh_on_401(self) -> None:
-        from caracalai.primitives import spawn_service
+        from caracalai.primitives import start_session
 
         tokens = ["tok-stale"]
         invalidations = 0
@@ -963,7 +963,7 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(204)
             return httpx.Response(404)
 
-        agent = await spawn_service(
+        agent = await start_session(
             coordinator=_coord(handler),
             zone_id="z",
             application_id="app",

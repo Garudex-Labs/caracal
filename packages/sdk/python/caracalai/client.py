@@ -1613,7 +1613,10 @@ class Caracal:
         merged = {**(headers or {}), **request.headers}
         if transport is not None:
             async with self.transport(
-                as_application=as_application, ctx=ctx, scopes=scopes, transport=transport
+                as_application=as_application,
+                ctx=ctx,
+                scopes=scopes,
+                transport=transport,
             ) as client:
                 return await client.request(
                     method, request.url, headers=merged, **request_kwargs
@@ -1649,7 +1652,10 @@ class Caracal:
         """
         return httpx.Client(
             auth=self._gateway_auth(
-                as_application=as_application, ctx=ctx, scopes=scopes, label="sync_transport"
+                as_application=as_application,
+                ctx=ctx,
+                scopes=scopes,
+                label="sync_transport",
             ),
             **kwargs,
         )

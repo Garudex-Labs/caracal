@@ -36,7 +36,6 @@ from .coordinator import (
 from .errors import CoordinatorError
 from .json_types import JsonObject
 
-
 logger = logging.getLogger("caracalai")
 
 LifecycleHook = Callable[[CaracalContext], Awaitable[None]]
@@ -256,9 +255,7 @@ async def _establish_session(
     try:
         if authority.mode == "narrow":
             if parent is None or not parent.session_id:
-                raise RuntimeError(
-                    "authority=narrow requires an active parent session"
-                )
+                raise RuntimeError("authority=narrow requires an active parent session")
             deleg = await create_delegation(
                 coordinator,
                 parent.subject_token,

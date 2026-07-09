@@ -327,8 +327,8 @@ class MintMandateTests(unittest.TestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="agent_9",
-            delegation_edge_id="edge_9",
+            session_id="agent_9",
+            delegation_id="edge_9",
         )
         token = self._client(handler).mint_mandate(
             "resource://payments", ["pay:write"], ctx=ctx, ttl_seconds=60
@@ -353,7 +353,7 @@ class MintMandateTests(unittest.TestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="agent_3",
+            session_id="agent_3",
         )
         client = self._client(handler)
         bind(ctx, lambda: client.mint_mandate("resource://payments", ["pay:read"]))
@@ -374,16 +374,16 @@ def _build_caracal() -> Caracal:
 
 
 class HeadersTests(unittest.IsolatedAsyncioTestCase):
-    def test_no_context_raises_without_allow_root(self) -> None:
+    def test_no_context_raises_without_as_application(self) -> None:
         c = _build_caracal()
         with self.assertRaises(RuntimeError) as cm:
             c.headers()
         self.assertIn("no CaracalContext", str(cm.exception))
-        self.assertIn("allow_root=True", str(cm.exception))
+        self.assertIn("as_application=True", str(cm.exception))
 
-    def test_no_context_emits_root_when_allow_root_true(self) -> None:
+    def test_no_context_emits_root_when_as_application_true(self) -> None:
         c = _build_caracal()
-        h = c.headers(allow_root=True)
+        h = c.headers(as_application=True)
         self.assertEqual(h[HEADER_AUTHORIZATION], "Bearer tok")
         self.assertIsNotNone(parse_traceparent(h[HEADER_TRACEPARENT]))
         self.assertNotIn(HEADER_BAGGAGE, h)
@@ -414,7 +414,7 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         c = _build_caracal()
-        async with c.bind_from_headers({}, allow_root=True) as ctx:
+        async with c.bind_from_headers({}, as_application=True) as ctx:
             self.assertEqual(ctx.subject_token, "tok")
             self.assertIs(c.current(), ctx)
         self.assertIsNone(c.current())
@@ -425,9 +425,9 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
         async def app(_scope, _receive, _send):
             return None
 
-        middleware = c.context_middleware(allow_root=True)(app)
+        middleware = c.context_middleware(as_application=True)(app)
         self.assertIs(middleware.caracal, c)
-        self.assertTrue(middleware.allow_root)
+        self.assertTrue(middleware.as_application)
 
 
 class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
@@ -457,7 +457,7 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             response = await client.get("https://api.example.com/v1/events?limit=10")
 
@@ -488,7 +488,7 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             await client.get("https://api.example.com/v1/accounts/treasury/balance")
             await client.get("https://api.example.com/v1/accounts/payable")
@@ -513,7 +513,7 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             await client.get("https://api.unbound.example.com/data")
 
@@ -550,17 +550,17 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         events: list[str] = []
 
         async def on_start(ctx) -> None:
-            events.append(f"start:{ctx.agent_session_id}")
+            events.append(f"start:{ctx.session_id}")
 
         async def on_end(ctx) -> None:
-            events.append(f"end:{ctx.agent_session_id}")
+            events.append(f"end:{ctx.session_id}")
 
-        c.on_agent_start(on_start)
-        c.on_agent_end(on_end)
+        c.on_session_start(on_start)
+        c.on_session_end(on_end)
 
-        async with c.spawn(metadata={"purpose": "test"}) as ctx:
-            self.assertEqual(ctx.agent_session_id, "agent-1")
-            self.assertEqual(current().agent_session_id, "agent-1")
+        async with c.session(metadata={"purpose": "test"}) as ctx:
+            self.assertEqual(ctx.session_id, "agent-1")
+            self.assertEqual(current().session_id, "agent-1")
             res = await c.delegate(
                 to="agent-2",
                 to_application_id="app-2",
@@ -568,8 +568,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 constraints=DelegationConstraints(resources=["calendar"], max_depth=2),
                 ttl_seconds=30,
             )
-            self.assertEqual(res.delegation_edge_id, "edge-1")
-            self.assertEqual(current().agent_session_id, "agent-1")
+            self.assertEqual(res.delegation_id, "edge-1")
+            self.assertEqual(current().session_id, "agent-1")
 
         await client.aclose()
         self.assertEqual(events, ["start:agent-1", "end:agent-1"])
@@ -630,8 +630,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        svc = await c.spawn_service(labels=["billing-worker"])
-        self.assertEqual(svc.agent_session_id, "svc-1")
+        svc = await c.start_session(labels=["billing-worker"])
+        self.assertEqual(svc.session_id, "svc-1")
         self.assertEqual(
             json.loads(requests[0].content),
             {
@@ -676,7 +676,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         c.on_event(events.append)
         c.on_event(failing_sink)
 
-        async with c.spawn():
+        async with c.session():
             pass
         await client.aclose()
 
@@ -695,7 +695,7 @@ class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         async def app(scope, receive, send):
             ctx = current()
             captured["sub"] = ctx.subject_token
-            captured["agent"] = ctx.agent_session_id or ""
+            captured["agent"] = ctx.session_id or ""
             captured["hop"] = str(ctx.hop)
 
         mw = CaracalASGIMiddleware(app, c)
@@ -784,7 +784,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             await client.get("https://api.example.com/v1/events")
         self.assertEqual(seen["auth"], "Bearer tok")
@@ -809,7 +809,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             await client.get(request.url, headers=request.headers)
 
@@ -844,7 +844,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             "events?limit=10",
             method="POST",
             headers={"content-type": "application/json"},
-            allow_root=True,
+            as_application=True,
             transport=httpx.MockTransport(handler),
         )
 
@@ -893,7 +893,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             await client.get("https://other.example.com/v1/events")
         self.assertEqual(
@@ -947,7 +947,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         with c.sync_transport(
-            transport=httpx.MockTransport(handler), allow_root=True
+            transport=httpx.MockTransport(handler), as_application=True
         ) as client:
             self.assertEqual(
                 client.get("https://api.example.com/v1/events").status_code, 204
@@ -976,8 +976,8 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
             subject_token="child-tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="agent_7",
-            delegation_edge_id="edge_7",
+            session_id="agent_7",
+            delegation_id="edge_7",
         )
 
     def _scoped_client(self, sts_calls: list[bytes]) -> Caracal:
@@ -1130,7 +1130,7 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(callable(caracalai.bind))
         self.assertTrue(callable(caracalai.abind))
         self.assertTrue(callable(caracalai.current))
-        out = caracalai.bind(self._ctx(), lambda: caracalai.current().agent_session_id)
+        out = caracalai.bind(self._ctx(), lambda: caracalai.current().session_id)
         self.assertEqual(out, "agent_7")
 
 
@@ -1333,7 +1333,7 @@ class ClientSecretCustomHTTPClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         try:
-            headers = c.headers(allow_root=True)
+            headers = c.headers(as_application=True)
             self.assertEqual(headers[HEADER_AUTHORIZATION], "Bearer abc.def.ghi")
             self.assertTrue(called)
         finally:
