@@ -37,18 +37,42 @@ type TokenExchangeResponse struct {
 	IssuedAt    int64
 }
 
-// ApprovalRequiredError carries an STS human-approval hold: the challenge to
+// ApprovalState is the lifecycle state of an approval challenge.
+// ApprovalApproved means a retry of the held mint with the approval id will
+// succeed; ApprovalRejected and ApprovalExpired are terminal; ApprovalConsumed
+// means another request already spent the approval; ApprovalPending means no
+// decision arrived within the wait and polling again is safe.
+type ApprovalState string
+
+const (
+	ApprovalPending  ApprovalState = "pending"
+	ApprovalApproved ApprovalState = "approved"
+	ApprovalRejected ApprovalState = "rejected"
+	ApprovalExpired  ApprovalState = "expired"
+	ApprovalConsumed ApprovalState = "consumed"
+)
+
+func approvalState(value string) (ApprovalState, error) {
+	switch state := ApprovalState(value); state {
+	case ApprovalPending, ApprovalApproved, ApprovalRejected, ApprovalExpired, ApprovalConsumed:
+		return state, nil
+	default:
+		return "", fmt.Errorf("step-up status returned an unknown challenge state: %s", value)
+	}
+}
+
+// ApprovalRequiredError carries an STS human-approval hold: the approval to
 // surface to an approver and the binding proving which request it covers.
 type ApprovalRequiredError struct {
-	Message     string
-	ChallengeID string
-	Resource    string
-	State       string
-	Tier        string
-	Binding     string
-	ExpiresAt   string
-	RequestID   string
-	HTTPStatus  int
+	Message    string
+	ApprovalID string
+	Resource   string
+	State      string
+	Tier       string
+	Binding    string
+	ExpiresAt  string
+	RequestID  string
+	HTTPStatus int
 }
 
 func (e *ApprovalRequiredError) Error() string {
@@ -86,16 +110,16 @@ func (e *CaracalError) Error() string {
 // report. Status carries the HTTP status when a response arrived and Code the
 // platform error code when the operation failed with one.
 type Event struct {
-	Type        string
-	Ok          bool
-	Duration    time.Duration
-	Resources   []string
-	Scopes      []string
-	Cached      bool
-	Status      int
-	Code        string
-	Method      string
-	Path        string
-	ChallengeID string
-	State       string
+	Type       string
+	Ok         bool
+	Duration   time.Duration
+	Resources  []string
+	Scopes     []string
+	Cached     bool
+	Status     int
+	Code       string
+	Method     string
+	Path       string
+	ApprovalID string
+	State      string
 }

@@ -193,6 +193,9 @@ func TestFederateSubjectMintsUserSession(t *testing.T) {
 	if sess.SessionType != "user" || sess.SubjectID == nil || *sess.SubjectID != "user_123" {
 		t.Fatalf("session row not user-typed for the federated sub: %+v", sess)
 	}
+	if !strings.Contains(string(sess.ClaimsJSON), federationIssuer) {
+		t.Fatalf("session must record issuer provenance, got %q", sess.ClaimsJSON)
+	}
 }
 
 func TestFederateSubjectDenies(t *testing.T) {

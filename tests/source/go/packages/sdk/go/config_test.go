@@ -24,7 +24,7 @@ func setSubjectEnv(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 }
 
 func TestFromEnvDefaultTTL(t *testing.T) {
@@ -54,7 +54,7 @@ func TestFromEnvStsURLFallsBackToZoneURL(t *testing.T) {
 	}))
 	defer sts.Close()
 	setSubjectEnv(t)
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
 	t.Setenv("CARACAL_APP_RESOURCES", "resource://pipernet")
 	t.Setenv("CARACAL_ZONE_URL", sts.URL)
@@ -89,7 +89,7 @@ func TestFromEnvProductionRequiresConfiguredURLs(t *testing.T) {
 
 func TestFromEnvClientSecretSources(t *testing.T) {
 	setSubjectEnv(t)
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	t.Setenv("CARACAL_APP_RESOURCES", "resource://pipernet")
 
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "inline")
@@ -139,7 +139,7 @@ func TestFromEnvClientSecretSources(t *testing.T) {
 
 func TestFromEnvClientSecretRequiresResources(t *testing.T) {
 	setSubjectEnv(t)
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
 	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "requires resources") {
 		t.Fatalf("expected resources requirement, got %v", err)

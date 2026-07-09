@@ -26,7 +26,7 @@ func TestFromEnvMissing(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "")
 	t.Setenv("CARACAL_ZONE_ID", "")
 	t.Setenv("CARACAL_APPLICATION_ID", "")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected error for missing env")
 	}
@@ -35,7 +35,7 @@ func TestFromEnvMissing(t *testing.T) {
 func TestFromEnvOK(t *testing.T) {
 	t.Setenv("CARACAL_ZONE_ID", "z1")
 	t.Setenv("CARACAL_APPLICATION_ID", "app1")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok1")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok1")
 	c, err := sdk.FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestFromEnvProductionRestrictsHTTPToLoopbackOrOverride(t *testing.T) {
 	t.Setenv("CARACAL_ENV", "production")
 	t.Setenv("CARACAL_ZONE_ID", "z1")
 	t.Setenv("CARACAL_APPLICATION_ID", "app1")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok1")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok1")
 	t.Setenv("CARACAL_STS_URL", "https://sts.internal")
 	t.Setenv("CARACAL_GATEWAY_URL", "https://gateway.internal")
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.internal:4000")
@@ -338,7 +338,7 @@ resource = "resource://pipernet"
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty"))
 	t.Setenv("CARACAL_ZONE_ID", "z-env")
 	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok-env")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok-env")
 	fromEnv, err := sdk.New()
 	if err != nil {
 		t.Fatalf("env connect: %v", err)
@@ -844,7 +844,7 @@ func TestFromEnvRejectsExpiredJWT(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", expired)
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", expired)
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected error for expired bootstrap token")
 	}
@@ -854,7 +854,7 @@ func TestFromEnvSortsResourcesLongestFirst(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES", strings.Join([]string{
 		"short=https://api.example.com/v1",
 		"long=https://api.example.com/v1/accounts/treasury",
@@ -882,7 +882,7 @@ func TestFromEnvResourceBindingsFileObjectAndEnvPrecedence(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES_FILE", bindingsPath)
 	t.Setenv("CARACAL_RESOURCES", "calendar=https://env.example.com/v2")
 	c, err := sdk.FromEnv()
@@ -956,7 +956,7 @@ func TestFromEnvRejectsMalformedResources(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES", "calendar=not-a-url")
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected malformed resource error")
@@ -974,7 +974,7 @@ func TestFromEnvRejectsMalformedResourceBindingsFile(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES_FILE", bindingsPath)
 	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "invalid CARACAL_RESOURCES_FILE") {
 		t.Fatalf("expected malformed resource file error, got %v", err)
