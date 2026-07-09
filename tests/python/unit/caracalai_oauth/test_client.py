@@ -280,7 +280,6 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             "subject",
             "resource://api",
             ExchangeOptions(
-                actor_token="actor",
                 session_id="sid",
                 agent_session_id="agent",
                 delegation_edge_id="edge",
@@ -292,6 +291,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["scope"], "read+write")
         self.assertEqual(captured["ttl_seconds"], "300")
         self.assertEqual(captured["agent_session_id"], "agent")
+        self.assertNotIn("actor_token", captured)
 
     async def test_exchange_retries_transient_http_errors_and_statuses(self) -> None:
         attempts = 0

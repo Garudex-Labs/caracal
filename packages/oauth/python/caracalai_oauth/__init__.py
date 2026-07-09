@@ -31,11 +31,13 @@ from .exchanger import (
     CredentialsResolver,
     TokenSource,
     decode_jwt_exp,
+    decode_jwt_payload,
 )
 from .types import (
     APPROVAL_STATES,
     ApprovalState,
     ExchangeOptions,
+    MintedMandate,
     TokenExchangeResponse,
 )
 
@@ -56,6 +58,7 @@ __all__ = [
     "InMemoryTokenCache",
     "InvalidRequest",
     "InvalidToken",
+    "MintedMandate",
     "OAuthClient",
     "OperationNotPermitted",
     "ResourceNotFound",
@@ -66,6 +69,7 @@ __all__ = [
     "TokenSource",
     "ZoneMismatch",
     "decode_jwt_exp",
+    "decode_jwt_payload",
     "emit_event",
     "raise_for_caracal_error",
 ]

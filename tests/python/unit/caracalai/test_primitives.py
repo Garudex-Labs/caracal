@@ -12,7 +12,13 @@ import httpx
 from caracalai.coordinator import CoordinatorClient
 from caracalai.context import current
 from caracalai.errors import CoordinatorError
-from caracalai.primitives import Authority, accept_delegation, session, delegate
+from caracalai.primitives import (
+    Authority,
+    accept_delegation,
+    attach_session,
+    delegate,
+    session,
+)
 
 
 def _coord(handler) -> CoordinatorClient:
@@ -239,6 +245,117 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(accepted.parent_delegation_id, receiver.delegation_id)
             self.assertEqual(accepted.hop, receiver.hop + 1)
             self.assertIsNone(receiver.delegation_id)
+
+    async def test_retries_transient_delegation_failure_with_same_key(self) -> None:
+        keys: list[str | None] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and str(req.url).endswith("/delegations"):
+                keys.append(req.headers.get("idempotency-key"))
+                if len(keys) == 1:
+                    return httpx.Response(503, json={"error": "unavailable"})
+                return httpx.Response(200, json={"delegation_edge_id": "edge-retry"})
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        async with session(
+            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
+        ):
+            res = await delegate(
+                coordinator=coord,
+                to_session_id="agent-2",
+                to_application_id="app-2",
+                scopes=["tool:call"],
+            )
+        self.assertEqual(res.delegation_id, "edge-retry")
+        self.assertEqual(len(keys), 2)
+        self.assertIsNotNone(keys[0])
+        self.assertEqual(keys[0], keys[1])
+
+    async def test_does_not_retry_delegation_rejected_by_policy(self) -> None:
+        attempts = 0
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            nonlocal attempts
+            if req.method == "POST" and str(req.url).endswith("/delegations"):
+                attempts += 1
+                return httpx.Response(403, json={"error": "denied"})
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        coord = _coord(handler)
+        async with session(
+            coordinator=coord, zone_id="z", application_id="app", subject_token="tok"
+        ):
+            with self.assertRaises(CoordinatorError):
+                await delegate(
+                    coordinator=coord,
+                    to_session_id="agent-2",
+                    to_application_id="app-2",
+                    scopes=["tool:call"],
+                )
+        self.assertEqual(attempts, 1)
+
+    async def test_narrow_accepts_single_scope_string(self) -> None:
+        self.assertEqual(Authority.narrow("read").scopes, ("read",))
+        self.assertEqual(Authority.narrow(["read", "write"]).scopes, ("read", "write"))
+
+
+class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_validates_lease_and_returns_live_handle(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            requests.append(req)
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(
+                200,
+                json={
+                    "agent": {
+                        "status": "active",
+                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    }
+                },
+            )
+
+        coord = _coord(handler)
+        handle = await attach_session(
+            coordinator=coord,
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            session_id="agent-persisted",
+            heartbeat_interval=0,
+        )
+        self.assertEqual(handle.session_id, "agent-persisted")
+        self.assertEqual(handle.context.session_id, "agent-persisted")
+        self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
+        self.assertTrue(
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+        )
+        await handle.aclose()
+        self.assertIn(
+            "DELETE", [r.method for r in requests if "agent-persisted" in str(r.url)]
+        )
+
+    async def test_fails_fast_when_session_is_gone(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": "not found"})
+
+        coord = _coord(handler)
+        with self.assertRaises(CoordinatorError):
+            await attach_session(
+                coordinator=coord,
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                session_id="agent-reaped",
+                heartbeat_interval=0,
+            )
 
 
 class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):

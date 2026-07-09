@@ -264,9 +264,9 @@ class MintMandateTests(unittest.TestCase):
             other_scope = ex.mint_mandate(
                 resource="urn:res:a", scopes=["s.write"], agent_session_id="agent_1"
             )
-        self.assertEqual(first, again)
-        self.assertNotEqual(first, other_agent)
-        self.assertNotEqual(first, other_scope)
+        self.assertEqual(first.token, again.token)
+        self.assertNotEqual(first.token, other_agent.token)
+        self.assertNotEqual(first.token, other_scope.token)
         self.assertEqual(len(calls), 3)
 
     def test_caches_per_ttl(self):
@@ -289,7 +289,7 @@ class MintMandateTests(unittest.TestCase):
             long = ex.mint_mandate(
                 resource="urn:res:a", scopes=["s.read"], ttl_seconds=3600
             )
-        self.assertNotEqual(short, long)
+        self.assertNotEqual(short.token, long.token)
         self.assertEqual(len(calls), 2)
 
     def test_refreshes_mandate_near_expiry(self):
@@ -308,7 +308,7 @@ class MintMandateTests(unittest.TestCase):
                 "caracalai_oauth.exchanger.time.time", return_value=time.time() + 3590
             ):
                 fresh = ex.mint_mandate(resource="urn:res:a", scopes=["s.read"])
-        self.assertNotEqual(stale, fresh)
+        self.assertNotEqual(stale.token, fresh.token)
 
     def test_rejects_empty_resource_and_scopes(self):
         ex = _exchanger()
@@ -439,6 +439,17 @@ class TypedErrorTests(unittest.TestCase):
             with self.assertRaises(CaracalError) as caught:
                 _exchanger().get_token()
         self.assertEqual(caught.exception.http_status, 502)
+
+    def test_is_retryable_hints_transport_failures_only(self):
+        self.assertTrue(CaracalError(code="sts_unavailable").is_retryable)
+        self.assertTrue(CaracalError(http_status=429).is_retryable)
+        self.assertTrue(CaracalError(http_status=502).is_retryable)
+        self.assertFalse(
+            CaracalError(code="access_denied", http_status=403).is_retryable
+        )
+        self.assertFalse(
+            CaracalError(code="invalid_request", http_status=400).is_retryable
+        )
 
 
 class EventTests(unittest.TestCase):
