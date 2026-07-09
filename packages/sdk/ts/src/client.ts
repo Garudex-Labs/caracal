@@ -14,6 +14,7 @@ import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type En
 import {
   session as sessionPrimitive,
   startSession as startSessionPrimitive,
+  attachSession as attachSessionPrimitive,
   delegate as delegatePrimitive,
   acceptDelegation,
   type Authority,
@@ -24,6 +25,7 @@ import {
 } from './primitives.js'
 import {
   createDelegation,
+  listInboundDelegations,
   spawnAgent,
   terminateAgent,
   type CoordinatorCallEvent,
@@ -32,7 +34,7 @@ import {
   type DelegationResponse,
 } from './coordinator.js'
 import type { JsonObject } from './json.js'
-import { OAuthClient, type OAuthEvent } from '@caracalai/oauth'
+import { CaracalError, OAuthClient, isApprovalRequired, type ApprovalState, type OAuthEvent } from '@caracalai/oauth'
 const DEFAULT_STS_URL = 'http://localhost:8080'
 const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
@@ -73,16 +75,19 @@ export class CredentialsUnavailableError extends Error {
 }
 
 /** A minted resource mandate and the lifetime the STS granted it, in seconds. */
+/** A minted resource mandate and the lifetime the STS granted it. */
 export interface MintedMandate {
   token: string
-  expiresIn: number
+  expiresInSeconds: number
 }
 
 /**
  * Client-secret credential surface behind a configured Caracal client:
  * resolves the acting identity, invalidates the cached lifecycle token after
  * a server-side rejection, and mints scoped resource mandates for gateway
- * calls.
+ * calls. Integrators never construct one: `fromClientSecret` (and profile or
+ * environment detection) wires it into the client; the interface exists so
+ * the credential surface can be observed and faked in tests.
  */
 export interface ClientSecretExchanger {
   invalidate(): void
@@ -91,9 +96,9 @@ export interface ClientSecretExchanger {
   mintMandate(
     resourceId: string,
     scopes: string[],
-    opts?: { sessionId?: string; delegationId?: string; ttlSeconds?: number; approvalId?: string },
+    opts?: { sessionId?: string; delegationId?: string; ttlSeconds?: number; approvalId?: string; signal?: AbortSignal },
   ): Promise<MintedMandate>
-  waitForApproval(challengeId: string, opts?: { timeoutMs?: number }): Promise<string>
+  waitForApproval(approvalId: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<ApprovalState>
   /** Attaches the observability sink token-exchange events report to. */
   onEvent(cb: (event: OAuthEvent) => void): void
 }
@@ -110,15 +115,20 @@ export interface CaracalConfig {
   resources?: ResourceBinding[]
   /** Default TTL for sessions run with session(); a session started with startSession lives by its heartbeat lease instead. */
   defaultTtlSeconds?: number
+  /** Receives SDK operational warnings (lease loss, cleanup failures, boundary misconfiguration); defaults to console.warn. */
+  logger?: (message: string, err?: unknown) => void
 }
 
 export interface SessionOptions {
   authority?: Authority
   ttlSeconds?: number
   subjectSessionId?: string
-  parentId?: string
+  /** Session to parent under; defaults to the session bound on the calling context. */
+  parentSessionId?: string
   metadata?: JsonObject
+  /** Role labels the zone's grant policy matches (`input.principal.labels`); descriptive for policy and audit, never grants. */
   labels?: string[]
+  /** W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent. */
   traceId?: string
   signal?: AbortSignal
 }
@@ -127,9 +137,12 @@ export interface StartSessionOptions {
   authority?: Authority
   ttlSeconds?: number
   subjectSessionId?: string
-  parentId?: string
+  /** Session to parent under; defaults to the session bound on the calling context. */
+  parentSessionId?: string
   metadata?: JsonObject
+  /** Role labels the zone's grant policy matches (`input.principal.labels`); descriptive for policy and audit, never grants. */
   labels?: string[]
+  /** W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent. */
   traceId?: string
   /**
    * Auto-heartbeat cadence. Leave unset to derive it from the server lease;
@@ -143,7 +156,7 @@ export interface StartSessionOptions {
 }
 
 export interface DelegateOptions {
-  to: string
+  toSessionId: string
   toApplicationId: string
   resourceId?: string
   scopes: string[]
@@ -160,7 +173,7 @@ export type CaracalEvent = OAuthEvent | CoordinatorCallEvent
 export type EventHook = (event: CaracalEvent) => void
 
 /** Identity selection for calls made outside a bound session context. */
-export interface AppIdentityOptions {
+export interface CallOptions {
   /** Run the call as the application's own identity instead of a bound session; explicit opt-in. */
   asApplication?: boolean
 }
@@ -169,17 +182,25 @@ export interface AppIdentityOptions {
  * Transport behavior options. `scopes` switches gateway-routed requests from
  * the raw subject token to a scoped resource mandate minted for the routed
  * resource and the bound session identity; requires a client-secret
- * configuration.
+ * configuration. `timeoutMs` bounds every request the transport sends when
+ * the caller supplies no signal of its own (combined when both are present).
+ * `propagation` controls where the context envelope (traceparent, baggage)
+ * is written: 'always' (the default) propagates to every host so downstream
+ * Caracal-aware services can rebind context; 'gateway-only' keeps the
+ * caracal.* correlation ids off third-party hosts.
  */
-export interface TransportOptions extends AppIdentityOptions {
+export interface TransportOptions extends CallOptions {
   scopes?: string[]
+  timeoutMs?: number
+  propagation?: 'always' | 'gateway-only'
 }
 
-/** Optional mint inputs: a TTL override, the approval challenge id for retrying an approval-gated mint, and an explicit context. */
+/** Optional mint inputs: a TTL override, the approval id for retrying an approval-gated mint, an explicit context, and an abort signal. */
 export interface MandateOptions {
   ttlSeconds?: number
   approvalId?: string
   ctx?: CaracalContext
+  signal?: AbortSignal
 }
 
 /**
@@ -197,7 +218,7 @@ export interface ApplicationTransportOptions {
   mandateTtlSeconds?: number
 }
 
-export interface BindOptions extends AppIdentityOptions {
+export interface BindOptions extends CallOptions {
   verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
 
@@ -229,7 +250,7 @@ export interface CaracalOptions {
   clientSecret?: Partial<ClientSecretOptions>
 }
 
-export interface GatewayRequest {
+export interface GatewayTarget {
   url: string
   headers: Record<string, string>
 }
@@ -239,8 +260,9 @@ export class Caracal {
   private sessionStartHooks: LifecycleHook[] = []
   private sessionEndHooks: LifecycleHook[] = []
   private eventHooks: EventHook[] = []
-  private appMandates = new Map<string, { mandate: string; expiresAt: number }>()
-  private appInflight = new Map<string, Promise<{ mandate: string; expiresAt: number }>>()
+  private appMandates = new Map<string, { mandate: string; expiresAt: number; resourceId: string; sessions: string[] }>()
+  private appInflight = new Map<string, Promise<{ mandate: string; expiresAt: number; resourceId: string; sessions: string[] }>>()
+  private unverifiedBoundaryWarned = false
 
   /**
    * Creates a Caracal client. With no arguments, credentials are
@@ -276,14 +298,44 @@ export class Caracal {
     return new Caracal(configFromProfile(path, env))
   }
 
-  async close(): Promise<void> {}
+  /**
+   * Releases client-held state: cached application mandates and their
+   * in-flight mint cycles are dropped, the credential exchanger's cached
+   * lifecycle token is invalidated, and the sessions backing released
+   * application transports are terminated best-effort - any that termination
+   * misses retire on their own TTL. The client stays usable; the next call
+   * simply mints fresh state.
+   */
+  async close(): Promise<void> {
+    const entries = [...this.appMandates.values()].filter((entry) => entry.sessions.length)
+    this.appMandates.clear()
+    this.appInflight.clear()
+    const exchanger = this.config.exchanger
+    if (exchanger && entries.length) {
+      try {
+        const identity = await exchanger.identity()
+        const bootstrap = (await exchanger.mintMandate(entries[0].resourceId, [LIFECYCLE_SCOPE])).token
+        const sessions = entries.flatMap((entry) => entry.sessions)
+        await Promise.allSettled(sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
+      } catch (err) {
+        this.warnLog('caracal: close could not retire application-transport sessions; the coordinator TTL sweeper will', err)
+      }
+    }
+    exchanger?.invalidate()
+  }
+
+  private warnLog(message: string, err?: unknown): void {
+    const sink = this.config.logger ?? defaultWarn
+    sink(message, err)
+  }
 
   /**
    * The zone and application this client acts as: the static configuration
    * when present, otherwise resolved through the credentials source, which
-   * fails closed while no usable credential exists.
+   * fails closed while no usable credential exists. Useful for logging and
+   * metric labels.
    */
-  private async identity(): Promise<{ zoneId: string; applicationId: string }> {
+  async identity(): Promise<{ zoneId: string; applicationId: string }> {
     const { zoneId, applicationId, exchanger } = this.config
     if (zoneId && applicationId) return { zoneId, applicationId }
     return exchanger!.identity()
@@ -295,8 +347,24 @@ export class Caracal {
    * code. The session binds delegated authority, records audit attribution,
    * and is retired when fn returns. Pass `authority: Authority.narrow([...])`
    * to bound the session to a subset of the caller's scopes.
+   *
+   * @example
+   * ```ts
+   * const summary = await caracal.session(async (ctx) => {
+   *   log.info({ sessionId: ctx.sessionId }, 'triage run started')
+   *   const res = await caracal.fetch('resource://pipernet', '/tickets')
+   *   return res.json()
+   * }, { labels: ['ticket-triage'] })
+   * ```
+   *
+   * @example Narrowed child session
+   * ```ts
+   * await caracal.session(work, {
+   *   authority: Authority.narrow(['tickets:read'], { resourceId: 'resource://pipernet' }),
+   * })
+   * ```
    */
-  async session<T>(fn: () => Promise<T>, opts: SessionOptions = {}): Promise<T> {
+  async session<T>(fn: (ctx: CaracalContext) => Promise<T>, opts: SessionOptions = {}): Promise<T> {
     const identity = await this.identity()
     const input: SessionInput = {
       coordinator: this.config.coordinator,
@@ -308,11 +376,12 @@ export class Caracal {
       authority: opts.authority,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
-      parentId: opts.parentId,
+      parentSessionId: opts.parentSessionId,
       metadata: opts.metadata,
       labels: opts.labels,
       traceId: opts.traceId,
       signal: opts.signal,
+      warn: this.config.logger,
       onSessionStart: this.sessionStartHooks.length ? (c) => this.fire(this.sessionStartHooks, c) : undefined,
       onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     }
@@ -334,7 +403,7 @@ export class Caracal {
       invalidate: this.invalidate(),
       ttlSeconds: opts.ttlSeconds,
       subjectSessionId: opts.subjectSessionId,
-      parentId: opts.parentId,
+      parentSessionId: opts.parentSessionId,
       authority: opts.authority,
       metadata: opts.metadata,
       labels: opts.labels,
@@ -342,6 +411,7 @@ export class Caracal {
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       onLeaseLost: opts.onLeaseLost,
       signal: opts.signal,
+      warn: this.config.logger,
       onSessionStart: this.sessionStartHooks.length ? (c) => this.fire(this.sessionStartHooks, c) : undefined,
       onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     })
@@ -355,7 +425,7 @@ export class Caracal {
   delegate(opts: DelegateOptions): Promise<Delegation> {
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
-      toSessionId: opts.to,
+      toSessionId: opts.toSessionId,
       toApplicationId: opts.toApplicationId,
       resourceId: opts.resourceId,
       scopes: opts.scopes,
@@ -369,11 +439,53 @@ export class Caracal {
   /**
    * Run fn under a delegation received from a peer: the current session
    * context is rebound so token exchanges inside fn present the delegation.
+   * Acceptance is local; the STS re-validates the delegation on every mint,
+   * so a wrong or revoked id fails at first use. Pass `{ validate: true }`
+   * to check the delegation up front instead: the coordinator's inbound
+   * listing for this session must hold it live, so a mistyped or already
+   * revoked id fails here with a targeted error.
    */
-  acceptDelegation<T>(delegationId: string, fn: () => Promise<T>): Promise<T> {
+  async acceptDelegation<T>(delegationId: string, fn: () => Promise<T>, opts: { validate?: boolean } = {}): Promise<T> {
     const ctx = current()
     if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
+    if (opts.validate) {
+      if (!ctx.sessionId) throw new Error('acceptDelegation validation requires an active session in context')
+      const inbound = await listInboundDelegations(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId)
+      const match = inbound.find((item) => item.delegationEdgeId === delegationId)
+      if (!match || match.status !== 'active') {
+        throw new Error(
+          `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
+        )
+      }
+    }
     return bind(acceptDelegation(ctx, delegationId), fn)
+  }
+
+  /**
+   * Re-attach to a service session that already exists - typically after a
+   * process restart, using a session id the previous holder persisted (for
+   * example from SessionHandle.sessionId). The session is validated with an
+   * immediate lease renewal, and the returned handle renews and retires it
+   * exactly like one from startSession.
+   */
+  async attachSession(
+    sessionId: string,
+    opts: { heartbeatIntervalMs?: number; onLeaseLost?: (err: unknown) => void } = {},
+  ): Promise<SessionHandle> {
+    const identity = await this.identity()
+    return await attachSessionPrimitive({
+      coordinator: this.config.coordinator,
+      zoneId: identity.zoneId,
+      applicationId: identity.applicationId,
+      subjectToken: await this.rootToken(),
+      tokenSource: this.config.tokenSource,
+      invalidate: this.invalidate(),
+      sessionId,
+      heartbeatIntervalMs: opts.heartbeatIntervalMs,
+      onLeaseLost: opts.onLeaseLost,
+      warn: this.config.logger,
+      onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
+    })
   }
 
   bind<T>(ctx: CaracalContext, fn: () => Promise<T>): Promise<T> {
@@ -393,9 +505,14 @@ export class Caracal {
    * outcome), approval waits, and coordinator calls, each carrying outcome and
    * duration. Bridge them to any metrics or tracing system; a hook that throws
    * is ignored and never disturbs the operation that emitted the event.
+   * Returns a disposer that unsubscribes the hook.
    */
-  onEvent(cb: EventHook): void {
+  onEvent(cb: EventHook): () => void {
     this.eventHooks.push(cb)
+    return () => {
+      const index = this.eventHooks.indexOf(cb)
+      if (index !== -1) this.eventHooks.splice(index, 1)
+    }
   }
 
   private emitEvent(event: CaracalEvent): void {
@@ -422,7 +539,7 @@ export class Caracal {
    * refreshed own-credential token use headersAsync. Calling as the
    * application's own identity requires `{ asApplication: true }`.
    */
-  headers(opts: AppIdentityOptions = {}): Record<string, string> {
+  headers(opts: CallOptions = {}): Record<string, string> {
     const ctx = current()
     if (!ctx) {
       if (!opts.asApplication) {
@@ -447,7 +564,7 @@ export class Caracal {
    * long-lived holders never present an expired token; inbound contexts stay
    * pinned to the caller's token.
    */
-  async headersAsync(opts: AppIdentityOptions = {}): Promise<Record<string, string>> {
+  async headersAsync(opts: CallOptions = {}): Promise<Record<string, string>> {
     const ctx = current()
     if (!ctx) {
       if (!opts.asApplication) {
@@ -468,23 +585,31 @@ export class Caracal {
   }
 
   async bindFromHeaders<T>(
-    headers: Record<string, string | string[] | undefined> | HeaderGetter,
+    headers: Headers | Record<string, string | string[] | undefined> | HeaderGetter,
     fn: () => Promise<T>,
     opts: BindOptions = {},
   ): Promise<T> {
+    if (!opts.verify && !this.unverifiedBoundaryWarned && productionEnv(process.env)) {
+      this.unverifiedBoundaryWarned = true
+      this.warnLog(
+        'caracal: inbound context is being bound without a verify hook in production; the envelope is propagation-only - pass { verify } or keep this boundary behind a verifier such as the Gateway or @caracalai/verify',
+      )
+    }
     const env =
       typeof headers === 'function'
         ? decodeEnvelope(headers)
-        : decodeEnvelope((n) => {
-            const lower = n.toLowerCase()
-            for (const k of Object.keys(headers)) {
-              if (k.toLowerCase() === lower) {
-                const v = (headers as Record<string, string | string[] | undefined>)[k]
-                return Array.isArray(v) ? v[0] : v
+        : headers instanceof Headers
+          ? decodeEnvelope((n) => headers.get(n) ?? undefined)
+          : decodeEnvelope((n) => {
+              const lower = n.toLowerCase()
+              for (const k of Object.keys(headers)) {
+                if (k.toLowerCase() === lower) {
+                  const v = (headers as Record<string, string | string[] | undefined>)[k]
+                  return Array.isArray(v) ? v[0] : v
+                }
               }
-            }
-            return undefined
-          })
+              return undefined
+            })
     let claims: VerifiedClaims | undefined
     let rootInjected = false
     if (!env.subjectToken) {
@@ -520,9 +645,18 @@ export class Caracal {
    * headers the caller or an OpenTelemetry SDK already set. The bearer is
    * attached only to gateway-routed calls, where the Gateway terminates it at
    * the trust boundary: a scoped mandate when `scopes` is set, otherwise the
-   * context's subject token. No default timeout is applied; pass
-   * `init.signal` (e.g. AbortSignal.timeout) to bound a call. Pass to any
-   * provider SDK that accepts a custom fetch.
+   * context's subject token. No default timeout is applied unless `timeoutMs`
+   * is set; a caller-supplied `init.signal` still applies (combined when both
+   * are present). Pass to any provider SDK that accepts a custom fetch.
+   *
+   * @example Hand the transport to a provider SDK
+   * ```ts
+   * const openai = new OpenAI({
+   *   baseURL: 'https://api.pipernet.example/v1',
+   *   apiKey: 'unused-gateway-injects-credentials',
+   *   fetch: caracal.transport({ scopes: ['chat:complete'] }),
+   * })
+   * ```
    */
   transport(opts: TransportOptions = {}): typeof fetch {
     const outer = this
@@ -535,26 +669,34 @@ export class Caracal {
           "Caracal.transport(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.",
         )
       }
-      const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
       const merged = new Headers(init?.headers ?? {})
-      encodeEnvelope(
-        env,
-        (k, v) => merged.set(k, v),
-        (k) => merged.get(k) ?? undefined,
-      )
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
-
       const explicitResource = merged.get('X-Caracal-Resource') ?? undefined
       const rewritten = outer.routeThroughGateway(input, explicitResource)
+      const gatewayBound = rewritten !== null || outer.targetsGateway(input)
+      if (opts.propagation !== 'gateway-only' || gatewayBound) {
+        const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
+        encodeEnvelope(
+          env,
+          (k, v) => merged.set(k, v),
+          (k) => merged.get(k) ?? undefined,
+        )
+      }
+      let signal = init?.signal ?? undefined
+      if (opts.timeoutMs) {
+        const timeout = AbortSignal.timeout(opts.timeoutMs)
+        signal = signal ? AbortSignal.any([signal, timeout]) : timeout
+      }
+      const bounded = signal === init?.signal ? init : { ...init, signal }
       if (rewritten) {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
         merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes)}`)
-        return fetchImpl(rewritten.url as unknown as URL, { ...init, headers: merged })
+        return fetchImpl(rewritten.url as unknown as URL, { ...bounded, headers: merged })
       }
-      if (outer.targetsGateway(input)) {
+      if (gatewayBound) {
         merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes)}`)
       }
-      return fetchImpl(input as URL, { ...init, headers: merged })
+      return fetchImpl(input as URL, { ...bounded, headers: merged })
     }) as typeof fetch
     return fn
   }
@@ -574,11 +716,15 @@ export class Caracal {
     if (scopes?.length && resourceId) {
       const exchanger = this.config.exchanger
       if (!exchanger) throw new Error('Caracal.transport(): scopes require a client-secret configuration')
-      const minted = await exchanger.mintMandate(resourceId, scopes, {
-        sessionId: ctx?.sessionId,
-        delegationId: ctx?.delegationId,
-      })
-      return minted.token
+      try {
+        const minted = await exchanger.mintMandate(resourceId, scopes, {
+          sessionId: ctx?.sessionId,
+          delegationId: ctx?.delegationId,
+        })
+        return minted.token
+      } catch (err) {
+        throw lifecycleAuthorityHint(err, ctx)
+      }
     }
     if (!ctx) return this.rootToken()
     if (ctx.ownToken && this.config.tokenSource) return await this.config.tokenSource()
@@ -594,36 +740,67 @@ export class Caracal {
    * session identity, and refreshed before expiry.
    *
    * When a scope is approval-gated this throws ApprovalRequiredError; retry
-   * with `approvalId` set to the returned challenge id once an authenticated
+   * with `approvalId` set to the returned approval id once an authenticated
    * approver has satisfied it. Requires a client-secret configuration.
    */
-  async mintMandate(resourceId: string, scopes: string[], opts: MandateOptions = {}): Promise<string> {
+  async mintMandate(resourceId: string, scopes: string[], opts: MandateOptions = {}): Promise<MintedMandate> {
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.mintMandate(): requires a client-secret configuration')
     const ctx = opts.ctx ?? current()
-    const minted = await exchanger.mintMandate(resourceId, scopes, {
-      sessionId: ctx?.sessionId,
-      delegationId: ctx?.delegationId,
-      ttlSeconds: opts.ttlSeconds,
-      approvalId: opts.approvalId,
-    })
-    return minted.token
+    try {
+      return await exchanger.mintMandate(resourceId, scopes, {
+        sessionId: ctx?.sessionId,
+        delegationId: ctx?.delegationId,
+        ttlSeconds: opts.ttlSeconds,
+        approvalId: opts.approvalId,
+        signal: opts.signal,
+      })
+    } catch (err) {
+      throw lifecycleAuthorityHint(err, ctx)
+    }
   }
 
   /**
-   * Long-polls an approval challenge until an approver decides it, it
+   * Long-polls an approval until an approver decides it, it
    * expires, or the timeout elapses. Returns the final lifecycle state:
    * 'approved' means retrying the mint with `approvalId` set will succeed;
-   * 'rejected' and 'expired' are terminal; 'pending' means the timeout
-   * elapsed with no decision and waiting again is safe.
+   * 'rejected', 'expired', and 'consumed' are terminal; 'pending' means the
+   * timeout elapsed with no decision and waiting again is safe. Pass `signal`
+   * to abort the wait early.
    */
-  waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
+  waitForApproval(approvalId: string, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<ApprovalState> {
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.waitForApproval(): requires a client-secret configuration')
-    return exchanger.waitForApproval(challengeId, opts)
+    return exchanger.waitForApproval(approvalId, opts)
   }
 
-  gatewayRequest(resourceId: string, path: string = '/'): GatewayRequest {
+  /**
+   * Runs an approval-gated operation end to end. fn is invoked once; when it
+   * throws ApprovalRequiredError the client long-polls the approval and, on
+   * approval, invokes fn again with the approval id so the retried mint
+   * consumes the decision. Any other outcome (rejected, expired, consumed, or
+   * the wait timing out) rethrows the original ApprovalRequiredError, whose
+   * approvalId lets the caller resume the wait later.
+   *
+   * @example
+   * ```ts
+   * const mandate = await caracal.withApproval((approvalId) =>
+   *   caracal.mintMandate('resource://pipernet', ['funds:transfer'], { approvalId }),
+   * )
+   * ```
+   */
+  async withApproval<T>(fn: (approvalId?: string) => Promise<T>, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      if (!isApprovalRequired(err)) throw err
+      const state = await this.waitForApproval(err.approvalId, opts)
+      if (state !== 'approved') throw err
+      return await fn(err.approvalId)
+    }
+  }
+
+  gatewayRequest(resourceId: string, path: string = '/'): GatewayTarget {
     if (!this.config.gatewayUrl) throw new Error('Caracal.gatewayRequest(): gatewayUrl is not configured')
     if (!resourceId.trim()) throw new Error('Caracal.gatewayRequest(): resourceId is required')
     return {
@@ -634,16 +811,18 @@ export class Caracal {
 
   /**
    * One-call happy path: sends `init` to `path` on the given resource through the
-   * Gateway with Caracal context and authority injected. Equivalent to building a
-   * `gatewayRequest` and calling it with `transport`. The resource header always
-   * wins over any caller-supplied `X-Caracal-Resource`. No default timeout is
-   * applied; pass `init.signal` (e.g. AbortSignal.timeout) to bound a call.
+   * Gateway with Caracal context and authority injected. Accepts the transport
+   * options inline: pass `scopes` to authorize with a scoped resource mandate and
+   * `asApplication` to call as the application's own identity. The resource header
+   * always wins over any caller-supplied `X-Caracal-Resource`. No default timeout
+   * is applied; pass `signal` (e.g. AbortSignal.timeout) to bound a call.
    */
-  fetch(resourceId: string, path: string = '/', init: RequestInit = {}, opts: TransportOptions = {}): Promise<Response> {
+  fetch(resourceId: string, path: string = '/', init: RequestInit & TransportOptions = {}): Promise<Response> {
+    const { scopes, asApplication, ...rest } = init
     const request = this.gatewayRequest(resourceId, path)
-    const headers = new Headers(init.headers ?? {})
+    const headers = new Headers(rest.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
-    return this.transport(opts)(request.url, { ...init, headers })
+    return this.transport({ scopes, asApplication })(request.url, { ...rest, headers })
   }
 
   /**
@@ -658,6 +837,19 @@ export class Caracal {
    * the Gateway pass through unchanged; other absolute URLs are rewritten
    * onto it. When a scope is approval-gated the request rejects with
    * ApprovalRequiredError. Requires a client-secret configuration.
+   *
+   * A mint cycle costs five control-plane calls (bootstrap mint, two session
+   * spawns, one delegation, the final mint) and runs roughly once per mandate
+   * TTL (default 15 minutes); every request in between is served from cache.
+   *
+   * @example Application-identity LLM transport
+   * ```ts
+   * const llm = new OpenAI({
+   *   baseURL: 'https://api.pipernet.example/v1',
+   *   apiKey: 'unused-gateway-injects-credentials',
+   *   fetch: caracal.applicationTransport('resource://pipernet', { scopes: ['chat:complete'] }),
+   * })
+   * ```
    */
   applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
     const exchanger = this.config.exchanger
@@ -684,7 +876,7 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
-  ): Promise<{ mandate: string; expiresAt: number }> {
+  ): Promise<{ mandate: string; expiresAt: number; resourceId: string; sessions: string[] }> {
     // The cache key carries the acting identity, so a credential re-provisioned into a
     // different zone or application can never be served a mandate minted for the old one.
     // Labels and TTL also shape the mint cycle, so transports with different
@@ -716,7 +908,7 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
-  ): Promise<{ mandate: string; expiresAt: number }> {
+  ): Promise<{ mandate: string; expiresAt: number; resourceId: string; sessions: string[] }> {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
     const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
@@ -749,7 +941,7 @@ export class Caracal {
         delegationId: edge.delegationEdgeId,
         ttlSeconds: mandateTtl,
       })
-      return { mandate: minted.token, expiresAt: Date.now() / 1000 + minted.expiresIn }
+      return { mandate: minted.token, expiresAt: Date.now() / 1000 + minted.expiresInSeconds, resourceId, sessions: spawned }
     } catch (err) {
       await Promise.allSettled(spawned.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
       throw err
@@ -857,6 +1049,27 @@ function productionEnv(env: NodeJS.ProcessEnv): boolean {
   return env.NODE_ENV === 'production'
 }
 
+function defaultWarn(message: string, err?: unknown): void {
+  if (err === undefined) console.warn(message)
+  else console.warn(message, err)
+}
+
+/**
+ * A policy deny for a session that carries no delegation is almost always the
+ * lifecycle-only-authority trap: under the platform decision contract,
+ * resource mandates only mint over a delegation. Append the remediation so
+ * the developer does not need the policy model to decode the deny.
+ */
+function lifecycleAuthorityHint(err: unknown, ctx: CaracalContext | undefined): unknown {
+  if (!(err instanceof CaracalError) || err.code !== 'access_denied') return err
+  if (!ctx?.sessionId || ctx.delegationId) return err
+  return new CaracalError(
+    err.code,
+    `${err.message} (hint: the bound session has no delegation, so it holds lifecycle-only authority; narrow the session with Authority.narrow, accept one with acceptDelegation, or call as the application with applicationTransport)`,
+    { requestId: err.requestId, httpStatus: err.httpStatus, details: err.details },
+  )
+}
+
 function isLoopbackHost(host: string): boolean {
   if (host === 'localhost') return true
   if (host === '::1' || host === '[::1]') return true
@@ -954,7 +1167,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
   const url = serviceUrl(env, 'CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
   const zoneId = env.CARACAL_ZONE_ID
   const applicationId = env.CARACAL_APPLICATION_ID
-  const subjectToken = env.CARACAL_SUBJECT_TOKEN
+  const subjectToken = env.CARACAL_BOOTSTRAP_TOKEN
   const stsUrl = stsUrlFromEnv(env)
   const gatewayUrl = serviceUrl(env, 'CARACAL_GATEWAY_URL', DEFAULT_GATEWAY_URL)
   const missing = [
@@ -986,9 +1199,9 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
     )
   }
   if (!subjectToken) {
-    throw new Error('Caracal.fromEnv: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN')
+    throw new Error('Caracal.fromEnv: provide CARACAL_APP_CLIENT_SECRET or CARACAL_BOOTSTRAP_TOKEN')
   }
-  validateSubjectToken(subjectToken!)
+  validateBootstrapToken(subjectToken!)
   assertProductionTransport('CARACAL_COORDINATOR_URL', url, env)
   assertProductionTransport('CARACAL_GATEWAY_URL', gatewayUrl, env)
   return {
@@ -1359,6 +1572,11 @@ function joinGatewayPath(gatewayUrl: string, path: string): string {
   const queryIndex = normalized.indexOf('?')
   const pathname = queryIndex === -1 ? normalized : normalized.slice(0, queryIndex)
   const query = queryIndex === -1 ? '' : normalized.slice(queryIndex + 1)
+  // Dot segments could climb out of a base-pathed gateway once the URL
+  // normalizes, so the path must arrive already resolved.
+  if (pathname.split('/').some((segment) => segment === '.' || segment === '..')) {
+    throw new Error('Caracal.gatewayRequest(): path must not contain dot segments')
+  }
   const base = gateway.origin + gateway.pathname.replace(/\/$/, '')
   return `${base}${pathname || '/'}${query ? `?${query}` : ''}`
 }
@@ -1493,16 +1711,16 @@ function createClientSecretTokenSource(
         delegationEdgeId: opts.delegationId,
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
+        signal: opts.signal,
       })
-      return { token: token.accessToken, expiresIn: token.expiresIn }
+      return { token: token.accessToken, expiresInSeconds: token.expiresIn }
     },
-    waitForApproval: async (challengeId, opts = {}) => (await resolve()).client.waitForApproval(challengeId, opts),
+    waitForApproval: async (approvalId, opts = {}) => (await resolve()).client.waitForApproval(approvalId, opts),
     onEvent: (cb) => {
       events = cb
     },
   }
 }
-
 function sortBindingsLongestFirst(bindings: ResourceBinding[]): ResourceBinding[] {
   return [...bindings].sort((a, b) => b.upstreamPrefix.length - a.upstreamPrefix.length)
 }
@@ -1512,7 +1730,7 @@ function sortBindingsLongestFirst(bindings: ResourceBinding[]): ResourceBinding[
  * shape, decodes the payload and rejects tokens that are malformed or already
  * expired. Opaque tokens are accepted.
  */
-function validateSubjectToken(token: string): void {
+function validateBootstrapToken(token: string): void {
   const parts = token.split('.')
   if (parts.length !== 3) return
   let payloadJson: string
@@ -1531,6 +1749,6 @@ function validateSubjectToken(token: string): void {
   }
   if (typeof payload.exp !== 'number') return
   if (payload.exp <= Math.floor(Date.now() / 1000)) {
-    throw new Error('CARACAL_SUBJECT_TOKEN is expired: refresh the bootstrap token before starting the application')
+    throw new Error('CARACAL_BOOTSTRAP_TOKEN is expired: refresh the bootstrap token before starting the application')
   }
 }

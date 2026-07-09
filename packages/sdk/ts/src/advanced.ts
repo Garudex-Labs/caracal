@@ -19,7 +19,7 @@ export type {
   SessionOptions,
   DelegateOptions,
   LifecycleHook,
-  AppIdentityOptions,
+  CallOptions,
   TokenSource,
   ClientSecretOptions,
 } from './client.js'
