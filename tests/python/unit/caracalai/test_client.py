@@ -45,7 +45,7 @@ class FromEnvTests(unittest.TestCase):
             {
                 "CARACAL_ZONE_ID": "z1",
                 "CARACAL_APPLICATION_ID": "a1",
-                "CARACAL_SUBJECT_TOKEN": "t1",
+                "CARACAL_BOOTSTRAP_TOKEN": "t1",
             }
         )
         self.assertEqual(c.config.zone_id, "z1")
@@ -106,7 +106,7 @@ class FromEnvTests(unittest.TestCase):
                     "CARACAL_COORDINATOR_URL": "http://x",
                     "CARACAL_ZONE_ID": "z1",
                     "CARACAL_APPLICATION_ID": "a1",
-                    "CARACAL_SUBJECT_TOKEN": token,
+                    "CARACAL_BOOTSTRAP_TOKEN": token,
                 }
             )
         self.assertIn("expired", str(cm.exception))
@@ -118,7 +118,7 @@ class FromEnvTests(unittest.TestCase):
                     "CARACAL_ENV": "production",
                     "CARACAL_ZONE_ID": "z",
                     "CARACAL_APPLICATION_ID": "app",
-                    "CARACAL_SUBJECT_TOKEN": "tok",
+                    "CARACAL_BOOTSTRAP_TOKEN": "tok",
                 }
             )
 
@@ -127,7 +127,7 @@ class FromEnvTests(unittest.TestCase):
             "CARACAL_ENV": "production",
             "CARACAL_ZONE_ID": "z",
             "CARACAL_APPLICATION_ID": "app",
-            "CARACAL_SUBJECT_TOKEN": "tok",
+            "CARACAL_BOOTSTRAP_TOKEN": "tok",
             "CARACAL_STS_URL": "https://sts.internal",
             "CARACAL_GATEWAY_URL": "https://gateway.internal",
         }
@@ -242,7 +242,7 @@ class AutoDetectTests(unittest.TestCase):
             env={
                 "CARACAL_ZONE_ID": "other",
                 "CARACAL_APPLICATION_ID": "other",
-                "CARACAL_SUBJECT_TOKEN": "tok",
+                "CARACAL_BOOTSTRAP_TOKEN": "tok",
             },
         )
         self.assertEqual(c.config.zone_id, "z")
@@ -360,6 +360,113 @@ class MintMandateTests(unittest.TestCase):
         body = captured[0].decode()
         self.assertIn("agent_session_id=agent_3", body)
         self.assertNotIn("delegation_edge_id", body)
+
+    def test_appends_lifecycle_hint_for_delegationless_session_deny(self) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403, json={"error": "access_denied", "error_description": "denied"}
+            )
+
+        from caracalai import CaracalContext, CaracalError
+        from caracalai.advanced import bind
+
+        ctx = CaracalContext(
+            subject_token="tok",
+            zone_id="z",
+            application_id="app",
+            session_id="agent_3",
+        )
+        client = self._client(handler)
+        with self.assertRaises(CaracalError) as caught:
+            bind(
+                ctx,
+                lambda: client.mint_mandate("resource://payments", ["pay:read"]),
+            )
+        notes = getattr(caught.exception, "__notes__", [])
+        self.assertTrue(any("lifecycle-only authority" in note for note in notes))
+
+    def test_no_hint_when_delegation_is_bound(self) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403, json={"error": "access_denied", "error_description": "denied"}
+            )
+
+        from caracalai import CaracalContext, CaracalError
+        from caracalai.advanced import bind
+
+        ctx = CaracalContext(
+            subject_token="tok",
+            zone_id="z",
+            application_id="app",
+            session_id="agent_3",
+            delegation_id="edge_3",
+        )
+        client = self._client(handler)
+        with self.assertRaises(CaracalError) as caught:
+            bind(
+                ctx,
+                lambda: client.mint_mandate("resource://payments", ["pay:read"]),
+            )
+        self.assertEqual(getattr(caught.exception, "__notes__", []), [])
+
+
+class WithApprovalTests(unittest.IsolatedAsyncioTestCase):
+    def _client(self, states: list[str]) -> Caracal:
+        polled = iter(states)
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            if "/step-up/" in str(req.url):
+                return httpx.Response(200, json={"state": next(polled)})
+            return httpx.Response(200, json={"access_token": "unused"})
+
+        return Caracal.from_client_secret(
+            coordinator_url="http://coord",
+            sts_url="http://sts",
+            zone_id="z",
+            application_id="app",
+            client_secret="secret",
+            resources=["resource://payments"],
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+    async def test_retries_with_approval_id_once_approved(self) -> None:
+        from caracalai import ApprovalRequired
+
+        client = self._client(["approved"])
+        calls: list[str | None] = []
+
+        async def fn(approval_id: str | None) -> str:
+            calls.append(approval_id)
+            if approval_id is None:
+                raise ApprovalRequired("chal_9")
+            return "minted"
+
+        result = await client.with_approval(fn, timeout_seconds=5.0)
+        self.assertEqual(result, "minted")
+        self.assertEqual(calls, [None, "chal_9"])
+
+    async def test_reraises_hold_on_rejection(self) -> None:
+        from caracalai import ApprovalRequired
+
+        client = self._client(["rejected"])
+        calls: list[str | None] = []
+
+        async def fn(approval_id: str | None) -> str:
+            calls.append(approval_id)
+            raise ApprovalRequired("chal_9")
+
+        with self.assertRaises(ApprovalRequired):
+            await client.with_approval(fn, timeout_seconds=5.0)
+        self.assertEqual(calls, [None])
+
+    async def test_passes_other_errors_through(self) -> None:
+        client = self._client([])
+
+        async def fn(approval_id: str | None) -> str:
+            raise ValueError("boom")
+
+        with self.assertRaises(ValueError):
+            await client.with_approval(fn)
 
 
 def _build_caracal() -> Caracal:
@@ -562,7 +669,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.session_id, "agent-1")
             self.assertEqual(current().session_id, "agent-1")
             res = await c.delegate(
-                to="agent-2",
+                to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
                 constraints=DelegationConstraints(resources=["calendar"], max_depth=2),
@@ -602,7 +709,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(RuntimeError):
             await c.delegate(
-                to="agent-2", to_application_id="app-2", scopes=["tool:call"]
+                to_session_id="agent-2", to_application_id="app-2", scopes=["tool:call"]
             )
 
     async def test_service_heartbeats_and_does_not_auto_terminate(self) -> None:

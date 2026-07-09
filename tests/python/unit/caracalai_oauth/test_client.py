@@ -151,7 +151,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(ApprovalRequired) as raised:
             await client.exchange("subject", "resource://api")
-        self.assertEqual(raised.exception.challenge_id, "challenge1")
+        self.assertEqual(raised.exception.approval_id, "challenge1")
         self.assertEqual(raised.exception.resource, "resource://api")
         self.assertEqual(raised.exception.binding, "abc123")
         self.assertEqual(raised.exception.expires_at, "2026-01-01T00:05:00Z")
@@ -517,7 +517,7 @@ class SubjectFederationTests(unittest.IsolatedAsyncioTestCase):
         )
         await client.decide_approval(
             subject_token="user-session-token",
-            challenge_id="ch-1",
+            approval_id="ch-1",
             binding="abcd",
             decision="approved",
             reason="refund reviewed",
@@ -527,6 +527,6 @@ class SubjectFederationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"binding":"abcd"', str(captured["body"]))
         with self.assertRaises(ValueError):
             await client.decide_approval(
-                subject_token="", challenge_id="ch-1", binding="x", decision="approved"
+                subject_token="", approval_id="ch-1", binding="x", decision="approved"
             )
         await client.aclose()
