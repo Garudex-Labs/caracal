@@ -323,6 +323,12 @@ func TestCloseDropsCachedApplicationMandates(t *testing.T) {
 	if err := c.Close(); err != nil {
 		t.Fatal(err)
 	}
+	platform.mu.Lock()
+	terminated := append([]string(nil), platform.terminated...)
+	platform.mu.Unlock()
+	if len(terminated) != 2 {
+		t.Fatalf("expected Close to terminate the sessions backing the cached mandate, got %v", terminated)
+	}
 	second := governedGet(t, client, governedUpstream+"/tasks")
 	if second["presented"] != "Bearer mandate-2" {
 		t.Fatalf("expected a fresh mandate after Close, got %s", second["presented"])

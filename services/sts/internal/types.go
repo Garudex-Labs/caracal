@@ -28,7 +28,6 @@ type TokenExchangeRequest struct {
 	GrantType            string
 	SubjectToken         string
 	SubjectTokenType     string
-	ActorToken           string
 	Resources            []string // one or more resource identifiers; repeated param supported
 	Scope                string
 	ZoneID               string

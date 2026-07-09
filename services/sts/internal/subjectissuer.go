@@ -343,13 +343,13 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 // revocation, never an authorization input.
 func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, app *Application, zoneID, requestID string) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
 	appMeta := applicationAuditMeta(app)
-	if len(req.Resources) > 0 || req.Scope != "" || req.ActorToken != "" ||
+	if len(req.Resources) > 0 || req.Scope != "" ||
 		req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" || req.ChallengeID != "" {
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "subject_federation_invalid", &OPAResult{}, appMeta); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken,
-			"a subject federation exchange carries only the identity token: no resources, scopes, actor, session, delegation, or challenge parameters")
+			"a subject federation exchange carries only the identity token: no resources, scopes, session, delegation, or challenge parameters")
 	}
 	if req.SubjectToken == "" {
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "subject_token is required")

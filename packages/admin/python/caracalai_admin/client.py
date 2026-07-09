@@ -118,6 +118,7 @@ class AdminClient:
         self.provider_connections = _ProviderConnections(self)
         self.workloads = _Workloads(self)
         self.sessions = _Sessions(self)
+        self.subjects = _Subjects(self)
         self.agent_sessions = _AgentSessions(self)
         self.audit = _Audit(self)
         self.admin_audit = _AdminAudit(self)
@@ -619,6 +620,21 @@ class _Sessions:
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
         response = self._client._request(f"/v1/zones/{zone_id}/sessions", query=query)
         return _unwrap(response, "items", "sessions response missing items")
+
+
+class _Subjects:
+    """The subject kill switch: one call cuts every authority path a subject
+    holds - session records, governed sessions riding them, delegations, and
+    provider connections - and feeds the revocation stream so in-flight
+    mandates die before their exp. Idempotent."""
+
+    def __init__(self, client: AdminClient) -> None:
+        self._client = client
+
+    def revoke(self, zone_id: str, body: dict[str, Any]) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/subjects/revoke", method="POST", body=body
+        )
 
 
 class _AgentSessions:
