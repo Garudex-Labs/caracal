@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides the shared delegation edge inspector with chain, impact, and revocation.
+This file provides the shared delegation inspector with chain, impact, and revocation.
 */
 import { useMemo, useState } from "react";
 
@@ -139,8 +139,8 @@ export function DelegationInspector({
         </div>
       </div>
 
-      <DetailGroup title="Edge">
-        <DetailField label="Edge ID">
+      <DetailGroup title="Delegation">
+        <DetailField label="Delegation ID">
           <Mono>{edge.id}</Mono>
         </DetailField>
         <DetailField label="Source session">
@@ -168,11 +168,11 @@ export function DelegationInspector({
           ? applicationField("Receiver application", edge.receiver_application_id)
           : null}
         {edge.parent_edge_id ? (
-          <DetailField label="Parent edge">
+          <DetailField label="Parent delegation">
             <Mono>{edge.parent_edge_id}</Mono>
           </DetailField>
         ) : null}
-        <DetailField label="Edge version">{edge.edge_version}</DetailField>
+        <DetailField label="Version">{edge.edge_version}</DetailField>
         <DetailField label="Created">{new Date(edge.created_at).toLocaleString()}</DetailField>
         {edge.expires_at ? (
           <DetailField label="Expires">{new Date(edge.expires_at).toLocaleString()}</DetailField>
@@ -326,14 +326,14 @@ function ImpactView({ impact }: { impact: DelegationImpact | null }) {
     <div className="mt-4">
       <p className="mb-3 text-xs text-muted-foreground">
         Revoking this delegation cascades to {rows.length} downstream edge
-        {rows.length === 1 ? "" : "s"}. Each row shows the agent session that loses authority.
+        {rows.length === 1 ? "" : "s"}. Each row shows the session that loses authority.
       </p>
       <div className="overflow-hidden border border-border">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-left">
               <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Agent session
+                Session
               </th>
               <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Depth

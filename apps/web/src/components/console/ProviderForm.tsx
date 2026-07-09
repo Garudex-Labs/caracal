@@ -47,7 +47,7 @@ export const TEST_STATUS: Record<
 };
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
-  { value: "caracal_mandate", label: "Caracal mandate" },
+  { value: "caracal_mandate", label: "Caracal-issued token (Caracal-aware upstream)" },
   { value: "oauth2_authorization_code", label: "OAuth 2.0: authorization code" },
   { value: "oauth2_client_credentials", label: "OAuth 2.0: client credentials" },
   { value: "api_key", label: "API key" },

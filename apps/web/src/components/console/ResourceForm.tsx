@@ -345,7 +345,7 @@ function ResourceFormBody({
           <div className="mt-3 flex flex-col gap-4">
             <Select
               label="Enforcement"
-              info="Operation enforced: each call must match a declared method, path, and scope; fits REST-style APIs. Transport uniform: granted scopes are the only boundary with no operation list; fits MCP servers, streaming transports, and upstreams that enforce their own authorization."
+              info="Listed operations only: each call must match a declared method, path, and scope; fits REST-style APIs. Any operation: granted scopes are the only boundary with no operation list; fits MCP servers, streaming transports, and upstreams that enforce their own authorization."
               value={enforcement}
               onChange={(e) => {
                 const next = e.target.value as ResourceOperationEnforcement;
@@ -355,8 +355,8 @@ function ResourceFormBody({
                 setEnforcement(next);
               }}
             >
-              <option value="enforced">Operation enforced</option>
-              <option value="transport_uniform">Transport uniform</option>
+              <option value="enforced">Listed operations only</option>
+              <option value="transport_uniform">Any operation</option>
             </Select>
 
             {enforcement === "enforced" ? (
