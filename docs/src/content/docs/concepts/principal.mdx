@@ -1,6 +1,6 @@
 ---
 title: Identities and Applications
-description: Applications, users, services, and agents that act inside a zone.
+description: Applications, services, agents, and the subjects they act for.
 sidebar:
   order: 5
 ---
@@ -11,7 +11,7 @@ A principal is the acting identity. An application is the registered client or w
 
 | Principal | Typical source | How Caracal sees it |
 | --- | --- | --- |
-| User | Login, workforce identity, or upstream IdP. | Subject session with user-bound claims. |
+| User | Your application's own authenticated end user. | Federated subject (`sub`) recorded for attribution, provider connections, revocation, and audit - never an authorization input. |
 | Service | Workload credential or client secret. | Application-bound session or exchange subject. |
 | Agent | Spawned runtime session. | Agent session with parent and delegation context. |
 

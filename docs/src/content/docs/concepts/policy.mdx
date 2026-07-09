@@ -79,8 +79,8 @@ Every evaluation receives this exact input shape (`schema_version` `2026-05-20`)
 | `input.session.id` | string | Present when the request is bound to a session. |
 | `input.delegation_edge` | object | Present only on delegated exchange (see below). |
 | `input.context.requested_scopes` | string[] | Scopes the caller is requesting now; gate these against the allowlist. |
-| `input.context.actor_claims` | object | Verified claims of the acting credential. |
-| `input.context.subject_claims` | object | Verified claims of the delegated subject, when present. |
+| `input.context.actor_claims` | object | Verified claims of the optional actor credential; recorded for audit, not read by any allow rule. |
+| `input.context.subject_claims` | object | Verified claims of the presented subject token; the contract uses them for structural binding checks, never for scope authority. |
 | `input.context.challenge_resolved` | bool | `true` after a step-up challenge is satisfied. |
 | `input.context.trace_id` | string | Request trace id for audit correlation. |
 

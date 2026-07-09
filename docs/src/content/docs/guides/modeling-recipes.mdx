@@ -77,29 +77,28 @@ For resources whose compromise is unacceptable - payouts, key material, producti
 
 Trade-off: a dedicated zone gives the cleanest audit and key separation; in-zone tight scopes plus step-up are lighter and often enough. Combine them for the highest-risk targets.
 
-## App-Only Agents and User-Delegated Agents
+## App-Only Agents and Delegated Upstream Accounts
 
-The principal type decides who the authority belongs to and which provider flow fits.
+The principal is always your application; agent sessions carry its labels and delegation context. The real fork is where the upstream credential lives.
 
-| Dimension | App-only service agent | User-delegated agent |
+| Dimension | Shared broker credential | Connected upstream account |
 | --- | --- | --- |
-| Principal | Service identity bound to an application. | User subject session the agent acts on behalf of. |
-| Session | Application-bound exchange subject. | Subject session, then spawned agent and delegation sessions. |
-| Upstream credential | Shared broker credential the agent never sees: `oauth2_client_credentials`, `api_key`, or `bearer_token`. | Per-user delegated consent: `oauth2_authorization_code`. |
-| Audit attribution | Application and agent session. | User subject plus the agent and delegation chain. |
+| Upstream credential | Shared credential the agent never sees: `oauth2_client_credentials`, `api_key`, or `bearer_token`. | A consented upstream account stored as a provider connection, keyed by the exchange subject: `oauth2_authorization_code`. |
+| Consent | None - the zone operator configures the credential once. | A human completes the provider's consent screen once per subject and provider. |
+| Audit attribution | Application, agent session, and delegation chain. | The same, plus the provider connection the exchange used. |
 
-Policy can tell these apart with `input.principal.registration_method`, `input.principal.agent_session_id`, and `input.principal.labels`, so you author one policy set that handles both without SDK-specific branching. See [Identities and Applications](/concepts/principal/).
+Policy tells work apart with `input.principal.registration_method`, `input.principal.agent_session_id`, and `input.principal.labels`. Authorization inputs are the application, labels, roles, delegation, and confinement - never the subject identifier. See [Identities and Applications](/concepts/principal/).
 
-## Per-User OAuth or Shared Credential
+## Connected Account or Shared Credential
 
 Choose how the upstream credential is held.
 
 | Choose | When | Provider kind |
 | --- | --- | --- |
-| Per-user OAuth grant | Each end user must consent, and the upstream call must act as that user. | `oauth2_authorization_code` |
-| Shared service credential | The agent acts as the application, not a specific user. | `oauth2_client_credentials`, `api_key`, or `bearer_token` |
+| Connected upstream account | The upstream call must act as a specific consented account rather than a shared credential. | `oauth2_authorization_code` |
+| Shared service credential | The agent acts as the application, not a specific account. | `oauth2_client_credentials`, `api_key`, or `bearer_token` |
 
-For per-user grants, Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE; use the provider `connect` action to mint a consent URL for a user and resource, and `disconnect` to revoke it. Reconnecting the same user, resource, and provider replaces the active grant rather than duplicating it. The concrete field tables are in [Provider Recipes](/guides/provider-recipes/).
+For connected accounts, Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE; use the provider **Connect** action to mint a consent URL for a subject, and revoke to disconnect it. Reconnecting the same subject and provider replaces the active connection rather than duplicating it. The concrete field tables are in [Provider Recipes](/guides/provider-recipes/).
 
 ## Validate the Model
 
