@@ -5,7 +5,7 @@
 
 import { createHmac, randomBytes } from 'node:crypto'
 import { InMemoryTokenCache, type TokenCache } from './cache.js'
-import { CaracalError, InteractionRequiredError } from './types.js'
+import { CaracalError, ApprovalRequiredError } from './types.js'
 import type { ExchangeOptions, OAuthEvent, TokenExchangeResponse } from './types.js'
 
 interface STSErrorResponse {
@@ -229,7 +229,7 @@ export class OAuthClient {
         throw new Error(`STS error ${res.status}: invalid error response`)
       }
       if (err['error'] === 'interaction_required') {
-        throw new InteractionRequiredError(err['error_description'] ?? 'Approval required', err['challenge_id'] ?? '', {
+        throw new ApprovalRequiredError(err['error_description'] ?? 'Approval required', err['challenge_id'] ?? '', {
           resource: resourceList(resource)[0],
           state: err['state'],
           tier: err['tier'],

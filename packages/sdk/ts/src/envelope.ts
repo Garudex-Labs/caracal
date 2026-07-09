@@ -4,13 +4,16 @@
  *
  * Wire envelope using W3C Trace Context (traceparent/tracestate) and W3C Baggage.
  *
- * Caracal correlation fields (session, agent_session, delegation_edge,
- * parent_edge, hop) ride in Baggage under the caracal.* namespace alongside
- * pass-through third-party entries; trace identity rides in traceparent and
- * tracestate. Decoding reads the subject token from Authorization, but
- * encoding never writes it: credential emission is an explicit client-layer
- * decision. Baggage is unsigned routing metadata; verifiers must treat signed
- * token claims as the only authoritative source of delegation state.
+ * Caracal correlation fields ride in Baggage under the caracal.* namespace
+ * alongside pass-through third-party entries; trace identity rides in
+ * traceparent and tracestate. The wire keys keep their protocol names: the
+ * session id travels as caracal.agent_session, the delegation id as
+ * caracal.delegation_edge, its parent as caracal.parent_edge, and the
+ * subject session as caracal.session. Decoding reads the subject token from
+ * Authorization, but encoding never writes it: credential emission is an
+ * explicit client-layer decision. Baggage is unsigned routing metadata;
+ * verifiers must treat signed token claims as the only authoritative source
+ * of delegation state.
  */
 
 export const HeaderAuthorization = 'authorization'
@@ -33,10 +36,10 @@ const caracalBaggageKeys = [BaggageAgentSession, BaggageDelegationEdge, BaggageP
 
 export interface Envelope {
   subjectToken?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
   sessionId?: string
+  delegationId?: string
+  parentDelegationId?: string
+  subjectSessionId?: string
   traceId?: string
   traceFlags?: string
   traceState?: string
@@ -148,10 +151,10 @@ export function decodeEnvelope(get: HeaderGetter): Envelope {
   const hop = hopRaw && HOP_RE.test(hopRaw) ? Math.min(MaxHop, parseInt(hopRaw, 10)) : 0
   return {
     subjectToken: bearer?.[1],
-    agentSessionId: bag[BaggageAgentSession] || undefined,
-    delegationEdgeId: bag[BaggageDelegationEdge] || undefined,
-    parentEdgeId: bag[BaggageParentEdge] || undefined,
-    sessionId: bag[BaggageSession] || undefined,
+    sessionId: bag[BaggageAgentSession] || undefined,
+    delegationId: bag[BaggageDelegationEdge] || undefined,
+    parentDelegationId: bag[BaggageParentEdge] || undefined,
+    subjectSessionId: bag[BaggageSession] || undefined,
     traceId: trace?.traceId,
     traceFlags: trace?.flags,
     traceState: traceState || undefined,
@@ -174,11 +177,11 @@ export function encodeEnvelope(env: Envelope, set: HeaderSetter, get?: HeaderGet
     for (const [k, v] of Object.entries(parseBaggage(get(HeaderBaggage)))) merged[k] = v
   }
   for (const key of caracalBaggageKeys) delete merged[key]
-  if (env.agentSessionId) merged[BaggageAgentSession] = env.agentSessionId
-  if (env.delegationEdgeId) merged[BaggageDelegationEdge] = env.delegationEdgeId
-  if (env.parentEdgeId) merged[BaggageParentEdge] = env.parentEdgeId
-  if (env.sessionId) merged[BaggageSession] = env.sessionId
-  if (env.hop > 0 || env.agentSessionId || env.delegationEdgeId || env.parentEdgeId || env.sessionId) {
+  if (env.sessionId) merged[BaggageAgentSession] = env.sessionId
+  if (env.delegationId) merged[BaggageDelegationEdge] = env.delegationId
+  if (env.parentDelegationId) merged[BaggageParentEdge] = env.parentDelegationId
+  if (env.subjectSessionId) merged[BaggageSession] = env.subjectSessionId
+  if (env.hop > 0 || env.sessionId || env.delegationId || env.parentDelegationId || env.subjectSessionId) {
     merged[BaggageHop] = String(env.hop)
   }
   const baggage = encodeBaggage(merged)
