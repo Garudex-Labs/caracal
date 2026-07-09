@@ -164,7 +164,7 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('sends assertion, actor, session, agent session, and delegation edge fields', async () => {
+  it('sends assertion, session, agent session, and delegation edge fields', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -175,7 +175,6 @@ describe('OAuthClient', () => {
     await client.exchange('subject-a', 'resource://api', {
       clientAssertion: 'assertion-1',
       clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-      actorToken: 'actor-1',
       sessionId: 'session-1',
       agentSessionId: 'agent-session-1',
       delegationEdgeId: 'edge-1',
@@ -183,7 +182,7 @@ describe('OAuthClient', () => {
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_assertion')).toBe('assertion-1')
     expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer')
-    expect(body.get('actor_token')).toBe('actor-1')
+    expect(body.get('actor_token')).toBeNull()
     expect(body.get('session_id')).toBe('session-1')
     expect(body.get('agent_session_id')).toBe('agent-session-1')
     expect(body.get('delegation_edge_id')).toBe('edge-1')

@@ -478,6 +478,7 @@ describe('AdminClient', () => {
     await c.workloads.rotateSecret('z1', 'wl1')
     await c.workloads.delete('z1', 'wl1')
     await c.sessions.list('z1', { status: 'active' } as never)
+    await c.subjects.revoke('z1', { subject_id: 'auth0|507f1f77bcf86cd799439011', reason: 'credential compromise' })
     await c.audit.list('z1', { limit: 5 } as never)
     await c.stepUpChallenges.list('z1')
     await c.stepUpChallenges.get('z1', 'challenge1')
@@ -515,6 +516,7 @@ describe('AdminClient', () => {
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/delegations/d1/revoke' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/sessions?status=active')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/subjects/revoke' && x.method === 'POST')).toBe(true)
   })
 
   it('unwraps every list namespace and rejects envelopes without items', async () => {

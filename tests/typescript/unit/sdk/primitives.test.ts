@@ -540,6 +540,44 @@ describe('session reliability', () => {
     expect(spawnCalls).toBe(1)
   })
 
+  it('honors the server Retry-After on a throttled spawn', async () => {
+    vi.useFakeTimers()
+    try {
+      let spawnCalls = 0
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        const path = new URL(url).pathname
+        if (init.method === 'DELETE') return new Response(null, { status: 204 })
+        if (path.endsWith('/agents')) {
+          spawnCalls += 1
+          if (spawnCalls === 1) {
+            return new Response('busy', { status: 503, headers: { 'retry-after': '2' } })
+          }
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({}), { status: 200 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      const result = session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(spawnCalls).toBe(1)
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(result).resolves.toBe('ok')
+      expect(spawnCalls).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('caps the response body carried on coordinator errors', async () => {
+    const fetchImpl = (async () => new Response('x'.repeat(5000), { status: 400 })) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    const err = await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok')
+      .then(() => undefined)
+      .catch((e: Error) => e)
+    expect(err?.message).toContain('… (truncated)')
+    expect(err!.message.length).toBeLessThan(2300)
+  })
+
   it('keeps the fn result when cleanup finds the session already gone', async () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })

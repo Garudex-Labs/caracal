@@ -800,6 +800,56 @@ describe('session lifecycle and delegation', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
+  it('records the task option as metadata.task, winning over a metadata task', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), init })
+      if (init.method === 'POST' && String(input).endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
+    })
+    await c.session(
+      async () => {
+        return
+      },
+      { task: 'Refund order #8412', metadata: { task: 'stale', ticket: 'T-1' } },
+    )
+    const svc = await c.startSession({ task: 'Nightly PiperNet reconciliation' })
+    await svc.close()
+    const agentPosts = calls.filter((call) => call.init.method === 'POST' && call.url.endsWith('/agents'))
+    expect(JSON.parse(String(agentPosts[0].init.body)).metadata).toEqual({ task: 'Refund order #8412', ticket: 'T-1' })
+    expect(JSON.parse(String(agentPosts[1].init.body)).metadata).toEqual({ task: 'Nightly PiperNet reconciliation' })
+  })
+
+  it('reuses a caller-supplied idempotency key so trigger redelivery cannot mint duplicates', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), init })
+      if (init.method === 'POST' && String(input).endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
+    })
+    const work = async () => {
+      return
+    }
+    await c.session(work, { idempotencyKey: 'queue-msg-77' })
+    await c.session(work, { idempotencyKey: 'queue-msg-77' })
+    const keys = calls
+      .filter((call) => call.init.method === 'POST' && call.url.endsWith('/agents'))
+      .map((post) => new Headers(post.init.headers as HeadersInit).get('idempotency-key'))
+    expect(keys).toEqual(['queue-msg-77', 'queue-msg-77'])
+  })
+
   it('forwards coordinator and token exchange events to onEvent hooks', async () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
@@ -889,6 +939,20 @@ describe('config resource sorting and token validation', () => {
     ).toThrow(/expired/)
   })
 
+  it('rejects alg none bootstrap JWT in fromEnv', () => {
+    const header = Buffer.from('{"alg":"none"}').toString('base64url')
+    const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')
+    const token = `${header}.${payload}.`
+    expect(() =>
+      Caracal.fromEnv({
+        CARACAL_COORDINATOR_URL: 'http://coord',
+        CARACAL_ZONE_ID: 'z',
+        CARACAL_APPLICATION_ID: 'app',
+        CARACAL_BOOTSTRAP_TOKEN: token,
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/alg "none"/)
+  })
+
   it('rejects malformed CARACAL_RESOURCES at startup', () => {
     expect(() =>
       Caracal.fromEnv({
@@ -934,6 +998,7 @@ function stubExchanger(overrides: Partial<Record<string, unknown>> = {}) {
     invalidate: vi.fn(),
     identity: async () => ({ zoneId: 'z', applicationId: 'app' }),
     mintMandate: vi.fn(),
+    federateSubject: vi.fn(),
     waitForApproval: vi.fn(),
     onEvent: () => {},
     ...overrides,
@@ -1057,6 +1122,40 @@ describe('Caracal.mintMandate', () => {
   })
 })
 
+describe('Caracal.federateSubject', () => {
+  function subjectMandate(payload: Record<string, unknown>): string {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+    return `eyJhbGciOiJFUzI1NiJ9.${body}.sig`
+  }
+
+  it('requires a client-secret configuration', async () => {
+    const c = new Caracal({ coordinator: { baseUrl: 'http://coord' }, zoneId: 'z', applicationId: 'app', tokenSource: async () => 't' })
+    await expect(c.federateSubject('id-token')).rejects.toThrow('requires a client-secret configuration')
+  })
+
+  it('returns the subject session id decoded from the minted mandate', async () => {
+    const token = subjectMandate({ sid: 'sess-42', sub: 'richard.hendricks@piedpiper.example' })
+    const exchanger = stubExchanger({
+      federateSubject: vi.fn().mockResolvedValue({ token, expiresInSeconds: 600 }),
+    })
+    const c = exchangerClient(exchanger)
+    await expect(c.federateSubject('id-token', { ttlSeconds: 600 })).resolves.toEqual({
+      subjectSessionId: 'sess-42',
+      token,
+      expiresInSeconds: 600,
+    })
+    expect(exchanger.federateSubject).toHaveBeenCalledWith('id-token', { ttlSeconds: 600 })
+  })
+
+  it('rejects a minted mandate that carries no session id', async () => {
+    const exchanger = stubExchanger({
+      federateSubject: vi.fn().mockResolvedValue({ token: subjectMandate({ sub: 'user' }), expiresInSeconds: 600 }),
+    })
+    const c = exchangerClient(exchanger)
+    await expect(c.federateSubject('id-token')).rejects.toThrow('carries no session id')
+  })
+})
+
 describe('Caracal.acceptDelegation validation', () => {
   function inboundClient(items: Array<{ id: string; status: string }>): Caracal {
     const fetchImpl = (async (url: string) => {
@@ -1093,6 +1192,21 @@ describe('Caracal.acceptDelegation validation', () => {
     await c.bind(ctx, async () => {
       await expect(c.acceptDelegation('edge-42', async () => c.current()?.delegationId)).resolves.toBe('edge-42')
     })
+  })
+
+  it('reports every presentation and rejected validation on the event bus', async () => {
+    const c = inboundClient([{ id: 'edge-42', status: 'revoked' }])
+    const events: CaracalEvent[] = []
+    c.onEvent((event) => events.push(event))
+    await c.bind(ctx, async () => {
+      await c.acceptDelegation('edge-7', async () => undefined)
+      await expect(c.acceptDelegation('edge-42', async () => undefined, { validate: true })).rejects.toThrow(/not live/)
+    })
+    const accepts = events.filter((event) => event.type === 'delegation.accept')
+    expect(accepts).toEqual([
+      expect.objectContaining({ delegationId: 'edge-7', sessionId: 's1', validated: false, ok: true }),
+      expect.objectContaining({ delegationId: 'edge-42', sessionId: 's1', validated: true, ok: false }),
+    ])
   })
 })
 

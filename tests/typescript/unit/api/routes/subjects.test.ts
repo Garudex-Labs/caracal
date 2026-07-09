@@ -124,3 +124,72 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
     expect(noParam.statusCode).toBe(400)
   })
 })
+
+describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
+  it('cuts every authority path and reports counts', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'sess-1' }, { id: 'sess-2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'ag-1', subject_session_id: 'sess-1', parent_id: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'edge-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pc-1' }] })
+      .mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'auth0|507f1f77bcf86cd799439011', reason: 'credential compromise' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      subject_id: 'auth0|507f1f77bcf86cd799439011',
+      sessions: 2,
+      agents: 1,
+      delegations: 1,
+      connections: 1,
+    })
+    const calls = db.query.mock.calls.map((call) => String(call[0]))
+    expect(calls[1]).toContain("revoked_reason = 'subject_revoked'")
+    expect(calls[2]).toContain('WITH RECURSIVE tree')
+    expect(calls[3]).toContain('UPDATE delegation_edges')
+    expect(calls[4]).toContain('UPDATE provider_connections')
+    const outbox = calls.find((sql) => sql.includes('INSERT INTO event_outbox'))
+    expect(outbox).toBeDefined()
+    const outboxValues = db.query.mock.calls[calls.indexOf(outbox!)][1] as unknown[][]
+    expect(outboxValues[1]).toContain('caracal.sessions.revoke')
+    const audit = calls.find((sql) => sql.includes('admin_audit'))
+    expect(audit).toBeDefined()
+  })
+
+  it('is idempotent: an already cut-off subject reports zero counts', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'auth0|507f1f77bcf86cd799439011' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ sessions: 0, agents: 0, delegations: 0, connections: 0 })
+  })
+
+  it('404s a subject with no recorded sessions and validates the body', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValue({ rows: [] })
+    await app.ready()
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'ghost' },
+    })
+    expect(unknown.statusCode).toBe(404)
+    const invalid = await app.inject({ method: 'POST', url: '/v1/zones/z1/subjects/revoke', payload: {} })
+    expect(invalid.statusCode).toBe(400)
+  })
+})
