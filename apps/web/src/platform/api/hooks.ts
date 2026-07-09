@@ -1166,7 +1166,7 @@ export function useAgentChildren(zoneId: string | null, id: string | null) {
   });
 }
 
-// Per-agent delegation edges. Delegation edges connect agent sessions, so inbound/outbound
+// Per-session delegations. Delegations connect sessions, so inbound/outbound
 // delegation views are keyed by agent_session_id.
 export function useAgentInboundDelegations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
@@ -1213,7 +1213,7 @@ export function useAgentServices(zoneId: string | null, application_id: string |
 }
 
 // Per-agent activity timeline: the durable audit events (token exchanges, resource calls,
-// denials) recorded for this agent session, newest first. This is the authoritative record
+// denials) recorded for this session, newest first. This is the authoritative record
 // of what the agent actually did, correlated by agent_session_id.
 export function useAgentActivity(zoneId: string | null, sessionId: string | null) {
   return useQuery({

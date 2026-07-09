@@ -21,7 +21,7 @@ const DOMAIN_ROUTE: Record<
   provider: { to: "/app/providers", label: "Provider" },
   resource: { to: "/app/resources", label: "Resource" },
   policy: { to: "/app/policies", label: "Policy" },
-  grant: { to: "/app/agents", label: "Grant", search: { view: "delegation" } },
+  grant: { to: "/app/sessions", label: "Grant", search: { view: "delegation" } },
   audit: { to: "/app/audit", label: "Audit" },
 };
 
