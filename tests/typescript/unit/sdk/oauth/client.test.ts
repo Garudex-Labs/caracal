@@ -492,3 +492,60 @@ describe('OAuthClient', () => {
     expect(events[0]).toMatchObject({ type: 'approval.wait', ok: true, challengeId: 'chal-1', state: 'approved' })
   })
 })
+
+describe('federateSubject', () => {
+  it('posts the id_token subject type with no resources and returns the user session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'user-session-token', token_type: 'Bearer', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const res = await client.federateSubject('external-id-token', { clientSecret: 'secret-1' })
+    expect(res.accessToken).toBe('user-session-token')
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('subject_token')).toBe('external-id-token')
+    expect(body.get('subject_token_type')).toBe('urn:ietf:params:oauth:token-type:id_token')
+    expect(body.get('resource')).toBeNull()
+    expect(body.get('client_secret')).toBe('secret-1')
+  })
+
+  it('rejects an empty id token and surfaces STS denials as CaracalError', async () => {
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.federateSubject('')).rejects.toThrow('identity token')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ error: 'invalid_token', error_description: 'issuer not trusted' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(client.federateSubject('bad-token')).rejects.toMatchObject({ code: 'invalid_token' })
+  })
+})
+
+describe('decideApproval', () => {
+  it('posts the bearer decision with the exact binding', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await client.decideApproval({
+      subjectToken: 'user-session-token',
+      challengeId: 'ch-1',
+      binding: 'abcd',
+      decision: 'approved',
+      reason: 'refund reviewed',
+    })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://sts:8080/step-up/ch-1/decision')
+    expect(init.headers.Authorization).toBe('Bearer user-session-token')
+    expect(JSON.parse(init.body as string)).toEqual({ decision: 'approved', binding: 'abcd', reason: 'refund reviewed' })
+  })
+
+  it('requires subjectToken, challengeId, and binding', async () => {
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.decideApproval({ subjectToken: '', challengeId: 'ch-1', binding: 'x', decision: 'approved' })).rejects.toThrow(
+      'requires',
+    )
+  })
+})

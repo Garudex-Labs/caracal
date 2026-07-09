@@ -38,6 +38,7 @@ function run(command, args, options = {}) {
 }
 
 run('pnpm', ['install', '--frozen-lockfile'])
+run('git', ['config', 'core.hooksPath', '.githooks'])
 run('go', ['mod', 'download'])
 
 if (!existsSync(venvPython)) {
