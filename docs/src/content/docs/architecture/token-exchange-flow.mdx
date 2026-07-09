@@ -33,8 +33,8 @@ sequenceDiagram
 | Input | Purpose |
 | --- | --- |
 | `grant_type` | OAuth token-exchange request type. |
-| `subject_token` | Existing user, service, application, or agent authority. |
-| `actor_token` | Optional actor authority for delegated exchange. |
+| `subject_token` | An existing Caracal session mandate whose authority the exchange narrows. |
+| `actor_token` | Optional distinct second credential, recorded as actor claims for policy input and audit. |
 | `resource` | Target resource identifiers. |
 | `scope` | Requested resource scopes. |
 | `zone_id` | Tenant boundary. |

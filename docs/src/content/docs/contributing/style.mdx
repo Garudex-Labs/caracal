@@ -14,7 +14,7 @@ Caracal style favors small, explicit boundaries and source-aligned documentation
 | Go | Effective Go with canonical `gofmt` formatting. | `pnpm run style` checks changed Go source files with `gofmt -l`. |
 | Python | PEP 8 layout as formatted by Ruff. | `pnpm run style` checks changed Python source files with `ruff format --check`. |
 
-Use `pnpm run style:fix` to format changed files before committing. Pull requests run the same changed-file style gate automatically for primary-language source files.
+The pre-commit hook activated by `pnpm install` formats staged files automatically on every commit, and `pnpm run style:fix` formats changed files on demand. The gate always runs the Ruff version pinned in `scripts/pythonStyleRequirements.in`, so local formatting matches CI exactly. Pull requests run the same changed-file style gate automatically for primary-language source files.
 
 ## Code Conventions
 

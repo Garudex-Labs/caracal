@@ -13,7 +13,7 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `POST` | `/oauth/2/token` | OAuth token exchange for resource, session, Gateway, or delegated mandates. |
 | `GET` | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone. |
 | `GET` | `/step-up/{id}` | Step-up hold state; `?wait={seconds}` long-polls until the state changes. |
-| `POST` | `/step-up/{id}/decision` | Subject-plane approval decision, authenticated with a session mandate. |
+| `POST` | `/step-up/{id}/decision` | Subject-plane approval decision, authenticated with a federated user session mandate. |
 | `GET` | `/health` | Liveness check. |
 | `GET` | `/ready` | Readiness check. |
 | `GET` | `/metrics` | Prometheus metrics. |
@@ -26,8 +26,8 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | Parameter | Purpose |
 | --- | --- |
 | `grant_type` | OAuth grant type. |
-| `subject_token`, `subject_token_type` | Existing authority to exchange. |
-| `actor_token` | Optional actor authority. |
+| `subject_token`, `subject_token_type` | Existing authority to exchange: a session mandate this STS issued. |
+| `actor_token` | Optional distinct second credential, recorded as actor claims for policy input and audit. |
 | `resource` | One or more target resource identifiers. |
 | `scope` | Requested scopes. |
 | `zone_id` | Zone boundary. |
@@ -39,7 +39,10 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 
 ## Subject Identity
 
-STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. The `subject_token` must be a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
+STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. Two subject token classes are accepted:
+
+- `urn:ietf:params:oauth:token-type:access_token` - a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
+- `urn:ietf:params:oauth:token-type:id_token` - **subject federation**: an end user's identity token from an external issuer the zone has registered as a subject issuer. The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS (exact issuer match, configured audience, asymmetric signature) and mints a **user subject session** whose `sub` is copied verbatim. A federation exchange names no resources and mints no scopes: the session is an identity anchor, never authority.
 
 The subject identifier is opaque to Caracal. It does not matter whether it names a user id, a UUID, an employee id, or a customer id - STS requires only that the same identity always presents the same value, because that `sub` is the key everything downstream attaches to: the session record and its revocation state, derived sessions and delegations, provider connections, approval bindings, and every audit event. Scope authority itself is decided by application bindings, resource grants, delegation narrowing, and label confinement in the platform decision contract - not by the subject identifier.
 

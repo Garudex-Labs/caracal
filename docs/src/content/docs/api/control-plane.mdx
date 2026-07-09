@@ -65,6 +65,7 @@ Workloads are the launcher identities `caracal run` uses. Create a workload, del
 | Policy sets | `GET /v1/zones/:zoneId/policy-sets`, `GET /v1/zones/:zoneId/policy-sets/:id`, `GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId`, `GET /v1/zones/:zoneId/policy-sets/:id/activation-status` | `POST /v1/zones/:zoneId/policy-sets`, `POST /v1/zones/:zoneId/policy-sets/:id/versions`, `POST /v1/zones/:zoneId/policy-sets/:id/activate`, `POST /v1/zones/:zoneId/policy-sets/:id/simulate`, `DELETE /v1/zones/:zoneId/policy-sets/:id` |
 | Policy templates | `GET /v1/policy-templates` | - |
 | Grants | `GET /v1/zones/:zoneId/grants`, `GET /v1/zones/:zoneId/grants/:id` | `POST /v1/zones/:zoneId/grants`, `DELETE /v1/zones/:zoneId/grants/:id` |
+| Subject issuers | `GET /v1/zones/:zoneId/subject-issuers`, `GET /v1/zones/:zoneId/subject-issuers/:id` | `POST /v1/zones/:zoneId/subject-issuers`, `PATCH /v1/zones/:zoneId/subject-issuers/:id`, `DELETE /v1/zones/:zoneId/subject-issuers/:id` |
 | Provider connections | `GET /v1/zones/:zoneId/provider-connections`, `GET /v1/zones/:zoneId/provider-connections/oauth/callback` (OAuth redirect target) | `POST /v1/zones/:zoneId/provider-connections`, `POST /v1/zones/:zoneId/provider-connections/oauth/authorize`, `POST /v1/zones/:zoneId/provider-connections/revoke` |
 
 Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.

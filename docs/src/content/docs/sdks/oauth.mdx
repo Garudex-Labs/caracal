@@ -57,6 +57,15 @@ try {
 - Transient HTTP statuses are retried with bounded backoff.
 - STS `interaction_required` responses surface as `ApprovalRequiredError`.
 
+## Subject Federation
+
+When the zone registers the application's identity system as a subject issuer, the client exchanges an end user's identity token for a Caracal user subject session and can post that user's decision on a subject-reserved approval hold:
+
+- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - mints the user subject session. Never cached: each federation is an explicit identity event, and the minted session carries no resource authority.
+- `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
+
+See [Human Approval](/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.
+
 ## Related pages
 
 - [Human Approval](/guides/step-up/)
