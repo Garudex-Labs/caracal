@@ -14,9 +14,9 @@ from time import time
 import httpx
 
 from caracalai_oauth import (
+    ApprovalRequired,
     ExchangeOptions,
     InMemoryTokenCache,
-    InteractionRequiredError,
     OAuthClient,
     TokenExchangeResponse,
 )
@@ -149,7 +149,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
 
-        with self.assertRaises(InteractionRequiredError) as raised:
+        with self.assertRaises(ApprovalRequired) as raised:
             await client.exchange("subject", "resource://api")
         self.assertEqual(raised.exception.challenge_id, "challenge1")
         self.assertEqual(raised.exception.resource, "resource://api")

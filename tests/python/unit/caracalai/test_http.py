@@ -129,14 +129,14 @@ class CaracalASGIMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         async def verifier(_token: str) -> VerifiedClaims:
             return VerifiedClaims(
                 zone_id="zone-proved",
-                agent_session_id="agent-proved",
+                session_id="agent-proved",
                 hop=3,
             )
 
         async def app(_scope, _receive, _send):
             ctx = middleware.caracal.current()
             assert ctx is not None
-            seen["claims"] = (ctx.zone_id, ctx.agent_session_id, ctx.hop)
+            seen["claims"] = (ctx.zone_id, ctx.session_id, ctx.hop)
 
         middleware = CaracalASGIMiddleware(app, make_caracal(), verifier=verifier)
         scope = {

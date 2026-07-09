@@ -140,7 +140,7 @@ class DecodeEnvelopeTests(unittest.TestCase):
             return {HEADER_BAGGAGE: baggage}.get(name)
 
         env = decode_envelope(get)
-        self.assertEqual(env.agent_session_id, "sess-1")
+        self.assertEqual(env.session_id, "sess-1")
         self.assertEqual(env.hop, 3)
 
     def test_clamps_hop_to_max(self) -> None:
@@ -176,10 +176,10 @@ class EncodeDecodeRoundtripTests(unittest.TestCase):
     def test_round_trips_full_envelope_through_headers(self) -> None:
         env = Envelope(
             subject_token="tok",
-            agent_session_id="agent-1",
-            delegation_edge_id="edge-1",
-            parent_edge_id="parent-1",
-            session_id="sid-1",
+            session_id="agent-1",
+            delegation_id="edge-1",
+            parent_delegation_id="parent-1",
+            subject_session_id="sid-1",
             trace_id="a" * 32,
             trace_flags="00",
             trace_state="vendor=value",
@@ -193,10 +193,10 @@ class EncodeDecodeRoundtripTests(unittest.TestCase):
 
         recovered = from_headers(headers)
         self.assertIsNone(recovered.subject_token)
-        self.assertEqual(recovered.agent_session_id, "agent-1")
-        self.assertEqual(recovered.delegation_edge_id, "edge-1")
-        self.assertEqual(recovered.parent_edge_id, "parent-1")
-        self.assertEqual(recovered.session_id, "sid-1")
+        self.assertEqual(recovered.session_id, "agent-1")
+        self.assertEqual(recovered.delegation_id, "edge-1")
+        self.assertEqual(recovered.parent_delegation_id, "parent-1")
+        self.assertEqual(recovered.subject_session_id, "sid-1")
         self.assertEqual(recovered.trace_flags, "00")
         self.assertEqual(recovered.trace_state, "vendor=value")
         self.assertEqual(recovered.baggage, {"tenant": "hooli"})
@@ -222,7 +222,7 @@ class EncodeDecodeRoundtripTests(unittest.TestCase):
             HEADER_BAGGAGE: f"tenant=hooli,{BAGGAGE_HOP}=9",
         }
         env = Envelope(
-            agent_session_id="sess",
+            session_id="sess",
             trace_id="0123456789abcdef0123456789abcdef",
             trace_state="caracal=ignored",
             hop=2,

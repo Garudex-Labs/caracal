@@ -124,7 +124,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_runs_the_full_cycle_and_presents_the_delegated_mandate(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             labels=["worker"],
@@ -169,7 +169,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_gateway_targeted_requests_pass_through(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -181,7 +181,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_labels_default_to_the_application_id(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -196,7 +196,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_caches_the_mandate_across_requests(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -209,7 +209,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_cache_separates_different_labels_and_ttls(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             labels=["worker"],
@@ -217,7 +217,7 @@ class GovernedCycleTests(unittest.TestCase):
             transport=httpx.MockTransport(_gateway_echo),
         ) as client:
             client.get("http://gateway/worker")
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             labels=["a", "b"],
@@ -236,7 +236,7 @@ class GovernedCycleTests(unittest.TestCase):
     def test_concurrent_requests_share_one_cycle(self) -> None:
         platform = _Platform()
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -254,7 +254,7 @@ class GovernedCycleTests(unittest.TestCase):
         c = _client(platform)
 
         async def run() -> dict:
-            async with c.governed_transport(
+            async with c.application_transport(
                 RESOURCE,
                 scopes=["data:read"],
                 transport=httpx.MockTransport(_gateway_echo),
@@ -270,7 +270,7 @@ class GovernedCycleTests(unittest.TestCase):
         platform = _Platform()
         platform.delegation_status = 403
         c = _client(platform)
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -294,17 +294,17 @@ class GovernedGuardTests(unittest.TestCase):
             )
         )
         with self.assertRaisesRegex(RuntimeError, "client-secret credentials"):
-            c.sync_governed_transport(RESOURCE, scopes=["data:read"])
+            c.sync_application_transport(RESOURCE, scopes=["data:read"])
 
     def test_requires_a_resource_id(self) -> None:
         c = _client(_Platform())
         with self.assertRaisesRegex(ValueError, "resource_id is required"):
-            c.sync_governed_transport("  ", scopes=["data:read"])
+            c.sync_application_transport("  ", scopes=["data:read"])
 
     def test_requires_scopes(self) -> None:
         c = _client(_Platform())
         with self.assertRaisesRegex(ValueError, "scopes are required"):
-            c.sync_governed_transport(RESOURCE, scopes=[])
+            c.sync_application_transport(RESOURCE, scopes=[])
 
 
 class CredentialsResolverTests(unittest.TestCase):
@@ -320,7 +320,7 @@ class CredentialsResolverTests(unittest.TestCase):
                 zone_id="z", application_id="app", client_secret="secret"
             ),
         )
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -339,7 +339,7 @@ class CredentialsResolverTests(unittest.TestCase):
             resources=None,
             credentials=lambda: holder["creds"],
         )
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
@@ -369,7 +369,7 @@ class CredentialsResolverTests(unittest.TestCase):
             resources=None,
             credentials=lambda: holder["creds"],
         )
-        with c.sync_governed_transport(
+        with c.sync_application_transport(
             RESOURCE,
             scopes=["data:read"],
             transport=httpx.MockTransport(_gateway_echo),
