@@ -63,7 +63,7 @@ export interface ExchangeOptions {
   forceRefresh?: boolean
 }
 
-export interface InteractionRequiredDetails {
+export interface ApprovalRequiredDetails {
   resource?: string
   state?: string
   tier?: string
@@ -73,7 +73,7 @@ export interface InteractionRequiredDetails {
   httpStatus?: number
 }
 
-export class InteractionRequiredError extends CaracalError {
+export class ApprovalRequiredError extends CaracalError {
   readonly challengeId: string
   readonly resource?: string
   readonly state?: string
@@ -81,14 +81,14 @@ export class InteractionRequiredError extends CaracalError {
   readonly binding?: string
   readonly expiresAt?: string
 
-  constructor(message: string, challengeId: string, details: InteractionRequiredDetails = {}) {
+  constructor(message: string, challengeId: string, details: ApprovalRequiredDetails = {}) {
     const { requestId, httpStatus, ...rest } = details
     super('interaction_required', message, {
       details: { challengeId, ...rest },
       requestId,
       httpStatus,
     })
-    this.name = 'InteractionRequiredError'
+    this.name = 'ApprovalRequiredError'
     this.challengeId = challengeId
     this.resource = details.resource
     this.state = details.state

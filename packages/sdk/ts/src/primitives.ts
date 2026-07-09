@@ -244,12 +244,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
  * cleanup never masks the caller's primary outcome — the coordinator's TTL
  * sweeper retires whatever this misses.
  */
-async function retire(
-  coordinator: CoordinatorClient,
-  bearer: () => Promise<string>,
-  zoneId: string,
-  sessionId: string,
-): Promise<void> {
+async function retire(coordinator: CoordinatorClient, bearer: () => Promise<string>, zoneId: string, sessionId: string): Promise<void> {
   try {
     await terminateAgent(coordinator, await bearer(), zoneId, sessionId)
   } catch (e) {

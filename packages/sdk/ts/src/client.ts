@@ -12,13 +12,14 @@ import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
 import {
-  spawn as spawnPrimitive,
-  spawnService as spawnServicePrimitive,
+  session as sessionPrimitive,
+  startSession as startSessionPrimitive,
   delegate as delegatePrimitive,
-  adoptDelegation,
-  type Grant,
-  type SpawnInput,
-  type ServiceAgent,
+  acceptDelegation,
+  type Authority,
+  type Delegation,
+  type SessionInput,
+  type SessionHandle,
   type DelegateInput,
 } from './primitives.js'
 import {
@@ -36,9 +37,9 @@ const DEFAULT_STS_URL = 'http://localhost:8080'
 const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
-const GOVERNED_MANDATE_TTL_SECONDS = 900
-const GOVERNED_REFRESH_MARGIN_SECONDS = 60
-const GOVERNED_SESSION_TTL_BUFFER_SECONDS = 120
+const APP_MANDATE_TTL_SECONDS = 900
+const APP_MANDATE_REFRESH_MARGIN_SECONDS = 60
+const APP_SESSION_TTL_BUFFER_SECONDS = 120
 
 export interface ResourceBinding {
   resourceId: string
@@ -90,7 +91,7 @@ export interface ClientSecretExchanger {
   mintMandate(
     resourceId: string,
     scopes: string[],
-    opts?: { agentSessionId?: string; delegationEdgeId?: string; ttlSeconds?: number; approvalId?: string },
+    opts?: { sessionId?: string; delegationId?: string; ttlSeconds?: number; approvalId?: string },
   ): Promise<MintedMandate>
   waitForApproval(challengeId: string, opts?: { timeoutMs?: number }): Promise<string>
   /** Attaches the observability sink token-exchange events report to. */
@@ -107,12 +108,12 @@ export interface CaracalConfig {
   exchanger?: ClientSecretExchanger
   gatewayUrl?: string
   resources?: ResourceBinding[]
-  /** Default TTL for task spawns; a service session lives by its heartbeat lease instead. */
+  /** Default TTL for sessions run with session(); a session started with startSession lives by its heartbeat lease instead. */
   defaultTtlSeconds?: number
 }
 
-export interface SpawnOptions {
-  grant?: Grant
+export interface SessionOptions {
+  authority?: Authority
   ttlSeconds?: number
   subjectSessionId?: string
   parentId?: string
@@ -122,8 +123,8 @@ export interface SpawnOptions {
   signal?: AbortSignal
 }
 
-export interface ServiceOptions {
-  grant?: Grant
+export interface StartSessionOptions {
+  authority?: Authority
   ttlSeconds?: number
   subjectSessionId?: string
   parentId?: string
@@ -158,17 +159,19 @@ export type CaracalEvent = OAuthEvent | CoordinatorCallEvent
 
 export type EventHook = (event: CaracalEvent) => void
 
-export interface RootOptions {
-  allowRoot?: boolean
+/** Identity selection for calls made outside a bound session context. */
+export interface AppIdentityOptions {
+  /** Run the call as the application's own identity instead of a bound session; explicit opt-in. */
+  asApplication?: boolean
 }
 
 /**
  * Transport behavior options. `scopes` switches gateway-routed requests from
  * the raw subject token to a scoped resource mandate minted for the routed
- * resource and the bound agent identity; requires a client-secret
+ * resource and the bound session identity; requires a client-secret
  * configuration.
  */
-export interface TransportOptions extends RootOptions {
+export interface TransportOptions extends AppIdentityOptions {
   scopes?: string[]
 }
 
@@ -180,21 +183,21 @@ export interface MandateOptions {
 }
 
 /**
- * Governed transport behavior. `scopes` is the authority every request
- * presents; `labels` mark the agent sessions each mint cycle spawns and are
- * the role labels the zone's grant policy matches - unset, they default to
- * the application id, the same default role `ensureGrants` authors, so a
- * grant and its transport align without either naming a role;
- * `mandateTtlSeconds` bounds each minted mandate (the backing sessions
- * outlive it by a small buffer).
+ * Application transport behavior. `scopes` is the authority every request
+ * presents; `labels` mark the sessions each mint cycle starts and are the
+ * role labels the zone's grant policy matches - unset, they default to the
+ * application id, the same default role `ensureGrants` authors, so a grant
+ * and its transport align without either naming a role; `mandateTtlSeconds`
+ * bounds each minted mandate (the backing sessions outlive it by a small
+ * buffer).
  */
-export interface GovernedTransportOptions {
+export interface ApplicationTransportOptions {
   scopes: string[]
   labels?: string[]
   mandateTtlSeconds?: number
 }
 
-export interface BindOptions extends RootOptions {
+export interface BindOptions extends AppIdentityOptions {
   verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
 
@@ -209,13 +212,13 @@ export interface ClientSecretOptions {
   credentials?: CredentialsResolver
   /**
    * Resources this client mints lifecycle tokens for and routes through the
-   * Gateway. Optional for a client that only runs governed transports, which
-   * mint per resource; spawn and lifecycle paths require at least one.
+   * Gateway. Optional for a client that only runs application transports,
+   * which mint per resource; session and lifecycle paths require at least one.
    */
   resources?: Array<string | ResourceBinding>
   gatewayUrl?: string
   scope?: string
-  /** Seeds CaracalConfig.defaultTtlSeconds for task spawns. */
+  /** Seeds CaracalConfig.defaultTtlSeconds for sessions run with session(). */
   defaultTtlSeconds?: number
   fetchImpl?: typeof fetch
 }
@@ -233,11 +236,11 @@ export interface GatewayRequest {
 
 export class Caracal {
   readonly config: CaracalConfig
-  private agentStartHooks: LifecycleHook[] = []
-  private agentEndHooks: LifecycleHook[] = []
+  private sessionStartHooks: LifecycleHook[] = []
+  private sessionEndHooks: LifecycleHook[] = []
   private eventHooks: EventHook[] = []
-  private governedMandates = new Map<string, { mandate: string; expiresAt: number }>()
-  private governedInflight = new Map<string, Promise<{ mandate: string; expiresAt: number }>>()
+  private appMandates = new Map<string, { mandate: string; expiresAt: number }>()
+  private appInflight = new Map<string, Promise<{ mandate: string; expiresAt: number }>>()
 
   /**
    * Creates a Caracal client. With no arguments, credentials are
@@ -286,16 +289,23 @@ export class Caracal {
     return exchanger!.identity()
   }
 
-  async spawn<T>(fn: () => Promise<T>, opts: SpawnOptions = {}): Promise<T> {
+  /**
+   * Run fn inside a governed session: a bounded identity Caracal establishes
+   * around whatever fn executes - an AI agent step, a job, a tool call, any
+   * code. The session binds delegated authority, records audit attribution,
+   * and is retired when fn returns. Pass `authority: Authority.narrow([...])`
+   * to bound the session to a subset of the caller's scopes.
+   */
+  async session<T>(fn: () => Promise<T>, opts: SessionOptions = {}): Promise<T> {
     const identity = await this.identity()
-    const input: SpawnInput = {
+    const input: SessionInput = {
       coordinator: this.config.coordinator,
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
-      grant: opts.grant,
+      authority: opts.authority,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
@@ -303,15 +313,19 @@ export class Caracal {
       labels: opts.labels,
       traceId: opts.traceId,
       signal: opts.signal,
-      onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
-      onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
+      onSessionStart: this.sessionStartHooks.length ? (c) => this.fire(this.sessionStartHooks, c) : undefined,
+      onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     }
-    return await spawnPrimitive(input, fn)
+    return await sessionPrimitive(input, fn)
   }
 
-  async spawnService(opts: ServiceOptions = {}): Promise<ServiceAgent> {
+  /**
+   * Start a governed session that outlives a block: the returned handle keeps
+   * the session's lease renewed and the holder retires it with close.
+   */
+  async startSession(opts: StartSessionOptions = {}): Promise<SessionHandle> {
     const identity = await this.identity()
-    return await spawnServicePrimitive({
+    return await startSessionPrimitive({
       coordinator: this.config.coordinator,
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
@@ -321,27 +335,27 @@ export class Caracal {
       ttlSeconds: opts.ttlSeconds,
       subjectSessionId: opts.subjectSessionId,
       parentId: opts.parentId,
-      grant: opts.grant,
+      authority: opts.authority,
       metadata: opts.metadata,
       labels: opts.labels,
       traceId: opts.traceId,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       onLeaseLost: opts.onLeaseLost,
       signal: opts.signal,
-      onAgentStart: this.agentStartHooks.length ? (c) => this.fire(this.agentStartHooks, c) : undefined,
-      onAgentEnd: this.agentEndHooks.length ? (c) => this.fire(this.agentEndHooks, c) : undefined,
+      onSessionStart: this.sessionStartHooks.length ? (c) => this.fire(this.sessionStartHooks, c) : undefined,
+      onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     })
   }
 
   /**
-   * Delegate a slice of the current agent's authority to an existing peer
-   * session and return the created edge. The receiving agent adopts the edge
-   * with adoptDelegation.
+   * Delegate a slice of the current session's authority to an existing peer
+   * session and return the created delegation. The receiving session accepts
+   * it with acceptDelegation.
    */
-  delegate(opts: DelegateOptions): Promise<DelegationResponse> {
+  delegate(opts: DelegateOptions): Promise<Delegation> {
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
-      toAgentSessionId: opts.to,
+      toSessionId: opts.to,
       toApplicationId: opts.toApplicationId,
       resourceId: opts.resourceId,
       scopes: opts.scopes,
@@ -353,25 +367,25 @@ export class Caracal {
   }
 
   /**
-   * Run fn under a delegation edge received from a peer: the current agent
-   * context is rebound so token exchanges inside fn present the edge.
+   * Run fn under a delegation received from a peer: the current session
+   * context is rebound so token exchanges inside fn present the delegation.
    */
-  adoptDelegation<T>(delegationEdgeId: string, fn: () => Promise<T>): Promise<T> {
+  acceptDelegation<T>(delegationId: string, fn: () => Promise<T>): Promise<T> {
     const ctx = current()
-    if (!ctx) throw new Error('adoptDelegation requires a Caracal context bound on this path')
-    return bind(adoptDelegation(ctx, delegationEdgeId), fn)
+    if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
+    return bind(acceptDelegation(ctx, delegationId), fn)
   }
 
   bind<T>(ctx: CaracalContext, fn: () => Promise<T>): Promise<T> {
     return bind(ctx, fn)
   }
 
-  onAgentStart(cb: LifecycleHook): void {
-    this.agentStartHooks.push(cb)
+  onSessionStart(cb: LifecycleHook): void {
+    this.sessionStartHooks.push(cb)
   }
 
-  onAgentEnd(cb: LifecycleHook): void {
-    this.agentEndHooks.push(cb)
+  onSessionEnd(cb: LifecycleHook): void {
+    this.sessionEndHooks.push(cb)
   }
 
   /**
@@ -405,14 +419,14 @@ export class Caracal {
   /**
    * Envelope headers plus the bearer credential for the current context.
    * The context token is returned as bound; long-lived holders needing a
-   * refreshed own-credential token use headersAsync. Root application
-   * identity requires `{ allowRoot: true }`.
+   * refreshed own-credential token use headersAsync. Calling as the
+   * application's own identity requires `{ asApplication: true }`.
    */
-  headers(opts: RootOptions = {}): Record<string, string> {
+  headers(opts: AppIdentityOptions = {}): Record<string, string> {
     const ctx = current()
     if (!ctx) {
-      if (!opts.allowRoot) {
-        throw new Error('Caracal.headers(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.')
+      if (!opts.asApplication) {
+        throw new Error("Caracal.headers(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.")
       }
       return {
         ...toHeaders({ hop: 0 }),
@@ -426,17 +440,17 @@ export class Caracal {
   }
 
   /**
-   * Async variant of headers. For contexts this process spawned from its own
-   * credentials, the bearer is resolved fresh through the token source so
+   * Async variant of headers. For contexts this process established from its
+   * own credentials, the bearer is resolved fresh through the token source so
    * long-lived holders never present an expired token; inbound contexts stay
    * pinned to the caller's token.
    */
-  async headersAsync(opts: RootOptions = {}): Promise<Record<string, string>> {
+  async headersAsync(opts: AppIdentityOptions = {}): Promise<Record<string, string>> {
     const ctx = current()
     if (!ctx) {
-      if (!opts.allowRoot) {
+      if (!opts.asApplication) {
         throw new Error(
-          'Caracal.headersAsync(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.',
+          "Caracal.headersAsync(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.",
         )
       }
       return {
@@ -472,9 +486,9 @@ export class Caracal {
     let claims: VerifiedClaims | undefined
     let rootInjected = false
     if (!env.subjectToken) {
-      if (!opts.allowRoot) {
+      if (!opts.asApplication) {
         throw new Error(
-          'Caracal.bindFromHeaders(): inbound request is missing a bearer token. Pass { allowRoot: true } only for trusted service-root ingress.',
+          "Caracal.bindFromHeaders(): inbound request is missing a bearer token. Pass { asApplication: true } only for trusted ingress that should run as the application's own identity.",
         )
       }
       env.subjectToken = await this.rootToken()
@@ -484,10 +498,10 @@ export class Caracal {
       if (verified) claims = verified
     }
     if (claims) {
-      if (claims.agentSessionId !== undefined) env.agentSessionId = claims.agentSessionId
-      if (claims.delegationEdgeId !== undefined) env.delegationEdgeId = claims.delegationEdgeId
-      if (claims.parentEdgeId !== undefined) env.parentEdgeId = claims.parentEdgeId
       if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
+      if (claims.delegationId !== undefined) env.delegationId = claims.delegationId
+      if (claims.parentDelegationId !== undefined) env.parentDelegationId = claims.parentDelegationId
+      if (claims.subjectSessionId !== undefined) env.subjectSessionId = claims.subjectSessionId
       if (claims.hop !== undefined) env.hop = claims.hop
     }
     const own = claims?.zoneId !== undefined && claims?.applicationId !== undefined ? undefined : await this.identity()
@@ -510,12 +524,12 @@ export class Caracal {
    */
   transport(opts: TransportOptions = {}): typeof fetch {
     const outer = this
-    const rootAllowed = opts.allowRoot === true
+    const appAllowed = opts.asApplication === true
     const scopes = opts.scopes
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const ctx = current()
-      if (!ctx && !rootAllowed) {
-        throw new Error('Caracal.transport(): no Caracal context is bound. Pass { allowRoot: true } to use the application subject token.')
+      if (!ctx && !appAllowed) {
+        throw new Error("Caracal.transport(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.")
       }
       const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
       const merged = new Headers(init?.headers ?? {})
@@ -544,9 +558,9 @@ export class Caracal {
   /**
    * Resolves the bearer for a gateway-bound request: a scoped mandate when
    * scopes are set and the routed resource is known, a fresh token from the
-   * token source for contexts this process spawned from its own credentials,
-   * the pinned context token for inbound-bound contexts, or the application
-   * token in root mode.
+   * token source for contexts this process established from its own
+   * credentials, the pinned context token for inbound-bound contexts, or the
+   * application token when running as the application itself.
    */
   private async gatewayToken(
     ctx: CaracalContext | undefined,
@@ -557,8 +571,8 @@ export class Caracal {
       const exchanger = this.config.exchanger
       if (!exchanger) throw new Error('Caracal.transport(): scopes require a client-secret configuration')
       const minted = await exchanger.mintMandate(resourceId, scopes, {
-        agentSessionId: ctx?.agentSessionId,
-        delegationEdgeId: ctx?.delegationEdgeId,
+        sessionId: ctx?.sessionId,
+        delegationId: ctx?.delegationId,
       })
       return minted.token
     }
@@ -568,25 +582,24 @@ export class Caracal {
   }
 
   /**
-   * Mints a resource mandate for the current agent: a short-lived token
-   * audienced to `resourceId` and narrowed to `scopes`, carrying the agent
-   * session and delegation edge of the bound context. The STS evaluates
-   * policy against that agent's authority, so a narrowed child can mint only
-   * what its delegation edge allows. Results are cached per resource, scope
-   * set, and agent identity, and refreshed before expiry.
+   * Mints a resource mandate for the current session: a short-lived token
+   * audienced to `resourceId` and narrowed to `scopes`, carrying the session
+   * and delegation of the bound context. The STS evaluates policy against
+   * that session's authority, so a narrowed child can mint only what its
+   * delegation allows. Results are cached per resource, scope set, and
+   * session identity, and refreshed before expiry.
    *
-   * When a scope is approval-gated this throws InteractionRequiredError;
-   * retry with `approvalId` set to the returned challenge id once an
-   * authenticated approver has satisfied it. Requires a client-secret
-   * configuration.
+   * When a scope is approval-gated this throws ApprovalRequiredError; retry
+   * with `approvalId` set to the returned challenge id once an authenticated
+   * approver has satisfied it. Requires a client-secret configuration.
    */
   async mintMandate(resourceId: string, scopes: string[], opts: MandateOptions = {}): Promise<string> {
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.mintMandate(): requires a client-secret configuration')
     const ctx = opts.ctx ?? current()
     const minted = await exchanger.mintMandate(resourceId, scopes, {
-      agentSessionId: ctx?.agentSessionId,
-      delegationEdgeId: ctx?.delegationEdgeId,
+      sessionId: ctx?.sessionId,
+      delegationId: ctx?.delegationId,
       ttlSeconds: opts.ttlSeconds,
       approvalId: opts.approvalId,
     })
@@ -630,27 +643,27 @@ export class Caracal {
   }
 
   /**
-   * A fetch pinned to one governed resource, running on the application's own
-   * authority: each mint cycle bootstraps a lifecycle token, spawns a
-   * source/target agent session pair, narrows the target to `scopes` on the
-   * resource over a delegation edge, and mints the mandate every request
-   * presents at the Gateway. Mandates are cached per resolved identity,
-   * resource, scope set, effective labels, and mandate TTL, then re-minted on
-   * a fresh session pair before expiry; sessions from a failed cycle are
-   * terminated best-effort. Requests already addressed to the Gateway pass
-   * through unchanged; other absolute URLs are rewritten onto it. When a scope
-   * is approval-gated the request rejects with InteractionRequiredError.
-   * Requires a client-secret configuration.
+   * A fetch pinned to one resource, running as the application's own
+   * identity rather than a bound session context: each mint cycle bootstraps
+   * a lifecycle token, starts a source/target session pair, narrows the
+   * target to `scopes` on the resource over a delegation, and mints the
+   * mandate every request presents at the Gateway. Mandates are cached per
+   * resolved identity, resource, scope set, effective labels, and mandate
+   * TTL, then re-minted on a fresh session pair before expiry; sessions from
+   * a failed cycle are terminated best-effort. Requests already addressed to
+   * the Gateway pass through unchanged; other absolute URLs are rewritten
+   * onto it. When a scope is approval-gated the request rejects with
+   * ApprovalRequiredError. Requires a client-secret configuration.
    */
-  governedTransport(resourceId: string, opts: GovernedTransportOptions): typeof fetch {
+  applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
     const exchanger = this.config.exchanger
-    if (!exchanger) throw new Error('Caracal.governedTransport(): requires a client-secret configuration')
-    if (!resourceId.trim()) throw new Error('Caracal.governedTransport(): resourceId is required')
-    if (!opts.scopes.length) throw new Error('Caracal.governedTransport(): scopes are required')
+    if (!exchanger) throw new Error('Caracal.applicationTransport(): requires a client-secret configuration')
+    if (!resourceId.trim()) throw new Error('Caracal.applicationTransport(): resourceId is required')
+    if (!opts.scopes.length) throw new Error('Caracal.applicationTransport(): scopes are required')
     const scopes = [...new Set(opts.scopes)].sort()
     const outer = this
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const { mandate } = await outer.governedMandate(exchanger, resourceId, scopes, opts)
+      const { mandate } = await outer.appMandate(exchanger, resourceId, scopes, opts)
       const merged = new Headers(init?.headers ?? {})
       merged.set('Authorization', `Bearer ${mandate}`)
       merged.set('X-Caracal-Resource', resourceId)
@@ -662,46 +675,46 @@ export class Caracal {
     return fn
   }
 
-  private async governedMandate(
+  private async appMandate(
     exchanger: ClientSecretExchanger,
     resourceId: string,
     scopes: string[],
-    opts: GovernedTransportOptions,
+    opts: ApplicationTransportOptions,
   ): Promise<{ mandate: string; expiresAt: number }> {
     // The cache key carries the acting identity, so a credential re-provisioned into a
     // different zone or application can never be served a mandate minted for the old one.
-    // Labels and TTL also shape the governed cycle, so transports with different
+    // Labels and TTL also shape the mint cycle, so transports with different
     // attribution or lifetime requirements must not share a cached mandate.
     const identity = await exchanger.identity()
-    const mandateTtl = opts.mandateTtlSeconds ?? GOVERNED_MANDATE_TTL_SECONDS
+    const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
     const key = `${identity.zoneId}::${identity.applicationId}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
-    const cached = this.governedMandates.get(key)
-    if (cached && Date.now() / 1000 < cached.expiresAt - GOVERNED_REFRESH_MARGIN_SECONDS) return cached
-    const inflight = this.governedInflight.get(key)
+    const cached = this.appMandates.get(key)
+    if (cached && Date.now() / 1000 < cached.expiresAt - APP_MANDATE_REFRESH_MARGIN_SECONDS) return cached
+    const inflight = this.appInflight.get(key)
     if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.governedCycle(exchanger, identity, resourceId, scopes, opts)
-        this.governedMandates.set(key, fresh)
+        const fresh = await this.appMandateCycle(exchanger, identity, resourceId, scopes, opts)
+        this.appMandates.set(key, fresh)
         return fresh
       } finally {
-        this.governedInflight.delete(key)
+        this.appInflight.delete(key)
       }
     })()
-    this.governedInflight.set(key, pending)
+    this.appInflight.set(key, pending)
     return pending
   }
 
-  private async governedCycle(
+  private async appMandateCycle(
     exchanger: ClientSecretExchanger,
     identity: { zoneId: string; applicationId: string },
     resourceId: string,
     scopes: string[],
-    opts: GovernedTransportOptions,
+    opts: ApplicationTransportOptions,
   ): Promise<{ mandate: string; expiresAt: number }> {
-    const mandateTtl = opts.mandateTtlSeconds ?? GOVERNED_MANDATE_TTL_SECONDS
-    const sessionTtl = mandateTtl + GOVERNED_SESSION_TTL_BUFFER_SECONDS
+    const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
+    const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
     const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
     const spawnReq = {
       zoneId: identity.zoneId,
@@ -728,8 +741,8 @@ export class Caracal {
         ttlSeconds: sessionTtl,
       })
       const minted = await exchanger.mintMandate(resourceId, scopes, {
-        agentSessionId: target,
-        delegationEdgeId: edge.delegationEdgeId,
+        sessionId: target,
+        delegationId: edge.delegationEdgeId,
         ttlSeconds: mandateTtl,
       })
       return { mandate: minted.token, expiresAt: Date.now() / 1000 + minted.expiresIn }
@@ -821,7 +834,7 @@ export class Caracal {
 
   private rootTokenSync(): string {
     if (this.config.subjectToken) return this.config.subjectToken
-    throw new Error('Caracal.headers(): this client uses an async token source. Use headersAsync({ allowRoot: true }) for root headers.')
+    throw new Error('Caracal.headers(): this client uses an async token source. Use headersAsync({ asApplication: true }) for application-identity headers.')
   }
 
   private async rootToken(): Promise<string> {
@@ -1450,7 +1463,7 @@ function createClientSecretTokenSource(
   return {
     source: async () => {
       if (!resources.length) {
-        throw new Error('Caracal: this client has no resources configured; spawn and lifecycle paths require at least one')
+        throw new Error('Caracal: this client has no resources configured; session and lifecycle paths require at least one')
       }
       const { creds, client } = await resolve()
       const forceRefresh = force
@@ -1470,8 +1483,8 @@ function createClientSecretTokenSource(
       const token = await client.exchange('', resourceId, {
         clientSecret: creds.clientSecret,
         scopes: [...new Set(scopes)].sort(),
-        agentSessionId: opts.agentSessionId,
-        delegationEdgeId: opts.delegationEdgeId,
+        agentSessionId: opts.sessionId,
+        delegationEdgeId: opts.delegationId,
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
       })

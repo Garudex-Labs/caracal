@@ -3,7 +3,7 @@
 //
 // Run client: fetches a workload's launch bindings and mints bound runtime credentials from STS.
 
-import { InteractionRequiredError } from './types.js'
+import { ApprovalRequiredError } from './types.js'
 
 export interface RunBinding {
   env: string
@@ -88,7 +88,7 @@ export async function fetchRunManifest(
 // Mints the provider credential for one binding, addressed by env name only: the
 // resource, scopes, and provider are resolved server-side from the workload's stored
 // binding, so the request wire carries no authority. A policy-gated mint surfaces as
-// InteractionRequiredError; retrying with the approved challengeId releases it.
+// ApprovalRequiredError; retrying with the approved challengeId releases it.
 export async function fetchRunCredential(
   stsUrl: string,
   workloadId: string,
@@ -102,7 +102,7 @@ export async function fetchRunCredential(
   if (!res.ok) {
     const err = await readRunError(res)
     if (err.error === 'interaction_required') {
-      throw new InteractionRequiredError(err.error_description ?? 'Approval required', err.challenge_id ?? '', {
+      throw new ApprovalRequiredError(err.error_description ?? 'Approval required', err.challenge_id ?? '', {
         state: err.state,
         tier: err.tier,
         binding: err.binding,
