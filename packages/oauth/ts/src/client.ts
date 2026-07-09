@@ -273,6 +273,91 @@ export class OAuthClient {
       throw err
     }
   }
+
+  /**
+   * Exchanges an end user's identity token from a zone-trusted external issuer
+   * for a Caracal user subject session. The application authenticates itself
+   * with its client secret and relays the token verbatim; the minted session is
+   * the subject's identity anchor and carries no resource authority. Never
+   * cached: each federation is an explicit identity event.
+   */
+  async federateSubject(
+    idToken: string,
+    opts: { clientSecret?: string; ttlSeconds?: number; timeoutMs?: number } = {},
+  ): Promise<TokenExchangeResponse> {
+    if (!idToken) throw new Error('federateSubject requires the end user identity token')
+    const body = new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      zone_id: this.zoneId,
+      application_id: this.applicationId,
+      subject_token: idToken,
+      subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+    })
+    if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
+    if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000)
+    try {
+      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/oauth/2/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        let err: STSErrorResponse
+        try {
+          err = await readSTSErrorResponse(res)
+        } catch {
+          throw new Error(`STS error ${res.status}: invalid error response`)
+        }
+        throw new CaracalError(err.error ?? 'federation_failed', formatSTSError(res.status, err), { httpStatus: res.status })
+      }
+      return validateSuccessResponse((await res.json()) as STSSuccessResponse)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
+   * Posts an end user's decision on a subject-reserved approval hold. The
+   * subject token is the user's federated session mandate, and the binding must
+   * echo the hold exactly - a prompt that does not know the held resource and
+   * scope set cannot decide it.
+   */
+  async decideApproval(input: {
+    subjectToken: string
+    challengeId: string
+    binding: string
+    decision: 'approved' | 'rejected'
+    reason?: string
+    timeoutMs?: number
+  }): Promise<void> {
+    if (!input.subjectToken || !input.challengeId || !input.binding) {
+      throw new Error('decideApproval requires subjectToken, challengeId, and binding')
+    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 30_000)
+    try {
+      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(input.challengeId)}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.subjectToken}` },
+        body: JSON.stringify({ decision: input.decision, binding: input.binding, ...(input.reason ? { reason: input.reason } : {}) }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        let err: STSErrorResponse
+        try {
+          err = await readSTSErrorResponse(res)
+        } catch {
+          throw new Error(`approval decision failed: ${res.status}`)
+        }
+        throw new CaracalError(err.error ?? 'decision_failed', formatSTSError(res.status, err), { httpStatus: res.status })
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
 }
 
 /**

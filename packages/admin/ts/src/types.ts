@@ -355,6 +355,31 @@ export interface GrantInput {
   scopes: string[]
 }
 
+export interface SubjectIssuer {
+  id: string
+  zone_id: string
+  issuer: string
+  jwks_url: string
+  audience: string
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  created_via_operator?: boolean
+  updated_by?: string | null
+  updated_via_operator?: boolean
+}
+
+export interface SubjectIssuerInput {
+  issuer: string
+  jwks_url: string
+  audience: string
+}
+
+export interface SubjectIssuerPatch {
+  jwks_url?: string
+  audience?: string
+}
+
 export interface GrantQuery {
   application_id?: string
   user_id?: string

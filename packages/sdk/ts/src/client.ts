@@ -426,7 +426,9 @@ export class Caracal {
     const ctx = current()
     if (!ctx) {
       if (!opts.asApplication) {
-        throw new Error("Caracal.headers(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.")
+        throw new Error(
+          "Caracal.headers(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.",
+        )
       }
       return {
         ...toHeaders({ hop: 0 }),
@@ -529,7 +531,9 @@ export class Caracal {
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const ctx = current()
       if (!ctx && !appAllowed) {
-        throw new Error("Caracal.transport(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.")
+        throw new Error(
+          "Caracal.transport(): no Caracal session context is bound. Pass { asApplication: true } to call as the application's own identity.",
+        )
       }
       const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
       const merged = new Headers(init?.headers ?? {})
@@ -834,7 +838,9 @@ export class Caracal {
 
   private rootTokenSync(): string {
     if (this.config.subjectToken) return this.config.subjectToken
-    throw new Error('Caracal.headers(): this client uses an async token source. Use headersAsync({ asApplication: true }) for application-identity headers.')
+    throw new Error(
+      'Caracal.headers(): this client uses an async token source. Use headersAsync({ asApplication: true }) for application-identity headers.',
+    )
   }
 
   private async rootToken(): Promise<string> {

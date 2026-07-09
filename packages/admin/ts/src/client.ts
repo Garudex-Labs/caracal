@@ -24,6 +24,9 @@ import type {
   Grant,
   GrantInput,
   GrantQuery,
+  SubjectIssuer,
+  SubjectIssuerInput,
+  SubjectIssuerPatch,
   Policy,
   PolicyInput,
   PolicySet,
@@ -394,6 +397,17 @@ export class AdminClient {
     get: (zoneId: string, id: string) => this.request<Grant>(`/v1/zones/${zoneId}/grants/${id}`),
     create: (zoneId: string, input: GrantInput) => this.request<Grant>(`/v1/zones/${zoneId}/grants`, { method: 'POST', body: input }),
     revoke: (zoneId: string, id: string) => this.request<void>(`/v1/zones/${zoneId}/grants/${id}`, { method: 'DELETE', expectEmpty: true }),
+  }
+
+  subjectIssuers = {
+    list: (zoneId: string) => this.listAll<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers`, 'subject issuers'),
+    get: (zoneId: string, id: string) => this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers/${id}`),
+    create: (zoneId: string, input: SubjectIssuerInput) =>
+      this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers`, { method: 'POST', body: input }),
+    patch: (zoneId: string, id: string, input: SubjectIssuerPatch) =>
+      this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers/${id}`, { method: 'PATCH', body: input }),
+    delete: (zoneId: string, id: string) =>
+      this.request<void>(`/v1/zones/${zoneId}/subject-issuers/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
   providerConnections = {
