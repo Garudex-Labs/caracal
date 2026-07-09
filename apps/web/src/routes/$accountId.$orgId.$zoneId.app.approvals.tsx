@@ -9,10 +9,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 
 import {
+  BriefRow,
   CopyValue,
   DetailField,
-  DetailSection,
+  EventTimeline,
   ResourceWorkspace,
+  type TimelineEvent,
 } from "@/components/console/ResourceWorkspace";
 import { CreatedBy } from "@/components/console/CreatedBy";
 import { FeedToolbar } from "@/components/console/FeedToolbar";
@@ -20,6 +22,7 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { cx } from "@/lib/cx";
+import { relativeTime } from "@/lib/time";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import {
   useApplications,
@@ -70,9 +73,9 @@ const APPROVER_CLASS_LABELS: Record<StepUpChallenge["approver_class"], string> =
 };
 
 const PRIVACY_MODE_LABELS: Record<StepUpChallenge["privacy_mode"], string> = {
-  identified: "Identified — approvers see who is asking",
-  pseudonymous: "Pseudonymous — approvers see a stable alias",
-  anonymous: "Anonymous — approvers see only what is requested",
+  identified: "Identified: approvers see who is asking",
+  pseudonymous: "Pseudonymous: approvers see a stable alias",
+  anonymous: "Anonymous: approvers see only what is requested",
 };
 
 // A hold is decidable in the console while it is pending and the policy that raised it
@@ -80,19 +83,6 @@ const PRIVACY_MODE_LABELS: Record<StepUpChallenge["privacy_mode"], string> = {
 // only its own end user decides; the console shows them but never offers a verdict.
 function isDecidable(challenge: StepUpChallenge): boolean {
   return challenge.state === "pending" && challenge.approver_class !== "subject";
-}
-
-function relativeTime(iso: string, now = Date.now()): string {
-  const diff = Date.parse(iso) - now;
-  const abs = Math.abs(diff);
-  const suffix = diff >= 0 ? "from now" : "ago";
-  const mins = Math.floor(abs / 60000);
-  if (mins < 1) return diff >= 0 ? "in <1m" : "<1m ago";
-  if (mins < 60) return `${mins}m ${suffix}`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ${suffix}`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${suffix}`;
 }
 
 // The instant a hold reached its recorded state, used to order settled holds in the list.
@@ -301,6 +291,9 @@ function ApprovalFilterBar({
   );
 }
 
+// One labeled row inside the briefing card, aligned so the card scans as a grid of
+// facts instead of prose.
+
 // What the requesting agent says about itself, read live from the coordinator: the
 // task its developer annotated at spawn, its role labels, and how recently it started.
 // The context a policy cannot evaluate but an approver can. A missing task annotation
@@ -317,31 +310,28 @@ function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSession
   const task = typeof agent.data.metadata?.task === "string" ? agent.data.metadata.task : null;
   const labels = agent.data.labels ?? [];
   return (
-    <p className="mt-1.5 text-xs text-muted-foreground">
-      {task ? (
-        <>
-          Task: <span className="text-foreground">{task}</span>
-        </>
-      ) : (
-        "No task annotation"
-      )}
-      {labels.length > 0 ? (
-        <>
-          {" \u00b7 acting as "}
-          {labels.join(", ")}
-        </>
-      ) : null}
-      {" \u00b7 spawned "}
-      {relativeTime(agent.data.spawned_at)}
-      {" \u00b7 "}
-      <Link
-        to={appLink("/agents")}
-        search={{ focus: agentSessionId }}
-        className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
-      >
-        View run
-      </Link>
-    </p>
+    <BriefRow label="Task">
+      <span className={task ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
+        {task ?? "None recorded"}
+      </span>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {labels.length > 0 ? (
+          <>
+            {labels.join(", ")}
+            {" \u00b7 "}
+          </>
+        ) : null}
+        {relativeTime(agent.data.spawned_at)}
+        {" \u00b7 "}
+        <Link
+          to={appLink("/agents")}
+          search={{ focus: agentSessionId }}
+          className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
+        >
+          View run
+        </Link>
+      </p>
+    </BriefRow>
   );
 }
 
@@ -351,57 +341,40 @@ function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSession
 function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
   if (challenge.prior_rejected > 0) {
     return (
-      <p className="mt-1.5 text-xs font-medium text-destructive">
-        An identical hold was rejected in the last day
-        {challenge.prior_approved > 0 ? ` (${challenge.prior_approved} approved)` : ""} — check why
-        before approving.
-      </p>
+      <BriefRow label="History">
+        <span className="text-xs font-medium text-destructive">
+          Rejected in the last day
+          {challenge.prior_approved > 0 ? ` (${challenge.prior_approved} approved earlier)` : ""}.
+          Check why before approving.
+        </span>
+      </BriefRow>
     );
   }
   if (challenge.prior_approved >= 5) {
     return (
-      <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
-        Approved {challenge.prior_approved} times in the last day for identical authority. If this
-        is routine, encode it as policy instead of approving it by hand.
-      </p>
-    );
-  }
-  if (challenge.prior_approved > 0) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {challenge.prior_approved === 1
-          ? "1 identical hold approved"
-          : `${challenge.prior_approved} identical holds approved`}{" "}
-        in the last day.
-      </p>
+      <BriefRow label="History">
+        <span className="text-xs text-amber-700 dark:text-amber-400">
+          Approved {challenge.prior_approved} times in the last day. If routine, encode it as
+          policy.
+        </span>
+      </BriefRow>
     );
   }
   return (
-    <p className="mt-1.5 text-xs text-muted-foreground">
-      First request for this authority in the last day.
-    </p>
+    <BriefRow label="History">
+      <span className="text-xs text-muted-foreground">
+        {challenge.prior_approved > 0
+          ? `Approved ${challenge.prior_approved === 1 ? "once" : `${challenge.prior_approved} times`} in the last day.`
+          : "First request in the last day."}
+      </span>
+    </BriefRow>
   );
 }
-
-type HoldEvent = {
-  label: string;
-  at: string;
-  tone: "neutral" | "success" | "danger" | "muted";
-  future?: boolean;
-  detail?: ReactNode;
-};
-
-const EVENT_DOT: Record<HoldEvent["tone"], string> = {
-  neutral: "bg-muted-foreground",
-  success: "bg-emerald-500",
-  danger: "bg-destructive",
-  muted: "bg-muted-foreground/40",
-};
 
 // The hold's recorded history as ordered events. Decision events carry the deciding
 // identity and rationale inline, and the terminal event states what the outcome means,
 // so the story reads top to bottom without a separate explanation box.
-function holdEvents(challenge: StepUpChallenge, now: number): HoldEvent[] {
+function holdEvents(challenge: StepUpChallenge, now: number): TimelineEvent[] {
   const windowLive = Date.parse(challenge.expires_at) > now;
   const decidedBy = challenge.approver_subject_id ? (
     <>
@@ -422,7 +395,7 @@ function holdEvents(challenge: StepUpChallenge, now: number): HoldEvent[] {
     </>
   ) : undefined;
 
-  const events: HoldEvent[] = [{ label: "Raised", at: challenge.created_at, tone: "neutral" }];
+  const events: TimelineEvent[] = [{ label: "Raised", at: challenge.created_at, tone: "neutral" }];
   if (challenge.satisfied_at) {
     events.push({
       label: "Approved",
@@ -482,54 +455,6 @@ function holdEvents(challenge: StepUpChallenge, now: number): HoldEvent[] {
   return events;
 }
 
-function HoldTimeline({ challenge, now }: { challenge: StepUpChallenge; now: number }) {
-  return (
-    <DetailSection title="Timeline">
-      <ol className="rounded-lg border border-border bg-card px-3 py-3">
-        {holdEvents(challenge, now).map((event) => (
-          <li key={event.label} className="group flex gap-2.5">
-            <div className="flex flex-col items-center">
-              <span
-                className={cx(
-                  "mt-1 h-2 w-2 flex-shrink-0 rounded-full",
-                  event.future
-                    ? "border border-muted-foreground/50 bg-transparent"
-                    : EVENT_DOT[event.tone],
-                )}
-              />
-              <span className="w-px flex-1 bg-border group-last:hidden" />
-            </div>
-            <div className="min-w-0 flex-1 pb-3 group-last:pb-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span
-                  className={cx(
-                    "text-xs font-medium",
-                    event.future ? "text-muted-foreground" : "text-foreground",
-                  )}
-                >
-                  {event.label}
-                </span>
-                <time
-                  dateTime={event.at}
-                  className="text-[11px] tabular-nums text-muted-foreground"
-                  title={new Date(event.at).toLocaleString()}
-                >
-                  {relativeTime(event.at, now)}
-                </time>
-              </div>
-              {event.detail ? (
-                <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                  {event.detail}
-                </div>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </DetailSection>
-  );
-}
-
 function ApprovalDetail({
   challenge,
   zoneId,
@@ -559,37 +484,38 @@ function ApprovalDetail({
         <Badge tone="neutral">{APPROVER_CLASS_LABELS[challenge.approver_class]}</Badge>
       </div>
 
-      <div className="rounded-md border border-border bg-card px-3 py-2.5 text-sm leading-6">
-        <span className="font-medium text-foreground">{applicationName ?? "An application"}</span>{" "}
-        {lineage.agentSession ? "is running an agent that wants" : "wants"}{" "}
-        {authority.scopes.length > 0 ? (
-          <span className="inline-flex flex-wrap gap-1 align-middle">
-            {authority.scopes.map((scope) => (
-              <Badge key={scope} tone="neutral">
-                {scope}
-              </Badge>
-            ))}
-          </span>
-        ) : (
-          "the authority fingerprinted below"
-        )}
-        {authority.resources.length > 0 ? (
-          <>
-            {" on "}
-            <span className="inline-flex flex-wrap gap-1 align-middle">
-              {authority.resources.map((resource) => (
-                <Badge key={resource} tone="neutral" title={resource}>
-                  {resourceNames.get(resource) ?? resource}
-                </Badge>
-              ))}
+      <div className="rounded-md border border-border bg-card px-3 py-2.5">
+        <dl className="flex flex-col gap-2">
+          <BriefRow label="Requests">
+            <span className="flex flex-wrap items-center gap-1">
+              {authority.scopes.length > 0 ? (
+                authority.scopes.map((scope) => (
+                  <Badge key={scope} tone="neutral">
+                    {scope}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  the authority fingerprinted below
+                </span>
+              )}
+              {authority.resources.length > 0 ? (
+                <>
+                  <span className="text-xs text-muted-foreground">on</span>
+                  {authority.resources.map((resource) => (
+                    <Badge key={resource} tone="neutral" title={resource}>
+                      {resourceNames.get(resource) ?? resource}
+                    </Badge>
+                  ))}
+                </>
+              ) : null}
             </span>
-          </>
-        ) : null}
-        . Policy parked the token for a human decision.
-        {lineage.agentSession ? (
-          <AgentContext zoneId={zoneId} agentSessionId={lineage.agentSession} />
-        ) : null}
-        {challenge.state === "pending" ? <PatternLine challenge={challenge} /> : null}
+          </BriefRow>
+          {lineage.agentSession ? (
+            <AgentContext zoneId={zoneId} agentSessionId={lineage.agentSession} />
+          ) : null}
+          {challenge.state === "pending" ? <PatternLine challenge={challenge} /> : null}
+        </dl>
       </div>
 
       {isDecidable(challenge) ? (
@@ -607,7 +533,9 @@ function ApprovalDetail({
         </div>
       ) : null}
 
-      {challenge.state !== "pending" ? <HoldTimeline challenge={challenge} now={now} /> : null}
+      {challenge.state !== "pending" ? (
+        <EventTimeline events={holdEvents(challenge, now)} now={now} />
+      ) : null}
 
       <details className="group">
         <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground [&::-webkit-details-marker]:hidden">
@@ -733,24 +661,20 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
 
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3">
-      <div className="text-xs font-medium text-amber-700 dark:text-amber-400">
-        Awaiting a decision
-      </div>
-      <div className="mt-1.5 flex flex-col gap-1 text-xs text-amber-700/90 dark:text-amber-400/90">
+      <div className="flex flex-col gap-1 text-xs leading-5 text-amber-700/90 dark:text-amber-400/90">
         <div>
-          <span className="font-medium">If you approve:</span> one short-lived token is released for
-          exactly the authority above, once; unused, it lapses with the hold{" "}
-          {relativeTime(challenge.expires_at, now)}.
+          <span className="font-medium">Approve:</span> releases one single-use token for the
+          authority above. Unused, it lapses {relativeTime(challenge.expires_at, now)}.
         </div>
         <div>
-          <span className="font-medium">If you reject:</span> the exchange fails closed and
-          identical re-asks are refused for the rest of the window.
+          <span className="font-medium">Reject:</span> fails closed. Identical re-asks are refused
+          for the rest of the window.
         </div>
       </div>
       <div className="mt-3">
         <Textarea
           label="Reason (optional)"
-          placeholder="Why this authority is or is not warranted"
+          placeholder="Recorded in the audit trail"
           value={reason}
           maxLength={500}
           rows={2}

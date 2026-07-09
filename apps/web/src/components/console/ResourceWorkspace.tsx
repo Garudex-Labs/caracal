@@ -26,6 +26,7 @@ import {
   type SortState,
 } from "@/components/ui";
 import { cx } from "@/lib/cx";
+import { relativeTime } from "@/lib/time";
 
 export interface SortOption {
   id: string;
@@ -443,6 +444,82 @@ export function DangerZone({
 
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="break-all font-mono text-xs text-foreground">{children}</span>;
+}
+
+// One labeled row inside a briefing card, aligned so the card scans as a grid of
+// facts instead of prose.
+export function BriefRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
+      <dt className="pt-px text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+export type TimelineEvent = {
+  label: string;
+  at: string;
+  tone: "neutral" | "success" | "danger" | "muted";
+  future?: boolean;
+  detail?: ReactNode;
+};
+
+const EVENT_DOT: Record<TimelineEvent["tone"], string> = {
+  neutral: "bg-muted-foreground",
+  success: "bg-emerald-500",
+  danger: "bg-destructive",
+  muted: "bg-muted-foreground/40",
+};
+
+// An object's recorded history as ordered dot-rail events, relative times with the
+// absolute instant on hover, so a detail panel tells its story without a timestamp table.
+export function EventTimeline({ events, now }: { events: TimelineEvent[]; now: number }) {
+  return (
+    <DetailSection title="Timeline">
+      <ol className="rounded-lg border border-border bg-card px-3 py-3">
+        {events.map((event) => (
+          <li key={event.label} className="group flex gap-2.5">
+            <div className="flex flex-col items-center">
+              <span
+                className={cx(
+                  "mt-1 h-2 w-2 flex-shrink-0 rounded-full",
+                  event.future
+                    ? "border border-muted-foreground/50 bg-transparent"
+                    : EVENT_DOT[event.tone],
+                )}
+              />
+              <span className="w-px flex-1 bg-border group-last:hidden" />
+            </div>
+            <div className="min-w-0 flex-1 pb-3 group-last:pb-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className={cx(
+                    "text-xs font-medium",
+                    event.future ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {event.label}
+                </span>
+                <time
+                  dateTime={event.at}
+                  className="text-[11px] tabular-nums text-muted-foreground"
+                  title={new Date(event.at).toLocaleString()}
+                >
+                  {relativeTime(event.at, now)}
+                </time>
+              </div>
+              {event.detail ? (
+                <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {event.detail}
+                </div>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </DetailSection>
+  );
 }
 
 // An inline value with a copy affordance, for identifiers and other reference strings that

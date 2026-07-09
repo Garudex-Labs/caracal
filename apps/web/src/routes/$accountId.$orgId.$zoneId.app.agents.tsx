@@ -18,10 +18,13 @@ import {
 } from "@/components/console/delegationFormat";
 import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
 import {
+  BriefRow,
+  CopyValue,
   DetailField,
-  DetailGroup,
+  EventTimeline,
   Mono,
   ResourceWorkspace,
+  type TimelineEvent,
 } from "@/components/console/ResourceWorkspace";
 import { ModulePage } from "@/components/console/ModulePage";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
@@ -34,7 +37,6 @@ import {
   Select,
   Skeleton,
   Spinner,
-  useCopyToClipboard,
   useToast,
   type Column,
 } from "@/components/ui";
@@ -290,6 +292,44 @@ function terminationReasonLabel(reason: string): string {
   return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
 }
 
+// The agent's recorded lifecycle as ordered events: spawn, service heartbeats, and the
+// terminal or upcoming end of the run.
+function agentEvents(agent: Agent): TimelineEvent[] {
+  const events: TimelineEvent[] = [{ label: "Spawned", at: agent.spawned_at, tone: "neutral" }];
+  if (agent.lifecycle === "service" && agent.last_heartbeat_at) {
+    events.push({ label: "Last heartbeat", at: agent.last_heartbeat_at, tone: "neutral" });
+  }
+  if (agent.terminated_at) {
+    events.push({
+      label: agent.status === "expired" ? "Expired" : "Terminated",
+      at: agent.terminated_at,
+      tone: "muted",
+      detail: agent.termination_reason
+        ? terminationReasonLabel(agent.termination_reason)
+        : undefined,
+    });
+    return events;
+  }
+  if (agent.lifecycle === "service") {
+    if (agent.heartbeat_deadline_at) {
+      events.push({
+        label: "Lease ends",
+        at: agent.heartbeat_deadline_at,
+        tone: "muted",
+        future: true,
+      });
+    }
+  } else if (agent.ttl_seconds) {
+    events.push({
+      label: "Expires",
+      at: new Date(Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000).toISOString(),
+      tone: "muted",
+      future: true,
+    });
+  }
+  return events;
+}
+
 function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const toast = useToast();
   const lifecycle = useAgentLifecycle(zoneId);
@@ -491,7 +531,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         }}
         detail={{
           title: (a) => agentTitle(a, appNames),
-          description: (a) => `${a.lifecycle} · ${a.status} · ${shortId(a.agent_session_id)}`,
+          description: (a) => `Spawned ${relativeTime(a.spawned_at)}`,
           width: "max-w-2xl",
           render: (a) => (
             <AgentInspector
@@ -835,15 +875,33 @@ function AgentInspector({
   const children = useAgentChildren(zoneId, agent.agent_session_id);
   const terminal = agent.status === "terminated" || agent.status === "expired";
   const metadata = agent.metadata ?? {};
+  const task = typeof metadata.task === "string" ? metadata.task : null;
+  const extraMeta = Object.entries(metadata).filter(([key]) => key !== "task");
   const live = liveness(agent);
-  const copy = useCopyToClipboard();
+  const now = Date.now();
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={statusTone(agent.status)}>{agent.status}</Badge>
-        <Badge tone="neutral">{agent.lifecycle}</Badge>
-        <Badge tone="muted">{agent.depth === 0 ? "root" : `depth ${agent.depth}`}</Badge>
+        <Badge
+          tone="neutral"
+          title={
+            agent.lifecycle === "service"
+              ? "Long-lived service agent, governed by heartbeat lease"
+              : "Task agent, governed by TTL"
+          }
+        >
+          {agent.lifecycle}
+        </Badge>
+        <Badge tone="muted" title="Distance from the root agent in the delegation tree">
+          {agent.depth === 0 ? "root" : `depth ${agent.depth}`}
+        </Badge>
+        {agent.labels.slice(1).map((l) => (
+          <Badge key={l} tone="muted">
+            {l}
+          </Badge>
+        ))}
         {!terminal ? (
           <div className="ml-auto flex items-center gap-2">
             {agent.status === "suspended" ? (
@@ -862,114 +920,45 @@ function AgentInspector({
         ) : null}
       </div>
 
-      <div
-        className={cx(
-          "flex items-center gap-3 border px-3 py-2.5",
-          live.tone === "danger"
-            ? "border-destructive/40 bg-destructive/5"
-            : live.tone === "warning"
-              ? "border-amber-500/40 bg-amber-500/5"
-              : live.tone === "success"
-                ? "border-emerald-500/30 bg-emerald-500/5"
-                : "border-border bg-muted/20",
-        )}
-      >
-        <span
-          className={cx(
-            "inline-block h-2 w-2 rounded-full",
-            live.tone === "danger"
-              ? "bg-destructive"
-              : live.tone === "warning"
-                ? "bg-amber-500"
-                : live.tone === "success"
-                  ? "bg-emerald-500"
-                  : "bg-muted-foreground",
-          )}
-        />
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">{live.label}</div>
-          <div className="text-xs text-muted-foreground">{live.detail}</div>
-        </div>
-      </div>
-
-      <DetailGroup title="Identity">
-        <DetailField label="Agent session">
-          <button
-            onClick={() => void copy(agent.agent_session_id, { successTitle: "Session ID copied" })}
-            className="text-left hover:underline"
-          >
-            <Mono>{agent.agent_session_id}</Mono>
-          </button>
-        </DetailField>
-        <DetailField label="Application">
-          {appName ? (
-            <span className="flex flex-col gap-0.5">
+      <div className="rounded-md border border-border bg-card px-3 py-2.5">
+        <dl className="flex flex-col gap-2">
+          <BriefRow label="Task">
+            <span className={task ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
+              {task ?? "None recorded"}
+            </span>
+          </BriefRow>
+          <BriefRow label="Application">
+            {appName ? (
               <Link
                 to={appLink("/applications")}
                 className="text-sm text-foreground hover:underline"
               >
                 {appName}
               </Link>
+            ) : (
               <Mono>{agent.application_id}</Mono>
-            </span>
-          ) : (
-            <Link
-              to={appLink("/applications")}
-              className="font-mono text-xs text-foreground hover:underline"
-            >
-              {agent.application_id}
-            </Link>
-          )}
-        </DetailField>
-        {agent.parent_id ? (
-          <DetailField label="Parent session">
-            <Mono>{agent.parent_id}</Mono>
-          </DetailField>
-        ) : null}
-        {agent.subject_session_id ? (
-          <DetailField label="Subject session">
-            <Link
-              to={appLink("/sessions")}
-              search={{ focus: agent.subject_session_id }}
-              className="font-mono text-xs text-foreground hover:underline"
-            >
-              {agent.subject_session_id}
-            </Link>
-          </DetailField>
-        ) : null}
-      </DetailGroup>
+            )}
+          </BriefRow>
+          {live.tone !== "success" ? (
+            <BriefRow label="Health">
+              <span
+                className={cx(
+                  "text-xs",
+                  live.tone === "danger"
+                    ? "text-destructive"
+                    : live.tone === "warning"
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-muted-foreground",
+                )}
+              >
+                {live.label}. {live.detail}.
+              </span>
+            </BriefRow>
+          ) : null}
+        </dl>
+      </div>
 
-      <DetailGroup title="Lifecycle">
-        <DetailField label="Spawned">{new Date(agent.spawned_at).toLocaleString()}</DetailField>
-        {agent.ttl_seconds != null ? (
-          <DetailField label="TTL">
-            {agent.ttl_seconds}s
-            {agent.status === "active" && agent.lifecycle === "task" ? (
-              <span className="ml-1 text-muted-foreground">· expires {agentExpiry(agent)}</span>
-            ) : null}
-          </DetailField>
-        ) : null}
-        {agent.last_heartbeat_at ? (
-          <DetailField label="Last heartbeat">
-            {new Date(agent.last_heartbeat_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {agent.heartbeat_deadline_at ? (
-          <DetailField label="Heartbeat lease">
-            {new Date(agent.heartbeat_deadline_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {agent.terminated_at ? (
-          <DetailField label="Terminated">
-            {new Date(agent.terminated_at).toLocaleString()}
-          </DetailField>
-        ) : null}
-        {agent.status === "terminated" || agent.status === "expired" ? (
-          <DetailField label="Reason">
-            {agent.termination_reason ? terminationReasonLabel(agent.termination_reason) : "Ended"}
-          </DetailField>
-        ) : null}
-      </DetailGroup>
+      <EventTimeline events={agentEvents(agent)} now={now} />
 
       <AgentActivity zoneId={zoneId} sessionId={agent.agent_session_id} />
 
@@ -984,13 +973,11 @@ function AgentInspector({
         isService={agent.lifecycle === "service"}
       />
 
-      <section className="border-t border-border pt-4">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Child sessions
-        </h3>
-        {children.isLoading ? (
-          <Skeleton className="mt-3 h-12 w-full" />
-        ) : (children.data ?? []).length > 0 ? (
+      {(children.data ?? []).length > 0 ? (
+        <section className="border-t border-border pt-4">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Child sessions
+          </h3>
           <ul className="mt-3 divide-y divide-border border-y border-border">
             {(children.data ?? []).map((child) => (
               <li
@@ -1005,52 +992,55 @@ function AgentInspector({
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">No child sessions.</p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      {agent.labels.length > 0 ? (
-        <section className="border-t border-border pt-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Labels
-          </h3>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {agent.labels.map((l) => (
-              <span
-                key={l}
-                className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="transition-transform group-open:rotate-90">
+            {"\u25b8"}
+          </span>
+          Technical details
+        </summary>
+        <dl className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+          <DetailField
+            label="Agent session"
+            hint="This run's session id; edges and holds reference it"
+          >
+            <CopyValue value={agent.agent_session_id} />
+          </DetailField>
+          <DetailField label="Application" hint="The application identity this agent runs under">
+            <CopyValue value={agent.application_id} />
+          </DetailField>
+          {agent.parent_id ? (
+            <DetailField label="Parent session" hint="The agent that spawned this one">
+              <Link
+                to={appLink("/agents")}
+                search={{ focus: agent.parent_id }}
+                className="break-all font-mono text-xs text-foreground hover:underline"
               >
-                {l}
-              </span>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {Object.keys(metadata).length > 0 ? (
-        <section className="border-t border-border pt-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Metadata
-          </h3>
-          <div className="mt-3 max-h-64 overflow-auto border border-border">
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-border">
-                {Object.entries(metadata).map(([key, value]) => (
-                  <tr key={key}>
-                    <td className="w-2/5 px-3 py-2 align-top font-mono text-xs text-muted-foreground">
-                      {key}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-foreground">
-                      {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+                {agent.parent_id}
+              </Link>
+            </DetailField>
+          ) : null}
+          {agent.subject_session_id ? (
+            <DetailField label="Subject session" hint="The authenticated session this run acts for">
+              <Link
+                to={appLink("/sessions")}
+                search={{ focus: agent.subject_session_id }}
+                className="break-all font-mono text-xs text-foreground hover:underline"
+              >
+                {agent.subject_session_id}
+              </Link>
+            </DetailField>
+          ) : null}
+          {extraMeta.map(([key, value]) => (
+            <DetailField key={key} label={key}>
+              <Mono>{typeof value === "object" ? JSON.stringify(value) : String(value)}</Mono>
+            </DetailField>
+          ))}
+        </dl>
+      </details>
     </div>
   );
 }
@@ -1078,18 +1068,14 @@ function AuthorityEnvelope({
           const noAuthority = a.inbound_edges.length === 0;
           return (
             <div className="mt-3 flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4 [&>*]:bg-background">
+              <div className="grid grid-cols-3 gap-px border border-border bg-border [&>*]:bg-background">
                 <Metric label="Inbound edges" value={a.inbound_edges.length} />
                 <Metric
                   label="Max hops"
                   text={a.effective_max_hops == null ? "∞" : String(a.effective_max_hops)}
                 />
                 <Metric
-                  label="TTL"
-                  text={a.effective_ttl_seconds == null ? "-" : `${a.effective_ttl_seconds}s`}
-                />
-                <Metric
-                  label="Expires"
+                  label="Authority ends"
                   text={a.earliest_expires_at ? relativeTime(a.earliest_expires_at) : "-"}
                 />
               </div>
@@ -1296,8 +1282,7 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          No recorded activity yet. Token exchanges, resource calls, and authority decisions for
-          this agent appear here as it acts.
+          No recorded activity yet. Exchanges and authority decisions appear here as the agent acts.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
@@ -1356,6 +1341,10 @@ function AgentExecution({
   const rows = invocations.data ?? [];
   const svc = services.data ?? [];
 
+  // Execution only earns space when there is something to show: a registered service
+  // endpoint or at least one durable invocation involving this agent.
+  if (!isService && !invocations.isLoading && rows.length === 0) return null;
+
   return (
     <section className="border-t border-border pt-4">
       <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -1406,10 +1395,7 @@ function AgentExecution({
         {invocations.isLoading ? (
           <Skeleton className="mt-2 h-12 w-full" />
         ) : rows.length === 0 ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            No invocations involve this agent session. Invocations are issued by the runtime; this
-            view is read-only.
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">No invocations yet.</p>
         ) : (
           <ul className="mt-2 divide-y divide-border border-y border-border">
             {rows.slice(0, 8).map((inv) => (
