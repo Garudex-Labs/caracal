@@ -112,7 +112,7 @@ func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
@@ -197,7 +197,7 @@ func TestFromEnvAutoDetectsCredentialFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if gotSecret != "secret" {
@@ -248,7 +248,7 @@ upstream_prefix = "https://billing.example.com"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if gotSecret != "secret" {
@@ -367,7 +367,7 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 	if _, err := c.Headers(context.Background()); err == nil {
 		t.Fatal("expected missing context error")
 	}
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 func TestCaracalCurrentAndBindFromRequestRootFallback(t *testing.T) {
 	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "root-token"}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	bound, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{AllowRoot: true})
+	bound, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatalf("bind from root fallback: %v", err)
 	}
@@ -454,11 +454,11 @@ func TestHTTPClientInjects(t *testing.T) {
 	}))
 	defer srv.Close()
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:   "tok",
-		ZoneID:         "z",
-		ApplicationID:  "a",
-		AgentSessionID: "sess9",
-		Hop:            1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "a",
+		SessionID:     "sess9",
+		Hop:           1,
 	})
 	client := c.Transport(nil)
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
@@ -699,7 +699,7 @@ func TestTransportAllowsUnboundRootWhenOptedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.Transport(nil, sdk.RootOptions{AllowRoot: true}).Do(req)
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	req.Header.Set(sdk.HeaderAuthorization, "Bearer inbound")
 
 	var seen string
-	ctx, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
+	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(_ context.Context, token string) (*sdk.VerifiedClaims, error) {
 			seen = token
 			return nil, nil
@@ -735,7 +735,7 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 		t.Fatalf("unexpected bound context: %#v", cur)
 	}
 
-	if _, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, fmt.Errorf("revoked") },
 	}); err == nil {
 		t.Fatal("verify failure must reject the bind")
@@ -940,7 +940,7 @@ app_client_secret_file = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
@@ -1017,7 +1017,7 @@ func TestFromClientSecretCustomHTTPClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,10 +1069,10 @@ func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
 		panic("sink failure")
 	})
 
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Spawn(context.Background(), func(context.Context) error { return nil }); err != nil {
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 

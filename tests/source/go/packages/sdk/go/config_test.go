@@ -62,7 +62,7 @@ func TestFromEnvStsURLFallsBackToZoneURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !hit {

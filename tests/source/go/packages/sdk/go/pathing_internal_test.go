@@ -111,20 +111,20 @@ func TestSortBindingsLongestFirstShortInputsUntouched(t *testing.T) {
 }
 
 func TestNextDelayModes(t *testing.T) {
-	fixed := &ServiceAgent{heartbeatInterval: 7 * time.Second}
+	fixed := &SessionHandle{heartbeatInterval: 7 * time.Second}
 	if got := fixed.nextDelay(); got != 7*time.Second {
 		t.Fatalf("fixed interval: %v", got)
 	}
-	fallback := &ServiceAgent{}
+	fallback := &SessionHandle{}
 	if got := fallback.nextDelay(); got < 20*time.Second || got > 40*time.Second {
 		t.Fatalf("fallback delay out of jitter range: %v", got)
 	}
-	derived := &ServiceAgent{}
+	derived := &SessionHandle{}
 	derived.deadlineAt = time.Now().Add(90 * time.Second)
 	if got := derived.nextDelay(); got < 20*time.Second || got > 40*time.Second {
 		t.Fatalf("derived delay out of range: %v", got)
 	}
-	clamped := &ServiceAgent{}
+	clamped := &SessionHandle{}
 	clamped.deadlineAt = time.Now().Add(-time.Minute)
 	if got := clamped.nextDelay(); got < 500*time.Millisecond || got > 2*time.Second {
 		t.Fatalf("past deadline must clamp to the minimum: %v", got)
