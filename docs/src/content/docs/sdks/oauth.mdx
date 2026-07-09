@@ -42,7 +42,7 @@ try {
   console.log(token.accessToken, token.expiresIn);
 } catch (error) {
   if (error instanceof ApprovalRequiredError) {
-    console.log("step-up required", error.challengeId);
+    console.log("step-up required", error.approvalId);
   } else {
     throw error;
   }

@@ -39,7 +39,8 @@ if err != nil {
 | `client.BindFromRequest(ctx, req, opts...)` | Bind inbound Caracal envelope headers. |
 | `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. Set `CallOptions.Scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
 | `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
-| `client.WaitForApproval(ctx, challengeID, timeout)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
+| `client.WaitForApproval(ctx, challengeID, timeout)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final `oauth.ApprovalState` (`ApprovalApproved`, `ApprovalRejected`, `ApprovalExpired`, `ApprovalConsumed`, or `ApprovalPending`). |
+| `sdk.WithApproval(ctx, client, timeout, fn)` | Run an approval-gated operation end to end: on `*oauth.ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id. |
 | `client.GatewayRequest(resourceID, path)` | Build explicit Gateway routing metadata. |
 | `client.Current(ctx)` | Inspect the current Caracal context. |
 

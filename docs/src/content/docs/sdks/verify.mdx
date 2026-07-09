@@ -68,7 +68,28 @@ export default {
 };
 ```
 
-`unauthorizedResponse` maps error codes to 401 or 403 and renders the same JSON error body as the framework adapters. Python and Go services cover this role with the [ASGI adapter](/sdks/adapters/asgi/) and the [net/http adapter](/sdks/adapters/nethttp/), which wrap their ecosystems' native request types.
+`unauthorizedResponse` maps error codes to 401 or 403 and renders the same JSON error body as the framework adapters. The same pair drops into any fetch-based framework. In Hono:
+
+```ts
+app.use("/api/*", async (c, next) => {
+  const result = await authenticateRequest(c.req.raw, deps);
+  if (!result.ok) return unauthorizedResponse(result.error);
+  c.set("principal", result.principal);
+  await next();
+});
+```
+
+And in a Next.js route handler:
+
+```ts
+export async function GET(request: Request): Promise<Response> {
+  const result = await authenticateRequest(request, deps);
+  if (!result.ok) return unauthorizedResponse(result.error);
+  return Response.json(await loadTickets(result.principal));
+}
+```
+
+Python and Go services cover this role with the [ASGI adapter](/sdks/adapters/asgi/) and the [net/http adapter](/sdks/adapters/nethttp/), which wrap their ecosystems' native request types.
 
 ## Python example
 
