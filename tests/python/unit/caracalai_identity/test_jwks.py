@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest import mock
 
 from caracalai_identity import jwks
 
@@ -118,6 +119,55 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*coros)
 
         self.assertEqual(len(FakeAsyncClient.urls), 3)
+
+    async def test_allows_http_for_loopback_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        for issuer in (
+            "http://localhost:4000",
+            "http://127.0.0.1:4000",
+            "http://[::1]:4000",
+        ):
+            keys = await cache.get_keys(issuer, "zone1")
+            self.assertEqual(keys, [{"kid": "kid1"}])
+
+        self.assertEqual(len(FakeAsyncClient.urls), 3)
+
+    async def test_rejects_http_for_routable_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        with self.assertRaises(ValueError):
+            await cache.get_keys("http://issuer.example", "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_rejects_http_without_a_hostname(self) -> None:
+        cache = jwks.JwksCache()
+
+        with self.assertRaises(ValueError):
+            await cache.get_keys("http:///jwks", "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_rejects_non_http_schemes(self) -> None:
+        cache = jwks.JwksCache()
+
+        for issuer in ("ftp://issuer.example", "issuer.example"):
+            with self.assertRaises(ValueError):
+                await cache.get_keys(issuer, "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_insecure_override_allows_routable_http_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        with mock.patch.dict(
+            "os.environ", {"CARACAL_ALLOW_INSECURE_CONFIG_URLS": "true"}
+        ):
+            keys = await cache.get_keys("http://issuer.example", "zone1")
+
+        self.assertEqual(keys, [{"kid": "kid1"}])
+        self.assertEqual(
+            FakeAsyncClient.urls,
+            ["http://issuer.example/.well-known/jwks.json?zone_id=zone1"],
+        )
 
 
 if __name__ == "__main__":

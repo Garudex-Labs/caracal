@@ -16,9 +16,6 @@ ignore:
   # Thin go-redis adapters: command passthrough reachable only against live Redis,
   # exercised by the integration and e2e suites that require infrastructure.
   - "services/*/internal/redis.go"
-  # One-time chain-rewrite migration; every statement is pgx-pool-bound and it
-  # only runs when an operator invokes the rehash maintenance path.
-  - "services/audit/internal/rehash.go"
 
 coverage:
   status:
