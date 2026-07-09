@@ -280,6 +280,8 @@ type stubDB struct {
 	app            *Application
 	appErr         error
 	appGlobal      *Application
+	subjectIssuer  *SubjectIssuer
+	insertedSessions []*Session
 	appGlobalErr   error
 	resource       *Resource
 	resErr         error
@@ -362,6 +364,12 @@ func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, erro
 	}
 	return nil, errors.New("stub")
 }
+func (s *stubDB) GetSubjectIssuerByIssuer(_ context.Context, _, issuer string) (*SubjectIssuer, error) {
+	if s.subjectIssuer != nil && s.subjectIssuer.Issuer == issuer {
+		return s.subjectIssuer, nil
+	}
+	return nil, errors.New("stub: issuer not trusted")
+}
 func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdge, error) {
 	if s.edgesMap != nil {
 		if e, ok := s.edgesMap[id]; ok {
@@ -391,7 +399,10 @@ func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, _ *Session) error     { return s.sessErr }
+func (s *stubDB) InsertSession(_ context.Context, sess *Session) error {
+	s.insertedSessions = append(s.insertedSessions, sess)
+	return s.sessErr
+}
 func (s *stubDB) RevokeSession(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")

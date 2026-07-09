@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -398,6 +399,132 @@ func setFormValue(form url.Values, name, value string) {
 	if value != "" {
 		form.Set(name, value)
 	}
+}
+
+// FederateSubjectOptions shape the federation exchange.
+type FederateSubjectOptions struct {
+	ClientSecret string
+	TTLSeconds   int
+	Timeout      time.Duration
+}
+
+// FederateSubject exchanges an end user's identity token from a zone-trusted
+// external issuer for a Caracal user subject session. The application
+// authenticates itself with its client secret and relays the token verbatim;
+// the minted session is the subject's identity anchor and carries no resource
+// authority. Never cached: each federation is an explicit identity event.
+func (c *Client) FederateSubject(ctx context.Context, idToken string, opts FederateSubjectOptions) (TokenExchangeResponse, error) {
+	if idToken == "" {
+		return TokenExchangeResponse{}, errors.New("FederateSubject requires the end user identity token")
+	}
+	form := url.Values{
+		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"subject_token":      {idToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:id_token"},
+		"zone_id":            {c.zoneID},
+		"application_id":     {c.applicationID},
+	}
+	setFormValue(form, "client_secret", opts.ClientSecret)
+	if opts.TTLSeconds > 0 {
+		form.Set("ttl_seconds", strconv.Itoa(opts.TTLSeconds))
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.stsURL+"/oauth/2/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.mu.Lock()
+	client := c.httpClient
+	c.mu.Unlock()
+	res, err := client.Do(req)
+	if err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var body stsErrorResponse
+		if decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body); decodeErr != nil && decodeErr != io.EOF {
+			return TokenExchangeResponse{}, fmt.Errorf("STS error %d: invalid error response", res.StatusCode)
+		}
+		code := body.Error
+		if code == "" {
+			code = "federation_failed"
+		}
+		return TokenExchangeResponse{}, &CaracalError{Code: code, Description: body.ErrorDescription, RequestID: body.RequestID, HTTPStatus: res.StatusCode}
+	}
+	var body stsSuccessResponse
+	if err := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body); err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	return validateSuccess(body)
+}
+
+// DecideApprovalInput carries an end user's decision on a subject-reserved
+// approval hold.
+type DecideApprovalInput struct {
+	SubjectToken string
+	ChallengeID  string
+	Binding      string
+	Decision     string
+	Reason       string
+	Timeout      time.Duration
+}
+
+// DecideApproval posts an end user's decision on a subject-reserved approval
+// hold. The subject token is the user's federated session mandate, and the
+// binding must echo the hold exactly - a prompt that does not know the held
+// resource and scope set cannot decide it.
+func (c *Client) DecideApproval(ctx context.Context, input DecideApprovalInput) error {
+	if input.SubjectToken == "" || input.ChallengeID == "" || input.Binding == "" {
+		return errors.New("DecideApproval requires SubjectToken, ChallengeID, and Binding")
+	}
+	payload := map[string]string{"decision": input.Decision, "binding": input.Binding}
+	if input.Reason != "" {
+		payload["reason"] = input.Reason
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	timeout := input.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost,
+		fmt.Sprintf("%s/step-up/%s/decision", c.stsURL, url.PathEscape(input.ChallengeID)), strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+input.SubjectToken)
+	c.mu.Lock()
+	client := c.httpClient
+	c.mu.Unlock()
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var errBody stsErrorResponse
+		if decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&errBody); decodeErr != nil && decodeErr != io.EOF {
+			return fmt.Errorf("approval decision failed: %d", res.StatusCode)
+		}
+		code := errBody.Error
+		if code == "" {
+			code = "decision_failed"
+		}
+		return &CaracalError{Code: code, Description: errBody.ErrorDescription, RequestID: errBody.RequestID, HTTPStatus: res.StatusCode}
+	}
+	return nil
 }
 
 func normalizedScopes(scopes []string) string {

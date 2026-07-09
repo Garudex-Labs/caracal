@@ -475,3 +475,83 @@ func TestWaitForApprovalEmitsEvent(t *testing.T) {
 		t.Fatalf("unexpected approval event: %+v", events[0])
 	}
 }
+
+func TestFederateSubjectPostsIDTokenType(t *testing.T) {
+	var gotForm map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		gotForm = map[string]string{
+			"subject_token":      r.Form.Get("subject_token"),
+			"subject_token_type": r.Form.Get("subject_token_type"),
+			"resource":           r.Form.Get("resource"),
+			"client_secret":      r.Form.Get("client_secret"),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "user-session-token",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "zone1", "app1", nil)
+	token, err := client.FederateSubject(context.Background(), "external-id-token", FederateSubjectOptions{ClientSecret: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.AccessToken != "user-session-token" {
+		t.Fatalf("expected user-session-token, got %q", token.AccessToken)
+	}
+	if gotForm["subject_token_type"] != "urn:ietf:params:oauth:token-type:id_token" {
+		t.Fatalf("expected id_token type, got %q", gotForm["subject_token_type"])
+	}
+	if gotForm["resource"] != "" {
+		t.Fatalf("federation must not name resources, got %q", gotForm["resource"])
+	}
+	if gotForm["subject_token"] != "external-id-token" || gotForm["client_secret"] != "secret" {
+		t.Fatalf("unexpected form: %#v", gotForm)
+	}
+	if _, err := client.FederateSubject(context.Background(), "", FederateSubjectOptions{}); err == nil {
+		t.Fatal("empty id token must be rejected")
+	}
+}
+
+func TestDecideApprovalPostsBearerDecision(t *testing.T) {
+	var gotAuth, gotPath string
+	var gotBody map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "zone1", "app1", nil)
+	err := client.DecideApproval(context.Background(), DecideApprovalInput{
+		SubjectToken: "user-session-token",
+		ChallengeID:  "ch-1",
+		Binding:      "abcd",
+		Decision:     "approved",
+		Reason:       "refund reviewed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer user-session-token" || gotPath != "/step-up/ch-1/decision" {
+		t.Fatalf("unexpected request: auth=%q path=%q", gotAuth, gotPath)
+	}
+	if gotBody["decision"] != "approved" || gotBody["binding"] != "abcd" || gotBody["reason"] != "refund reviewed" {
+		t.Fatalf("unexpected body: %#v", gotBody)
+	}
+	if err := client.DecideApproval(context.Background(), DecideApprovalInput{ChallengeID: "ch-1"}); err == nil {
+		t.Fatal("missing subject token must be rejected")
+	}
+}
