@@ -338,6 +338,51 @@ export interface Session {
   revoked_reason: string | null;
 }
 
+export interface SubjectSummary {
+  subject_id: string;
+  federated: boolean;
+  application_name: string | null;
+  total_sessions: number;
+  active_sessions: number;
+  revoked_sessions: number;
+  first_seen: string;
+  last_seen: string;
+  last_revoked_at: string | null;
+  issuer: string | null;
+}
+
+export interface SubjectQuery {
+  kind?: "user" | "application";
+  search?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface SubjectGovernedSession {
+  id: string;
+  application_id: string;
+  application_name: string | null;
+  lifecycle: string;
+  status: string;
+  spawned_at: string;
+}
+
+export interface SubjectConnection {
+  id: string;
+  provider_id: string;
+  provider_name: string | null;
+  status: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface SubjectOverview {
+  subject: SubjectSummary;
+  governed: { active: number; total: number; recent: SubjectGovernedSession[] };
+  approvals: { pending: number; total: number };
+  connections: SubjectConnection[];
+}
+
 export interface AuditEvent {
   id: string;
   zone_id: string;
@@ -785,6 +830,7 @@ export interface AdminAuditQuery {
 }
 
 export interface SessionQuery {
+  id?: string;
   status?: string;
   subject_id?: string;
   format?: string;

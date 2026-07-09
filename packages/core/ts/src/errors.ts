@@ -54,6 +54,18 @@ export class CaracalError extends Error {
     if (options.httpStatus) this.httpStatus = options.httpStatus
   }
 
+  /**
+   * Whether retrying the operation may succeed without any change on the
+   * caller's side: transport-level congestion and availability failures are
+   * retryable, policy and validation outcomes are not. A hint, not a
+   * guarantee - callers still own backoff and attempt budgets.
+   */
+  get isRetryable(): boolean {
+    if (this.code === 'sts_unavailable' || this.code === 'provider_rate_limited') return true
+    if (this.httpStatus === undefined) return false
+    return this.httpStatus === 408 || this.httpStatus === 425 || this.httpStatus === 429 || this.httpStatus >= 500
+  }
+
   toJSON() {
     return {
       error: this.code,

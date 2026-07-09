@@ -122,23 +122,23 @@ async function mintWithStepUp(
   try {
     return await fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, { launchId })
   } catch (err) {
-    if (!(err instanceof ApprovalRequiredError) || !err.challengeId) throw err
+    if (!(err instanceof ApprovalRequiredError) || !err.approvalId) throw err
     // The hold's id and binding go to stderr so whatever surface supervises this
     // runtime can relay them to an approver; the runtime itself just waits.
     onLine?.(
       JSON.stringify({
         resource: binding.resource,
-        challenge_id: err.challengeId,
+        challenge_id: err.approvalId,
         binding: err.binding,
         expires_at: err.expiresAt,
         reason: 'approval_required',
       }),
       'stderr',
     )
-    const state = await pollStepUpState(identity.sts_url, err.challengeId, { timeoutMs: stepUpWaitMs(err.expiresAt) })
+    const state = await pollStepUpState(identity.sts_url, err.approvalId, { timeoutMs: stepUpWaitMs(err.expiresAt) })
     if (state !== 'approved') throw new Error(`approval_${state}`)
     return fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, {
-      challengeId: err.challengeId,
+      approvalId: err.approvalId,
       launchId,
     })
   }
@@ -146,7 +146,7 @@ async function mintWithStepUp(
 
 function credentialFailureLine(binding: RunBinding, err: unknown): string {
   const reason = scrubTokens(err instanceof Error ? err.message : String(err))
-  const requestId = err instanceof ApprovalRequiredError ? err.challengeId : undefined
+  const requestId = err instanceof ApprovalRequiredError ? err.approvalId : undefined
   return JSON.stringify({ resource: binding.resource, reason, requestId })
 }
 
