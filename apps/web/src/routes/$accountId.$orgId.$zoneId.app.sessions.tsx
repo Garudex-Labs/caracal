@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Agents runtime workspace for live agent sessions and the delegated authority between them.
+This file defines the Sessions runtime workspace for live sessions and the delegated authority between them.
 */
 import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -66,27 +66,27 @@ import type {
   InvocationStatus,
 } from "@/platform/api/types";
 
-export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/agents")({
-  component: AgentsRoute,
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
+  component: SessionsRoute,
   validateSearch: (
     search: Record<string, unknown>,
-  ): { view?: "agents" | "delegation"; focus?: string } => ({
+  ): { view?: "sessions" | "delegation"; focus?: string } => ({
     view: search.view === "delegation" ? "delegation" : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
 });
 
-type AgentsView = "agents" | "delegation";
+type SessionsView = "sessions" | "delegation";
 
-const VIEW_TABS: { id: AgentsView; label: string }[] = [
-  { id: "agents", label: "Agents" },
+const VIEW_TABS: { id: SessionsView; label: string }[] = [
+  { id: "sessions", label: "Sessions" },
   { id: "delegation", label: "Delegation" },
 ];
 
-function AgentsRoute() {
+function SessionsRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const view: AgentsView = search.view === "delegation" ? "delegation" : "agents";
+  const view: SessionsView = search.view === "delegation" ? "delegation" : "sessions";
   const tabs = (
     <FeedTabs
       tabs={VIEW_TABS}
@@ -102,13 +102,13 @@ function AgentsRoute() {
   );
   return (
     <ZoneScopedPage
-      title="Agents"
-      description="Live agent sessions and the delegated authority between them in this zone."
-      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      title="Sessions"
+      description="Live sessions and the authority delegated between them in this zone."
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
     >
       {(zone) =>
-        view === "agents" ? (
-          <AgentsPage zoneId={zone.id} tabs={tabs} />
+        view === "sessions" ? (
+          <SessionsPage zoneId={zone.id} tabs={tabs} />
         ) : (
           <DelegationPage zoneId={zone.id} tabs={tabs} />
         )
@@ -148,7 +148,7 @@ function CoordinatorOffline({ code, onRetry }: { code: string; onRetry: () => vo
             {configured ? "Coordinator unreachable" : "Coordinator not connected"}
           </h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Agent sessions are served by the Caracal Coordinator runtime.{" "}
+            Sessions are served by the Caracal Coordinator runtime.{" "}
             {configured
               ? "It is configured but not responding. Confirm the runtime is running, then retry."
               : "Start the local stack with `caracal up` to provision and run it, then retry."}
@@ -173,7 +173,7 @@ function statusTone(status: AgentStatus): "success" | "warning" | "muted" {
 type Liveness = { tone: "success" | "warning" | "danger" | "muted"; label: string; detail: string };
 
 // Derives a single runtime-health signal from lifecycle fields so operators can spot dying
-// agents at a glance: task agents are governed by TTL, service agents by heartbeat lease.
+// sessions at a glance: task sessions are governed by TTL, service sessions by heartbeat lease.
 function liveness(agent: Agent, now = Date.now()): Liveness {
   if (agent.status === "expired") {
     return {
@@ -199,7 +199,7 @@ function liveness(agent: Agent, now = Date.now()): Liveness {
       return {
         tone: "muted",
         label: "No lease",
-        detail: "Service agent has not reported a heartbeat",
+        detail: "Service session has not reported a heartbeat",
       };
     }
     const deadline = Date.parse(agent.heartbeat_deadline_at);
@@ -258,14 +258,14 @@ function agentExpiry(agent: Agent): string {
   return "-";
 }
 
-// The most human-meaningful name for an agent row. Operators tag agents by role via labels,
-// so the first label reads as the agent's name; the application's name is the fallback. The
+// The most human-meaningful name for a session row. Operators tag sessions by role via labels,
+// so the first label reads as the session's name; the application's name is the fallback. The
 // raw session id stays available as a secondary, copyable identifier.
 function agentTitle(agent: Agent, appNames: Map<string, string>): string {
   return agent.labels[0] ?? appNames.get(agent.application_id) ?? agent.application_id;
 }
 
-// How long the agent has run: spawn to termination for ended agents, spawn to now for live ones.
+// How long the session has run: start to termination for ended sessions, start to now for live ones.
 function agentDuration(agent: Agent, now = Date.now()): string {
   const start = Date.parse(agent.spawned_at);
   const end = agent.terminated_at ? Date.parse(agent.terminated_at) : now;
@@ -279,7 +279,7 @@ function agentDuration(agent: Agent, now = Date.now()): string {
   return `${days}d ${hrs % 24}h`;
 }
 
-// Plain-language rendering of why an agent ended, drawn from the durable termination reason.
+// Plain-language rendering of why a session ended, drawn from the durable termination reason.
 const TERMINATION_REASON_LABELS: Record<string, string> = {
   requested: "Requested",
   ttl: "TTL expired",
@@ -292,7 +292,7 @@ function terminationReasonLabel(reason: string): string {
   return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
 }
 
-// The agent's recorded lifecycle as ordered events: spawn, service heartbeats, and the
+// The session's recorded lifecycle as ordered events: start, service heartbeats, and the
 // terminal or upcoming end of the run.
 function agentEvents(agent: Agent): TimelineEvent[] {
   const events: TimelineEvent[] = [{ label: "Spawned", at: agent.spawned_at, tone: "neutral" }];
@@ -330,7 +330,7 @@ function agentEvents(agent: Agent): TimelineEvent[] {
   return events;
 }
 
-function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
+function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const toast = useToast();
   const lifecycle = useAgentLifecycle(zoneId);
 
@@ -371,7 +371,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       await lifecycle.mutateAsync({ id: agent.agent_session_id, action });
       const verb =
         action === "suspend" ? "suspended" : action === "resume" ? "resumed" : "terminated";
-      toast({ tone: action === "terminate" ? "info" : "success", title: `Agent ${verb}` });
+      toast({ tone: action === "terminate" ? "info" : "success", title: `Session ${verb}` });
     } catch (err) {
       toast({ tone: "error", title: "Action failed", description: errorMessage(err) });
     }
@@ -380,9 +380,9 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   if (coordinatorDown) {
     return (
       <ModulePage
-        title="Agents"
-        description="Live agent sessions and the delegated authority between them in this zone."
-        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+        title="Sessions"
+        description="Live sessions and the authority delegated between them in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
       >
         <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
       </ModulePage>
@@ -391,8 +391,8 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 
   const columns: Column<Agent>[] = [
     {
-      id: "agent",
-      header: "Agent",
+      id: "session",
+      header: "Session",
       cell: (a) => (
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">
@@ -476,9 +476,9 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   return (
     <>
       <ResourceWorkspace
-        title="Agents"
-        description="Live agent sessions, their authority, and delegation lineage in this zone."
-        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+        title="Sessions"
+        description="Live sessions, their authority, and delegation lineage in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
         toolbarExtra={
           <AgentFilterBar
             tabs={tabs}
@@ -499,7 +499,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
                 query={Object.fromEntries(
                   Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
                 )}
-                noun="agent sessions"
+                noun="sessions"
               />
             }
           />
@@ -515,7 +515,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
           loadMore: () => feed.fetchNextPage(),
         }}
         search={{
-          placeholder: "Filter loaded agents by session, app, or label…",
+          placeholder: "Filter loaded sessions by id, app, or label…",
           match: (a, q) =>
             a.agent_session_id.toLowerCase().includes(q) ||
             a.application_id.toLowerCase().includes(q) ||
@@ -524,14 +524,14 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             a.labels.some((l) => l.toLowerCase().includes(q)),
         }}
         empty={{
-          title: feed.isError ? "Could not load agents" : "No agent sessions",
+          title: feed.isError ? "Could not load sessions" : "No sessions",
           description: feed.isError
             ? errorMessage(feed.error)
-            : "Agent sessions appear here as the Coordinator spawns them in this zone.",
+            : "Sessions appear here as the Coordinator starts them in this zone.",
         }}
         detail={{
           title: (a) => agentTitle(a, appNames),
-          description: (a) => `Spawned ${relativeTime(a.spawned_at)}`,
+          description: (a) => `Started ${relativeTime(a.spawned_at)}`,
           width: "max-w-2xl",
           render: (a) => (
             <AgentInspector
@@ -559,7 +559,7 @@ function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   );
 }
 
-// Server-side agent filters + cursor pagination. Filters run against the Coordinator so
+// Server-side session filters + cursor pagination. Filters run against the Coordinator so
 // large zones stay searchable; "Load more" follows the keyset cursor.
 function AgentFilterBar({
   tabs,
@@ -598,7 +598,7 @@ function AgentFilterBar({
       trailing={tabs}
       activeFilters={activeFilters}
       loaded={loaded}
-      noun="agent"
+      noun="session"
     >
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
@@ -635,7 +635,7 @@ function AgentFilterBar({
 }
 
 // The delegation view of the runtime workspace: the graph of delegated authority between
-// agent sessions, with chain traversal and revocation impact in the edge inspector.
+// sessions, with chain traversal and revocation impact in the delegation inspector.
 function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const feed = useDelegationsFeed(zoneId);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((p) => p.rows), [feed.data]);
@@ -647,9 +647,9 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   if (coordinatorDown) {
     return (
       <ModulePage
-        title="Agents"
-        description="Live agent sessions and the delegated authority between them in this zone."
-        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+        title="Sessions"
+        description="Live sessions and the authority delegated between them in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
       >
         <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
       </ModulePage>
@@ -658,7 +658,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 
   const columns: Column<DelegationEdge>[] = [
     {
-      id: "edge",
+      id: "delegation",
       header: "Delegation",
       cell: (e) => (
         <div className="flex items-center gap-2 font-mono text-xs">
@@ -717,10 +717,10 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 
   return (
     <ResourceWorkspace
-      title="Agents"
-      description="Active delegation edges. Each edge grants one agent session authority to act on another's behalf within scope."
-      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
-      toolbarExtra={<FeedToolbar trailing={tabs} loaded={rows.length} noun="edge" />}
+      title="Sessions"
+      description="Active delegations. Each one grants a session authority to act on another's behalf within scope."
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
+      toolbarExtra={<FeedToolbar trailing={tabs} loaded={rows.length} noun="delegation" />}
       rows={rows}
       loading={feed.isLoading}
       columns={columns}
@@ -732,7 +732,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         loadMore: () => feed.fetchNextPage(),
       }}
       search={{
-        placeholder: "Search loaded edges by session or scope…",
+        placeholder: "Search loaded delegations by session or scope…",
         match: (e, q) =>
           e.source_session_id.toLowerCase().includes(q) ||
           e.target_session_id.toLowerCase().includes(q) ||
@@ -754,7 +754,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         title: feed.isError ? "Could not load delegations" : "No active delegations",
         description: feed.isError
           ? delegationErrorMessage(feed.error)
-          : "When agent sessions delegate authority to one another, the active edges appear here with their chains and impact.",
+          : "When sessions delegate authority to one another, the active delegations appear here with their chains and impact.",
       }}
       detail={{
         title: (e) => `${shortId(e.source_session_id)} → ${shortId(e.target_session_id)}`,
@@ -767,7 +767,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 }
 
 // Lifecycle confirmation that previews the cascade blast radius. Suspend and terminate
-// recurse the agent subtree and revoke subject sessions on the backend, so the operator
+// recurse the session subtree and revoke sign-ins held only by it, so the operator
 // sees the direct child sessions that will be affected before committing. Resume is the
 // undo action and runs directly without a confirmation.
 function AgentLifecycleConfirm({
@@ -786,18 +786,18 @@ function AgentLifecycleConfirm({
 
   if (!request) return null;
   const { action } = request;
-  const title = action === "suspend" ? "Suspend agent session" : "Terminate agent session";
+  const title = action === "suspend" ? "Suspend session" : "Terminate session";
   const base =
     action === "suspend"
-      ? "Suspending pauses this agent's authority and cascades to its descendant agents. Subject sessions held only by the suspended subtree are revoked. In-flight work may fail until resumed."
-      : "Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
+      ? "Suspending pauses this session's authority and cascades to its descendant sessions. Sign-ins held only by the suspended subtree are revoked. In-flight work may fail until resumed."
+      : "Terminating ends this session and its entire descendant subtree immediately, revoking their authority and sign-ins. This cannot be undone.";
 
   return (
     <Modal
       open
       onClose={onClose}
       title={title}
-      description={`${request.agent.lifecycle} agent · depth ${request.agent.depth}`}
+      description={`${request.agent.lifecycle} session · depth ${request.agent.depth}`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -824,7 +824,7 @@ function AgentLifecycleConfirm({
             </span>
           ) : childCount === 0 ? (
             <span className="text-muted-foreground">
-              No direct child sessions. Only this agent is affected.
+              No direct child sessions. Only this session is affected.
             </span>
           ) : (
             <div className="flex flex-col gap-2">
@@ -888,13 +888,13 @@ function AgentInspector({
           tone="neutral"
           title={
             agent.lifecycle === "service"
-              ? "Long-lived service agent, governed by heartbeat lease"
-              : "Task agent, governed by TTL"
+              ? "Long-lived session, governed by heartbeat lease"
+              : "Task session, governed by TTL"
           }
         >
           {agent.lifecycle}
         </Badge>
-        <Badge tone="muted" title="Distance from the root agent in the delegation tree">
+        <Badge tone="muted" title="Distance from the root session in the delegation tree">
           {agent.depth === 0 ? "root" : `depth ${agent.depth}`}
         </Badge>
         {agent.labels.slice(1).map((l) => (
@@ -1004,18 +1004,18 @@ function AgentInspector({
         </summary>
         <dl className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
           <DetailField
-            label="Agent session"
-            hint="This run's session id; edges and holds reference it"
+            label="Session ID"
+            hint="This session's id; delegations and holds reference it"
           >
             <CopyValue value={agent.agent_session_id} />
           </DetailField>
-          <DetailField label="Application" hint="The application identity this agent runs under">
+          <DetailField label="Application" hint="The application identity this session runs under">
             <CopyValue value={agent.application_id} />
           </DetailField>
           {agent.parent_id ? (
-            <DetailField label="Parent session" hint="The agent that spawned this one">
+            <DetailField label="Parent session" hint="The session that started this one">
               <Link
-                to={appLink("/agents")}
+                to={appLink("/sessions")}
                 search={{ focus: agent.parent_id }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >
@@ -1024,9 +1024,9 @@ function AgentInspector({
             </DetailField>
           ) : null}
           {agent.subject_session_id ? (
-            <DetailField label="Subject session" hint="The authenticated session this run acts for">
+            <DetailField label="Sign-in" hint="The authenticated sign-in this session acts for">
               <Link
-                to={appLink("/sessions")}
+                to={appLink("/signins")}
                 search={{ focus: agent.subject_session_id }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >
@@ -1045,9 +1045,9 @@ function AgentInspector({
   );
 }
 
-// Full effective-authority envelope. The Coordinator intersects every active inbound edge
-// into scopes/resources/hops/ttl/expiry; surfacing all of it (not just scopes) lets an
-// operator see the agent's complete runtime authority boundary.
+// Full effective-authority envelope. The Coordinator intersects every active inbound
+// delegation into scopes/resources/hops/ttl/expiry; surfacing all of it (not just scopes)
+// lets an operator see the session's complete runtime authority boundary.
 function AuthorityEnvelope({
   authority,
 }: {
@@ -1069,7 +1069,7 @@ function AuthorityEnvelope({
           return (
             <div className="mt-3 flex flex-col gap-3">
               <div className="grid grid-cols-3 gap-px border border-border bg-border [&>*]:bg-background">
-                <Metric label="Inbound edges" value={a.inbound_edges.length} />
+                <Metric label="Inbound delegations" value={a.inbound_edges.length} />
                 <Metric
                   label="Max hops"
                   text={a.effective_max_hops == null ? "∞" : String(a.effective_max_hops)}
@@ -1082,7 +1082,7 @@ function AuthorityEnvelope({
 
               {noAuthority ? (
                 <p className="text-sm text-muted-foreground">
-                  No inbound delegations. This agent acts only under its own application authority.
+                  No inbound delegations. This session acts only under its own application authority.
                 </p>
               ) : (
                 <>
@@ -1103,7 +1103,7 @@ function AuthorityEnvelope({
                       </div>
                     ) : (
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Scope intersection is empty: inbound edges share no common scope.
+                        Scope intersection is empty: inbound delegations share no common scope.
                       </p>
                     )}
                   </div>
@@ -1146,8 +1146,8 @@ function AuthorityEnvelope({
   );
 }
 
-// Inbound/outbound delegation edges for the agent, keyed by its agent session. Inbound =
-// authority the agent received; outbound = authority it granted onward.
+// Inbound/outbound delegations for the session, keyed by its session id. Inbound =
+// authority the session received; outbound = authority it granted onward.
 function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
   const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
   const [inspect, setInspect] = useState<DelegationEdge | null>(null);
@@ -1183,9 +1183,9 @@ function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: st
         <Skeleton className="mt-3 h-12 w-full" />
       ) : edges.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          No {tab} delegation edges.{" "}
+          No {tab} delegations.{" "}
           <Link
-            to={appLink("/agents")}
+            to={appLink("/sessions")}
             search={{ view: "delegation" }}
             className="text-foreground hover:underline"
           >
@@ -1257,9 +1257,9 @@ function invocationTone(status: InvocationStatus): "success" | "warning" | "dang
   return "muted";
 }
 
-// Authoritative record of what the agent actually did: the durable audit events correlated
+// Authoritative record of what the session actually did: the durable audit events correlated
 // by agent_session_id (token issuance, resource calls, denials), newest first. This is the
-// core of the agent audit - it answers "what happened" beyond the current lifecycle state.
+// core of the session audit - it answers "what happened" beyond the current lifecycle state.
 function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
   const activity = useAgentActivity(zoneId, sessionId);
   const events = activity.data?.rows ?? [];
@@ -1282,7 +1282,7 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          No recorded activity yet. Exchanges and authority decisions appear here as the agent acts.
+          No recorded activity yet. Exchanges and authority decisions appear here as the session acts.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
@@ -1322,8 +1322,8 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
   );
 }
 
-// Read-only execution lens. Surfaces durable invocations involving this agent and, for
-// service agents, the registered service endpoint + health. Payloads are never exposed;
+// Read-only execution lens. Surfaces durable invocations involving this session and, for
+// service sessions, the registered service endpoint + health. Payloads are never exposed;
 // all mutation stays with the runtime identity.
 function AgentExecution({
   zoneId,

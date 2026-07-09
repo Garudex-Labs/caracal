@@ -41,7 +41,7 @@ function ApprovalsRoute() {
   return (
     <ZoneScopedPage
       title="Approvals"
-      description="Holds that park an agent's token exchange until someone with authority decides."
+      description="Requests held until someone with authority approves or rejects them."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Approvals" }]}
     >
       {(zone) => <ApprovalsPage zoneId={zone.id} />}
@@ -201,7 +201,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
   return (
     <ResourceWorkspace
       title="Approvals"
-      description="Holds that park an agent's token exchange until someone with authority decides."
+      description="Requests held until someone with authority approves or rejects them."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Approvals" }]}
       rows={rows}
       loading={feed.isLoading}
@@ -324,11 +324,11 @@ function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSession
         {relativeTime(agent.data.spawned_at)}
         {" \u00b7 "}
         <Link
-          to={appLink("/agents")}
+          to={appLink("/sessions")}
           search={{ focus: agentSessionId }}
           className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
         >
-          View run
+          View session
         </Link>
       </p>
     </BriefRow>

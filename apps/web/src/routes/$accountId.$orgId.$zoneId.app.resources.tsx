@@ -129,8 +129,8 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       onChange: (v) => setFilter(v as EnforcementFilter),
       options: [
         { id: "all", label: "All resources", count: allRows.length },
-        { id: "enforced", label: "Operation enforced", count: counts.enforced },
-        { id: "transport_uniform", label: "Transport uniform", count: counts.uniform },
+        { id: "enforced", label: "Listed operations only", count: counts.enforced },
+        { id: "transport_uniform", label: "Any operation", count: counts.uniform },
       ],
     },
   ];
@@ -179,7 +179,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         r.operation_enforcement === "enforced" ? (
           <Badge tone="success">{(r.operations ?? []).length} ops enforced</Badge>
         ) : (
-          <Badge tone="muted">Transport uniform</Badge>
+          <Badge tone="muted">Any operation</Badge>
         ),
     },
     {
@@ -360,9 +360,9 @@ function ResourceDetail({
         }
       >
         {resource.operation_enforcement === "enforced" ? (
-          <Badge tone="success">Operation enforced</Badge>
+          <Badge tone="success">Listed operations only</Badge>
         ) : (
-          <Badge tone="muted">Transport uniform</Badge>
+          <Badge tone="muted">Any operation</Badge>
         )}
         {archived && resource.archived_at ? (
           <span className="text-xs text-muted-foreground">
@@ -430,7 +430,7 @@ function ResourceDetail({
       <DetailSection title="Operations">
         {resource.operation_enforcement === "transport_uniform" ? (
           <p className="text-sm text-muted-foreground">
-            Transport uniform: one decision covers every call, so no operation list applies.
+            Any operation: one decision covers every call, so no operation list applies.
           </p>
         ) : operations.length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-border">
