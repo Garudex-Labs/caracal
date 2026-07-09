@@ -106,12 +106,6 @@ func TestSTSPureExchangeHelpers(t *testing.T) {
 	if sessionInput("") != nil || sessionInput("sid").ID != "sid" {
 		t.Fatal("sessionInput should preserve non-empty ids only")
 	}
-	if !sameTokenPrincipal(map[string]any{"sub": "u", "client_id": "app"}, map[string]any{"sub": "u"}) {
-		t.Fatal("same subject with missing actor client should match")
-	}
-	if sameTokenPrincipal(map[string]any{"sub": "u", "client_id": "app1"}, map[string]any{"sub": "u", "client_id": "app2"}) {
-		t.Fatal("different client ids should not match")
-	}
 	resourceID := "resource-1"
 	proof := &delegationProof{
 		edge: &DelegationEdge{

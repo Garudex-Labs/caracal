@@ -168,7 +168,6 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	token, err := client.ExchangeResources(context.Background(), "subject", []string{" resource://b ", "", "resource://a"}, ExchangeOptions{
 		ClientAssertion:     "assertion",
 		ClientAssertionType: "urn:jwt",
-		ActorToken:          "actor",
 		SessionID:           "sid",
 		AgentSessionID:      "agent",
 		DelegationEdgeID:    "edge",
@@ -186,6 +185,9 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	}
 	if form.Get("scope") != "read write" || form.Get("ttl_seconds") != "300" || form.Get("agent_session_id") != "agent" {
 		t.Fatalf("unexpected form: %#v", form)
+	}
+	if _, present := form["actor_token"]; present {
+		t.Fatal("actor_token must never be sent")
 	}
 }
 
@@ -553,5 +555,23 @@ func TestDecideApprovalPostsBearerDecision(t *testing.T) {
 	}
 	if err := client.DecideApproval(context.Background(), DecideApprovalInput{ApprovalID: "ch-1"}); err == nil {
 		t.Fatal("missing subject token must be rejected")
+	}
+}
+
+func TestCaracalErrorRetryableHintsTransportFailuresOnly(t *testing.T) {
+	cases := []struct {
+		err  CaracalError
+		want bool
+	}{
+		{CaracalError{Code: "sts_unavailable"}, true},
+		{CaracalError{HTTPStatus: 429}, true},
+		{CaracalError{HTTPStatus: 502}, true},
+		{CaracalError{Code: "access_denied", HTTPStatus: 403}, false},
+		{CaracalError{Code: "invalid_request", HTTPStatus: 400}, false},
+	}
+	for _, tc := range cases {
+		if got := tc.err.Retryable(); got != tc.want {
+			t.Fatalf("Retryable(%+v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

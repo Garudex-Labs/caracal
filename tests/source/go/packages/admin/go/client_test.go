@@ -372,3 +372,27 @@ func TestProvisioningSurfacePathsAndMethods(t *testing.T) {
 	assertJSONEqual(t, transport.requests[13].body, map[string]any{"version_id": "setver-1", "input": map[string]any{"subject": "richard"}})
 	assertJSONEqual(t, transport.requests[14].body, map[string]any{"version_id": "setver-1"})
 }
+
+func TestSubjectsRevokePathAndBody(t *testing.T) {
+	transport := &scripted{steps: []any{ok(`{"subject_id":"auth0|507f1f77bcf86cd799439011","sessions":2,"agents":1,"delegations":1,"connections":1}`)}}
+	client := newAdmin(transport, -1)
+
+	result, err := client.Subjects.Revoke(context.Background(), "z1", map[string]any{
+		"subject_id": "auth0|507f1f77bcf86cd799439011",
+		"reason":     "credential compromise",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SubjectID != "auth0|507f1f77bcf86cd799439011" || result.Sessions != 2 || result.Agents != 1 || result.Delegations != 1 || result.Connections != 1 {
+		t.Fatalf("unexpected revoke result: %+v", result)
+	}
+	got := transport.requests[0]
+	if got.url != "http://api/v1/zones/z1/subjects/revoke" || got.method != http.MethodPost {
+		t.Fatalf("got %s %s", got.method, got.url)
+	}
+	assertJSONEqual(t, got.body, map[string]any{
+		"subject_id": "auth0|507f1f77bcf86cd799439011",
+		"reason":     "credential compromise",
+	})
+}

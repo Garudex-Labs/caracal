@@ -7,6 +7,7 @@ package sdk_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -672,6 +673,12 @@ func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	if _, err := c.GatewayRequest("resource://calendar", "https://api.example.com/events"); err == nil {
 		t.Fatal("expected relative path error")
 	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events/../admin"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected dot segment rejection, got %v", err)
+	}
+	if _, err := c.GatewayRequest("resource://calendar", "./events"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected dot segment rejection, got %v", err)
+	}
 }
 
 func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
@@ -847,6 +854,18 @@ func TestFromEnvRejectsExpiredJWT(t *testing.T) {
 	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", expired)
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected error for expired bootstrap token")
+	}
+}
+
+func TestFromEnvRejectsAlgNoneJWT(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"exp":4000000000}`))
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
+	t.Setenv("CARACAL_ZONE_ID", "z")
+	t.Setenv("CARACAL_APPLICATION_ID", "app")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", header+"."+payload+".")
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), `alg "none"`) {
+		t.Fatalf("expected alg none rejection, got %v", err)
 	}
 }
 
@@ -1097,5 +1116,193 @@ func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
 	}
 	if !sawSpawn {
 		t.Fatal("expected a coordinator.call event for the spawn request")
+	}
+}
+
+func TestOnEventDisposerStopsDelivery(t *testing.T) {
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	var events []oauth.Event
+	dispose := c.OnEvent(func(event oauth.Event) { events = append(events, event) })
+
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	delivered := len(events)
+	if delivered == 0 {
+		t.Fatal("expected events before disposal")
+	}
+	dispose()
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != delivered {
+		t.Fatalf("expected no delivery after disposal: %d -> %d", delivered, len(events))
+	}
+}
+
+func TestIdentityExposesActingIdentity(t *testing.T) {
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "tok"}
+	zoneID, applicationID, err := c.Identity(context.Background())
+	if err != nil || zoneID != "z" || applicationID != "app" {
+		t.Fatalf("unexpected identity: %s %s %v", zoneID, applicationID, err)
+	}
+	if _, _, err := (&sdk.Caracal{SubjectToken: "tok"}).Identity(context.Background()); err == nil {
+		t.Fatal("expected unresolved identity to fail closed")
+	}
+}
+
+func TestAcceptDelegationValidatesAgainstInboundList(t *testing.T) {
+	status := "active"
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/delegations/inbound/") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"items":[{"id":"edge-42","status":%q}]}`, status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "s1",
+	})
+	var accepts []oauth.Event
+	c.OnEvent(func(event oauth.Event) {
+		if event.Type == "delegation.accept" {
+			accepts = append(accepts, event)
+		}
+	})
+
+	accepted, err := c.AcceptDelegation(ctx, "edge-42", sdk.AcceptDelegationOptions{Validate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := sdk.Current(accepted); cur.DelegationID != "edge-42" {
+		t.Fatalf("unexpected accepted context: %+v", cur)
+	}
+
+	status = "revoked"
+	if _, err := c.AcceptDelegation(ctx, "edge-42", sdk.AcceptDelegationOptions{Validate: true}); err == nil || !strings.Contains(err.Error(), "not live for session s1") {
+		t.Fatalf("expected a revoked delegation to be rejected, got %v", err)
+	}
+
+	if _, err := c.AcceptDelegation(ctx, "edge-77"); err != nil {
+		t.Fatalf("expected unvalidated acceptance to skip the pre-flight: %v", err)
+	}
+
+	if len(accepts) != 3 {
+		t.Fatalf("expected 3 delegation.accept events, got %d", len(accepts))
+	}
+	for i, want := range []struct {
+		id string
+		ok bool
+	}{{"edge-42", true}, {"edge-42", false}, {"edge-77", true}} {
+		if accepts[i].DelegationID != want.id || accepts[i].Ok != want.ok || accepts[i].SessionID != "s1" {
+			t.Fatalf("unexpected event %d: %+v", i, accepts[i])
+		}
+	}
+}
+
+func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
+	paths := []string{}
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ends := []string{}
+	c.OnSessionEnd(func(_ context.Context, cc sdk.CaracalContext) error {
+		ends = append(ends, cc.SessionID)
+		return nil
+	})
+
+	handle, err := c.AttachSession(context.Background(), "agent-persisted", sdk.AttachSessionOptions{HeartbeatInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle.SessionID() != "agent-persisted" || handle.DeadlineAt().IsZero() {
+		t.Fatalf("unexpected handle: %s %v", handle.SessionID(), handle.DeadlineAt())
+	}
+	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
+		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	}
+	if err := handle.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(ends) != 1 || ends[0] != "agent-persisted" {
+		t.Fatalf("expected the end hook to fire once: %v", ends)
+	}
+}
+
+func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
+	type seen struct {
+		target      string
+		traceparent string
+		baggage     string
+	}
+	calls := []seen{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, seen{target: r.URL.RequestURI(), traceparent: r.Header.Get("traceparent"), baggage: r.Header.Get("baggage")})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	c := &sdk.Caracal{
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: "http://coord"},
+	}
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+	res, err := client.Get(upstream.URL + "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if calls[0].traceparent != "" || calls[0].baggage != "" {
+		t.Fatalf("expected no envelope on a non-gateway host: %+v", calls[0])
+	}
+
+	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true})
+	res, err = gatewayClient.Get(upstream.URL + "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if calls[1].traceparent == "" {
+		t.Fatalf("expected the default propagation to carry the envelope: %+v", calls[1])
 	}
 }
