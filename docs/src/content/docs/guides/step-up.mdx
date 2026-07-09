@@ -49,7 +49,7 @@ When one mint matches several tiers, the hold merges them strictly: the most tru
 The `interaction_required` error carries the challenge id, the tier, the expiry, and a `binding` - a hash of the exact resource and scope set held. `waitForApproval` long-polls the hold and resolves when someone decides:
 
 ```ts
-import { OAuthClient, InteractionRequiredError } from "@caracalai/oauth";
+import { OAuthClient, ApprovalRequiredError } from "@caracalai/oauth";
 
 const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
 const request = { scopes: ["pipernet:refund"], sessionId };
@@ -57,7 +57,7 @@ const request = { scopes: ["pipernet:refund"], sessionId };
 try {
   return await oauth.exchange(subjectToken, "resource://pipernet", request);
 } catch (error) {
-  if (error instanceof InteractionRequiredError) {
+  if (error instanceof ApprovalRequiredError) {
     console.log(`approval needed: ${error.challengeId} binding ${error.binding}`);
     await oauth.waitForApproval(error.challengeId);
     return oauth.exchange(subjectToken, "resource://pipernet", {

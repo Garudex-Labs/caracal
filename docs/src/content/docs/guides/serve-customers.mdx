@@ -46,7 +46,7 @@ Use a customer id that never changes for the life of the account, so audit histo
 Spawn the agent for a customer's request inside the one zone, bound to that customer's subject session, and stamp the customer id into the agent's metadata. The metadata travels with the agent session and makes per-customer attribution a direct lookup instead of a guess.
 
 ```python
-async with caracal.spawn(
+async with caracal.session(
     metadata={"customer_id": customer_id},
 ) as ctx:
     # Every gateway and provider call in this block carries a scoped,
@@ -67,8 +67,8 @@ For fan-out work, give each child agent the least authority it needs with [deleg
 When the work is app-initiated - a billing sweep, a dunning cycle, a scheduled job acting on a customer's records without that customer signing in - there is no subject session to anchor the customer. Carry the customer on the agent session itself with a label:
 
 ```python
-async with caracal.spawn(
-    grant=Grant.narrow(["billing:collect"]),
+async with caracal.session(
+    authority=Authority.narrow(["billing:collect"]),
     labels=[role, f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:
