@@ -269,6 +269,7 @@ type Session struct {
 	Status          string
 	ExpiresAt       time.Time
 	AuthenticatedAt time.Time
+	ClaimsJSON      []byte
 }
 
 // DelegationEdge holds the active graph authority edge used by STS.
@@ -395,10 +396,14 @@ func (d *DB) GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64,
 }
 
 func (d *DB) InsertSession(ctx context.Context, s *Session) error {
+	claims := s.ClaimsJSON
+	if len(claims) == 0 {
+		claims = nil
+	}
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO sessions (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at)
-		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)`,
-		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt,
+		`INSERT INTO sessions (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
+		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)`,
+		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims,
 	)
 	return err
 }

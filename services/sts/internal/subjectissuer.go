@@ -375,6 +375,12 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
 	}
 	sessID := sid.String()
+	// The issuer rides on the session record so operators can answer "where did
+	// this subject come from" without correlating audit events.
+	provenance, err := json.Marshal(map[string]string{"iss": issuer.Issuer})
+	if err != nil {
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
+	}
 	if err := s.db.InsertSession(ctx, &Session{
 		ID:              sessID,
 		ZoneID:          zoneID,
@@ -383,6 +389,7 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 		Status:          "active",
 		ExpiresAt:       now.Add(ttl),
 		AuthenticatedAt: now,
+		ClaimsJSON:      provenance,
 	}); err != nil {
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
 	}

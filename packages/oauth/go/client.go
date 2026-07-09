@@ -288,15 +288,15 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 				msg = "Approval required"
 			}
 			return TokenExchangeResponse{}, &ApprovalRequiredError{
-				Message:     msg,
-				ChallengeID: body.ChallengeID,
-				Resource:    firstResource(resources),
-				State:       body.State,
-				Tier:        body.Tier,
-				Binding:     body.Binding,
-				ExpiresAt:   body.ChallengeExpiresAt,
-				RequestID:   body.RequestID,
-				HTTPStatus:  res.StatusCode,
+				Message:    msg,
+				ApprovalID: body.ChallengeID,
+				Resource:   firstResource(resources),
+				State:      body.State,
+				Tier:       body.Tier,
+				Binding:    body.Binding,
+				ExpiresAt:  body.ChallengeExpiresAt,
+				RequestID:  body.RequestID,
+				HTTPStatus: res.StatusCode,
 			}
 		}
 		if res.StatusCode == http.StatusUnauthorized && !isRetry {
@@ -337,25 +337,25 @@ func validateSuccess(body stsSuccessResponse) (TokenExchangeResponse, error) {
 	return TokenExchangeResponse{AccessToken: body.AccessToken, TokenType: "Bearer", ExpiresIn: body.ExpiresIn, IssuedAt: time.Now().Unix()}, nil
 }
 
-// WaitForApproval long-polls an approval challenge until an approver decides it, it
-// expires, or the timeout elapses. Returns the final lifecycle state: "approved"
-// means a retry of Exchange with ChallengeID will mint; "rejected" and "expired" are
-// terminal; "pending" means the timeout elapsed with no decision and waiting again is
-// safe.
-func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
-	if challengeID == "" {
-		return "", errors.New("WaitForApproval requires a challenge id")
+// WaitForApproval long-polls an approval until an approver decides it, it
+// expires, or the timeout elapses. Returns the final lifecycle state: ApprovalApproved
+// means a retry of Exchange with ChallengeID will mint; ApprovalRejected and
+// ApprovalExpired are terminal; ApprovalPending means the timeout elapsed with no
+// decision and waiting again is safe.
+func (c *Client) WaitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (ApprovalState, error) {
+	if approvalID == "" {
+		return "", errors.New("WaitForApproval requires an approval id")
 	}
 	start := time.Now()
-	finish := func(state string, err error) (string, error) {
-		c.emit(Event{Type: "approval.wait", Ok: err == nil, Duration: time.Since(start), ChallengeID: challengeID, State: state})
+	finish := func(state ApprovalState, err error) (ApprovalState, error) {
+		c.emit(Event{Type: "approval.wait", Ok: err == nil, Duration: time.Since(start), ApprovalID: approvalID, State: string(state)})
 		return state, err
 	}
 	deadline := start.Add(timeout)
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return finish("pending", nil)
+			return finish(ApprovalPending, nil)
 		}
 		wait := int(remaining / time.Second)
 		if wait > 25 {
@@ -365,7 +365,7 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 			wait = 1
 		}
 		reqCtx, cancel := context.WithDeadline(ctx, deadline)
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(challengeID), wait), nil)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(approvalID), wait), nil)
 		if err != nil {
 			cancel()
 			return finish("", err)
@@ -390,7 +390,11 @@ func (c *Client) WaitForApproval(ctx context.Context, challengeID string, timeou
 			return finish("", decodeErr)
 		}
 		if body.State != "" && body.State != "pending" {
-			return finish(body.State, nil)
+			state, stateErr := approvalState(body.State)
+			if stateErr != nil {
+				return finish("", stateErr)
+			}
+			return finish(state, nil)
 		}
 	}
 }
@@ -469,7 +473,7 @@ func (c *Client) FederateSubject(ctx context.Context, idToken string, opts Feder
 // approval hold.
 type DecideApprovalInput struct {
 	SubjectToken string
-	ChallengeID  string
+	ApprovalID   string
 	Binding      string
 	Decision     string
 	Reason       string
@@ -481,8 +485,8 @@ type DecideApprovalInput struct {
 // binding must echo the hold exactly - a prompt that does not know the held
 // resource and scope set cannot decide it.
 func (c *Client) DecideApproval(ctx context.Context, input DecideApprovalInput) error {
-	if input.SubjectToken == "" || input.ChallengeID == "" || input.Binding == "" {
-		return errors.New("DecideApproval requires SubjectToken, ChallengeID, and Binding")
+	if input.SubjectToken == "" || input.ApprovalID == "" || input.Binding == "" {
+		return errors.New("DecideApproval requires SubjectToken, ApprovalID, and Binding")
 	}
 	payload := map[string]string{"decision": input.Decision, "binding": input.Binding}
 	if input.Reason != "" {
@@ -499,7 +503,7 @@ func (c *Client) DecideApproval(ctx context.Context, input DecideApprovalInput) 
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost,
-		fmt.Sprintf("%s/step-up/%s/decision", c.stsURL, url.PathEscape(input.ChallengeID)), strings.NewReader(string(body)))
+		fmt.Sprintf("%s/step-up/%s/decision", c.stsURL, url.PathEscape(input.ApprovalID)), strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
