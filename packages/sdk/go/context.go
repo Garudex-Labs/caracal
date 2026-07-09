@@ -16,6 +16,10 @@ type contextKey struct{}
 // CaracalContext carries the Caracal identity and delegation state
 // for a single execution path.
 type CaracalContext struct {
+	// SubjectToken is the bearer credential this context presents: the session
+	// mandate every gateway-bound call and token exchange authenticates with.
+	// Named for the RFC 8693 subject_token it becomes on the wire; it is not an
+	// end-user identity - see SubjectSessionID for that.
 	SubjectToken       string
 	ZoneID             string
 	ApplicationID      string
@@ -23,11 +27,13 @@ type CaracalContext struct {
 	DelegationID       string
 	ParentDelegationID string
 	SubjectSessionID   string
-	TraceID            string
-	TraceFlags         string
-	TraceState         string
-	Baggage            map[string]string
-	Hop                int
+	// TraceID is the W3C trace id (32 lowercase hex characters) correlating this context's requests.
+	TraceID    string
+	TraceFlags string
+	TraceState string
+	Baggage    map[string]string
+	// Hop is the delegation depth: how many delegation hand-offs precede this context; 0 at the root.
+	Hop int
 
 	// OwnToken marks a context whose subject token came from this process's
 	// own credential configuration, so the transport may resolve a fresh

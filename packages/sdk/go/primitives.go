@@ -82,14 +82,15 @@ type SessionInput struct {
 	TokenSource      func(context.Context) (string, error)
 	Invalidate       func()
 	SubjectSessionID string
-	ParentID         string
-	Authority        Authority
-	TTLSeconds       int
-	Metadata         map[string]any
-	Labels           []string
-	TraceID          string
-	OnSessionStart   LifecycleHook
-	OnSessionEnd     LifecycleHook
+	// Session to parent under; defaults to the session bound on the calling context.
+	ParentSessionID string
+	Authority       Authority
+	TTLSeconds      int
+	Metadata        map[string]any
+	Labels          []string
+	TraceID         string
+	OnSessionStart  LifecycleHook
+	OnSessionEnd    LifecycleHook
 }
 
 type sessionInput struct {
@@ -298,7 +299,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 		tokenSource:      opts.TokenSource,
 		invalidate:       opts.Invalidate,
 		subjectSessionID: opts.SubjectSessionID,
-		parentID:         opts.ParentID,
+		parentID:         opts.ParentSessionID,
 		authority:        opts.Authority,
 		ttlSeconds:       opts.TTLSeconds,
 		metadata:         opts.Metadata,
@@ -396,14 +397,15 @@ func AcceptDelegation(ctx context.Context, delegationID string) (context.Context
 // permanently gone. OnSessionEnd runs inside Close before the session
 // terminates, mirroring Session's end hook.
 type StartSessionInput struct {
-	Coordinator       *CoordinatorClient
-	ZoneID            string
-	ApplicationID     string
-	SubjectToken      string
-	TokenSource       func(context.Context) (string, error)
-	Invalidate        func()
-	SubjectSessionID  string
-	ParentID          string
+	Coordinator      *CoordinatorClient
+	ZoneID           string
+	ApplicationID    string
+	SubjectToken     string
+	TokenSource      func(context.Context) (string, error)
+	Invalidate       func()
+	SubjectSessionID string
+	// Session to parent under; defaults to the session bound on the calling context.
+	ParentSessionID   string
 	Authority         Authority
 	TTLSeconds        int
 	Metadata          map[string]any
@@ -447,6 +449,14 @@ type SessionHandle struct {
 // SessionID returns the service session identifier.
 func (s *SessionHandle) SessionID() string {
 	return s.Context.SessionID
+}
+
+// DeadlineAt returns the lease deadline the coordinator reported on the last
+// renewal; zero until the server reports one.
+func (s *SessionHandle) DeadlineAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deadlineAt
 }
 
 func (s *SessionHandle) bearer(ctx context.Context) (string, error) {
@@ -587,7 +597,7 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		tokenSource:      opts.TokenSource,
 		invalidate:       opts.Invalidate,
 		subjectSessionID: opts.SubjectSessionID,
-		parentID:         opts.ParentID,
+		parentID:         opts.ParentSessionID,
 		authority:        opts.Authority,
 		ttlSeconds:       opts.TTLSeconds,
 		metadata:         opts.Metadata,

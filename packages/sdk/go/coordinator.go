@@ -54,7 +54,10 @@ func (c *CoordinatorClient) http() *http.Client {
 	return defaultHTTPClient
 }
 
-// Lifecycle distinguishes the agent session lifecycle.
+// Lifecycle distinguishes the session kinds: a task session lives by its
+// wall-clock TTL and suits bounded work; a service session lives by its
+// heartbeat lease and suits daemons and workers. Session records a task,
+// StartSession records a service.
 type Lifecycle string
 
 const (

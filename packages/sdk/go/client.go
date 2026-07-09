@@ -90,8 +90,8 @@ type ResourceBinding struct {
 	UpstreamPrefix string
 }
 
-// GatewayRequest is a Gateway target and resource header for explicit resource routing.
-type GatewayRequest struct {
+// GatewayTarget is a Gateway URL and resource header for explicit resource routing.
+type GatewayTarget struct {
 	URL    string
 	Header http.Header
 }
@@ -113,7 +113,7 @@ func New(opts ...ClientSecretOptions) (*Caracal, error) {
 }
 
 // FromEnv constructs a Caracal client from CARACAL_ZONE_ID,
-// CARACAL_APPLICATION_ID, and CARACAL_SUBJECT_TOKEN or CARACAL_APP_CLIENT_SECRET.
+// CARACAL_APPLICATION_ID, and CARACAL_BOOTSTRAP_TOKEN or CARACAL_APP_CLIENT_SECRET.
 func FromEnv() (*Caracal, error) {
 	coordinatorURL, err := serviceURL("CARACAL_COORDINATOR_URL", defaultCoordinatorURL)
 	if err != nil {
@@ -121,7 +121,7 @@ func FromEnv() (*Caracal, error) {
 	}
 	zone := os.Getenv("CARACAL_ZONE_ID")
 	app := os.Getenv("CARACAL_APPLICATION_ID")
-	tok := os.Getenv("CARACAL_SUBJECT_TOKEN")
+	tok := os.Getenv("CARACAL_BOOTSTRAP_TOKEN")
 	stsURL, err := stsURLFromEnv()
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func FromEnv() (*Caracal, error) {
 		})
 	}
 	if tok == "" {
-		return nil, fmt.Errorf("caracal: FromEnv requires CARACAL_SUBJECT_TOKEN or CARACAL_APP_CLIENT_SECRET")
+		return nil, fmt.Errorf("caracal: FromEnv requires CARACAL_BOOTSTRAP_TOKEN or CARACAL_APP_CLIENT_SECRET")
 	}
 	if err := validateSubjectToken(tok); err != nil {
 		return nil, err
@@ -507,12 +507,12 @@ func (e *clientSecretExchanger) source(ctx context.Context) (string, error) {
 	return token.AccessToken, nil
 }
 
-func (e *clientSecretExchanger) waitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
+func (e *clientSecretExchanger) waitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (oauth.ApprovalState, error) {
 	_, client, err := e.resolve(ctx)
 	if err != nil {
 		return "", err
 	}
-	return client.WaitForApproval(ctx, challengeID, timeout)
+	return client.WaitForApproval(ctx, approvalID, timeout)
 }
 
 // invalidate forces the next lifecycle token resolution to mint fresh (a
@@ -613,13 +613,23 @@ func validateSubjectToken(token string) error {
 		return nil
 	}
 	if claims.Exp <= time.Now().Unix() {
-		return fmt.Errorf("caracal: CARACAL_SUBJECT_TOKEN is expired: refresh the bootstrap token before starting")
+		return fmt.Errorf("caracal: CARACAL_BOOTSTRAP_TOKEN is expired: refresh the bootstrap token before starting")
 	}
 	return nil
 }
 
-// Close satisfies lifecycle interfaces for clients without open resources.
+// Close releases client-held state: cached application mandates and their
+// in-flight mint cycles are dropped, and the credential exchanger's cached
+// lifecycle token is invalidated so nothing stale is served after shutdown.
+// The sessions backing a released mandate retire on their own TTL. The client
+// stays usable - the next call simply mints fresh state.
 func (c *Caracal) Close() error {
+	c.appMandateMu.Lock()
+	c.appMandates = nil
+	c.appMandateMu.Unlock()
+	if c.exchanger != nil {
+		c.exchanger.invalidate()
+	}
 	return nil
 }
 
@@ -1088,10 +1098,13 @@ func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalCon
 type SessionOptions struct {
 	Authority  Authority
 	TTLSeconds int
-	ParentID   string
-	Metadata   map[string]any
-	Labels     []string
-	TraceID    string
+	// Session to parent under; defaults to the session bound on the calling context.
+	ParentSessionID string
+	Metadata        map[string]any
+	// Role labels the zone's grant policy matches (input.principal.labels); descriptive for policy and audit, never grants.
+	Labels []string
+	// W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent.
+	TraceID string
 }
 
 // Session runs fn inside a governed session: a bounded identity Caracal
@@ -1122,20 +1135,20 @@ func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, o
 		return err
 	}
 	return Session(ctx, SessionInput{
-		Coordinator:    c.Coordinator,
-		ZoneID:         c.ZoneID,
-		ApplicationID:  c.ApplicationID,
-		SubjectToken:   subjectToken,
-		TokenSource:    c.TokenSource,
-		Invalidate:     c.invalidateHook(),
-		ParentID:       o.ParentID,
-		Authority:      o.Authority,
-		TTLSeconds:     ttl,
-		Metadata:       o.Metadata,
-		Labels:         o.Labels,
-		TraceID:        o.TraceID,
-		OnSessionStart: onStart,
-		OnSessionEnd:   onEnd,
+		Coordinator:     c.Coordinator,
+		ZoneID:          c.ZoneID,
+		ApplicationID:   c.ApplicationID,
+		SubjectToken:    subjectToken,
+		TokenSource:     c.TokenSource,
+		Invalidate:      c.invalidateHook(),
+		ParentSessionID: o.ParentSessionID,
+		Authority:       o.Authority,
+		TTLSeconds:      ttl,
+		Metadata:        o.Metadata,
+		Labels:          o.Labels,
+		TraceID:         o.TraceID,
+		OnSessionStart:  onStart,
+		OnSessionEnd:    onEnd,
 	}, fn)
 }
 
@@ -1145,11 +1158,14 @@ func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, o
 // negative value disables the background renewal. OnLeaseLost fires once if
 // the coordinator reports the session permanently gone.
 type StartSessionOptions struct {
-	Authority         Authority
-	TTLSeconds        int
-	ParentID          string
-	Metadata          map[string]any
-	Labels            []string
+	Authority  Authority
+	TTLSeconds int
+	// Session to parent under; defaults to the session bound on the calling context.
+	ParentSessionID string
+	Metadata        map[string]any
+	// Role labels the zone's grant policy matches (input.principal.labels); descriptive for policy and audit, never grants.
+	Labels []string
+	// W3C trace id (32 lowercase hex characters) to correlate the session under; generated when absent.
 	TraceID           string
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
@@ -1183,7 +1199,7 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 		SubjectToken:      subjectToken,
 		TokenSource:       c.TokenSource,
 		Invalidate:        c.invalidateHook(),
-		ParentID:          o.ParentID,
+		ParentSessionID:   o.ParentSessionID,
 		Authority:         o.Authority,
 		TTLSeconds:        o.TTLSeconds,
 		Metadata:          o.Metadata,
@@ -1198,7 +1214,7 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 
 // DelegateOptions configures a delegation to a peer session.
 type DelegateOptions struct {
-	To              string
+	ToSessionID     string
 	ToApplicationID string
 	Scopes          []string
 	Constraints     *DelegationConstraints
@@ -1212,7 +1228,7 @@ type DelegateOptions struct {
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegation, error) {
 	return Delegate(ctx, DelegateInput{
 		Coordinator:     c.Coordinator,
-		ToSessionID:     opts.To,
+		ToSessionID:     opts.ToSessionID,
 		ToApplicationID: opts.ToApplicationID,
 		Scopes:          opts.Scopes,
 		Constraints:     opts.Constraints,
@@ -1228,7 +1244,7 @@ func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string) (co
 }
 
 // MandateOptions carries optional mint inputs: a TTL override and the
-// approval challenge id for retrying an approval-gated mint.
+// approval id for retrying an approval-gated mint.
 type MandateOptions struct {
 	TTLSeconds int
 	ApprovalID string
@@ -1243,7 +1259,7 @@ type MandateOptions struct {
 //
 // When a scope is approval-gated the mint returns
 // *oauth.ApprovalRequiredError; retry with ApprovalID set to the returned
-// challenge id once an authenticated approver has satisfied it. Requires a
+// approval id once an authenticated approver has satisfied it. Requires a
 // client-secret configuration.
 func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []string, opts ...MandateOptions) (string, error) {
 	if c.exchanger == nil {
@@ -1256,21 +1272,64 @@ func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []s
 	cur, _ := Current(ctx)
 	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.SessionID, cur.DelegationID, o)
 	if err != nil {
-		return "", err
+		return "", lifecycleAuthorityHint(err, cur)
 	}
 	return token.AccessToken, nil
 }
 
 // WaitForApproval long-polls an approval challenge until an approver decides
 // it, it expires, or the timeout elapses. Returns the final lifecycle state:
-// "approved" means retrying the mint with ApprovalID set will succeed;
-// "rejected" and "expired" are terminal; "pending" means the timeout elapsed
-// with no decision and waiting again is safe.
-func (c *Caracal) WaitForApproval(ctx context.Context, challengeID string, timeout time.Duration) (string, error) {
+// oauth.ApprovalApproved means retrying the mint with ApprovalID set will
+// succeed; ApprovalRejected, ApprovalExpired, and ApprovalConsumed are
+// terminal; ApprovalPending means the timeout elapsed with no decision and
+// waiting again is safe.
+func (c *Caracal) WaitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (oauth.ApprovalState, error) {
 	if c.exchanger == nil {
 		return "", fmt.Errorf("caracal: WaitForApproval requires a client-secret configuration")
 	}
-	return c.exchanger.waitForApproval(ctx, challengeID, timeout)
+	return c.exchanger.waitForApproval(ctx, approvalID, timeout)
+}
+
+// WithApproval runs an approval-gated operation end to end. fn is invoked
+// once with an empty approval id; when it returns *oauth.ApprovalRequiredError
+// the client long-polls the challenge and, on approval, invokes fn again with
+// the approval id so the retried mint consumes the decision. Any other outcome
+// (rejected, expired, consumed, or the wait timing out) returns the original
+// approval error, whose ApprovalID lets the caller resume the wait later.
+func WithApproval[T any](ctx context.Context, c *Caracal, timeout time.Duration, fn func(ctx context.Context, approvalID string) (T, error)) (T, error) {
+	out, err := fn(ctx, "")
+	if err == nil {
+		return out, nil
+	}
+	var hold *oauth.ApprovalRequiredError
+	if !errors.As(err, &hold) {
+		return out, err
+	}
+	state, waitErr := c.WaitForApproval(ctx, hold.ApprovalID, timeout)
+	if waitErr != nil {
+		var zero T
+		return zero, waitErr
+	}
+	if state != oauth.ApprovalApproved {
+		return out, err
+	}
+	return fn(ctx, hold.ApprovalID)
+}
+
+// lifecycleAuthorityHint decorates a policy deny for a session that carries no
+// delegation: under the platform decision contract, resource mandates only
+// mint over a delegation, so the deny is almost always the
+// lifecycle-only-authority trap. The wrap keeps the original error chain for
+// errors.As while appending the remediation.
+func lifecycleAuthorityHint(err error, cur CaracalContext) error {
+	var denied *oauth.CaracalError
+	if !errors.As(err, &denied) || denied.Code != "access_denied" {
+		return err
+	}
+	if cur.SessionID == "" || cur.DelegationID != "" {
+		return err
+	}
+	return fmt.Errorf("%w (hint: the bound session has no delegation, so it holds lifecycle-only authority; narrow the session with AuthorityNarrow, accept one with AcceptDelegation, or call as the application with ApplicationTransport)", err)
 }
 
 // CallOptions controls explicit use of the application subject token when no
@@ -1464,20 +1523,20 @@ func (c *Caracal) ApplicationTransport(base *http.Client, resourceID string, opt
 }
 
 // GatewayRequest builds a Gateway URL and X-Caracal-Resource header for explicit resource routing.
-func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error) {
+func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayTarget, error) {
 	if c.GatewayURL == "" {
-		return GatewayRequest{}, fmt.Errorf("caracal: GatewayRequest requires GatewayURL")
+		return GatewayTarget{}, fmt.Errorf("caracal: GatewayRequest requires GatewayURL")
 	}
 	if strings.TrimSpace(resourceID) == "" {
-		return GatewayRequest{}, fmt.Errorf("caracal: GatewayRequest requires resourceID")
+		return GatewayTarget{}, fmt.Errorf("caracal: GatewayRequest requires resourceID")
 	}
 	target, err := joinGatewayPath(c.GatewayURL, path)
 	if err != nil {
-		return GatewayRequest{}, err
+		return GatewayTarget{}, err
 	}
 	header := http.Header{}
 	header.Set("X-Caracal-Resource", resourceID)
-	return GatewayRequest{URL: target, Header: header}, nil
+	return GatewayTarget{URL: target, Header: header}, nil
 }
 
 // FetchOptions carries the optional request inputs for Fetch. Scopes
@@ -1568,7 +1627,7 @@ func (t *caracalTransport) gatewayToken(ctx context.Context, resourceID string, 
 		}
 		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.SessionID, cur.DelegationID, MandateOptions{})
 		if err != nil {
-			return "", err
+			return "", lifecycleAuthorityHint(err, cur)
 		}
 		return token.AccessToken, nil
 	}
