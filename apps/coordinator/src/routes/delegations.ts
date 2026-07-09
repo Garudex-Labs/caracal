@@ -132,6 +132,12 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(resources.status).send({ error: resources.error })
       }
+      // Applications name resources by public identifier; the edge stores the canonical
+      // row id, so the reference is normalized once here for every downstream check.
+      if (body.resource_id) {
+        const named = resources.items.find((resource) => resource.id === body.resource_id || resource.identifier === body.resource_id)
+        if (named) body.resource_id = named.id
+      }
       // Scopes are validated against the union of the constrained resources:
       // the STS narrows to each resource's own scopes at mandate minting.
       if (resources.items.length > 0) {
@@ -624,11 +630,14 @@ async function activeAgentEndpoints(
   return endpoints
 }
 
+// Resolves a delegation's resource reference. Applications integrating through the SDK
+// know resources by their public identifier (resource://...), while console-plane callers
+// hold row ids; a delegation names its resource in either form.
 async function getResource(db: Queryable, zoneId: string, resourceId: string): Promise<ResourceAuthority | null> {
   const { rows } = await db.query(
     `SELECT r.id, r.identifier, r.scopes
      FROM resources r
-     WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL`,
+     WHERE (r.id = $1 OR r.identifier = $1) AND r.zone_id = $2 AND r.archived_at IS NULL`,
     [resourceId, zoneId],
   )
   return rows[0] ?? null
@@ -660,7 +669,7 @@ async function resolveResourceAuthority(
       return { items: [], error: 'resource_not_found', status: 404 }
     }
     for (const row of rows) resources.set(row.id, row)
-    if (resourceId && !rows.some((row) => row.id === resourceId)) {
+    if (resourceId && !rows.some((row) => row.id === resourceId || row.identifier === resourceId)) {
       return { items: [], error: 'delegation_resource_scope_mismatch', status: 400 }
     }
   }

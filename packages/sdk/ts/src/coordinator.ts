@@ -114,8 +114,10 @@ async function call<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const fetchFn = client.fetchImpl ?? fetch
+  // A content-type on a body-less request (DELETE, heartbeat POSTs without payload) makes
+  // strict JSON parsers reject the empty body, so the header rides only with a body.
   const headers: Record<string, string> = {
-    'content-type': 'application/json',
+    ...(body ? { 'content-type': 'application/json' } : {}),
     authorization: `Bearer ${bearer}`,
     ...(extraHeaders ?? {}),
   }
