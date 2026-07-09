@@ -37,9 +37,9 @@ type TokenExchangeResponse struct {
 	IssuedAt    int64
 }
 
-// InteractionRequiredError carries an STS human-approval hold: the challenge to
+// ApprovalRequiredError carries an STS human-approval hold: the challenge to
 // surface to an approver and the binding proving which request it covers.
-type InteractionRequiredError struct {
+type ApprovalRequiredError struct {
 	Message     string
 	ChallengeID string
 	Resource    string
@@ -51,11 +51,11 @@ type InteractionRequiredError struct {
 	HTTPStatus  int
 }
 
-func (e *InteractionRequiredError) Error() string {
+func (e *ApprovalRequiredError) Error() string {
 	if e.Message == "" {
-		return "interaction required"
+		return "approval required"
 	}
-	return fmt.Sprintf("interaction required: %s", e.Message)
+	return fmt.Sprintf("approval required: %s", e.Message)
 }
 
 // CaracalError is a platform-reported token exchange failure. Callers branch on

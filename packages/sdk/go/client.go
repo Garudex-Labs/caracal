@@ -33,12 +33,13 @@ const defaultCoordinatorURL = "http://localhost:4000"
 const defaultGatewayURL = "http://localhost:8081"
 
 const lifecycleScope = "agent:lifecycle"
-const governedMandateTTLSeconds = 900
-const governedRefreshMargin = 60 * time.Second
-const governedSessionTTLBuffer = 120
+const appMandateTTLSeconds = 900
+const appMandateRefreshMargin = 60 * time.Second
+const appSessionTTLBuffer = 120
 
 // Caracal binds the four config values needed to integrate with Caracal.
-// DefaultTTLSeconds applies to task spawns only; a service session lives by
+// DefaultTTLSeconds applies to sessions run with Session only; a session
+// started with StartSession lives by
 // its heartbeat lease instead.
 type Caracal struct {
 	Coordinator       *CoordinatorClient
@@ -50,14 +51,14 @@ type Caracal struct {
 	Resources         []ResourceBinding
 	DefaultTTLSeconds int
 
-	agentStartHooks []LifecycleHook
-	agentEndHooks   []LifecycleHook
-	eventHooks      []func(oauth.Event)
-	exchanger       *clientSecretExchanger
+	sessionStartHooks []LifecycleHook
+	sessionEndHooks   []LifecycleHook
+	eventHooks        []func(oauth.Event)
+	exchanger         *clientSecretExchanger
 
-	governedMu       sync.Mutex
-	governedMandates map[string]governedEntry
-	governedInflight map[string]*governedCall
+	appMandateMu sync.Mutex
+	appMandates  map[string]appMandateEntry
+	appInflight  map[string]*appMandateCall
 }
 
 // TokenSource returns an application subject token for root SDK operations.
@@ -203,7 +204,7 @@ func FromEnv() (*Caracal, error) {
 }
 
 // ClientSecretOptions configures an SDK client backed by STS client-secret exchange.
-// DefaultTTLSeconds seeds Caracal.DefaultTTLSeconds for task spawns.
+// DefaultTTLSeconds seeds Caracal.DefaultTTLSeconds for sessions run with Session.
 // Credentials replaces the static ZoneID/ApplicationID/ClientSecret triple
 // with a resolver consulted before each exchange.
 type ClientSecretOptions struct {
@@ -485,7 +486,7 @@ func (e *clientSecretExchanger) identity(ctx context.Context) (string, string, e
 
 func (e *clientSecretExchanger) source(ctx context.Context) (string, error) {
 	if len(e.resources) == 0 {
-		return "", fmt.Errorf("caracal: this client has no resources configured; spawn and lifecycle paths require at least one")
+		return "", fmt.Errorf("caracal: this client has no resources configured; session and lifecycle paths require at least one")
 	}
 	creds, client, err := e.resolve(ctx)
 	if err != nil {
@@ -523,7 +524,7 @@ func (e *clientSecretExchanger) invalidate() {
 	e.mu.Unlock()
 }
 
-func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, agentSessionID, delegationEdgeID string, opts MandateOptions) (oauth.TokenExchangeResponse, error) {
+func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, agentSessionID, delegationID string, opts MandateOptions) (oauth.TokenExchangeResponse, error) {
 	creds, client, err := e.resolve(ctx)
 	if err != nil {
 		return oauth.TokenExchangeResponse{}, err
@@ -532,7 +533,7 @@ func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID stri
 		ClientSecret:     creds.ClientSecret,
 		Scopes:           scopes,
 		AgentSessionID:   agentSessionID,
-		DelegationEdgeID: delegationEdgeID,
+		DelegationEdgeID: delegationID,
 		TTLSeconds:       opts.TTLSeconds,
 		ChallengeID:      opts.ApprovalID,
 	})
@@ -1038,14 +1039,14 @@ func compactStrings(values []string) []string {
 	return out
 }
 
-// OnAgentStart registers a hook fired when Spawn binds a new agent session.
-func (c *Caracal) OnAgentStart(h LifecycleHook) {
-	c.agentStartHooks = append(c.agentStartHooks, h)
+// OnSessionStart registers a hook fired when Session binds a new session.
+func (c *Caracal) OnSessionStart(h LifecycleHook) {
+	c.sessionStartHooks = append(c.sessionStartHooks, h)
 }
 
-// OnAgentEnd registers a hook fired when Spawn unwinds an agent session.
-func (c *Caracal) OnAgentEnd(h LifecycleHook) {
-	c.agentEndHooks = append(c.agentEndHooks, h)
+// OnSessionEnd registers a hook fired when Session unwinds a session.
+func (c *Caracal) OnSessionEnd(h LifecycleHook) {
+	c.sessionEndHooks = append(c.sessionEndHooks, h)
 }
 
 // OnEvent subscribes to control-plane operation events: token exchanges (with
@@ -1083,9 +1084,9 @@ func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalCon
 	return nil
 }
 
-// SpawnOptions overrides defaults for a single Spawn call.
-type SpawnOptions struct {
-	Grant      Grant
+// SessionOptions overrides defaults for a single Session call.
+type SessionOptions struct {
+	Authority  Authority
 	TTLSeconds int
 	ParentID   string
 	Metadata   map[string]any
@@ -1093,13 +1094,15 @@ type SpawnOptions struct {
 	TraceID    string
 }
 
-// Spawn spawns a child agent session and invokes fn with the bound context.
-// By default the coordinator carries the parent's effective authority forward
-// by mirroring its active narrowing edge onto the child; set Options.Grant
-// to GrantNarrow(...) to issue a bounded delegation edge so the child holds
-// only a subset of scopes.
-func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opts ...SpawnOptions) error {
-	o := SpawnOptions{}
+// Session runs fn inside a governed session: a bounded identity Caracal
+// establishes around whatever fn executes - an AI agent step, a job, a tool
+// call, any code. The session binds delegated authority, records audit
+// attribution, and is retired when fn returns. By default the coordinator
+// carries the parent's effective authority forward by mirroring its active
+// narrowing delegation onto the child; set Options.Authority to
+// AuthorityNarrow(...) to bound the session to a subset of scopes.
+func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, opts ...SessionOptions) error {
+	o := SessionOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
 	}
@@ -1108,41 +1111,41 @@ func (c *Caracal) Spawn(ctx context.Context, fn func(context.Context) error, opt
 		ttl = c.DefaultTTLSeconds
 	}
 	var onStart, onEnd LifecycleHook
-	if len(c.agentStartHooks) > 0 {
-		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
+	if len(c.sessionStartHooks) > 0 {
+		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
 	}
-	if len(c.agentEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentEndHooks, cx, cc) }
+	if len(c.sessionEndHooks) > 0 {
+		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
 	}
 	subjectToken, err := c.rootToken(ctx)
 	if err != nil {
 		return err
 	}
-	return Spawn(ctx, SpawnInput{
-		Coordinator:   c.Coordinator,
-		ZoneID:        c.ZoneID,
-		ApplicationID: c.ApplicationID,
-		SubjectToken:  subjectToken,
-		TokenSource:   c.TokenSource,
-		Invalidate:    c.invalidateHook(),
-		ParentID:      o.ParentID,
-		Grant:         o.Grant,
-		TTLSeconds:    ttl,
-		Metadata:      o.Metadata,
-		Labels:        o.Labels,
-		TraceID:       o.TraceID,
-		OnAgentStart:  onStart,
-		OnAgentEnd:    onEnd,
+	return Session(ctx, SessionInput{
+		Coordinator:    c.Coordinator,
+		ZoneID:         c.ZoneID,
+		ApplicationID:  c.ApplicationID,
+		SubjectToken:   subjectToken,
+		TokenSource:    c.TokenSource,
+		Invalidate:     c.invalidateHook(),
+		ParentID:       o.ParentID,
+		Authority:      o.Authority,
+		TTLSeconds:     ttl,
+		Metadata:       o.Metadata,
+		Labels:         o.Labels,
+		TraceID:        o.TraceID,
+		OnSessionStart: onStart,
+		OnSessionEnd:   onEnd,
 	}, fn)
 }
 
-// ServiceOptions overrides defaults for a single Service call.
+// StartSessionOptions overrides defaults for a single Service call.
 // HeartbeatInterval selects the lease renewal mode: zero (the default)
 // derives the cadence from the server lease, a positive value fixes it, and a
 // negative value disables the background renewal. OnLeaseLost fires once if
 // the coordinator reports the session permanently gone.
-type ServiceOptions struct {
-	Grant             Grant
+type StartSessionOptions struct {
+	Authority         Authority
 	TTLSeconds        int
 	ParentID          string
 	Metadata          map[string]any
@@ -1153,27 +1156,27 @@ type ServiceOptions struct {
 }
 
 // Service starts a long-lived service agent and returns a handle the caller
-// owns. Unlike Spawn, the session is not retired when a block exits: a
+// owns. Unlike Session, the session is not retired when a block exits: a
 // background goroutine renews the lease by default and the handle is retired
-// with ServiceAgent.Close. Use for daemons and workers that outlive a single
+// with SessionHandle.Close. Use for daemons and workers that outlive a single
 // request.
-func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*ServiceAgent, error) {
-	o := ServiceOptions{}
+func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions) (*SessionHandle, error) {
+	o := StartSessionOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
 	}
 	var onStart, onEnd LifecycleHook
-	if len(c.agentStartHooks) > 0 {
-		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentStartHooks, cx, cc) }
+	if len(c.sessionStartHooks) > 0 {
+		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
 	}
-	if len(c.agentEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.agentEndHooks, cx, cc) }
+	if len(c.sessionEndHooks) > 0 {
+		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
 	}
 	subjectToken, err := c.rootToken(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return SpawnService(ctx, SpawnServiceInput{
+	return StartSession(ctx, StartSessionInput{
 		Coordinator:       c.Coordinator,
 		ZoneID:            c.ZoneID,
 		ApplicationID:     c.ApplicationID,
@@ -1181,19 +1184,19 @@ func (c *Caracal) SpawnService(ctx context.Context, opts ...ServiceOptions) (*Se
 		TokenSource:       c.TokenSource,
 		Invalidate:        c.invalidateHook(),
 		ParentID:          o.ParentID,
-		Grant:             o.Grant,
+		Authority:         o.Authority,
 		TTLSeconds:        o.TTLSeconds,
 		Metadata:          o.Metadata,
 		Labels:            o.Labels,
 		TraceID:           o.TraceID,
 		HeartbeatInterval: o.HeartbeatInterval,
 		OnLeaseLost:       o.OnLeaseLost,
-		OnAgentStart:      onStart,
-		OnAgentEnd:        onEnd,
+		OnSessionStart:    onStart,
+		OnSessionEnd:      onEnd,
 	})
 }
 
-// DelegateOptions configures a delegation edge.
+// DelegateOptions configures a delegation to a peer session.
 type DelegateOptions struct {
 	To              string
 	ToApplicationID string
@@ -1202,25 +1205,26 @@ type DelegateOptions struct {
 	TTLSeconds      int
 }
 
-// Delegate creates a delegation edge from the current session to a peer and
-// returns it. The caller's context is unchanged; hand the edge id to the
-// receiving session, which presents it with AdoptDelegation.
-func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (DelegationResponse, error) {
+// Delegate delegates a slice of the current session's authority to a peer
+// session and returns the created delegation. The caller's context is
+// unchanged; hand the delegation id to the receiving session, which presents
+// it with AcceptDelegation.
+func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegation, error) {
 	return Delegate(ctx, DelegateInput{
-		Coordinator:      c.Coordinator,
-		ToAgentSessionID: opts.To,
-		ToApplicationID:  opts.ToApplicationID,
-		Scopes:           opts.Scopes,
-		Constraints:      opts.Constraints,
-		TTLSeconds:       opts.TTLSeconds,
+		Coordinator:     c.Coordinator,
+		ToSessionID:     opts.To,
+		ToApplicationID: opts.ToApplicationID,
+		Scopes:          opts.Scopes,
+		Constraints:     opts.Constraints,
+		TTLSeconds:      opts.TTLSeconds,
 	})
 }
 
-// AdoptDelegation derives a receiver context presenting the given delegation
-// edge and binds it: calls made under the returned context carry the edge's
-// bounded authority.
-func (c *Caracal) AdoptDelegation(ctx context.Context, delegationEdgeID string) (context.Context, error) {
-	return AdoptDelegation(ctx, delegationEdgeID)
+// AcceptDelegation derives a receiver context presenting the given
+// delegation and binds it: calls made under the returned context carry the
+// delegation's bounded authority.
+func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string) (context.Context, error) {
+	return AcceptDelegation(ctx, delegationID)
 }
 
 // MandateOptions carries optional mint inputs: a TTL override and the
@@ -1230,15 +1234,15 @@ type MandateOptions struct {
 	ApprovalID string
 }
 
-// MintMandate mints a resource mandate for the current agent: a short-lived
-// token audienced to resourceID and narrowed to scopes, carrying the agent
-// session and delegation edge of the bound CaracalContext. The STS evaluates
-// policy against that agent's authority, so a narrowed child can mint only
-// what its delegation edge allows. Results are cached per resource, scope
-// set, and agent identity, and refreshed before expiry.
+// MintMandate mints a resource mandate for the current session: a short-lived
+// token audienced to resourceID and narrowed to scopes, carrying the session
+// and delegation of the bound CaracalContext. The STS evaluates policy
+// against that session's authority, so a narrowed child can mint only what
+// its delegation allows. Results are cached per resource, scope set, and
+// session identity, and refreshed before expiry.
 //
 // When a scope is approval-gated the mint returns
-// *oauth.InteractionRequiredError; retry with ApprovalID set to the returned
+// *oauth.ApprovalRequiredError; retry with ApprovalID set to the returned
 // challenge id once an authenticated approver has satisfied it. Requires a
 // client-secret configuration.
 func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []string, opts ...MandateOptions) (string, error) {
@@ -1250,7 +1254,7 @@ func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []s
 		o = opts[0]
 	}
 	cur, _ := Current(ctx)
-	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.AgentSessionID, cur.DelegationEdgeID, o)
+	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.SessionID, cur.DelegationID, o)
 	if err != nil {
 		return "", err
 	}
@@ -1269,7 +1273,7 @@ func (c *Caracal) WaitForApproval(ctx context.Context, challengeID string, timeo
 	return c.exchanger.waitForApproval(ctx, challengeID, timeout)
 }
 
-// RootOptions controls explicit use of the application subject token when no
+// CallOptions controls explicit use of the application subject token when no
 // CaracalContext is bound, and optional bearer verification at the inbound
 // boundary. Verify is invoked by BindFromRequest with the inbound token and
 // must return an error to reject the request; back it with the identity
@@ -1278,17 +1282,17 @@ func (c *Caracal) WaitForApproval(ctx context.Context, challengeID string, timeo
 // Scopes switches gateway-routed requests from the raw subject token to a
 // scoped resource mandate minted for the routed resource and the bound agent
 // identity; requires a client-secret configuration. Used by Transport and Fetch.
-type RootOptions struct {
-	AllowRoot bool
-	Verify    func(context.Context, string) (*VerifiedClaims, error)
-	Scopes    []string
+type CallOptions struct {
+	AsApplication bool
+	Verify        func(context.Context, string) (*VerifiedClaims, error)
+	Scopes        []string
 }
 
-func allowRoot(opts []RootOptions) bool {
-	return len(opts) > 0 && opts[0].AllowRoot
+func asApplication(opts []CallOptions) bool {
+	return len(opts) > 0 && opts[0].AsApplication
 }
 
-func scopesOf(opts []RootOptions) []string {
+func scopesOf(opts []CallOptions) []string {
 	if len(opts) == 0 {
 		return nil
 	}
@@ -1296,16 +1300,16 @@ func scopesOf(opts []RootOptions) []string {
 }
 
 // Headers returns the envelope headers plus the bearer credential for the
-// current ctx. Root application identity requires RootOptions{AllowRoot: true}.
-// For contexts this process spawned from its own credentials, the bearer is
+// current ctx. Root application identity requires CallOptions{AsApplication: true}.
+// For contexts this process established from its own credentials, the bearer is
 // resolved fresh through the token source so long-lived holders never present
 // an expired token.
-func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header, error) {
+func (c *Caracal) Headers(ctx context.Context, opts ...CallOptions) (http.Header, error) {
 	h := http.Header{}
 	cur, ok := Current(ctx)
 	if !ok {
 		if !allowRoot(opts) {
-			return nil, fmt.Errorf("caracal: Headers called without a bound CaracalContext; pass RootOptions{AllowRoot: true} to use the application subject token")
+			return nil, fmt.Errorf("caracal: Headers called without a bound CaracalContext; pass CallOptions{AsApplication: true} to call as the application's own identity")
 		}
 		subjectToken, err := c.rootToken(ctx)
 		if err != nil {
@@ -1329,11 +1333,11 @@ func (c *Caracal) Headers(ctx context.Context, opts ...RootOptions) (http.Header
 }
 
 // BindFromRequest extracts the envelope from an inbound request and returns a
-// context bound with the resulting CaracalContext. When RootOptions.Verify is
+// context bound with the resulting CaracalContext. When CallOptions.Verify is
 // set, the inbound bearer is verified before binding and any claims it returns
 // override the envelope, so a forged envelope cannot outrun the token.
-func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...RootOptions) (context.Context, error) {
-	var opt RootOptions
+func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...CallOptions) (context.Context, error) {
+	var opt CallOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
@@ -1341,7 +1345,7 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 	var claims *VerifiedClaims
 	rootInjected := false
 	if env.SubjectToken == "" {
-		if !opt.AllowRoot {
+		if !opt.AsApplication {
 			return ctx, fmt.Errorf("caracal: BindFromRequest missing bearer token")
 		}
 		subjectToken, err := c.rootToken(ctx)
@@ -1366,17 +1370,17 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 		if claims.ApplicationID != "" {
 			applicationID = claims.ApplicationID
 		}
-		if claims.AgentSessionID != "" {
-			env.AgentSessionID = claims.AgentSessionID
-		}
-		if claims.DelegationEdgeID != "" {
-			env.DelegationEdgeID = claims.DelegationEdgeID
-		}
-		if claims.ParentEdgeID != "" {
-			env.ParentEdgeID = claims.ParentEdgeID
-		}
 		if claims.SessionID != "" {
 			env.SessionID = claims.SessionID
+		}
+		if claims.DelegationID != "" {
+			env.DelegationID = claims.DelegationID
+		}
+		if claims.ParentDelegationID != "" {
+			env.ParentDelegationID = claims.ParentDelegationID
+		}
+		if claims.SubjectSessionID != "" {
+			env.SubjectSessionID = claims.SubjectSessionID
 		}
 		if claims.Hop != nil {
 			env.Hop = *claims.Hop
@@ -1400,7 +1404,7 @@ func (c *Caracal) Current(ctx context.Context) (CaracalContext, bool) {
 // attached only to gateway-routed requests, where the Gateway terminates it
 // at the trust boundary. Pass to any HTTP or provider SDK that accepts a
 // custom *http.Client.
-func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client {
+func (c *Caracal) Transport(base *http.Client, opts ...CallOptions) *http.Client {
 	if base == nil {
 		base = &http.Client{}
 	}
@@ -1409,43 +1413,43 @@ func (c *Caracal) Transport(base *http.Client, opts ...RootOptions) *http.Client
 		rt = http.DefaultTransport
 	}
 	out := *base
-	out.Transport = &caracalTransport{base: rt, client: c, allowRoot: allowRoot(opts), scopes: scopesOf(opts)}
+	out.Transport = &caracalTransport{base: rt, client: c, asApplication: asApplication(opts), scopes: scopesOf(opts)}
 	return &out
 }
 
-// GovernedTransportOptions configures GovernedTransport: the scopes each
-// mandate carries, the session labels stamped on the provisioning cycle's
-// agent sessions, and an optional mandate TTL override.
-type GovernedTransportOptions struct {
+// ApplicationTransportOptions configures ApplicationTransport: the scopes
+// each mandate carries, the labels stamped on the provisioning cycle's
+// sessions, and an optional mandate TTL override.
+type ApplicationTransportOptions struct {
 	Scopes            []string
 	Labels            []string
 	MandateTTLSeconds int
 }
 
-// GovernedTransport returns an *http.Client that authorizes every request
-// with a scoped mandate minted under this application's own authority: it
-// spawns a source and target agent session, delegates the requested scopes
-// across them bounded to resourceID, and mints the mandate from that edge, so
-// each call is policy-checked, delegation-bounded, and fully audited without
-// a caller-supplied CaracalContext. Mandates are cached per resolved
-// identity, resource, scope set, effective labels, and mandate TTL, then
-// re-provisioned before expiry. Requests are rewritten through the gateway.
+// ApplicationTransport returns an *http.Client pinned to one resource,
+// calling as the application's own identity rather than a bound session
+// context: it starts a source and target session, delegates the requested
+// scopes across them bounded to resourceID, and mints the mandate from that
+// delegation, so each call is policy-checked, delegation-bounded, and fully
+// audited without a caller-supplied CaracalContext. Mandates are cached per
+// resolved identity, resource, scope set, effective labels, and mandate TTL,
+// then re-provisioned before expiry. Requests are rewritten through the gateway.
 // Requires a client-secret configuration.
-func (c *Caracal) GovernedTransport(base *http.Client, resourceID string, opts GovernedTransportOptions) (*http.Client, error) {
+func (c *Caracal) ApplicationTransport(base *http.Client, resourceID string, opts ApplicationTransportOptions) (*http.Client, error) {
 	if c.exchanger == nil {
-		return nil, fmt.Errorf("caracal: GovernedTransport requires a client-secret configuration")
+		return nil, fmt.Errorf("caracal: ApplicationTransport requires a client-secret configuration")
 	}
 	if strings.TrimSpace(resourceID) == "" {
-		return nil, fmt.Errorf("caracal: GovernedTransport requires resourceID")
+		return nil, fmt.Errorf("caracal: ApplicationTransport requires resourceID")
 	}
 	if len(opts.Scopes) == 0 {
-		return nil, fmt.Errorf("caracal: GovernedTransport requires at least one scope")
+		return nil, fmt.Errorf("caracal: ApplicationTransport requires at least one scope")
 	}
 	scopes := compactStrings(append([]string(nil), opts.Scopes...))
 	sort.Strings(scopes)
 	mandateTTL := opts.MandateTTLSeconds
 	if mandateTTL <= 0 {
-		mandateTTL = governedMandateTTLSeconds
+		mandateTTL = appMandateTTLSeconds
 	}
 	if base == nil {
 		base = &http.Client{}
@@ -1455,7 +1459,7 @@ func (c *Caracal) GovernedTransport(base *http.Client, resourceID string, opts G
 		rt = http.DefaultTransport
 	}
 	out := *base
-	out.Transport = &governedTransport{base: rt, client: c, resourceID: resourceID, scopes: scopes, labels: opts.Labels, mandateTTL: mandateTTL}
+	out.Transport = &applicationTransport{base: rt, client: c, resourceID: resourceID, scopes: scopes, labels: opts.Labels, mandateTTL: mandateTTL}
 	return &out, nil
 }
 
@@ -1480,10 +1484,10 @@ func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayRequest, error
 // authorizes with a scoped resource mandate minted for the target resource
 // instead of the raw subject token; requires a client-secret configuration.
 type FetchOptions struct {
-	Body      io.Reader
-	Header    http.Header
-	AllowRoot bool
-	Scopes    []string
+	Body          io.Reader
+	Header        http.Header
+	AsApplication bool
+	Scopes        []string
 }
 
 // Fetch is the one-call happy path: it sends an HTTP request to path on the given
@@ -1511,20 +1515,20 @@ func (c *Caracal) Fetch(ctx context.Context, method, resourceID, path string, op
 			req.Header.Set(key, value)
 		}
 	}
-	return c.Transport(nil, RootOptions{AllowRoot: opt.AllowRoot, Scopes: opt.Scopes}).Do(req)
+	return c.Transport(nil, CallOptions{AsApplication: opt.AsApplication, Scopes: opt.Scopes}).Do(req)
 }
 
 type caracalTransport struct {
-	base      http.RoundTripper
-	client    *Caracal
-	allowRoot bool
-	scopes    []string
+	base          http.RoundTripper
+	client        *Caracal
+	asApplication bool
+	scopes        []string
 }
 
 func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cur, ok := Current(req.Context())
-	if !ok && !t.allowRoot {
-		return nil, fmt.Errorf("caracal: Transport request has no bound CaracalContext; pass RootOptions{AllowRoot: true} to use the application subject token")
+	if !ok && !t.asApplication {
+		return nil, fmt.Errorf("caracal: Transport request has no bound CaracalContext; pass CallOptions{AsApplication: true} to call as the application's own identity")
 	}
 	env := Envelope{Hop: 0}
 	if ok {
@@ -1555,14 +1559,14 @@ func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // gatewayToken resolves the bearer for a gateway-bound request: a scoped
 // mandate when the transport carries scopes and the routed resource is known,
 // a fresh token from the client token source for contexts this process
-// spawned from its own credentials, the pinned context token for
+// established from its own credentials, the pinned context token for
 // inbound-bound contexts, or the application token in root mode.
 func (t *caracalTransport) gatewayToken(ctx context.Context, resourceID string, cur CaracalContext, ok bool) (string, error) {
 	if len(t.scopes) > 0 && resourceID != "" {
 		if t.client.exchanger == nil {
 			return "", fmt.Errorf("caracal: Transport scopes require a client-secret configuration")
 		}
-		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.AgentSessionID, cur.DelegationEdgeID, MandateOptions{})
+		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.SessionID, cur.DelegationID, MandateOptions{})
 		if err != nil {
 			return "", err
 		}
@@ -1590,7 +1594,7 @@ func (c *Caracal) targetsGateway(target *url.URL) bool {
 	return sameOrigin(target, gw)
 }
 
-type governedTransport struct {
+type applicationTransport struct {
 	base       http.RoundTripper
 	client     *Caracal
 	resourceID string
@@ -1599,8 +1603,8 @@ type governedTransport struct {
 	mandateTTL int
 }
 
-func (t *governedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	token, err := t.client.governedMandate(req.Context(), t.resourceID, t.scopes, t.labels, t.mandateTTL)
+func (t *applicationTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	token, err := t.client.appMandate(req.Context(), t.resourceID, t.scopes, t.labels, t.mandateTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -1615,21 +1619,21 @@ func (t *governedTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return t.base.RoundTrip(clone)
 }
 
-type governedEntry struct {
+type appMandateEntry struct {
 	token     string
 	expiresAt time.Time
 }
 
-type governedCall struct {
+type appMandateCall struct {
 	done  chan struct{}
 	token string
 	err   error
 }
 
-// governedMandate returns a cached or freshly provisioned governed mandate
+// appMandate returns a cached or freshly provisioned application mandate
 // for the resource, scope set, labels, and TTL under the current resolved identity.
 // Concurrent requests for the same key share one provisioning cycle.
-func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (string, error) {
+func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (string, error) {
 	zoneID, applicationID, err := c.exchanger.identity(ctx)
 	if err != nil {
 		return "", err
@@ -1638,14 +1642,14 @@ func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes
 	if len(sessionLabels) == 0 {
 		sessionLabels = []string{applicationID}
 	}
-	key := governedMandateKey(zoneID, applicationID, resourceID, scopes, sessionLabels, mandateTTL)
-	c.governedMu.Lock()
-	if cached, ok := c.governedMandates[key]; ok && time.Until(cached.expiresAt) > governedRefreshMargin {
-		c.governedMu.Unlock()
+	key := appMandateKey(zoneID, applicationID, resourceID, scopes, sessionLabels, mandateTTL)
+	c.appMandateMu.Lock()
+	if cached, ok := c.appMandates[key]; ok && time.Until(cached.expiresAt) > appMandateRefreshMargin {
+		c.appMandateMu.Unlock()
 		return cached.token, nil
 	}
-	if inflight, ok := c.governedInflight[key]; ok {
-		c.governedMu.Unlock()
+	if inflight, ok := c.appInflight[key]; ok {
+		c.appMandateMu.Unlock()
 		select {
 		case <-inflight.done:
 			return inflight.token, inflight.err
@@ -1653,40 +1657,40 @@ func (c *Caracal) governedMandate(ctx context.Context, resourceID string, scopes
 			return "", ctx.Err()
 		}
 	}
-	call := &governedCall{done: make(chan struct{})}
-	if c.governedInflight == nil {
-		c.governedInflight = map[string]*governedCall{}
+	call := &appMandateCall{done: make(chan struct{})}
+	if c.appInflight == nil {
+		c.appInflight = map[string]*appMandateCall{}
 	}
-	c.governedInflight[key] = call
-	c.governedMu.Unlock()
+	c.appInflight[key] = call
+	c.appMandateMu.Unlock()
 
-	token, expiresAt, err := c.governedCycle(ctx, zoneID, applicationID, resourceID, scopes, labels, mandateTTL)
+	token, expiresAt, err := c.appMandateCycle(ctx, zoneID, applicationID, resourceID, scopes, labels, mandateTTL)
 	call.token, call.err = token, err
-	c.governedMu.Lock()
-	delete(c.governedInflight, key)
+	c.appMandateMu.Lock()
+	delete(c.appInflight, key)
 	if err == nil {
-		if c.governedMandates == nil {
-			c.governedMandates = map[string]governedEntry{}
+		if c.appMandates == nil {
+			c.appMandates = map[string]appMandateEntry{}
 		}
-		c.governedMandates[key] = governedEntry{token: token, expiresAt: expiresAt}
+		c.appMandates[key] = appMandateEntry{token: token, expiresAt: expiresAt}
 	}
-	c.governedMu.Unlock()
+	c.appMandateMu.Unlock()
 	close(call.done)
 	return token, err
 }
 
-func governedMandateKey(zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) string {
+func appMandateKey(zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) string {
 	encodedLabels, _ := json.Marshal(labels)
 	return zoneID + "::" + applicationID + "::" + resourceID + "::" + strings.Join(scopes, " ") + "::" + string(encodedLabels) + "::" + strconv.Itoa(mandateTTL)
 }
 
-// governedCycle provisions one governed mandate under the application's own
-// authority: a lifecycle-scoped bootstrap mandate, a source and target agent
-// session, a delegation edge narrowing the requested scopes to the resource,
-// and the final mandate minted from that edge. Spawned sessions are
+// appMandateCycle provisions one application mandate under the application's
+// own identity: a lifecycle-scoped bootstrap mandate, a source and target
+// session, a delegation narrowing the requested scopes to the resource,
+// and the final mandate minted from that delegation. Started sessions are
 // terminated on any failure.
-func (c *Caracal) governedCycle(ctx context.Context, zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) (string, time.Time, error) {
-	sessionTTL := mandateTTL + governedSessionTTLBuffer
+func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) (string, time.Time, error) {
+	sessionTTL := mandateTTL + appSessionTTLBuffer
 	boot, err := c.exchanger.mintMandate(ctx, resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
 	if err != nil {
 		return "", time.Time{}, err

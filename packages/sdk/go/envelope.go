@@ -3,13 +3,16 @@
 //
 // Wire envelope using W3C Trace Context (traceparent/tracestate) and W3C Baggage.
 //
-// Caracal correlation fields (session, agent_session, delegation_edge,
-// parent_edge, hop) ride in Baggage under the caracal.* namespace alongside
-// pass-through third-party entries; trace identity rides in traceparent and
-// tracestate. Decoding reads the subject token from Authorization, but
-// encoding never writes it: credential emission is an explicit client-layer
-// decision. Baggage is unsigned routing metadata; verifiers must treat signed
-// token claims as the only authoritative source of delegation state.
+// Caracal correlation fields ride in Baggage under the caracal.* namespace
+// alongside pass-through third-party entries; trace identity rides in
+// traceparent and tracestate. The wire keys keep their protocol names: the
+// session id travels as caracal.agent_session, the delegation id as
+// caracal.delegation_edge, its parent as caracal.parent_edge, and the
+// subject session as caracal.session. Decoding reads the subject token from
+// Authorization, but encoding never writes it: credential emission is an
+// explicit client-layer decision. Baggage is unsigned routing metadata;
+// verifiers must treat signed token claims as the only authoritative source
+// of delegation state.
 
 package sdk
 
@@ -60,16 +63,16 @@ var (
 
 // Envelope is the transport-neutral identity propagation payload.
 type Envelope struct {
-	SubjectToken     string
-	AgentSessionID   string
-	DelegationEdgeID string
-	ParentEdgeID     string
-	SessionID        string
-	TraceID          string
-	TraceFlags       string
-	TraceState       string
-	Baggage          map[string]string
-	Hop              int
+	SubjectToken       string
+	SessionID          string
+	DelegationID       string
+	ParentDelegationID string
+	SubjectSessionID   string
+	TraceID            string
+	TraceFlags         string
+	TraceState         string
+	Baggage            map[string]string
+	Hop                int
 }
 
 func newRandomHex(byteLen int) string {
@@ -236,16 +239,16 @@ func DecodeEnvelope(get func(string) string) Envelope {
 		}
 	}
 	return Envelope{
-		SubjectToken:     subject,
-		AgentSessionID:   bag[BaggageAgentSession],
-		DelegationEdgeID: bag[BaggageDelegationEdge],
-		ParentEdgeID:     bag[BaggageParentEdge],
-		SessionID:        bag[BaggageSession],
-		TraceID:          traceID,
-		TraceFlags:       traceFlags,
-		TraceState:       traceState,
-		Baggage:          extras,
-		Hop:              hop,
+		SubjectToken:       subject,
+		SessionID:          bag[BaggageAgentSession],
+		DelegationID:       bag[BaggageDelegationEdge],
+		ParentDelegationID: bag[BaggageParentEdge],
+		SubjectSessionID:   bag[BaggageSession],
+		TraceID:            traceID,
+		TraceFlags:         traceFlags,
+		TraceState:         traceState,
+		Baggage:            extras,
+		Hop:                hop,
 	}
 }
 
@@ -281,20 +284,20 @@ func EncodeEnvelope(env Envelope, set func(name, value string), get func(string)
 	for _, k := range caracalBaggageKeys {
 		delete(merged, k)
 	}
-	if env.AgentSessionID != "" {
-		merged[BaggageAgentSession] = env.AgentSessionID
-	}
-	if env.DelegationEdgeID != "" {
-		merged[BaggageDelegationEdge] = env.DelegationEdgeID
-	}
-	if env.ParentEdgeID != "" {
-		merged[BaggageParentEdge] = env.ParentEdgeID
-	}
 	if env.SessionID != "" {
-		merged[BaggageSession] = env.SessionID
+		merged[BaggageAgentSession] = env.SessionID
 	}
-	if env.Hop > 0 || env.AgentSessionID != "" || env.DelegationEdgeID != "" ||
-		env.ParentEdgeID != "" || env.SessionID != "" {
+	if env.DelegationID != "" {
+		merged[BaggageDelegationEdge] = env.DelegationID
+	}
+	if env.ParentDelegationID != "" {
+		merged[BaggageParentEdge] = env.ParentDelegationID
+	}
+	if env.SubjectSessionID != "" {
+		merged[BaggageSession] = env.SubjectSessionID
+	}
+	if env.Hop > 0 || env.SessionID != "" || env.DelegationID != "" ||
+		env.ParentDelegationID != "" || env.SubjectSessionID != "" {
 		merged[BaggageHop] = strconv.Itoa(env.Hop)
 	}
 	if bag := EncodeBaggage(merged); bag != "" {

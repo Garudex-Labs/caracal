@@ -16,39 +16,40 @@ type contextKey struct{}
 // CaracalContext carries the Caracal identity and delegation state
 // for a single execution path.
 type CaracalContext struct {
-	SubjectToken     string
-	ZoneID           string
-	ApplicationID    string
-	AgentSessionID   string
-	DelegationEdgeID string
-	ParentEdgeID     string
-	SessionID        string
-	TraceID          string
-	TraceFlags       string
-	TraceState       string
-	Baggage          map[string]string
-	Hop              int
+	SubjectToken       string
+	ZoneID             string
+	ApplicationID      string
+	SessionID          string
+	DelegationID       string
+	ParentDelegationID string
+	SubjectSessionID   string
+	TraceID            string
+	TraceFlags         string
+	TraceState         string
+	Baggage            map[string]string
+	Hop                int
 
 	// OwnToken marks a context whose subject token came from this process's
 	// own credential configuration, so the transport may resolve a fresh
 	// token through the client token source instead of pinning the value
-	// captured at spawn. Inbound tokens bound from an envelope stay pinned:
-	// substituting the application token for a caller's token would escalate
-	// authority. Process-local; never serialized to the envelope.
+	// captured when the session was established. Inbound tokens bound from an
+	// envelope stay pinned: substituting the application token for a caller's
+	// token would escalate authority. Process-local; never serialized to the
+	// envelope.
 	OwnToken bool
 }
 
 // AuthoritySummary is a redacted operator view of the bound authority chain.
 type AuthoritySummary struct {
-	ZoneID           string
-	ApplicationID    string
-	SessionID        string
-	AgentSessionID   string
-	DelegationEdgeID string
-	ParentEdgeID     string
-	TraceID          string
-	Hop              int
-	Chain            []string
+	ZoneID             string
+	ApplicationID      string
+	SubjectSessionID   string
+	SessionID          string
+	DelegationID       string
+	ParentDelegationID string
+	TraceID            string
+	Hop                int
+	Chain              []string
 }
 
 // VerifiedClaims is attribution a verify hook proved from the token itself.
@@ -56,13 +57,13 @@ type AuthoritySummary struct {
 // stale envelope cannot override what the token asserts. Empty string fields
 // and a nil Hop leave the envelope value in place.
 type VerifiedClaims struct {
-	ZoneID           string
-	ApplicationID    string
-	AgentSessionID   string
-	DelegationEdgeID string
-	ParentEdgeID     string
-	SessionID        string
-	Hop              *int
+	ZoneID             string
+	ApplicationID      string
+	SessionID          string
+	DelegationID       string
+	ParentDelegationID string
+	SubjectSessionID   string
+	Hop                *int
 }
 
 func cloneBaggage(baggage map[string]string) map[string]string {
@@ -102,34 +103,34 @@ func FromEnvelope(env Envelope, zoneID, applicationID string) (CaracalContext, e
 		return CaracalContext{}, errors.New("caracal: envelope missing subject token")
 	}
 	return CaracalContext{
-		SubjectToken:     env.SubjectToken,
-		ZoneID:           zoneID,
-		ApplicationID:    applicationID,
-		AgentSessionID:   env.AgentSessionID,
-		DelegationEdgeID: env.DelegationEdgeID,
-		ParentEdgeID:     env.ParentEdgeID,
-		SessionID:        env.SessionID,
-		TraceID:          env.TraceID,
-		TraceFlags:       env.TraceFlags,
-		TraceState:       env.TraceState,
-		Baggage:          cloneBaggage(env.Baggage),
-		Hop:              env.Hop,
+		SubjectToken:       env.SubjectToken,
+		ZoneID:             zoneID,
+		ApplicationID:      applicationID,
+		SessionID:          env.SessionID,
+		DelegationID:       env.DelegationID,
+		ParentDelegationID: env.ParentDelegationID,
+		SubjectSessionID:   env.SubjectSessionID,
+		TraceID:            env.TraceID,
+		TraceFlags:         env.TraceFlags,
+		TraceState:         env.TraceState,
+		Baggage:            cloneBaggage(env.Baggage),
+		Hop:                env.Hop,
 	}, nil
 }
 
 // ToEnvelope projects a CaracalContext to a wire Envelope.
 func ToEnvelope(c CaracalContext) Envelope {
 	return Envelope{
-		SubjectToken:     c.SubjectToken,
-		AgentSessionID:   c.AgentSessionID,
-		DelegationEdgeID: c.DelegationEdgeID,
-		ParentEdgeID:     c.ParentEdgeID,
-		SessionID:        c.SessionID,
-		TraceID:          c.TraceID,
-		TraceFlags:       c.TraceFlags,
-		TraceState:       c.TraceState,
-		Baggage:          c.Baggage,
-		Hop:              c.Hop,
+		SubjectToken:       c.SubjectToken,
+		SessionID:          c.SessionID,
+		DelegationID:       c.DelegationID,
+		ParentDelegationID: c.ParentDelegationID,
+		SubjectSessionID:   c.SubjectSessionID,
+		TraceID:            c.TraceID,
+		TraceFlags:         c.TraceFlags,
+		TraceState:         c.TraceState,
+		Baggage:            c.Baggage,
+		Hop:                c.Hop,
 	}
 }
 
@@ -145,27 +146,27 @@ func DescribeAuthority(ctx context.Context) (AuthoritySummary, bool) {
 // DescribeContext projects a CaracalContext into user-facing authority terms.
 func DescribeContext(c CaracalContext) AuthoritySummary {
 	chain := []string{}
+	if c.SubjectSessionID != "" {
+		chain = append(chain, "subject:"+c.SubjectSessionID)
+	}
 	if c.SessionID != "" {
 		chain = append(chain, "session:"+c.SessionID)
 	}
-	if c.AgentSessionID != "" {
-		chain = append(chain, "agent-session:"+c.AgentSessionID)
+	if c.ParentDelegationID != "" {
+		chain = append(chain, "parent-delegation:"+c.ParentDelegationID)
 	}
-	if c.ParentEdgeID != "" {
-		chain = append(chain, "parent-edge:"+c.ParentEdgeID)
-	}
-	if c.DelegationEdgeID != "" {
-		chain = append(chain, "delegation-edge:"+c.DelegationEdgeID)
+	if c.DelegationID != "" {
+		chain = append(chain, "delegation:"+c.DelegationID)
 	}
 	return AuthoritySummary{
-		ZoneID:           c.ZoneID,
-		ApplicationID:    c.ApplicationID,
-		SessionID:        c.SessionID,
-		AgentSessionID:   c.AgentSessionID,
-		DelegationEdgeID: c.DelegationEdgeID,
-		ParentEdgeID:     c.ParentEdgeID,
-		TraceID:          c.TraceID,
-		Hop:              c.Hop,
-		Chain:            chain,
+		ZoneID:             c.ZoneID,
+		ApplicationID:      c.ApplicationID,
+		SubjectSessionID:   c.SubjectSessionID,
+		SessionID:          c.SessionID,
+		DelegationID:       c.DelegationID,
+		ParentDelegationID: c.ParentDelegationID,
+		TraceID:            c.TraceID,
+		Hop:                c.Hop,
+		Chain:              chain,
 	}
 }
