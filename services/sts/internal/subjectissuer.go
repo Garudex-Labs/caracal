@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 	"github.com/golang-jwt/jwt/v5"
@@ -37,6 +39,7 @@ const (
 	subjectJWKSTimeout    = 5 * time.Second
 	subjectJWKSMaxBytes   = 256 * 1024
 	subjectTokenMaxLeeway = 60 * time.Second
+	subjectIDMaxBytes     = 512
 )
 
 // subjectSigningMethods are the external token algorithms accepted for federation.
@@ -239,11 +242,52 @@ func ecPublicKeyFromJWK(k subjectJWK) (*ecdsa.PublicKey, error) {
 	return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 }
 
+// validateSubjectIdentifier admits any stable identifier format an issuer may
+// use - UUIDs, emails, numeric ids, prefixed ids like auth0|..., URIs, unicode
+// names - while rejecting only values that are unsafe to store, index, log, or
+// display. The identifier is never parsed, normalized, or case-folded: Caracal
+// compares it byte-for-byte everywhere, so two byte-distinct values are two
+// subjects. The rejections are exactly:
+//   - empty, or longer than 512 bytes (well under the btree index row bound);
+//   - invalid UTF-8, or containing U+FFFD (a replacement char would let two
+//     byte-distinct upstream values collapse into one stored identity);
+//   - control characters, including NUL (Postgres text rejects it), newlines,
+//     and escape sequences that enable log forging;
+//   - explicit bidirectional-override characters that can visually reorder
+//     surrounding UI text (U+202A-U+202E, U+2066-U+2069);
+//   - leading or trailing whitespace, rejected rather than trimmed so the
+//     recorded value is always byte-identical to what the issuer signed.
+func validateSubjectIdentifier(sub string) error {
+	if sub == "" {
+		return errors.New("subject token carries no sub")
+	}
+	if len(sub) > subjectIDMaxBytes {
+		return fmt.Errorf("sub exceeds %d bytes", subjectIDMaxBytes)
+	}
+	if !utf8.ValidString(sub) {
+		return errors.New("sub is not valid UTF-8")
+	}
+	if strings.TrimSpace(sub) != sub {
+		return errors.New("sub carries leading or trailing whitespace")
+	}
+	for _, r := range sub {
+		switch {
+		case unicode.IsControl(r):
+			return errors.New("sub contains control characters")
+		case r == utf8.RuneError:
+			return errors.New("sub contains the unicode replacement character")
+		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+			return errors.New("sub contains bidirectional control characters")
+		}
+	}
+	return nil
+}
+
 // validateExternalSubjectToken verifies an end user's identity token against the
 // zone's registered issuer trust: exact issuer match, issuer JWKS signature with
 // an allowlisted asymmetric algorithm, configured audience, required expiry, and
-// a non-empty subject. The returned sub is the federated subject identity,
-// recorded verbatim - the STS never rewrites or generates it.
+// a safe opaque subject. The returned sub is the federated subject identity,
+// recorded verbatim - the STS never rewrites, trims, or generates it.
 func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, tokenStr string) (string, *SubjectIssuer, error) {
 	unverified := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, unverified); err != nil {
@@ -283,9 +327,9 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 	if err != nil {
 		return "", nil, err
 	}
-	sub := strings.TrimSpace(claimString(mc, "sub"))
-	if sub == "" {
-		return "", nil, errors.New("subject token carries no sub")
+	sub := claimString(mc, "sub")
+	if err := validateSubjectIdentifier(sub); err != nil {
+		return "", nil, err
 	}
 	return sub, issuer, nil
 }

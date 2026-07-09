@@ -123,6 +123,51 @@ func TestParseSubjectJWKS(t *testing.T) {
 	}
 }
 
+func TestValidateSubjectIdentifierIsFormatAgnostic(t *testing.T) {
+	accepted := []string{
+		"user_123",
+		"0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
+		"richard.hendricks@piedpiper.example",
+		"auth0|507f1f77bcf86cd799439011",
+		"oidc:google-oauth2:114379862390123456789",
+		"21034658712345678901",
+		"https://login.hooli.example/users/richard",
+		"arn:aws:sts::123456789012:assumed-role/PiperNet/richard",
+		"ríchárd-陳大文-Ричард",
+		"x",
+		"id with internal spaces",
+		strings.Repeat("a", subjectIDMaxBytes),
+	}
+	for _, sub := range accepted {
+		if err := validateSubjectIdentifier(sub); err != nil {
+			t.Fatalf("legitimate identifier %q rejected: %v", sub, err)
+		}
+	}
+
+	rejected := []struct {
+		name string
+		sub  string
+	}{
+		{"empty", ""},
+		{"over length", strings.Repeat("a", subjectIDMaxBytes+1)},
+		{"newline", "user\n123"},
+		{"carriage return", "user\r123"},
+		{"nul byte", "user\x00123"},
+		{"ansi escape", "user\x1b[31m123"},
+		{"leading whitespace", " user123"},
+		{"trailing whitespace", "user123\t"},
+		{"bidi override", "user\u202E123"},
+		{"bidi isolate", "user\u2066123"},
+		{"replacement char", "user\uFFFD123"},
+		{"invalid utf8", "user\xff\xfe123"},
+	}
+	for _, tc := range rejected {
+		if err := validateSubjectIdentifier(tc.sub); err == nil {
+			t.Fatalf("%s must be rejected", tc.name)
+		}
+	}
+}
+
 func TestFederateSubjectMintsUserSession(t *testing.T) {
 	db := trustedIssuerDB(t)
 	key := federationKey(t)
@@ -167,6 +212,7 @@ func TestFederateSubjectDenies(t *testing.T) {
 		{"wrong audience", trustedIssuerDB(t), jwks, federationIDToken(t, key, "ext-kid", func(c jwt.MapClaims) { c["aud"] = "other-api" }), nil, http.StatusUnauthorized},
 		{"wrong signature", trustedIssuerDB(t), jwks, federationIDToken(t, otherKey, "ext-kid", nil), nil, http.StatusUnauthorized},
 		{"missing sub", trustedIssuerDB(t), jwks, federationIDToken(t, key, "ext-kid", func(c jwt.MapClaims) { c["sub"] = "" }), nil, http.StatusUnauthorized},
+		{"hostile sub", trustedIssuerDB(t), jwks, federationIDToken(t, key, "ext-kid", func(c jwt.MapClaims) { c["sub"] = "user\n123" }), nil, http.StatusUnauthorized},
 		{"expired", trustedIssuerDB(t), jwks, federationIDToken(t, key, "ext-kid", func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Hour).Unix() }), nil, http.StatusUnauthorized},
 		{"jwks unavailable", trustedIssuerDB(t), nil, federationIDToken(t, key, "ext-kid", nil), nil, http.StatusUnauthorized},
 		{"resources forbidden", trustedIssuerDB(t), jwks, federationIDToken(t, key, "ext-kid", nil), func(r *TokenExchangeRequest) { r.Resources = []string{"resource://pipernet"} }, http.StatusBadRequest},

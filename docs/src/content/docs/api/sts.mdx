@@ -46,6 +46,18 @@ STS never generates a subject identity. Every exchange records its subject verba
 
 The subject identifier is opaque to Caracal. It does not matter whether it names a user id, a UUID, an employee id, or a customer id - STS requires only that the same identity always presents the same value, because that `sub` is the key everything downstream attaches to: the session record and its revocation state, derived sessions and delegations, provider connections, approval bindings, and every audit event. Scope authority itself is decided by application bindings, resource grants, delegation narrowing, and label confinement in the platform decision contract - not by the subject identifier.
 
+### Subject Identifier Guarantees
+
+Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails, numeric ids, prefixed ids such as `auth0|507f...`, URIs, ARNs, or unicode names. Caracal never parses, normalizes, case-folds, or trims the value: it is compared byte-for-byte everywhere, so two byte-distinct values are two subjects, and the recorded value is always byte-identical to what the issuer signed. A federation exchange rejects only values that are unsafe to store, index, log, or display:
+
+| Rejected | Reason |
+| --- | --- |
+| Empty, or longer than 512 bytes | Bounded storage, indexing, and display. |
+| Invalid UTF-8, or containing U+FFFD | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
+| Control characters (including NUL, newlines, escapes) | Log forging and storage safety. |
+| Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text. |
+| Leading or trailing whitespace | Rejected rather than trimmed, preserving the byte-exact identity. |
+
 ## Responses
 
 Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
