@@ -42,23 +42,25 @@ const caracal = new Caracal();
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
 | `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
-| `applicationTransport(resourceId, options)` | Return a fetch pinned to one resource, calling as the application's own identity: each mint cycle starts a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
+| `applicationTransport(resourceId, options)` | Return a fetch pinned to one resource, calling as the application's own identity: each mint cycle starts a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. A cycle costs five control-plane calls and runs roughly once per mandate TTL (default 15 minutes); requests in between are served from cache. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
 | `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
-| `waitForApproval(challengeId, options?)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
+| `waitForApproval(approvalId, options?)` | Long-poll an approval raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`). |
+| `withApproval(fn, options?)` | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id. |
 | `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
+| `close()` | Drop cached application mandates and invalidate the exchanger's cached lifecycle token; sessions backing a released mandate retire on their own TTL. |
 | `current()` | Return the currently bound `CaracalContext`, if present. |
 
 ## Context Propagation
 
 ```ts
-import { Grant } from "@caracalai/sdk";
+import { Authority } from "@caracalai/sdk";
 
 await caracal.session(async () => {
   await fetch("https://api.example.com/tickets", {
     headers: await caracal.headersAsync(),
   });
 }, {
-  grant: Authority.narrow(["tickets:read"], {
+  authority: Authority.narrow(["tickets:read"], {
     resourceId: "https://api.example.com/tickets",
     constraints: {
       maxHops: 1,
@@ -71,6 +73,8 @@ await caracal.session(async () => {
 ```
 
 `DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `budget`, `policyApproved`, `expiresAt`, and `broadReason`.
+
+Every request sent through `transport()` carries the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` entries in the `baggage` header (session, delegation, and subject-session correlation ids). This applies to non-gateway hosts too - the envelope is how downstream Caracal-aware services rebind context - so treat those ids as visible to any host the transport touches. They are correlation identifiers, never credentials: the bearer token itself is attached only to gateway-routed calls, and the Gateway strips `caracal.*` baggage before forwarding to the upstream.
 
 ## Protect Inbound Requests
 
@@ -98,7 +102,41 @@ caracal.onEvent((event) => {
 });
 ```
 
-`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challengeId` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event.
+`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `approvalId` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```ts
+import { Counter, Histogram } from "prom-client";
+
+const operations = new Counter({
+  name: "caracal_operations_total",
+  help: "Caracal control-plane operations",
+  labelNames: ["type", "ok"],
+});
+const latency = new Histogram({
+  name: "caracal_operation_duration_ms",
+  help: "Caracal control-plane operation latency",
+  labelNames: ["type"],
+});
+
+caracal.onEvent((event) => {
+  operations.inc({ type: event.type, ok: String(event.ok) });
+  latency.observe({ type: event.type }, event.durationMs);
+});
+```
+
+Operational warnings - lease loss, cleanup failures, an unverified inbound boundary in production - go to `console.warn` by default; pass `logger` in `CaracalConfig` to route them into your logging system instead.
+
+Approval-gated flows resolve in one call with `withApproval`, which encapsulates the catch-wait-retry dance:
+
+```ts
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate("https://api.example.com/tickets", ["tickets:admin"], { approvalId }),
+);
+```
+
+When a policy denies a mint for a session that carries no delegation, the error message appends a hint naming the cause - the session holds lifecycle-only authority - and the three remediations: `Authority.narrow`, `acceptDelegation`, or `applicationTransport`.
 
 ## Related pages
 

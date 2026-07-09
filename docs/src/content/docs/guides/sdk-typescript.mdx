@@ -1,6 +1,6 @@
 ---
 title: Integrate the TypeScript SDK
-description: Install @caracalai/sdk, load a runtime profile, spawn agents, delegate authority, and inject Caracal headers.
+description: Install @caracalai/sdk, load a runtime profile, run governed sessions, delegate authority, and inject Caracal headers.
 ---
 
 Use `@caracalai/sdk` in Node applications that need agent sessions, delegation, Gateway routing, or Caracal context propagation.
@@ -64,7 +64,7 @@ try {
 }
 ```
 
-The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeatIntervalMs` to fix the cadence, or `0` to disable the background timer and call `heartbeat()` yourself. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeatIntervalMs` to fix the cadence, or `0` to disable the background timer and call `heartbeat()` yourself. The handle exposes `deadlineAt` - the lease deadline the coordinator reported on the last renewal - so a worker can surface its own liveness margin. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
 Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning:
 
@@ -80,14 +80,14 @@ A renewal cannot run while the event loop is blocked synchronously; in that case
 ## Spawn a narrowed child
 
 ```ts
-import { Grant } from "@caracalai/sdk";
+import { Authority } from "@caracalai/sdk";
 
 await caracal.session(async () => {
   await caracal.session(async () => {
     const headers = await caracal.headersAsync();
     await fetch("https://api.example.com/tickets", { headers });
   }, {
-    grant: Authority.narrow(["tickets:read"], {
+    authority: Authority.narrow(["tickets:read"], {
       resourceId: "https://api.example.com/tickets",
       constraints: { maxHops: 1, budget: 5 },
       ttlSeconds: 600,
@@ -96,7 +96,19 @@ await caracal.session(async () => {
 });
 ```
 
-A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `grant: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `acceptDelegation(edgeId, fn)`.
+A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to an agent session that already exists, typically in another application: it returns the delegation, and the receiving session presents it with `acceptDelegation(delegationId, fn)`.
+
+## Handle approvals
+
+A mint whose scope is approval-gated throws `ApprovalRequiredError`. `withApproval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call:
+
+```ts
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate("https://api.example.com/tickets", ["tickets:admin"], { approvalId }),
+);
+```
+
+A rejected, expired, or already-consumed decision rethrows the original `ApprovalRequiredError`; its `approvalId` lets you resume waiting later with `waitForApproval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`).
 
 ## Route through the Gateway
 

@@ -33,7 +33,10 @@ config directory. Setting `CARACAL_ENV=production` disables that auto-detection
 and requires explicit service URLs. Cloud and custom deployments can provide
 explicit `CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`,
 `CARACAL_RUN_CREDENTIALS_FILE`, or `CARACAL_RESOURCES_FILE` values when mounted
-secret or config paths differ from the local convention.
+secret or config paths differ from the local convention. A deployment without a
+client secret can instead supply a pre-minted session mandate through
+`CARACAL_BOOTSTRAP_TOKEN`; the SDK rejects a bootstrap token that is already
+expired at startup.
 
 Set only one of `CARACAL_RUN_CREDENTIALS` and `CARACAL_RUN_CREDENTIALS_FILE`.
 

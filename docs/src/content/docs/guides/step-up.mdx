@@ -58,11 +58,11 @@ try {
   return await oauth.exchange(subjectToken, "resource://pipernet", request);
 } catch (error) {
   if (error instanceof ApprovalRequiredError) {
-    console.log(`approval needed: ${error.challengeId} binding ${error.binding}`);
-    await oauth.waitForApproval(error.challengeId);
+    console.log(`approval needed: ${error.approvalId} binding ${error.binding}`);
+    await oauth.waitForApproval(error.approvalId);
     return oauth.exchange(subjectToken, "resource://pipernet", {
       ...request,
-      challengeId: error.challengeId,
+      challengeId: error.approvalId,
     });
   }
   throw error;
