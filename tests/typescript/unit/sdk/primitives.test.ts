@@ -182,6 +182,27 @@ describe('session', () => {
 })
 
 describe('startSession with authority', () => {
+  it('exposes the lease deadline the coordinator reported', async () => {
+    const calls: { method: string; path: string }[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET'
+      calls.push({ method, path: new URL(url).pathname })
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z' }), {
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+    const svc = await startSession({
+      coordinator: { baseUrl: 'http://coord', fetchImpl },
+      zoneId: 'zone-1',
+      applicationId: 'app-1',
+      subjectToken: 'tok',
+      heartbeatIntervalMs: 0,
+    })
+    expect(svc.deadlineAt).toBe('2026-07-09T12:00:00Z')
+    await svc.close()
+  })
+
   it('issues a narrowed delegation for the session handle', async () => {
     const { client, calls } = recorder('svc-1', 'edge-svc')
     await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {

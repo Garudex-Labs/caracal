@@ -126,7 +126,7 @@ describe('fetchRunCredential', () => {
       status: 200,
       json: async () => ({ env: 'OPT', credential: 'tok' }),
     })
-    await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock, challengeId: 'ch-1' })
+    await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock, approvalId: 'ch-1' })
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('challenge_id')).toBe('ch-1')
   })
@@ -145,7 +145,7 @@ describe('fetchRunCredential', () => {
     })
     const err = await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock }).catch((e) => e)
     expect(err).toBeInstanceOf(ApprovalRequiredError)
-    expect(err.challengeId).toBe('ch-9')
+    expect(err.approvalId).toBe('ch-9')
     expect(err.tier).toBe('sensitive')
   })
 

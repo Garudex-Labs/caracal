@@ -9,7 +9,13 @@ import { describe, it, expect, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Caracal, type CaracalEvent } from '../../../../packages/sdk/ts/src/index.js'
+import {
+  Caracal,
+  ApprovalRequiredError,
+  CaracalError,
+  isApprovalRequired,
+  type CaracalEvent,
+} from '../../../../packages/sdk/ts/src/index.js'
 import {
   HeaderAuthorization,
   HeaderTraceparent,
@@ -41,7 +47,7 @@ describe('Caracal.fromEnv', () => {
     const c = Caracal.fromEnv({
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
-      CARACAL_SUBJECT_TOKEN: 't1',
+      CARACAL_BOOTSTRAP_TOKEN: 't1',
     })
     expect(c.config.zoneId).toBe('z1')
     expect(c.config.subjectToken).toBe('t1')
@@ -54,7 +60,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_ENV: 'production',
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
-      CARACAL_SUBJECT_TOKEN: 't1',
+      CARACAL_BOOTSTRAP_TOKEN: 't1',
       CARACAL_STS_URL: 'https://sts.internal',
       CARACAL_GATEWAY_URL: 'https://gateway.internal',
     }
@@ -151,7 +157,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
-      CARACAL_SUBJECT_TOKEN: 'tok',
+      CARACAL_BOOTSTRAP_TOKEN: 'tok',
       CARACAL_RESOURCES_FILE: bindingsPath,
       CARACAL_RESOURCES: 'calendar=https://env.example.com/v2',
     } as NodeJS.ProcessEnv)
@@ -179,7 +185,7 @@ describe('Caracal.fromEnv', () => {
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
-        CARACAL_SUBJECT_TOKEN: 'tok',
+        CARACAL_BOOTSTRAP_TOKEN: 'tok',
         CARACAL_RESOURCES_FILE: bindingsPath,
       } as NodeJS.ProcessEnv),
     ).toThrow(/invalid CARACAL_RESOURCES_FILE/)
@@ -490,7 +496,7 @@ resource = "calendar"
         CARACAL_COORDINATOR_URL: 'http://ignored',
         CARACAL_ZONE_ID: 'ignored',
         CARACAL_APPLICATION_ID: 'ignored',
-        CARACAL_SUBJECT_TOKEN: 'ignored',
+        CARACAL_BOOTSTRAP_TOKEN: 'ignored',
       } as NodeJS.ProcessEnv,
     })
 
@@ -593,12 +599,11 @@ describe('caracal.transport', () => {
       gatewayUrl: 'https://gateway.example.com/proxy',
     })
 
-    await c.fetch(
-      'resource://calendar',
-      'events?limit=10',
-      { method: 'POST', headers: { 'content-type': 'application/json' } },
-      { asApplication: true },
-    )
+    await c.fetch('resource://calendar', 'events?limit=10', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      asApplication: true,
+    })
 
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toBe('https://gateway.example.com/proxy/events?limit=10')
@@ -646,7 +651,7 @@ describe('session lifecycle and delegation', () => {
       async () => {
         expect(c.current()?.sessionId).toBe('agent-1')
         const delegation = await c.delegate({
-          to: 'agent-2',
+          toSessionId: 'agent-2',
           toApplicationId: 'app-2',
           scopes: ['tool:call'],
           ttlSeconds: 30,
@@ -728,13 +733,13 @@ describe('session lifecycle and delegation', () => {
       async () => {
         return
       },
-      { subjectSessionId: 'sid-1', parentId: 'parent-1' },
+      { subjectSessionId: 'sid-1', parentSessionId: 'parent-1' },
     )
     await c.session(
       async () => {
         return
       },
-      { subjectSessionId: 'sid-1', parentId: 'parent-1' },
+      { subjectSessionId: 'sid-1', parentSessionId: 'parent-1' },
     )
     const agentPosts = calls.filter((call) => call.init.method === 'POST' && call.url.endsWith('/agents'))
     expect(agentPosts.length).toBeGreaterThanOrEqual(2)
@@ -811,7 +816,7 @@ describe('config resource sorting and token validation', () => {
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
-        CARACAL_SUBJECT_TOKEN: token,
+        CARACAL_BOOTSTRAP_TOKEN: token,
       } as NodeJS.ProcessEnv),
     ).toThrow(/expired/)
   })
@@ -822,7 +827,7 @@ describe('config resource sorting and token validation', () => {
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
-        CARACAL_SUBJECT_TOKEN: 'tok',
+        CARACAL_BOOTSTRAP_TOKEN: 'tok',
         CARACAL_RESOURCES: 'broken,calendar=not-a-url',
       } as NodeJS.ProcessEnv),
     ).toThrow(/invalid CARACAL_RESOURCES/)
@@ -853,5 +858,133 @@ describe('Caracal.fromClientSecret', () => {
     expect(fetchMock).toHaveBeenCalled()
     const body = fetchMock.mock.calls[0][1]!.body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret')
+  })
+})
+
+function stubExchanger(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    invalidate: vi.fn(),
+    identity: async () => ({ zoneId: 'z', applicationId: 'app' }),
+    mintMandate: vi.fn(),
+    waitForApproval: vi.fn(),
+    onEvent: () => {},
+    ...overrides,
+  }
+}
+
+function exchangerClient(exchanger: ReturnType<typeof stubExchanger>): Caracal {
+  return new Caracal({
+    coordinator: { baseUrl: 'http://coord' },
+    zoneId: 'z',
+    applicationId: 'app',
+    tokenSource: async () => 'tok',
+    exchanger: exchanger as never,
+  })
+}
+
+describe('Caracal.withApproval', () => {
+  it('retries with the approval id once the challenge is approved', async () => {
+    const exchanger = stubExchanger({ waitForApproval: vi.fn().mockResolvedValue('approved') })
+    const c = exchangerClient(exchanger)
+    const hold = new ApprovalRequiredError('Approval required', 'chal-9')
+    const fn = vi.fn().mockRejectedValueOnce(hold).mockResolvedValueOnce('minted')
+    await expect(c.withApproval(fn, { timeoutMs: 50 })).resolves.toBe('minted')
+    expect(exchanger.waitForApproval).toHaveBeenCalledWith('chal-9', { timeoutMs: 50 })
+    expect(fn).toHaveBeenNthCalledWith(2, 'chal-9')
+  })
+
+  it('rethrows the original hold on a non-approved outcome', async () => {
+    const exchanger = stubExchanger({ waitForApproval: vi.fn().mockResolvedValue('rejected') })
+    const c = exchangerClient(exchanger)
+    const hold = new ApprovalRequiredError('Approval required', 'chal-9')
+    const fn = vi.fn().mockRejectedValue(hold)
+    await expect(c.withApproval(fn)).rejects.toBe(hold)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes non-approval errors through without waiting', async () => {
+    const exchanger = stubExchanger()
+    const c = exchangerClient(exchanger)
+    const fn = vi.fn().mockRejectedValue(new Error('boom'))
+    await expect(c.withApproval(fn)).rejects.toThrow('boom')
+    expect(exchanger.waitForApproval).not.toHaveBeenCalled()
+  })
+})
+
+describe('isApprovalRequired', () => {
+  it('recognizes instances and shape-compatible errors', () => {
+    expect(isApprovalRequired(new ApprovalRequiredError('held', 'chal-1'))).toBe(true)
+    const foreign = Object.assign(new Error('held'), { code: 'interaction_required', approvalId: 'chal-2' })
+    expect(isApprovalRequired(foreign)).toBe(true)
+    expect(isApprovalRequired(new Error('nope'))).toBe(false)
+    expect(isApprovalRequired(undefined)).toBe(false)
+  })
+})
+
+describe('lifecycle-only authority hint', () => {
+  const denied = () => new CaracalError('access_denied', 'denied by policy', { httpStatus: 403, requestId: 'r1' })
+
+  it('appends the hint when a delegation-less session is denied', async () => {
+    const exchanger = stubExchanger({ mintMandate: vi.fn().mockRejectedValue(denied()) })
+    const c = exchangerClient(exchanger)
+    const ctx = { subjectToken: 'tok', zoneId: 'z', applicationId: 'app', sessionId: 's1', hop: 0 }
+    await c.bind(ctx, async () => {
+      await expect(c.mintMandate('resource://pipernet', ['tickets:read'])).rejects.toMatchObject({
+        code: 'access_denied',
+        httpStatus: 403,
+        requestId: 'r1',
+        message: expect.stringContaining('lifecycle-only authority'),
+      })
+    })
+  })
+
+  it('leaves the deny untouched when a delegation is bound', async () => {
+    const exchanger = stubExchanger({ mintMandate: vi.fn().mockRejectedValue(denied()) })
+    const c = exchangerClient(exchanger)
+    const ctx = { subjectToken: 'tok', zoneId: 'z', applicationId: 'app', sessionId: 's1', delegationId: 'd1', hop: 0 }
+    await c.bind(ctx, async () => {
+      await expect(c.mintMandate('resource://pipernet', ['tickets:read'])).rejects.toMatchObject({
+        message: 'denied by policy',
+      })
+    })
+  })
+})
+
+describe('Caracal.close', () => {
+  it('invalidates the exchanger so nothing stale is served after shutdown', async () => {
+    const exchanger = stubExchanger()
+    const c = exchangerClient(exchanger)
+    await c.close()
+    expect(exchanger.invalidate).toHaveBeenCalledOnce()
+  })
+})
+
+describe('logger routing', () => {
+  it('routes session cleanup failures to the injected logger', async () => {
+    const logger = vi.fn()
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      if (init?.method === 'DELETE') return new Response('cleanup down', { status: 500 })
+      return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://coord', fetchImpl }, logger })
+    await expect(c.session(async () => 'ok')).resolves.toBe('ok')
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining('terminate failed'), expect.anything())
+  })
+
+  it('warns once through the logger when binding unverified context in production', async () => {
+    const logger = vi.fn()
+    const c = new Caracal({ ...baseConfig, logger })
+    const headers = { authorization: 'Bearer inbound' }
+    const previous = process.env.CARACAL_ENV
+    process.env.CARACAL_ENV = 'production'
+    try {
+      await c.bindFromHeaders(headers, async () => {})
+      await c.bindFromHeaders(headers, async () => {})
+    } finally {
+      if (previous === undefined) delete process.env.CARACAL_ENV
+      else process.env.CARACAL_ENV = previous
+    }
+    const boundaryWarnings = logger.mock.calls.filter(([message]) => String(message).includes('without a verify hook'))
+    expect(boundaryWarnings).toHaveLength(1)
   })
 })
