@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Tests for service agent lifecycle edges: heartbeat token refresh, close failure surfacing, and grant constructors.
+// Tests for service agent lifecycle edges: heartbeat token refresh, close failure surfacing, and authority constructors.
 
 package sdk_test
 
@@ -45,7 +45,7 @@ func TestHeartbeatRefreshesRejectedTokenOnce(t *testing.T) {
 	var tokenMu sync.Mutex
 	token := "stale"
 	invalidated := false
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -96,7 +96,7 @@ func TestHeartbeatWithoutInvalidateSurfaces401(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:       &sdk.CoordinatorClient{BaseURL: srv.URL},
 		ZoneID:            "z",
 		ApplicationID:     "app",
@@ -128,14 +128,14 @@ func TestServiceCloseSurfacesBearerAndEndHookErrors(t *testing.T) {
 
 	bearerErr := errors.New("sts down")
 	hookErr := errors.New("end hook failed")
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:       &sdk.CoordinatorClient{BaseURL: srv.URL},
 		ZoneID:            "z",
 		ApplicationID:     "app",
 		SubjectToken:      "tok",
 		TokenSource:       func(context.Context) (string, error) { return "", bearerErr },
 		HeartbeatInterval: -1,
-		OnAgentEnd:        func(context.Context, sdk.CaracalContext) error { return hookErr },
+		OnSessionEnd:      func(context.Context, sdk.CaracalContext) error { return hookErr },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestSpawnRetireBearerFailureDoesNotMaskResult(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -183,7 +183,7 @@ func TestSpawnTreatsRetired409AsSuccess(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"already_terminated"}`))
 	}))
 	t.Cleanup(srv.Close)
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -195,19 +195,19 @@ func TestSpawnTreatsRetired409AsSuccess(t *testing.T) {
 }
 
 func TestGrantConstructors(t *testing.T) {
-	if got := sdk.GrantInherit(); got.Mode != sdk.GrantModeInherit {
+	if got := sdk.AuthorityInherit(); got.Mode != sdk.AuthorityModeInherit {
 		t.Fatalf("inherit: %+v", got)
 	}
-	if got := sdk.GrantNone(); got.Mode != sdk.GrantModeNone {
+	if got := sdk.AuthorityNone(); got.Mode != sdk.AuthorityModeNone {
 		t.Fatalf("none: %+v", got)
 	}
 	constraints := &sdk.DelegationConstraints{MaxHops: 2}
-	got := sdk.GrantNarrow([]string{"tool:call"}, sdk.NarrowOptions{
+	got := sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{
 		ResourceID:  "resource://pipernet",
 		Constraints: constraints,
 		TTLSeconds:  30,
 	})
-	if got.Mode != sdk.GrantModeNarrow || got.ResourceID != "resource://pipernet" || got.Constraints != constraints || got.TTLSeconds != 30 {
+	if got.Mode != sdk.AuthorityModeNarrow || got.ResourceID != "resource://pipernet" || got.Constraints != constraints || got.TTLSeconds != 30 {
 		t.Fatalf("narrow: %+v", got)
 	}
 	if len(got.Scopes) != 1 || got.Scopes[0] != "tool:call" {

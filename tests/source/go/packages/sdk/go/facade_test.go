@@ -32,18 +32,18 @@ func TestSpawnFiresRegisteredHooksWithDefaultTTL(t *testing.T) {
 		DefaultTTLSeconds: 45,
 	}
 	var starts, ends []string
-	c.OnAgentStart(func(_ context.Context, cc sdk.CaracalContext) error {
-		starts = append(starts, cc.AgentSessionID)
+	c.OnSessionStart(func(_ context.Context, cc sdk.CaracalContext) error {
+		starts = append(starts, cc.SessionID)
 		return nil
 	})
-	c.OnAgentEnd(func(_ context.Context, cc sdk.CaracalContext) error {
-		ends = append(ends, cc.AgentSessionID)
+	c.OnSessionEnd(func(_ context.Context, cc sdk.CaracalContext) error {
+		ends = append(ends, cc.SessionID)
 		return nil
 	})
 	ran := false
-	if err := c.Spawn(context.Background(), func(ctx context.Context) error {
+	if err := c.Session(context.Background(), func(ctx context.Context) error {
 		ran = true
-		if cur, ok := sdk.Current(ctx); !ok || cur.AgentSessionID != "agent-1" {
+		if cur, ok := sdk.Current(ctx); !ok || cur.SessionID != "agent-1" {
 			t.Errorf("unexpected bound context: %#v", cur)
 		}
 		return nil
@@ -67,8 +67,8 @@ func TestSpawnStartHookErrorSkipsCallback(t *testing.T) {
 		SubjectToken:  "tok",
 	}
 	hookErr := errors.New("start rejected")
-	c.OnAgentStart(func(context.Context, sdk.CaracalContext) error { return hookErr })
-	if err := c.Spawn(context.Background(), func(context.Context) error {
+	c.OnSessionStart(func(context.Context, sdk.CaracalContext) error { return hookErr })
+	if err := c.Session(context.Background(), func(context.Context) error {
 		t.Error("callback must not run after a start hook failure")
 		return nil
 	}); !errors.Is(err, hookErr) {
@@ -142,7 +142,7 @@ func TestSpawnRefreshesRejectedCachedToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Spawn(context.Background(), func(context.Context) error { return nil }); err != nil {
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if len(bearers) != 2 || bearers[0] != "tok-1" || bearers[1] != "tok-2" {
@@ -159,20 +159,20 @@ func TestSpawnServiceFacadeFiresHooksAndCloseRunsEndHook(t *testing.T) {
 		SubjectToken:  "tok",
 	}
 	var events []string
-	c.OnAgentStart(func(context.Context, sdk.CaracalContext) error {
+	c.OnSessionStart(func(context.Context, sdk.CaracalContext) error {
 		events = append(events, "start")
 		return nil
 	})
-	c.OnAgentEnd(func(context.Context, sdk.CaracalContext) error {
+	c.OnSessionEnd(func(context.Context, sdk.CaracalContext) error {
 		events = append(events, "end")
 		return nil
 	})
-	svc, err := c.SpawnService(context.Background(), sdk.ServiceOptions{HeartbeatInterval: -1})
+	svc, err := c.StartSession(context.Background(), sdk.StartSessionOptions{HeartbeatInterval: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if svc.AgentSessionID() != "agent-1" {
-		t.Fatalf("unexpected session: %s", svc.AgentSessionID())
+	if svc.SessionID() != "agent-1" {
+		t.Fatalf("unexpected session: %s", svc.SessionID())
 	}
 	if err := svc.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -191,8 +191,8 @@ func TestSpawnServiceStartHookErrorTerminatesSession(t *testing.T) {
 		SubjectToken:  "tok",
 	}
 	hookErr := errors.New("start rejected")
-	c.OnAgentStart(func(context.Context, sdk.CaracalContext) error { return hookErr })
-	if _, err := c.SpawnService(context.Background()); !errors.Is(err, hookErr) {
+	c.OnSessionStart(func(context.Context, sdk.CaracalContext) error { return hookErr })
+	if _, err := c.StartSession(context.Background()); !errors.Is(err, hookErr) {
 		t.Fatalf("expected hook error, got %v", err)
 	}
 }
@@ -206,10 +206,10 @@ func TestDelegateAndAdoptDelegationFacade(t *testing.T) {
 		SubjectToken:  "tok",
 	}
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:   "tok",
-		ZoneID:         "z",
-		ApplicationID:  "app",
-		AgentSessionID: "agent-1",
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
 	})
 	edge, err := c.Delegate(ctx, sdk.DelegateOptions{
 		To:              "agent-2",
@@ -221,14 +221,14 @@ func TestDelegateAndAdoptDelegationFacade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edge.DelegationEdgeID != "edge-1" {
-		t.Fatalf("unexpected edge: %+v", edge)
+	if edge.DelegationID != "edge-1" {
+		t.Fatalf("unexpected delegation: %+v", edge)
 	}
-	adopted, err := c.AdoptDelegation(ctx, edge.DelegationEdgeID)
+	accepted, err := c.AcceptDelegation(ctx, edge.DelegationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cur, ok := sdk.Current(adopted); !ok || cur.DelegationEdgeID != "edge-1" {
+	if cur, ok := sdk.Current(accepted); !ok || cur.DelegationID != "edge-1" {
 		t.Fatalf("adoption did not bind the edge: %#v", cur)
 	}
 }
@@ -258,11 +258,11 @@ func TestMintMandateCarriesBoundIdentityAndOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:     "tok",
-		ZoneID:           "z",
-		ApplicationID:    "app",
-		AgentSessionID:   "agent-1",
-		DelegationEdgeID: "edge-1",
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+		DelegationID:  "edge-1",
 	})
 	token, err := c.MintMandate(ctx, "resource://pipernet", []string{"data:read"}, sdk.MandateOptions{TTLSeconds: 120, ApprovalID: "chal-1"})
 	if err != nil {
@@ -319,11 +319,11 @@ func TestHeadersRefreshesOwnTokenThroughSource(t *testing.T) {
 		TokenSource:   func(context.Context) (string, error) { return "fresh", nil },
 	}
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:   "stale",
-		ZoneID:         "z",
-		ApplicationID:  "app",
-		AgentSessionID: "agent-1",
-		OwnToken:       true,
+		SubjectToken:  "stale",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+		OwnToken:      true,
 	})
 	h, err := fresh.Headers(ctx)
 	if err != nil {
@@ -349,10 +349,10 @@ func TestHeadersRefreshesOwnTokenThroughSource(t *testing.T) {
 	if _, err := failing.Headers(ctx); err == nil {
 		t.Fatal("token source failure must surface")
 	}
-	if _, err := failing.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err == nil {
+	if _, err := failing.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err == nil {
 		t.Fatal("root token failure must surface")
 	}
-	if _, err := (&sdk.Caracal{}).Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err == nil {
+	if _, err := (&sdk.Caracal{}).Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err == nil {
 		t.Fatal("missing token source must surface")
 	}
 }
@@ -367,16 +367,16 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 	}, ","))
 
 	hop := 4
-	ctx, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{
+	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
 			return &sdk.VerifiedClaims{
-				ZoneID:           "proved-zone",
-				ApplicationID:    "proved-app",
-				AgentSessionID:   "proved-session",
-				DelegationEdgeID: "proved-edge",
-				ParentEdgeID:     "proved-parent",
-				SessionID:        "proved-subject",
-				Hop:              &hop,
+				ZoneID:             "proved-zone",
+				ApplicationID:      "proved-app",
+				SessionID:          "proved-session",
+				DelegationID:       "proved-edge",
+				ParentDelegationID: "proved-parent",
+				SubjectSessionID:   "proved-subject",
+				Hop:                &hop,
 			}, nil
 		},
 	})
@@ -388,8 +388,8 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 		t.Fatal("context not bound")
 	}
 	if cur.ZoneID != "proved-zone" || cur.ApplicationID != "proved-app" ||
-		cur.AgentSessionID != "proved-session" || cur.DelegationEdgeID != "proved-edge" ||
-		cur.ParentEdgeID != "proved-parent" || cur.SessionID != "proved-subject" || cur.Hop != 4 {
+		cur.SessionID != "proved-session" || cur.DelegationID != "proved-edge" ||
+		cur.ParentDelegationID != "proved-parent" || cur.SubjectSessionID != "proved-subject" || cur.Hop != 4 {
 		t.Fatalf("claims must override the envelope: %#v", cur)
 	}
 	if cur.OwnToken {
@@ -400,7 +400,7 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 	if _, err := c.BindFromRequest(context.Background(), bare); err == nil {
 		t.Fatal("missing bearer without AllowRoot must be rejected")
 	}
-	if _, err := c.BindFromRequest(context.Background(), bare, sdk.RootOptions{AllowRoot: true}); err == nil {
+	if _, err := c.BindFromRequest(context.Background(), bare, sdk.CallOptions{AsApplication: true}); err == nil {
 		t.Fatal("root fallback without a token source must surface the error")
 	}
 }
@@ -414,17 +414,17 @@ func TestTransportScopesMintMandateForRoutedResource(t *testing.T) {
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:     "tok",
-		ZoneID:           "z",
-		ApplicationID:    "app",
-		AgentSessionID:   "agent-9",
-		DelegationEdgeID: "edge-9",
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-9",
+		DelegationID:  "edge-9",
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, governedUpstream+"/tasks", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := c.Transport(nil, sdk.RootOptions{Scopes: []string{"data:read"}}).Do(req)
+	res, err := c.Transport(nil, sdk.CallOptions{Scopes: []string{"data:read"}}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestTransportScopesRequireClientSecretConfiguration(t *testing.T) {
 	}
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", ZoneID: "z", ApplicationID: "app"})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, governedUpstream+"/tasks", nil)
-	if _, err := c.Transport(nil, sdk.RootOptions{Scopes: []string{"data:read"}}).Do(req); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
+	if _, err := c.Transport(nil, sdk.CallOptions{Scopes: []string{"data:read"}}).Do(req); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
 		t.Fatalf("expected client-secret guard, got %v", err)
 	}
 }
@@ -474,7 +474,7 @@ func TestGatewayBoundRequestResolvesBearerPerContext(t *testing.T) {
 	}
 
 	rootReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/direct", nil)
-	echo := doGovernedEcho(t, c.Transport(nil, sdk.RootOptions{AllowRoot: true}), rootReq)
+	echo := doGovernedEcho(t, c.Transport(nil, sdk.CallOptions{AsApplication: true}), rootReq)
 	if echo["presented"] != "Bearer fresh-own" {
 		t.Fatalf("root gateway request must use the token source: %s", echo["presented"])
 	}

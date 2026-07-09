@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for Spawn and Delegate SDK primitives.
+// Unit tests for Session and Delegate SDK primitives.
 
 package sdk_test
 
@@ -46,7 +46,7 @@ func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	var seen sdk.CaracalContext
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -62,8 +62,8 @@ func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seen.AgentSessionID != "agent-1" {
-		t.Errorf("expected agent-1, got %q", seen.AgentSessionID)
+	if seen.SessionID != "agent-1" {
+		t.Errorf("expected agent-1, got %q", seen.SessionID)
 	}
 	if seen.ZoneID != "z" {
 		t.Errorf("expected z, got %q", seen.ZoneID)
@@ -74,7 +74,7 @@ func TestSpawnTerminatesOnExit(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	_ = sdk.Spawn(context.Background(), sdk.SpawnInput{
+	_ = sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -111,7 +111,7 @@ func TestSpawnServiceHeartbeatAndClose(t *testing.T) {
 	t.Cleanup(srv.Close)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -121,8 +121,8 @@ func TestSpawnServiceHeartbeatAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if svc.AgentSessionID() != "svc-1" {
-		t.Errorf("expected svc-1, got %q", svc.AgentSessionID())
+	if svc.SessionID() != "svc-1" {
+		t.Errorf("expected svc-1, got %q", svc.SessionID())
 	}
 	if err := svc.Heartbeat(context.Background()); err != nil {
 		t.Fatal(err)
@@ -145,12 +145,12 @@ func TestSpawnOnAgentStartHookCalled(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	started := false
-	_ = sdk.Spawn(context.Background(), sdk.SpawnInput{
+	_ = sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		OnAgentStart: func(ctx context.Context, c sdk.CaracalContext) error {
+		OnSessionStart: func(ctx context.Context, c sdk.CaracalContext) error {
 			started = true
 			return nil
 		},
@@ -167,12 +167,12 @@ func TestSpawnOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
 
 	hookErr := errors.New("hook failed")
 	fnCalled := false
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "tok",
-		OnAgentStart: func(ctx context.Context, c sdk.CaracalContext) error {
+		OnSessionStart: func(ctx context.Context, c sdk.CaracalContext) error {
 			return hookErr
 		},
 	}, func(ctx context.Context) error {
@@ -206,7 +206,7 @@ func TestSpawnPropagatesCoordinatorError(t *testing.T) {
 	defer srv.Close()
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -241,7 +241,7 @@ func TestSpawnRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
 	defer srv.Close()
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -280,7 +280,7 @@ func TestSpawnServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	lost := make(chan error, 2)
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:       coord,
 		ZoneID:            "z",
 		ApplicationID:     "app",
@@ -329,7 +329,7 @@ func TestServiceCloseTreatsRetiredSessionAsSuccess(t *testing.T) {
 	t.Cleanup(srv.Close)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:       coord,
 		ZoneID:            "z",
 		ApplicationID:     "app",
@@ -363,7 +363,7 @@ func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 	t.Cleanup(srv.Close)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
-	svc, err := sdk.SpawnService(context.Background(), sdk.SpawnServiceInput{
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
 		Coordinator:       coord,
 		ZoneID:            "z",
 		ApplicationID:     "app",
@@ -389,10 +389,10 @@ func TestDelegateRequiresActiveSession(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	_, err := sdk.Delegate(context.Background(), sdk.DelegateInput{
-		Coordinator:      coord,
-		ToAgentSessionID: "agent-2",
-		ToApplicationID:  "app-2",
-		Scopes:           []string{"tool:call"},
+		Coordinator:     coord,
+		ToSessionID:     "agent-2",
+		ToApplicationID: "app-2",
+		Scopes:          []string{"tool:call"},
 	})
 
 	if err == nil {
@@ -405,62 +405,62 @@ func TestDelegateReturnsEdgeWithoutRebindingIssuer(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	parent := sdk.CaracalContext{
-		SubjectToken:   "tok",
-		ZoneID:         "z",
-		ApplicationID:  "app",
-		AgentSessionID: "agent-1",
-		Hop:            1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+		Hop:           1,
 	}
 	ctx := sdk.Bind(context.Background(), parent)
 
 	res, err := sdk.Delegate(ctx, sdk.DelegateInput{
-		Coordinator:      coord,
-		ToAgentSessionID: "agent-2",
-		ToApplicationID:  "app-2",
-		Scopes:           []string{"tool:call"},
+		Coordinator:     coord,
+		ToSessionID:     "agent-2",
+		ToApplicationID: "app-2",
+		Scopes:          []string{"tool:call"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.DelegationEdgeID != "edge-1" {
-		t.Errorf("expected edge-1, got %q", res.DelegationEdgeID)
+	if res.DelegationID != "edge-1" {
+		t.Errorf("expected edge-1, got %q", res.DelegationID)
 	}
 	issuer, _ := sdk.Current(ctx)
-	if issuer.DelegationEdgeID != parent.DelegationEdgeID || issuer.Hop != parent.Hop {
+	if issuer.DelegationID != parent.DelegationID || issuer.Hop != parent.Hop {
 		t.Errorf("issuer context changed: %+v", issuer)
 	}
 }
 
 func TestAdoptDelegationDerivesReceiverContext(t *testing.T) {
 	receiver := sdk.CaracalContext{
-		SubjectToken:     "tok",
-		ZoneID:           "z",
-		ApplicationID:    "app-2",
-		AgentSessionID:   "agent-2",
-		DelegationEdgeID: "edge-own",
-		Hop:              1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app-2",
+		SessionID:     "agent-2",
+		DelegationID:  "edge-own",
+		Hop:           1,
 	}
 	ctx := sdk.Bind(context.Background(), receiver)
 
-	adopted, err := sdk.AdoptDelegation(ctx, "edge-42")
+	adopted, err := sdk.AcceptDelegation(ctx, "edge-42")
 	if err != nil {
 		t.Fatal(err)
 	}
 	child, _ := sdk.Current(adopted)
-	if child.DelegationEdgeID != "edge-42" {
-		t.Errorf("expected edge-42, got %q", child.DelegationEdgeID)
+	if child.DelegationID != "edge-42" {
+		t.Errorf("expected edge-42, got %q", child.DelegationID)
 	}
-	if child.ParentEdgeID != "edge-own" {
-		t.Errorf("parent edge not threaded: %q", child.ParentEdgeID)
+	if child.ParentDelegationID != "edge-own" {
+		t.Errorf("parent edge not threaded: %q", child.ParentDelegationID)
 	}
 	if child.Hop != 2 {
 		t.Errorf("expected hop 2, got %d", child.Hop)
 	}
-	if child.AgentSessionID != "agent-2" {
-		t.Errorf("receiver session changed: %q", child.AgentSessionID)
+	if child.SessionID != "agent-2" {
+		t.Errorf("receiver session changed: %q", child.SessionID)
 	}
 
-	if _, err := sdk.AdoptDelegation(context.Background(), "edge-42"); err == nil {
+	if _, err := sdk.AcceptDelegation(context.Background(), "edge-42"); err == nil {
 		t.Fatal("expected error without a bound Caracal context")
 	}
 }
@@ -468,12 +468,12 @@ func TestAdoptDelegationDerivesReceiverContext(t *testing.T) {
 func TestSpawnNarrowRequiresActiveParent(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app-child",
 		SubjectToken:  "tok",
-		Grant:         sdk.GrantNarrow([]string{"tool:call"}),
+		Authority:     sdk.AuthorityNarrow([]string{"tool:call"}),
 	}, func(ctx context.Context) error { return nil })
 	if err == nil {
 		t.Fatal("expected error without active parent")
@@ -485,13 +485,13 @@ func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	var child sdk.CaracalContext
-	err := sdk.Spawn(context.Background(), sdk.SpawnInput{
+	err := sdk.Session(context.Background(), sdk.SessionInput{
 		Coordinator: coord, ZoneID: "z", ApplicationID: "app",
 		SubjectToken: "tok",
 	}, func(parentCtx context.Context) error {
-		return sdk.Spawn(parentCtx, sdk.SpawnInput{
+		return sdk.Session(parentCtx, sdk.SessionInput{
 			Coordinator: coord, ZoneID: "z", ApplicationID: "app-child",
-			SubjectToken: "tok", Grant: sdk.GrantNarrow([]string{"tool:call"}),
+			SubjectToken: "tok", Authority: sdk.AuthorityNarrow([]string{"tool:call"}),
 		}, func(ctx context.Context) error {
 			c, _ := sdk.Current(ctx)
 			child = c
@@ -501,10 +501,10 @@ func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.AgentSessionID != "agent-1" {
-		t.Errorf("expected agent-1, got %q", child.AgentSessionID)
+	if child.SessionID != "agent-1" {
+		t.Errorf("expected agent-1, got %q", child.SessionID)
 	}
-	if child.DelegationEdgeID != "edge-1" || child.ParentEdgeID != "" {
+	if child.DelegationID != "edge-1" || child.ParentDelegationID != "" {
 		t.Errorf("expected child edge=edge-1 & parent_edge empty, got %+v", child)
 	}
 	if child.Hop != 1 {
@@ -548,17 +548,17 @@ func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	parent := sdk.CaracalContext{
-		SubjectToken:     "tok",
-		ZoneID:           "z",
-		ApplicationID:    "app",
-		AgentSessionID:   "parent-session",
-		DelegationEdgeID: "edge-parent",
-		Hop:              1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "parent-session",
+		DelegationID:  "edge-parent",
+		Hop:           1,
 	}
 	ctx := sdk.Bind(context.Background(), parent)
 
 	var child sdk.CaracalContext
-	err := sdk.Spawn(ctx, sdk.SpawnInput{
+	err := sdk.Session(ctx, sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "app",
@@ -570,11 +570,11 @@ func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.DelegationEdgeID != "edge-child" {
-		t.Errorf("expected child edge-child, got %q", child.DelegationEdgeID)
+	if child.DelegationID != "edge-child" {
+		t.Errorf("expected child edge-child, got %q", child.DelegationID)
 	}
-	if child.ParentEdgeID != "edge-parent" {
-		t.Errorf("expected parent edge-parent, got %q", child.ParentEdgeID)
+	if child.ParentDelegationID != "edge-parent" {
+		t.Errorf("expected parent edge-parent, got %q", child.ParentDelegationID)
 	}
 	if child.Hop != 2 {
 		t.Errorf("expected hop 2, got %d", child.Hop)
@@ -607,17 +607,17 @@ func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
 	parent := sdk.CaracalContext{
-		SubjectToken:     "tok",
-		ZoneID:           "z",
-		ApplicationID:    "app",
-		AgentSessionID:   "parent-session",
-		DelegationEdgeID: "edge-parent",
-		Hop:              1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "parent-session",
+		DelegationID:  "edge-parent",
+		Hop:           1,
 	}
 	ctx := sdk.Bind(context.Background(), parent)
 
 	var child sdk.CaracalContext
-	err := sdk.Spawn(ctx, sdk.SpawnInput{
+	err := sdk.Session(ctx, sdk.SessionInput{
 		Coordinator:   coord,
 		ZoneID:        "z",
 		ApplicationID: "other-app",
@@ -629,8 +629,8 @@ func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.DelegationEdgeID != "" {
-		t.Errorf("expected no child edge cross-app, got %q", child.DelegationEdgeID)
+	if child.DelegationID != "" {
+		t.Errorf("expected no child edge cross-app, got %q", child.DelegationID)
 	}
 	if len(bodies) != 1 || !strings.Contains(bodies[0], `"parent_authority":"inherit"`) {
 		t.Errorf("spawn body missing parent_authority inherit: %v", bodies)
