@@ -442,6 +442,19 @@ export interface ProviderConnectionRevokeInput {
   provider_id: string
 }
 
+export interface SubjectRevokeInput {
+  subject_id: string
+  reason?: string
+}
+
+export interface SubjectRevokeResult {
+  subject_id: string
+  sessions: number
+  agents: number
+  delegations: number
+  connections: number
+}
+
 export interface ProviderConnection {
   id: string
   zone_id: string

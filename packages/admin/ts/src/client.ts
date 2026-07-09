@@ -48,6 +48,8 @@ import type {
   ResourceInput,
   Session,
   SessionQuery,
+  SubjectRevokeInput,
+  SubjectRevokeResult,
   AgentSessionRow,
   AgentSessionQuery,
   StepUpChallenge,
@@ -450,6 +452,15 @@ export class AdminClient {
       if (!Array.isArray(response.items)) throw new Error('sessions response missing items')
       return response.items
     },
+  }
+
+  // Subjects: the kill switch. One call cuts every authority path a subject
+  // holds - session records, governed sessions riding them, delegations, and
+  // provider connections - and feeds the revocation stream so in-flight
+  // mandates die before their exp. Idempotent.
+  subjects = {
+    revoke: (zoneId: string, input: SubjectRevokeInput) =>
+      this.request<SubjectRevokeResult>(`/v1/zones/${zoneId}/subjects/revoke`, { method: 'POST', body: input }),
   }
 
   // Agent sessions (read; status filtering for active/suspended/terminated). CSV export is

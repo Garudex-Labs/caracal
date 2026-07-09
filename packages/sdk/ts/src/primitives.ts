@@ -38,19 +38,24 @@ function isGone(e: unknown): boolean {
   return e instanceof CoordinatorError && (e.status === 404 || e.status === 409)
 }
 
-function backoff(attempt: number, signal?: AbortSignal): Promise<void> {
+// A server-requested Retry-After wins over the default backoff, capped so a
+// hostile or misconfigured header cannot stall the caller for minutes.
+const RETRY_AFTER_CAP_SECONDS = 10
+
+function backoff(attempt: number, signal?: AbortSignal, hintSeconds?: number): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
       return
     }
-    const timer = setTimeout(
-      () => {
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
-      },
-      250 * (attempt + 1) + Math.random() * 100,
-    )
+    const delay =
+      hintSeconds !== undefined
+        ? Math.min(hintSeconds, RETRY_AFTER_CAP_SECONDS) * 1000 + Math.random() * 100
+        : 250 * (attempt + 1) + Math.random() * 100
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delay)
     timer.unref?.()
     const onAbort = () => {
       clearTimeout(timer)
@@ -116,6 +121,8 @@ export interface SessionInput {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
+  /** Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate. */
+  idempotencyKey?: string
   signal?: AbortSignal
   /** Receives operational warnings (cleanup failures); defaults to console.warn. */
   warn?: WarnSink
@@ -137,6 +144,7 @@ interface EstablishInput {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
+  idempotencyKey?: string
   signal?: AbortSignal
   warn?: WarnSink
 }
@@ -173,7 +181,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     // child must hold exactly the granted slice, not a mirrored copy of the
     // parent's wider delegation alongside it.
     parentAuthority: (authority.mode === 'inherit' ? 'inherit' : 'none') as 'inherit' | 'none',
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
   }
   let res: SpawnResponse | undefined
   let refreshed = false
@@ -184,10 +192,12 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       if (input.signal?.aborted) throw e
       // A cached token can be rejected before its exp (server-side session
       // revocation after a credential rotation); force one refresh and retry
-      // the spawn once.
+      // the spawn once. The jittered pause spreads the refresh across a fleet
+      // so a mass revocation cannot stampede the STS.
       if (e instanceof CoordinatorError && e.status === 401 && !refreshed && input.invalidate && input.tokenSource) {
         refreshed = true
         input.invalidate()
+        await backoff(0, input.signal)
         token = await input.tokenSource()
         continue
       }
@@ -196,7 +206,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       // duplicate.
       const transient = !(e instanceof CoordinatorError) || e.status >= 500
       if (!transient || attempt >= SESSION_RETRIES) throw e
-      await backoff(attempt, input.signal)
+      await backoff(attempt, input.signal, e instanceof CoordinatorError ? e.retryAfterSeconds : undefined)
     }
   }
 
@@ -352,7 +362,7 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
       if (input.signal?.aborted) throw e
       const transient = !(e instanceof CoordinatorError) || e.status >= 500
       if (!transient || attempt >= 1) throw e
-      await backoff(attempt, input.signal)
+      await backoff(attempt, input.signal, e instanceof CoordinatorError ? e.retryAfterSeconds : undefined)
     }
   }
   return { delegationId: res.delegationEdgeId, scopes: res.scopes, expiresAt: res.expiresAt }
@@ -389,6 +399,8 @@ export interface StartSessionInput {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
+  /** Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate. */
+  idempotencyKey?: string
   /**
    * Auto-heartbeat cadence. Leave unset to derive it from the server lease
    * (renewing at roughly a third of the remaining lease, with jitter); a
