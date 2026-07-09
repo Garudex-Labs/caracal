@@ -11,9 +11,13 @@ Sessions make Caracal authority temporary and revocable. A mandate includes sess
 
 | Session | Role |
 | --- | --- |
-| Subject session | Original authenticated user or service context. Shown on the web console's *Sign-ins* page. |
+| Subject session | Original authenticated user or service context. Shown on the web console's *Subjects* page. |
 | Agent session | Runtime context for a spawned agent. |
 | Delegated session | An agent session that holds an inbound delegation edge - a *state* of an agent session, not a separate object. |
+
+## Subject Identity Is Federated
+
+Caracal does not generate subject identities, and the *Subjects* page is not a login surface. The `sub` on a subject session is taken verbatim from the subject token the application exchanged: the application's own identity system (Auth0, Keycloak, Better Auth, a custom JWT issuer) authenticates the user or service, and the exchange carries that identity into Caracal. Caracal treats the identifier as opaque - it does not need to know whether it names a user id, an employee id, or a customer id - and requires only that it is unique and stable for the same identity over time, so revocation and audit history stay attributable. Everything below the subject session is keyed by that `sub`: derived sessions, delegations, provider connections, approvals, and every audit event.
 
 ## Revocation Anchors
 

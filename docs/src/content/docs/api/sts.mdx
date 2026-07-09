@@ -37,6 +37,12 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `ttl_seconds` | Requested TTL. |
 | `challenge_id` | Consumes an approved step-up hold during retry. |
 
+## Subject Identity
+
+STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. The `subject_token` must be a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
+
+The subject identifier is opaque to Caracal. It does not matter whether it names a user id, a UUID, an employee id, or a customer id - STS requires only that the same identity always presents the same value, because that `sub` is the key everything downstream attaches to: the session record and its revocation state, derived sessions and delegations, provider connections, approval bindings, and every audit event. Scope authority itself is decided by application bindings, resource grants, delegation narrowing, and label confinement in the platform decision contract - not by the subject identifier.
+
 ## Responses
 
 Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
