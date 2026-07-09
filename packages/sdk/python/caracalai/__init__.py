@@ -40,7 +40,13 @@ from .envelope import Envelope
 from .errors import CoordinatorError, MissingTokenError
 from .http import CaracalASGIMiddleware, TokenVerifier
 from .json_types import JsonObject, JsonPrimitive, JsonValue
-from .primitives import Grant, LifecycleHook, ServiceAgent, adopt_delegation
+from .primitives import (
+    Authority,
+    Delegation,
+    LifecycleHook,
+    SessionHandle,
+    accept_delegation,
+)
 
 __all__ = [
     "ApprovalRequired",
@@ -78,12 +84,13 @@ __all__ = [
     "DelegationResponse",
     "Envelope",
     "GatewayRequest",
-    "Grant",
+    "Authority",
+    "Delegation",
     "JsonObject",
     "JsonPrimitive",
     "JsonValue",
     "LifecycleHook",
     "ResourceBinding",
-    "ServiceAgent",
-    "adopt_delegation",
+    "SessionHandle",
+    "accept_delegation",
 ]

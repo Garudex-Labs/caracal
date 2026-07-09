@@ -45,7 +45,6 @@ from .coordinator import (
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
-    DelegationResponse,
     SpawnRequest,
     sync_create_delegation,
     sync_spawn_agent,
@@ -61,13 +60,14 @@ from .envelope import (
 from .errors import MissingTokenError
 from .json_types import JsonObject
 from .primitives import (
-    Grant,
+    Authority,
+    Delegation,
     LifecycleHook,
-    ServiceAgent,
-    adopt_delegation,
+    SessionHandle,
+    accept_delegation,
     delegate,
-    spawn,
-    spawn_service,
+    session,
+    start_session,
 )
 
 DEFAULT_STS_URL = "http://localhost:8080"
@@ -75,9 +75,9 @@ DEFAULT_COORDINATOR_URL = "http://localhost:4000"
 DEFAULT_GATEWAY_URL = "http://localhost:8081"
 
 LIFECYCLE_SCOPE = "agent:lifecycle"
-GOVERNED_MANDATE_TTL_SECONDS = 900
-GOVERNED_REFRESH_MARGIN_SECONDS = 60.0
-GOVERNED_SESSION_TTL_BUFFER_SECONDS = 120
+APP_MANDATE_TTL_SECONDS = 900
+APP_MANDATE_REFRESH_MARGIN_SECONDS = 60.0
+APP_SESSION_TTL_BUFFER_SECONDS = 120
 
 if TYPE_CHECKING:
     from .http import ASGIApp, CaracalASGIMiddleware, TokenVerifier
@@ -100,8 +100,9 @@ class CaracalConfig:
 
     `subject_token` may be supplied either as a static string or implicitly via
     `token_source`: a callable returning a fresh STS access token on demand.
-    Exactly one must be provided. `default_ttl_seconds` applies to task spawns
-    only; a service session lives by its heartbeat lease instead.
+    Exactly one must be provided. `default_ttl_seconds` applies to sessions run
+    with `session()` only; a session started with `start_session()` lives by
+    its heartbeat lease instead.
     """
 
     def __init__(
@@ -871,8 +872,8 @@ class Caracal:
         if config is not None and (config_path is not None or env is not None):
             raise ValueError("Caracal: pass either config or config_path/env, not both")
         self.config = config if config is not None else _detect_config(config_path, env)
-        self._agent_start_hooks: list[LifecycleHook] = []
-        self._agent_end_hooks: list[LifecycleHook] = []
+        self._session_start_hooks: list[LifecycleHook] = []
+        self._session_end_hooks: list[LifecycleHook] = []
         self._event_hooks: list[EventHook] = []
         self.config.coordinator.on_event = self._emit_event
         if self.config.exchanger is not None:
@@ -880,9 +881,9 @@ class Caracal:
         self._fetch_clients: dict[
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
-        self._governed_mandates: dict[str, tuple[str, float]] = {}
-        self._governed_locks: dict[str, threading.Lock] = {}
-        self._governed_guard = threading.Lock()
+        self._app_mandates: dict[str, tuple[str, float]] = {}
+        self._app_mandate_locks: dict[str, threading.Lock] = {}
+        self._app_mandate_guard = threading.Lock()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
@@ -931,9 +932,9 @@ class Caracal:
         a list of ResourceBinding objects (when gateway routing is also
         required). When ResourceBinding objects are supplied their
         `resource_id`s are used as the STS audiences. Mandate-only clients
-        (:meth:`mint_mandate`, :meth:`governed_transport`) may omit resources;
-        spawn and lifecycle paths require at least one. `default_ttl_seconds`
-        bounds task spawns that do not pass an explicit TTL.
+        (:meth:`mint_mandate`, :meth:`application_transport`) may omit
+        resources; session and lifecycle paths require at least one.
+        `default_ttl_seconds` bounds sessions that do not pass an explicit TTL.
         """
         return cls(
             _config_from_client_secret(
@@ -958,11 +959,11 @@ class Caracal:
         and resource bindings; tokens are exchanged on demand."""
         return cls(_config_from_file(path))
 
-    def on_agent_start(self, cb: LifecycleHook) -> None:
-        self._agent_start_hooks.append(cb)
+    def on_session_start(self, cb: LifecycleHook) -> None:
+        self._session_start_hooks.append(cb)
 
-    def on_agent_end(self, cb: LifecycleHook) -> None:
-        self._agent_end_hooks.append(cb)
+    def on_session_end(self, cb: LifecycleHook) -> None:
+        self._session_end_hooks.append(cb)
 
     def on_event(self, cb: EventHook) -> None:
         """Subscribe to control-plane operation events: token exchanges (with
@@ -981,10 +982,10 @@ class Caracal:
             await h(ctx)
 
     @asynccontextmanager
-    async def spawn(
+    async def session(
         self,
         *,
-        grant: Grant | None = None,
+        authority: Authority | None = None,
         ttl_seconds: int | None = None,
         subject_session_id: str | None = None,
         parent_id: str | None = None,
@@ -993,17 +994,20 @@ class Caracal:
         labels: list[str] | None = None,
         trace_id: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
-        """Spawn a child agent. The child inherits this application's authority
-        by default; pass ``grant=Grant.narrow([...])`` to issue a bounded
-        delegation edge so the child holds only a subset of scopes."""
+        """Run the block inside a governed session: a bounded identity Caracal
+        establishes around whatever the block executes - an AI agent step, a
+        job, a tool call, any code. The session inherits this application's
+        effective authority by default; pass
+        ``authority=Authority.narrow([...])`` to bound it to a subset of
+        scopes."""
         on_start: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_start_hooks, c))
-            if self._agent_start_hooks
+            (lambda c: self._fire(self._session_start_hooks, c))
+            if self._session_start_hooks
             else None
         )
         on_end: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_end_hooks, c))
-            if self._agent_end_hooks
+            (lambda c: self._fire(self._session_end_hooks, c))
+            if self._session_end_hooks
             else None
         )
 
@@ -1014,7 +1018,7 @@ class Caracal:
             else None
         )
 
-        async with spawn(
+        async with session(
             coordinator=self.config.coordinator,
             zone_id=self.config.zone_id,
             application_id=self.config.application_id,
@@ -1024,7 +1028,7 @@ class Caracal:
             subject_session_id=subject_session_id,
             parent_id=parent_id,
             parent_ctx=parent_ctx,
-            grant=grant,
+            authority=authority,
             ttl_seconds=(
                 ttl_seconds
                 if ttl_seconds is not None
@@ -1033,15 +1037,15 @@ class Caracal:
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
-            on_agent_start=on_start,
-            on_agent_end=on_end,
+            on_session_start=on_start,
+            on_session_end=on_end,
         ) as ctx:
             yield ctx
 
-    async def spawn_service(
+    async def start_session(
         self,
         *,
-        grant: Grant | None = None,
+        authority: Authority | None = None,
         ttl_seconds: int | None = None,
         subject_session_id: str | None = None,
         parent_id: str | None = None,
@@ -1051,28 +1055,29 @@ class Caracal:
         trace_id: str | None = None,
         heartbeat_interval: float | None = None,
         on_lease_lost: Callable[[BaseException], None] | None = None,
-    ) -> ServiceAgent:
-        """Start a long-lived service agent and return a handle the caller owns.
+    ) -> SessionHandle:
+        """Start a governed session that outlives a block and return a handle
+        the caller owns.
 
-        Unlike :meth:`spawn`, the session is not retired when a block exits: a
-        background task renews the lease by default and the handle is retired
-        with :meth:`ServiceAgent.aclose`. Use for daemons and workers that
-        outlive a single request. Pass ``grant=Grant.narrow([...])`` to issue a
-        bounded delegation edge so the handle holds only a subset of scopes.
-        Leave ``heartbeat_interval`` unset to derive the renewal cadence from
-        the server lease, pass a positive value to fix it, or zero to renew
-        manually; ``on_lease_lost`` fires once if the coordinator reports the
-        session permanently gone; ``on_agent_end`` hooks registered on the
-        client run inside :meth:`ServiceAgent.aclose` before the session
-        terminates."""
+        Unlike :meth:`session`, the session is not retired when a block exits:
+        a background task renews the lease by default and the handle is
+        retired with :meth:`SessionHandle.aclose`. Use for daemons and workers
+        that outlive a single request. Pass
+        ``authority=Authority.narrow([...])`` to bound the handle to a subset
+        of scopes. Leave ``heartbeat_interval`` unset to derive the renewal
+        cadence from the server lease, pass a positive value to fix it, or
+        zero to renew manually; ``on_lease_lost`` fires once if the
+        coordinator reports the session permanently gone;
+        ``on_session_end`` hooks registered on the client run inside
+        :meth:`SessionHandle.aclose` before the session terminates."""
         on_start: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_start_hooks, c))
-            if self._agent_start_hooks
+            (lambda c: self._fire(self._session_start_hooks, c))
+            if self._session_start_hooks
             else None
         )
         on_end: LifecycleHook | None = (
-            (lambda c: self._fire(self._agent_end_hooks, c))
-            if self._agent_end_hooks
+            (lambda c: self._fire(self._session_end_hooks, c))
+            if self._session_end_hooks
             else None
         )
 
@@ -1083,7 +1088,7 @@ class Caracal:
             else None
         )
 
-        return await spawn_service(
+        return await start_session(
             coordinator=self.config.coordinator,
             zone_id=self.config.zone_id,
             application_id=self.config.application_id,
@@ -1093,15 +1098,15 @@ class Caracal:
             subject_session_id=subject_session_id,
             parent_id=parent_id,
             parent_ctx=parent_ctx,
-            grant=grant,
+            authority=authority,
             ttl_seconds=ttl_seconds,
             metadata=metadata,
             labels=labels,
             trace_id=trace_id,
             heartbeat_interval=heartbeat_interval,
             on_lease_lost=on_lease_lost,
-            on_agent_start=on_start,
-            on_agent_end=on_end,
+            on_session_start=on_start,
+            on_session_end=on_end,
         )
 
     async def delegate(
@@ -1113,15 +1118,15 @@ class Caracal:
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
         ttl_seconds: int | None = None,
-    ) -> DelegationResponse:
-        """Create a delegation edge from the bound agent session to a peer.
+    ) -> Delegation:
+        """Delegate a slice of the bound session's authority to a peer session.
 
         The caller is the issuer and its own context is unchanged; hand the
-        returned ``delegation_edge_id`` to the receiving session, which
-        presents the edge with :meth:`adopt_delegation`."""
+        returned ``delegation_id`` to the receiving session, which presents
+        the delegation with :meth:`accept_delegation`."""
         return await delegate(
             coordinator=self.config.coordinator,
-            to_agent_session_id=to,
+            to_session_id=to,
             to_application_id=to_application_id,
             resource_id=resource_id,
             scopes=scopes,
@@ -1130,20 +1135,20 @@ class Caracal:
         )
 
     @asynccontextmanager
-    async def adopt_delegation(
-        self, delegation_edge_id: str
+    async def accept_delegation(
+        self, delegation_id: str
     ) -> AsyncGenerator[CaracalContext, None]:
-        """Present a delegation edge issued to the bound agent session: binds a
-        derived context carrying the edge for the duration of the block."""
+        """Present a delegation issued to the bound session: binds a derived
+        context carrying the delegation for the duration of the block."""
         ctx = current()
         if ctx is None:
             raise RuntimeError(
-                "adopt_delegation requires a Caracal context bound on this path"
+                "accept_delegation requires a Caracal context bound on this path"
             )
-        adopted = adopt_delegation(ctx, delegation_edge_id)
-        token = _ctx_var.set(adopted)
+        accepted = accept_delegation(ctx, delegation_id)
+        token = _ctx_var.set(accepted)
         try:
-            yield adopted
+            yield accepted
         finally:
             _ctx_var.reset(token)
 
@@ -1167,7 +1172,7 @@ class Caracal:
     def headers(
         self,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         ctx: CaracalContext | None = None,
     ) -> dict[str, str]:
         """Project a Caracal context into outbound HTTP headers: the bound
@@ -1175,24 +1180,24 @@ class Caracal:
         another task or thread.
 
         When no context is available this would return the
-        bootstrap application subject token. Doing so silently leaks root
-        identity from background tasks that escape the contextvar (asyncio
-        task groups, thread pools, framework background runners). Callers
-        therefore MUST opt in via ``allow_root=True`` when they intentionally
-        want service-level (un-delegated) credentials. Bind a child context
-        explicitly with :meth:`bind` before fan-out to keep delegation
-        semantics intact.
+        bootstrap application subject token. Doing so silently leaks the
+        application's own identity from background tasks that escape the
+        contextvar (asyncio task groups, thread pools, framework background
+        runners). Callers therefore MUST opt in via ``as_application=True``
+        when they intentionally want to call as the application's own
+        (un-delegated) identity. Bind a child context explicitly with
+        :meth:`bind` before fan-out to keep delegation semantics intact.
         """
         if ctx is None:
             ctx = current()
         if ctx is None:
-            if not allow_root:
+            if not as_application:
                 raise RuntimeError(
                     "Caracal.headers(): no CaracalContext is bound to the current "
                     "task. Refusing to fall back to the bootstrap subject token. "
                     "Bind a child context with `async with caracal.bind(parent_ctx):` "
-                    "before fan-out, or pass `allow_root=True` to explicitly use "
-                    "the application's service identity."
+                    "before fan-out, or pass `as_application=True` to explicitly "
+                    "call as the application's own identity."
                 )
             out = to_headers(Envelope(hop=0))
             out[HEADER_AUTHORIZATION] = f"Bearer {self.config.subject_token}"
@@ -1209,7 +1214,7 @@ class Caracal:
     async def aheaders(
         self,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         ctx: CaracalContext | None = None,
     ) -> dict[str, str]:
         """Async counterpart to :meth:`headers`: resolves refreshable tokens on
@@ -1219,13 +1224,13 @@ class Caracal:
         if ctx is None or (ctx.own_token and self.config._token_source is not None):
             token = await self.config.asubject_token()
             if ctx is None:
-                if not allow_root:
+                if not as_application:
                     raise RuntimeError(
                         "Caracal.aheaders(): no CaracalContext is bound to the current "
                         "task. Refusing to fall back to the bootstrap subject token. "
                         "Bind a child context with `async with caracal.bind(parent_ctx):` "
-                        "before fan-out, or pass `allow_root=True` to explicitly use "
-                        "the application's service identity."
+                        "before fan-out, or pass `as_application=True` to explicitly "
+                        "call as the application's own identity."
                     )
                 out = to_headers(Envelope(hop=0))
                 out[HEADER_AUTHORIZATION] = f"Bearer {token}"
@@ -1242,7 +1247,7 @@ class Caracal:
         self,
         headers: Mapping[str, str],
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         verifier: TokenVerifier | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         def get(name: str) -> str | None:
@@ -1256,24 +1261,25 @@ class Caracal:
         claims: VerifiedClaims | None = None
         root_injected = False
         if not env.subject_token:
-            if not allow_root:
+            if not as_application:
                 raise MissingTokenError(
                     "Caracal.bind_from_headers(): inbound request is missing a bearer token. "
-                    "Pass allow_root=True only for trusted service-root ingress."
+                    "Pass as_application=True only for trusted ingress that should "
+                    "run as the application's own identity."
                 )
             env.subject_token = await self.config.asubject_token()
             root_injected = True
         elif verifier is not None:
             claims = await verifier(env.subject_token)
         if claims is not None:
-            if claims.agent_session_id is not None:
-                env.agent_session_id = claims.agent_session_id
-            if claims.delegation_edge_id is not None:
-                env.delegation_edge_id = claims.delegation_edge_id
-            if claims.parent_edge_id is not None:
-                env.parent_edge_id = claims.parent_edge_id
             if claims.session_id is not None:
                 env.session_id = claims.session_id
+            if claims.delegation_id is not None:
+                env.delegation_id = claims.delegation_id
+            if claims.parent_delegation_id is not None:
+                env.parent_delegation_id = claims.parent_delegation_id
+            if claims.subject_session_id is not None:
+                env.subject_session_id = claims.subject_session_id
             if claims.hop is not None:
                 env.hop = claims.hop
         ctx = from_envelope(
@@ -1314,7 +1320,7 @@ class Caracal:
     def context_middleware(
         self,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         verifier: TokenVerifier | None = None,
     ) -> Callable[[ASGIApp], CaracalASGIMiddleware]:
         """ASGI middleware factory for the inbound request boundary.
@@ -1355,7 +1361,7 @@ class Caracal:
 
         def factory(app: ASGIApp) -> CaracalASGIMiddleware:
             return CaracalASGIMiddleware(
-                app, outer, allow_root=allow_root, verifier=verifier
+                app, outer, as_application=as_application, verifier=verifier
             )
 
         return factory
@@ -1363,7 +1369,7 @@ class Caracal:
     def transport(
         self,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
         **kwargs: Any,
@@ -1375,21 +1381,20 @@ class Caracal:
         Per-request identity is taken from the bound :class:`CaracalContext`, or from
         ``ctx`` when the caller owns the context on another task or thread. If a
         request fires with no context available, the call raises ``RuntimeError``
-        unless the transport was created with ``allow_root=True`` (service-level
-        identity).
+        unless the transport was created with ``as_application=True`` (the
+        application's own identity).
 
         Pass ``scopes`` to send a scoped resource mandate instead of the raw subject
         token on gateway-routed requests: the SDK mints (and caches) a mandate
         audienced to the target resource and narrowed to those scopes, carrying the
-        context's agent session and delegation edge. Requires client-secret
-        credentials.
+        context's session and delegation. Requires client-secret credentials.
 
         The client keeps httpx's default 5-second timeout; pass ``timeout=`` to
         size it for the upstream being called.
         """
         return httpx.AsyncClient(
             auth=self._gateway_auth(
-                allow_root=allow_root, ctx=ctx, scopes=scopes, label="transport"
+                as_application=as_application, ctx=ctx, scopes=scopes, label="transport"
             ),
             **kwargs,
         )
@@ -1397,7 +1402,7 @@ class Caracal:
     def _gateway_auth(
         self,
         *,
-        allow_root: bool,
+        as_application: bool,
         ctx: CaracalContext | None,
         scopes: list[str] | None,
         label: str,
@@ -1425,11 +1430,11 @@ class Caracal:
                 elif outer._targets_gateway(request.url):
                     resource = request.headers.get("X-Caracal-Resource")
                     gateway_bound = True
-                if bound is None and not allow_root:
+                if bound is None and not as_application:
                     raise RuntimeError(
                         f"Caracal.{label}(): request fired with no CaracalContext "
                         "bound. Bind a child context, pass `ctx=`, or opt in with "
-                        "`allow_root=True`."
+                        "`as_application=True`."
                     )
                 return bound, resource, gateway_bound
 
@@ -1521,13 +1526,13 @@ class Caracal:
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
     ) -> str:
-        """Mint a resource mandate for the current agent: a short-lived token
+        """Mint a resource mandate for the current session: a short-lived token
         audienced to ``resource_id`` and narrowed to ``scopes``, carrying the
-        agent session and delegation edge of the bound :class:`CaracalContext`
-        (or ``ctx`` when the caller owns the context on another task or
-        thread). The STS evaluates policy against that agent's authority, so a
-        narrowed child can mint only what its delegation edge allows. Results
-        are cached per resource, scope set, and agent identity, and refreshed
+        session and delegation of the bound :class:`CaracalContext` (or
+        ``ctx`` when the caller owns the context on another task or thread).
+        The STS evaluates policy against that session's authority, so a
+        narrowed child can mint only what its delegation allows. Results are
+        cached per resource, scope set, and session identity, and refreshed
         before expiry.
 
         When a scope is approval-gated the mint raises
@@ -1548,8 +1553,8 @@ class Caracal:
         return exchanger.mint_mandate(
             resource=resource_id,
             scopes=scopes,
-            agent_session_id=bound.agent_session_id if bound else None,
-            delegation_edge_id=bound.delegation_edge_id if bound else None,
+            agent_session_id=bound.session_id if bound else None,
+            delegation_edge_id=bound.delegation_id if bound else None,
             ttl_seconds=ttl_seconds,
             approval_id=approval_id,
         )
@@ -1582,7 +1587,7 @@ class Caracal:
         *,
         method: str = "GET",
         headers: Mapping[str, str] | None = None,
-        allow_root: bool = False,
+        as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -1599,7 +1604,7 @@ class Caracal:
         to authorize with a scoped resource mandate minted for ``resource_id``
         instead of the raw subject token; requires client-secret credentials.
 
-        Requests reuse a pooled client per ``(allow_root, scopes)`` shape, so
+        Requests reuse a pooled client per ``(as_application, scopes)`` shape, so
         repeated fetches share connections. ``aclose()`` releases the pool.
         httpx's default 5-second timeout applies; pass ``timeout=`` per request
         to size it for the upstream.
@@ -1608,15 +1613,15 @@ class Caracal:
         merged = {**(headers or {}), **request.headers}
         if transport is not None:
             async with self.transport(
-                allow_root=allow_root, ctx=ctx, scopes=scopes, transport=transport
+                as_application=as_application, ctx=ctx, scopes=scopes, transport=transport
             ) as client:
                 return await client.request(
                     method, request.url, headers=merged, **request_kwargs
                 )
-        key = (allow_root, tuple(sorted(set(scopes))) if scopes else None)
+        key = (as_application, tuple(sorted(set(scopes))) if scopes else None)
         client = self._fetch_clients.get(key)
         if client is None or client.is_closed:
-            client = self.transport(allow_root=allow_root, scopes=scopes)
+            client = self.transport(as_application=as_application, scopes=scopes)
             self._fetch_clients[key] = client
         if ctx is not None:
             async with self.bind(ctx):
@@ -1630,7 +1635,7 @@ class Caracal:
     def sync_transport(
         self,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
         **kwargs: Any,
@@ -1639,17 +1644,17 @@ class Caracal:
         the envelope on every request and rewrites resource-bound calls through the
         configured Caracal gateway. Use with sync httpx-based SDKs.
 
-        See :meth:`transport` for the ``allow_root``, ``ctx``, and ``scopes``
+        See :meth:`transport` for the ``as_application``, ``ctx``, and ``scopes``
         semantics.
         """
         return httpx.Client(
             auth=self._gateway_auth(
-                allow_root=allow_root, ctx=ctx, scopes=scopes, label="sync_transport"
+                as_application=as_application, ctx=ctx, scopes=scopes, label="sync_transport"
             ),
             **kwargs,
         )
 
-    def governed_transport(
+    def application_transport(
         self,
         resource_id: str,
         *,
@@ -1658,11 +1663,11 @@ class Caracal:
         mandate_ttl_seconds: int | None = None,
         **kwargs: Any,
     ) -> httpx.AsyncClient:
-        """Returns an httpx.AsyncClient that authorizes every request with a
-        governed mandate minted under this application's own authority: the SDK
-        spawns a source and target agent session, delegates ``scopes`` between
-        them constrained to ``resource_id``, and mints the mandate against that
-        delegation edge, so every call is attributable to a live, bounded
+        """Returns an httpx.AsyncClient pinned to one resource, calling as the
+        application's own identity rather than a bound session context: the
+        SDK starts a source and target session, delegates ``scopes`` between
+        them constrained to ``resource_id``, and mints the mandate against
+        that delegation, so every call is attributable to a live, bounded
         session even with no inbound context. Requests to the resource's bound
         upstream (or any absolute URL) are rewritten through the configured
         gateway; requests already addressed to the gateway pass through.
@@ -1670,23 +1675,23 @@ class Caracal:
         The mandate is cached per application identity, resource, scope set,
         effective labels, and mandate TTL, refreshed before expiry with a
         fresh session cycle; concurrent requests share one in-flight cycle.
-        ``labels`` tag the spawned sessions (default: the application id).
+        ``labels`` tag the started sessions (default: the application id).
         ``mandate_ttl_seconds`` bounds each mandate; sessions outlive it by a
         fixed buffer.
 
         Requires client-secret credentials."""
         return httpx.AsyncClient(
-            auth=self._governed_auth(
+            auth=self._app_auth(
                 resource_id,
                 scopes=scopes,
                 labels=labels,
                 mandate_ttl_seconds=mandate_ttl_seconds,
-                label="governed_transport",
+                label="application_transport",
             ),
             **kwargs,
         )
 
-    def sync_governed_transport(
+    def sync_application_transport(
         self,
         resource_id: str,
         *,
@@ -1695,22 +1700,22 @@ class Caracal:
         mandate_ttl_seconds: int | None = None,
         **kwargs: Any,
     ) -> httpx.Client:
-        """Sync counterpart to :meth:`governed_transport`: returns an
-        httpx.Client authorizing every request with a governed mandate minted
-        under this application's own authority. See :meth:`governed_transport`
-        for the cycle, caching, and routing semantics."""
+        """Sync counterpart to :meth:`application_transport`: returns an
+        httpx.Client authorizing every request with a mandate minted under the
+        application's own identity. See :meth:`application_transport` for the
+        cycle, caching, and routing semantics."""
         return httpx.Client(
-            auth=self._governed_auth(
+            auth=self._app_auth(
                 resource_id,
                 scopes=scopes,
                 labels=labels,
                 mandate_ttl_seconds=mandate_ttl_seconds,
-                label="sync_governed_transport",
+                label="sync_application_transport",
             ),
             **kwargs,
         )
 
-    def _governed_auth(
+    def _app_auth(
         self,
         resource_id: str,
         *,
@@ -1733,11 +1738,11 @@ class Caracal:
         mandate_ttl = (
             mandate_ttl_seconds
             if mandate_ttl_seconds is not None
-            else GOVERNED_MANDATE_TTL_SECONDS
+            else APP_MANDATE_TTL_SECONDS
         )
         outer = self
 
-        class _GovernedAuth(httpx.Auth):
+        class _AppAuth(httpx.Auth):
             requires_request_body = False
 
             def _finish(self, request: httpx.Request, mandate: str) -> None:
@@ -1751,38 +1756,38 @@ class Caracal:
             def sync_auth_flow(self, request: httpx.Request):
                 self._finish(
                     request,
-                    outer._governed_mandate(resource_id, granted, labels, mandate_ttl),
+                    outer._app_mandate(resource_id, granted, labels, mandate_ttl),
                 )
                 yield request
 
             async def async_auth_flow(self, request: httpx.Request):
                 mandate = await asyncio.to_thread(
-                    outer._governed_mandate, resource_id, granted, labels, mandate_ttl
+                    outer._app_mandate, resource_id, granted, labels, mandate_ttl
                 )
                 self._finish(request, mandate)
                 yield request
 
-        return _GovernedAuth()
+        return _AppAuth()
 
-    def _governed_cached(self, key: str) -> str | None:
-        with self._governed_guard:
-            cached = self._governed_mandates.get(key)
+    def _app_mandate_cached(self, key: str) -> str | None:
+        with self._app_mandate_guard:
+            cached = self._app_mandates.get(key)
             if (
                 cached is not None
-                and cached[1] - time.time() > GOVERNED_REFRESH_MARGIN_SECONDS
+                and cached[1] - time.time() > APP_MANDATE_REFRESH_MARGIN_SECONDS
             ):
                 return cached[0]
         return None
 
-    def _governed_lock(self, key: str) -> threading.Lock:
-        with self._governed_guard:
-            lock = self._governed_locks.get(key)
+    def _app_mandate_lock(self, key: str) -> threading.Lock:
+        with self._app_mandate_guard:
+            lock = self._app_mandate_locks.get(key)
             if lock is None:
                 lock = threading.Lock()
-                self._governed_locks[key] = lock
+                self._app_mandate_locks[key] = lock
             return lock
 
-    def _governed_mandate(
+    def _app_mandate(
         self,
         resource_id: str,
         scopes: list[str],
@@ -1798,21 +1803,21 @@ class Caracal:
             f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}::"
             f"{encoded_labels}::{mandate_ttl}"
         )
-        cached = self._governed_cached(key)
+        cached = self._app_mandate_cached(key)
         if cached is not None:
             return cached
-        with self._governed_lock(key):
-            cached = self._governed_cached(key)
+        with self._app_mandate_lock(key):
+            cached = self._app_mandate_cached(key)
             if cached is not None:
                 return cached
-            token, exp = self._governed_cycle(
+            token, exp = self._app_mandate_cycle(
                 zone_id, application_id, resource_id, scopes, labels, mandate_ttl
             )
-            with self._governed_guard:
-                self._governed_mandates[key] = (token, exp)
+            with self._app_mandate_guard:
+                self._app_mandates[key] = (token, exp)
             return token
 
-    def _governed_cycle(
+    def _app_mandate_cycle(
         self,
         zone_id: str,
         application_id: str,
@@ -1823,7 +1828,7 @@ class Caracal:
     ) -> tuple[str, float]:
         exchanger = self.config.exchanger
         assert exchanger is not None
-        session_ttl = mandate_ttl + GOVERNED_SESSION_TTL_BUFFER_SECONDS
+        session_ttl = mandate_ttl + APP_SESSION_TTL_BUFFER_SECONDS
         bootstrap = exchanger.mint_mandate(
             resource=resource_id, scopes=[LIFECYCLE_SCOPE]
         )

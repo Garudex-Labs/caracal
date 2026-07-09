@@ -55,12 +55,13 @@ from .coordinator import (
     terminate_agent,
 )
 from .primitives import (
-    Grant,
+    Authority,
+    Delegation,
     LifecycleHook,
-    ServiceAgent,
+    SessionHandle,
     delegate,
-    spawn,
-    spawn_service,
+    session,
+    start_session,
 )
 from .client import Caracal, CaracalConfig, ResourceBinding
 from .errors import CoordinatorError, MissingTokenError
@@ -110,10 +111,11 @@ __all__ = [
     "terminate_agent",
     "heartbeat_agent",
     "create_delegation",
-    "spawn",
-    "spawn_service",
-    "Grant",
-    "ServiceAgent",
+    "session",
+    "start_session",
+    "Authority",
+    "Delegation",
+    "SessionHandle",
     "delegate",
     "LifecycleHook",
     "Caracal",

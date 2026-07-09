@@ -43,12 +43,12 @@ class CaracalASGIMiddleware:
         app: ASGIApp,
         caracal: Caracal,
         *,
-        allow_root: bool = False,
+        as_application: bool = False,
         verifier: TokenVerifier | None = None,
     ) -> None:
         self.app = app
         self.caracal = caracal
-        self.allow_root = allow_root
+        self.as_application = as_application
         self.verifier = verifier
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -60,7 +60,7 @@ class CaracalASGIMiddleware:
         for k, v in raw:
             headers[k.decode("latin-1")] = v.decode("latin-1")
         binder = self.caracal.bind_from_headers(
-            headers, allow_root=self.allow_root, verifier=self.verifier
+            headers, as_application=self.as_application, verifier=self.verifier
         )
         try:
             await binder.__aenter__()
