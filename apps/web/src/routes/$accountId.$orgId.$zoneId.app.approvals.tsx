@@ -651,7 +651,8 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
         toast({
           tone: "error",
           title: "Reserved for the end user",
-          description: "Only the application's own end user can decide this hold.",
+          description:
+            "Only the application's own federated end user can decide this hold, through the STS subject plane.",
         });
       } else {
         toast({ tone: "error", title: "Decision failed", description: errorMessage(err) });
