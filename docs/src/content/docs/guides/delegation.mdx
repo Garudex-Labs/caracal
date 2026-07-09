@@ -5,7 +5,7 @@ description: Spawn child agents, attach typed constraints, inspect graph impact,
 
 Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
 
-`spawn()` always creates the child under the **same application** as the parent - `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application: it returns the edge, and the receiving session presents it with `adoptDelegation()`.
+`session()` always creates the child under the **same application** as the parent - `session()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application: it returns the edge, and the receiving session presents it with `acceptDelegation()`.
 
 ## Implementation flow
 
@@ -25,12 +25,12 @@ import { Caracal, Grant } from "@caracalai/sdk";
 
 const caracal = new Caracal();
 
-await caracal.spawn(async () => {
-  await caracal.spawn(async () => {
+await caracal.session(async () => {
+  await caracal.session(async () => {
     const headers = await caracal.headersAsync();
     await fetch("https://api.example.com/tickets", { headers });
   }, {
-    grant: Grant.narrow(["tickets:read"], {
+    grant: Authority.narrow(["tickets:read"], {
       resourceId: "https://api.example.com/tickets",
       constraints: { maxHops: 1, budget: 5 },
       ttlSeconds: 600,
@@ -61,7 +61,7 @@ await caracal.spawn(async () => {
 
 | Symptom | Check |
 | --- | --- |
-| `Delegate requires an active agent session` | Call delegation inside `spawn()` or a bound Caracal context. |
+| `Delegate requires an active agent session` | Call delegation inside `session()` or a bound Caracal context. |
 | Resource denies delegated request | Confirm policy accepts the edge constraints and required scopes. |
 | Chain validation fails | Confirm the expected application appears in the delegation path. |
 | Revocation did not affect child | Confirm cascade revocation and resource-server revocation consumers. |

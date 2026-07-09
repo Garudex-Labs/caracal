@@ -1,11 +1,11 @@
 ---
-title: Step-Up Challenges
-description: How policies hold sensitive token exchanges for a human decision.
+title: Approvals
+description: How policies hold sensitive requests for a human decision.
 sidebar:
   order: 12
 ---
 
-A step-up challenge is Caracal's way to pause a token exchange until a human decides it. Policy data classifies scopes into risk tiers; when a mint requests a gated scope, the STS creates a durable hold and returns `interaction_required` with a challenge id instead of a mandate. The mandate is released only after an authorized approver decides the hold.
+An approval is Caracal's way to pause a token exchange until a human decides it. Policy data classifies scopes into risk tiers; when a mint requests a gated scope, the STS creates a durable hold and returns `interaction_required` with a challenge id instead of a mandate. The mandate is released only after an authorized approver decides the hold.
 
 Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one.
 

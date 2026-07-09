@@ -64,7 +64,7 @@ const resourcePath = process.env.CARACAL_RESOURCE_PATH;
 if (!resourceId) throw new Error("CARACAL_RESOURCE_ID is required");
 if (!resourcePath) throw new Error("CARACAL_RESOURCE_PATH is required");
 
-await caracal.spawn(async () => {
+await caracal.session(async () => {
   const ctx = caracal.current();
   console.log("Agent session:", ctx?.agentSessionId);
 
@@ -89,7 +89,7 @@ resource_id = os.environ["CARACAL_RESOURCE_ID"]
 resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
-    async with caracal.spawn() as ctx:
+    async with caracal.session() as ctx:
         print("Agent session:", ctx.agent_session_id)
 
         response = await caracal.fetch(
@@ -129,7 +129,7 @@ func main() {
         panic("CARACAL_RESOURCE_ID and CARACAL_RESOURCE_PATH are required")
     }
 
-    err = c.Spawn(context.Background(), func(ctx context.Context) error {
+    err = c.Session(context.Background(), func(ctx context.Context) error {
         cc, _ := c.Current(ctx)
         fmt.Println("Agent session:", cc.AgentSessionID)
 
@@ -154,12 +154,12 @@ func main() {
 | Call | Role |
 | --- | --- |
 | `new Caracal()` / `Caracal()` / `New()` | Loads the runtime profile or environment configuration and prepares token exchange. |
-| `spawn()` / `Spawn()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
+| `session()` / `Session()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
 | `fetch()` / `Fetch()` | Sends one request to a resource through the Gateway with context and authority injected. |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
 | `transport()` / `Transport()` | Injects Caracal trace and baggage context on outbound calls and attaches authorization on Gateway-routed calls. |
 
-`spawn()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
+`session()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If policy denies the exchange, STS returns HTTP 403 and the SDK surfaces an error. Open web console **Audit** or **explain** with the request ID to see the policy and diagnostics that determined the result.
 

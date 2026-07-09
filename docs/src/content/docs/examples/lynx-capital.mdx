@@ -35,9 +35,9 @@ delegation edge, and audit trail without minting new application credentials.
 
 ### Spawned agents
 
-The swarm's runner gives every agent its own session via the SDK's `spawn`:
-orchestrators inherit under the operations boundary; each domain worker spawns under its
-application's per-run dispatcher root with `Grant.narrow(role scopes, views, max_hops=1,
+The swarm's runner gives every agent its own session via the SDK's `session()`:
+orchestrators inherit under the operations boundary; each domain worker starts under its
+application's per-run dispatcher root with `Authority.narrow(role scopes, views, max_hops=1,
 run TTL)`. Ad-hoc partner-integration workers resolve their boundary, scope, and view
 dynamically from the requested provider operation. Logs and policy decisions identify
 exactly which agent did what.
