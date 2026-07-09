@@ -35,7 +35,7 @@ const SECRET_ACTION_SEGMENTS = new Set(['rotate-secret'])
 // Route segments that name auditable entity collections; a segment matching this pattern
 // is followed by an entity id in entity routes and terminates the path in create routes.
 const COLLECTION_SEGMENT =
-  /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|step-up-challenges|admin-tokens|operator-conversations)$/
+  /^(zones|applications|workloads|resources|providers|provider-connections|policies|policy-sets|policy-templates|grants|subject-issuers|step-up-challenges|admin-tokens|operator-conversations)$/
 
 const CHANGE_FIELD_DEPTH = 3
 const CHANGE_FIELD_LIMIT = 64

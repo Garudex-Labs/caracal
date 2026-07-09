@@ -54,6 +54,7 @@ import { providersRoutes } from './routes/providers.js'
 import { policiesRoutes } from './routes/policies.js'
 import { policySetsRoutes } from './routes/policy-sets.js'
 import { grantsRoutes } from './routes/grants.js'
+import { subjectIssuersRoutes } from './routes/subject-issuers.js'
 import { stepUpChallengesRoutes } from './routes/step-up-challenges.js'
 import { notificationSinksRoutes } from './routes/notification-sinks.js'
 import { policyTemplatesRoutes } from './routes/policy-templates.js'
@@ -301,6 +302,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(policiesRoutes, { prefix: '/v1' })
   await app.register(policySetsRoutes, { prefix: '/v1' })
   await app.register(grantsRoutes, { prefix: '/v1' })
+  await app.register(subjectIssuersRoutes, { prefix: '/v1' })
   await app.register(stepUpChallengesRoutes, { prefix: '/v1' })
   await app.register(notificationSinksRoutes, { prefix: '/v1' })
   await app.register(policyTemplatesRoutes, { prefix: '/v1' })
