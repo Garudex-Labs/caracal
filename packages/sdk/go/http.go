@@ -9,7 +9,7 @@ import "net/http"
 
 // ContextMiddleware returns an http.Handler middleware that binds a CaracalContext
 // from inbound envelope headers after token verification.
-func (c *Caracal) ContextMiddleware(next http.Handler, opts ...RootOptions) http.Handler {
+func (c *Caracal) ContextMiddleware(next http.Handler, opts ...CallOptions) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, err := c.BindFromRequest(r.Context(), r, opts...)
 		if err != nil {

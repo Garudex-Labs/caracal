@@ -146,7 +146,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 		c.cache.Set(cacheSubject, cacheResource, call.token)
 	} else {
 		var caracalErr *CaracalError
-		var interactionErr *InteractionRequiredError
+		var interactionErr *ApprovalRequiredError
 		if errors.As(call.err, &caracalErr) {
 			event.Code = caracalErr.Code
 			event.Status = caracalErr.HTTPStatus
@@ -286,7 +286,7 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 			if msg == "" {
 				msg = "Approval required"
 			}
-			return TokenExchangeResponse{}, &InteractionRequiredError{
+			return TokenExchangeResponse{}, &ApprovalRequiredError{
 				Message:     msg,
 				ChallengeID: body.ChallengeID,
 				Resource:    firstResource(resources),
