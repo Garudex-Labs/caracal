@@ -28,22 +28,22 @@ import { Caracal } from "@caracalai/sdk";
 const caracal = new Caracal();
 ```
 
-`Caracal.fromClientSecret` accepts either a static `zoneId`/`applicationId`/`clientSecret` triple or a `credentials` resolver: a function returning `{ zoneId, applicationId, clientSecret }`, resolved on every exchange. Use the resolver when the credential is provisioned after startup or rotates while the process runs - the next exchange simply presents whatever the resolver returns, and a resolver that returns `null` fails the call closed with `CredentialsUnavailableError` instead of using a stale secret. When the resolved identity changes, the client rebuilds its exchange state so no cached token or mandate crosses identities. `resources` is optional for a client that only runs governed transports; `spawn` and lifecycle calls require at least one.
+`Caracal.fromClientSecret` accepts either a static `zoneId`/`applicationId`/`clientSecret` triple or a `credentials` resolver: a function returning `{ zoneId, applicationId, clientSecret }`, resolved on every exchange. Use the resolver when the credential is provisioned after startup or rotates while the process runs - the next exchange simply presents whatever the resolver returns, and a resolver that returns `null` fails the call closed with `CredentialsUnavailableError` instead of using a stale secret. When the resolved identity changes, the client rebuilds its exchange state so no cached token or mandate crosses identities. `resources` is optional for a client that only runs application transports; `session` and lifecycle calls require at least one.
 
 ## Core methods
 
 | Method | Purpose |
 | --- | --- |
-| `spawn(fn, options?)` | Create an agent session and bind context while `fn` runs; pass `grant: Grant.narrow(...)` to bound the child's authority. |
-| `spawnService(options?)` | Start a long-lived service agent; auto-renews its lease and returns a handle with `heartbeat()` and `close()`. Pass `grant: Grant.narrow(...)` to bound the handle's authority. |
-| `delegate(options)` | Create a delegation edge to an existing agent session; returns the edge for the receiver to adopt. |
-| `adoptDelegation(edgeId, fn)` | Present a received delegation edge: bind a derived context carrying it while `fn` runs. |
+| `session(fn, options?)` | Run `fn` inside a governed session - a bounded identity Caracal establishes around whatever `fn` executes; pass `authority: Authority.narrow(...)` to bound its authority. |
+| `startSession(options?)` | Start a governed session that outlives a block; auto-renews its lease and returns a handle with `heartbeat()` and `close()`. Pass `authority: Authority.narrow(...)` to bound the handle's authority. |
+| `delegate(options)` | Delegate a slice of the current session's authority to an existing peer session; returns the delegation for the receiver to accept. |
+| `acceptDelegation(delegationId, fn)` | Present a received delegation: bind a derived context carrying it while `fn` runs. |
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
 | `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
-| `governedTransport(resourceId, options)` | Return a fetch pinned to one governed resource on the application's own authority: each mint cycle spawns a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
-| `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound agent session and delegation edge; requires client-secret credentials. |
+| `applicationTransport(resourceId, options)` | Return a fetch pinned to one resource, calling as the application's own identity: each mint cycle starts a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
+| `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
 | `waitForApproval(challengeId, options?)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final state. |
 | `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
 | `current()` | Return the currently bound `CaracalContext`, if present. |
@@ -53,12 +53,12 @@ const caracal = new Caracal();
 ```ts
 import { Grant } from "@caracalai/sdk";
 
-await caracal.spawn(async () => {
+await caracal.session(async () => {
   await fetch("https://api.example.com/tickets", {
     headers: await caracal.headersAsync(),
   });
 }, {
-  grant: Grant.narrow(["tickets:read"], {
+  grant: Authority.narrow(["tickets:read"], {
     resourceId: "https://api.example.com/tickets",
     constraints: {
       maxHops: 1,
@@ -74,13 +74,13 @@ await caracal.spawn(async () => {
 
 ## Protect Inbound Requests
 
-Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must throw on failure. Return a `VerifiedClaims` object from the callback to stamp token-proven attribution (zone, application, agent session, delegation edge, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
+Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must throw on failure. Return a `VerifiedClaims` object from the callback to stamp token-proven attribution (zone, application, session, delegation, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
 
-Header and transport helpers refuse to fall back to the application root token unless you pass `{ allowRoot: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `spawn()`, `delegate()`, or `bindFromHeaders()`.
+Header and transport helpers refuse to fall back to the application root token unless you pass `{ asApplication: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `session()`, `delegate()`, or `bindFromHeaders()`.
 
 ## Errors and Observability
 
-STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `InteractionRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
+STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `ApprovalRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
 
 ```ts
 import { Caracal, CaracalError } from "@caracalai/sdk";

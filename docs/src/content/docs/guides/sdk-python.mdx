@@ -29,18 +29,18 @@ from caracalai import Caracal
 
 caracal = Caracal()
 
-async with caracal.spawn():
+async with caracal.session():
     headers = caracal.headers()
     async with httpx.AsyncClient() as client:
         await client.get("https://api.example.com/tickets", headers=headers)
 ```
 
-`spawn()` is an async context manager. It binds the agent context inside the block and releases the session when the block exits.
+`session()` is an async context manager. It binds the agent context inside the block and releases the session when the block exits.
 
-To make agents distinguishable in policy and audit, pass `labels` when you spawn. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` retires the session when the block exits and records it as a `task`, while `spawn_service()` records a heartbeat-leased `service`.
+To make agents distinguishable in policy and audit, pass `labels` when you spawn. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `session()` retires the session when the block exits and records it as a `task`, while `start_session()` records a heartbeat-leased `service`.
 
 ```python
-async with caracal.spawn(labels=["refund-agent"]):
+async with caracal.session(labels=["refund-agent"]):
     headers = caracal.headers()
 ```
 
@@ -48,10 +48,10 @@ See [If many agents share one managed application, can policy and audit still te
 
 ## Long-lived service agents
 
-Daemons and workers that outlive a single request use `spawn_service()` instead of `spawn()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the session with `aclose()`. Each renewal **extends the lease** - the deadline the coordinator measures liveness against; it does not merely check status. A service session is reaped by the coordinator only if it stops heartbeating before its lease expires. Unlike a `task`, a `service` is **not** subject to the wall-clock TTL sweeper; its lifetime is governed entirely by the lease, so a faithfully heartbeated service runs until you close it.
+Daemons and workers that outlive a single request use `start_session()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the session with `aclose()`. Each renewal **extends the lease** - the deadline the coordinator measures liveness against; it does not merely check status. A service session is reaped by the coordinator only if it stops heartbeating before its lease expires. Unlike a `task`, a `service` is **not** subject to the wall-clock TTL sweeper; its lifetime is governed entirely by the lease, so a faithfully heartbeated service runs until you close it.
 
 ```python
-svc = await caracal.spawn_service(labels=["billing-worker"])
+svc = await caracal.start_session(labels=["billing-worker"])
 try:
     while running:
         await do_work(caracal.headers())   # lease renews in the background
@@ -59,12 +59,12 @@ finally:
     await svc.aclose()
 ```
 
-Service handles take the same `grant=` as `spawn()`: pass `Grant.narrow(...)` to issue a delegation edge that bounds the service's authority for its whole lifetime, exactly as a narrowed task child. The handle's context carries the edge, and closing the handle retires the session.
+Service handles take the same `grant=` as `session()`: pass `Authority.narrow(...)` to issue a delegation edge that bounds the service's authority for its whole lifetime, exactly as a narrowed task child. The handle's context carries the edge, and closing the handle retires the session.
 
 ```python
-svc = await caracal.spawn_service(
+svc = await caracal.start_session(
     labels=["billing-worker"],
-    grant=Grant.narrow(["ledger:read"], resource_id="resource://ledger"),
+    authority=Authority.narrow(["ledger:read"], resource_id="resource://ledger"),
 )
 ```
 
@@ -73,7 +73,7 @@ The renewal cadence follows the server lease, renewing at roughly a third of the
 Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning:
 
 ```python
-svc = await caracal.spawn_service(
+svc = await caracal.start_session(
     labels=["voice-worker"],
     on_lease_lost=lambda exc: shutdown(),
 )
@@ -87,10 +87,10 @@ A renewal cannot run while the event loop is blocked synchronously (CPU-bound wo
 ```python
 from caracalai import Grant, DelegationConstraints
 
-async with caracal.spawn() as parent:
-    async with caracal.spawn(
+async with caracal.session() as parent:
+    async with caracal.session(
         parent_ctx=parent,
-        grant=Grant.narrow(
+        authority=Authority.narrow(
             ["tickets:read"],
             resource_id="https://api.example.com/tickets",
             constraints=DelegationConstraints(max_hops=1, budget=5),
@@ -100,14 +100,14 @@ async with caracal.spawn() as parent:
         headers = caracal.headers()
 ```
 
-A plain `caracal.spawn()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `grant=Grant.narrow(...)` only when the child should hold a smaller subset, or `grant=Grant.none()` for a child with no inherited authority. Use `await caracal.delegate(...)` when you need to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `async with caracal.adopt_delegation(edge_id)`.
+A plain `caracal.session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority=Authority.narrow(...)` only when the child should hold a smaller subset, or `authority=Authority.none()` for a child with no inherited authority. Use `await caracal.delegate(...)` when you need to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `async with caracal.accept_delegation(edge_id)`.
 
 Use `async with caracal.bind(ctx)` before handing a captured context to a background task.
 
 ## Use httpx transport injection
 
 ```python
-async with caracal.spawn():
+async with caracal.session():
     async with caracal.transport() as client:
         await client.get("https://api.example.com/tickets")
 ```
@@ -134,7 +134,7 @@ The middleware propagates context. It does not verify JWT signatures or revocati
 | Symptom | Check |
 | --- | --- |
 | `Caracal.from_env: missing ...` | Confirm profile or required environment variables. |
-| `headers()` refuses root identity | Bind a context or pass `allow_root=True` only for trusted service-root calls. |
+| `headers()` refuses root identity | Bind a context or pass `as_application=True` only for trusted service-root calls. |
 | Background task loses context | Capture the context and rebind with `async with caracal.bind(ctx)`. |
 | Gateway routing misses | Confirm resource bindings and `gateway_url`. |
 

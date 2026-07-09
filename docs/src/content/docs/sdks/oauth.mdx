@@ -30,7 +30,7 @@ The OAuth packages exchange existing subject authority for resource mandates thr
 ## TypeScript example
 
 ```ts
-import { OAuthClient, InteractionRequiredError } from "@caracalai/oauth";
+import { OAuthClient, ApprovalRequiredError } from "@caracalai/oauth";
 
 const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
 
@@ -41,7 +41,7 @@ try {
   });
   console.log(token.accessToken, token.expiresIn);
 } catch (error) {
-  if (error instanceof InteractionRequiredError) {
+  if (error instanceof ApprovalRequiredError) {
     console.log("step-up required", error.challengeId);
   } else {
     throw error;
@@ -55,7 +55,7 @@ try {
 - Token responses are cached by identity, resource, scopes, TTL, and credential context.
 - Concurrent identical exchanges share in-flight work.
 - Transient HTTP statuses are retried with bounded backoff.
-- STS `interaction_required` responses surface as `InteractionRequiredError`.
+- STS `interaction_required` responses surface as `ApprovalRequiredError`.
 
 ## Related pages
 
