@@ -5,8 +5,8 @@
 
 import { createHmac, randomBytes } from 'node:crypto'
 import { InMemoryTokenCache, type TokenCache } from './cache.js'
-import { CaracalError, ApprovalRequiredError } from './types.js'
-import type { ExchangeOptions, OAuthEvent, TokenExchangeResponse } from './types.js'
+import { CaracalError, ApprovalRequiredError, APPROVAL_STATES } from './types.js'
+import type { ApprovalState, ExchangeOptions, OAuthEvent, TokenExchangeResponse } from './types.js'
 
 interface STSErrorResponse {
   error?: string
@@ -190,6 +190,7 @@ export class OAuthClient {
     let res: Awaited<ReturnType<typeof fetch>> | undefined
     let lastErr: unknown
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (opts.signal?.aborted) throw abortReason(opts.signal)
       const remainingMs = deadlineMs - performance.now()
       if (remainingMs <= 0) throw new Error('STS request timed out')
       const controller = new AbortController()
@@ -199,9 +200,10 @@ export class OAuthClient {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body,
-          signal: controller.signal,
+          signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
         })
       } catch (err) {
+        if (opts.signal?.aborted) throw abortReason(opts.signal)
         lastErr = err
         if (attempt === maxRetries) throw err
       } finally {
@@ -256,20 +258,21 @@ export class OAuthClient {
   }
 
   /**
-   * Long-polls an approval challenge until an approver decides it, it expires, or
+   * Long-polls an approval until an approver decides it, it expires, or
    * the timeout elapses. Returns the final lifecycle state: 'approved' means a
    * retry of exchange() with challengeId will mint; 'rejected' and 'expired' are
    * terminal; 'pending' means the timeout elapsed and waiting again is safe.
+   * Pass `signal` to abort the wait early.
    */
-  async waitForApproval(challengeId: string, opts: { timeoutMs?: number } = {}): Promise<string> {
-    if (!challengeId) throw new Error('waitForApproval requires a challengeId')
+  async waitForApproval(approvalId: string, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<ApprovalState> {
+    if (!approvalId) throw new Error('waitForApproval requires an approvalId')
     const start = performance.now()
     try {
-      const state = await pollStepUpState(this.stsUrl, challengeId, { ...opts, fetchImpl: this.fetchImpl })
-      this.emit({ type: 'approval.wait', challengeId, state, ok: true, durationMs: performance.now() - start })
+      const state = await pollStepUpState(this.stsUrl, approvalId, { ...opts, fetchImpl: this.fetchImpl })
+      this.emit({ type: 'approval.wait', approvalId, state, ok: true, durationMs: performance.now() - start })
       return state
     } catch (err) {
-      this.emit({ type: 'approval.wait', challengeId, state: '', ok: false, durationMs: performance.now() - start })
+      this.emit({ type: 'approval.wait', approvalId, state: '', ok: false, durationMs: performance.now() - start })
       throw err
     }
   }
@@ -283,7 +286,7 @@ export class OAuthClient {
    */
   async federateSubject(
     idToken: string,
-    opts: { clientSecret?: string; ttlSeconds?: number; timeoutMs?: number } = {},
+    opts: { clientSecret?: string; ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<TokenExchangeResponse> {
     if (!idToken) throw new Error('federateSubject requires the end user identity token')
     const body = new URLSearchParams({
@@ -302,7 +305,7 @@ export class OAuthClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-        signal: controller.signal,
+        signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
       })
       if (!res.ok) {
         let err: STSErrorResponse
@@ -327,23 +330,24 @@ export class OAuthClient {
    */
   async decideApproval(input: {
     subjectToken: string
-    challengeId: string
+    approvalId: string
     binding: string
     decision: 'approved' | 'rejected'
     reason?: string
     timeoutMs?: number
+    signal?: AbortSignal
   }): Promise<void> {
-    if (!input.subjectToken || !input.challengeId || !input.binding) {
-      throw new Error('decideApproval requires subjectToken, challengeId, and binding')
+    if (!input.subjectToken || !input.approvalId || !input.binding) {
+      throw new Error('decideApproval requires subjectToken, approvalId, and binding')
     }
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 30_000)
     try {
-      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(input.challengeId)}/decision`, {
+      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(input.approvalId)}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.subjectToken}` },
         body: JSON.stringify({ decision: input.decision, binding: input.binding, ...(input.reason ? { reason: input.reason } : {}) }),
-        signal: controller.signal,
+        signal: input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal,
       })
       if (!res.ok) {
         let err: STSErrorResponse
@@ -361,25 +365,39 @@ export class OAuthClient {
 }
 
 /**
- * Long-polls an approval challenge's lifecycle state against STS without any client
- * context: only the challenge id and the STS URL are required, so run launches and
+ * Long-polls an approval's lifecycle state against STS without any client
+ * context: only the approval id and the STS URL are required, so run launches and
  * exchange clients share one polling path.
  */
 export async function pollStepUpState(
   stsUrl: string,
-  challengeId: string,
-  opts: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
-): Promise<string> {
+  approvalId: string,
+  opts: { timeoutMs?: number; signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
+): Promise<ApprovalState> {
   const deadline = performance.now() + (opts.timeoutMs ?? 300_000)
   for (;;) {
+    if (opts.signal?.aborted) throw abortReason(opts.signal)
     const remainingMs = deadline - performance.now()
     if (remainingMs <= 0) return 'pending'
     const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
-    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(challengeId)}?wait=${wait}`)
+    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(approvalId)}?wait=${wait}`, {
+      signal: opts.signal,
+    })
     if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
     const data = (await res.json()) as { state?: unknown }
-    if (typeof data.state === 'string' && data.state !== 'pending') return data.state
+    if (typeof data.state === 'string' && data.state !== 'pending') return approvalState(data.state)
   }
+}
+
+function approvalState(value: string): ApprovalState {
+  if (!APPROVAL_STATES.includes(value as ApprovalState)) {
+    throw new Error(`step-up status returned an unknown challenge state: ${value}`)
+  }
+  return value as ApprovalState
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('aborted')
 }
 
 function validateSuccessResponse(data: STSSuccessResponse): TokenExchangeResponse {

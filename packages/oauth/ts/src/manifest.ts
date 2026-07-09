@@ -88,16 +88,16 @@ export async function fetchRunManifest(
 // Mints the provider credential for one binding, addressed by env name only: the
 // resource, scopes, and provider are resolved server-side from the workload's stored
 // binding, so the request wire carries no authority. A policy-gated mint surfaces as
-// ApprovalRequiredError; retrying with the approved challengeId releases it.
+// ApprovalRequiredError; retrying with the approved approvalId releases it.
 export async function fetchRunCredential(
   stsUrl: string,
   workloadId: string,
   secret: string,
   env: string,
-  opts: RunRequestOptions & { challengeId?: string } = {},
+  opts: RunRequestOptions & { approvalId?: string } = {},
 ): Promise<RunCredentialResponse> {
   const body = new URLSearchParams({ workload_id: workloadId, secret, env })
-  if (opts.challengeId) body.set('challenge_id', opts.challengeId)
+  if (opts.approvalId) body.set('challenge_id', opts.approvalId)
   const res = await postRunForm(stsUrl, '/v1/run/credential', body, opts)
   if (!res.ok) {
     const err = await readRunError(res)

@@ -61,7 +61,19 @@ export interface ExchangeOptions {
   challengeId?: string
   /** Skip the cached token and mint a fresh one; the result still refills the cache. */
   forceRefresh?: boolean
+  /** Aborts the exchange, including retries and backoff waits. */
+  signal?: AbortSignal
 }
+
+/**
+ * Lifecycle state of an approval challenge. 'approved' means a retry of the
+ * held mint with the challenge id will succeed; 'rejected' and 'expired' are
+ * terminal; 'consumed' means another request already spent the approval;
+ * 'pending' means no decision arrived within the wait and polling again is safe.
+ */
+export type ApprovalState = 'pending' | 'approved' | 'rejected' | 'expired' | 'consumed'
+
+export const APPROVAL_STATES: readonly ApprovalState[] = ['pending', 'approved', 'rejected', 'expired', 'consumed']
 
 export interface ApprovalRequiredDetails {
   resource?: string
@@ -74,28 +86,40 @@ export interface ApprovalRequiredDetails {
 }
 
 export class ApprovalRequiredError extends CaracalError {
-  readonly challengeId: string
+  readonly approvalId: string
   readonly resource?: string
   readonly state?: string
   readonly tier?: string
   readonly binding?: string
   readonly expiresAt?: string
 
-  constructor(message: string, challengeId: string, details: ApprovalRequiredDetails = {}) {
+  constructor(message: string, approvalId: string, details: ApprovalRequiredDetails = {}) {
     const { requestId, httpStatus, ...rest } = details
     super('interaction_required', message, {
-      details: { challengeId, ...rest },
+      details: { approvalId, ...rest },
       requestId,
       httpStatus,
     })
     this.name = 'ApprovalRequiredError'
-    this.challengeId = challengeId
+    this.approvalId = approvalId
     this.resource = details.resource
     this.state = details.state
     this.tier = details.tier
     this.binding = details.binding
     this.expiresAt = details.expiresAt
   }
+}
+
+/**
+ * Reports whether the error is an approval hold. Prefer this over instanceof:
+ * it also recognizes holds surfaced across duplicated module instances by
+ * checking the error's machine-readable shape.
+ */
+export function isApprovalRequired(err: unknown): err is ApprovalRequiredError {
+  if (err instanceof ApprovalRequiredError) return true
+  if (!(err instanceof Error)) return false
+  const shaped = err as { code?: unknown; approvalId?: unknown }
+  return shaped.code === 'interaction_required' && typeof shaped.approvalId === 'string'
 }
 
 /** One completed token exchange: cache hits and network mints both count, single-flight joiners do not. */
@@ -113,7 +137,7 @@ export interface TokenExchangeEvent {
 /** One completed approval wait and the final challenge state it observed. */
 export interface ApprovalWaitEvent {
   type: 'approval.wait'
-  challengeId: string
+  approvalId: string
   state: string
   ok: boolean
   durationMs: number
