@@ -167,7 +167,7 @@ const COMPONENT_IMPACT: Record<ComponentKey, string> = {
   gateway: "Live enforcement is unavailable; calls proxied through the gateway will fail.",
   audit:
     "Authority decisions may go unrecorded; treat the audit trail as incomplete until this is resolved.",
-  coordinator: "Agent sessions, delegations, and background delivery are stalled.",
+  coordinator: "Sessions, delegations, and background delivery are stalled.",
   runtime: "Local runtime configuration prevents services from operating cleanly.",
 };
 

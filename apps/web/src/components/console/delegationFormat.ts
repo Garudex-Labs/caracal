@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides formatting helpers for delegation edge identity, status, and errors.
+This file provides formatting helpers for delegation identity, status, and errors.
 */
 import { ConsoleApiError } from "@/platform/api/client";
 import type { DelegationEdge } from "@/platform/api/types";
@@ -20,7 +20,7 @@ export function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
-// A delegation edge can be active, revoked, or expired; render each with an honest tone so a
+// A delegation can be active, revoked, or expired; render each with an honest tone so a
 // no-longer-usable edge never appears healthy. The status is authoritative and an edge can
 // expire while loaded.
 export function edgeStatusTone(edge: DelegationEdge): "success" | "danger" | "muted" {

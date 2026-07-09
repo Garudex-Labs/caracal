@@ -12,15 +12,16 @@ import { printError } from '../style.ts'
 
 const RUN_HELP = `Usage: caracal run [--] <command> [args...]
 
-Launch <command> with short-lived Caracal credentials injected as environment variables.
+Launch <command> with short-lived provider credentials injected as environment variables.
 
-caracal run is the data-plane launcher. It authenticates with the workload id
-and secret, fetches the credential bindings authored for that launcher in the
-web console, mints each bound provider credential under least-privilege scopes,
-injects them into the environment variables named by the bindings, spawns the
-command with a scrubbed environment (PATH-like allowlist plus injected
-credentials, no other variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and
-exits with the command's exit code.
+caracal run launches workloads. It authenticates with the workload id and
+secret (a workload is the launcher identity for software started this way),
+fetches the credential bindings authored for that workload in the web console,
+mints each bound provider credential under least-privilege scopes, injects
+them into the environment variables named by the bindings, starts the command
+with a scrubbed environment (PATH-like allowlist plus injected credentials, no
+other variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and exits with the
+command's exit code.
 
 It does not manage zones, applications, resources, policies, or providers (use the
 web console), does not renew credentials after launch (long-running workloads use a
