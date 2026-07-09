@@ -238,7 +238,7 @@ function evaluateCoordinator(value: unknown): MetricEvaluation {
     return {
       detail,
       status: 'warn',
-      advice: 'Coordinator outbox has dead rows; spawn or revocation events failed delivery. Inspect and requeue the dead outbox rows.',
+      advice: 'Coordinator outbox has dead rows; session lifecycle or revocation events failed delivery. Inspect and requeue the dead outbox rows.',
     }
   }
   if ((outboxPending ?? 0) > OUTBOX_PENDING_WARN) {

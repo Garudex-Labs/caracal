@@ -7,7 +7,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { InteractionRequiredError, fetchRunCredential, fetchRunManifest, pollStepUpState } from '@caracalai/oauth'
+import { ApprovalRequiredError, fetchRunCredential, fetchRunManifest, pollStepUpState } from '@caracalai/oauth'
 import type { RunBinding, RunCredentialResponse } from '@caracalai/oauth'
 import { RuntimeConfigValidationError, assertCredentialEnvName } from './runtimeConfig.js'
 import type { RuntimeIdentity } from './runtimeConfig.js'
@@ -122,7 +122,7 @@ async function mintWithStepUp(
   try {
     return await fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, { launchId })
   } catch (err) {
-    if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
+    if (!(err instanceof ApprovalRequiredError) || !err.challengeId) throw err
     // The hold's id and binding go to stderr so whatever surface supervises this
     // runtime can relay them to an approver; the runtime itself just waits.
     onLine?.(
@@ -146,7 +146,7 @@ async function mintWithStepUp(
 
 function credentialFailureLine(binding: RunBinding, err: unknown): string {
   const reason = scrubTokens(err instanceof Error ? err.message : String(err))
-  const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
+  const requestId = err instanceof ApprovalRequiredError ? err.challengeId : undefined
   return JSON.stringify({ resource: binding.resource, reason, requestId })
 }
 

@@ -316,7 +316,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'approval',
     group: 'admin',
-    summary: 'Read step-up approval requests awaiting a human decision',
+    summary: 'Read approval requests awaiting a human decision',
     subcommands: ['list'],
     requiresZone: true,
   },
@@ -361,14 +361,14 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'agent',
     group: 'multiagent',
-    summary: 'Manage agent sessions',
+    summary: 'Manage sessions',
     subcommands: ['list', 'get', 'tree', 'suspend', 'resume', 'terminate'],
     requiresZone: true,
   },
   {
     name: 'delegation',
     group: 'multiagent',
-    summary: 'Manage delegation edges',
+    summary: 'Manage delegations',
     subcommands: ['active', 'inbound', 'outbound', 'traverse', 'revoke'],
     requiresZone: true,
   },
