@@ -23,6 +23,10 @@ _ctx_var: contextvars.ContextVar[CaracalContext] = contextvars.ContextVar(
 
 @dataclass(frozen=True)
 class CaracalContext:
+    # The bearer credential this context presents: the session mandate every
+    # gateway-bound call and token exchange authenticates with. Named for the
+    # RFC 8693 subject_token it becomes on the wire; it is not an end-user
+    # identity - see subject_session_id for that.
     subject_token: str
     zone_id: str
     application_id: str
@@ -30,10 +34,12 @@ class CaracalContext:
     delegation_id: str | None = None
     parent_delegation_id: str | None = None
     subject_session_id: str | None = None
+    # W3C trace id (32 lowercase hex characters) correlating this context's requests.
     trace_id: str | None = None
     trace_flags: str | None = None
     trace_state: str | None = None
     baggage: tuple[tuple[str, str], ...] = ()
+    # Delegation depth: how many delegation hand-offs precede this context; 0 at the root.
     hop: int = 0
     # Marks a context whose subject token came from this process's own
     # credential configuration, so the client may refresh it through its

@@ -17,8 +17,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
-from collections.abc import AsyncGenerator, Callable, Mapping
+from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -32,6 +32,9 @@ from .context import (
     to_envelope,
 )
 from caracalai_oauth import (
+    ApprovalRequired,
+    ApprovalState,
+    CaracalError,
     CaracalEvent,
     ClientCredentials,
     ClientSecretExchanger,
@@ -77,6 +80,8 @@ DEFAULT_GATEWAY_URL = "http://localhost:8081"
 LIFECYCLE_SCOPE = "agent:lifecycle"
 APP_MANDATE_TTL_SECONDS = 900
 APP_MANDATE_REFRESH_MARGIN_SECONDS = 60.0
+
+_T = TypeVar("_T")
 APP_SESSION_TTL_BUFFER_SECONDS = 120
 
 if TYPE_CHECKING:
@@ -90,7 +95,7 @@ class ResourceBinding:
 
 
 @dataclass(frozen=True)
-class GatewayRequest:
+class GatewayTarget:
     url: str
     headers: dict[str, str]
 
@@ -604,7 +609,7 @@ def _validate_subject_token(token: str) -> None:
         return
     if exp <= time.time():
         raise RuntimeError(
-            "CARACAL_SUBJECT_TOKEN is expired or has an invalid `exp` claim: "
+            "CARACAL_BOOTSTRAP_TOKEN is expired or has an invalid `exp` claim: "
             "refresh the bootstrap token before starting the application"
         )
 
@@ -635,7 +640,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
 
     client_secret = _client_secret_from_env(e, zone_id, application_id)
     sts_url = _sts_url(e)
-    subject_token = e.get("CARACAL_SUBJECT_TOKEN")
+    subject_token = e.get("CARACAL_BOOTSTRAP_TOKEN")
     default_ttl = _default_ttl_from_env(e)
 
     if client_secret:
@@ -665,7 +670,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
 
     if not subject_token:
         raise RuntimeError(
-            "Caracal.from_env: provide CARACAL_APP_CLIENT_SECRET or CARACAL_SUBJECT_TOKEN"
+            "Caracal.from_env: provide CARACAL_APP_CLIENT_SECRET or CARACAL_BOOTSTRAP_TOKEN"
         )
     _validate_subject_token(subject_token)
     _assert_production_transport("CARACAL_COORDINATOR_URL", coordinator_url, e)
@@ -891,7 +896,7 @@ class Caracal:
 
         Two authentication shapes are supported:
 
-        * **Static subject token**: set `CARACAL_SUBJECT_TOKEN` directly.
+        * **Static subject token**: set `CARACAL_BOOTSTRAP_TOKEN` directly.
         * **Application client secret**: set `CARACAL_APP_CLIENT_SECRET`; the SDK
           exchanges the secret for a fresh access token on demand and refreshes
           it before expiry.
@@ -988,7 +993,7 @@ class Caracal:
         authority: Authority | None = None,
         ttl_seconds: int | None = None,
         subject_session_id: str | None = None,
-        parent_id: str | None = None,
+        parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         metadata: JsonObject | None = None,
         labels: list[str] | None = None,
@@ -1026,7 +1031,7 @@ class Caracal:
             token_source=self.config._token_source,
             invalidate=invalidate,
             subject_session_id=subject_session_id,
-            parent_id=parent_id,
+            parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
             ttl_seconds=(
@@ -1048,7 +1053,7 @@ class Caracal:
         authority: Authority | None = None,
         ttl_seconds: int | None = None,
         subject_session_id: str | None = None,
-        parent_id: str | None = None,
+        parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         metadata: JsonObject | None = None,
         labels: list[str] | None = None,
@@ -1096,7 +1101,7 @@ class Caracal:
             token_source=self.config._token_source,
             invalidate=invalidate,
             subject_session_id=subject_session_id,
-            parent_id=parent_id,
+            parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
             ttl_seconds=ttl_seconds,
@@ -1112,7 +1117,7 @@ class Caracal:
     async def delegate(
         self,
         *,
-        to: str,
+        to_session_id: str,
         to_application_id: str,
         scopes: list[str],
         resource_id: str | None = None,
@@ -1126,7 +1131,7 @@ class Caracal:
         the delegation with :meth:`accept_delegation`."""
         return await delegate(
             coordinator=self.config.coordinator,
-            to_session_id=to,
+            to_session_id=to_session_id,
             to_application_id=to_application_id,
             resource_id=resource_id,
             scopes=scopes,
@@ -1308,11 +1313,14 @@ class Caracal:
 
     async def aclose(self) -> None:
         """Release pooled fetch clients, the credential exchanger's HTTP
-        client, and the coordinator's HTTP client. Idempotent."""
+        client, and the coordinator's HTTP client, and drop cached application
+        mandates so nothing stale is served after shutdown. The sessions
+        backing a released mandate retire on their own TTL. Idempotent."""
         for client in self._fetch_clients.values():
             if not client.is_closed:
                 await client.aclose()
         self._fetch_clients.clear()
+        self._app_mandates.clear()
         if self.config.exchanger is not None:
             self.config.exchanger.close()
         await self.config.coordinator.aclose()
@@ -1507,12 +1515,12 @@ class Caracal:
         parsed = urlparse(str(url))
         return parsed.scheme == g.scheme and parsed.netloc == g.netloc
 
-    def gateway_request(self, resource_id: str, path: str = "/") -> GatewayRequest:
+    def gateway_request(self, resource_id: str, path: str = "/") -> GatewayTarget:
         if not self.config.gateway_url:
             raise RuntimeError("Caracal.gateway_request: gateway_url is not configured")
         if not resource_id.strip():
             raise ValueError("Caracal.gateway_request: resource_id is required")
-        return GatewayRequest(
+        return GatewayTarget(
             url=_join_gateway_path(self.config.gateway_url, path),
             headers={"X-Caracal-Resource": resource_id},
         )
@@ -1537,7 +1545,7 @@ class Caracal:
 
         When a scope is approval-gated the mint raises
         :class:`caracalai.ApprovalRequired`; retry with ``approval_id`` set to
-        the returned challenge id once an authenticated approver has satisfied
+        the returned approval id once an authenticated approver has satisfied
         it.
 
         Requires client-secret credentials (:meth:`from_client_secret`,
@@ -1550,23 +1558,27 @@ class Caracal:
                 "CARACAL_APP_CLIENT_SECRET."
             )
         bound = ctx if ctx is not None else current()
-        return exchanger.mint_mandate(
-            resource=resource_id,
-            scopes=scopes,
-            agent_session_id=bound.session_id if bound else None,
-            delegation_edge_id=bound.delegation_id if bound else None,
-            ttl_seconds=ttl_seconds,
-            approval_id=approval_id,
-        )
+        try:
+            return exchanger.mint_mandate(
+                resource=resource_id,
+                scopes=scopes,
+                agent_session_id=bound.session_id if bound else None,
+                delegation_edge_id=bound.delegation_id if bound else None,
+                ttl_seconds=ttl_seconds,
+                approval_id=approval_id,
+            )
+        except CaracalError as err:
+            raise _lifecycle_authority_hint(err, bound)
 
     def wait_for_approval(
-        self, challenge_id: str, *, timeout_seconds: float = 300.0
-    ) -> str:
-        """Long-poll the approval challenge raised by an approval-gated
+        self, approval_id: str, *, timeout_seconds: float = 300.0
+    ) -> ApprovalState:
+        """Long-poll the approval raised by an approval-gated
         :meth:`mint_mandate` until an approver decides it, it expires, or the
         timeout elapses. Returns the final lifecycle state: ``approved`` means
-        a retry with ``approval_id`` will mint; ``rejected`` and ``expired``
-        are terminal; ``pending`` means the timeout elapsed with no decision.
+        a retry with ``approval_id`` will mint; ``rejected``, ``expired``, and
+        ``consumed`` are terminal; ``pending`` means the timeout elapsed with
+        no decision.
 
         Requires client-secret credentials."""
         exchanger = self.config.exchanger
@@ -1576,9 +1588,42 @@ class Caracal:
                 "build the client with from_client_secret, from_config, or "
                 "CARACAL_APP_CLIENT_SECRET."
             )
-        return exchanger.wait_for_approval(
-            challenge_id, timeout_seconds=timeout_seconds
-        )
+        return exchanger.wait_for_approval(approval_id, timeout_seconds=timeout_seconds)
+
+    async def with_approval(
+        self,
+        fn: Callable[[str | None], Awaitable[_T]],
+        *,
+        timeout_seconds: float = 300.0,
+    ) -> _T:
+        """Run an approval-gated operation end to end. ``fn`` is invoked once
+        with ``None``; when it raises :class:`caracalai.ApprovalRequired` the
+        client long-polls the challenge and, on approval, invokes ``fn`` again
+        with the approval id so the retried mint consumes the decision. Any
+        other outcome (rejected, expired, consumed, or the wait timing out)
+        re-raises the original :class:`ApprovalRequired`, whose
+        ``approval_id`` lets the caller resume the wait later.
+
+            mandate = await caracal.with_approval(
+                lambda approval_id: asyncio.to_thread(
+                    caracal.mint_mandate,
+                    "resource://pipernet",
+                    ["funds:transfer"],
+                    approval_id=approval_id,
+                )
+            )
+        """
+        try:
+            return await fn(None)
+        except ApprovalRequired as err:
+            state = await asyncio.to_thread(
+                self.wait_for_approval,
+                err.approval_id,
+                timeout_seconds=timeout_seconds,
+            )
+            if state != "approved":
+                raise
+            return await fn(err.approval_id)
 
     async def fetch(
         self,
@@ -1969,6 +2014,25 @@ def _url_matches_prefix(target, prefix: str) -> bool:
         return True
     pp = p.path if p.path.endswith("/") else p.path + "/"
     return target.path.startswith(pp)
+
+
+def _lifecycle_authority_hint(
+    err: CaracalError, ctx: CaracalContext | None
+) -> CaracalError:
+    """A policy deny for a session that carries no delegation is almost always
+    the lifecycle-only-authority trap: under the platform decision contract,
+    resource mandates only mint over a delegation. Attach the remediation so
+    the developer does not need the policy model to decode the deny."""
+    if err.code != "access_denied" or ctx is None:
+        return err
+    if not ctx.session_id or ctx.delegation_id:
+        return err
+    err.add_note(
+        "hint: the bound session has no delegation, so it holds lifecycle-only "
+        "authority; narrow the session with Authority.narrow, accept one with "
+        "accept_delegation, or call as the application with application_transport"
+    )
+    return err
 
 
 def _join_gateway_path(gateway_url: str, path: str) -> str:
