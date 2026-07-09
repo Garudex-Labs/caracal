@@ -21,7 +21,7 @@ vi.mock('@caracalai/oauth', async (orig) => {
 
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
-import { InteractionRequiredError } from '@caracalai/oauth'
+import { ApprovalRequiredError } from '@caracalai/oauth'
 import type { RunBinding } from '@caracalai/oauth'
 import type { RuntimeIdentity } from '../../../../packages/engine/src/runtimeConfig.js'
 
@@ -137,7 +137,7 @@ describe('buildRunEnv', () => {
 
   it('waits for an approval and retries the mint with the challenge id', async () => {
     fetchRunCredentialMock
-      .mockRejectedValueOnce(new InteractionRequiredError('approval required', 'chal-1', { binding: 'aa' }))
+      .mockRejectedValueOnce(new ApprovalRequiredError('approval required', 'chal-1', { binding: 'aa' }))
       .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
     pollStepUpStateMock.mockResolvedValue('approved')
     const lines: string[] = []
@@ -154,7 +154,7 @@ describe('buildRunEnv', () => {
   it('bounds the wait window by the hold expiry', async () => {
     fetchRunCredentialMock
       .mockRejectedValueOnce(
-        new InteractionRequiredError('approval required', 'chal-1', {
+        new ApprovalRequiredError('approval required', 'chal-1', {
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         }),
       )
@@ -167,7 +167,7 @@ describe('buildRunEnv', () => {
   })
 
   it('fails the credential when the approval is rejected', async () => {
-    fetchRunCredentialMock.mockRejectedValue(new InteractionRequiredError('approval required', 'chal-1', {}))
+    fetchRunCredentialMock.mockRejectedValue(new ApprovalRequiredError('approval required', 'chal-1', {}))
     pollStepUpStateMock.mockResolvedValue('rejected')
     await expect(buildRunEnv(profile([binding({ resource: 'r' })]))).rejects.toThrow('approval_rejected')
     expect(fetchRunCredentialMock).toHaveBeenCalledTimes(1)

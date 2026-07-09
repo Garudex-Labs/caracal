@@ -36,7 +36,7 @@ describe('caracalContextMiddleware', () => {
     const contextMiddleware = vi.fn(() => middleware)
     const caracal = fakeCaracal({ contextMiddleware: contextMiddleware as unknown as Caracal['contextMiddleware'] })
 
-    const opts = { allowRoot: true }
+    const opts = { asApplication: true }
     expect(caracalContextMiddleware(caracal, opts)).toBe(middleware)
     expect(contextMiddleware).toHaveBeenCalledWith(opts)
   })

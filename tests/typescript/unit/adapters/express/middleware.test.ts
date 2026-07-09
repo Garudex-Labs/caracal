@@ -143,14 +143,14 @@ describe('caracalAuth middleware', () => {
     expect(
       (
         req as Request & {
-          caracalContext?: { zoneId: string; agentSessionId: string; delegationEdgeId: string; parentEdgeId: string; hop: number }
+          caracalContext?: { zoneId: string; sessionId: string; delegationId: string; parentDelegationId: string; hop: number }
         }
       ).caracalContext,
     ).toMatchObject({
       zoneId: 'zone-1',
-      agentSessionId: 'agent-header',
-      delegationEdgeId: 'edge-header',
-      parentEdgeId: 'parent-header',
+      sessionId: 'agent-header',
+      delegationId: 'edge-header',
+      parentDelegationId: 'parent-header',
       hop: 3,
     })
   })
@@ -190,12 +190,12 @@ describe('caracalAuth middleware', () => {
     expect(
       (
         req as Request & {
-          caracalContext?: { agentSessionId: string; delegationEdgeId: string; hop: number }
+          caracalContext?: { sessionId: string; delegationId: string; hop: number }
         }
       ).caracalContext,
     ).toMatchObject({
-      agentSessionId: 'agent-claim',
-      delegationEdgeId: 'edge-claim',
+      sessionId: 'agent-claim',
+      delegationId: 'edge-claim',
       hop: 1,
     })
   })

@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fetchRunCredential, fetchRunManifest } from '../../../../../packages/oauth/ts/src/manifest.js'
-import { InteractionRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
+import { ApprovalRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
 
 function manifestBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -131,7 +131,7 @@ describe('fetchRunCredential', () => {
     expect(body.get('challenge_id')).toBe('ch-1')
   })
 
-  it('raises InteractionRequiredError when the mint is held for approval', async () => {
+  it('raises ApprovalRequiredError when the mint is held for approval', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
@@ -144,7 +144,7 @@ describe('fetchRunCredential', () => {
       }),
     })
     const err = await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock }).catch((e) => e)
-    expect(err).toBeInstanceOf(InteractionRequiredError)
+    expect(err).toBeInstanceOf(ApprovalRequiredError)
     expect(err.challengeId).toBe('ch-9')
     expect(err.tier).toBe('sensitive')
   })

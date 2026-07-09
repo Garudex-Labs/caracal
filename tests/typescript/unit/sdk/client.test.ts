@@ -102,7 +102,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_RESOURCES: 'calendar=https://api.example.com/v1,billing=https://billing.example.com',
     } as NodeJS.ProcessEnv)
 
-    const headers = await c.headersAsync({ allowRoot: true })
+    const headers = await c.headersAsync({ asApplication: true })
     expect(headers[HeaderAuthorization]).toBe('Bearer fresh-root')
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret')
@@ -126,7 +126,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_APP_RESOURCES: 'billing',
     } as NodeJS.ProcessEnv)
 
-    await c.headersAsync({ allowRoot: true })
+    await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.getAll('resource').sort()).toEqual(['billing', 'calendar'])
@@ -204,7 +204,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_APPLICATION_ID: 'app',
       CARACAL_STS_URL: 'http://sts',
     } as NodeJS.ProcessEnv)
-    await c.headersAsync({ allowRoot: true })
+    await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret')
@@ -230,7 +230,7 @@ describe('Caracal.fromEnv', () => {
       CARACAL_APPLICATION_ID: '  app/value  ',
       CARACAL_STS_URL: 'http://sts',
     } as NodeJS.ProcessEnv)
-    await c.headersAsync({ allowRoot: true })
+    await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret')
@@ -239,14 +239,14 @@ describe('Caracal.fromEnv', () => {
 })
 
 describe('Caracal.headers', () => {
-  it('refuses root headers without explicit opt-in', () => {
+  it('refuses application-identity headers without explicit opt-in', () => {
     const c = new Caracal(baseConfig)
-    expect(() => c.headers()).toThrow(/allowRoot/)
+    expect(() => c.headers()).toThrow(/asApplication/)
   })
 
-  it('emits W3C envelope when root use is explicit', () => {
+  it('emits W3C envelope when application identity is explicit', () => {
     const c = new Caracal(baseConfig)
-    const h = c.headers({ allowRoot: true })
+    const h = c.headers({ asApplication: true })
     expect(h[HeaderAuthorization]).toBe('Bearer tok')
     expect(parseTraceparent(h[HeaderTraceparent]!)).toBeTruthy()
     expect(h[HeaderBaggage]).toBeUndefined()
@@ -273,7 +273,7 @@ describe('contextMiddleware + bindFromHeaders', () => {
           try {
             const ctx = c.current()
             if (!ctx) throw new Error('no context bound')
-            seen = `${ctx.subjectToken}|${ctx.agentSessionId}|${ctx.sessionId}|${ctx.hop}`
+            seen = `${ctx.subjectToken}|${ctx.sessionId}|${ctx.subjectSessionId}|${ctx.hop}`
             resolve()
           } catch (e) {
             reject(e)
@@ -322,11 +322,11 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
       async () => {
         const authority = describeAuthority()
-        summary = `${authority?.applicationId}|${authority?.sessionId}|${authority?.agentSessionId}|${authority?.chain.join('>')}`
+        summary = `${authority?.applicationId}|${authority?.subjectSessionId}|${authority?.sessionId}|${authority?.chain.join('>')}`
         expect(JSON.stringify(authority)).not.toContain('inbound')
       },
     )
-    expect(summary).toBe('app|sid1|agent1|session:sid1>agent-session:agent1')
+    expect(summary).toBe('app|sid1|agent1|subject:sid1>session:agent1')
   })
 
   it('rejects inbound requests without a bearer token by default', async () => {
@@ -361,14 +361,14 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
       async () => {
         const ctx = c.current()!
-        seen = `${ctx.zoneId}|${ctx.applicationId}|${ctx.agentSessionId}|${ctx.sessionId}|${ctx.hop}`
+        seen = `${ctx.zoneId}|${ctx.applicationId}|${ctx.sessionId}|${ctx.subjectSessionId}|${ctx.hop}`
       },
       {
         verify: () => ({
           zoneId: 'zone-proved',
           applicationId: 'app-proved',
-          agentSessionId: 'agent-proved',
-          sessionId: 'sid-proved',
+          sessionId: 'agent-proved',
+          subjectSessionId: 'sid-proved',
           hop: 3,
         }),
       },
@@ -412,7 +412,7 @@ upstream_prefix = "https://billing.example.com"
     vi.stubGlobal('fetch', fetchMock)
 
     const c = Caracal.fromConfig(profilePath)
-    await c.headersAsync({ allowRoot: true })
+    await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret')
@@ -455,7 +455,7 @@ app_client_secret_file = ${JSON.stringify(secretPath)}
       CARACAL_RESOURCES_FILE: bindingsPath,
       CARACAL_RESOURCES: 'calendar=https://env.example.com/v2',
     } as NodeJS.ProcessEnv)
-    await c.headersAsync({ allowRoot: true })
+    await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.getAll('resource').sort()).toEqual(['billing', 'calendar'])
@@ -500,9 +500,9 @@ resource = "calendar"
 })
 
 describe('caracal.transport', () => {
-  it('refuses root transport without explicit opt-in', async () => {
+  it('refuses application-identity transport without explicit opt-in', async () => {
     const c = new Caracal(baseConfig)
-    await expect(c.transport()('http://api/x')).rejects.toThrow(/allowRoot/)
+    await expect(c.transport()('http://api/x')).rejects.toThrow(/asApplication/)
   })
 
   it('auto-injects envelope headers on outbound calls', async () => {
@@ -512,7 +512,7 @@ describe('caracal.transport', () => {
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch } })
-    await c.transport({ allowRoot: true })('http://api/x')
+    await c.transport({ asApplication: true })('http://api/x')
     expect(calls).toHaveLength(1)
     expect(calls[0].headers.get(HeaderAuthorization)).toBeNull()
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
@@ -531,7 +531,7 @@ describe('caracal.transport', () => {
       resources: [{ resourceId: 'calendar', upstreamPrefix: 'https://api.example.com/v1' }],
     })
 
-    await c.transport({ allowRoot: true })('https://api.example.com/v1/events?limit=10', {
+    await c.transport({ asApplication: true })('https://api.example.com/v1/events?limit=10', {
       headers: { 'x-existing': '1' },
     })
 
@@ -553,7 +553,7 @@ describe('caracal.transport', () => {
       gatewayUrl: 'https://gateway.example.com/proxy',
     })
 
-    await c.transport({ allowRoot: true })('https://unbound.example.com/data', {
+    await c.transport({ asApplication: true })('https://unbound.example.com/data', {
       headers: { 'X-Caracal-Resource': 'manual-resource' },
     })
 
@@ -574,7 +574,7 @@ describe('caracal.transport', () => {
     })
     const request = c.gatewayRequest('resource://calendar', 'events?limit=10')
 
-    await c.transport({ allowRoot: true })(request.url, { headers: request.headers })
+    await c.transport({ asApplication: true })(request.url, { headers: request.headers })
 
     expect(calls[0].url).toBe('https://gateway.example.com/proxy/events?limit=10')
     expect(calls[0].headers.get('X-Caracal-Resource')).toBe('resource://calendar')
@@ -597,7 +597,7 @@ describe('caracal.transport', () => {
       'resource://calendar',
       'events?limit=10',
       { method: 'POST', headers: { 'content-type': 'application/json' } },
-      { allowRoot: true },
+      { asApplication: true },
     )
 
     expect(calls).toHaveLength(1)
@@ -616,8 +616,8 @@ describe('caracal.transport', () => {
   })
 })
 
-describe('agent lifecycle and delegation', () => {
-  it('fires lifecycle hooks, binds context, delegates, and terminates non-service agents', async () => {
+describe('session lifecycle and delegation', () => {
+  it('fires lifecycle hooks, binds context, delegates, and terminates task sessions', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
@@ -635,28 +635,23 @@ describe('agent lifecycle and delegation', () => {
       defaultTtlSeconds: 60,
     })
     const events: string[] = []
-    c.onAgentStart((ctx) => {
-      events.push(`start:${ctx.agentSessionId}`)
+    c.onSessionStart((ctx) => {
+      events.push(`start:${ctx.sessionId}`)
     })
-    c.onAgentEnd((ctx) => {
-      events.push(`end:${ctx.agentSessionId}`)
+    c.onSessionEnd((ctx) => {
+      events.push(`end:${ctx.sessionId}`)
     })
 
-    await c.spawn(
+    await c.session(
       async () => {
-        expect(c.current()?.agentSessionId).toBe('agent-1')
-        await c.delegate(
-          {
-            to: 'agent-2',
-            toApplicationId: 'app-2',
-            scopes: ['tool:call'],
-            ttlSeconds: 30,
-          },
-          async () => {
-            expect(c.current()?.delegationEdgeId).toBe('edge-1')
-            expect(c.current()?.hop).toBe(1)
-          },
-        )
+        expect(c.current()?.sessionId).toBe('agent-1')
+        const delegation = await c.delegate({
+          to: 'agent-2',
+          toApplicationId: 'app-2',
+          scopes: ['tool:call'],
+          ttlSeconds: 30,
+        })
+        expect(delegation.delegationId).toBe('edge-1')
       },
       { metadata: { purpose: 'test' }, labels: ['refunds.execute', 'ledger.read'] },
     )
@@ -682,7 +677,7 @@ describe('agent lifecycle and delegation', () => {
     })
   })
 
-  it('starts a service agent that heartbeats and is not auto-terminated', async () => {
+  it('starts a long-lived session that heartbeats and is not auto-terminated', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
@@ -699,8 +694,8 @@ describe('agent lifecycle and delegation', () => {
       coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
     })
 
-    const svc = await c.spawnService({ labels: ['billing-worker'] })
-    expect(svc.agentSessionId).toBe('svc-1')
+    const svc = await c.startSession({ labels: ['billing-worker'] })
+    expect(svc.sessionId).toBe('svc-1')
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
       application_id: 'app',
       lifecycle: 'service',
@@ -716,7 +711,7 @@ describe('agent lifecycle and delegation', () => {
     ])
   })
 
-  it('sends a distinct Idempotency-Key per spawn so retries cannot mint duplicates', async () => {
+  it('sends a distinct Idempotency-Key per session so retries cannot mint duplicates', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
@@ -729,13 +724,13 @@ describe('agent lifecycle and delegation', () => {
       ...baseConfig,
       coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
     })
-    await c.spawn(
+    await c.session(
       async () => {
         return
       },
       { subjectSessionId: 'sid-1', parentId: 'parent-1' },
     )
-    await c.spawn(
+    await c.session(
       async () => {
         return
       },
@@ -783,8 +778,8 @@ describe('agent lifecycle and delegation', () => {
     })
     secretSource.onEvent((event) => secretEvents.push(event))
 
-    await c.spawn(async () => undefined)
-    await secretSource.headersAsync({ allowRoot: true })
+    await c.session(async () => undefined)
+    await secretSource.headersAsync({ asApplication: true })
 
     expect(events.map((event) => event.type)).toEqual(['coordinator.call', 'coordinator.call'])
     expect(events[0]).toMatchObject({ type: 'coordinator.call', method: 'POST', ok: true })
@@ -853,7 +848,7 @@ describe('Caracal.fromClientSecret', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     })
 
-    const headers = await c.headersAsync({ allowRoot: true })
+    const headers = await c.headersAsync({ asApplication: true })
     expect(headers[HeaderAuthorization]).toBe('Bearer custom-fetch-token')
     expect(fetchMock).toHaveBeenCalled()
     const body = fetchMock.mock.calls[0][1]!.body as URLSearchParams
