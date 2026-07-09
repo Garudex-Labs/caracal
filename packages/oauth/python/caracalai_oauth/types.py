@@ -30,11 +30,19 @@ class TokenExchangeResponse:
 
 
 @dataclass(frozen=True)
+class MintedMandate:
+    """A minted resource mandate: the bearer token to present and how long it
+    stays valid, so callers can schedule refresh without decoding the JWT."""
+
+    token: str
+    expires_in_seconds: int
+
+
+@dataclass(frozen=True)
 class ExchangeOptions:
     client_secret: str | None = None
     client_assertion: str | None = None
     client_assertion_type: str | None = None
-    actor_token: str | None = None
     session_id: str | None = None
     agent_session_id: str | None = None
     delegation_edge_id: str | None = None

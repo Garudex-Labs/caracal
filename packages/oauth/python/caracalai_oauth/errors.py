@@ -35,6 +35,17 @@ class CaracalError(Exception):
         self.http_status = http_status
         super().__init__(description or self.code)
 
+    @property
+    def is_retryable(self) -> bool:
+        """Whether retrying the operation may succeed without any change on
+        the caller's side: transport-level congestion and availability
+        failures are retryable, policy and validation outcomes are not. A
+        hint, not a guarantee - callers still own backoff and attempt
+        budgets."""
+        if self.code == "sts_unavailable":
+            return True
+        return self.http_status in (408, 425, 429) or self.http_status >= 500
+
 
 class InvalidRequest(CaracalError):
     """The exchange request was malformed or missing a required parameter. Fix

@@ -180,7 +180,6 @@ class OAuthClient:
             [
                 f"{self._zone_id}::{self._application_id}",
                 _hash_secret(subject_token),
-                _hash_secret(opts.actor_token),
                 opts.session_id or "",
                 opts.agent_session_id or "",
                 opts.delegation_edge_id or "",
@@ -220,7 +219,6 @@ class OAuthClient:
         _set_value(data, "client_secret", opts.client_secret)
         _set_value(data, "client_assertion", opts.client_assertion)
         _set_value(data, "client_assertion_type", opts.client_assertion_type)
-        _set_value(data, "actor_token", opts.actor_token)
         _set_value(data, "session_id", opts.session_id)
         _set_value(data, "agent_session_id", opts.agent_session_id)
         _set_value(data, "delegation_edge_id", opts.delegation_edge_id)
@@ -275,7 +273,6 @@ class OAuthClient:
                         client_secret=opts.client_secret,
                         client_assertion=opts.client_assertion,
                         client_assertion_type=opts.client_assertion_type,
-                        actor_token=opts.actor_token,
                         session_id=opts.session_id,
                         agent_session_id=opts.agent_session_id,
                         delegation_edge_id=opts.delegation_edge_id,
