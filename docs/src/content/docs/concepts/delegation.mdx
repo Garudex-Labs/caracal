@@ -67,17 +67,17 @@ The SDKs expose one primitive for creating children, one for granting a peer, an
 
 | Language | Spawn a child | Grant to an existing peer | Present a received grant |
 | --- | --- | --- | --- |
-| TypeScript | `spawn()` / `spawn({ grant })` | `delegate()` | `adoptDelegation()` |
-| Python | `spawn()` / `spawn(grant=…)` | `delegate()` | `adopt_delegation()` |
-| Go | `Spawn()` / `Spawn` with `Grant` | `Delegate()` | `AdoptDelegation()` |
+| TypeScript | `session()` / `session({ grant })` | `delegate()` | `acceptDelegation()` |
+| Python | `session()` / `session(grant=…)` | `delegate()` | `accept_delegation()` |
+| Go | `Session()` / `Session` with `Authority` | `Delegate()` | `AcceptDelegation()` |
 
-`spawn()` returns a child running under the **same application's** authority - it never moves a child into a different application. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application and returns the edge. The issuer's own context is unchanged - issuing an edge grants authority to the receiver, not the issuer - so the receiving session presents the edge by deriving its context with `adoptDelegation()`.
+`session()` returns a child running under the **same application's** authority - it never moves a child into a different application. Pass a **narrowing grant** (`Authority.narrow([...])`, `Authority.narrow(...)`, or `AuthorityNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Authority.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application and returns the edge. The issuer's own context is unchanged - issuing an edge grants authority to the receiver, not the issuer - so the receiving session presents the edge by deriving its context with `acceptDelegation()`.
 
 These helpers propagate session and delegation context so later token exchanges include the correct graph proof.
 
 ## Where You Interact With Delegation
 
-Delegation is authored **at runtime, from the SDK** - there is no Console form for creating edges, and it is not an internal-only concept. You create edges by calling `spawn(grant=…)` or `delegate(to=…)` in your agent code; the coordinator records and enforces them. You **observe** the resulting graph through audit: every token-exchange decision records the delegation edge id, the chain of hops, and the granted scopes, which the web console audit view and the Admin audit API expose for inspection and filtering. So the split is: **SDK to author, audit/Console to observe** - the mental model maps directly onto two SDK calls, not a separate management surface.
+Delegation is authored **at runtime, from the SDK** - there is no Console form for creating edges, and it is not an internal-only concept. You create edges by calling `session(grant=…)` or `delegate(to=…)` in your agent code; the coordinator records and enforces them. You **observe** the resulting graph through audit: every token-exchange decision records the delegation edge id, the chain of hops, and the granted scopes, which the web console audit view and the Admin audit API expose for inspection and filtering. So the split is: **SDK to author, audit/Console to observe** - the mental model maps directly onto two SDK calls, not a separate management surface.
 
 ## Next Step
 

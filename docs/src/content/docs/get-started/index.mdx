@@ -54,8 +54,8 @@ The onboarding path keeps runtime lifecycle in the `caracal` CLI and product man
 
 | Term | Meaning |
 | --- | --- |
-| Agent app | The registered workload identity that asks Caracal for authority. |
-| Agent session | One tracked execution of an agent app. |
+| Application | The registered client identity your software runs as when it asks Caracal for authority. |
+| Session | One governed execution under that identity: Caracal binds authority around whatever runs - an AI agent step, a job, a tool call - and records audit for it. |
 | Resource | The protected API, tool, provider, service, or data target. |
 | Policy | The rules that allow or deny requested resource scopes. |
 | Mandate | The short-lived signed token Caracal issues after policy allows access. |

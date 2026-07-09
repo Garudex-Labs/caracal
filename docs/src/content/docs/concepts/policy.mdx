@@ -67,7 +67,7 @@ Every evaluation receives this exact input shape (`schema_version` `2026-05-20`)
 | `input.principal.zone_id` | string | Zone the principal belongs to. |
 | `input.principal.registration_method` | string | `managed` or `dcr`; match `dcr` to scope dynamically registered workloads. |
 | `input.principal.lifecycle` | string | `task` or `service` for agent sessions. |
-| `input.principal.labels` | string[] | Role descriptors set at `spawn(labels=[...])`; drive least-privilege role checks. |
+| `input.principal.labels` | string[] | Role descriptors set at `session(labels=[...])`; drive least-privilege role checks. |
 | `input.principal.agent_session_id` | string | Agent session that initiated the exchange, when present. |
 | `input.resource.type` | string | Resource class, e.g. `Resource`. |
 | `input.resource.id` | string | Internal resource id. |
