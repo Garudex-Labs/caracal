@@ -160,7 +160,7 @@ func TestGovernedTransportRunsOwnAuthorityCycle(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
 		Scopes:            []string{"data:read"},
 		Labels:            []string{"worker"},
 		MandateTTLSeconds: 300,
@@ -249,7 +249,7 @@ func TestGovernedTransportDefaultsLabelsAndTTL(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
 		Scopes: []string{"data:write", "data:read", "data:read"},
 	})
 	if err != nil {
@@ -285,7 +285,7 @@ func TestGovernedTransportCachesMandateAcrossRequests(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}})
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	worker, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+	worker, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
 		Scopes:            []string{"data:read"},
 		Labels:            []string{"a b"},
 		MandateTTLSeconds: 300,
@@ -320,7 +320,7 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{
+	admin, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
 		Scopes:            []string{"data:read"},
 		Labels:            []string{"a", "b"},
 		MandateTTLSeconds: 60,
@@ -359,7 +359,7 @@ func TestGovernedTransportSharesConcurrentCycle(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}})
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestGovernedTransportTerminatesSessionsOnDelegationFailure(t *testing.T) {
 	defer gateway.Close()
 
 	c := governedClient(t, server.URL, gateway.URL, nil)
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}})
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestGovernedTransportTerminatesSessionsOnDelegationFailure(t *testing.T) {
 
 func TestGovernedTransportGuards(t *testing.T) {
 	subjectOnly := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "tok"}
-	if _, err := subjectOnly.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}}); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
+	if _, err := subjectOnly.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}}); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
 		t.Fatalf("expected client-secret guard, got %v", err)
 	}
 
@@ -426,10 +426,10 @@ func TestGovernedTransportGuards(t *testing.T) {
 	server := httptest.NewServer(platform.handler())
 	defer server.Close()
 	c := governedClient(t, server.URL, "", nil)
-	if _, err := c.GovernedTransport(nil, "  ", sdk.GovernedTransportOptions{Scopes: []string{"data:read"}}); err == nil || !strings.Contains(err.Error(), "requires resourceID") {
+	if _, err := c.ApplicationTransport(nil, "  ", sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}}); err == nil || !strings.Contains(err.Error(), "requires resourceID") {
 		t.Fatalf("expected resourceID guard, got %v", err)
 	}
-	if _, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{}); err == nil || !strings.Contains(err.Error(), "at least one scope") {
+	if _, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{}); err == nil || !strings.Contains(err.Error(), "at least one scope") {
 		t.Fatalf("expected scopes guard, got %v", err)
 	}
 }
@@ -453,7 +453,7 @@ func TestGovernedTransportResolverFailsClosedAndRecovers(t *testing.T) {
 		o.Resources = nil
 		o.Credentials = resolver
 	})
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}})
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +496,7 @@ func TestGovernedTransportReprovisionsOnIdentityChange(t *testing.T) {
 		o.Resources = nil
 		o.Credentials = resolver
 	})
-	client, err := c.GovernedTransport(nil, governedResource, sdk.GovernedTransportOptions{Scopes: []string{"data:read"}})
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -549,7 +549,7 @@ func TestFromClientSecretAllowsEmptyResources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err == nil || !strings.Contains(err.Error(), "no resources configured") {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err == nil || !strings.Contains(err.Error(), "no resources configured") {
 		t.Fatalf("expected lifecycle guard without resources, got %v", err)
 	}
 }

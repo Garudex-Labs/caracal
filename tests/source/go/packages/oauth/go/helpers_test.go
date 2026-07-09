@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-func TestInteractionRequiredErrorMessage(t *testing.T) {
-	if got := (&InteractionRequiredError{}).Error(); got != "interaction required" {
+func TestApprovalRequiredErrorMessage(t *testing.T) {
+	if got := (&ApprovalRequiredError{}).Error(); got != "approval required" {
 		t.Fatalf("empty message must yield default, got %q", got)
 	}
-	if got := (&InteractionRequiredError{Message: "step up"}).Error(); got != "interaction required: step up" {
+	if got := (&ApprovalRequiredError{Message: "step up"}).Error(); got != "approval required: step up" {
 		t.Fatalf("message must be appended, got %q", got)
 	}
 }

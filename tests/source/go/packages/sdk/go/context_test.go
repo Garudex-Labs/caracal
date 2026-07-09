@@ -20,9 +20,9 @@ func TestBindCurrentRoundTrip(t *testing.T) {
 		SubjectToken:     "tok",
 		ZoneID:           "z1",
 		ApplicationID:    "app1",
-		AgentSessionID:   "sess",
-		DelegationEdgeID: "edge",
-		SessionID:        "sid",
+		SessionID:        "sess",
+		DelegationID:     "edge",
+		SubjectSessionID: "sid",
 		Hop:              2,
 	}
 	ctx := sdk.Bind(context.Background(), c)
@@ -93,10 +93,10 @@ func TestBindIsolatesConcurrentGoroutines(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", AgentSessionID: agent})
+			ctx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "tok", SessionID: agent})
 			runtime.Gosched()
 			got, _ := sdk.Current(ctx)
-			results[i] = got.AgentSessionID
+			results[i] = got.SessionID
 		}()
 	}
 	wg.Wait()
@@ -109,13 +109,13 @@ func TestBindIsolatesConcurrentGoroutines(t *testing.T) {
 
 func TestFromEnvelopeFullFields(t *testing.T) {
 	env := sdk.Envelope{
-		SubjectToken:     "tok",
-		AgentSessionID:   "sess",
-		DelegationEdgeID: "edge",
-		ParentEdgeID:     "parent",
-		SessionID:        "sid",
-		TraceID:          "0123456789abcdef0123456789abcdef",
-		Hop:              4,
+		SubjectToken:       "tok",
+		SessionID:          "sess",
+		DelegationID:       "edge",
+		ParentDelegationID: "parent",
+		SubjectSessionID:   "sid",
+		TraceID:            "0123456789abcdef0123456789abcdef",
+		Hop:                4,
 	}
 	c, err := sdk.FromEnvelope(env, "zone1", "app1")
 	if err != nil {
@@ -127,11 +127,11 @@ func TestFromEnvelopeFullFields(t *testing.T) {
 	if c.ZoneID != "zone1" {
 		t.Errorf("ZoneID: %q", c.ZoneID)
 	}
-	if c.AgentSessionID != "sess" {
-		t.Errorf("AgentSessionID: %q", c.AgentSessionID)
+	if c.SessionID != "sess" {
+		t.Errorf("AgentSessionID: %q", c.SessionID)
 	}
-	if c.SessionID != "sid" {
-		t.Errorf("SessionID: %q", c.SessionID)
+	if c.SubjectSessionID != "sid" {
+		t.Errorf("SessionID: %q", c.SubjectSessionID)
 	}
 	if c.Hop != 4 {
 		t.Errorf("Hop: %d", c.Hop)
@@ -147,26 +147,26 @@ func TestFromEnvelopeMissingSubjectTokenErrors(t *testing.T) {
 
 func TestToEnvelopeRoundTrip(t *testing.T) {
 	c := sdk.CaracalContext{
-		SubjectToken:     "tok",
-		AgentSessionID:   "sess",
-		DelegationEdgeID: "edge",
-		ParentEdgeID:     "parent",
-		SessionID:        "sid",
-		TraceID:          "0123456789abcdef0123456789abcdef",
-		Hop:              2,
+		SubjectToken:       "tok",
+		SessionID:          "sess",
+		DelegationID:       "edge",
+		ParentDelegationID: "parent",
+		SubjectSessionID:   "sid",
+		TraceID:            "0123456789abcdef0123456789abcdef",
+		Hop:                2,
 	}
 	env := sdk.ToEnvelope(c)
 	if env.SubjectToken != c.SubjectToken {
 		t.Errorf("SubjectToken: %q vs %q", env.SubjectToken, c.SubjectToken)
 	}
-	if env.AgentSessionID != c.AgentSessionID {
-		t.Errorf("AgentSessionID: %q vs %q", env.AgentSessionID, c.AgentSessionID)
+	if env.SessionID != c.SessionID {
+		t.Errorf("AgentSessionID: %q vs %q", env.SessionID, c.SessionID)
 	}
 	if env.TraceID != c.TraceID {
 		t.Errorf("TraceID: %q vs %q", env.TraceID, c.TraceID)
 	}
-	if env.SessionID != c.SessionID {
-		t.Errorf("SessionID: %q vs %q", env.SessionID, c.SessionID)
+	if env.SubjectSessionID != c.SubjectSessionID {
+		t.Errorf("SessionID: %q vs %q", env.SubjectSessionID, c.SubjectSessionID)
 	}
 	if env.Hop != c.Hop {
 		t.Errorf("Hop: %d vs %d", env.Hop, c.Hop)
@@ -178,9 +178,9 @@ func TestToEnvelopeFromEnvelopeRoundTrip(t *testing.T) {
 		SubjectToken:     "tok",
 		ZoneID:           "z",
 		ApplicationID:    "app",
-		AgentSessionID:   "sess",
-		DelegationEdgeID: "edge",
-		SessionID:        "sid",
+		SessionID:        "sess",
+		DelegationID:     "edge",
+		SubjectSessionID: "sid",
 		Hop:              1,
 	}
 	env := sdk.ToEnvelope(orig)
@@ -191,10 +191,10 @@ func TestToEnvelopeFromEnvelopeRoundTrip(t *testing.T) {
 	if restored.SubjectToken != orig.SubjectToken {
 		t.Errorf("SubjectToken mismatch")
 	}
-	if restored.AgentSessionID != orig.AgentSessionID {
+	if restored.SessionID != orig.SessionID {
 		t.Errorf("AgentSessionID mismatch")
 	}
-	if restored.SessionID != orig.SessionID {
+	if restored.SubjectSessionID != orig.SubjectSessionID {
 		t.Errorf("SessionID mismatch")
 	}
 }
@@ -204,20 +204,20 @@ func TestDescribeAuthorityRedactsSubjectToken(t *testing.T) {
 		SubjectToken:     "tok",
 		ZoneID:           "z",
 		ApplicationID:    "app",
-		SessionID:        "sid",
-		AgentSessionID:   "agent",
-		DelegationEdgeID: "edge",
+		SubjectSessionID: "sid",
+		SessionID:        "agent",
+		DelegationID:     "edge",
 		Hop:              2,
 	})
 	summary, ok := sdk.DescribeAuthority(ctx)
 	if !ok {
 		t.Fatal("DescribeAuthority must return a summary for a bound context")
 	}
-	if summary.ApplicationID != "app" || summary.SessionID != "sid" || summary.AgentSessionID != "agent" {
+	if summary.ApplicationID != "app" || summary.SubjectSessionID != "sid" || summary.SessionID != "agent" {
 		t.Fatalf("unexpected summary: %#v", summary)
 	}
 	got := strings.Join(summary.Chain, ">")
-	want := "session:sid>agent-session:agent>delegation-edge:edge"
+	want := "subject:sid>session:agent>delegation:edge"
 	if got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}
@@ -228,13 +228,13 @@ func TestDescribeAuthorityIncludesParentDelegationAndFreshContextFalse(t *testin
 		t.Fatal("fresh context should not describe authority")
 	}
 	summary := sdk.DescribeContext(sdk.CaracalContext{
-		SessionID:        "sid",
-		AgentSessionID:   "agent",
-		ParentEdgeID:     "parent-edge",
-		DelegationEdgeID: "edge",
+		SubjectSessionID:   "sid",
+		SessionID:          "agent",
+		ParentDelegationID: "parent-edge",
+		DelegationID:       "edge",
 	})
 	got := strings.Join(summary.Chain, ">")
-	want := "session:sid>agent-session:agent>parent-edge:parent-edge>delegation-edge:edge"
+	want := "subject:sid>session:agent>parent-delegation:parent-edge>delegation:edge"
 	if got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}

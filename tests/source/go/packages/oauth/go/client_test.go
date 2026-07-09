@@ -109,7 +109,7 @@ func TestExchangeRejectsMalformedSuccessResponse(t *testing.T) {
 	}
 }
 
-func TestExchangeReturnsInteractionRequiredError(t *testing.T) {
+func TestExchangeReturnsApprovalRequiredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -119,9 +119,9 @@ func TestExchangeReturnsInteractionRequiredError(t *testing.T) {
 
 	client := NewClient(server.URL, "zone1", "app1", nil)
 	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{})
-	var interaction *InteractionRequiredError
+	var interaction *ApprovalRequiredError
 	if !errors.As(err, &interaction) {
-		t.Fatalf("expected InteractionRequiredError, got %T", err)
+		t.Fatalf("expected ApprovalRequiredError, got %T", err)
 	}
 	if interaction.ChallengeID != "challenge1" || interaction.Resource != "resource://api" {
 		t.Fatalf("unexpected interaction error: %+v", interaction)

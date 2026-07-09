@@ -1308,7 +1308,7 @@ func (c *Caracal) Headers(ctx context.Context, opts ...CallOptions) (http.Header
 	h := http.Header{}
 	cur, ok := Current(ctx)
 	if !ok {
-		if !allowRoot(opts) {
+		if !asApplication(opts) {
 			return nil, fmt.Errorf("caracal: Headers called without a bound CaracalContext; pass CallOptions{AsApplication: true} to call as the application's own identity")
 		}
 		subjectToken, err := c.rootToken(ctx)
