@@ -277,38 +277,38 @@ func TestBuildJWKSIncludesP256PublicKeyMetadata(t *testing.T) {
 
 // stubDB satisfies DBQuerier with preset return values for the exchange path.
 type stubDB struct {
-	app            *Application
-	appErr         error
-	appGlobal      *Application
-	subjectIssuer  *SubjectIssuer
+	app              *Application
+	appErr           error
+	appGlobal        *Application
+	subjectIssuer    *SubjectIssuer
 	insertedSessions []*Session
-	appGlobalErr   error
-	resource       *Resource
-	resErr         error
-	grant          *ProviderConnection
-	grantErr       error
-	provider       *ProviderConfig
-	session        *Session
-	sessionErr     error
-	agentSessions  []*AgentSession
-	agentIndex     int
-	agentErr       error
-	edge           *DelegationEdge
-	edgeErr        error
-	edgesMap       map[string]*DelegationEdge
-	path           []string
-	pathErr        error
-	graphEpoch     int64
-	epochErr       error
-	sessErr        error
-	secrets        []SecretRow
-	secretsErr     error
-	insertedKey    *SecretRow
-	storeEnvelopes map[string][]byte
-	now            time.Time
-	workload       *Workload
-	workloadErr    error
-	markedExpired  []string
+	appGlobalErr     error
+	resource         *Resource
+	resErr           error
+	grant            *ProviderConnection
+	grantErr         error
+	provider         *ProviderConfig
+	session          *Session
+	sessionErr       error
+	agentSessions    []*AgentSession
+	agentIndex       int
+	agentErr         error
+	edge             *DelegationEdge
+	edgeErr          error
+	edgesMap         map[string]*DelegationEdge
+	path             []string
+	pathErr          error
+	graphEpoch       int64
+	epochErr         error
+	sessErr          error
+	secrets          []SecretRow
+	secretsErr       error
+	insertedKey      *SecretRow
+	storeEnvelopes   map[string][]byte
+	now              time.Time
+	workload         *Workload
+	workloadErr      error
+	markedExpired    []string
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }

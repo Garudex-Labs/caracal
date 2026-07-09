@@ -88,6 +88,7 @@ type AdminClient struct {
 	PolicyTemplates     *PolicyTemplatesService
 	PolicySets          *PolicySetsService
 	Grants              *GrantsService
+	SubjectIssuers      *SubjectIssuersService
 	ProviderConnections *ProviderConnectionsService
 	Workloads           *WorkloadsService
 	Sessions            *SessionsService
@@ -130,6 +131,7 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	client.PolicyTemplates = &PolicyTemplatesService{client}
 	client.PolicySets = &PolicySetsService{client}
 	client.Grants = &GrantsService{client}
+	client.SubjectIssuers = &SubjectIssuersService{client}
 	client.ProviderConnections = &ProviderConnectionsService{client}
 	client.Workloads = &WorkloadsService{client}
 	client.Sessions = &SessionsService{client}

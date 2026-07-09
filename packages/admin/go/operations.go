@@ -525,6 +525,60 @@ func (s *GrantsService) Revoke(ctx context.Context, zoneID, grantID string) erro
 	return s.client.do(ctx, http.MethodDelete, "/v1/zones/"+zoneID+"/grants/"+grantID, nil, nil, true)
 }
 
+// SubjectIssuersService covers /v1/zones/{zone}/subject-issuers.
+type SubjectIssuersService struct{ client *AdminClient }
+
+// SubjectIssuer is a zone-scoped trust declaration for one external identity
+// system accepted for subject federation.
+type SubjectIssuer struct {
+	ID       string `json:"id"`
+	ZoneID   string `json:"zone_id"`
+	Issuer   string `json:"issuer"`
+	JWKSURL  string `json:"jwks_url"`
+	Audience string `json:"audience"`
+}
+
+func (s *SubjectIssuersService) List(ctx context.Context, zoneID string) ([]SubjectIssuer, error) {
+	var out struct {
+		Items []SubjectIssuer `json:"items"`
+	}
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/subject-issuers", nil, &out, false); err != nil {
+		return nil, err
+	}
+	if out.Items == nil {
+		return nil, errors.New("subject issuers response missing items")
+	}
+	return out.Items, nil
+}
+
+func (s *SubjectIssuersService) Get(ctx context.Context, zoneID, issuerID string) (*SubjectIssuer, error) {
+	var out SubjectIssuer
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/subject-issuers/"+issuerID, nil, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *SubjectIssuersService) Create(ctx context.Context, zoneID string, body map[string]any) (*SubjectIssuer, error) {
+	var out SubjectIssuer
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/subject-issuers", body, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *SubjectIssuersService) Patch(ctx context.Context, zoneID, issuerID string, body map[string]any) (*SubjectIssuer, error) {
+	var out SubjectIssuer
+	if err := s.client.do(ctx, http.MethodPatch, "/v1/zones/"+zoneID+"/subject-issuers/"+issuerID, body, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *SubjectIssuersService) Delete(ctx context.Context, zoneID, issuerID string) error {
+	return s.client.do(ctx, http.MethodDelete, "/v1/zones/"+zoneID+"/subject-issuers/"+issuerID, nil, nil, true)
+}
+
 // ProviderConnectionsService covers /v1/zones/{zone}/provider-connections.
 type ProviderConnectionsService struct{ client *AdminClient }
 
