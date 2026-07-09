@@ -89,8 +89,10 @@ type SessionInput struct {
 	Metadata        map[string]any
 	Labels          []string
 	TraceID         string
-	OnSessionStart  LifecycleHook
-	OnSessionEnd    LifecycleHook
+	// Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate.
+	IdempotencyKey string
+	OnSessionStart LifecycleHook
+	OnSessionEnd   LifecycleHook
 }
 
 type sessionInput struct {
@@ -107,6 +109,7 @@ type sessionInput struct {
 	metadata         map[string]any
 	labels           []string
 	traceID          string
+	idempotencyKey   string
 }
 
 type session struct {
@@ -122,6 +125,19 @@ type session struct {
 func isGone(err error) bool {
 	var coordErr *CoordinatorError
 	return errors.As(err, &coordErr) && (coordErr.StatusCode == 404 || coordErr.StatusCode == 409)
+}
+
+// retryAfterCap bounds a server-requested Retry-After so a hostile or
+// misconfigured header cannot stall the caller for minutes.
+const retryAfterCap = 10 * time.Second
+
+func retryDelay(attempt int, err error) time.Duration {
+	var coordErr *CoordinatorError
+	if errors.As(err, &coordErr) && coordErr.RetryAfterSeconds > 0 {
+		hinted := time.Duration(coordErr.RetryAfterSeconds * float64(time.Second))
+		return min(hinted, retryAfterCap) + rand.N(100*time.Millisecond)
+	}
+	return time.Duration(attempt+1)*250*time.Millisecond + rand.N(100*time.Millisecond)
 }
 
 // retire terminates a session on a cleanup path. It detaches from the caller's
@@ -167,6 +183,10 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	if authority.Mode == AuthorityModeInherit {
 		parentAuthority = "inherit"
 	}
+	idempotencyKey := in.idempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = newRandomHex(16)
+	}
 	req := SpawnRequest{
 		ZoneID:           in.zoneID,
 		ApplicationID:    in.applicationID,
@@ -176,7 +196,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		TTLSeconds:       in.ttlSeconds,
 		Metadata:         in.metadata,
 		Labels:           in.labels,
-		IdempotencyKey:   newRandomHex(16),
+		IdempotencyKey:   idempotencyKey,
 		ParentAuthority:  parentAuthority,
 	}
 	const spawnRetries = 2
@@ -192,10 +212,17 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		if errors.As(err, &coordErr) {
 			// A cached token can be rejected before its exp (server-side
 			// session revocation after a credential rotation); force one
-			// refresh and retry the spawn once.
+			// refresh and retry the spawn once. The jittered pause spreads
+			// the refresh across a fleet so a mass revocation cannot
+			// stampede the STS.
 			if coordErr.StatusCode == 401 && !refreshed && in.invalidate != nil && in.tokenSource != nil {
 				refreshed = true
 				in.invalidate()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(rand.N(250 * time.Millisecond)):
+				}
 				if token, err = in.tokenSource(ctx); err != nil {
 					return nil, err
 				}
@@ -209,11 +236,12 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		} else if attempt >= spawnRetries {
 			return nil, err
 		}
+		delay := retryDelay(attempt, err)
 		attempt++
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Duration(attempt)*250*time.Millisecond + rand.N(100*time.Millisecond)):
+		case <-time.After(delay):
 		}
 	}
 
@@ -305,6 +333,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 		metadata:         opts.Metadata,
 		labels:           opts.Labels,
 		traceID:          opts.TraceID,
+		idempotencyKey:   opts.IdempotencyKey,
 	}, "")
 	if err != nil {
 		return err
@@ -348,14 +377,16 @@ type Delegation struct {
 // session. The caller is the issuer: its own context is unchanged, because a
 // delegation grants authority to the receiver rather than the issuer. Hand
 // the returned delegation id to the receiving session, which presents it by
-// deriving its context with AcceptDelegation.
+// deriving its context with AcceptDelegation. A transient coordinator failure
+// is retried once under an idempotency key, so the coordinator replays the
+// already-created edge instead of issuing a duplicate.
 func Delegate(ctx context.Context, opts DelegateInput) (Delegation, error) {
 	c, ok := Current(ctx)
 	if !ok || c.SessionID == "" {
 		return Delegation{}, errors.New("caracal: Delegate requires an active session in context")
 	}
 
-	res, err := CreateDelegation(ctx, opts.Coordinator, c.SubjectToken, DelegationRequest{
+	req := DelegationRequest{
 		ZoneID:                c.ZoneID,
 		IssuerApplicationID:   c.ApplicationID,
 		SourceSessionID:       c.SessionID,
@@ -366,9 +397,29 @@ func Delegate(ctx context.Context, opts DelegateInput) (Delegation, error) {
 		Scopes:                opts.Scopes,
 		Constraints:           opts.Constraints,
 		TTLSeconds:            opts.TTLSeconds,
-	})
-	if err != nil {
-		return Delegation{}, err
+		IdempotencyKey:        newRandomHex(16),
+	}
+	var res DelegationResponse
+	for attempt := 0; ; {
+		var err error
+		res, err = CreateDelegation(ctx, opts.Coordinator, c.SubjectToken, req)
+		if err == nil {
+			break
+		}
+		var coordErr *CoordinatorError
+		if errors.As(err, &coordErr) && coordErr.StatusCode < 500 {
+			return Delegation{}, err
+		}
+		if attempt >= 1 {
+			return Delegation{}, err
+		}
+		delay := retryDelay(0, err)
+		attempt++
+		select {
+		case <-ctx.Done():
+			return Delegation{}, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 	return Delegation{DelegationID: res.DelegationEdgeID, Scopes: res.Scopes, ExpiresAt: res.ExpiresAt}, nil
 }
@@ -405,12 +456,14 @@ type StartSessionInput struct {
 	Invalidate       func()
 	SubjectSessionID string
 	// Session to parent under; defaults to the session bound on the calling context.
-	ParentSessionID   string
-	Authority         Authority
-	TTLSeconds        int
-	Metadata          map[string]any
-	Labels            []string
-	TraceID           string
+	ParentSessionID string
+	Authority       Authority
+	TTLSeconds      int
+	Metadata        map[string]any
+	Labels          []string
+	TraceID         string
+	// Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate.
+	IdempotencyKey    string
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
 	OnSessionStart    LifecycleHook
@@ -603,6 +656,7 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		metadata:         opts.Metadata,
 		labels:           opts.Labels,
 		traceID:          opts.TraceID,
+		idempotencyKey:   opts.IdempotencyKey,
 	}, LifecycleService)
 	if err != nil {
 		return nil, err
@@ -623,6 +677,66 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		onSessionEnd:      opts.OnSessionEnd,
 	}
 	if t, perr := time.Parse(time.RFC3339Nano, sess.heartbeatDeadlineAt); perr == nil {
+		agent.deadlineAt = t
+	}
+	if opts.HeartbeatInterval >= 0 {
+		agent.startAutoHeartbeat()
+	}
+	return agent, nil
+}
+
+// AttachSessionInput controls re-attachment to an existing service session.
+type AttachSessionInput struct {
+	Coordinator   *CoordinatorClient
+	ZoneID        string
+	ApplicationID string
+	SubjectToken  string
+	TokenSource   func(context.Context) (string, error)
+	Invalidate    func()
+	// The service session to re-attach to, from a previous StartSession in this or another process.
+	SessionID         string
+	HeartbeatInterval time.Duration
+	OnLeaseLost       func(error)
+	OnSessionEnd      LifecycleHook
+}
+
+// AttachSession re-attaches to a service session that already exists -
+// typically after a process restart, using a session id the previous holder
+// persisted. The session is validated with an immediate lease renewal (a
+// session the coordinator no longer holds live fails with *CoordinatorError),
+// and the returned handle renews and retires it exactly like one from
+// StartSession. The rebuilt context carries the session identity only;
+// delegations bound by the previous holder are re-presented with
+// AcceptDelegation.
+func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle, error) {
+	token := opts.SubjectToken
+	if opts.TokenSource != nil {
+		fresh, err := opts.TokenSource(ctx)
+		if err != nil {
+			return nil, err
+		}
+		token = fresh
+	}
+	first, err := HeartbeatAgent(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+	if err != nil {
+		return nil, err
+	}
+	agent := &SessionHandle{
+		Context: CaracalContext{
+			SubjectToken:  token,
+			ZoneID:        opts.ZoneID,
+			ApplicationID: opts.ApplicationID,
+			SessionID:     opts.SessionID,
+			OwnToken:      true,
+		},
+		coordinator:       opts.Coordinator,
+		tokenSource:       opts.TokenSource,
+		invalidate:        opts.Invalidate,
+		heartbeatInterval: opts.HeartbeatInterval,
+		onLeaseLost:       opts.OnLeaseLost,
+		onSessionEnd:      opts.OnSessionEnd,
+	}
+	if t, perr := time.Parse(time.RFC3339Nano, first.HeartbeatDeadlineAt); perr == nil {
 		agent.deadlineAt = t
 	}
 	if opts.HeartbeatInterval >= 0 {

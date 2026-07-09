@@ -72,6 +72,13 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
 		return
 	}
+	// RFC 8693 actor tokens are not part of the exchange contract: the acting
+	// application authenticates with its own client credentials and rides the
+	// policy input as caracal_client_id.
+	if r.FormValue("actor_token") != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token is not supported: authenticate the acting application with its own client credentials"))
+		return
+	}
 	ttlSeconds := 0
 	if rawTTL := r.FormValue("ttl_seconds"); rawTTL != "" {
 		parsedTTL, err := strconv.Atoi(rawTTL)
@@ -102,7 +109,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		GrantType:            r.FormValue("grant_type"),
 		SubjectToken:         r.FormValue("subject_token"),
 		SubjectTokenType:     r.FormValue("subject_token_type"),
-		ActorToken:           r.FormValue("actor_token"),
 		Resources:            r.Form["resource"],
 		Scope:                r.FormValue("scope"),
 		ZoneID:               r.FormValue("zone_id"),
@@ -275,22 +281,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	actorClaims := map[string]any{}
-	if req.ActorToken != "" {
-		actorClaims, err = s.validateSubjectToken(ctx, req.ActorToken, zoneID)
-		if err != nil {
-			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid actor_token")
-		}
-		if _, serr := s.validateTokenSession(ctx, zoneID, app.ID, "", actorClaims); serr != nil {
-			return nil, nil, http.StatusForbidden, serr
-		}
-		if sameTokenPrincipal(subjectClaims, actorClaims) {
-			return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token and subject_token must identify distinct principals")
-		}
-	}
-	// client_id is the authenticated calling application; it is published on a separate
-	// key so it never shadows actor token claims (which carry a distinct application id).
-	actorClaims["caracal_client_id"] = app.ID
+	// The authenticated calling application rides the policy input on
+	// actor_claims.caracal_client_id, keeping "who is acting" evaluable
+	// without a separate actor credential.
+	actorClaims := map[string]any{"caracal_client_id": app.ID}
 
 	principalID := app.ID
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
@@ -1288,7 +1282,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 }
 
 func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
-	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(req.Resources) == 0 {
@@ -1467,7 +1461,7 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 	if controlExpired(app, now.UTC()) {
 		return false
 	}
-	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(scopes) == 0 {
@@ -1983,17 +1977,6 @@ func claimString(claims map[string]any, key string) string {
 	}
 	value, _ := claims[key].(string)
 	return value
-}
-
-func sameTokenPrincipal(subjectClaims, actorClaims map[string]any) bool {
-	subject := claimString(subjectClaims, "sub")
-	actor := claimString(actorClaims, "sub")
-	if subject == "" || actor == "" || subject != actor {
-		return false
-	}
-	subjectClient := claimString(subjectClaims, "client_id")
-	actorClient := claimString(actorClaims, "client_id")
-	return subjectClient == "" || actorClient == "" || subjectClient == actorClient
 }
 
 func scopesAllowed(requested, available []string) bool {

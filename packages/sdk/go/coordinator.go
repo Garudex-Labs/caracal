@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,16 +32,40 @@ type CoordinatorClient struct {
 }
 
 // CoordinatorError is a non-2xx coordinator response, carrying the status code
-// so callers can branch on it (e.g. refresh a rejected bearer on 401).
+// so callers can branch on it (e.g. refresh a rejected bearer on 401) and the
+// server-requested retry delay when a Retry-After header arrived (0 = unset).
 type CoordinatorError struct {
-	Method     string
-	Path       string
-	StatusCode int
-	Body       string
+	Method            string
+	Path              string
+	StatusCode        int
+	Body              string
+	RetryAfterSeconds float64
 }
 
+// errorBodyCap bounds the response body carried on errors so an oversized or
+// sensitive-payload response never lands wholesale in logs and error trackers.
+const errorBodyCap = 2048
+
 func (e *CoordinatorError) Error() string {
-	return fmt.Sprintf("coordinator %s %s: %d %s", e.Method, e.Path, e.StatusCode, e.Body)
+	body := e.Body
+	if len(body) > errorBodyCap {
+		body = body[:errorBodyCap] + "\u2026 (truncated)"
+	}
+	return fmt.Sprintf("coordinator %s %s: %d %s", e.Method, e.Path, e.StatusCode, body)
+}
+
+func retryAfterSeconds(resp *http.Response) float64 {
+	raw := resp.Header.Get("Retry-After")
+	if raw == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseFloat(raw, 64); err == nil {
+		return max(secs, 0)
+	}
+	if at, err := http.ParseTime(raw); err == nil {
+		return max(time.Until(at).Seconds(), 0)
+	}
+	return 0
 }
 
 // defaultHTTPClient bounds coordinator calls when no client is injected, so a
@@ -139,6 +164,7 @@ type DelegationRequest struct {
 	Scopes                []string
 	Constraints           *DelegationConstraints
 	TTLSeconds            int
+	IdempotencyKey        string
 }
 
 // DelegationResponse is the created delegation edge: its id, the scopes it
@@ -147,6 +173,14 @@ type DelegationResponse struct {
 	DelegationEdgeID string   `json:"delegation_edge_id"`
 	Scopes           []string `json:"scopes"`
 	ExpiresAt        string   `json:"expires_at"`
+}
+
+// InboundDelegation is a delegation issued to a session, as the coordinator
+// holds it.
+type InboundDelegation struct {
+	DelegationEdgeID string
+	Status           string
+	ExpiresAt        string
 }
 
 // HeartbeatResponse reports the session state and renewed lease deadline.
@@ -243,12 +277,41 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 		body["ttl_seconds"] = req.TTLSeconds
 	}
 
+	extra := map[string]string{}
+	if req.IdempotencyKey != "" {
+		extra["Idempotency-Key"] = req.IdempotencyKey
+	}
+
 	var out DelegationResponse
-	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/delegations", bearer, body, nil, &out); err != nil {
+	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/delegations", bearer, body, extra, &out); err != nil {
 		return out, err
 	}
 	if out.DelegationEdgeID == "" {
 		return out, errors.New("caracal: coordinator delegation response missing delegation_edge_id")
+	}
+	return out, nil
+}
+
+// ListInboundDelegations calls GET /zones/:zoneId/delegations/inbound/:sessionId,
+// listing the delegations issued to a session so a receiver can confirm a
+// handed-over delegation id is live before presenting it.
+func ListInboundDelegations(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) ([]InboundDelegation, error) {
+	var wire struct {
+		Items []struct {
+			ID        string `json:"id"`
+			Status    string `json:"status"`
+			ExpiresAt string `json:"expires_at"`
+		} `json:"items"`
+	}
+	if err := doJSON(ctx, client, "GET", "/zones/"+url.PathEscape(zoneID)+"/delegations/inbound/"+url.PathEscape(sessionID), bearer, nil, nil, &wire); err != nil {
+		return nil, err
+	}
+	out := make([]InboundDelegation, 0, len(wire.Items))
+	for _, item := range wire.Items {
+		if item.ID == "" {
+			continue
+		}
+		out = append(out, InboundDelegation{DelegationEdgeID: item.ID, Status: item.Status, ExpiresAt: item.ExpiresAt})
 	}
 	return out, nil
 }
@@ -297,9 +360,9 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 		emit(resp.StatusCode, false)
 		raw, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: fmt.Sprintf("(reading response body: %v)", readErr)}
+			return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: fmt.Sprintf("(reading response body: %v)", readErr), RetryAfterSeconds: retryAfterSeconds(resp)}
 		}
-		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw)}
+		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw), RetryAfterSeconds: retryAfterSeconds(resp)}
 	}
 	emit(resp.StatusCode, true)
 
