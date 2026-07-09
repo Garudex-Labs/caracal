@@ -26,7 +26,7 @@ from .errors import (
     raise_for_caracal_error,
 )
 from .events import CaracalEvent, EventHook, emit_event
-from .types import APPROVAL_STATES, ApprovalState
+from .types import APPROVAL_STATES, ApprovalState, MintedMandate
 
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 MAX_LEEWAY_SECONDS = 60.0
@@ -64,10 +64,10 @@ __all__ = [
 ]
 
 
-def decode_jwt_exp(token: str) -> float | None:
-    """The ``exp`` claim of a JWT-shaped token, or ``None`` when the token is
-    opaque or the claim is absent or malformed. Signature verification is the
-    verifier's responsibility."""
+def decode_jwt_payload(token: str) -> dict[str, object] | None:
+    """The decoded payload of a JWT-shaped token, or ``None`` when the token
+    is opaque or malformed. Signature verification is the verifier's
+    responsibility."""
     parts = token.split(".")
     if len(parts) != 3:
         return None
@@ -77,6 +77,16 @@ def decode_jwt_exp(token: str) -> float | None:
     except (binascii.Error, ValueError, UnicodeDecodeError):
         return None
     if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def decode_jwt_exp(token: str) -> float | None:
+    """The ``exp`` claim of a JWT-shaped token, or ``None`` when the token is
+    opaque or the claim is absent or malformed. Signature verification is the
+    verifier's responsibility."""
+    payload = decode_jwt_payload(token)
+    if payload is None:
         return None
     exp = payload.get("exp")
     if isinstance(exp, (int, float)):
@@ -258,14 +268,17 @@ class ClientSecretExchanger:
                 self._mandate_locks[key] = lock
             return lock
 
-    def _cached_mandate(self, key: _MandateKey) -> str | None:
-        token = None
+    def _cached_mandate(self, key: _MandateKey) -> MintedMandate | None:
+        minted = None
         with self._lock:
             cached = self._mandates.get(key)
             if cached is not None and cached[1] - time.time() > cached[2]:
                 self._mandates.move_to_end(key)
-                token = cached[0]
-        if token is not None:
+                minted = MintedMandate(
+                    token=cached[0],
+                    expires_in_seconds=max(0, int(cached[1] - time.time())),
+                )
+        if minted is not None:
             emit_event(
                 self.on_event,
                 CaracalEvent(
@@ -276,7 +289,7 @@ class ClientSecretExchanger:
                     scopes=tuple(sorted(key[3])),
                 ),
             )
-        return token
+        return minted
 
     def _store_mandate(self, key: _MandateKey, token: str, exp: float) -> None:
         with self._lock:
@@ -300,7 +313,7 @@ class ClientSecretExchanger:
         delegation_edge_id: str | None = None,
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
-    ) -> str:
+    ) -> MintedMandate:
         """Exchange the application credential for a resource mandate audienced
         to one resource and narrowed to the requested scopes. Pass the calling
         agent's session and delegation edge so the STS evaluates policy against
@@ -348,7 +361,39 @@ class ClientSecretExchanger:
                 data["challenge_id"] = approval_id
             token, exp = self._exchange(data)
             self._store_mandate(key, token, exp)
-            return token
+            return MintedMandate(
+                token=token, expires_in_seconds=max(0, int(exp - time.time()))
+            )
+
+    def federate_subject(
+        self, id_token: str, *, ttl_seconds: int | None = None
+    ) -> MintedMandate:
+        """Exchange an end user's identity token from a zone-trusted external
+        issuer for the user's Caracal subject session mandate. The application
+        authenticates itself with its client secret and relays the token
+        verbatim; the minted session is the subject's identity anchor and
+        carries no resource authority. Never cached: each federation is an
+        explicit identity event."""
+        if not id_token:
+            raise ValueError("federate_subject requires the end user identity token")
+        creds = self._resolve()
+        data: dict[str, str | list[str]] = {
+            "grant_type": GRANT_TYPE,
+            "zone_id": creds.zone_id,
+            "application_id": creds.application_id,
+            "client_secret": creds.client_secret,
+            "subject_token": id_token,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+        }
+        if ttl_seconds is not None:
+            data["ttl_seconds"] = str(ttl_seconds)
+        response = self._http.post(f"{self._sts_url}/oauth/2/token", data=data)
+        if not response.is_success:
+            raise_for_caracal_error(response)
+        token, exp = self._parse_token(response)
+        return MintedMandate(
+            token=token, expires_in_seconds=max(0, int(exp - time.time()))
+        )
 
     def wait_for_approval(
         self, approval_id: str, *, timeout_seconds: float = 300.0

@@ -44,6 +44,16 @@ _SESSION_RETRIES = 2
 _MIN_AUTO_HEARTBEAT = 1.0
 _MAX_AUTO_HEARTBEAT = 300.0
 _FALLBACK_AUTO_HEARTBEAT = 30.0
+# A server-requested Retry-After wins over the default backoff, capped so a
+# hostile or misconfigured header cannot stall the caller for minutes.
+_RETRY_AFTER_CAP_SECONDS = 10.0
+
+
+def _retry_delay(attempt: int, exc: BaseException) -> float:
+    hinted = getattr(exc, "retry_after_seconds", None)
+    if hinted is not None:
+        return min(hinted, _RETRY_AFTER_CAP_SECONDS) + random.random() * 0.1
+    return 0.25 * (attempt + 1) + random.random() * 0.1
 
 
 def _is_gone(exc: BaseException) -> bool:
@@ -152,7 +162,7 @@ class Authority:
 
     @staticmethod
     def narrow(
-        scopes: list[str],
+        scopes: list[str] | str,
         *,
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
@@ -160,7 +170,7 @@ class Authority:
     ) -> Authority:
         return Authority(
             mode="narrow",
-            scopes=tuple(scopes),
+            scopes=(scopes,) if isinstance(scopes, str) else tuple(scopes),
             resource_id=resource_id,
             constraints=constraints,
             ttl_seconds=ttl_seconds,
@@ -191,6 +201,7 @@ async def _establish_session(
     metadata: JsonObject | None,
     labels: list[str] | None,
     trace_id: str | None,
+    idempotency_key: str | None = None,
     lifecycle: Lifecycle | None = None,
 ) -> _Established:
     authority = authority or Authority.inherit()
@@ -210,7 +221,7 @@ async def _establish_session(
         ttl_seconds=ttl_seconds,
         metadata=metadata,
         labels=labels,
-        idempotency_key=uuid.uuid4().hex,
+        idempotency_key=idempotency_key or uuid.uuid4().hex,
         parent_authority="inherit" if authority.mode == "inherit" else "none",
     )
     refreshed = False
@@ -222,7 +233,9 @@ async def _establish_session(
         except CoordinatorError as exc:
             # A cached token can be rejected before its exp (server-side
             # session revocation after a credential rotation); force one
-            # refresh and retry the spawn once.
+            # refresh and retry the spawn once. The jittered pause spreads
+            # the refresh across a fleet so a mass revocation cannot
+            # stampede the STS.
             if (
                 exc.status == 401
                 and not refreshed
@@ -231,6 +244,7 @@ async def _establish_session(
             ):
                 refreshed = True
                 invalidate()
+                await asyncio.sleep(random.random() * 0.25)
                 bearer = await _resolve_bearer(token_source, subject_token)
                 continue
             # The idempotency key makes retrying a 5xx safe: the coordinator
@@ -238,8 +252,8 @@ async def _establish_session(
             # duplicate.
             if exc.status < 500 or attempt >= _SESSION_RETRIES:
                 raise
+            await asyncio.sleep(_retry_delay(attempt, exc))
             attempt += 1
-            await asyncio.sleep(0.25 * attempt + random.random() * 0.1)
         except httpx.TransportError:
             if attempt >= _SESSION_RETRIES:
                 raise
@@ -320,6 +334,7 @@ async def session(
     metadata: JsonObject | None = None,
     labels: list[str] | None = None,
     trace_id: str | None = None,
+    idempotency_key: str | None = None,
     on_session_start: LifecycleHook | None = None,
     on_session_end: LifecycleHook | None = None,
 ) -> AsyncGenerator[CaracalContext, None]:
@@ -358,6 +373,7 @@ async def session(
         metadata=metadata,
         labels=labels,
         trace_id=trace_id,
+        idempotency_key=idempotency_key,
     )
     ctx = established.ctx
 
@@ -563,6 +579,7 @@ async def start_session(
     metadata: JsonObject | None = None,
     labels: list[str] | None = None,
     trace_id: str | None = None,
+    idempotency_key: str | None = None,
     heartbeat_interval: float | None = None,
     on_lease_lost: Callable[[BaseException], None] | None = None,
     on_session_start: LifecycleHook | None = None,
@@ -601,6 +618,7 @@ async def start_session(
         metadata=metadata,
         labels=labels,
         trace_id=trace_id,
+        idempotency_key=idempotency_key,
         lifecycle=Lifecycle.SERVICE,
     )
     ctx = established.ctx
@@ -624,6 +642,52 @@ async def start_session(
         token_source=token_source,
         invalidate=invalidate,
         heartbeat_deadline_at=established.heartbeat_deadline_at,
+        on_lease_lost=on_lease_lost,
+        on_session_end=on_session_end,
+    )
+    handle._start_auto_heartbeat()
+    return handle
+
+
+async def attach_session(
+    *,
+    coordinator: CoordinatorClient,
+    zone_id: str,
+    application_id: str,
+    subject_token: str,
+    session_id: str,
+    token_source: TokenSource | None = None,
+    invalidate: Callable[[], None] | None = None,
+    heartbeat_interval: float | None = None,
+    on_lease_lost: Callable[[BaseException], None] | None = None,
+    on_session_end: LifecycleHook | None = None,
+) -> SessionHandle:
+    """Re-attach to a service session that already exists - typically after a
+    process restart, using a session id the previous holder persisted. The
+    session is validated with an immediate lease renewal (a session the
+    coordinator no longer holds live fails with :class:`CoordinatorError`),
+    and the returned handle renews and retires it exactly like one from
+    :func:`start_session`. The rebuilt context carries the session identity
+    only; delegations bound by the previous holder are re-presented with
+    :func:`accept_delegation`."""
+    bearer = await _resolve_bearer(token_source, subject_token)
+    first = await heartbeat_agent(coordinator, bearer, zone_id, session_id)
+    ctx = CaracalContext(
+        subject_token=bearer,
+        zone_id=zone_id,
+        application_id=application_id,
+        session_id=session_id,
+        hop=0,
+        own_token=True,
+    )
+    handle = SessionHandle(
+        coordinator=coordinator,
+        subject_token=bearer,
+        context=ctx,
+        heartbeat_interval=heartbeat_interval,
+        token_source=token_source,
+        invalidate=invalidate,
+        heartbeat_deadline_at=first.heartbeat_deadline_at,
         on_lease_lost=on_lease_lost,
         on_session_end=on_session_end,
     )
@@ -663,22 +727,37 @@ async def delegate(
     if ctx is None or not ctx.session_id:
         raise RuntimeError("delegate requires an active session in context")
 
-    res = await create_delegation(
-        coordinator,
-        ctx.subject_token,
-        DelegationRequest(
-            zone_id=ctx.zone_id,
-            issuer_application_id=ctx.application_id,
-            source_session_id=ctx.session_id,
-            target_session_id=to_session_id,
-            receiver_application_id=to_application_id,
-            parent_edge_id=ctx.delegation_id,
-            resource_id=resource_id,
-            scopes=scopes,
-            constraints=constraints,
-            ttl_seconds=ttl_seconds,
-        ),
+    req = DelegationRequest(
+        zone_id=ctx.zone_id,
+        issuer_application_id=ctx.application_id,
+        source_session_id=ctx.session_id,
+        target_session_id=to_session_id,
+        receiver_application_id=to_application_id,
+        parent_edge_id=ctx.delegation_id,
+        resource_id=resource_id,
+        scopes=scopes,
+        constraints=constraints,
+        ttl_seconds=ttl_seconds,
+        idempotency_key=uuid.uuid4().hex,
     )
+    # The idempotency key makes one retry of a transient failure safe: the
+    # coordinator replays the already-created edge instead of issuing a
+    # duplicate delegation.
+    attempt = 0
+    while True:
+        try:
+            res = await create_delegation(coordinator, ctx.subject_token, req)
+            break
+        except CoordinatorError as exc:
+            if exc.status < 500 or attempt >= 1:
+                raise
+            await asyncio.sleep(_retry_delay(0, exc))
+            attempt += 1
+        except httpx.TransportError:
+            if attempt >= 1:
+                raise
+            attempt += 1
+            await asyncio.sleep(0.25 + random.random() * 0.1)
     return Delegation(
         delegation_id=res.delegation_edge_id,
         scopes=tuple(res.scopes),
