@@ -1,0 +1,12 @@
+#!/bin/sh
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Formats staged primary-language source files with the pinned style toolchain before each commit.
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is required to run the style gate (scripts/checkStyle.mjs)" >&2
+  exit 1
+fi
+
+exec node scripts/checkStyle.mjs --staged --fix

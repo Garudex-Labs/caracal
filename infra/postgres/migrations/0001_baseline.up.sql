@@ -892,6 +892,26 @@ CREATE TABLE public.step_up_challenges (
 
 
 --
+-- Name: subject_issuers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subject_issuers (
+    id text NOT NULL,
+    zone_id text NOT NULL,
+    issuer text NOT NULL,
+    jwks_url text NOT NULL,
+    audience text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    created_by text,
+    created_via_operator boolean DEFAULT false NOT NULL,
+    updated_by text,
+    updated_via_operator boolean DEFAULT false NOT NULL
+);
+
+
+--
 -- Name: workloads; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1384,6 +1404,14 @@ ALTER TABLE ONLY public.sessions
 
 ALTER TABLE ONLY public.step_up_challenges
     ADD CONSTRAINT step_up_challenges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: subject_issuers subject_issuers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subject_issuers
+    ADD CONSTRAINT subject_issuers_pkey PRIMARY KEY (id);
 
 
 --
@@ -2055,6 +2083,20 @@ CREATE INDEX step_up_challenges_zone_keyset_idx ON public.step_up_challenges USI
 
 
 --
+-- Name: subject_issuers_zone_issuer_active_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX subject_issuers_zone_issuer_active_uidx ON public.subject_issuers USING btree (zone_id, issuer) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: subject_issuers_zone_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX subject_issuers_zone_keyset_idx ON public.subject_issuers USING btree (zone_id, created_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
 -- Name: step_up_challenges_zone_principal; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2619,6 +2661,14 @@ ALTER TABLE ONLY public.workloads
 
 
 --
+-- Name: subject_issuers subject_issuers_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subject_issuers
+    ADD CONSTRAINT subject_issuers_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+
+
+--
 -- Name: admin_audit_events; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2773,6 +2823,12 @@ ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.step_up_challenges ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: subject_issuers; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.subject_issuers ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: admin_audit_events zone_isolation; Type: POLICY; Schema: public; Owner: -
@@ -2954,6 +3010,13 @@ CREATE POLICY zone_isolation ON public.sessions USING (((current_setting('caraca
 --
 
 CREATE POLICY zone_isolation ON public.step_up_challenges USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: subject_issuers zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.subject_issuers USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -3218,6 +3281,8 @@ GRANT SELECT ON TABLE public.sessions TO caracalcoordinator;
 
 GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.step_up_challenges TO caracalsts;
 GRANT SELECT,UPDATE ON TABLE public.step_up_challenges TO caracalapi;
+GRANT SELECT ON TABLE public.subject_issuers TO caracalsts;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.subject_issuers TO caracalapi;
 
 
 --

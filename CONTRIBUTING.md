@@ -104,9 +104,9 @@ This policy is mandatory and is enforced during review:
 
 ## Coding Style
 
-Caracal follows standard language conventions: TypeScript/JavaScript (TypeScript + Prettier), Go (Effective Go + `gofmt`), and Python (PEP 8 + Ruff). 
+Caracal follows standard language conventions: TypeScript/JavaScript (TypeScript + Prettier), Go (Effective Go + `gofmt`), and Python (PEP 8 + Ruff).
 
-Style checks run automatically in pull requests, with `pnpm run style` for validation and `pnpm run style:fix` for automatic formatting.
+The style gate always formats with the same pinned toolchain CI checks against: Prettier from the workspace lockfile, `gofmt`, and the Ruff version pinned in `scripts/pythonStyleRequirements.in` (installed into the repository venv on demand). `pnpm install` activates the repository pre-commit hook (`.githooks/pre-commit`), which formats and restages staged source files on every commit. Use `pnpm run style` to validate unpushed work and `pnpm run style:fix` to format manually.
 
 
 ## Submitting Changes

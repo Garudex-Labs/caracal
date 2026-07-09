@@ -6,6 +6,7 @@
     "caracal": "apps/runtime/bin/caracal-workspace.mjs"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "setup": "node scripts/setupDev.mjs",
     "caracal": "node apps/runtime/bin/caracal-workspace.mjs",
     "secrets:init": "node infra/secrets/secretInit.mjs",
