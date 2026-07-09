@@ -10,7 +10,7 @@ from __future__ import annotations
 
 class MissingTokenError(RuntimeError):
     """An inbound request reached a Caracal binding boundary without a bearer
-    token. Middleware answers this with 401; pass ``allow_root=True`` only for
+    token. Middleware answers this with 401; pass ``as_application=True`` only for
     trusted service-root ingress."""
 
 

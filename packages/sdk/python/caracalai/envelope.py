@@ -4,13 +4,16 @@ Caracal, a product of Garudex Labs
 
 Wire envelope using W3C Trace Context (traceparent/tracestate) and W3C Baggage.
 
-Caracal correlation fields (session, agent_session, delegation_edge,
-parent_edge, hop) ride in Baggage under the caracal.* namespace alongside
-pass-through third-party entries; trace identity rides in traceparent and
-tracestate. Decoding reads the subject token from Authorization, but encoding
-never writes it: credential emission is an explicit client-layer decision.
-Baggage is unsigned routing metadata; verifiers must treat signed token claims
-as the only authoritative source of delegation state.
+Caracal correlation fields ride in Baggage under the caracal.* namespace
+alongside pass-through third-party entries; trace identity rides in
+traceparent and tracestate. The wire keys keep their protocol names: the
+session id travels as caracal.agent_session, the delegation id as
+caracal.delegation_edge, its parent as caracal.parent_edge, and the subject
+session as caracal.session. Decoding reads the subject token from
+Authorization, but encoding never writes it: credential emission is an
+explicit client-layer decision. Baggage is unsigned routing metadata;
+verifiers must treat signed token claims as the only authoritative source of
+delegation state.
 """
 
 from __future__ import annotations
@@ -56,10 +59,10 @@ _HOP_RE = re.compile(r"[0-9]+")
 @dataclass
 class Envelope:
     subject_token: str | None = None
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
-    parent_edge_id: str | None = None
     session_id: str | None = None
+    delegation_id: str | None = None
+    parent_delegation_id: str | None = None
+    subject_session_id: str | None = None
     trace_id: str | None = None
     trace_flags: str | None = None
     trace_state: str | None = None
@@ -162,10 +165,10 @@ def decode_envelope(get: HeaderGetter) -> Envelope:
     hop = min(MAX_HOP, int(hop_raw)) if hop_raw and _HOP_RE.fullmatch(hop_raw) else 0
     return Envelope(
         subject_token=bearer.group(1) if bearer else None,
-        agent_session_id=bag.get(BAGGAGE_AGENT_SESSION) or None,
-        delegation_edge_id=bag.get(BAGGAGE_DELEGATION_EDGE) or None,
-        parent_edge_id=bag.get(BAGGAGE_PARENT_EDGE) or None,
-        session_id=bag.get(BAGGAGE_SESSION) or None,
+        session_id=bag.get(BAGGAGE_AGENT_SESSION) or None,
+        delegation_id=bag.get(BAGGAGE_DELEGATION_EDGE) or None,
+        parent_delegation_id=bag.get(BAGGAGE_PARENT_EDGE) or None,
+        subject_session_id=bag.get(BAGGAGE_SESSION) or None,
         trace_id=trace.trace_id if trace else None,
         trace_flags=trace.flags if trace else None,
         trace_state=trace_state or None,
@@ -194,20 +197,20 @@ def encode_envelope(
         merged.update(parse_baggage(get_header(HEADER_BAGGAGE)))
     for key in _CARACAL_BAGGAGE_KEYS:
         merged.pop(key, None)
-    if env.agent_session_id:
-        merged[BAGGAGE_AGENT_SESSION] = env.agent_session_id
-    if env.delegation_edge_id:
-        merged[BAGGAGE_DELEGATION_EDGE] = env.delegation_edge_id
-    if env.parent_edge_id:
-        merged[BAGGAGE_PARENT_EDGE] = env.parent_edge_id
     if env.session_id:
-        merged[BAGGAGE_SESSION] = env.session_id
+        merged[BAGGAGE_AGENT_SESSION] = env.session_id
+    if env.delegation_id:
+        merged[BAGGAGE_DELEGATION_EDGE] = env.delegation_id
+    if env.parent_delegation_id:
+        merged[BAGGAGE_PARENT_EDGE] = env.parent_delegation_id
+    if env.subject_session_id:
+        merged[BAGGAGE_SESSION] = env.subject_session_id
     if env.hop > 0 or any(
         (
-            env.agent_session_id,
-            env.delegation_edge_id,
-            env.parent_edge_id,
             env.session_id,
+            env.delegation_id,
+            env.parent_delegation_id,
+            env.subject_session_id,
         )
     ):
         merged[BAGGAGE_HOP] = str(env.hop)

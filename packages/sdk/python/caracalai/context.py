@@ -26,10 +26,10 @@ class CaracalContext:
     subject_token: str
     zone_id: str
     application_id: str
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
-    parent_edge_id: str | None = None
     session_id: str | None = None
+    delegation_id: str | None = None
+    parent_delegation_id: str | None = None
+    subject_session_id: str | None = None
     trace_id: str | None = None
     trace_flags: str | None = None
     trace_state: str | None = None
@@ -46,10 +46,10 @@ class CaracalContext:
 class AuthoritySummary:
     zone_id: str
     application_id: str
+    subject_session_id: str | None
     session_id: str | None
-    agent_session_id: str | None
-    delegation_edge_id: str | None
-    parent_edge_id: str | None
+    delegation_id: str | None
+    parent_delegation_id: str | None
     trace_id: str | None
     hop: int
     chain: tuple[str, ...]
@@ -63,10 +63,10 @@ class VerifiedClaims:
 
     zone_id: str | None = None
     application_id: str | None = None
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
-    parent_edge_id: str | None = None
     session_id: str | None = None
+    delegation_id: str | None = None
+    parent_delegation_id: str | None = None
+    subject_session_id: str | None = None
     hop: int | None = None
 
 
@@ -74,10 +74,10 @@ class CaracalContextPatch(TypedDict):
     subject_token: NotRequired[str]
     zone_id: NotRequired[str]
     application_id: NotRequired[str]
-    agent_session_id: NotRequired[str | None]
-    delegation_edge_id: NotRequired[str | None]
-    parent_edge_id: NotRequired[str | None]
     session_id: NotRequired[str | None]
+    delegation_id: NotRequired[str | None]
+    parent_delegation_id: NotRequired[str | None]
+    subject_session_id: NotRequired[str | None]
     trace_id: NotRequired[str | None]
     trace_flags: NotRequired[str | None]
     trace_state: NotRequired[str | None]
@@ -120,10 +120,10 @@ def with_overrides(**patch: Unpack[CaracalContextPatch]) -> CaracalContext:
 def to_envelope(ctx: CaracalContext) -> Envelope:
     return Envelope(
         subject_token=ctx.subject_token,
-        agent_session_id=ctx.agent_session_id,
-        delegation_edge_id=ctx.delegation_edge_id,
-        parent_edge_id=ctx.parent_edge_id,
         session_id=ctx.session_id,
+        delegation_id=ctx.delegation_id,
+        parent_delegation_id=ctx.parent_delegation_id,
+        subject_session_id=ctx.subject_session_id,
         trace_id=ctx.trace_id,
         trace_flags=ctx.trace_flags,
         trace_state=ctx.trace_state,
@@ -144,10 +144,10 @@ def from_envelope(
         subject_token=env.subject_token,
         zone_id=zone_id,
         application_id=application_id,
-        agent_session_id=env.agent_session_id,
-        delegation_edge_id=env.delegation_edge_id,
-        parent_edge_id=env.parent_edge_id,
         session_id=env.session_id,
+        delegation_id=env.delegation_id,
+        parent_delegation_id=env.parent_delegation_id,
+        subject_session_id=env.subject_session_id,
         trace_id=env.trace_id,
         trace_flags=env.trace_flags,
         trace_state=env.trace_state,
@@ -162,21 +162,21 @@ def describe_authority(ctx: CaracalContext | None = None) -> AuthoritySummary | 
     if ctx is None:
         return None
     chain: list[str] = []
+    if ctx.subject_session_id:
+        chain.append(f"subject:{ctx.subject_session_id}")
     if ctx.session_id:
         chain.append(f"session:{ctx.session_id}")
-    if ctx.agent_session_id:
-        chain.append(f"agent-session:{ctx.agent_session_id}")
-    if ctx.parent_edge_id:
-        chain.append(f"parent-edge:{ctx.parent_edge_id}")
-    if ctx.delegation_edge_id:
-        chain.append(f"delegation-edge:{ctx.delegation_edge_id}")
+    if ctx.parent_delegation_id:
+        chain.append(f"parent-delegation:{ctx.parent_delegation_id}")
+    if ctx.delegation_id:
+        chain.append(f"delegation:{ctx.delegation_id}")
     return AuthoritySummary(
         zone_id=ctx.zone_id,
         application_id=ctx.application_id,
+        subject_session_id=ctx.subject_session_id,
         session_id=ctx.session_id,
-        agent_session_id=ctx.agent_session_id,
-        delegation_edge_id=ctx.delegation_edge_id,
-        parent_edge_id=ctx.parent_edge_id,
+        delegation_id=ctx.delegation_id,
+        parent_delegation_id=ctx.parent_delegation_id,
         trace_id=ctx.trace_id,
         hop=ctx.hop,
         chain=tuple(chain),
