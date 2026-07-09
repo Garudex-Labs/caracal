@@ -1,6 +1,6 @@
 ---
 title: Human Approval
-description: Declare approval tiers in policy data, hold the exchange, and decide it from the Console, the Admin API, or your application's own end user.
+description: Declare approval tiers in policy data, hold the exchange, and decide it from the Console, the Admin API, or your application's federated end user.
 ---
 
 Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
@@ -38,7 +38,7 @@ approval_tiers := [
 | Field | Meaning |
 | --- | --- |
 | `tier` | Your tier name; the platform fixes no taxonomy. Required - a declaration without a tier fails the mint closed. |
-| `approver` | Who may decide: `operator` (approve-capable admin credential), `subject` (the application's own end user), or `any`. Defaults to `operator`. |
+| `approver` | Who may decide: `operator` (approve-capable admin credential), `subject` (the application's own federated end user - see below), or `any`. Defaults to `operator`. |
 | `ttl_seconds` | How long the hold stays decidable, clamped between 60 seconds and 7 days. Defaults to 1800. |
 | `privacy` | How much approver identity the decision record retains: `identified`, `pseudonymous`, or `anonymous`. Defaults to `identified`. |
 
@@ -87,16 +87,16 @@ Use `/reject` to settle the hold terminally. Deciding requires an admin token mi
 
 ## Decide as the application's end user
 
-A hold declared for `subject` (or `any`) is decided by the application's own authenticated end user through the STS, using the session mandate the application already holds:
+A hold declared `"approver": "subject"` reserves the decision for the application's own end user and refuses every operator decision with `subject_approval_required`. Deciding it takes a user session mandate minted through subject federation: register the application's identity system as a zone subject issuer, exchange the end user's identity token (`subject_token_type=urn:ietf:params:oauth:token-type:id_token`) for the user's session mandate, then post the decision to the STS:
 
 ```bash
 curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
-  -H "Authorization: Bearer $SESSION_MANDATE" \
+  -H "Authorization: Bearer $USER_SESSION_MANDATE" \
   -H "Content-Type: application/json" \
   -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
 ```
 
-The decision must echo the hold's binding exactly, so an approval prompt that does not know the precise held resource and scope set cannot decide it. The session that raised the hold cannot approve itself, and the tier's privacy mode governs what the decision record keeps of the approver: `identified` stores the subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, `anonymous` a redaction marker. The approver's session id is always retained as the forensic anchor.
+The SDK OAuth clients wrap both steps: `federateSubject(idToken)` mints the user session, and `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly, so an approval prompt that does not know the precise held resource and scope set cannot decide it. The session that raised the hold cannot approve itself, and the deciding user must have federated through the application that raised the hold. Without a registered subject issuer, a subject-reserved hold can only expire - declare `operator` or `any` tiers instead.
 
 ## Retry the exchange
 
@@ -107,7 +107,7 @@ Retry with `challenge_id` once the hold is approved. The STS verifies the approv
 | Symptom | Check |
 | --- | --- |
 | Deny without a `challenge_id` | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`. |
-| `subject_approval_required` on approve | The policy reserves this decision for the application's end user; no zone credential overrides it. |
+| `subject_approval_required` on approve | The tier declares `"approver": "subject"`: only the application's own federated end user can decide it. Relay the hold to the user, or redeclare the tier as `operator` or `any`. |
 | `challenge_not_decidable` | The hold was already decided, consumed, or expired; the response names its current state. |
 | `approve_capability_required` | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability. |
 | Retry still denied | The approval may have expired before consumption, or the retry changed the resource or scope set - the binding must match the original request exactly. |

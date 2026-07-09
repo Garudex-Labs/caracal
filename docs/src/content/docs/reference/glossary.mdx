@@ -30,6 +30,7 @@ Use these terms consistently across docs, API names, web console labels, and exa
 | Session handle | Holder-owned handle for a long-lived session started with `startSession()`; it renews the heartbeat lease and is retired explicitly. |
 | STS | Security Token Service that performs token exchange and mandate issuance. |
 | Subject | The identity work is done for: the `sub` recorded on sessions and mandates. Caracal federates it from the exchanged token as an opaque, stable identifier owned by the application's own identity system; Caracal never generates one. |
+| Subject issuer | Zone-registered trust declaration for an external identity system (issuer, JWKS URL, audience) whose end-user identity tokens the STS accepts for subject federation. |
 | Subject session | STS record minted at token exchange that anchors issued authority to a subject; shown on the console Subjects page and the anchor revocation acts on. |
 | System zone | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal; the Operator self-governs through it and never executes against it. |
 | Workload | Launcher identity for software started with `caracal run`; it holds a client secret and the launch bindings that name which credentials are injected. |

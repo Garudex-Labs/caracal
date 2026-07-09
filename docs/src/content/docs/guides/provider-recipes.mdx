@@ -103,7 +103,7 @@ For automation, the simplest path is a pre-issued token.
 | Resource upstream URL | `https://api.github.com` |
 | Resource scopes | `github:repo-read`, `github:issues-write` |
 
-For delegated per-user consent instead of a shared token, use `oauth2_authorization_code` with `authorization_endpoint=https://github.com/login/oauth/authorize` and `token_endpoint=https://github.com/login/oauth/access_token`.
+For a delegated, consented account instead of a shared token, use `oauth2_authorization_code` with `authorization_endpoint=https://github.com/login/oauth/authorize` and `token_endpoint=https://github.com/login/oauth/access_token`.
 
 ## Slack (OAuth client credentials or bearer)
 

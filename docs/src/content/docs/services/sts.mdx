@@ -6,7 +6,7 @@ pageType: reference
 
 STS is the authority issuance boundary. It authenticates applications, validates sessions and delegated authority, evaluates policies, handles step-up challenges, and returns scoped mandate JWTs.
 
-STS federates subject identity rather than managing it: it never authenticates end users and never generates a `sub`. The subject recorded on a minted session is the `sub` of the exchanged subject token - an opaque, stable identifier owned by the application's own identity system - or the application id itself when the exchange carries no subject token. See [Use STS Endpoint](/api/sts/#subject-identity) for the exchange contract.
+STS federates subject identity rather than managing it: it never authenticates end users and never generates a `sub`. The subject recorded on a minted session is the `sub` of the exchanged subject token - an opaque, stable identifier owned by the application's own identity system - or the application id itself when the exchange carries no subject token. A zone registers **subject issuers** (external issuer, JWKS URL, audience) to accept end-user identity tokens directly; see [Use STS Endpoint](/api/sts/#subject-identity) for the exchange contract.
 
 ## Endpoints
 
@@ -19,7 +19,7 @@ STS listens on port `8080`.
 | `POST /v1/run/credential` | Credential minting for `caracal run` workloads. |
 | `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys. |
 | `GET /step-up/{id}` | Step-up hold status. |
-| `POST /step-up/{id}/decision` | Step-up approval or rejection. |
+| `POST /step-up/{id}/decision` | Subject-plane step-up decision (federated user session mandate required). |
 | `GET /health`, `GET /ready` | Liveness and readiness. |
 | `GET /metrics`, `GET /metrics.json` | Service metrics. |
 
