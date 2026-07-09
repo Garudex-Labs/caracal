@@ -20,8 +20,8 @@ function ctx(overrides: Partial<CaracalContext> = {}): CaracalContext {
     subjectToken: 'tok',
     zoneId: 'zone-1',
     applicationId: 'app-1',
-    agentSessionId: 'agent-1',
-    sessionId: 'sess-1',
+    sessionId: 'agent-1',
+    subjectSessionId: 'sess-1',
     traceId: 'trace-1',
     hop: 0,
     ...overrides,
@@ -32,16 +32,16 @@ describe('bind and current', () => {
   it('exposes the bound context inside the callback and clears it outside', async () => {
     expect(current()).toBeUndefined()
     const seen = await bind(ctx(), async () => current())
-    expect(seen?.agentSessionId).toBe('agent-1')
+    expect(seen?.sessionId).toBe('agent-1')
     expect(current()).toBeUndefined()
   })
 
   it('isolates concurrent bind scopes from each other', async () => {
     const seen = await Promise.all(
       ['a', 'b', 'c'].map((id) =>
-        bind(ctx({ agentSessionId: `agent-${id}` }), async () => {
+        bind(ctx({ sessionId: `agent-${id}` }), async () => {
           await new Promise((resolve) => setTimeout(resolve, 1))
-          return current()?.agentSessionId
+          return current()?.sessionId
         }),
       ),
     )
@@ -98,14 +98,14 @@ describe('withOverrides', () => {
 
 describe('envelope round-trip', () => {
   it('serializes and restores a context via the envelope', () => {
-    const original = ctx({ delegationEdgeId: 'edge-1', parentEdgeId: 'edge-0', hop: 2 })
+    const original = ctx({ delegationId: 'edge-1', parentDelegationId: 'edge-0', hop: 2 })
     const env = toEnvelope(original)
     const restored = fromEnvelope(env, { zoneId: 'zone-1', applicationId: 'app-1' })
     expect(restored).toMatchObject({
       subjectToken: 'tok',
-      agentSessionId: 'agent-1',
-      delegationEdgeId: 'edge-1',
-      parentEdgeId: 'edge-0',
+      sessionId: 'agent-1',
+      delegationId: 'edge-1',
+      parentDelegationId: 'edge-0',
       hop: 2,
     })
   })
@@ -123,17 +123,17 @@ describe('describeAuthority', () => {
   it('builds the full authority chain in order', () => {
     const summary = describeAuthority(
       ctx({
-        delegationEdgeId: 'edge-1',
-        parentEdgeId: 'edge-0',
+        delegationId: 'edge-1',
+        parentDelegationId: 'edge-0',
         hop: 3,
       }),
     )
-    expect(summary?.chain).toEqual(['session:sess-1', 'agent-session:agent-1', 'parent-edge:edge-0', 'delegation-edge:edge-1'])
+    expect(summary?.chain).toEqual(['subject:sess-1', 'session:agent-1', 'parent-delegation:edge-0', 'delegation:edge-1'])
     expect(summary).toMatchObject({ zoneId: 'zone-1', applicationId: 'app-1', hop: 3 })
   })
 
   it('omits chain segments for absent identifiers', () => {
-    const summary = describeAuthority(ctx({ agentSessionId: undefined, sessionId: undefined }))
+    const summary = describeAuthority(ctx({ sessionId: undefined, subjectSessionId: undefined }))
     expect(summary?.chain).toEqual([])
   })
 })

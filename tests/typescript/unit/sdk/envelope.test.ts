@@ -151,7 +151,7 @@ describe('encodeEnvelope', () => {
       [HeaderBaggage]: `tenant=hooli,${BaggageHop}=9`,
     }
     const env: Envelope = {
-      agentSessionId: 'sess',
+      sessionId: 'sess',
       traceId: '0123456789abcdef0123456789abcdef',
       traceState: 'caracal=ignored',
       hop: 2,
@@ -185,10 +185,10 @@ describe('toHeaders/fromHeaders', () => {
   it('round-trips the full envelope without the subject token', () => {
     const env: Envelope = {
       subjectToken: 'tok',
-      agentSessionId: 'agent-1',
-      delegationEdgeId: 'edge-1',
-      parentEdgeId: 'parent-1',
-      sessionId: 'sid-1',
+      sessionId: 'agent-1',
+      delegationId: 'edge-1',
+      parentDelegationId: 'parent-1',
+      subjectSessionId: 'sid-1',
       traceId: 'a'.repeat(32),
       traceFlags: '00',
       traceState: 'vendor=value',
@@ -200,10 +200,10 @@ describe('toHeaders/fromHeaders', () => {
 
     const recovered = fromHeaders(headers)
     expect(recovered.subjectToken).toBeUndefined()
-    expect(recovered.agentSessionId).toBe('agent-1')
-    expect(recovered.delegationEdgeId).toBe('edge-1')
-    expect(recovered.parentEdgeId).toBe('parent-1')
-    expect(recovered.sessionId).toBe('sid-1')
+    expect(recovered.sessionId).toBe('agent-1')
+    expect(recovered.delegationId).toBe('edge-1')
+    expect(recovered.parentDelegationId).toBe('parent-1')
+    expect(recovered.subjectSessionId).toBe('sid-1')
     expect(recovered.traceId).toBe('a'.repeat(32))
     expect(recovered.traceFlags).toBe('00')
     expect(recovered.traceState).toBe('vendor=value')
@@ -217,7 +217,7 @@ describe('toHeaders/fromHeaders', () => {
       Baggage: [`${BaggageAgentSession}=sess`, 'tenant=hooli'],
     })
     expect(env.subjectToken).toBe('tok')
-    expect(env.agentSessionId).toBe('sess')
+    expect(env.sessionId).toBe('sess')
     expect(env.baggage).toEqual({ tenant: 'hooli' })
   })
 })

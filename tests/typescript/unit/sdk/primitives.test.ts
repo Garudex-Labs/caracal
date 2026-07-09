@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Integration-style tests for SDK primitives: spawn (with grant) and delegate drive the coordinator client end-to-end.
+// Integration-style tests for SDK primitives: session (with authority) and delegate drive the coordinator client end-to-end.
 
 import { describe, it, expect, vi } from 'vitest'
-import { spawn, spawnService, delegate, adoptDelegation, Grant } from '../../../../packages/sdk/ts/src/primitives.js'
+import { session, startSession, delegate, acceptDelegation, Authority } from '../../../../packages/sdk/ts/src/primitives.js'
 import { type CoordinatorClient } from '../../../../packages/sdk/ts/src/coordinator.js'
 import { bind, current, type CaracalContext } from '../../../../packages/sdk/ts/src/context.js'
 
@@ -33,82 +33,82 @@ function baseCtx(overrides: Partial<CaracalContext> = {}): CaracalContext {
     subjectToken: 'tok',
     zoneId: 'zone-1',
     applicationId: 'app-1',
-    agentSessionId: 'agent-parent',
-    sessionId: 'sess-1',
+    sessionId: 'agent-parent',
+    subjectSessionId: 'sess-1',
     traceId: 'trace-1',
     hop: 0,
     ...overrides,
   }
 }
 
-describe('spawn', () => {
-  it('binds the spawned context and terminates an instance afterwards', async () => {
+describe('session', () => {
+  it('binds the session context and terminates an instance afterwards', async () => {
     const { client, calls } = recorder()
-    let boundAgent: string | undefined
-    const result = await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
-      boundAgent = current()?.agentSessionId
+    let boundSession: string | undefined
+    const result = await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+      boundSession = current()?.sessionId
       return 'done'
     })
     expect(result).toBe('done')
-    expect(boundAgent).toBe('agent-new')
+    expect(boundSession).toBe('agent-new')
     expect(calls.map((c) => c.method)).toContain('DELETE')
   })
 
   it('runs lifecycle hooks around the bound function', async () => {
     const { client } = recorder()
-    const onAgentStart = vi.fn()
-    const onAgentEnd = vi.fn()
-    await spawn(
-      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onAgentStart, onAgentEnd },
+    const onSessionStart = vi.fn()
+    const onSessionEnd = vi.fn()
+    await session(
+      { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onSessionStart, onSessionEnd },
       async () => {},
     )
-    expect(onAgentStart).toHaveBeenCalledOnce()
-    expect(onAgentEnd).toHaveBeenCalledOnce()
+    expect(onSessionStart).toHaveBeenCalledOnce()
+    expect(onSessionEnd).toHaveBeenCalledOnce()
   })
 
-  it('still terminates and runs onAgentEnd when fn throws', async () => {
+  it('still terminates and runs onSessionEnd when fn throws', async () => {
     const { client, calls } = recorder()
-    const onAgentEnd = vi.fn()
+    const onSessionEnd = vi.fn()
     await expect(
-      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onAgentEnd }, async () => {
+      session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onSessionEnd }, async () => {
         throw new Error('boom')
       }),
     ).rejects.toThrow('boom')
-    expect(onAgentEnd).toHaveBeenCalledOnce()
+    expect(onSessionEnd).toHaveBeenCalledOnce()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
-  it('terminates without running onAgentEnd when onAgentStart throws', async () => {
+  it('terminates without running onSessionEnd when onSessionStart throws', async () => {
     const { client, calls } = recorder()
-    const onAgentEnd = vi.fn()
+    const onSessionEnd = vi.fn()
     await expect(
-      spawn(
+      session(
         {
           coordinator: client,
           zoneId: 'zone-1',
           applicationId: 'app-1',
           subjectToken: 'tok',
-          onAgentStart: async () => {
+          onSessionStart: async () => {
             throw new Error('start failed')
           },
-          onAgentEnd,
+          onSessionEnd,
         },
         async () => {},
       ),
     ).rejects.toThrow('start failed')
-    expect(onAgentEnd).not.toHaveBeenCalled()
+    expect(onSessionEnd).not.toHaveBeenCalled()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
-  it('inherits the parent agent session as parentId', async () => {
+  it('inherits the parent session as parentId', async () => {
     const { client, calls } = recorder()
     await bind(baseCtx(), async () => {
-      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {})
+      await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {})
     })
     expect(calls.some((c) => c.path.endsWith('/agents'))).toBe(true)
   })
 
-  it('requests server-side edge inheritance and adopts the mirrored edge', async () => {
+  it('requests server-side inheritance and accepts the mirrored delegation', async () => {
     const bodies: Record<string, unknown>[] = []
     const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
@@ -121,21 +121,21 @@ describe('spawn', () => {
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    let childEdge: string | undefined
+    let childDelegation: string | undefined
     let childHop: number | undefined
-    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
-      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
-        childEdge = current()?.delegationEdgeId
+    await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
+      await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+        childDelegation = current()?.delegationId
         childHop = current()?.hop
       })
     })
     expect(bodies[0]?.parent_authority).toBe('inherit')
     expect(bodies[0]).not.toHaveProperty('inherit_parent_edge_id')
-    expect(childEdge).toBe('edge-child')
+    expect(childDelegation).toBe('edge-child')
     expect(childHop).toBe(2)
   })
 
-  it('leaves the child edge-less when the coordinator mirrors no edge', async () => {
+  it('leaves the child delegation-less when the coordinator mirrors nothing', async () => {
     const bodies: Record<string, unknown>[] = []
     const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
@@ -148,17 +148,17 @@ describe('spawn', () => {
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    let childEdge: string | undefined
-    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
-      await spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'other-app', subjectToken: 'tok' }, async () => {
-        childEdge = current()?.delegationEdgeId
+    let childDelegation: string | undefined
+    await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
+      await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'other-app', subjectToken: 'tok' }, async () => {
+        childDelegation = current()?.delegationId
       })
     })
     expect(bodies[0]?.parent_authority).toBe('inherit')
-    expect(childEdge).toBeUndefined()
+    expect(childDelegation).toBeUndefined()
   })
 
-  it('suppresses edge inheritance for a narrowing grant', async () => {
+  it('suppresses inheritance for narrowed authority', async () => {
     const bodies: Record<string, unknown>[] = []
     const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
       const method = init?.method ?? 'GET'
@@ -171,9 +171,9 @@ describe('spawn', () => {
       return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
-      await spawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+    await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
+      await session(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => {},
       )
     })
@@ -181,39 +181,39 @@ describe('spawn', () => {
   })
 })
 
-describe('spawnService with grant', () => {
-  it('issues a narrowed delegation edge for the service handle', async () => {
+describe('startSession with authority', () => {
+  it('issues a narrowed delegation for the session handle', async () => {
     const { client, calls } = recorder('svc-1', 'edge-svc')
-    await bind(baseCtx({ delegationEdgeId: 'edge-parent', hop: 1 }), async () => {
-      const svc = await spawnService({
+    await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
+      const svc = await startSession({
         coordinator: client,
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        grant: Grant.narrow(['ledger:read'], { resourceId: 'resource://ledger' }),
+        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger' }),
       })
-      expect(svc.context.delegationEdgeId).toBe('edge-svc')
-      expect(svc.context.parentEdgeId).toBe('edge-parent')
+      expect(svc.context.delegationId).toBe('edge-svc')
+      expect(svc.context.parentDelegationId).toBe('edge-parent')
       expect(svc.context.hop).toBe(2)
       await svc.close()
     })
     expect(calls.some((c) => c.path.endsWith('/delegations'))).toBe(true)
   })
 
-  it('requires an active parent session for a narrow grant', async () => {
+  it('requires an active parent session for narrowed authority', async () => {
     const { client } = recorder()
     await expect(
-      spawnService({
+      startSession({
         coordinator: client,
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        grant: Grant.narrow(['read']),
+        authority: Authority.narrow(['read']),
       }),
-    ).rejects.toThrow(/active parent agent session/)
+    ).rejects.toThrow(/active parent session/)
   })
 
-  it('terminates the service agent when delegation creation fails', async () => {
+  it('terminates the session when delegation creation fails', async () => {
     const calls: { method: string; path: string }[] = []
     const fetchImpl = (async (url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET'
@@ -227,12 +227,12 @@ describe('spawnService with grant', () => {
 
     await bind(baseCtx(), async () => {
       await expect(
-        spawnService({
+        startSession({
           coordinator: client,
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          grant: Grant.narrow(['read']),
+          authority: Authority.narrow(['read']),
         }),
       ).rejects.toThrow()
     })
@@ -243,68 +243,68 @@ describe('spawnService with grant', () => {
 describe('delegate', () => {
   it('requires an active context', async () => {
     const { client } = recorder()
-    await expect(delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+    await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
       /requires a Caracal context/,
     )
   })
 
-  it('requires an active agent session in context', async () => {
+  it('requires an active session in context', async () => {
     const { client } = recorder()
-    await bind(baseCtx({ agentSessionId: undefined }), async () => {
-      await expect(delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
-        /active agent session/,
+    await bind(baseCtx({ sessionId: undefined }), async () => {
+      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+        /active session/,
       )
     })
   })
 
-  it('returns the created edge without rebinding the issuer context', async () => {
+  it('returns the created delegation without rebinding the issuer context', async () => {
     const { client } = recorder('agent-new', 'edge-42')
     await bind(baseCtx(), async () => {
-      const res = await delegate({ coordinator: client, toAgentSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })
-      expect(res.delegationEdgeId).toBe('edge-42')
-      expect(current()?.delegationEdgeId).toBeUndefined()
+      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })
+      expect(res.delegationId).toBe('edge-42')
+      expect(current()?.delegationId).toBeUndefined()
       expect(current()?.hop).toBe(0)
     })
   })
 
-  it('adoptDelegation derives a receiver context presenting the edge', async () => {
-    const ctx = baseCtx({ delegationEdgeId: 'edge-own', hop: 1 })
-    const adopted = adoptDelegation(ctx, 'edge-42')
-    expect(adopted.delegationEdgeId).toBe('edge-42')
-    expect(adopted.parentEdgeId).toBe('edge-own')
-    expect(adopted.hop).toBe(2)
-    expect(ctx.delegationEdgeId).toBe('edge-own')
+  it('acceptDelegation derives a receiver context presenting the delegation', async () => {
+    const ctx = baseCtx({ delegationId: 'edge-own', hop: 1 })
+    const accepted = acceptDelegation(ctx, 'edge-42')
+    expect(accepted.delegationId).toBe('edge-42')
+    expect(accepted.parentDelegationId).toBe('edge-own')
+    expect(accepted.hop).toBe(2)
+    expect(ctx.delegationId).toBe('edge-own')
   })
 })
 
-describe('spawn with narrow grant', () => {
-  it('requires an active agent session', async () => {
+describe('session with narrowed authority', () => {
+  it('requires an active parent session', async () => {
     const { client } = recorder()
     await expect(
-      spawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+      session(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => {},
       ),
-    ).rejects.toThrow(/active parent agent session/)
+    ).rejects.toThrow(/active parent session/)
   })
 
-  it('spawns a child, records the delegation, and binds the merged context', async () => {
+  it('starts a child, records the delegation, and binds the merged context', async () => {
     const { client, calls } = recorder('agent-child', 'edge-child')
     await bind(baseCtx(), async () => {
-      const out = await spawn(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+      const out = await session(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => ({
-          agent: current()?.agentSessionId,
-          edge: current()?.delegationEdgeId,
+          session: current()?.sessionId,
+          delegation: current()?.delegationId,
           hop: current()?.hop,
         }),
       )
-      expect(out).toMatchObject({ agent: 'agent-child', edge: 'edge-child', hop: 1 })
+      expect(out).toMatchObject({ session: 'agent-child', delegation: 'edge-child', hop: 1 })
     })
     expect(calls.some((c) => c.path.endsWith('/delegations'))).toBe(true)
   })
 
-  it('terminates the spawned child when delegation creation fails', async () => {
+  it('terminates the child when delegation creation fails', async () => {
     const calls: { method: string; path: string }[] = []
     const fetchImpl = (async (url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET'
@@ -318,8 +318,8 @@ describe('spawn with narrow grant', () => {
 
     await bind(baseCtx(), async () => {
       await expect(
-        spawn(
-          { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', grant: Grant.narrow(['read']) },
+        session(
+          { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
           async () => {},
         ),
       ).rejects.toThrow()
@@ -327,29 +327,29 @@ describe('spawn with narrow grant', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
-  it('terminates without running onAgentEnd when delegated child start hook throws', async () => {
+  it('terminates without running onSessionEnd when delegated child start hook throws', async () => {
     const { client, calls } = recorder('agent-child', 'edge-child')
-    const onAgentEnd = vi.fn()
+    const onSessionEnd = vi.fn()
 
     await bind(baseCtx(), async () => {
       await expect(
-        spawn(
+        session(
           {
             coordinator: client,
             zoneId: 'zone-1',
             applicationId: 'app-2',
             subjectToken: 'tok',
-            grant: Grant.narrow(['read']),
-            onAgentStart: async () => {
+            authority: Authority.narrow(['read']),
+            onSessionStart: async () => {
               throw new Error('start failed')
             },
-            onAgentEnd,
+            onSessionEnd,
           },
           async () => {},
         ),
       ).rejects.toThrow('start failed')
     })
-    expect(onAgentEnd).not.toHaveBeenCalled()
+    expect(onSessionEnd).not.toHaveBeenCalled()
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
@@ -361,7 +361,7 @@ describe('spawn with narrow grant', () => {
   })
 })
 
-describe('spawn reliability', () => {
+describe('session reliability', () => {
   it('retries a transient 5xx spawn with the same idempotency key', async () => {
     vi.useFakeTimers()
     try {
@@ -379,7 +379,7 @@ describe('spawn reliability', () => {
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-      const result = spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok')
+      const result = session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok')
       await vi.advanceTimersByTimeAsync(2_000)
       await expect(result).resolves.toBe('ok')
       expect(spawnCalls).toBe(2)
@@ -390,7 +390,7 @@ describe('spawn reliability', () => {
     }
   })
 
-  it('does not retry a 4xx spawn rejection', async () => {
+  it('does not retry a 4xx rejection', async () => {
     let spawnCalls = 0
     const fetchImpl = (async () => {
       spawnCalls += 1
@@ -398,7 +398,7 @@ describe('spawn reliability', () => {
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await expect(
-      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok'),
+      session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'ok'),
     ).rejects.toThrow(/400/)
     expect(spawnCalls).toBe(1)
   })
@@ -413,7 +413,7 @@ describe('spawn reliability', () => {
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await expect(
-      spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'result'),
+      session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'result'),
     ).resolves.toBe('result')
   })
 
@@ -429,7 +429,7 @@ describe('spawn reliability', () => {
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       await expect(
-        spawn({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
+        session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {
           throw new Error('primary failure')
         }),
       ).rejects.toThrow('primary failure')
@@ -468,7 +468,7 @@ describe('service auto-heartbeat', () => {
     vi.useFakeTimers()
     try {
       const { client, heartbeats } = serviceRecorder()
-      const svc = await spawnService({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
+      const svc = await startSession({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
       await vi.advanceTimersByTimeAsync(1_500)
       expect(heartbeats.length).toBeGreaterThanOrEqual(1)
       expect(heartbeats[0]).toEqual({ status: 'healthy' })
@@ -486,7 +486,7 @@ describe('service auto-heartbeat', () => {
         heartbeat: () => new Response('{"error":"agent_not_found"}', { status: 404 }),
       })
       const onLeaseLost = vi.fn()
-      const svc = await spawnService({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onLeaseLost })
+      const svc = await startSession({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', onLeaseLost })
       await vi.advanceTimersByTimeAsync(1_500)
       expect(onLeaseLost).toHaveBeenCalledOnce()
       const beatsAfterLoss = heartbeats.length
@@ -503,7 +503,7 @@ describe('service auto-heartbeat', () => {
     vi.useFakeTimers()
     try {
       const { client, heartbeats } = serviceRecorder()
-      const svc = await spawnService({
+      const svc = await startSession({
         coordinator: client,
         zoneId: 'zone-1',
         applicationId: 'app-1',
@@ -529,7 +529,7 @@ describe('service auto-heartbeat', () => {
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    const svc = await spawnService({
+    const svc = await startSession({
       coordinator: client,
       zoneId: 'zone-1',
       applicationId: 'app-1',
@@ -555,7 +555,7 @@ describe('service auto-heartbeat', () => {
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       const onLeaseLost = vi.fn()
-      const svc = await spawnService({
+      const svc = await startSession({
         coordinator: client,
         zoneId: 'zone-1',
         applicationId: 'app-1',
@@ -574,7 +574,7 @@ describe('service auto-heartbeat', () => {
     }
   })
 
-  it('runs onAgentEnd exactly once before terminating on close', async () => {
+  it('runs onSessionEnd exactly once before terminating on close', async () => {
     const order: string[] = []
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') {
@@ -587,13 +587,13 @@ describe('service auto-heartbeat', () => {
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    const svc = await spawnService({
+    const svc = await startSession({
       coordinator: client,
       zoneId: 'zone-1',
       applicationId: 'app-1',
       subjectToken: 'tok',
       heartbeatIntervalMs: 0,
-      onAgentEnd: async () => {
+      onSessionEnd: async () => {
         order.push('end')
       },
     })
@@ -602,7 +602,7 @@ describe('service auto-heartbeat', () => {
     expect(order).toEqual(['end', 'terminate'])
   })
 
-  it('aborts a spawn retry backoff when the signal fires', async () => {
+  it('aborts a session retry backoff when the signal fires', async () => {
     vi.useFakeTimers()
     try {
       const controller = new AbortController()
@@ -612,7 +612,7 @@ describe('service auto-heartbeat', () => {
         return new Response('unavailable', { status: 503 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-      const result = spawn(
+      const result = session(
         { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', signal: controller.signal },
         async () => 'ok',
       )

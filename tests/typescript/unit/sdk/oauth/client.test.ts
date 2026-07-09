@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { OAuthClient } from '../../../../../packages/oauth/ts/src/client.js'
 import {
   CaracalError,
-  InteractionRequiredError,
+  ApprovalRequiredError,
   type OAuthEvent,
   type TokenExchangeEvent,
 } from '../../../../../packages/oauth/ts/src/types.js'
@@ -118,7 +118,7 @@ describe('OAuthClient', () => {
     expect(callCount).toBe(2)
   })
 
-  it('throws InteractionRequiredError on interaction_required', async () => {
+  it('throws ApprovalRequiredError on interaction_required', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -133,7 +133,7 @@ describe('OAuthClient', () => {
     )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
-    expect(err).toBeInstanceOf(InteractionRequiredError)
+    expect(err).toBeInstanceOf(ApprovalRequiredError)
     expect(err.challengeId).toBe('chal-1')
     expect(err.resource).toBe('resource://api')
   })
@@ -414,7 +414,7 @@ describe('OAuthClient', () => {
     expect((err as CaracalError).httpStatus).toBe(403)
   })
 
-  it('carries request id and status on InteractionRequiredError', async () => {
+  it('carries request id and status on ApprovalRequiredError', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -431,9 +431,9 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
-    expect(err).toBeInstanceOf(InteractionRequiredError)
-    expect((err as InteractionRequiredError).requestId).toBe('req-9')
-    expect((err as InteractionRequiredError).httpStatus).toBe(401)
+    expect(err).toBeInstanceOf(ApprovalRequiredError)
+    expect((err as ApprovalRequiredError).requestId).toBe('req-9')
+    expect((err as ApprovalRequiredError).httpStatus).toBe(401)
   })
 
   it('emits token.exchange events for fresh, cached, and failed exchanges', async () => {
