@@ -76,6 +76,7 @@ type DBQuerier interface {
 	UpdateProviderConnectionTokens(ctx context.Context, id string, expectedVersion int, accessCt, refreshCt []byte, expiresAt time.Time) error
 	MarkProviderConnectionExpired(ctx context.Context, id string) error
 	GetProvider(ctx context.Context, id string) (*ProviderConfig, error)
+	GetSubjectIssuerByIssuer(ctx context.Context, zoneID, issuer string) (*SubjectIssuer, error)
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetSession(ctx context.Context, sid string) (*Session, error)
 	GetAgentSession(ctx context.Context, id string) (*AgentSession, error)

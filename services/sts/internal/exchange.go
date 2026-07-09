@@ -240,6 +240,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid client credentials")
 	}
 
+	// Subject federation is a distinct exchange class: the authenticated application
+	// presents its end user's external identity token and receives a user subject
+	// session, minting no resource authority. It is dispatched before the resource
+	// requirement because it names no resources by design.
+	if req.SubjectTokenType == SubjectTokenTypeIDToken {
+		return s.federateSubject(ctx, req, app, zoneID, requestID)
+	}
+
 	if len(req.Resources) == 0 {
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "at least one resource is required")
 	}
@@ -615,7 +623,13 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	sessionType := "application"
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		subjectID = sub
-		sessionType = "user"
+		// The subject class propagates from the presented token: a chain descending
+		// from a federated user subject stays user-typed, while an application chain
+		// re-exchanged through the Gateway stays application-typed. The presence of a
+		// subject token alone proves nothing about the subject being a person.
+		if claimString(subjectClaims, "sub_type") == SubTypeUser {
+			sessionType = "user"
+		}
 	}
 
 	subType := SubTypeApplication

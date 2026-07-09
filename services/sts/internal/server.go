@@ -55,6 +55,7 @@ type Server struct {
 	refreshGroup       singleflight.Group
 	providerTokenMu    sync.RWMutex
 	providerTokenCache map[string]providerServiceTokenCacheEntry
+	subjectKeys        *subjectKeyCache
 	consumersReady     chan struct{}
 	log                zerolog.Logger
 }
@@ -139,6 +140,7 @@ func New(ctx context.Context) (*Server, error) {
 		secrets:        secrets,
 		auditBuffer:    buf,
 		metrics:        metrics,
+		subjectKeys:    newSubjectKeyCache(),
 		consumersReady: make(chan struct{}),
 		log:            log,
 	}, nil
