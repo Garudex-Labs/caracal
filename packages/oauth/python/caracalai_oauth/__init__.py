@@ -32,7 +32,7 @@ from .exchanger import (
     TokenSource,
     decode_jwt_exp,
 )
-from .types import ExchangeOptions, InteractionRequiredError, TokenExchangeResponse
+from .types import ExchangeOptions, TokenExchangeResponse
 
 __all__ = [
     "AccessDenied",
@@ -47,7 +47,6 @@ __all__ = [
     "EventHook",
     "ExchangeOptions",
     "InMemoryTokenCache",
-    "InteractionRequiredError",
     "InvalidRequest",
     "InvalidToken",
     "OAuthClient",

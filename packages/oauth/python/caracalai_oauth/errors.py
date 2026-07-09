@@ -131,6 +131,7 @@ class ApprovalRequired(CaracalError):
         challenge_id: str,
         expires_at: str = "",
         *,
+        resource: str = "",
         state: str = "",
         tier: str = "",
         binding: str = "",
@@ -144,6 +145,7 @@ class ApprovalRequired(CaracalError):
         )
         self.challenge_id = challenge_id
         self.expires_at = expires_at
+        self.resource = resource
         self.state = state
         self.tier = tier
         self.binding = binding

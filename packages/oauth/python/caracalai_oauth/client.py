@@ -17,7 +17,8 @@ from typing import Any
 import httpx
 
 from .cache import InMemoryTokenCache, TokenCache
-from .types import ExchangeOptions, InteractionRequiredError, TokenExchangeResponse
+from .errors import ApprovalRequired
+from .types import ExchangeOptions, TokenExchangeResponse
 
 
 class OAuthClient:
@@ -171,17 +172,15 @@ class OAuthClient:
         if not response.is_success:
             body = _read_error_response(response)
             if body.get("error") == "interaction_required":
-                raise InteractionRequiredError(
-                    str(body.get("error_description") or "Step-up required"),
+                raise ApprovalRequired(
                     str(body.get("challenge_id") or ""),
-                    resource,
-                    str(body["acr_values"]) if "acr_values" in body else None,
-                    str(body["binding"]) if "binding" in body else None,
                     (
                         str(body["challenge_expires_at"])
                         if "challenge_expires_at" in body
-                        else None
+                        else ""
                     ),
+                    resource=resource,
+                    binding=str(body["binding"]) if "binding" in body else "",
                 )
             if response.status_code == 401 and not is_retry:
                 return await self._do_exchange(
