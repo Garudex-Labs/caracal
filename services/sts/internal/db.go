@@ -29,7 +29,7 @@ const (
 	dbDefaultHealthCheck     = 30 * time.Second
 )
 
-// ErrConcurrentGrantUpdate signals an optimistic-lock conflict on delegated_grants.
+// ErrConcurrentGrantUpdate signals an optimistic-lock conflict on provider_connections.
 // Callers refresh.go retries on this; other errors are returned as-is.
 var ErrConcurrentGrantUpdate = errors.New("concurrent grant update")
 
