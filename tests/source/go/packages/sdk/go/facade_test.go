@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
@@ -212,7 +213,7 @@ func TestDelegateAndAdoptDelegationFacade(t *testing.T) {
 		SessionID:     "agent-1",
 	})
 	edge, err := c.Delegate(ctx, sdk.DelegateOptions{
-		To:              "agent-2",
+		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
 		Constraints:     &sdk.DelegationConstraints{MaxHops: 2},
@@ -309,6 +310,144 @@ func TestWaitForApprovalPolls(t *testing.T) {
 	}
 	if state != "approved" {
 		t.Fatalf("unexpected state: %s", state)
+	}
+}
+
+func stepUpClient(t *testing.T, state string) *sdk.Caracal {
+	t.Helper()
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/step-up/") {
+			fmt.Fprintf(w, `{"state":%q}`, state)
+			return
+		}
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":900}`))
+	}))
+	t.Cleanup(sts.Close)
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestWithApprovalRetriesOnceApproved(t *testing.T) {
+	c := stepUpClient(t, "approved")
+	var received []string
+	out, err := sdk.WithApproval(context.Background(), c, 5*time.Second, func(_ context.Context, approvalID string) (string, error) {
+		received = append(received, approvalID)
+		if approvalID == "" {
+			return "", &oauth.ApprovalRequiredError{Message: "held", ApprovalID: "chal-7"}
+		}
+		return "minted", nil
+	})
+	if err != nil || out != "minted" {
+		t.Fatalf("unexpected result: %q %v", out, err)
+	}
+	if len(received) != 2 || received[0] != "" || received[1] != "chal-7" {
+		t.Fatalf("unexpected invocations: %v", received)
+	}
+}
+
+func TestWithApprovalReturnsHoldOnRejection(t *testing.T) {
+	c := stepUpClient(t, "rejected")
+	calls := 0
+	_, err := sdk.WithApproval(context.Background(), c, 5*time.Second, func(_ context.Context, _ string) (string, error) {
+		calls++
+		return "", &oauth.ApprovalRequiredError{Message: "held", ApprovalID: "chal-7"}
+	})
+	var hold *oauth.ApprovalRequiredError
+	if !errors.As(err, &hold) || hold.ApprovalID != "chal-7" {
+		t.Fatalf("expected the original hold, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected a single invocation, got %d", calls)
+	}
+}
+
+func TestWithApprovalPassesOtherErrorsThrough(t *testing.T) {
+	c := stepUpClient(t, "approved")
+	boom := errors.New("boom")
+	_, err := sdk.WithApproval(context.Background(), c, 5*time.Second, func(_ context.Context, _ string) (string, error) {
+		return "", boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected passthrough error, got %v", err)
+	}
+}
+
+func TestMintMandateAppendsLifecycleHint(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"access_denied","error_description":"denied by policy"}`))
+	}))
+	defer sts.Close()
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionOnly := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken: "tok", ZoneID: "z", ApplicationID: "app", SessionID: "agent-1",
+	})
+	_, err = c.MintMandate(sessionOnly, "resource://pipernet", []string{"tickets:read"})
+	var denied *oauth.CaracalError
+	if !errors.As(err, &denied) || denied.Code != "access_denied" {
+		t.Fatalf("expected access_denied in the chain, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "lifecycle-only authority") {
+		t.Fatalf("expected the lifecycle hint, got %v", err)
+	}
+
+	delegated := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken: "tok", ZoneID: "z", ApplicationID: "app", SessionID: "agent-1", DelegationID: "edge-1",
+	})
+	_, err = c.MintMandate(delegated, "resource://pipernet", []string{"tickets:read"})
+	if err == nil || strings.Contains(err.Error(), "lifecycle-only authority") {
+		t.Fatalf("expected the plain deny under a delegation, got %v", err)
+	}
+}
+
+func TestSessionHandleExposesLeaseDeadline(t *testing.T) {
+	deadline := time.Now().Add(45 * time.Second).UTC().Format(time.RFC3339Nano)
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			fmt.Fprintf(w, `{"agent_session_id":"agent-1","heartbeat_deadline_at":%q}`, deadline)
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer coord.Close()
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
+		Coordinator:       &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		HeartbeatInterval: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close(context.Background())
+	want, _ := time.Parse(time.RFC3339Nano, deadline)
+	if !svc.DeadlineAt().Equal(want) {
+		t.Fatalf("unexpected deadline: %v want %v", svc.DeadlineAt(), want)
 	}
 }
 

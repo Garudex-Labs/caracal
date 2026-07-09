@@ -337,7 +337,7 @@ class MintMandateTests(unittest.TestCase):
                 _exchanger().mint_mandate(
                     resource="resource://payments", scopes=["pay:write"]
                 )
-        self.assertEqual(caught.exception.challenge_id, "chal_1")
+        self.assertEqual(caught.exception.approval_id, "chal_1")
         self.assertEqual(caught.exception.expires_at, "2026-01-01T00:00:00Z")
         self.assertEqual(caught.exception.state, "pending")
         self.assertEqual(caught.exception.tier, "money")
@@ -362,9 +362,17 @@ class MintMandateTests(unittest.TestCase):
             state = _exchanger().wait_for_approval("chal_1", timeout_seconds=0.0)
         self.assertEqual(state, "pending")
 
-    def test_wait_for_approval_requires_challenge_id(self):
+    def test_wait_for_approval_requires_approval_id(self):
         with self.assertRaises(ValueError):
             _exchanger().wait_for_approval("")
+
+    def test_wait_for_approval_rejects_unknown_state(self):
+        with _patch_client(
+            lambda req: httpx.Response(200, json={"state": "vaporized"})
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                _exchanger().wait_for_approval("chal_1", timeout_seconds=60.0)
+        self.assertIn("unknown challenge state: vaporized", str(caught.exception))
 
     def test_sends_challenge_id_when_approval_id_set(self):
         captured: list[bytes] = []
@@ -493,7 +501,7 @@ class EventTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].type, "approval.wait")
         self.assertTrue(events[0].ok)
-        self.assertEqual(events[0].challenge_id, "chal_1")
+        self.assertEqual(events[0].approval_id, "chal_1")
         self.assertEqual(events[0].state, "approved")
 
 

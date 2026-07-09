@@ -304,6 +304,34 @@ func TestGovernedTransportCachesMandateAcrossRequests(t *testing.T) {
 	}
 }
 
+func TestCloseDropsCachedApplicationMandates(t *testing.T) {
+	platform := &governedPlatform{}
+	server := httptest.NewServer(platform.handler())
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	c := governedClient(t, server.URL, gateway.URL, nil)
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := governedGet(t, client, governedUpstream+"/tasks")
+	if first["presented"] != "Bearer mandate-1" {
+		t.Fatalf("unexpected first bearer: %s", first["presented"])
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second := governedGet(t, client, governedUpstream+"/tasks")
+	if second["presented"] != "Bearer mandate-2" {
+		t.Fatalf("expected a fresh mandate after Close, got %s", second["presented"])
+	}
+	if mints := platform.finalMints(); len(mints) != 2 {
+		t.Fatalf("expected 2 provisioning cycles across Close, got %d", len(mints))
+	}
+}
+
 func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	platform := &governedPlatform{}
 	server := httptest.NewServer(platform.handler())

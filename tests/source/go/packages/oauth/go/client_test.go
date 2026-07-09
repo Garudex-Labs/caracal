@@ -123,7 +123,7 @@ func TestExchangeReturnsApprovalRequiredError(t *testing.T) {
 	if !errors.As(err, &interaction) {
 		t.Fatalf("expected ApprovalRequiredError, got %T", err)
 	}
-	if interaction.ChallengeID != "challenge1" || interaction.Resource != "resource://api" {
+	if interaction.ApprovalID != "challenge1" || interaction.Resource != "resource://api" {
 		t.Fatalf("unexpected interaction error: %+v", interaction)
 	}
 }
@@ -471,7 +471,7 @@ func TestWaitForApprovalEmitsEvent(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	if events[0].Type != "approval.wait" || !events[0].Ok || events[0].ChallengeID != "chal-1" || events[0].State != "approved" {
+	if events[0].Type != "approval.wait" || !events[0].Ok || events[0].ApprovalID != "chal-1" || events[0].State != "approved" {
 		t.Fatalf("unexpected approval event: %+v", events[0])
 	}
 }
@@ -537,7 +537,7 @@ func TestDecideApprovalPostsBearerDecision(t *testing.T) {
 	client := NewClient(server.URL, "zone1", "app1", nil)
 	err := client.DecideApproval(context.Background(), DecideApprovalInput{
 		SubjectToken: "user-session-token",
-		ChallengeID:  "ch-1",
+		ApprovalID:   "ch-1",
 		Binding:      "abcd",
 		Decision:     "approved",
 		Reason:       "refund reviewed",
@@ -551,7 +551,7 @@ func TestDecideApprovalPostsBearerDecision(t *testing.T) {
 	if gotBody["decision"] != "approved" || gotBody["binding"] != "abcd" || gotBody["reason"] != "refund reviewed" {
 		t.Fatalf("unexpected body: %#v", gotBody)
 	}
-	if err := client.DecideApproval(context.Background(), DecideApprovalInput{ChallengeID: "ch-1"}); err == nil {
+	if err := client.DecideApproval(context.Background(), DecideApprovalInput{ApprovalID: "ch-1"}); err == nil {
 		t.Fatal("missing subject token must be rejected")
 	}
 }
