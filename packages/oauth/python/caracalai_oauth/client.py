@@ -93,7 +93,7 @@ class OAuthClient:
         self,
         *,
         subject_token: str,
-        challenge_id: str,
+        approval_id: str,
         binding: str,
         decision: str,
         reason: str | None = None,
@@ -105,15 +105,15 @@ class OAuthClient:
         binding must echo the hold exactly - a prompt that does not know the
         held resource and scope set cannot decide it.
         """
-        if not subject_token or not challenge_id or not binding:
+        if not subject_token or not approval_id or not binding:
             raise ValueError(
-                "decide_approval requires subject_token, challenge_id, and binding"
+                "decide_approval requires subject_token, approval_id, and binding"
             )
         body: dict[str, str] = {"decision": decision, "binding": binding}
         if reason:
             body["reason"] = reason
         response = await self._http_client.post(
-            f"{self._sts_url}/step-up/{quote(challenge_id, safe='')}/decision",
+            f"{self._sts_url}/step-up/{quote(approval_id, safe='')}/decision",
             json=body,
             headers={"Authorization": f"Bearer {subject_token}"},
             timeout=timeout_ms / 1000,

@@ -118,17 +118,17 @@ class ApprovalRequired(CaracalError):
     recorded a durable approval challenge that an authenticated approver must
     decide out-of-band before the mandate can be minted; an agent can never
     satisfy its own approval. ``binding`` proves which exact resource and scope
-    set the challenge covers; relay it with the challenge id to the approval
+    set the approval covers; relay it with the approval id to the approval
     surface. Wait for a decision with ``wait_for_approval`` and retry
-    ``mint_mandate`` with ``approval_id`` set to ``challenge_id``: the same
-    challenge is returned while the approval is pending, and the mint succeeds
+    ``mint_mandate`` with ``approval_id`` set: the same
+    approval is returned while it is pending, and the mint succeeds
     once approved."""
 
     code = "interaction_required"
 
     def __init__(
         self,
-        challenge_id: str,
+        approval_id: str,
         expires_at: str = "",
         *,
         resource: str = "",
@@ -139,11 +139,11 @@ class ApprovalRequired(CaracalError):
         http_status: int = 401,
     ) -> None:
         super().__init__(
-            f"human approval required (challenge {challenge_id})",
+            f"human approval required (approval {approval_id})",
             request_id=request_id,
             http_status=http_status,
         )
-        self.challenge_id = challenge_id
+        self.approval_id = approval_id
         self.expires_at = expires_at
         self.resource = resource
         self.state = state
@@ -181,7 +181,7 @@ def raise_for_caracal_error(resp: httpx.Response) -> None:
     request_id = str(body.get("requestId", ""))
     if code == ApprovalRequired.code and body.get("challenge_type") == "human_approval":
         raise ApprovalRequired(
-            challenge_id=str(body.get("challenge_id", "")),
+            approval_id=str(body.get("challenge_id", "")),
             expires_at=str(body.get("challenge_expires_at", "")),
             state=str(body.get("state", "")),
             tier=str(body.get("tier", "")),

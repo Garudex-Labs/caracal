@@ -8,6 +8,17 @@ OAuth token exchange types and errors.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+ApprovalState = Literal["pending", "approved", "rejected", "expired", "consumed"]
+"""Lifecycle state of an approval challenge. ``approved`` means a retry of the
+held mint with the challenge id will succeed; ``rejected`` and ``expired`` are
+terminal; ``consumed`` means another request already spent the approval;
+``pending`` means no decision arrived within the wait and polling again is safe."""
+
+APPROVAL_STATES: frozenset[str] = frozenset(
+    ("pending", "approved", "rejected", "expired", "consumed")
+)
 
 
 @dataclass(frozen=True)

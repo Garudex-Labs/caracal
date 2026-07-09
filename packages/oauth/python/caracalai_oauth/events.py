@@ -32,7 +32,7 @@ class CaracalEvent:
     code: str = ""
     method: str = ""
     path: str = ""
-    challenge_id: str = ""
+    approval_id: str = ""
     state: str = ""
 
 
