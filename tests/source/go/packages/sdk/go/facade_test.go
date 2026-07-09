@@ -7,6 +7,7 @@ package sdk_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -269,14 +270,149 @@ func TestMintMandateCarriesBoundIdentityAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token != "mandate-1" {
-		t.Fatalf("unexpected token: %s", token)
+	if token.Token != "mandate-1" || token.ExpiresInSeconds != 300 {
+		t.Fatalf("unexpected mandate: %+v", token)
 	}
 	if form.Get("agent_session_id") != "agent-1" || form.Get("delegation_edge_id") != "edge-1" {
 		t.Fatalf("bound identity missing from mint: %v", form)
 	}
 	if form.Get("ttl_seconds") != "120" || form.Get("challenge_id") != "chal-1" {
 		t.Fatalf("mandate options missing from mint: %v", form)
+	}
+}
+
+func TestSessionTaskOptionRecordedAsMetadataTask(t *testing.T) {
+	var bodies []map[string]any
+	srv := newRecordingCoordinator(t, &bodies)
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }, sdk.SessionOptions{
+		Task:     "Refund order #8412",
+		Metadata: map[string]any{"task": "stale", "ticket": "T-1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handle, err := c.StartSession(context.Background(), sdk.StartSessionOptions{
+		Task:              "Nightly PiperNet reconciliation",
+		HeartbeatInterval: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handle.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]any{
+		{"task": "Refund order #8412", "ticket": "T-1"},
+		{"task": "Nightly PiperNet reconciliation"},
+	}
+	for i, expected := range want {
+		got, _ := bodies[i]["metadata"].(map[string]any)
+		if fmt.Sprint(got) != fmt.Sprint(expected) {
+			t.Fatalf("spawn %d metadata = %#v, want %#v", i, got, expected)
+		}
+	}
+}
+
+func TestSessionCallerIdempotencyKeyReused(t *testing.T) {
+	var keys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			keys = append(keys, r.Header.Get("Idempotency-Key"))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	work := func(context.Context) error { return nil }
+	opts := sdk.SessionOptions{IdempotencyKey: "queue-msg-77"}
+	if err := c.Session(context.Background(), work, opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Session(context.Background(), work, opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0] != "queue-msg-77" || keys[1] != "queue-msg-77" {
+		t.Fatalf("idempotency keys = %v", keys)
+	}
+}
+
+func TestFederateSubjectReturnsSubjectSessionID(t *testing.T) {
+	if _, err := (&sdk.Caracal{SubjectToken: "tok"}).FederateSubject(context.Background(), "id-token"); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
+		t.Fatalf("expected client-secret guard, got %v", err)
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sid":"sess-42","sub":"richard.hendricks@piedpiper.example"}`))
+	mandate := "eyJhbGciOiJFUzI1NiJ9." + payload + ".sig"
+	var form url.Values
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		form = r.PostForm
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"` + mandate + `","token_type":"Bearer","expires_in":600}`))
+	}))
+	defer sts.Close()
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	federated, err := c.FederateSubject(context.Background(), "id-token", sdk.FederateSubjectOptions{TTLSeconds: 600})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if federated.SubjectSessionID != "sess-42" || federated.Token != mandate || federated.ExpiresInSeconds != 600 {
+		t.Fatalf("unexpected federated subject: %+v", federated)
+	}
+	if form.Get("subject_token") != "id-token" || form.Get("subject_token_type") != "urn:ietf:params:oauth:token-type:id_token" {
+		t.Fatalf("federation form = %v", form)
+	}
+	if form.Get("ttl_seconds") != "600" || form.Get("resource") != "" {
+		t.Fatalf("federation options = %v", form)
+	}
+}
+
+func TestFederateSubjectRejectsMandateWithoutSessionID(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user"}`))
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"eyJhbGciOiJFUzI1NiJ9.` + payload + `.sig","token_type":"Bearer","expires_in":600}`))
+	}))
+	defer sts.Close()
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FederateSubject(context.Background(), "id-token"); err == nil || !strings.Contains(err.Error(), "carries no session id") {
+		t.Fatalf("expected missing session id error, got %v", err)
 	}
 }
 

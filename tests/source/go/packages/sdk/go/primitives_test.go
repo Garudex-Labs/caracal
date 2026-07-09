@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -397,6 +398,138 @@ func TestDelegateRequiresActiveSession(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error when no active agent session")
+	}
+}
+
+func TestDelegateRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
+	keys := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/delegations") {
+			keys = append(keys, r.Header.Get("Idempotency-Key"))
+			if len(keys) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"delegation_edge_id":"edge-retry"}`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+	})
+
+	res, err := sdk.Delegate(ctx, sdk.DelegateInput{
+		Coordinator:     coord,
+		ToSessionID:     "agent-2",
+		ToApplicationID: "app-2",
+		Scopes:          []string{"tool:call"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DelegationID != "edge-retry" {
+		t.Fatalf("unexpected delegation: %+v", res)
+	}
+	if len(keys) != 2 || keys[0] == "" || keys[0] != keys[1] {
+		t.Fatalf("expected one retry under the same idempotency key, got %v", keys)
+	}
+}
+
+func TestDelegateDoesNotRetryPolicyRejection(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+	})
+
+	if _, err := sdk.Delegate(ctx, sdk.DelegateInput{
+		Coordinator:     coord,
+		ToSessionID:     "agent-2",
+		ToApplicationID: "app-2",
+		Scopes:          []string{"tool:call"},
+	}); err == nil {
+		t.Fatal("expected policy rejection to surface")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected no retry on 403, got %d attempts", attempts)
+	}
+}
+
+func TestAttachSessionValidatesLeaseAndReturnsLiveHandle(t *testing.T) {
+	paths := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+	}))
+	defer srv.Close()
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	handle, err := sdk.AttachSession(context.Background(), sdk.AttachSessionInput{
+		Coordinator:       coord,
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		SessionID:         "agent-persisted",
+		HeartbeatInterval: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle.SessionID() != "agent-persisted" || handle.Context.SessionID != "agent-persisted" {
+		t.Fatalf("unexpected handle session: %+v", handle.Context)
+	}
+	if handle.DeadlineAt().IsZero() {
+		t.Fatal("expected the validated lease deadline to be exposed")
+	}
+	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
+		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	}
+	if err := handle.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if paths[len(paths)-1] != "DELETE /zones/z/agents/agent-persisted" {
+		t.Fatalf("expected Close to terminate the session, got %v", paths)
+	}
+}
+
+func TestAttachSessionFailsFastWhenSessionGone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	_, err := sdk.AttachSession(context.Background(), sdk.AttachSessionInput{
+		Coordinator:       coord,
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		SessionID:         "agent-reaped",
+		HeartbeatInterval: -1,
+	})
+	var coordErr *sdk.CoordinatorError
+	if !errors.As(err, &coordErr) || coordErr.StatusCode != 404 {
+		t.Fatalf("expected a 404 CoordinatorError, got %v", err)
 	}
 }
 

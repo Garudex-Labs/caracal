@@ -125,6 +125,38 @@ func TestCoordinatorErrorFormatsMethodPathAndBody(t *testing.T) {
 	}
 }
 
+func TestCoordinatorErrorCarriesRetryAfterHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "3")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1")
+	var coordErr *sdk.CoordinatorError
+	if !errors.As(err, &coordErr) || coordErr.RetryAfterSeconds != 3 {
+		t.Fatalf("expected the Retry-After hint to be carried, got %v", err)
+	}
+}
+
+func TestCoordinatorErrorCapsBodyInMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(strings.Repeat("x", 5000)))
+	}))
+	defer srv.Close()
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1")
+	var coordErr *sdk.CoordinatorError
+	if !errors.As(err, &coordErr) {
+		t.Fatalf("expected CoordinatorError, got %v", err)
+	}
+	msg := coordErr.Error()
+	if !strings.Contains(msg, "(truncated)") || len(msg) > 2300 {
+		t.Fatalf("expected a capped error body, got %d chars", len(msg))
+	}
+}
+
 func TestCoordinatorEventSinkPanicsAreContained(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -336,26 +336,24 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 	})
 }
 
-func TestExchangeActorTokenValidation(t *testing.T) {
+func TestExchangeRejectsActorToken(t *testing.T) {
 	db := exchangeFlowDB(t)
-	db.session = activeUserSession("sess-1")
 	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
-	subject := sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
 
-	req := baseExchangeRequest()
-	req.ClientSecret = ""
-	req.GatewayAuthenticated = true
-	req.SubjectToken = subject
-	req.ActorToken = "garbage"
-	_, _, code, _ := srv.exchange(context.Background(), req, "req-1")
-	if code != http.StatusUnauthorized {
-		t.Fatalf("invalid actor token code = %d", code)
+	form := url.Values{}
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
+	form.Set("zone_id", "zone1")
+	form.Set("application_id", "app1")
+	form.Set("actor_token", "any-token")
+	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	srv.handleTokenExchange(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("actor_token code = %d", w.Code)
 	}
-
-	req.ActorToken = sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
-	_, _, code, apiErr := srv.exchange(context.Background(), req, "req-2")
-	if code != http.StatusBadRequest || apiErr == nil || !strings.Contains(apiErr.Description, "distinct principals") {
-		t.Fatalf("same-principal actor token code=%d err=%#v", code, apiErr)
+	if !strings.Contains(w.Body.String(), "actor_token is not supported") {
+		t.Fatalf("actor_token body = %s", w.Body.String())
 	}
 }
 
