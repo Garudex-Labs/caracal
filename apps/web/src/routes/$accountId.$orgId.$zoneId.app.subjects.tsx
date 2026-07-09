@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the Subjects route.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   CopyValue,
@@ -19,18 +19,24 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataTable,
+  EmptyState,
   Field,
+  FilterMenu,
+  Modal,
+  Pagination,
+  SearchInput,
   Select,
   Skeleton,
   Tooltip,
   useCopyToClipboard,
   useToast,
   type Column,
+  type SortState,
 } from "@/components/ui";
 import { CsvExportButton } from "@/components/console/CsvExportButton";
 import { cx } from "@/lib/cx";
-import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
-import { formatDuration, relativeTime } from "@/lib/time";
+import { relativeTime } from "@/lib/time";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
@@ -38,28 +44,33 @@ import {
   useAgentInboundDelegations,
   useAgentLifecycle,
   useRevokeDelegation,
-  useSessionActivity,
+  useSessionRecord,
   useSessionsFeed,
+  useSubjectOverview,
+  useSubjectsFeed,
 } from "@/platform/api/hooks";
-import type { Session, SessionQuery } from "@/platform/api/types";
+import type { Session, SubjectSummary } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/subjects")({
   component: SubjectsRoute,
-  validateSearch: (search: Record<string, unknown>): { subject?: string; focus?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { subject?: string; focus?: string; record?: string } => ({
     subject: typeof search.subject === "string" ? search.subject : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
+    record: typeof search.record === "string" ? search.record : undefined,
   }),
 });
 
 function SubjectsRoute() {
-  const { subject } = Route.useSearch();
+  const { subject, record } = Route.useSearch();
   return (
     <ZoneScopedPage
       title="Subjects"
-      description="Subject identities your applications exchanged with the STS in this zone."
+      description="The identities your applications act for: federated end users and application identities, with the authority each one holds right now."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
     >
-      {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} />}
+      {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} recordId={record} />}
     </ZoneScopedPage>
   );
 }
@@ -100,20 +111,6 @@ function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
   return "muted";
 }
 
-// The instant a session stopped carrying authority: its revocation time when revoked,
-// otherwise its expiry. Live sessions have no terminal instant.
-function sessionEnd(session: Session, effective: EffectiveStatus): number | null {
-  if (effective === "active") return null;
-  if (session.revoked_at) return Date.parse(session.revoked_at);
-  return Date.parse(session.expires_at);
-}
-
-function sessionDuration(session: Session, effective: EffectiveStatus, now: number): string {
-  const start = Date.parse(session.authenticated_at) || Date.parse(session.created_at);
-  const end = sessionEnd(session, effective) ?? now;
-  return formatDuration(end - start);
-}
-
 // Maps the reason recorded when a session is revoked to operator-facing wording. The
 // backend stamps these at the originating action (grant delete, application archive) or
 // falls back to a generic marker when a revocation arrives only through the stream.
@@ -137,233 +134,280 @@ function sessionOutcome(session: Session, effective: EffectiveStatus): string {
   return "Expired";
 }
 
-function SubjectsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {
-  const [status, setStatus] = useState<string>("all");
-  const [subject, setSubject] = useState(initialSubject ?? "");
+// The subject-level state an analyst acts on, derived from the aggregate rather than
+// any single token record: live when anything can still mint, revoked when the most
+// recent thing that happened to the subject was a forced cutoff, dormant otherwise.
+// Individual records expiring is normal operation and never surfaces at this level.
+type Standing = "live" | "revoked" | "dormant";
 
-  const serverQuery = useMemo<SessionQuery>(() => {
-    const q: SessionQuery = {};
-    if (status !== "all") q.status = status;
-    if (subject.trim()) q.subject_id = subject.trim();
-    return q;
-  }, [status, subject]);
+function subjectStanding(s: SubjectSummary): Standing {
+  if (s.active_sessions > 0) return "live";
+  if (s.last_revoked_at && Date.parse(s.last_revoked_at) >= Date.parse(s.last_seen)) {
+    return "revoked";
+  }
+  return "dormant";
+}
 
-  const feed = useSessionsFeed(zoneId, serverQuery);
+const STANDING_LABELS: Record<Standing, string> = {
+  live: "Live",
+  revoked: "Revoked",
+  dormant: "Dormant",
+};
+
+function standingTone(standing: Standing): "success" | "danger" | "muted" {
+  if (standing === "live") return "success";
+  if (standing === "revoked") return "danger";
+  return "muted";
+}
+
+function standingCaption(s: SubjectSummary, standing: Standing, now: number): string {
+  if (standing === "live") {
+    return s.active_sessions === 1
+      ? "1 session can mint"
+      : `${s.active_sessions} sessions can mint`;
+  }
+  if (standing === "revoked" && s.last_revoked_at) {
+    return `Cut off ${relativeTime(s.last_revoked_at, now)}`;
+  }
+  return `Last seen ${relativeTime(s.last_seen, now)}`;
+}
+
+// Who this subject is, in the words an analyst thinks in: a registered application
+// acting as itself, or an end user federated from an external identity system.
+function subjectKindLabel(s: SubjectSummary): string {
+  if (s.application_name) return "Application identity";
+  if (s.federated) {
+    return s.issuer ? `Federated user · ${issuerHost(s.issuer)}` : "Federated user";
+  }
+  return "Application identity";
+}
+
+function issuerHost(issuer: string): string {
+  try {
+    return new URL(issuer).hostname;
+  } catch {
+    return issuer;
+  }
+}
+
+function subjectDisplayName(s: SubjectSummary): string {
+  return s.application_name ?? s.subject_id;
+}
+
+// A link that only knows an authority-record id (for example from a governed
+// session's detail) resolves to the owning subject so the analyst lands on the
+// identity, not on a raw token record.
+function RecordResolver({
+  zoneId,
+  recordId,
+  onResolved,
+}: {
+  zoneId: string;
+  recordId: string;
+  onResolved: (subjectId: string) => void;
+}) {
+  const record = useSessionRecord(zoneId, recordId);
+  useEffect(() => {
+    if (record.data?.subject_id) onResolved(record.data.subject_id);
+  }, [record.data, onResolved]);
+  return null;
+}
+
+function SubjectsPage({
+  zoneId,
+  initialSubject,
+  recordId,
+}: {
+  zoneId: string;
+  initialSubject?: string;
+  recordId?: string;
+}) {
+  const [kind, setKind] = useState<string>("all");
+  const [search, setSearch] = useState(initialSubject ?? "");
+
+  const serverQuery = useMemo(
+    () => ({
+      ...(kind === "user" || kind === "application"
+        ? { kind: kind as "user" | "application" }
+        : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+    }),
+    [kind, search],
+  );
+
+  const feed = useSubjectsFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
   const now = Date.now();
 
-  const columns: Column<Session>[] = [
+  const columns: Column<SubjectSummary>[] = [
     {
       id: "subject",
       header: "Subject",
       sortable: true,
       cell: (s) => (
-        <div>
-          <div className="font-mono text-xs text-foreground">{s.subject_id}</div>
-          <div className="text-xs text-muted-foreground">{s.session_type}</div>
+        <div className="min-w-0">
+          <div
+            className={cx(
+              "truncate text-xs text-foreground",
+              s.application_name ? "font-medium" : "font-mono",
+            )}
+          >
+            {subjectDisplayName(s)}
+          </div>
+          <div className="text-xs text-muted-foreground">{subjectKindLabel(s)}</div>
         </div>
       ),
     },
     {
-      id: "status",
-      header: "Authority",
+      id: "standing",
+      header: "Standing",
+      sortable: true,
       cell: (s) => {
-        const eff = effectiveStatus(s, now);
+        const standing = subjectStanding(s);
         return (
-          <div className="flex items-center gap-1.5">
-            <Badge tone={statusTone(eff)}>{eff}</Badge>
-            {isStaleActive(s, now) ? (
-              <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
-                <span
-                  tabIndex={0}
-                  className="cursor-help rounded text-[10px] uppercase tracking-wide text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:text-amber-500"
-                >
-                  lapsed
-                </span>
-              </Tooltip>
-            ) : null}
+          <div>
+            <Badge tone={standingTone(standing)}>{STANDING_LABELS[standing]}</Badge>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">
+              {standingCaption(s, standing, now)}
+            </div>
           </div>
         );
       },
     },
     {
-      id: "authenticated",
-      header: "Authenticated",
-      sortable: true,
+      id: "history",
+      header: "History",
       cell: (s) => (
-        <span className="text-xs text-muted-foreground">
-          {new Date(s.authenticated_at).toLocaleString()}
-        </span>
+        <div className="text-xs text-muted-foreground">
+          {s.total_sessions === 1 ? "1 session" : `${s.total_sessions} sessions`}
+          {s.revoked_sessions > 0 ? (
+            <span className="text-destructive"> · {s.revoked_sessions} revoked</span>
+          ) : null}
+          <div className="text-[10px]" title={new Date(s.first_seen).toLocaleString()}>
+            since {new Date(s.first_seen).toLocaleDateString()}
+          </div>
+        </div>
       ),
     },
     {
-      id: "duration",
-      header: "Duration",
-      sortable: true,
-      cell: (s) => {
-        const eff = effectiveStatus(s, now);
-        return (
-          <span className="text-xs text-muted-foreground" title="Time held from authentication">
-            {sessionDuration(s, eff, now)}
-            {eff === "active" ? (
-              <span className="ml-1 text-muted-foreground/70">so far</span>
-            ) : null}
-          </span>
-        );
-      },
-    },
-    {
-      id: "outcome",
-      header: "Outcome",
+      id: "seen",
+      header: "Last seen",
       align: "right",
       sortable: true,
-      cell: (s) => {
-        const eff = effectiveStatus(s, now);
-        const ended = sessionEnd(s, eff);
-        return (
-          <div className="text-right">
-            <div
-              className={cx(
-                "text-xs",
-                eff === "revoked"
-                  ? "text-destructive"
-                  : eff === "expired"
-                    ? "text-amber-600 dark:text-amber-500"
-                    : "text-muted-foreground",
-              )}
-            >
-              {sessionOutcome(s, eff)}
-            </div>
-            {ended ? (
-              <div
-                className="text-[10px] text-muted-foreground"
-                title={new Date(ended).toLocaleString()}
-              >
-                {relativeTime(new Date(ended).toISOString(), now)}
-              </div>
-            ) : null}
-          </div>
-        );
-      },
+      cell: (s) => (
+        <span
+          className="text-xs text-muted-foreground"
+          title={new Date(s.last_seen).toLocaleString()}
+        >
+          {relativeTime(s.last_seen, now)}
+        </span>
+      ),
     },
   ];
 
   return (
-    <ResourceWorkspace
-      title="Subjects"
-      description="Each row is a subject session: the identity anchor recorded when an application exchanged an authenticated subject with the STS. These are not console logins. They end by expiry, grant revocation, or session termination."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
-      rows={rows}
-      loading={feed.isLoading}
-      columns={columns}
-      rowKey={(s) => s.id}
-      feed={{
-        hasMore: Boolean(feed.hasNextPage),
-        fetching: feed.isFetchingNextPage,
-        loadMore: () => feed.fetchNextPage(),
-      }}
-      toolbarExtra={
-        <SessionFilterBar
-          status={status}
-          subject={subject}
-          loaded={rows.length}
-          onStatus={setStatus}
-          onSubject={setSubject}
-          exportControl={
-            <CsvExportButton
-              zoneId={zoneId}
-              path="sessions"
-              query={Object.fromEntries(
-                Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
-              )}
-              noun="subject sessions"
-            />
-          }
-        />
-      }
-      search={{
-        placeholder: "Search loaded subject sessions by subject or ID…",
-        match: (s, q) =>
-          s.subject_id.toLowerCase().includes(q) ||
-          s.id.toLowerCase().includes(q) ||
-          s.session_type.toLowerCase().includes(q),
-      }}
-      initialSort={{ column: "authenticated", direction: "desc" }}
-      sortValues={{
-        subject: (s) => s.subject_id.toLowerCase(),
-        authenticated: (s) => Date.parse(s.authenticated_at) || 0,
-        duration: (s) => {
-          const eff = effectiveStatus(s, now);
-          const start = Date.parse(s.authenticated_at) || Date.parse(s.created_at);
-          return (sessionEnd(s, eff) ?? now) - start;
-        },
-        outcome: (s) => sessionOutcome(s, effectiveStatus(s, now)).toLowerCase(),
-      }}
-      empty={{
-        title: feed.isError ? "Could not load subject sessions" : "No subject sessions",
-        description: feed.isError
-          ? errorMessage(feed.error)
-          : "Subject sessions appear here once applications exchange authenticated identities in this zone.",
-      }}
-      detail={{
-        title: (s) => s.subject_id,
-        description: (s) => s.session_type,
-        render: (s) => <SessionDetail session={s} zoneId={zoneId} />,
-      }}
-    />
+    <>
+      {recordId ? (
+        <RecordResolver zoneId={zoneId} recordId={recordId} onResolved={setSearch} />
+      ) : null}
+      <ResourceWorkspace
+        title="Subjects"
+        description="Everything below a subject - sessions, delegations, approvals, connections, audit - keys to the identity shown here. Caracal never authenticates these identities; your application's own identity system does, then exchanges them with the STS."
+        breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
+        rows={rows}
+        loading={feed.isLoading}
+        columns={columns}
+        rowKey={(s) => s.subject_id}
+        feed={{
+          hasMore: Boolean(feed.hasNextPage),
+          fetching: feed.isFetchingNextPage,
+          loadMore: () => feed.fetchNextPage(),
+        }}
+        toolbarExtra={
+          <SubjectFilterBar
+            kind={kind}
+            search={search}
+            loaded={rows.length}
+            onKind={setKind}
+            onSearch={setSearch}
+            exportControl={
+              <CsvExportButton
+                zoneId={zoneId}
+                path="sessions"
+                query={search.trim() ? { subject_id: search.trim() } : {}}
+                noun="authority records"
+              />
+            }
+          />
+        }
+        search={{
+          placeholder: "Search loaded subjects by name or identifier…",
+          match: (s, q) =>
+            s.subject_id.toLowerCase().includes(q) ||
+            (s.application_name ?? "").toLowerCase().includes(q) ||
+            (s.issuer ?? "").toLowerCase().includes(q),
+        }}
+        initialSort={{ column: "seen", direction: "desc" }}
+        sortValues={{
+          subject: (s) => subjectDisplayName(s).toLowerCase(),
+          standing: (s) => subjectStanding(s),
+          seen: (s) => Date.parse(s.last_seen) || 0,
+        }}
+        empty={{
+          title: feed.isError ? "Could not load subjects" : "No subjects yet",
+          description: feed.isError
+            ? errorMessage(feed.error)
+            : "Subjects appear automatically: application identities on their first exchange, and federated end users once an application exchanges their identity token with the STS.",
+        }}
+        detail={{
+          title: (s) => subjectDisplayName(s),
+          description: (s) => subjectKindLabel(s),
+          width: "max-w-2xl",
+          render: (s) => <SubjectStory subject={s} zoneId={zoneId} />,
+        }}
+      />
+    </>
   );
 }
 
-// Server-side subject-session filters and cursor pagination so operators can locate a
-// subject's session in enterprise-scale zones instead of scanning only the first page.
-function SessionFilterBar({
-  status,
-  subject,
+// Server-side kind and search filters so an analyst can isolate federated users from
+// application identities in enterprise-scale zones instead of scanning pages.
+function SubjectFilterBar({
+  kind,
+  search,
   loaded,
-  onStatus,
-  onSubject,
+  onKind,
+  onSearch,
   exportControl,
 }: {
-  status: string;
-  subject: string;
+  kind: string;
+  search: string;
   loaded: number;
-  onStatus: (v: string) => void;
-  onSubject: (v: string) => void;
+  onKind: (v: string) => void;
+  onSearch: (v: string) => void;
   exportControl: ReactNode;
 }) {
-  const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
+  const activeFilters = (kind !== "all" ? 1 : 0) + (search.trim() ? 1 : 0);
   return (
-    <FeedToolbar
-      extra={exportControl}
-      activeFilters={activeFilters}
-      loaded={loaded}
-      noun="subject session"
-    >
-      <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
-        <option value="all">All statuses</option>
-        <option value="active">Active</option>
-        <option value="revoked">Revoked</option>
-        <option value="expired">Expired</option>
+    <FeedToolbar extra={exportControl} activeFilters={activeFilters} loaded={loaded} noun="subject">
+      <Select label="Kind" value={kind} onChange={(e) => onKind(e.target.value)}>
+        <option value="all">All subjects</option>
+        <option value="user">Federated users</option>
+        <option value="application">Application identities</option>
       </Select>
       <Field
         label="Subject"
-        placeholder="user:richard.hendricks@piedpiper.example"
-        value={subject}
-        onChange={(e) => onSubject(e.target.value)}
+        placeholder="richard.hendricks@piedpiper.example"
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
       />
-      <p className="text-[11px] text-muted-foreground sm:col-span-2">
-        Status filters by the stored value. A session stored as{" "}
-        <span className="font-mono">active</span> whose expiry has passed shows as{" "}
-        <span className="font-medium">expired</span> here because the runtime already rejects it.
-      </p>
     </FeedToolbar>
   );
 }
 
-// Copies the raw session object operators would otherwise be unable to extract from the
-// structured panel, preserving the full backend record (including zone_id) for debugging
-// and sharing.
-function CopyJsonButton({ session }: { session: Session }) {
+// Copies the subject aggregate so an analyst can paste the exact facts into a ticket
+// or hand them to automation without re-deriving anything from the UI.
+function CopySubjectButton({ subject }: { subject: SubjectSummary }) {
   const copy = useCopyToClipboard();
   const [copied, setCopied] = useState(false);
   return (
@@ -371,7 +415,7 @@ function CopyJsonButton({ session }: { session: Session }) {
       variant="secondary"
       size="sm"
       onClick={() =>
-        void copy(JSON.stringify(session, null, 2), {
+        void copy(JSON.stringify(subject, null, 2), {
           onSuccess: () => {
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1200);
@@ -384,63 +428,299 @@ function CopyJsonButton({ session }: { session: Session }) {
   );
 }
 
-function SessionDetail({ session, zoneId }: { session: Session; zoneId: string }) {
+// The plain-language verdict an analyst reads first: does anything hold live
+// authority for this identity right now, and if not, why not.
+function SubjectVerdict({ subject, now }: { subject: SubjectSummary; now: number }) {
+  const standing = subjectStanding(subject);
+  if (standing === "live") {
+    return (
+      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+        <div className="font-medium">Holds live authority</div>
+        <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
+          {subject.active_sessions === 1
+            ? "1 session can currently mint tokens for this subject."
+            : `${subject.active_sessions} sessions can currently mint tokens for this subject.`}
+        </p>
+      </div>
+    );
+  }
+  if (standing === "revoked") {
+    return (
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div className="font-medium">Authority was revoked</div>
+        <p className="mt-0.5 text-destructive/80">
+          The most recent authority for this subject was cut off
+          {subject.last_revoked_at ? ` ${relativeTime(subject.last_revoked_at, now)}` : ""}. Nothing
+          can act for it until it is federated or exchanged again.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <div className="font-medium text-foreground">No live authority</div>
+      <p className="mt-0.5">
+        Every record has expired - normal when work finished. Nothing can act for this subject until
+        an application exchanges its identity again.
+      </p>
+    </div>
+  );
+}
+
+// The investigation story for one subject, ordered by the questions an analyst asks:
+// who is this, can anything act as it right now, what has acted for it, what approvals
+// and upstream accounts hang off it - with raw authority records last, for audit.
+function SubjectStory({ subject, zoneId }: { subject: SubjectSummary; zoneId: string }) {
   const now = Date.now();
-  const eff = effectiveStatus(session, now);
-  const stale = isStaleActive(session, now);
+  const overview = useSubjectOverview(zoneId, subject.subject_id);
+  const standing = subjectStanding(subject);
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Badge tone={statusTone(eff)}>{eff}</Badge>
-          <Badge tone="neutral">{session.session_type}</Badge>
-          {stale ? <Badge tone="warning">awaiting reap</Badge> : null}
+          <Badge tone={standingTone(standing)}>{STANDING_LABELS[standing]}</Badge>
+          <Badge tone="neutral">
+            {subject.application_name ? "Application identity" : "Federated user"}
+          </Badge>
         </div>
-        <CopyJsonButton session={session} />
+        <CopySubjectButton subject={subject} />
       </div>
 
-      <AuthoritySummary session={session} effective={eff} stale={stale} now={now} />
+      <SubjectVerdict subject={subject} now={now} />
 
-      <DetailGroup title="Session">
-        <DetailField label="Session ID">
-          <CopyValue value={session.id} />
+      <DetailGroup title="Identity">
+        <DetailField
+          label="Subject ID"
+          hint="The opaque identifier every session, approval, connection, and audit event keys to"
+        >
+          <CopyValue value={subject.subject_id} />
         </DetailField>
-        <DetailField label="Subject ID">
-          <CopyValue value={session.subject_id} />
+        <DetailField label="Origin">
+          {subject.application_name ? (
+            <Link
+              to={appLink("/applications")}
+              search={{ focus: subject.subject_id }}
+              className="text-xs text-foreground hover:underline"
+            >
+              {subject.application_name} - registered application in this zone
+            </Link>
+          ) : subject.issuer ? (
+            <span className="text-xs text-foreground">
+              Federated by <span className="font-mono">{subject.issuer}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Exchanged by an application; no issuer recorded
+            </span>
+          )}
         </DetailField>
-        {session.parent_id ? (
-          <DetailField label="Parent">
-            <CopyValue value={session.parent_id} />
-          </DetailField>
-        ) : null}
-      </DetailGroup>
-
-      <DetailGroup title="Lifecycle">
-        <DetailField label="Authenticated">
-          {new Date(session.authenticated_at).toLocaleString()}
+        <DetailField label="First seen">
+          {new Date(subject.first_seen).toLocaleString()}
         </DetailField>
-        <DetailField label="Created">{new Date(session.created_at).toLocaleString()}</DetailField>
-        <DetailField label="Expires">
-          {new Date(session.expires_at).toLocaleString()}
+        <DetailField label="Last seen">
+          {new Date(subject.last_seen).toLocaleString()}
           <span className="ml-2 text-xs text-muted-foreground">
-            ({relativeTime(session.expires_at, now)})
+            ({relativeTime(subject.last_seen, now)})
           </span>
         </DetailField>
-        {session.revoked_at ? (
-          <DetailField label="Revoked">
-            {new Date(session.revoked_at).toLocaleString()}
-            <span className="ml-2 text-xs text-muted-foreground">
-              ({revocationReasonLabel(session.revoked_reason)})
-            </span>
-          </DetailField>
-        ) : null}
       </DetailGroup>
 
-      <SessionActivity zoneId={zoneId} sessionId={session.id} />
+      {overview.isLoading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : overview.data ? (
+        <>
+          <GovernedSection zoneId={zoneId} governed={overview.data.governed} />
+          <ApprovalsSection approvals={overview.data.approvals} />
+          <ConnectionsSection connections={overview.data.connections} />
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {overview.isError ? errorMessage(overview.error) : null}
+        </p>
+      )}
 
-      {eff === "active" ? <AuthorityControls zoneId={zoneId} session={session} /> : null}
+      <RecordsLedger zoneId={zoneId} subject={subject} />
     </div>
+  );
+}
+
+// What has actually acted for this subject: the governed sessions bound to it, newest
+// first, each one a jump into the Sessions workspace.
+function GovernedSection({
+  zoneId,
+  governed,
+}: {
+  zoneId: string;
+  governed: {
+    active: number;
+    total: number;
+    recent: {
+      id: string;
+      application_name: string | null;
+      application_id: string;
+      lifecycle: string;
+      status: string;
+      spawned_at: string;
+    }[];
+  };
+}) {
+  void zoneId;
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? governed.recent : governed.recent.slice(0, LEDGER_PREVIEW);
+  return (
+    <section className="border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Governed sessions
+        </h3>
+        <span className="text-xs text-muted-foreground">
+          {governed.active} active · {governed.total} total
+        </span>
+      </div>
+      {governed.recent.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          No governed sessions have acted for this subject yet. When an application runs work bound
+          to this identity, it appears here.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {visible.map((run) => (
+            <li
+              key={run.id}
+              className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <Link
+                  to={appLink("/sessions")}
+                  search={{ focus: run.id }}
+                  className="text-xs font-medium text-foreground hover:underline"
+                >
+                  {run.application_name ?? run.application_id}
+                </Link>
+                <div className="text-[10px] text-muted-foreground">
+                  {run.lifecycle} · {run.status}
+                </div>
+              </div>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {relativeTime(run.spawned_at)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!expanded && governed.recent.length > LEDGER_PREVIEW ? (
+        <button
+          type="button"
+          className="mt-2 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          onClick={() => setExpanded(true)}
+        >
+          Show {governed.recent.length - LEDGER_PREVIEW} more recent
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+// Approvals raised while acting for this subject: pending holds are work waiting on a
+// human, so they lead with a direct route to the Approvals workspace.
+function ApprovalsSection({ approvals }: { approvals: { pending: number; total: number } }) {
+  return (
+    <section className="border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Approvals
+        </h3>
+        <Link
+          to={appLink("/approvals")}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open Approvals
+        </Link>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {approvals.total === 0 ? (
+          "No approval holds have been raised while acting for this subject."
+        ) : (
+          <>
+            {approvals.pending > 0 ? (
+              <span className="font-medium text-amber-600 dark:text-amber-500">
+                {approvals.pending} pending now
+              </span>
+            ) : (
+              "None pending"
+            )}
+            {" · "}
+            {approvals.total} raised in total under this subject.
+          </>
+        )}
+      </p>
+    </section>
+  );
+}
+
+// Upstream accounts consented for this subject. A dead connection is the usual cause of
+// "the agent suddenly cannot reach the provider", so status leads.
+function ConnectionsSection({
+  connections,
+}: {
+  connections: {
+    id: string;
+    provider_name: string | null;
+    provider_id: string;
+    status: string;
+    created_at: string;
+  }[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? connections : connections.slice(0, LEDGER_PREVIEW);
+  return (
+    <section className="border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Provider connections
+        </h3>
+        <Link
+          to={appLink("/providers")}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open Providers
+        </Link>
+      </div>
+      {connections.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          No upstream accounts are connected for this subject.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {visible.map((c) => (
+            <li
+              key={c.id}
+              className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <span className="text-xs font-medium text-foreground">
+                  {c.provider_name ?? c.provider_id}
+                </span>
+                <span className="ml-2 text-[10px] text-muted-foreground">
+                  connected {relativeTime(c.created_at)}
+                </span>
+              </div>
+              <Badge tone={c.status === "active" ? "success" : "danger"}>{c.status}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!expanded && connections.length > LEDGER_PREVIEW ? (
+        <button
+          type="button"
+          className="mt-2 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          onClick={() => setExpanded(true)}
+        >
+          Show {connections.length - LEDGER_PREVIEW} more
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -547,114 +827,330 @@ function AuthorityControls({ zoneId, session }: { zoneId: string; session: Sessi
   );
 }
 
-// Read-only correlation lens. Surfaces the durable audit events keyed to this session -
-// token exchanges, resource calls, and authority decisions - so an operator can trace what
-// the subject actually did while the session held authority. Payloads are never exposed.
-function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
-  const activity = useSessionActivity(zoneId, sessionId);
-  const events = activity.data?.rows ?? [];
+// One authority record: stored status with the lapsed marker, outcome, mint time, and
+// the audit trail link. Live records carry the revocation controls.
+function RecordRow({ zoneId, record, now }: { zoneId: string; record: Session; now: number }) {
+  const eff = effectiveStatus(record, now);
+  return (
+    <li className="border border-border bg-muted/10 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge tone={statusTone(eff)}>{eff}</Badge>
+          {isStaleActive(record, now) ? (
+            <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
+              <span
+                tabIndex={0}
+                className="cursor-help rounded text-[10px] uppercase tracking-wide text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:text-amber-500"
+              >
+                lapsed
+              </span>
+            </Tooltip>
+          ) : null}
+          <span className="truncate font-mono text-[10px] text-muted-foreground" title={record.id}>
+            {record.id.slice(0, 8)}…
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <span
+            className={cx(
+              "text-[10px]",
+              eff === "revoked" ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {sessionOutcome(record, eff)}
+          </span>
+          <span
+            className="text-[10px] text-muted-foreground"
+            title={new Date(record.authenticated_at).toLocaleString()}
+          >
+            {relativeTime(record.authenticated_at, now)}
+          </span>
+          <Link
+            to={appLink("/audit")}
+            search={{ session: record.id }}
+            className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Audit
+          </Link>
+        </div>
+      </div>
+      {eff === "active" ? <AuthorityControls zoneId={zoneId} session={record} /> : null}
+    </li>
+  );
+}
+
+const LEDGER_PREVIEW = 3;
+
+// The raw ledger, last on purpose: one record per token exchange, for auditors who
+// need the exact minting history. The drawer previews only the newest records; the
+// full history opens in a filterable, paginated dialog so a long-lived subject
+// never floods the investigation story.
+function RecordsLedger({ zoneId, subject }: { zoneId: string; subject: SubjectSummary }) {
+  const [open, setOpen] = useState(false);
+  const feed = useSessionsFeed(zoneId, { subject_id: subject.subject_id, limit: LEDGER_PREVIEW });
+  const records = (feed.data?.pages[0]?.rows ?? []).slice(0, LEDGER_PREVIEW);
+  const now = Date.now();
 
   return (
     <section className="border-t border-border pt-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Activity
+          Authority records
         </h3>
-        <Link
-          to={appLink("/audit")}
-          search={{ session: sessionId }}
-          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-        >
-          Open in Audit
-        </Link>
+        <span className="text-[10px] text-muted-foreground">one per token exchange</span>
       </div>
-      {activity.isLoading ? (
+      {feed.isLoading ? (
         <Skeleton className="mt-3 h-16 w-full" />
-      ) : events.length === 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          No recorded activity yet. Token exchanges, resource calls, and authority decisions for
-          this session appear here as the subject acts.
-        </p>
+      ) : records.length === 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">No records yet.</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {events.map((event) => {
-            const context = auditEventContext(event);
-            const latency = event.metadata_json?.latency_ms;
-            return (
-              <li
-                key={event.id}
-                className="flex items-start justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-foreground">
-                      {auditEventLabel(event.event_type)}
-                    </span>
-                    {event.decision ? (
-                      <Badge tone={auditDecisionTone(event.decision)}>{event.decision}</Badge>
-                    ) : null}
-                  </div>
-                  {context ? (
-                    <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                      {context}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="shrink-0 text-right text-[10px] text-muted-foreground">
-                  <div>{relativeTime(event.occurred_at)}</div>
-                  {typeof latency === "number" ? <div>{latency}ms</div> : null}
-                </div>
-              </li>
-            );
-          })}
+          {records.map((record) => (
+            <RecordRow key={record.id} zoneId={zoneId} record={record} now={now} />
+          ))}
         </ul>
       )}
+      {subject.total_sessions > LEDGER_PREVIEW ? (
+        <Button variant="secondary" size="sm" className="mt-2" onClick={() => setOpen(true)}>
+          View all {subject.total_sessions} records
+        </Button>
+      ) : null}
+      {open ? (
+        <RecordsModal zoneId={zoneId} subject={subject} onClose={() => setOpen(false)} />
+      ) : null}
     </section>
   );
 }
 
-// States the authority this session currently carries, derived from the same rule the
-// STS enforces at token mint time, so an operator can trust the console's verdict rather
-// than inferring it from a raw status string.
-function AuthoritySummary({
-  session,
-  effective,
-  stale,
-  now,
+// Full record history for one subject in the standard console grid: search by record
+// id, filter by stored status, sort by column, and page with the shared pager. The
+// pager prefetches the next server batch when the operator reaches the last loaded
+// page, so Next keeps walking the feed until history is exhausted.
+function RecordsModal({
+  zoneId,
+  subject,
+  onClose,
 }: {
-  session: Session;
-  effective: EffectiveStatus;
-  stale: boolean;
-  now: number;
+  zoneId: string;
+  subject: SubjectSummary;
+  onClose: () => void;
 }) {
-  if (effective === "active") {
-    return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-        <div className="font-medium">Carries live authority</div>
-        <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
-          This session can mint tokens until it expires {relativeTime(session.expires_at, now)}.
-        </p>
-      </div>
-    );
-  }
-  if (effective === "revoked") {
-    return (
-      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <div className="font-medium">No authority: revoked</div>
-        <p className="mt-0.5 text-destructive/80">
-          The runtime rejects every exchange for this session. Revocation is irreversible.
-        </p>
-      </div>
-    );
-  }
+  const [status, setStatus] = useState("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortState | undefined>(undefined);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+  const feed = useSessionsFeed(zoneId, {
+    subject_id: subject.subject_id,
+    status: status === "all" ? undefined : status,
+    limit: 50,
+  });
+  const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((p) => p.rows), [feed.data]);
+  const now = Date.now();
+
+  useEffect(() => {
+    setPage(1);
+  }, [status, query, sort, pageSize]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((record) => record.id.toLowerCase().includes(q));
+  }, [rows, query]);
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    const accessor: ((record: Session) => string | number) | undefined =
+      sort.column === "minted"
+        ? (record) => Date.parse(record.authenticated_at)
+        : sort.column === "status"
+          ? (record) => effectiveStatus(record, now)
+          : undefined;
+    if (!accessor) return filtered;
+    const dir = sort.direction === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = accessor(a);
+      const bv = accessor(b);
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [filtered, sort, now]);
+
+  const paged = useMemo(
+    () => sorted.slice((page - 1) * pageSize, page * pageSize),
+    [sorted, page, pageSize],
+  );
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  useEffect(() => {
+    if (!feed.hasNextPage || feed.isFetchingNextPage) return;
+    if (sorted.length === 0 || page < pageCount) return;
+    void feed.fetchNextPage();
+  }, [feed, page, pageCount, sorted.length]);
+
+  const columns: Column<Session>[] = [
+    {
+      id: "status",
+      header: "Status",
+      sortable: true,
+      cell: (record) => {
+        const eff = effectiveStatus(record, now);
+        return (
+          <span className="flex items-center gap-2">
+            <Badge tone={statusTone(eff)}>{eff}</Badge>
+            {isStaleActive(record, now) ? (
+              <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
+                <span
+                  tabIndex={0}
+                  className="cursor-help rounded text-[10px] uppercase tracking-wide text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:text-amber-500"
+                >
+                  lapsed
+                </span>
+              </Tooltip>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      id: "record",
+      header: "Record",
+      truncate: true,
+      cell: (record) => (
+        <span
+          className="block truncate font-mono text-[11px] text-muted-foreground"
+          title={record.id}
+        >
+          {record.id}
+        </span>
+      ),
+    },
+    {
+      id: "outcome",
+      header: "Outcome",
+      cell: (record) => {
+        const eff = effectiveStatus(record, now);
+        return (
+          <span
+            className={cx(
+              "text-xs",
+              eff === "revoked" ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {sessionOutcome(record, eff)}
+          </span>
+        );
+      },
+    },
+    {
+      id: "minted",
+      header: "Minted",
+      sortable: true,
+      align: "right",
+      cell: (record) => (
+        <span
+          className="text-xs text-muted-foreground"
+          title={new Date(record.authenticated_at).toLocaleString()}
+        >
+          {relativeTime(record.authenticated_at, now)}
+        </span>
+      ),
+    },
+    {
+      id: "audit",
+      header: "",
+      align: "right",
+      cell: (record) => (
+        <Link
+          to={appLink("/audit")}
+          search={{ session: record.id }}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Audit
+        </Link>
+      ),
+    },
+  ];
+
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-      <div className="font-medium">No authority: expired</div>
-      <p className="mt-0.5 text-amber-700/80 dark:text-amber-400/80">
-        Expiry passed {relativeTime(session.expires_at, now)}, so the runtime rejects every
-        exchange.
-        {stale ? " The stored status is still 'active'; it will be reaped to 'expired'." : ""}
-      </p>
-    </div>
+    <Modal
+      open
+      onClose={onClose}
+      width="max-w-3xl"
+      title={`Authority records · ${subjectDisplayName(subject)}`}
+      description={`${subject.total_sessions} total · ${subject.active_sessions} live · ${subject.revoked_sessions} revoked. One record per token exchange; expiry is the normal end of short-lived authority.`}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchInput
+          placeholder="Search by record id"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search by record id"
+          className="w-full sm:w-64"
+        />
+        <FilterMenu
+          groups={[
+            {
+              id: "status",
+              label: "Status",
+              value: status,
+              onChange: setStatus,
+              options: [
+                { id: "all", label: "All statuses" },
+                { id: "active", label: "Live" },
+                { id: "revoked", label: "Revoked" },
+                { id: "expired", label: "Expired" },
+              ],
+            },
+          ]}
+        />
+      </div>
+      <div>
+        <DataTable
+          columns={columns}
+          rows={paged}
+          rowKey={(record) => record.id}
+          loading={feed.isLoading}
+          skeletonRows={pageSize}
+          sort={sort}
+          onSortChange={(column) =>
+            setSort((prev) =>
+              prev?.column === column
+                ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
+                : { column, direction: "asc" },
+            )
+          }
+          empty={
+            <EmptyState
+              bordered={false}
+              title={query.trim() || status !== "all" ? "No matches" : "No records yet"}
+              description={
+                query.trim() || status !== "all"
+                  ? "No records match the current search and filters. Adjust or clear them to see more."
+                  : "Records appear as this subject's identity is exchanged for authority."
+              }
+            />
+          }
+        />
+        {sorted.length > 0 ? (
+          <div className="border-x border-b border-border bg-card">
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={sorted.length}
+              hasMore={Boolean(feed.hasNextPage)}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
+        ) : null}
+      </div>
+    </Modal>
   );
 }

@@ -1030,7 +1030,7 @@ function AgentInspector({
             >
               <Link
                 to={appLink("/subjects")}
-                search={{ focus: agent.subject_session_id }}
+                search={{ record: agent.subject_session_id }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >
                 {agent.subject_session_id}

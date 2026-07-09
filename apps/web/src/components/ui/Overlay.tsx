@@ -49,6 +49,7 @@ export function Modal({
   children,
   footer,
   dismissible = true,
+  width = "max-w-lg",
 }: {
   open: boolean;
   onClose: () => void;
@@ -57,6 +58,7 @@ export function Modal({
   children?: ReactNode;
   footer?: ReactNode;
   dismissible?: boolean;
+  width?: string;
 }) {
   useEscape(open && dismissible, onClose);
   if (!open) return null;
@@ -71,7 +73,10 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         data-modal-surface=""
-        className="animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl sm:max-h-[84dvh]"
+        className={cx(
+          "animate-pop-in relative z-10 flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl sm:max-h-[84dvh]",
+          width,
+        )}
       >
         <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
           <h2 className="min-w-0 break-words text-sm font-semibold tracking-tight text-foreground">
