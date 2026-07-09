@@ -2,551 +2,1266 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Sessions route.
+This file defines the Agents runtime workspace for live agent sessions and the delegated authority between them.
 */
+import { appLink } from "@/platform/nav/appLink";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { DelegationInspector } from "@/components/console/DelegationInspector";
+import { CsvExportButton } from "@/components/console/CsvExportButton";
 import {
+  delegationErrorMessage,
+  edgeStatusLabel,
+  edgeStatusTone,
+  shortId,
+} from "@/components/console/delegationFormat";
+import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
+import {
+  BriefRow,
   CopyValue,
   DetailField,
-  DetailGroup,
+  EventTimeline,
+  Mono,
   ResourceWorkspace,
+  type TimelineEvent,
 } from "@/components/console/ResourceWorkspace";
-import { FeedToolbar } from "@/components/console/FeedToolbar";
+import { ModulePage } from "@/components/console/ModulePage";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import {
   Badge,
   Button,
-  ConfirmDialog,
+  Drawer,
   Field,
+  Modal,
   Select,
   Skeleton,
-  Tooltip,
-  useCopyToClipboard,
+  Spinner,
   useToast,
   type Column,
 } from "@/components/ui";
-import { CsvExportButton } from "@/components/console/CsvExportButton";
 import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
-import { formatDuration, relativeTime } from "@/lib/time";
-import { appLink } from "@/platform/nav/appLink";
+import { relativeTime } from "@/lib/time";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  useAgent,
+  useAgentActivity,
+  useAgentChildren,
+  useAgentEffectiveAuthority,
   useAgentInboundDelegations,
+  useAgentInvocations,
   useAgentLifecycle,
-  useRevokeDelegation,
-  useSessionActivity,
-  useSessionsFeed,
+  useAgentOutboundDelegations,
+  useAgentServices,
+  useAgentsFeed,
+  useApplications,
+  useDelegationsFeed,
 } from "@/platform/api/hooks";
-import type { Session, SessionQuery } from "@/platform/api/types";
+import type {
+  Agent,
+  AgentStatus,
+  AgentQuery,
+  Application,
+  DelegationEdge,
+  InvocationStatus,
+} from "@/platform/api/types";
 
-export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/sessions")({
-  component: SessionsRoute,
-  validateSearch: (search: Record<string, unknown>): { subject?: string; focus?: string } => ({
-    subject: typeof search.subject === "string" ? search.subject : undefined,
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/agents")({
+  component: AgentsRoute,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { view?: "agents" | "delegation"; focus?: string } => ({
+    view: search.view === "delegation" ? "delegation" : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
 });
 
-function SessionsRoute() {
-  const { subject } = Route.useSearch();
+type AgentsView = "agents" | "delegation";
+
+const VIEW_TABS: { id: AgentsView; label: string }[] = [
+  { id: "agents", label: "Agents" },
+  { id: "delegation", label: "Delegation" },
+];
+
+function AgentsRoute() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const view: AgentsView = search.view === "delegation" ? "delegation" : "agents";
+  const tabs = (
+    <FeedTabs
+      tabs={VIEW_TABS}
+      value={view}
+      onChange={(v) =>
+        navigate({
+          search: { view: v === "delegation" ? v : undefined, focus: undefined },
+          replace: true,
+        })
+      }
+      label="Runtime view"
+    />
+  );
   return (
     <ZoneScopedPage
-      title="Sessions"
-      description="Authenticated subject sessions issued in this zone."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Sessions" }]}
+      title="Agents"
+      description="Live agent sessions and the delegated authority between them in this zone."
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
     >
-      {(zone) => <SessionsPage zoneId={zone.id} initialSubject={subject} />}
+      {(zone) =>
+        view === "agents" ? (
+          <AgentsPage zoneId={zone.id} tabs={tabs} />
+        ) : (
+          <DelegationPage zoneId={zone.id} tabs={tabs} />
+        )
+      }
     </ZoneScopedPage>
   );
 }
 
 function errorMessage(error: unknown): string {
   if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code;
+    if (error.code === "coordinator_not_configured") return "Coordinator service not connected.";
+    if (error.code === "upstream_unreachable") return "Coordinator service unreachable.";
+    return error.code.replace(/_/g, " ");
   }
   return "Unexpected error.";
 }
 
-type EffectiveStatus = "active" | "expired" | "revoked";
-
-// The control plane stores a session's status as active/revoked/expired, but the
-// reaper only flips orphaned (zone-deleted) sessions to expired, and a session whose
-// expires_at has passed keeps status='active' in the database until then. The STS
-// runtime, however, denies any exchange unless `status === 'active' && expires_at > now`
-// (exchange.go: "session inactive or expired"). So a stored-active session past its
-// expiry carries no usable authority. Derive the status the runtime actually enforces
-// so the console never shows lapsed authority as live.
-function effectiveStatus(session: Session, now: number): EffectiveStatus {
-  if (session.status === "revoked") return "revoked";
-  if (session.status === "expired") return "expired";
-  return Date.parse(session.expires_at) > now ? "active" : "expired";
+function CoordinatorOffline({ code, onRetry }: { code: string; onRetry: () => void }) {
+  const configured = code !== "coordinator_not_configured";
+  return (
+    <div className="border border-border p-6">
+      <div className="flex items-start gap-4">
+        <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center border border-border bg-card text-amber-600 dark:text-amber-400">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+          >
+            <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+          </svg>
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            {configured ? "Coordinator unreachable" : "Coordinator not connected"}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Agent sessions are served by the Caracal Coordinator runtime.{" "}
+            {configured
+              ? "It is configured but not responding. Confirm the runtime is running, then retry."
+              : "Start the local stack with `caracal up` to provision and run it, then retry."}
+          </p>
+          <div className="mt-5">
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-// True when the database still says active but the session has actually lapsed and is
-// awaiting reaping, worth flagging so operators understand the record/runtime drift.
-function isStaleActive(session: Session, now: number): boolean {
-  return session.status === "active" && Date.parse(session.expires_at) <= now;
-}
-
-function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
+function statusTone(status: AgentStatus): "success" | "warning" | "muted" {
   if (status === "active") return "success";
-  if (status === "revoked") return "danger";
+  if (status === "suspended") return "warning";
   return "muted";
 }
 
-// The instant a session stopped carrying authority: its revocation time when revoked,
-// otherwise its expiry. Live sessions have no terminal instant.
-function sessionEnd(session: Session, effective: EffectiveStatus): number | null {
-  if (effective === "active") return null;
-  if (session.revoked_at) return Date.parse(session.revoked_at);
-  return Date.parse(session.expires_at);
+type Liveness = { tone: "success" | "warning" | "danger" | "muted"; label: string; detail: string };
+
+// Derives a single runtime-health signal from lifecycle fields so operators can spot dying
+// agents at a glance: task agents are governed by TTL, service agents by heartbeat lease.
+function liveness(agent: Agent, now = Date.now()): Liveness {
+  if (agent.status === "expired") {
+    return {
+      tone: "muted",
+      label: "Expired",
+      detail: agent.terminated_at
+        ? `TTL elapsed ${relativeTime(agent.terminated_at, now)}`
+        : "TTL elapsed",
+    };
+  }
+  if (agent.status === "terminated") {
+    return {
+      tone: "muted",
+      label: "Terminated",
+      detail: agent.terminated_at ? `Ended ${relativeTime(agent.terminated_at, now)}` : "Ended",
+    };
+  }
+  if (agent.status === "suspended") {
+    return { tone: "warning", label: "Suspended", detail: "Authority paused until resumed" };
+  }
+  if (agent.lifecycle === "service") {
+    if (!agent.heartbeat_deadline_at) {
+      return {
+        tone: "muted",
+        label: "No lease",
+        detail: "Service agent has not reported a heartbeat",
+      };
+    }
+    const deadline = Date.parse(agent.heartbeat_deadline_at);
+    if (deadline < now) {
+      return {
+        tone: "danger",
+        label: "Lease expired",
+        detail: `Heartbeat lost ${relativeTime(agent.heartbeat_deadline_at, now)}, pending auto-suspend`,
+      };
+    }
+    if (deadline - now < 30_000) {
+      return {
+        tone: "warning",
+        label: "Lease expiring",
+        detail: `Heartbeat lease ends ${relativeTime(agent.heartbeat_deadline_at, now)}`,
+      };
+    }
+    return {
+      tone: "success",
+      label: "Healthy",
+      detail: `Heartbeat lease valid until ${new Date(deadline).toLocaleTimeString()}`,
+    };
+  }
+  // task agent: TTL from spawned_at
+  if (agent.ttl_seconds && agent.spawned_at) {
+    const expires = Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000;
+    if (expires < now) {
+      return { tone: "danger", label: "Expired", detail: "Past TTL, pending auto-terminate" };
+    }
+    if (expires - now < 60_000) {
+      return {
+        tone: "warning",
+        label: "Expiring",
+        detail: `TTL ends ${relativeTime(new Date(expires).toISOString(), now)}`,
+      };
+    }
+    return {
+      tone: "success",
+      label: "Active",
+      detail: `TTL ends ${relativeTime(new Date(expires).toISOString(), now)}`,
+    };
+  }
+  return { tone: "success", label: "Active", detail: "Running" };
 }
 
-function sessionDuration(session: Session, effective: EffectiveStatus, now: number): string {
-  const start = Date.parse(session.authenticated_at) || Date.parse(session.created_at);
-  const end = sessionEnd(session, effective) ?? now;
-  return formatDuration(end - start);
+function agentExpiry(agent: Agent): string {
+  if (agent.status !== "active") return "-";
+  if (agent.lifecycle === "service") {
+    return agent.heartbeat_deadline_at
+      ? new Date(agent.heartbeat_deadline_at).toLocaleString()
+      : "no lease";
+  }
+  if (agent.ttl_seconds && agent.spawned_at) {
+    return new Date(Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000).toLocaleString();
+  }
+  return "-";
 }
 
-// Maps the reason recorded when a session is revoked to operator-facing wording. The
-// backend stamps these at the originating action (grant delete, application archive) or
-// falls back to a generic marker when a revocation arrives only through the stream.
-const REVOCATION_REASON_LABELS: Record<string, string> = {
-  grant_revoked: "Grant revoked",
-  dcr_shutdown: "Application archived",
-  application_archived: "Application archived",
-  session_revoked: "Revoked",
+// The most human-meaningful name for an agent row. Operators tag agents by role via labels,
+// so the first label reads as the agent's name; the application's name is the fallback. The
+// raw session id stays available as a secondary, copyable identifier.
+function agentTitle(agent: Agent, appNames: Map<string, string>): string {
+  return agent.labels[0] ?? appNames.get(agent.application_id) ?? agent.application_id;
+}
+
+// How long the agent has run: spawn to termination for ended agents, spawn to now for live ones.
+function agentDuration(agent: Agent, now = Date.now()): string {
+  const start = Date.parse(agent.spawned_at);
+  const end = agent.terminated_at ? Date.parse(agent.terminated_at) : now;
+  const secs = Math.max(Math.round((end - start) / 1000), 0);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return mins % 60 ? `${hrs}h ${mins % 60}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ${hrs % 24}h`;
+}
+
+// Plain-language rendering of why an agent ended, drawn from the durable termination reason.
+const TERMINATION_REASON_LABELS: Record<string, string> = {
+  requested: "Requested",
+  ttl: "TTL expired",
+  parent_terminated: "Parent terminated",
+  service_heartbeat_lost: "Heartbeat lost",
+  zone_purged: "Zone purged",
 };
 
-function revocationReasonLabel(reason: string | null): string {
-  if (!reason) return "Revoked";
-  return REVOCATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
+function terminationReasonLabel(reason: string): string {
+  return TERMINATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
 }
 
-// One-line outcome for a session: why it ended, or that it is still live. Revoked
-// sessions surface the recorded cause so operators see intent, not just a status.
-function sessionOutcome(session: Session, effective: EffectiveStatus): string {
-  if (effective === "active") return "Live";
-  if (effective === "revoked") return revocationReasonLabel(session.revoked_reason);
-  return "Expired";
+// The agent's recorded lifecycle as ordered events: spawn, service heartbeats, and the
+// terminal or upcoming end of the run.
+function agentEvents(agent: Agent): TimelineEvent[] {
+  const events: TimelineEvent[] = [{ label: "Spawned", at: agent.spawned_at, tone: "neutral" }];
+  if (agent.lifecycle === "service" && agent.last_heartbeat_at) {
+    events.push({ label: "Last heartbeat", at: agent.last_heartbeat_at, tone: "neutral" });
+  }
+  if (agent.terminated_at) {
+    events.push({
+      label: agent.status === "expired" ? "Expired" : "Terminated",
+      at: agent.terminated_at,
+      tone: "muted",
+      detail: agent.termination_reason
+        ? terminationReasonLabel(agent.termination_reason)
+        : undefined,
+    });
+    return events;
+  }
+  if (agent.lifecycle === "service") {
+    if (agent.heartbeat_deadline_at) {
+      events.push({
+        label: "Lease ends",
+        at: agent.heartbeat_deadline_at,
+        tone: "muted",
+        future: true,
+      });
+    }
+  } else if (agent.ttl_seconds) {
+    events.push({
+      label: "Expires",
+      at: new Date(Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000).toISOString(),
+      tone: "muted",
+      future: true,
+    });
+  }
+  return events;
 }
 
-function SessionsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {
+function AgentsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
+  const toast = useToast();
+  const lifecycle = useAgentLifecycle(zoneId);
+
+  const apps = useApplications(zoneId);
+  const appNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const app of apps.data ?? []) map.set(app.id, app.name);
+    return map;
+  }, [apps.data]);
+
   const [status, setStatus] = useState<string>("all");
-  const [subject, setSubject] = useState(initialSubject ?? "");
+  const [lifecycleFilter, setLifecycleFilter] = useState<string>("all");
+  const [application, setApplication] = useState("");
+  const [label, setLabel] = useState("");
+  const [confirm, setConfirm] = useState<{
+    agent: Agent;
+    action: "suspend" | "terminate";
+  } | null>(null);
 
-  const serverQuery = useMemo<SessionQuery>(() => {
-    const q: SessionQuery = {};
+  const serverQuery = useMemo<AgentQuery>(() => {
+    const q: AgentQuery = {};
     if (status !== "all") q.status = status;
-    if (subject.trim()) q.subject_id = subject.trim();
+    if (lifecycleFilter !== "all") q.lifecycle = lifecycleFilter;
+    if (application.trim()) q.application_id = application.trim();
+    if (label.trim()) q.label = label.trim();
     return q;
-  }, [status, subject]);
+  }, [status, lifecycleFilter, application, label]);
 
-  const feed = useSessionsFeed(zoneId, serverQuery);
+  const feed = useAgentsFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
-  const now = Date.now();
 
-  const columns: Column<Session>[] = [
+  const coordError = feed.isError && feed.error instanceof ConsoleApiError ? feed.error.code : null;
+  const coordinatorDown =
+    coordError === "coordinator_not_configured" || coordError === "upstream_unreachable";
+
+  async function runLifecycle(agent: Agent, action: "suspend" | "resume" | "terminate") {
+    try {
+      await lifecycle.mutateAsync({ id: agent.agent_session_id, action });
+      const verb =
+        action === "suspend" ? "suspended" : action === "resume" ? "resumed" : "terminated";
+      toast({ tone: action === "terminate" ? "info" : "success", title: `Agent ${verb}` });
+    } catch (err) {
+      toast({ tone: "error", title: "Action failed", description: errorMessage(err) });
+    }
+  }
+
+  if (coordinatorDown) {
+    return (
+      <ModulePage
+        title="Agents"
+        description="Live agent sessions and the delegated authority between them in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      >
+        <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
+      </ModulePage>
+    );
+  }
+
+  const columns: Column<Agent>[] = [
     {
-      id: "subject",
-      header: "Subject",
-      sortable: true,
-      cell: (s) => (
-        <div>
-          <div className="font-mono text-xs text-foreground">{s.subject_id}</div>
-          <div className="text-xs text-muted-foreground">{s.session_type}</div>
+      id: "agent",
+      header: "Agent",
+      cell: (a) => (
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">
+            {agentTitle(a, appNames)}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="font-mono">{shortId(a.agent_session_id)}</span>
+            <span>· {appNames.get(a.application_id) ?? shortId(a.application_id)}</span>
+            {a.labels.length > 1 ? (
+              <span>
+                +{a.labels.length - 1} label{a.labels.length - 1 === 1 ? "" : "s"}
+              </span>
+            ) : null}
+          </div>
         </div>
       ),
     },
     {
-      id: "status",
-      header: "Authority",
-      cell: (s) => {
-        const eff = effectiveStatus(s, now);
+      id: "health",
+      header: "Health",
+      cell: (a) => {
+        const live = liveness(a);
         return (
-          <div className="flex items-center gap-1.5">
-            <Badge tone={statusTone(eff)}>{eff}</Badge>
-            {isStaleActive(s, now) ? (
-              <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
-                <span
-                  tabIndex={0}
-                  className="cursor-help rounded text-[10px] uppercase tracking-wide text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:text-amber-500"
-                >
-                  lapsed
-                </span>
-              </Tooltip>
-            ) : null}
-          </div>
+          <Badge
+            tone={
+              live.tone === "danger"
+                ? "danger"
+                : live.tone === "success"
+                  ? "success"
+                  : live.tone === "warning"
+                    ? "warning"
+                    : "muted"
+            }
+          >
+            {live.label}
+          </Badge>
         );
       },
     },
     {
-      id: "authenticated",
-      header: "Authenticated",
-      sortable: true,
-      cell: (s) => (
+      id: "kind",
+      header: "Kind",
+      cell: (a) => (
         <span className="text-xs text-muted-foreground">
-          {new Date(s.authenticated_at).toLocaleString()}
+          {a.lifecycle}
+          <span className="ml-1.5 font-mono text-[10px]">
+            {a.depth === 0 ? "root" : `d${a.depth}`}
+          </span>
         </span>
+      ),
+    },
+    {
+      id: "started",
+      header: "Started",
+      cell: (a) => (
+        <span className="text-xs text-muted-foreground">{relativeTime(a.spawned_at)}</span>
       ),
     },
     {
       id: "duration",
       header: "Duration",
-      sortable: true,
-      cell: (s) => {
-        const eff = effectiveStatus(s, now);
-        return (
-          <span className="text-xs text-muted-foreground" title="Time held from authentication">
-            {sessionDuration(s, eff, now)}
-            {eff === "active" ? (
-              <span className="ml-1 text-muted-foreground/70">so far</span>
-            ) : null}
-          </span>
-        );
-      },
+      cell: (a) => (
+        <span className="font-mono text-xs text-muted-foreground">{agentDuration(a)}</span>
+      ),
     },
     {
       id: "outcome",
       header: "Outcome",
       align: "right",
-      sortable: true,
-      cell: (s) => {
-        const eff = effectiveStatus(s, now);
-        const ended = sessionEnd(s, eff);
-        return (
-          <div className="text-right">
-            <div
-              className={cx(
-                "text-xs",
-                eff === "revoked"
-                  ? "text-destructive"
-                  : eff === "expired"
-                    ? "text-amber-600 dark:text-amber-500"
-                    : "text-muted-foreground",
-              )}
+      cell: (a) =>
+        a.status === "terminated" || a.status === "expired" ? (
+          <span className="text-xs text-muted-foreground">
+            {a.termination_reason ? terminationReasonLabel(a.termination_reason) : "Ended"}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">{agentExpiry(a)}</span>
+        ),
+    },
+  ];
+
+  return (
+    <>
+      <ResourceWorkspace
+        title="Agents"
+        description="Live agent sessions, their authority, and delegation lineage in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+        toolbarExtra={
+          <AgentFilterBar
+            tabs={tabs}
+            status={status}
+            lifecycle={lifecycleFilter}
+            application={application}
+            applications={apps.data ?? []}
+            label={label}
+            loaded={rows.length}
+            onStatus={setStatus}
+            onLifecycle={setLifecycleFilter}
+            onApplication={setApplication}
+            onLabel={setLabel}
+            exportControl={
+              <CsvExportButton
+                zoneId={zoneId}
+                path="agent-sessions"
+                query={Object.fromEntries(
+                  Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
+                )}
+                noun="agent sessions"
+              />
+            }
+          />
+        }
+        rows={rows}
+        loading={feed.isLoading}
+        columns={columns}
+        rowKey={(a) => a.agent_session_id}
+        pageSize={12}
+        feed={{
+          hasMore: Boolean(feed.hasNextPage),
+          fetching: feed.isFetchingNextPage,
+          loadMore: () => feed.fetchNextPage(),
+        }}
+        search={{
+          placeholder: "Filter loaded agents by session, app, or label…",
+          match: (a, q) =>
+            a.agent_session_id.toLowerCase().includes(q) ||
+            a.application_id.toLowerCase().includes(q) ||
+            (appNames.get(a.application_id) ?? "").toLowerCase().includes(q) ||
+            a.lifecycle.toLowerCase().includes(q) ||
+            a.labels.some((l) => l.toLowerCase().includes(q)),
+        }}
+        empty={{
+          title: feed.isError ? "Could not load agents" : "No agent sessions",
+          description: feed.isError
+            ? errorMessage(feed.error)
+            : "Agent sessions appear here as the Coordinator spawns them in this zone.",
+        }}
+        detail={{
+          title: (a) => agentTitle(a, appNames),
+          description: (a) => `Spawned ${relativeTime(a.spawned_at)}`,
+          width: "max-w-2xl",
+          render: (a) => (
+            <AgentInspector
+              zoneId={zoneId}
+              agent={a}
+              appName={appNames.get(a.application_id) ?? null}
+              busy={lifecycle.isPending}
+              onSuspend={() => setConfirm({ agent: a, action: "suspend" })}
+              onResume={() => void runLifecycle(a, "resume")}
+              onTerminate={() => setConfirm({ agent: a, action: "terminate" })}
+            />
+          ),
+        }}
+      />
+
+      <AgentLifecycleConfirm
+        zoneId={zoneId}
+        request={confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={async () => {
+          if (confirm) await runLifecycle(confirm.agent, confirm.action);
+        }}
+      />
+    </>
+  );
+}
+
+// Server-side agent filters + cursor pagination. Filters run against the Coordinator so
+// large zones stay searchable; "Load more" follows the keyset cursor.
+function AgentFilterBar({
+  tabs,
+  status,
+  lifecycle,
+  application,
+  applications,
+  label,
+  loaded,
+  onStatus,
+  onLifecycle,
+  onApplication,
+  onLabel,
+  exportControl,
+}: {
+  tabs: ReactNode;
+  status: string;
+  lifecycle: string;
+  application: string;
+  applications: Application[];
+  label: string;
+  loaded: number;
+  onStatus: (v: string) => void;
+  onLifecycle: (v: string) => void;
+  onApplication: (v: string) => void;
+  onLabel: (v: string) => void;
+  exportControl: ReactNode;
+}) {
+  const activeFilters =
+    (status !== "all" ? 1 : 0) +
+    (lifecycle !== "all" ? 1 : 0) +
+    [application, label].filter((v) => v.trim()).length;
+  return (
+    <FeedToolbar
+      extra={exportControl}
+      trailing={tabs}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="agent"
+    >
+      <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended</option>
+        <option value="terminated">Terminated</option>
+        <option value="expired">Expired</option>
+      </Select>
+      <Select label="Lifecycle" value={lifecycle} onChange={(e) => onLifecycle(e.target.value)}>
+        <option value="all">All lifecycles</option>
+        <option value="task">Task</option>
+        <option value="service">Service</option>
+      </Select>
+      <Select
+        label="Application"
+        value={application}
+        onChange={(e) => onApplication(e.target.value)}
+      >
+        <option value="">All applications</option>
+        {applications.map((app) => (
+          <option key={app.id} value={app.id}>
+            {app.name}
+          </option>
+        ))}
+      </Select>
+      <Field
+        label="Label"
+        placeholder="exact label"
+        value={label}
+        onChange={(e) => onLabel(e.target.value)}
+      />
+    </FeedToolbar>
+  );
+}
+
+// The delegation view of the runtime workspace: the graph of delegated authority between
+// agent sessions, with chain traversal and revocation impact in the edge inspector.
+function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
+  const feed = useDelegationsFeed(zoneId);
+  const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((p) => p.rows), [feed.data]);
+
+  const coordError = feed.isError && feed.error instanceof ConsoleApiError ? feed.error.code : null;
+  const coordinatorDown =
+    coordError === "coordinator_not_configured" || coordError === "upstream_unreachable";
+
+  if (coordinatorDown) {
+    return (
+      <ModulePage
+        title="Agents"
+        description="Live agent sessions and the delegated authority between them in this zone."
+        breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      >
+        <CoordinatorOffline code={coordError as string} onRetry={() => feed.refetch()} />
+      </ModulePage>
+    );
+  }
+
+  const columns: Column<DelegationEdge>[] = [
+    {
+      id: "edge",
+      header: "Delegation",
+      cell: (e) => (
+        <div className="flex items-center gap-2 font-mono text-xs">
+          <span className="text-foreground">{shortId(e.source_session_id)}</span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="shrink-0 text-muted-foreground"
+          >
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+          <span className="text-foreground">{shortId(e.target_session_id)}</span>
+        </div>
+      ),
+    },
+    {
+      id: "scopes",
+      header: "Scopes",
+      cell: (e) => (
+        <div className="flex flex-wrap items-center gap-1">
+          {e.scopes.slice(0, 2).map((scope) => (
+            <span
+              key={scope}
+              className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
             >
-              {sessionOutcome(s, eff)}
-            </div>
-            {ended ? (
-              <div
-                className="text-[10px] text-muted-foreground"
-                title={new Date(ended).toLocaleString()}
-              >
-                {relativeTime(new Date(ended).toISOString(), now)}
-              </div>
-            ) : null}
-          </div>
-        );
-      },
+              {scope}
+            </span>
+          ))}
+          {e.scopes.length > 2 ? (
+            <span className="text-[11px] text-muted-foreground">+{e.scopes.length - 2}</span>
+          ) : null}
+          {e.scopes.length === 0 ? <span className="text-xs text-muted-foreground">-</span> : null}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (e) => <Badge tone={edgeStatusTone(e)}>{edgeStatusLabel(e)}</Badge>,
+    },
+    {
+      id: "expires",
+      header: "Expires",
+      align: "right",
+      cell: (e) => (
+        <span className="text-xs text-muted-foreground">
+          {e.expires_at ? new Date(e.expires_at).toLocaleString() : "-"}
+        </span>
+      ),
     },
   ];
 
   return (
     <ResourceWorkspace
-      title="Sessions"
-      description="Authenticated subject sessions issued in this zone. Sessions end by expiry, grant revocation, or agent termination."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Sessions" }]}
+      title="Agents"
+      description="Active delegation edges. Each edge grants one agent session authority to act on another's behalf within scope."
+      breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Agents" }]}
+      toolbarExtra={<FeedToolbar trailing={tabs} loaded={rows.length} noun="edge" />}
       rows={rows}
       loading={feed.isLoading}
       columns={columns}
-      rowKey={(s) => s.id}
+      rowKey={(e) => e.id}
+      pageSize={12}
       feed={{
         hasMore: Boolean(feed.hasNextPage),
         fetching: feed.isFetchingNextPage,
         loadMore: () => feed.fetchNextPage(),
       }}
-      toolbarExtra={
-        <SessionFilterBar
-          status={status}
-          subject={subject}
-          loaded={rows.length}
-          onStatus={setStatus}
-          onSubject={setSubject}
-          exportControl={
-            <CsvExportButton
-              zoneId={zoneId}
-              path="sessions"
-              query={Object.fromEntries(
-                Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
-              )}
-              noun="sessions"
-            />
-          }
-        />
-      }
       search={{
-        placeholder: "Search loaded sessions by subject or session ID…",
-        match: (s, q) =>
-          s.subject_id.toLowerCase().includes(q) ||
-          s.id.toLowerCase().includes(q) ||
-          s.session_type.toLowerCase().includes(q),
+        placeholder: "Search loaded edges by session or scope…",
+        match: (e, q) =>
+          e.source_session_id.toLowerCase().includes(q) ||
+          e.target_session_id.toLowerCase().includes(q) ||
+          e.scopes.some((s) => s.toLowerCase().includes(q)),
       }}
-      initialSort={{ column: "authenticated", direction: "desc" }}
-      sortValues={{
-        subject: (s) => s.subject_id.toLowerCase(),
-        authenticated: (s) => Date.parse(s.authenticated_at) || 0,
-        duration: (s) => {
-          const eff = effectiveStatus(s, now);
-          const start = Date.parse(s.authenticated_at) || Date.parse(s.created_at);
-          return (sessionEnd(s, eff) ?? now) - start;
-        },
-        outcome: (s) => sessionOutcome(s, effectiveStatus(s, now)).toLowerCase(),
+      sortOptions={[
+        { id: "recent", label: "Most recent" },
+        { id: "expiring", label: "Expiring soon" },
+        { id: "scopes", label: "Most scopes" },
+      ]}
+      sortComparators={{
+        recent: (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+        expiring: (a, b) =>
+          (a.expires_at ? Date.parse(a.expires_at) : Infinity) -
+          (b.expires_at ? Date.parse(b.expires_at) : Infinity),
+        scopes: (a, b) => b.scopes.length - a.scopes.length,
       }}
       empty={{
-        title: feed.isError ? "Could not load sessions" : "No sessions",
+        title: feed.isError ? "Could not load delegations" : "No active delegations",
         description: feed.isError
-          ? errorMessage(feed.error)
-          : "Sessions appear here once subjects authenticate in this zone.",
+          ? delegationErrorMessage(feed.error)
+          : "When agent sessions delegate authority to one another, the active edges appear here with their chains and impact.",
       }}
       detail={{
-        title: (s) => s.subject_id,
-        description: (s) => s.session_type,
-        render: (s) => <SessionDetail session={s} zoneId={zoneId} />,
+        title: (e) => `${shortId(e.source_session_id)} → ${shortId(e.target_session_id)}`,
+        description: (e) => e.id,
+        width: "max-w-2xl",
+        render: (e) => <DelegationInspector zoneId={zoneId} edge={e} />,
       }}
     />
   );
 }
 
-// Server-side session filters and cursor pagination so operators can locate a subject's
-// session in enterprise-scale zones instead of scanning only the first page.
-function SessionFilterBar({
-  status,
-  subject,
-  loaded,
-  onStatus,
-  onSubject,
-  exportControl,
+// Lifecycle confirmation that previews the cascade blast radius. Suspend and terminate
+// recurse the agent subtree and revoke subject sessions on the backend, so the operator
+// sees the direct child sessions that will be affected before committing. Resume is the
+// undo action and runs directly without a confirmation.
+function AgentLifecycleConfirm({
+  zoneId,
+  request,
+  onClose,
+  onConfirm,
 }: {
-  status: string;
-  subject: string;
-  loaded: number;
-  onStatus: (v: string) => void;
-  onSubject: (v: string) => void;
-  exportControl: ReactNode;
+  zoneId: string;
+  request: { agent: Agent; action: "suspend" | "terminate" } | null;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
 }) {
-  const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
-  return (
-    <FeedToolbar extra={exportControl} activeFilters={activeFilters} loaded={loaded} noun="session">
-      <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
-        <option value="all">All statuses</option>
-        <option value="active">Active</option>
-        <option value="revoked">Revoked</option>
-        <option value="expired">Expired</option>
-      </Select>
-      <Field
-        label="Subject"
-        placeholder="user:richard.hendricks@piedpiper.example"
-        value={subject}
-        onChange={(e) => onSubject(e.target.value)}
-      />
-      <p className="text-[11px] text-muted-foreground sm:col-span-2">
-        Status filters by the stored value. A session stored as{" "}
-        <span className="font-mono">active</span> whose expiry has passed shows as{" "}
-        <span className="font-medium">expired</span> here because the runtime already rejects it.
-      </p>
-    </FeedToolbar>
-  );
-}
+  const children = useAgentChildren(zoneId, request ? request.agent.agent_session_id : null);
+  const childCount = (children.data ?? []).length;
 
-// Copies the raw session object operators would otherwise be unable to extract from the
-// structured panel, preserving the full backend record (including zone_id) for debugging
-// and sharing.
-function CopyJsonButton({ session }: { session: Session }) {
-  const copy = useCopyToClipboard();
-  const [copied, setCopied] = useState(false);
+  if (!request) return null;
+  const { action } = request;
+  const title = action === "suspend" ? "Suspend agent session" : "Terminate agent session";
+  const base =
+    action === "suspend"
+      ? "Suspending pauses this agent's authority and cascades to its descendant agents. Subject sessions held only by the suspended subtree are revoked. In-flight work may fail until resumed."
+      : "Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
+
   return (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={() =>
-        void copy(JSON.stringify(session, null, 2), {
-          onSuccess: () => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          },
-        })
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      description={`${request.agent.lifecycle} agent · depth ${request.agent.depth}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant={action === "terminate" ? "danger" : "primary"}
+            onClick={async () => {
+              await onConfirm();
+              onClose();
+            }}
+          >
+            {action === "suspend" ? "Suspend" : "Terminate"}
+          </Button>
+        </>
       }
     >
-      {copied ? "Copied" : "Copy JSON"}
-    </Button>
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">{base}</p>
+        <div className="border border-border bg-muted/20 p-3 text-xs">
+          {children.isLoading ? (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <Spinner className="h-3.5 w-3.5" /> Checking cascade impact…
+            </span>
+          ) : childCount === 0 ? (
+            <span className="text-muted-foreground">
+              No direct child sessions. Only this agent is affected.
+            </span>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-foreground">
+                {childCount} direct child session{childCount === 1 ? "" : "s"} will cascade
+                {action === "suspend" ? " into suspension" : " into termination"} (descendants
+                included):
+              </span>
+              <ul className="flex flex-col gap-1">
+                {(children.data ?? []).slice(0, 6).map((c) => (
+                  <li key={c.agent_session_id} className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-[11px] text-muted-foreground">
+                      {c.agent_session_id}
+                    </span>
+                    <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+              {childCount > 6 ? (
+                <span className="text-muted-foreground">…and {childCount - 6} more</span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
-function SessionDetail({ session, zoneId }: { session: Session; zoneId: string }) {
+function AgentInspector({
+  zoneId,
+  agent,
+  appName,
+  busy,
+  onSuspend,
+  onResume,
+  onTerminate,
+}: {
+  zoneId: string;
+  agent: Agent;
+  appName: string | null;
+  busy: boolean;
+  onSuspend: () => void;
+  onResume: () => void;
+  onTerminate: () => void;
+}) {
+  const authority = useAgentEffectiveAuthority(zoneId, agent.agent_session_id);
+  const children = useAgentChildren(zoneId, agent.agent_session_id);
+  const terminal = agent.status === "terminated" || agent.status === "expired";
+  const metadata = agent.metadata ?? {};
+  const task = typeof metadata.task === "string" ? metadata.task : null;
+  const extraMeta = Object.entries(metadata).filter(([key]) => key !== "task");
+  const live = liveness(agent);
   const now = Date.now();
-  const eff = effectiveStatus(session, now);
-  const stale = isStaleActive(session, now);
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Badge tone={statusTone(eff)}>{eff}</Badge>
-          <Badge tone="neutral">{session.session_type}</Badge>
-          {stale ? <Badge tone="warning">awaiting reap</Badge> : null}
-        </div>
-        <CopyJsonButton session={session} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={statusTone(agent.status)}>{agent.status}</Badge>
+        <Badge
+          tone="neutral"
+          title={
+            agent.lifecycle === "service"
+              ? "Long-lived service agent, governed by heartbeat lease"
+              : "Task agent, governed by TTL"
+          }
+        >
+          {agent.lifecycle}
+        </Badge>
+        <Badge tone="muted" title="Distance from the root agent in the delegation tree">
+          {agent.depth === 0 ? "root" : `depth ${agent.depth}`}
+        </Badge>
+        {agent.labels.slice(1).map((l) => (
+          <Badge key={l} tone="muted">
+            {l}
+          </Badge>
+        ))}
+        {!terminal ? (
+          <div className="ml-auto flex items-center gap-2">
+            {agent.status === "suspended" ? (
+              <Button variant="secondary" size="sm" loading={busy} onClick={onResume}>
+                Resume
+              </Button>
+            ) : (
+              <Button variant="secondary" size="sm" loading={busy} onClick={onSuspend}>
+                Suspend
+              </Button>
+            )}
+            <Button variant="danger" size="sm" onClick={onTerminate}>
+              Terminate
+            </Button>
+          </div>
+        ) : null}
       </div>
 
-      <AuthoritySummary session={session} effective={eff} stale={stale} now={now} />
-
-      <DetailGroup title="Session">
-        <DetailField label="Session ID">
-          <CopyValue value={session.id} />
-        </DetailField>
-        <DetailField label="Subject ID">
-          <CopyValue value={session.subject_id} />
-        </DetailField>
-        {session.parent_id ? (
-          <DetailField label="Parent">
-            <CopyValue value={session.parent_id} />
-          </DetailField>
-        ) : null}
-      </DetailGroup>
-
-      <DetailGroup title="Lifecycle">
-        <DetailField label="Authenticated">
-          {new Date(session.authenticated_at).toLocaleString()}
-        </DetailField>
-        <DetailField label="Created">{new Date(session.created_at).toLocaleString()}</DetailField>
-        <DetailField label="Expires">
-          {new Date(session.expires_at).toLocaleString()}
-          <span className="ml-2 text-xs text-muted-foreground">
-            ({relativeTime(session.expires_at, now)})
-          </span>
-        </DetailField>
-        {session.revoked_at ? (
-          <DetailField label="Revoked">
-            {new Date(session.revoked_at).toLocaleString()}
-            <span className="ml-2 text-xs text-muted-foreground">
-              ({revocationReasonLabel(session.revoked_reason)})
+      <div className="rounded-md border border-border bg-card px-3 py-2.5">
+        <dl className="flex flex-col gap-2">
+          <BriefRow label="Task">
+            <span className={task ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
+              {task ?? "None recorded"}
             </span>
+          </BriefRow>
+          <BriefRow label="Application">
+            {appName ? (
+              <Link
+                to={appLink("/applications")}
+                className="text-sm text-foreground hover:underline"
+              >
+                {appName}
+              </Link>
+            ) : (
+              <Mono>{agent.application_id}</Mono>
+            )}
+          </BriefRow>
+          {live.tone !== "success" ? (
+            <BriefRow label="Health">
+              <span
+                className={cx(
+                  "text-xs",
+                  live.tone === "danger"
+                    ? "text-destructive"
+                    : live.tone === "warning"
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-muted-foreground",
+                )}
+              >
+                {live.label}. {live.detail}.
+              </span>
+            </BriefRow>
+          ) : null}
+        </dl>
+      </div>
+
+      <EventTimeline events={agentEvents(agent)} now={now} />
+
+      <AgentActivity zoneId={zoneId} sessionId={agent.agent_session_id} />
+
+      <AuthorityEnvelope authority={authority} />
+
+      <AgentDelegations zoneId={zoneId} sessionId={agent.agent_session_id} />
+
+      <AgentExecution
+        zoneId={zoneId}
+        sessionId={agent.agent_session_id}
+        applicationId={agent.application_id}
+        isService={agent.lifecycle === "service"}
+      />
+
+      {(children.data ?? []).length > 0 ? (
+        <section className="border-t border-border pt-4">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Child sessions
+          </h3>
+          <ul className="mt-3 divide-y divide-border border-y border-border">
+            {(children.data ?? []).map((child) => (
+              <li
+                key={child.agent_session_id}
+                className="flex items-center justify-between gap-3 py-2.5"
+              >
+                <Mono>{child.agent_session_id}</Mono>
+                <div className="flex items-center gap-1.5">
+                  <Badge tone="muted">{child.lifecycle}</Badge>
+                  <Badge tone={statusTone(child.status)}>{child.status}</Badge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="transition-transform group-open:rotate-90">
+            {"\u25b8"}
+          </span>
+          Technical details
+        </summary>
+        <dl className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+          <DetailField
+            label="Agent session"
+            hint="This run's session id; edges and holds reference it"
+          >
+            <CopyValue value={agent.agent_session_id} />
           </DetailField>
-        ) : null}
-      </DetailGroup>
-
-      <SessionActivity zoneId={zoneId} sessionId={session.id} />
-
-      {eff === "active" ? <AuthorityControls zoneId={zoneId} session={session} /> : null}
+          <DetailField label="Application" hint="The application identity this agent runs under">
+            <CopyValue value={agent.application_id} />
+          </DetailField>
+          {agent.parent_id ? (
+            <DetailField label="Parent session" hint="The agent that spawned this one">
+              <Link
+                to={appLink("/agents")}
+                search={{ focus: agent.parent_id }}
+                className="break-all font-mono text-xs text-foreground hover:underline"
+              >
+                {agent.parent_id}
+              </Link>
+            </DetailField>
+          ) : null}
+          {agent.subject_session_id ? (
+            <DetailField label="Subject session" hint="The authenticated session this run acts for">
+              <Link
+                to={appLink("/sessions")}
+                search={{ focus: agent.subject_session_id }}
+                className="break-all font-mono text-xs text-foreground hover:underline"
+              >
+                {agent.subject_session_id}
+              </Link>
+            </DetailField>
+          ) : null}
+          {extraMeta.map(([key, value]) => (
+            <DetailField key={key} label={key}>
+              <Mono>{typeof value === "object" ? JSON.stringify(value) : String(value)}</Mono>
+            </DetailField>
+          ))}
+        </dl>
+      </details>
     </div>
   );
 }
 
-// Inline authority cutoff. A session's live authority is held by its agent session and
-// fed by inbound delegation edges, so both controls act right here: terminating the agent
-// or revoking an edge takes effect on the runtime immediately, no page change required.
-function AuthorityControls({ zoneId, session }: { zoneId: string; session: Session }) {
-  const toast = useToast();
-  const agent = useAgent(zoneId, session.id);
-  const inbound = useAgentInboundDelegations(zoneId, session.id);
-  const lifecycle = useAgentLifecycle(zoneId);
-  const revoke = useRevokeDelegation(zoneId);
-  const [confirmTerminate, setConfirmTerminate] = useState(false);
-
-  const holdingAgent =
-    agent.data && (agent.data.status === "active" || agent.data.status === "suspended")
-      ? agent.data
-      : null;
-  const edges = (inbound.data ?? []).filter((edge) => !edge.revoked_at);
-
-  if (!holdingAgent && edges.length === 0) {
-    return (
-      <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        This session ends by expiry or grant revocation. No live agent or inbound delegation holds
-        authority for it right now.
-      </p>
-    );
-  }
-
+// Full effective-authority envelope. The Coordinator intersects every active inbound edge
+// into scopes/resources/hops/ttl/expiry; surfacing all of it (not just scopes) lets an
+// operator see the agent's complete runtime authority boundary.
+function AuthorityEnvelope({
+  authority,
+}: {
+  authority: ReturnType<typeof useAgentEffectiveAuthority>;
+}) {
   return (
     <section className="border-t border-border pt-4">
       <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Cut off authority
+        Effective authority
       </h3>
-      <div className="mt-3 flex flex-col gap-2">
-        {holdingAgent ? (
-          <div className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2">
-            <div className="min-w-0">
-              <span className="text-xs font-medium text-foreground">
-                Agent session holds this authority
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {holdingAgent.lifecycle} · {holdingAgent.status} · depth {holdingAgent.depth}
-              </span>
-            </div>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={lifecycle.isPending}
-              onClick={() => setConfirmTerminate(true)}
-            >
-              Terminate agent
-            </Button>
-          </div>
-        ) : null}
-        {edges.map((edge) => (
-          <div
-            key={edge.id}
-            className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
-          >
-            <div className="min-w-0">
-              <span className="text-xs font-medium text-foreground">Inbound delegation</span>
-              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                {edge.scopes.join(", ") || "no scopes"} · from{" "}
-                <span className="font-mono">{edge.source_session_id.slice(0, 8)}…</span>
-              </span>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={revoke.isPending}
-              onClick={async () => {
-                try {
-                  await revoke.mutateAsync(edge.id);
-                  toast({ tone: "success", title: "Delegation revoked" });
-                } catch (err) {
-                  toast({ tone: "error", title: "Revoke failed", description: errorMessage(err) });
-                }
-              }}
-            >
-              Revoke
-            </Button>
-          </div>
-        ))}
-      </div>
+      {authority.isLoading ? (
+        <Skeleton className="mt-3 h-20 w-full" />
+      ) : authority.isError ? (
+        <p className="mt-2 text-sm text-muted-foreground">{errorMessage(authority.error)}</p>
+      ) : authority.data ? (
+        (() => {
+          const a = authority.data;
+          const noAuthority = a.inbound_edges.length === 0;
+          return (
+            <div className="mt-3 flex flex-col gap-3">
+              <div className="grid grid-cols-3 gap-px border border-border bg-border [&>*]:bg-background">
+                <Metric label="Inbound edges" value={a.inbound_edges.length} />
+                <Metric
+                  label="Max hops"
+                  text={a.effective_max_hops == null ? "∞" : String(a.effective_max_hops)}
+                />
+                <Metric
+                  label="Authority ends"
+                  text={a.earliest_expires_at ? relativeTime(a.earliest_expires_at) : "-"}
+                />
+              </div>
 
-      <ConfirmDialog
-        open={confirmTerminate}
-        onClose={() => setConfirmTerminate(false)}
-        title="Terminate agent session"
-        description="Terminating ends this agent and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone."
-        confirmLabel="Terminate"
-        tone="danger"
-        onConfirm={async () => {
-          try {
-            await lifecycle.mutateAsync({ id: session.id, action: "terminate" });
-            toast({ tone: "info", title: "Agent terminated" });
-          } catch (err) {
-            toast({ tone: "error", title: "Terminate failed", description: errorMessage(err) });
-          }
-        }}
-      />
+              {noAuthority ? (
+                <p className="text-sm text-muted-foreground">
+                  No inbound delegations. This agent acts only under its own application authority.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <span className="text-xs text-muted-foreground">
+                      Scopes ({a.effective_scopes.length})
+                    </span>
+                    {a.effective_scopes.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {a.effective_scopes.map((scope) => (
+                          <span
+                            key={scope}
+                            className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                          >
+                            {scope}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Scope intersection is empty: inbound edges share no common scope.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <span className="text-xs text-muted-foreground">
+                      Resources{" "}
+                      {a.effective_resource_constrained ? (
+                        <Badge tone="warning">constrained</Badge>
+                      ) : (
+                        <Badge tone="muted">unconstrained</Badge>
+                      )}
+                    </span>
+                    {a.effective_resources.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {a.effective_resources.map((r) => (
+                          <span
+                            key={r}
+                            className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                          >
+                            {r}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {a.effective_resource_constrained
+                          ? "Constrained by resource id only."
+                          : "Authority is not resource-bound."}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()
+      ) : null}
     </section>
   );
 }
 
-// Read-only correlation lens. Surfaces the durable audit events keyed to this session -
-// token exchanges, resource calls, and authority decisions - so an operator can trace what
-// the subject actually did while the session held authority. Payloads are never exposed.
-function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
-  const activity = useSessionActivity(zoneId, sessionId);
+// Inbound/outbound delegation edges for the agent, keyed by its agent session. Inbound =
+// authority the agent received; outbound = authority it granted onward.
+function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
+  const [inspect, setInspect] = useState<DelegationEdge | null>(null);
+  const inbound = useAgentInboundDelegations(zoneId, tab === "inbound" ? sessionId : null);
+  const outbound = useAgentOutboundDelegations(zoneId, tab === "outbound" ? sessionId : null);
+  const active = tab === "inbound" ? inbound : outbound;
+  const edges = active.data ?? [];
+
+  return (
+    <section className="border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Delegations
+        </h3>
+        <div className="inline-flex overflow-hidden border border-border">
+          {(["inbound", "outbound"] as const).map((id) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cx(
+                "px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+                tab === id
+                  ? "bg-foreground text-background"
+                  : "bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+      </div>
+      {active.isLoading ? (
+        <Skeleton className="mt-3 h-12 w-full" />
+      ) : edges.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No {tab} delegation edges.{" "}
+          <Link
+            to={appLink("/agents")}
+            search={{ view: "delegation" }}
+            className="text-foreground hover:underline"
+          >
+            Open delegation workspace
+          </Link>
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border border-y border-border">
+          {edges.map((edge) => (
+            <li key={edge.id}>
+              <button
+                type="button"
+                onClick={() => setInspect(edge)}
+                className="flex w-full flex-col gap-1 py-2.5 text-left transition-colors hover:bg-muted/40"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-[11px] text-muted-foreground">
+                    {tab === "inbound" ? edge.source_session_id : edge.target_session_id}
+                  </span>
+                  <Badge tone={edge.status === "active" ? "success" : "muted"}>{edge.status}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {edge.scopes.slice(0, 4).map((s) => (
+                    <span
+                      key={s}
+                      className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                    >
+                      {s}
+                    </span>
+                  ))}
+                  {edge.scopes.length > 4 ? (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{edge.scopes.length - 4}
+                    </span>
+                  ) : null}
+                  {edge.scopes.length === 0 ? (
+                    <span className="text-[10px] text-muted-foreground">no scopes</span>
+                  ) : null}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Drawer
+        open={inspect !== null}
+        onClose={() => setInspect(null)}
+        title={
+          inspect
+            ? `${shortId(inspect.source_session_id)} → ${shortId(inspect.target_session_id)}`
+            : ""
+        }
+        description={inspect?.id}
+        width="max-w-2xl"
+      >
+        {inspect ? (
+          <DelegationInspector zoneId={zoneId} edge={inspect} onRevoked={() => setInspect(null)} />
+        ) : null}
+      </Drawer>
+    </section>
+  );
+}
+
+function invocationTone(status: InvocationStatus): "success" | "warning" | "danger" | "muted" {
+  if (status === "succeeded") return "success";
+  if (status === "running" || status === "pending") return "warning";
+  if (status === "failed" || status === "timed_out" || status === "dead") return "danger";
+  return "muted";
+}
+
+// Authoritative record of what the agent actually did: the durable audit events correlated
+// by agent_session_id (token issuance, resource calls, denials), newest first. This is the
+// core of the agent audit - it answers "what happened" beyond the current lifecycle state.
+function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const activity = useAgentActivity(zoneId, sessionId);
   const events = activity.data?.rows ?? [];
 
   return (
@@ -557,7 +1272,7 @@ function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: str
         </h3>
         <Link
           to={appLink("/audit")}
-          search={{ session: sessionId }}
+          search={{ agent: sessionId }}
           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
           Open in Audit
@@ -567,8 +1282,7 @@ function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: str
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          No recorded activity yet. Token exchanges, resource calls, and authority decisions for
-          this session appear here as the subject acts.
+          No recorded activity yet. Exchanges and authority decisions appear here as the agent acts.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
@@ -608,48 +1322,114 @@ function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: str
   );
 }
 
-// States the authority this session currently carries, derived from the same rule the
-// STS enforces at token mint time, so an operator can trust the console's verdict rather
-// than inferring it from a raw status string.
-function AuthoritySummary({
-  session,
-  effective,
-  stale,
-  now,
+// Read-only execution lens. Surfaces durable invocations involving this agent and, for
+// service agents, the registered service endpoint + health. Payloads are never exposed;
+// all mutation stays with the runtime identity.
+function AgentExecution({
+  zoneId,
+  sessionId,
+  applicationId,
+  isService,
 }: {
-  session: Session;
-  effective: EffectiveStatus;
-  stale: boolean;
-  now: number;
+  zoneId: string;
+  sessionId: string;
+  applicationId: string;
+  isService: boolean;
 }) {
-  if (effective === "active") {
-    return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-        <div className="font-medium">Carries live authority</div>
-        <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
-          This session can mint tokens until it expires {relativeTime(session.expires_at, now)}.
-        </p>
-      </div>
-    );
-  }
-  if (effective === "revoked") {
-    return (
-      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <div className="font-medium">No authority: revoked</div>
-        <p className="mt-0.5 text-destructive/80">
-          The runtime rejects every exchange for this session. Revocation is irreversible.
-        </p>
-      </div>
-    );
-  }
+  const invocations = useAgentInvocations(zoneId, sessionId);
+  const services = useAgentServices(zoneId, isService ? applicationId : null);
+  const rows = invocations.data ?? [];
+  const svc = services.data ?? [];
+
+  // Execution only earns space when there is something to show: a registered service
+  // endpoint or at least one durable invocation involving this agent.
+  if (!isService && !invocations.isLoading && rows.length === 0) return null;
+
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-      <div className="font-medium">No authority: expired</div>
-      <p className="mt-0.5 text-amber-700/80 dark:text-amber-400/80">
-        Expiry passed {relativeTime(session.expires_at, now)}, so the runtime rejects every
-        exchange.
-        {stale ? " The stored status is still 'active'; it will be reaped to 'expired'." : ""}
-      </p>
+    <section className="border-t border-border pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Execution
+      </h3>
+
+      {isService ? (
+        services.isLoading ? (
+          <Skeleton className="mt-3 h-10 w-full" />
+        ) : svc.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {svc.map((s) => (
+              <div key={s.id} className="border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-xs text-foreground">
+                    {s.endpoint_url}
+                  </span>
+                  <Badge tone={s.health === "healthy" ? "success" : s.health ? "warning" : "muted"}>
+                    {s.health ?? "unknown"}
+                  </Badge>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  {s.framework_name ? (
+                    <span>
+                      {s.framework_name}
+                      {s.framework_version ? ` ${s.framework_version}` : ""}
+                    </span>
+                  ) : null}
+                  {s.protocol_versions.length > 0 ? (
+                    <span>proto {s.protocol_versions.join(", ")}</span>
+                  ) : null}
+                  {s.last_heartbeat_at ? (
+                    <span>heartbeat {relativeTime(s.last_heartbeat_at)}</span>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            No registered service endpoint for this agent&apos;s application.
+          </p>
+        )
+      ) : null}
+
+      <div className="mt-3">
+        <span className="text-xs text-muted-foreground">Recent invocations ({rows.length})</span>
+        {invocations.isLoading ? (
+          <Skeleton className="mt-2 h-12 w-full" />
+        ) : rows.length === 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground">No invocations yet.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-border border-y border-border">
+            {rows.slice(0, 8).map((inv) => (
+              <li key={inv.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs text-foreground">{inv.method}</div>
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    {inv.attempts}/{inv.max_attempts} attempts ·{" "}
+                    {inv.completed_at
+                      ? `done ${relativeTime(inv.completed_at)}`
+                      : inv.deadline_at
+                        ? `deadline ${relativeTime(inv.deadline_at)}`
+                        : `created ${relativeTime(inv.created_at)}`}
+                  </div>
+                </div>
+                <Badge tone={invocationTone(inv.status)}>{inv.status.replace(/_/g, " ")}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value, text }: { label: string; value?: number; text?: string }) {
+  return (
+    <div className="p-3">
+      <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-xl font-semibold tracking-tight text-foreground">
+        {value !== undefined ? value : text}
+      </div>
     </div>
   );
 }

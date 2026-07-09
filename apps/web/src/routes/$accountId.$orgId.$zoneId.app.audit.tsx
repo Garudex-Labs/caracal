@@ -848,9 +848,9 @@ function entityLink(entity: AuditEntity): { to: string; search?: Record<string, 
     case "provider":
       return { to: appLink("/providers"), search: { focus: entity.id } };
     case "agent":
-      return { to: appLink("/agents"), search: { focus: entity.id } };
+      return { to: appLink("/sessions"), search: { focus: entity.id } };
     case "delegation":
-      return { to: appLink("/agents"), search: { view: "delegation", focus: entity.id } };
+      return { to: appLink("/sessions"), search: { view: "delegation", focus: entity.id } };
     case "approval":
       return { to: appLink("/approvals"), search: { focus: entity.id } };
   }
@@ -1070,7 +1070,7 @@ function AuditDetailView({
                 </span>
                 {hop.agentSessionId ? (
                   <Link
-                    to={appLink("/agents")}
+                    to={appLink("/sessions")}
                     search={{ focus: hop.agentSessionId }}
                     className="truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
                   >
