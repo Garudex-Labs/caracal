@@ -134,7 +134,7 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
     expect(err).toBeInstanceOf(ApprovalRequiredError)
-    expect(err.challengeId).toBe('chal-1')
+    expect(err.approvalId).toBe('chal-1')
     expect(err.resource).toBe('resource://api')
   })
 
@@ -489,7 +489,36 @@ describe('OAuthClient', () => {
 
     await expect(client.waitForApproval('chal-1', { timeoutSeconds: 5 })).resolves.toBe('approved')
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ type: 'approval.wait', ok: true, challengeId: 'chal-1', state: 'approved' })
+    expect(events[0]).toMatchObject({ type: 'approval.wait', ok: true, approvalId: 'chal-1', state: 'approved' })
+  })
+
+  it('rejects an unknown challenge state instead of returning it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ state: 'vaporized' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.waitForApproval('chal-1')).rejects.toThrow(/unknown challenge state: vaporized/)
+  })
+
+  it('aborts the wait when the signal fires', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: { signal?: AbortSignal }) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+        })
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const controller = new AbortController()
+    const pending = client.waitForApproval('chal-1', { signal: controller.signal })
+    controller.abort(new Error('caller gave up'))
+    await expect(pending).rejects.toThrow('caller gave up')
   })
 })
 
@@ -531,7 +560,7 @@ describe('decideApproval', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     await client.decideApproval({
       subjectToken: 'user-session-token',
-      challengeId: 'ch-1',
+      approvalId: 'ch-1',
       binding: 'abcd',
       decision: 'approved',
       reason: 'refund reviewed',
@@ -542,9 +571,9 @@ describe('decideApproval', () => {
     expect(JSON.parse(init.body as string)).toEqual({ decision: 'approved', binding: 'abcd', reason: 'refund reviewed' })
   })
 
-  it('requires subjectToken, challengeId, and binding', async () => {
+  it('requires subjectToken, approvalId, and binding', async () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    await expect(client.decideApproval({ subjectToken: '', challengeId: 'ch-1', binding: 'x', decision: 'approved' })).rejects.toThrow(
+    await expect(client.decideApproval({ subjectToken: '', approvalId: 'ch-1', binding: 'x', decision: 'approved' })).rejects.toThrow(
       'requires',
     )
   })

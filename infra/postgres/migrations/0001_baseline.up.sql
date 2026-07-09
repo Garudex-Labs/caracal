@@ -417,6 +417,7 @@ CREATE TABLE public.delegation_edges (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     parent_edge_id text,
+    idempotency_key text,
     CONSTRAINT delegation_edges_check CHECK ((source_session_id <> target_session_id)),
     CONSTRAINT delegation_edges_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
@@ -1534,6 +1535,13 @@ CREATE INDEX agent_services_zone_id_health_idx ON public.agent_services USING bt
 --
 
 CREATE UNIQUE INDEX agent_sessions_idempotency_key_idx ON public.agent_sessions USING btree (zone_id, application_id, idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = ANY (ARRAY['active'::text, 'suspended'::text])));
+
+
+--
+-- Name: delegation_edges_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX delegation_edges_idempotency_key_idx ON public.delegation_edges USING btree (zone_id, issuer_application_id, idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = 'active'::text));
 
 
 --

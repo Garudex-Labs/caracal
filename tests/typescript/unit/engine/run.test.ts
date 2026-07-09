@@ -146,7 +146,7 @@ describe('buildRunEnv', () => {
     expect(lines.some((l) => l.includes('approval_required') && l.includes('chal-1') && l.includes('"binding":"aa"'))).toBe(true)
     expect(pollStepUpStateMock).toHaveBeenCalledWith('http://localhost:8080', 'chal-1', { timeoutMs: 300_000 })
     expect(fetchRunCredentialMock).toHaveBeenLastCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY', {
-      challengeId: 'chal-1',
+      approvalId: 'chal-1',
       launchId: 'launch-1',
     })
   })

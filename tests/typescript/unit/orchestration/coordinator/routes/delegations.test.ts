@@ -119,6 +119,43 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
+  it('replays the existing delegation for a repeated idempotency key', async () => {
+    const { app, db } = buildApp()
+    const existing = {
+      delegation_edge_id: 'edge-replayed',
+      zone_id: 'z1',
+      source_session_id: 'src-1',
+      target_session_id: 'dst-1',
+      scopes: ['read'],
+      status: 'active',
+      expires_at: '2027-03-16T00:00:00.000Z',
+    }
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [existing] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      headers: { 'idempotency-key': 'retry-key-1' },
+      payload: delegationBody,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ delegation_edge_id: 'edge-replayed' })
+    const replay = client.query.mock.calls[2]
+    expect(String(replay[0])).toContain('idempotency_key = $3')
+    expect(replay[1]).toEqual(['z1', 'issuer-1', 'retry-key-1'])
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
   it('rejects self delegation', async () => {
     const { app } = buildApp()
 
