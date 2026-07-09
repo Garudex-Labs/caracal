@@ -34,20 +34,23 @@ const caracal = new Caracal();
 
 | Method | Purpose |
 | --- | --- |
-| `session(fn, options?)` | Run `fn` inside a governed session - a bounded identity Caracal establishes around whatever `fn` executes; pass `authority: Authority.narrow(...)` to bound its authority. |
-| `startSession(options?)` | Start a governed session that outlives a block; auto-renews its lease and returns a handle with `heartbeat()` and `close()`. Pass `authority: Authority.narrow(...)` to bound the handle's authority. |
-| `delegate(options)` | Delegate a slice of the current session's authority to an existing peer session; returns the delegation for the receiver to accept. |
-| `acceptDelegation(delegationId, fn)` | Present a received delegation: bind a derived context carrying it while `fn` runs. |
+| `session(fn, options?)` | Run `fn` inside a governed session - a bounded identity Caracal establishes around whatever `fn` executes; `fn` receives the bound context (`fn(ctx)`), so the session id is at hand for logging. Pass `authority: Authority.narrow(...)` to bound its authority, `task` to record what the session is for (shown wherever the session is inspected), and `idempotencyKey` so a redelivered trigger resumes the session instead of minting a duplicate. |
+| `startSession(options?)` | Start a governed session that outlives a block; auto-renews its lease and returns a handle with `heartbeat()`, `deadlineAt`, and `close()`. Pass `authority: Authority.narrow(...)` to bound the handle's authority; `task` and `idempotencyKey` work exactly as in `session`. |
+| `attachSession(sessionId, options?)` | Re-attach to a persisted service session after a restart: validates it with an immediate lease renewal and returns the same handle `startSession` does. |
+| `delegate(options)` | Delegate a slice of the current session's authority to an existing peer session; returns the delegation for the receiver to accept. A transient coordinator failure is retried once under an idempotency key, so no duplicate delegation is issued. |
+| `acceptDelegation(delegationId, fn, options?)` | Present a received delegation: bind a derived context carrying it while `fn` runs. Pass `{ validate: true }` to confirm with the coordinator that the delegation is live for the bound session first. |
 | `headers(options?)` | Project the current bound context into HTTP headers synchronously. |
 | `headersAsync(options?)` | Project headers when a root token may require async refresh. |
 | `bindFromHeaders(headers, fn, options?)` | Bind inbound Caracal envelope headers to the current async context. |
-| `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
+| `transport(options?)` | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token, `timeoutMs` to bound every call, and `propagation: "gateway-only"` to keep the context envelope off third-party hosts. |
 | `applicationTransport(resourceId, options)` | Return a fetch pinned to one resource, calling as the application's own identity: each mint cycle starts a session pair, narrows a delegation to `scopes`, and caches the minted mandate until expiry; requires client-secret credentials. A cycle costs five control-plane calls and runs roughly once per mandate TTL (default 15 minutes); requests in between are served from cache. Session `labels` default to the application id, the same role `ensureGrants` authors, so a grant and its transport align without naming a role on either side. |
-| `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
+| `mintMandate(resourceId, scopes, options?)` | Mint a cached resource mandate carrying the bound session and delegation; returns `{ token, expiresInSeconds }` so callers can schedule refresh. Requires client-secret credentials. |
+| `federateSubject(idToken, options?)` | Exchange an end user's identity token from a zone-trusted issuer for the user's subject session: returns `{ subjectSessionId, token, expiresInSeconds }`. Pass `subjectSessionId` when starting sessions on the user's behalf; the token is the user's own mandate for approval decisions. Never cached; requires client-secret credentials. |
 | `waitForApproval(approvalId, options?)` | Long-poll an approval raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`). |
 | `withApproval(fn, options?)` | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id. |
 | `gatewayRequest(resourceId, path?)` | Build a Gateway URL and `X-Caracal-Resource` header. |
-| `close()` | Drop cached application mandates and invalidate the exchanger's cached lifecycle token; sessions backing a released mandate retire on their own TTL. |
+| `identity()` | The zone and application the client acts as, for logging and metric labels. |
+| `close()` | Drop cached application mandates, invalidate the exchanger's cached lifecycle token, and terminate the sessions backing released application transports best-effort; anything missed retires on its own TTL. |
 | `current()` | Return the currently bound `CaracalContext`, if present. |
 
 ## Context Propagation
@@ -74,7 +77,7 @@ await caracal.session(async () => {
 
 `DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `budget`, `policyApproved`, `expiresAt`, and `broadReason`.
 
-Every request sent through `transport()` carries the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` entries in the `baggage` header (session, delegation, and subject-session correlation ids). This applies to non-gateway hosts too - the envelope is how downstream Caracal-aware services rebind context - so treat those ids as visible to any host the transport touches. They are correlation identifiers, never credentials: the bearer token itself is attached only to gateway-routed calls, and the Gateway strips `caracal.*` baggage before forwarding to the upstream.
+Every request sent through `transport()` carries the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` entries in the `baggage` header (session, delegation, and subject-session correlation ids). This applies to non-gateway hosts too - the envelope is how downstream Caracal-aware services rebind context - so treat those ids as visible to any host the transport touches. They are correlation identifiers, never credentials: the bearer token itself is attached only to gateway-routed calls, and the Gateway strips `caracal.*` baggage before forwarding to the upstream. When a transport also talks to third parties that must not see the correlation ids, create it with `propagation: "gateway-only"` to keep the envelope on gateway-routed calls only. The envelope coexists with an application's own OpenTelemetry SDK: headers already set on a request are merged rather than overwritten, so an active OTel span's `traceparent` stays authoritative and Caracal's `caracal.*` entries append to whatever `baggage` the tracer emitted.
 
 ## Protect Inbound Requests
 
@@ -102,7 +105,7 @@ caracal.onEvent((event) => {
 });
 ```
 
-`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `approvalId` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event.
+`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `approvalId` and the final `state`), `coordinator.call` (with `method`, `path`, and `status`), and `delegation.accept` (with `delegationId` and `sessionId`, so delegation presentations are auditable client-side). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `isRetryable`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
 
 Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
 
@@ -137,6 +140,16 @@ const mandate = await caracal.withApproval((approvalId) =>
 ```
 
 When a policy denies a mint for a session that carries no delegation, the error message appends a hint naming the cause - the session holds lifecycle-only authority - and the three remediations: `Authority.narrow`, `acceptDelegation`, or `applicationTransport`.
+
+## Advanced Surface
+
+`@caracalai/sdk/advanced` is the low-level entrypoint for integrations that outgrow the facade: the envelope codec (`decodeEnvelope`, `encodeEnvelope`, header and baggage constants), bound-context plumbing (`bind`, `current`, `captureContext`), the raw coordinator wire client (`spawnAgent`, `createDelegation`, `heartbeatAgent`, `listInboundDelegations`, `terminateAgent`), and the session primitives (`session`, `startSession`, `attachSession`, `delegate`, and the context-deriving `acceptDelegation`) that take explicit inputs instead of client configuration. Everything in it is supported API; reach for it when building middleware, custom transports, or another layer's Caracal integration, and stay on `Caracal` for application code.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom fetch through `fetchImpl` (on `CaracalConfig.coordinator` and `Caracal.fromClientSecret`), so deployments that require mutual TLS or a private CA toward the STS and coordinator inject a fetch bound to an `https.Agent` (for example via `undici.Agent` with client certificates) instead of patching globals. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: JavaScript strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the `credentials` resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
 ## Related pages
 

@@ -32,16 +32,21 @@ if err != nil {
 | `FromEnv()` | Load from environment variables. |
 | `FromConfig(path)` | Load a runtime profile. |
 | `FromClientSecret(options)` | Use STS client-secret exchange for root SDK operations. |
-| `client.Session(ctx, fn, opts...)` | Run `fn` inside a governed session with a bound `context.Context`; set `SessionOptions.Authority` to bound its authority. |
-| `client.Delegate(ctx, opts)` | Delegate a slice of the current session's authority to a peer session; returns the delegation for the receiver to accept. |
-| `client.AcceptDelegation(ctx, delegationID)` | Present a received delegation: derive a context carrying it. |
+| `client.Session(ctx, fn, opts...)` | Run `fn` inside a governed session with a bound `context.Context`; set `SessionOptions.Authority` to bound its authority, `Task` to record what the session is for (shown wherever the session is inspected), and `IdempotencyKey` so a redelivered trigger resumes the session instead of minting a duplicate. |
+| `client.StartSession(ctx, opts...)` | Start a governed session that outlives a block; auto-renews its lease and returns a `*SessionHandle` with `Heartbeat`, `DeadlineAt`, and `Close`. `Task` and `IdempotencyKey` work exactly as in `Session`. |
+| `client.AttachSession(ctx, sessionID, opts...)` | Re-attach to a persisted service session after a restart: validates it with an immediate lease renewal and returns the same handle `StartSession` does. |
+| `client.Delegate(ctx, opts)` | Delegate a slice of the current session's authority to a peer session; returns the delegation for the receiver to accept. A transient coordinator failure is retried once under an idempotency key, so no duplicate delegation is issued. |
+| `client.AcceptDelegation(ctx, delegationID, opts...)` | Present a received delegation: derive a context carrying it. Pass `AcceptDelegationOptions{Validate: true}` to confirm with the coordinator that the delegation is live for the bound session first. |
 | `client.Headers(ctx, opts...)` | Project the bound context to `http.Header`. |
 | `client.BindFromRequest(ctx, req, opts...)` | Bind inbound Caracal envelope headers. |
-| `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. Set `CallOptions.Scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
-| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
+| `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. Set `CallOptions.Scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token, and `CallOptions.Propagation` to `PropagationGatewayOnly` to keep the context envelope off third-party hosts. |
+| `client.ApplicationTransport(base, resourceID, opts)` | Return an `*http.Client` pinned to one resource, calling as the application's own identity: each mint cycle starts a source/target session pair, narrows a delegation to `Scopes` on the resource, and caches the minted mandate until expiry. A cycle costs five control-plane calls and runs roughly once per mandate TTL (default 15 minutes); requests in between are served from cache. Requires a client-secret configuration. |
+| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound session and delegation; returns an `oauth.MintedMandate` with `Token` and `ExpiresInSeconds`. Requires client-secret credentials. |
+| `client.FederateSubject(ctx, idToken, opts...)` | Exchange an end user's identity token from a zone-trusted issuer for the user's subject session: returns a `FederatedSubject` with `SubjectSessionID`, `Token`, and `ExpiresInSeconds`. Set `SubjectSessionID` when starting sessions on the user's behalf; the token is the user's own mandate for approval decisions. Never cached; requires client-secret credentials. |
 | `client.WaitForApproval(ctx, challengeID, timeout)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final `oauth.ApprovalState` (`ApprovalApproved`, `ApprovalRejected`, `ApprovalExpired`, `ApprovalConsumed`, or `ApprovalPending`). |
 | `sdk.WithApproval(ctx, client, timeout, fn)` | Run an approval-gated operation end to end: on `*oauth.ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id. |
 | `client.GatewayRequest(resourceID, path)` | Build explicit Gateway routing metadata. |
+| `client.Identity(ctx)` | The zone and application the client acts as, for logging and metric labels. |
 | `client.Current(ctx)` | Inspect the current Caracal context. |
 
 ## Context Propagation
@@ -80,7 +85,33 @@ client.OnEvent(func(event oauth.Event) {
 })
 ```
 
-`OnEvent(hook)` reports every control-plane operation: `token.exchange` (with `Resources`, `Scopes`, and `Cached` for cache hits), `approval.wait` (with `ChallengeID` and the final `State`), and `coordinator.call` (with `Method`, `Path`, and `Status`). Each event carries `Ok` and `Duration`, ready to bridge into any metrics or tracing system. A hook that panics is recovered and never disturbs the operation that emitted the event.
+`OnEvent(hook)` reports every control-plane operation: `token.exchange` (with `Resources`, `Scopes`, and `Cached` for cache hits), `approval.wait` (with `ChallengeID` and the final `State`), `coordinator.call` (with `Method`, `Path`, and `Status`), and `delegation.accept` (with `DelegationID` and `SessionID`, so delegation presentations are auditable client-side). Each event carries `Ok` and `Duration`, ready to bridge into any metrics or tracing system. A hook that panics is recovered and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `Retryable()`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```go
+operations := prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "caracal_operations_total",
+	Help: "Caracal control-plane operations",
+}, []string{"type", "ok"})
+latency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	Name: "caracal_operation_duration_ms",
+	Help: "Caracal control-plane operation latency",
+}, []string{"type"})
+
+client.OnEvent(func(event oauth.Event) {
+	operations.WithLabelValues(event.Type, strconv.FormatBool(event.Ok)).Inc()
+	latency.WithLabelValues(event.Type).Observe(float64(event.Duration.Milliseconds()))
+})
+```
+
+The Go module ships as a single flat package: the envelope codec, context plumbing, coordinator wire functions (`SpawnAgent`, `CreateDelegation`, `HeartbeatAgent`, `ListInboundDelegations`, `TerminateAgent`), and session primitives (`Session`, `StartSession`, `AttachSession`, `Delegate`) sit beside the `Caracal` client rather than behind a separate advanced entrypoint.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom `*http.Client` - `HTTPClient` on `CoordinatorClient` and `ClientSecretOptions`, and the `base` argument of `Transport` - so deployments that require mutual TLS or a private CA toward the STS and coordinator inject a client with a `tls.Config` carrying certificates instead of patching defaults. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: Go strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the credentials resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
 ## Related pages
 

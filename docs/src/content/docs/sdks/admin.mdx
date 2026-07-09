@@ -75,6 +75,7 @@ client := admin.NewAdminClient(admin.AdminClientOptions{
 | `subjectIssuers` | `list`, `get`, `create`, `patch`, `delete` |
 | `providerGrants` | `create`, `authorizeOAuth`, `revoke` |
 | `sessions` | `list` |
+| `subjects` | `revoke` - the kill switch: one call revokes every live session record the subject holds, terminates the governed sessions riding them, revokes their delegations and the subject's provider connections, and feeds the revocation stream so in-flight tokens die before their `exp`. Idempotent. |
 | `agentSessions` | `list` |
 | `audit` | `list`, `byRequest`, `explain` |
 | `adminAudit` | `list` |
