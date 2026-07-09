@@ -997,6 +997,23 @@ export function useSubjectOverview(zoneId: string | null, subjectId: string | nu
   });
 }
 
+// The subject kill switch: cuts every authority path the subject holds. The
+// cascade touches sessions, governed sessions, delegations, and connections,
+// so every subject- and session-scoped read refreshes on success.
+export function useRevokeSubject(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { subjectId: string; reason?: string }) =>
+      consoleApi.subjects.revoke(zoneId as string, input.subjectId, input.reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.subjects(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.sessions(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.agents(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) });
+    },
+  });
+}
+
 // Resolves one authority record to its subject so a link that only knows the record
 // id can land on the owning subject.
 export function useSessionRecord(zoneId: string | null, recordId: string | null) {

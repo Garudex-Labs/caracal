@@ -44,6 +44,7 @@ import {
   useAgentInboundDelegations,
   useAgentLifecycle,
   useRevokeDelegation,
+  useRevokeSubject,
   useSessionRecord,
   useSessionsFeed,
   useSubjectOverview,
@@ -467,6 +468,53 @@ function SubjectVerdict({ subject, now }: { subject: SubjectSummary; now: number
   );
 }
 
+// The subject-level kill switch. Per-record controls cut one session or one
+// delegation; this cuts everything at once - every live session record, the
+// governed sessions riding them, delegations, and provider connections - for
+// credential compromise or offboarding, where per-record surgery is too slow.
+function SubjectKillSwitch({ zoneId, subject }: { zoneId: string; subject: SubjectSummary }) {
+  const toast = useToast();
+  const revoke = useRevokeSubject(zoneId);
+  const [confirm, setConfirm] = useState(false);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+      <p className="text-xs text-muted-foreground">
+        Cut off everything this subject holds: live records, the sessions riding them, delegations,
+        and provider connections.
+      </p>
+      <Button
+        variant="danger"
+        size="sm"
+        loading={revoke.isPending}
+        onClick={() => setConfirm(true)}
+      >
+        Cut off all authority
+      </Button>
+      <ConfirmDialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        title="Cut off all authority"
+        description="Every live authority record for this subject is revoked, the sessions riding them terminate, their delegations fall, and its provider connections are revoked. In-flight tokens die through the revocation stream. This cannot be undone; the subject regains authority only by federating or exchanging again."
+        confirmLabel="Cut off"
+        tone="danger"
+        onConfirm={async () => {
+          try {
+            const result = await revoke.mutateAsync({ subjectId: subject.subject_id });
+            toast({
+              tone: "info",
+              title: "Authority cut off",
+              description: `${result.sessions} records revoked, ${result.agents} sessions terminated, ${result.delegations} delegations revoked, ${result.connections} connections revoked.`,
+            });
+          } catch (err) {
+            toast({ tone: "error", title: "Cut off failed", description: errorMessage(err) });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 // The investigation story for one subject, ordered by the questions an analyst asks:
 // who is this, can anything act as it right now, what has acted for it, what approvals
 // and upstream accounts hang off it - with raw authority records last, for audit.
@@ -488,6 +536,7 @@ function SubjectStory({ subject, zoneId }: { subject: SubjectSummary; zoneId: st
       </div>
 
       <SubjectVerdict subject={subject} now={now} />
+      {standing === "live" ? <SubjectKillSwitch zoneId={zoneId} subject={subject} /> : null}
 
       <DetailGroup title="Identity">
         <DetailField

@@ -9,6 +9,7 @@ export { Caracal, CredentialsUnavailableError } from './client.js'
 export type {
   CaracalConfig,
   CaracalEvent,
+  DelegationAcceptEvent,
   ClientCredentials,
   CredentialsResolver,
   EventHook,
@@ -23,6 +24,7 @@ export type {
   ApplicationTransportOptions,
   MandateOptions,
   MintedMandate,
+  FederatedSubject,
   BindOptions,
   TokenSource,
   ClientSecretExchanger,

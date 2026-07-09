@@ -175,6 +175,7 @@ export default defineConfig({
                 { label: 'Integrate the TypeScript SDK', link: '/guides/sdk-typescript/' },
                 { label: 'Integrate the Python SDK', link: '/guides/sdk-python/' },
                 { label: 'Integrate the Go SDK', link: '/guides/sdk-go/' },
+                { label: 'Test Caracal Integrations', link: '/guides/testing/' },
                 { label: 'Govern Agent Frameworks', link: '/guides/frameworks/' },
                 { label: 'Run an Agent with caracal run', link: '/guides/runtime-run/' },
               ],
