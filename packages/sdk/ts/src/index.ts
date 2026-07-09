@@ -12,15 +12,15 @@ export type {
   ClientCredentials,
   CredentialsResolver,
   EventHook,
-  SpawnOptions,
-  ServiceOptions,
+  SessionOptions,
+  StartSessionOptions,
   DelegateOptions,
   ResourceBinding,
   GatewayRequest,
   LifecycleHook,
-  RootOptions,
+  AppIdentityOptions,
   TransportOptions,
-  GovernedTransportOptions,
+  ApplicationTransportOptions,
   MandateOptions,
   MintedMandate,
   BindOptions,
@@ -29,15 +29,15 @@ export type {
   ClientSecretOptions,
   CaracalOptions,
 } from './client.js'
-export { CaracalError, InteractionRequiredError } from '@caracalai/oauth'
-export type { ApprovalWaitEvent, InteractionRequiredDetails, OAuthEvent, TokenExchangeEvent } from '@caracalai/oauth'
+export { CaracalError, ApprovalRequiredError } from '@caracalai/oauth'
+export type { ApprovalWaitEvent, ApprovalRequiredDetails, OAuthEvent, TokenExchangeEvent } from '@caracalai/oauth'
 export { captureContext, describeAuthority } from './context.js'
 export type { AuthoritySummary, CaracalContext, VerifiedClaims } from './context.js'
 export { CoordinatorError } from './coordinator.js'
-export type { AgentStatus, CoordinatorCallEvent, CoordinatorClient, DelegationResponse } from './coordinator.js'
-export { Grant, adoptDelegation } from './primitives.js'
-export type { GrantMode } from './primitives.js'
+export type { AgentStatus, CoordinatorCallEvent, CoordinatorClient } from './coordinator.js'
+export { Authority, acceptDelegation } from './primitives.js'
+export type { AuthorityMode, Delegation } from './primitives.js'
 export type { DelegationConstraints } from './coordinator.js'
-export type { ServiceAgent } from './primitives.js'
+export type { SessionHandle } from './primitives.js'
 export type { Envelope } from './envelope.js'
 export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from './json.js'

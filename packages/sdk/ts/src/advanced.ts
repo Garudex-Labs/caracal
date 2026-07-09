@@ -16,10 +16,10 @@ export * from './http.js'
 export { Caracal } from './client.js'
 export type {
   CaracalConfig,
-  SpawnOptions,
+  SessionOptions,
   DelegateOptions,
   LifecycleHook,
-  RootOptions,
+  AppIdentityOptions,
   TokenSource,
   ClientSecretOptions,
 } from './client.js'

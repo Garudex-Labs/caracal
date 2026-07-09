@@ -12,10 +12,10 @@ export interface CaracalContext {
   subjectToken: string
   zoneId: string
   applicationId: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
   sessionId?: string
+  delegationId?: string
+  parentDelegationId?: string
+  subjectSessionId?: string
   traceId?: string
   traceFlags?: string
   traceState?: string
@@ -33,10 +33,10 @@ export interface CaracalContext {
 export interface AuthoritySummary {
   zoneId: string
   applicationId: string
+  subjectSessionId?: string
   sessionId?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
+  delegationId?: string
+  parentDelegationId?: string
   traceId?: string
   hop: number
   chain: string[]
@@ -50,10 +50,10 @@ export interface AuthoritySummary {
 export interface VerifiedClaims {
   zoneId?: string
   applicationId?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
   sessionId?: string
+  delegationId?: string
+  parentDelegationId?: string
+  subjectSessionId?: string
   hop?: number
 }
 
@@ -87,10 +87,10 @@ export function withOverrides(patch: Partial<CaracalContext>): CaracalContext {
 export function toEnvelope(ctx: CaracalContext): Envelope {
   return {
     subjectToken: ctx.subjectToken,
-    agentSessionId: ctx.agentSessionId,
-    delegationEdgeId: ctx.delegationEdgeId,
-    parentEdgeId: ctx.parentEdgeId,
     sessionId: ctx.sessionId,
+    delegationId: ctx.delegationId,
+    parentDelegationId: ctx.parentDelegationId,
+    subjectSessionId: ctx.subjectSessionId,
     traceId: ctx.traceId,
     traceFlags: ctx.traceFlags,
     traceState: ctx.traceState,
@@ -105,10 +105,10 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     subjectToken: env.subjectToken,
     zoneId: base.zoneId,
     applicationId: base.applicationId,
-    agentSessionId: env.agentSessionId,
-    delegationEdgeId: env.delegationEdgeId,
-    parentEdgeId: env.parentEdgeId,
     sessionId: env.sessionId,
+    delegationId: env.delegationId,
+    parentDelegationId: env.parentDelegationId,
+    subjectSessionId: env.subjectSessionId,
     traceId: env.traceId,
     traceFlags: env.traceFlags,
     traceState: env.traceState,
@@ -120,17 +120,17 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {
   if (!ctx) return undefined
   const chain: string[] = []
+  if (ctx.subjectSessionId) chain.push(`subject:${ctx.subjectSessionId}`)
   if (ctx.sessionId) chain.push(`session:${ctx.sessionId}`)
-  if (ctx.agentSessionId) chain.push(`agent-session:${ctx.agentSessionId}`)
-  if (ctx.parentEdgeId) chain.push(`parent-edge:${ctx.parentEdgeId}`)
-  if (ctx.delegationEdgeId) chain.push(`delegation-edge:${ctx.delegationEdgeId}`)
+  if (ctx.parentDelegationId) chain.push(`parent-delegation:${ctx.parentDelegationId}`)
+  if (ctx.delegationId) chain.push(`delegation:${ctx.delegationId}`)
   return {
     zoneId: ctx.zoneId,
     applicationId: ctx.applicationId,
+    subjectSessionId: ctx.subjectSessionId,
     sessionId: ctx.sessionId,
-    agentSessionId: ctx.agentSessionId,
-    delegationEdgeId: ctx.delegationEdgeId,
-    parentEdgeId: ctx.parentEdgeId,
+    delegationId: ctx.delegationId,
+    parentDelegationId: ctx.parentDelegationId,
     traceId: ctx.traceId,
     hop: ctx.hop,
     chain,
