@@ -67,7 +67,7 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 | **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
 | **Policies** | Policy content and versions. |
 | **Policy Sets** | Policy-set composition, simulation, and activation. |
-| **Sign-ins** | Authenticated subject sessions issued in the zone. |
+| **Subjects** | Subject sessions recording the identities applications exchanged with the STS. |
 | **Sessions** | Governed execution sessions, lifecycle, lease health, and session trees. |
 | **Delegation** | Authority delegated between sessions. |
 | **Audit** | Recent decisions, filters, event details, and built-in request tracing. |
@@ -78,15 +78,15 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 
 ## Sessions Views
 
-The sign-in, session, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the SDK; the web console lists and inspects them.
+The subject, session, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the SDK; the web console lists and inspects them.
 
 | View | What it shows | Object |
 | --- | --- | --- |
-| **Sign-ins** | STS-minted subject sessions for a user or application | a `sessions` row |
+| **Subjects** | Subject sessions - the identity anchor recorded per STS token exchange | a `sessions` row |
 | **Sessions** | A governed execution session, its lifecycle, and lease health | an `agent_sessions` row |
 | **Delegation** | Authority delegated between sessions | a `delegation_edges` row |
 
-A **sign-in** is the root credential a principal holds after a token exchange. A **session** is one governed execution under an application; a *delegated* session is a session holding an inbound delegation. A **delegation** connects two sessions, so inbound and outbound delegations are anchored on the session id.
+A **subject session** is the identity anchor a token exchange records: the `sub` of the exchanged token, with the minted authority hanging beneath it. The rows on the Subjects page are not console logins - Caracal never authenticates these identities. The application's own authentication system (Auth0, Keycloak, Better Auth, a custom issuer) authenticates the user or service first, and the application then exchanges that identity with the STS; the resulting record is the anchor that sessions, delegations, mandates, provider connections, revocation, and audit attach to. A **session** is one governed execution under an application; a *delegated* session is a session holding an inbound delegation. A **delegation** connects two sessions, so inbound and outbound delegations are anchored on the session id.
 
 The **Sessions** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegations.
 

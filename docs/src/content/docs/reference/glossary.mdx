@@ -16,7 +16,7 @@ Use these terms consistently across docs, API names, web console labels, and exa
 | Control API | Optional authenticated automation surface for remote management dispatch, authorized by scoped control keys. |
 | Delegation | Bounded authority one session grants to another: scopes, optional resource, constraints, and expiry, revocable independently. Stored internally as an edge in the delegation graph. |
 | Gateway | Reverse proxy that verifies inbound authority, exchanges with STS, and forwards to upstreams. |
-| Grant | Access assignment connecting an application or subject to a resource and scopes. |
+| Grant | Access assignment for a resource. Policy `grants` data maps roles to allowed scopes per resource; managed delegated grants record subject-level assignments and cascade revocation to the subject's sessions. |
 | Mandate | Short-lived scoped access token (a JWT) carrying Caracal authority. |
 | Policy | Rego content that participates in allow/deny decisions. |
 | Policy set | Activated bundle of policy versions for a zone. |
@@ -28,8 +28,9 @@ Use these terms consistently across docs, API names, web console labels, and exa
 | Run manifest | Console-authored launch bindings served by STS to `caracal run`. |
 | Session | Governed execution record the Coordinator holds while code runs under Caracal: it binds identity and delegated authority around whatever executes — an AI agent step, a job, a tool call — and anchors audit attribution. Started with the SDK `session()` (task, retired when the block exits) or `startSession()` (long-lived, heartbeat-leased, retired with `close`). |
 | Session handle | Holder-owned handle for a long-lived session started with `startSession()`; it renews the heartbeat lease and is retired explicitly. |
-| Sign-in | Authenticated subject session a user or service establishes in a zone; sessions act on behalf of a sign-in and reference it for attribution. |
 | STS | Security Token Service that performs token exchange and mandate issuance. |
+| Subject | The identity work is done for: the `sub` recorded on sessions and mandates. Caracal federates it from the exchanged token as an opaque, stable identifier owned by the application's own identity system; Caracal never generates one. |
+| Subject session | STS record minted at token exchange that anchors issued authority to a subject; shown on the console Subjects page and the anchor revocation acts on. |
 | System zone | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal; the Operator self-governs through it and never executes against it. |
 | Workload | Launcher identity for software started with `caracal run`; it holds a client secret and the launch bindings that name which credentials are injected. |
 | Zone | Tenant and trust boundary for product state, policies, grants, sessions, and audit. |
@@ -38,7 +39,7 @@ Use these terms consistently across docs, API names, web console labels, and exa
 
 - Use `Caracal`, not informal product nicknames.
 - Use `mandate` for Caracal-issued JWT authority, not generic “token” when the distinction matters.
-- Use `session` for the governed execution record and `sign-in` for the authenticated subject session; never use one for the other.
+- Use `session` for the governed execution record and `subject session` for the STS identity anchor; never use one for the other.
 - Use `delegation` in product surfaces; `delegation edge` names the internal graph representation only.
 - Use `web console` for the browser UI and `Control API` for automation.
 - Use `Admin API` for the `/v1` management REST surface; `control plane` describes the architecture layer, not an API name.
