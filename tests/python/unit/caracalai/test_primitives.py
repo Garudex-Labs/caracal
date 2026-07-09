@@ -810,14 +810,14 @@ class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app-worker",
                 subject_token="tok",
-                authority=Authority.narrow(["ledger:read"], resource_id="resource://ledger"),
+                authority=Authority.narrow(
+                    ["ledger:read"], resource_id="resource://ledger"
+                ),
             )
             self.assertEqual(agent.context.delegation_id, "edge-svc")
             self.assertEqual(agent.context.parent_delegation_id, parent.delegation_id)
             self.assertEqual(agent.context.hop, parent.hop + 1)
-            self.assertEqual(
-                captured["body"]["source_session_id"], parent.session_id
-            )
+            self.assertEqual(captured["body"]["source_session_id"], parent.session_id)
             self.assertEqual(captured["body"]["target_session_id"], "svc-1")
             self.assertEqual(captured["body"]["scopes"], ["ledger:read"])
             await agent.aclose()

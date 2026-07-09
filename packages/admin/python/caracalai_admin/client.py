@@ -114,6 +114,7 @@ class AdminClient:
         self.policy_templates = _PolicyTemplates(self)
         self.policy_sets = _PolicySets(self)
         self.grants = _Grants(self)
+        self.subject_issuers = _SubjectIssuers(self)
         self.provider_connections = _ProviderConnections(self)
         self.workloads = _Workloads(self)
         self.sessions = _Sessions(self)
@@ -504,6 +505,38 @@ class _Grants:
     def revoke(self, zone_id: str, grant_id: str) -> None:
         return self._client._request(
             f"/v1/zones/{zone_id}/grants/{grant_id}",
+            method="DELETE",
+            expect_empty=True,
+        )
+
+
+class _SubjectIssuers:
+    def __init__(self, client: AdminClient) -> None:
+        self._client = client
+
+    def list(self, zone_id: str) -> Any:
+        return self._client._list_all(
+            f"/v1/zones/{zone_id}/subject-issuers", "subject issuers"
+        )
+
+    def get(self, zone_id: str, issuer_id: str) -> Any:
+        return self._client._request(f"/v1/zones/{zone_id}/subject-issuers/{issuer_id}")
+
+    def create(self, zone_id: str, body: dict[str, Any]) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/subject-issuers", method="POST", body=body
+        )
+
+    def patch(self, zone_id: str, issuer_id: str, body: dict[str, Any]) -> Any:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/subject-issuers/{issuer_id}",
+            method="PATCH",
+            body=body,
+        )
+
+    def delete(self, zone_id: str, issuer_id: str) -> None:
+        return self._client._request(
+            f"/v1/zones/{zone_id}/subject-issuers/{issuer_id}",
             method="DELETE",
             expect_empty=True,
         )

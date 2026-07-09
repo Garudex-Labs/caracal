@@ -456,3 +456,77 @@ class OAuthHelperTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubjectFederationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_federate_subject_posts_id_token_type(self) -> None:
+        captured: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(
+                dict(part.split("=", 1) for part in request.content.decode().split("&"))
+            )
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "user-session-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                },
+            )
+
+        transport = httpx.MockTransport(handler)
+        client = OAuthClient(
+            "https://sts.example.com",
+            "zone1",
+            "app1",
+            http_client=httpx.AsyncClient(transport=transport),
+        )
+        token = await client.federate_subject(
+            "external-id-token", client_secret="secret-1"
+        )
+        self.assertEqual(token.access_token, "user-session-token")
+        self.assertEqual(
+            captured["subject_token_type"],
+            "urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid_token",
+        )
+        self.assertNotIn("resource", captured)
+        await client.aclose()
+
+    async def test_federate_subject_requires_token(self) -> None:
+        client = OAuthClient("https://sts.example.com", "zone1", "app1")
+        with self.assertRaises(ValueError):
+            await client.federate_subject("")
+        await client.aclose()
+
+    async def test_decide_approval_posts_bearer_decision(self) -> None:
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["auth"] = request.headers.get("Authorization")
+            captured["path"] = request.url.path
+            captured["body"] = request.content.decode()
+            return httpx.Response(200)
+
+        transport = httpx.MockTransport(handler)
+        client = OAuthClient(
+            "https://sts.example.com",
+            "zone1",
+            "app1",
+            http_client=httpx.AsyncClient(transport=transport),
+        )
+        await client.decide_approval(
+            subject_token="user-session-token",
+            challenge_id="ch-1",
+            binding="abcd",
+            decision="approved",
+            reason="refund reviewed",
+        )
+        self.assertEqual(captured["auth"], "Bearer user-session-token")
+        self.assertEqual(captured["path"], "/step-up/ch-1/decision")
+        self.assertIn('"binding":"abcd"', str(captured["body"]))
+        with self.assertRaises(ValueError):
+            await client.decide_approval(
+                subject_token="", challenge_id="ch-1", binding="x", decision="approved"
+            )
+        await client.aclose()

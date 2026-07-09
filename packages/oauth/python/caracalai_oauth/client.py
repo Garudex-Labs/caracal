@@ -13,6 +13,7 @@ import secrets
 from hashlib import sha256
 from time import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -41,6 +42,90 @@ class OAuthClient:
     async def aclose(self) -> None:
         if self._owns_client:
             await self._http_client.aclose()
+
+    async def federate_subject(
+        self,
+        id_token: str,
+        *,
+        client_secret: str | None = None,
+        ttl_seconds: int | None = None,
+        timeout_ms: int = 30_000,
+    ) -> TokenExchangeResponse:
+        """Exchange an end user's identity token from a zone-trusted external
+        issuer for a Caracal user subject session.
+
+        The application authenticates itself with its client secret and relays
+        the token verbatim; the minted session is the subject's identity anchor
+        and carries no resource authority. Never cached: each federation is an
+        explicit identity event.
+        """
+        if not id_token:
+            raise ValueError("federate_subject requires the end user identity token")
+        data = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token": id_token,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+            "zone_id": self._zone_id,
+            "application_id": self._application_id,
+        }
+        _set_value(data, "client_secret", client_secret)
+        if ttl_seconds is not None:
+            data["ttl_seconds"] = str(ttl_seconds)
+        response = await self._http_client.post(
+            f"{self._sts_url}/oauth/2/token",
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=timeout_ms / 1000,
+        )
+        if not response.is_success:
+            body = _read_error_response(response)
+            raise RuntimeError(
+                str(
+                    body.get("error_description") or f"STS error {response.status_code}"
+                )
+            )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("STS response invalid: expected JSON object")
+        return _validate_success(payload)
+
+    async def decide_approval(
+        self,
+        *,
+        subject_token: str,
+        challenge_id: str,
+        binding: str,
+        decision: str,
+        reason: str | None = None,
+        timeout_ms: int = 30_000,
+    ) -> None:
+        """Post an end user's decision on a subject-reserved approval hold.
+
+        The subject token is the user's federated session mandate, and the
+        binding must echo the hold exactly - a prompt that does not know the
+        held resource and scope set cannot decide it.
+        """
+        if not subject_token or not challenge_id or not binding:
+            raise ValueError(
+                "decide_approval requires subject_token, challenge_id, and binding"
+            )
+        body: dict[str, str] = {"decision": decision, "binding": binding}
+        if reason:
+            body["reason"] = reason
+        response = await self._http_client.post(
+            f"{self._sts_url}/step-up/{quote(challenge_id, safe='')}/decision",
+            json=body,
+            headers={"Authorization": f"Bearer {subject_token}"},
+            timeout=timeout_ms / 1000,
+        )
+        if not response.is_success:
+            err = _read_error_response(response)
+            raise RuntimeError(
+                str(
+                    err.get("error_description")
+                    or f"approval decision failed: {response.status_code}"
+                )
+            )
 
     async def exchange(
         self,
