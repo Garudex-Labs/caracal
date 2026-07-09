@@ -26,6 +26,7 @@ from .errors import (
     raise_for_caracal_error,
 )
 from .events import CaracalEvent, EventHook, emit_event
+from .types import APPROVAL_STATES, ApprovalState
 
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 MAX_LEEWAY_SECONDS = 60.0
@@ -123,7 +124,11 @@ class ClientSecretExchanger:
     identity swaps take effect without rebuilding the client; every cached
     result is keyed to the identity that minted it. Results are refreshed on
     demand as they approach their `exp` claim; transient STS failures are
-    retried with jittered backoff inside a per-exchange deadline."""
+    retried with jittered backoff inside a per-exchange deadline.
+
+    Integrators never construct one: ``from_client_secret`` (and profile or
+    environment detection) wires it into the client; the class is public so
+    the credential surface can be observed and faked in tests."""
 
     def __init__(
         self,
@@ -346,15 +351,15 @@ class ClientSecretExchanger:
             return token
 
     def wait_for_approval(
-        self, challenge_id: str, *, timeout_seconds: float = 300.0
-    ) -> str:
-        """Long-poll the approval challenge until an approver decides it, it
+        self, approval_id: str, *, timeout_seconds: float = 300.0
+    ) -> ApprovalState:
+        """Long-poll the approval until an approver decides it, it
         expires, or the timeout elapses. Returns the final lifecycle state:
         ``approved`` means a retry of ``mint_mandate`` with ``approval_id`` will
         mint; ``rejected`` and ``expired`` are terminal; ``pending`` means the
         timeout elapsed with no decision and waiting again is safe."""
-        if not challenge_id:
-            raise ValueError("wait_for_approval requires a challenge_id")
+        if not approval_id:
+            raise ValueError("wait_for_approval requires an approval_id")
         self._resolve()
         start = time.monotonic()
 
@@ -365,7 +370,7 @@ class ClientSecretExchanger:
                     type="approval.wait",
                     ok=ok,
                     duration_ms=(time.monotonic() - start) * 1000.0,
-                    challenge_id=challenge_id,
+                    approval_id=approval_id,
                     state=state,
                 ),
             )
@@ -377,7 +382,7 @@ class ClientSecretExchanger:
             if remaining <= 0:
                 return finish("pending", True)
             wait = max(1, min(25, int(remaining)))
-            url = f"{self._sts_url}/step-up/{challenge_id}?wait={wait}"
+            url = f"{self._sts_url}/step-up/{approval_id}?wait={wait}"
             resp = self._http.get(url, timeout=wait + 10.0)
             try:
                 resp.raise_for_status()
@@ -386,6 +391,11 @@ class ClientSecretExchanger:
                 raise
             state = str(resp.json().get("state", ""))
             if state and state != "pending":
+                if state not in APPROVAL_STATES:
+                    finish("", False)
+                    raise RuntimeError(
+                        f"step-up status returned an unknown challenge state: {state}"
+                    )
                 return finish(state, True)
 
     def _exchange(self, data: dict[str, str | list[str]]) -> tuple[str, float]:

@@ -8,6 +8,7 @@ Public surface of the Caracal Python SDK.
 from caracalai_oauth import (
     AccessDenied,
     ApprovalRequired,
+    ApprovalState,
     CaracalError,
     CaracalEvent,
     ClientCredentials,
@@ -24,7 +25,7 @@ from caracalai_oauth import (
     ZoneMismatch,
 )
 
-from .client import Caracal, CaracalConfig, GatewayRequest, ResourceBinding
+from .client import Caracal, CaracalConfig, GatewayTarget, ResourceBinding
 from .context import (
     AuthoritySummary,
     CaracalContext,
@@ -50,6 +51,7 @@ from .primitives import (
 
 __all__ = [
     "ApprovalRequired",
+    "ApprovalState",
     "AccessDenied",
     "CaracalError",
     "ClientCredentials",
@@ -83,7 +85,7 @@ __all__ = [
     "DelegationConstraints",
     "DelegationResponse",
     "Envelope",
-    "GatewayRequest",
+    "GatewayTarget",
     "Authority",
     "Delegation",
     "JsonObject",

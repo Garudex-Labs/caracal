@@ -32,11 +32,18 @@ from .exchanger import (
     TokenSource,
     decode_jwt_exp,
 )
-from .types import ExchangeOptions, TokenExchangeResponse
+from .types import (
+    APPROVAL_STATES,
+    ApprovalState,
+    ExchangeOptions,
+    TokenExchangeResponse,
+)
 
 __all__ = [
+    "APPROVAL_STATES",
     "AccessDenied",
     "ApprovalRequired",
+    "ApprovalState",
     "CaracalError",
     "CaracalEvent",
     "ClientCredentials",

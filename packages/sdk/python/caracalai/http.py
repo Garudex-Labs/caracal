@@ -7,6 +7,8 @@ ASGI middleware that verifies and binds CaracalContext at the request boundary.
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import TYPE_CHECKING, Any
 from collections.abc import Awaitable, Callable
 
@@ -50,6 +52,12 @@ class CaracalASGIMiddleware:
         self.caracal = caracal
         self.as_application = as_application
         self.verifier = verifier
+        if verifier is None and os.environ.get("CARACAL_ENV") == "production":
+            logging.getLogger("caracalai").warning(
+                "caracal: inbound context is being bound without a verifier in "
+                "production; the envelope is propagation-only - pass verifier= "
+                "or keep this boundary behind a verifier such as the Gateway"
+            )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") not in ("http", "websocket"):
