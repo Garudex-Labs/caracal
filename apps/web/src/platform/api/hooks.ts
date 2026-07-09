@@ -47,6 +47,7 @@ import type {
   ResourceInput,
   ResourcePatchInput,
   SessionQuery,
+  SubjectQuery,
   Workload,
   WorkloadUpdateInput,
   Zone,
@@ -89,6 +90,7 @@ const keys = {
   policy: (zoneId: string | null, id: string | null) => ["console", "policy", zoneId, id] as const,
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
   sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  subjects: (zoneId: string | null) => ["console", "subjects", zoneId] as const,
   approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
   approvalCounts: (zoneId: string | null) => ["console", "approval-counts", zoneId] as const,
   notificationSinks: (zoneId: string | null) => ["console", "notification-sinks", zoneId] as const,
@@ -967,6 +969,47 @@ export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
+  });
+}
+
+// One aggregate row per subject: the identities work is done for, ranked by most
+// recent authority, with server-side kind and search filters.
+export function useSubjectsFeed(zoneId: string | null, query: SubjectQuery) {
+  return useInfiniteQuery({
+    queryKey: [...keys.subjects(zoneId), "feed", query],
+    queryFn: ({ pageParam }) =>
+      consoleApi.subjects.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// The investigation bundle for one subject: identity provenance, governed sessions,
+// approvals raised under it, and upstream connections, in one request.
+export function useSubjectOverview(zoneId: string | null, subjectId: string | null) {
+  return useQuery({
+    queryKey: [...keys.subjects(zoneId), "overview", subjectId],
+    queryFn: () => consoleApi.subjects.overview(zoneId as string, subjectId as string),
+    enabled: Boolean(zoneId && subjectId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// Resolves one authority record to its subject so a link that only knows the record
+// id can land on the owning subject.
+export function useSessionRecord(zoneId: string | null, recordId: string | null) {
+  return useQuery({
+    queryKey: [...keys.sessions(zoneId), "record", recordId],
+    queryFn: async () => {
+      const page = await consoleApi.sessions.list(zoneId as string, {
+        id: recordId as string,
+        limit: 1,
+      });
+      return page.rows[0] ?? null;
+    },
+    enabled: Boolean(zoneId && recordId),
   });
 }
 
