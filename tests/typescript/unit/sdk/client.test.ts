@@ -340,6 +340,20 @@ describe('contextMiddleware + bindFromHeaders', () => {
     await expect(c.bindFromHeaders({}, async () => undefined)).rejects.toThrow(/missing a bearer token/)
   })
 
+  it('binds directly from a fetch Headers instance', async () => {
+    const c = new Caracal(baseConfig)
+    const headers = new Headers({
+      [HeaderAuthorization]: 'Bearer inbound',
+      [HeaderBaggage]: `${BaggageAgentSession}=agent1,${BaggageHop}=1`,
+    })
+    let seen = ''
+    await c.bindFromHeaders(headers, async () => {
+      const ctx = c.current()!
+      seen = `${ctx.subjectToken}|${ctx.sessionId}|${ctx.hop}`
+    })
+    expect(seen).toBe('inbound|agent1|1')
+  })
+
   it('runs the verify hook against the inbound token before binding', async () => {
     const c = new Caracal(baseConfig)
     const seen: string[] = []
@@ -524,6 +538,40 @@ describe('caracal.transport', () => {
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
   })
 
+  it('bounds calls with the transport-level timeout', async () => {
+    const signals: (AbortSignal | null | undefined)[] = []
+    const fakeFetch = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      signals.push(init.signal)
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch } })
+    await c.transport({ asApplication: true })('http://api/x')
+    await c.transport({ asApplication: true, timeoutMs: 5000 })('http://api/x')
+    expect(signals[0]).toBeUndefined()
+    expect(signals[1]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('keeps envelope headers off non-gateway hosts under gateway-only propagation', async () => {
+    const calls: { url: string; headers: Headers }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), headers: new Headers(init.headers) })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+      resources: [{ resourceId: 'calendar', upstreamPrefix: 'https://api.example.com/v1' }],
+    })
+    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
+    await send('https://third-party.example.com/data')
+    await send('https://api.example.com/v1/events')
+    expect(calls[0].headers.get(HeaderTraceparent)).toBeNull()
+    expect(calls[0].headers.get(HeaderBaggage)).toBeNull()
+    expect(calls[1].url).toBe('https://gateway.example.com/proxy/events')
+    expect(parseTraceparent(calls[1].headers.get(HeaderTraceparent)!)).toBeTruthy()
+  })
+
   it('routes bound provider calls through the configured gateway', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -618,6 +666,8 @@ describe('caracal.transport', () => {
     expect(() => new Caracal(baseConfig).gatewayRequest('resource://calendar', '/events')).toThrow(/gatewayUrl/)
     expect(() => c.gatewayRequest('', '/events')).toThrow(/resourceId/)
     expect(() => c.gatewayRequest('resource://calendar', 'https://api.example.com/events')).toThrow(/relative/)
+    expect(() => c.gatewayRequest('resource://calendar', '/events/../admin')).toThrow(/dot segments/)
+    expect(() => c.gatewayRequest('resource://calendar', './events')).toThrow(/dot segments/)
   })
 })
 
@@ -792,6 +842,24 @@ describe('session lifecycle and delegation', () => {
     expect(secretEvents.map((event) => event.type)).toEqual(['token.exchange'])
     expect(secretEvents[0]).toMatchObject({ type: 'token.exchange', ok: true, cached: false })
   })
+
+  it('stops delivering events after the onEvent disposer runs', async () => {
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (init.method === 'POST' && String(input).endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch } })
+    const events: CaracalEvent[] = []
+    const dispose = c.onEvent((event) => events.push(event))
+    await c.session(async () => undefined)
+    const delivered = events.length
+    expect(delivered).toBeGreaterThan(0)
+    dispose()
+    await c.session(async () => undefined)
+    expect(events).toHaveLength(delivered)
+  })
 })
 
 describe('config resource sorting and token validation', () => {
@@ -924,6 +992,15 @@ describe('isApprovalRequired', () => {
 describe('lifecycle-only authority hint', () => {
   const denied = () => new CaracalError('access_denied', 'denied by policy', { httpStatus: 403, requestId: 'r1' })
 
+  it('marks transport-level failures retryable and policy denials terminal', () => {
+    expect(denied().isRetryable).toBe(false)
+    expect(new CaracalError('sts_unavailable', 'down').isRetryable).toBe(true)
+    expect(new CaracalError('provider_rate_limited', 'slow down').isRetryable).toBe(true)
+    expect(new CaracalError('invalid_request', 'busy', { httpStatus: 429 }).isRetryable).toBe(true)
+    expect(new CaracalError('invalid_request', 'boom', { httpStatus: 502 }).isRetryable).toBe(true)
+    expect(new CaracalError('invalid_request', 'bad', { httpStatus: 400 }).isRetryable).toBe(false)
+  })
+
   it('appends the hint when a delegation-less session is denied', async () => {
     const exchanger = stubExchanger({ mintMandate: vi.fn().mockRejectedValue(denied()) })
     const c = exchangerClient(exchanger)
@@ -956,6 +1033,91 @@ describe('Caracal.close', () => {
     const c = exchangerClient(exchanger)
     await c.close()
     expect(exchanger.invalidate).toHaveBeenCalledOnce()
+    expect(exchanger.mintMandate).not.toHaveBeenCalled()
+  })
+})
+
+describe('Caracal.identity', () => {
+  it('exposes the resolved acting identity for logging labels', async () => {
+    const c = exchangerClient(stubExchanger())
+    await expect(c.identity()).resolves.toEqual({ zoneId: 'z', applicationId: 'app' })
+  })
+})
+
+describe('Caracal.mintMandate', () => {
+  it('returns the minted mandate with its expiry', async () => {
+    const exchanger = stubExchanger({
+      mintMandate: vi.fn().mockResolvedValue({ token: 'mandate-tok', expiresInSeconds: 900 }),
+    })
+    const c = exchangerClient(exchanger)
+    await expect(c.mintMandate('resource://pipernet', ['tickets:read'])).resolves.toEqual({
+      token: 'mandate-tok',
+      expiresInSeconds: 900,
+    })
+  })
+})
+
+describe('Caracal.acceptDelegation validation', () => {
+  function inboundClient(items: Array<{ id: string; status: string }>): Caracal {
+    const fetchImpl = (async (url: string) => {
+      if (new URL(url).pathname.startsWith('/zones/z/delegations/inbound/')) {
+        return new Response(JSON.stringify({ items }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    return new Caracal({
+      coordinator: { baseUrl: 'http://coord', fetchImpl },
+      zoneId: 'z',
+      applicationId: 'app',
+      tokenSource: async () => 'tok',
+    })
+  }
+  const ctx = { subjectToken: 'tok', zoneId: 'z', applicationId: 'app', sessionId: 's1', hop: 0 }
+
+  it('runs fn when the delegation is live for the bound session', async () => {
+    const c = inboundClient([{ id: 'edge-42', status: 'active' }])
+    await c.bind(ctx, async () => {
+      await expect(c.acceptDelegation('edge-42', async () => c.current()?.delegationId, { validate: true })).resolves.toBe('edge-42')
+    })
+  })
+
+  it('rejects a delegation the coordinator does not hold live for the session', async () => {
+    const c = inboundClient([{ id: 'edge-42', status: 'revoked' }])
+    await c.bind(ctx, async () => {
+      await expect(c.acceptDelegation('edge-42', async () => undefined, { validate: true })).rejects.toThrow(/not live for session s1/)
+    })
+  })
+
+  it('skips the pre-flight when validation is not requested', async () => {
+    const c = inboundClient([])
+    await c.bind(ctx, async () => {
+      await expect(c.acceptDelegation('edge-42', async () => c.current()?.delegationId)).resolves.toBe('edge-42')
+    })
+  })
+})
+
+describe('Caracal.attachSession', () => {
+  it('re-attaches to a persisted service session and renews its lease', async () => {
+    const calls: { method: string; path: string }[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      calls.push({ method, path })
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+    const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://coord', fetchImpl } })
+    const ends: string[] = []
+    c.onSessionEnd((ctx) => void ends.push(ctx.sessionId ?? ''))
+    const handle = await c.attachSession('agent-persisted', { heartbeatIntervalMs: 0 })
+    expect(handle.sessionId).toBe('agent-persisted')
+    expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
+    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/heartbeat')
+    await handle.close()
+    expect(ends).toEqual(['agent-persisted'])
+    expect(calls.some((call) => call.method === 'DELETE' && call.path.endsWith('/agent-persisted'))).toBe(true)
   })
 })
 

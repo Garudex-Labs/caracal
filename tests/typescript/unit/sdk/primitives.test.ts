@@ -4,7 +4,7 @@
 // Integration-style tests for SDK primitives: session (with authority) and delegate drive the coordinator client end-to-end.
 
 import { describe, it, expect, vi } from 'vitest'
-import { session, startSession, delegate, acceptDelegation, Authority } from '../../../../packages/sdk/ts/src/primitives.js'
+import { session, startSession, attachSession, delegate, acceptDelegation, Authority } from '../../../../packages/sdk/ts/src/primitives.js'
 import { type CoordinatorClient } from '../../../../packages/sdk/ts/src/coordinator.js'
 import { bind, current, type CaracalContext } from '../../../../packages/sdk/ts/src/context.js'
 
@@ -52,6 +52,14 @@ describe('session', () => {
     expect(result).toBe('done')
     expect(boundSession).toBe('agent-new')
     expect(calls.map((c) => c.method)).toContain('DELETE')
+  })
+
+  it('passes the bound context to fn', async () => {
+    const { client } = recorder()
+    await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async (ctx) => {
+      expect(ctx.sessionId).toBe('agent-new')
+      expect(ctx).toBe(current())
+    })
   })
 
   it('runs lifecycle hooks around the bound function', async () => {
@@ -295,6 +303,114 @@ describe('delegate', () => {
     expect(accepted.parentDelegationId).toBe('edge-own')
     expect(accepted.hop).toBe(2)
     expect(ctx.delegationId).toBe('edge-own')
+  })
+
+  it('accepts a single scope string in Authority.narrow', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      if (path.endsWith('/delegations')) {
+        bodies.push(JSON.parse(init?.body ?? '{}'))
+        return new Response(JSON.stringify({ delegation_edge_id: 'edge-one' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await bind(baseCtx(), async () => {
+      await session(
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow('read') },
+        async () => {},
+      )
+    })
+    expect(bodies[0]?.scopes).toEqual(['read'])
+  })
+
+  it('retries a transient delegation failure once with the same idempotency key', async () => {
+    vi.useFakeTimers()
+    try {
+      const keys: (string | null)[] = []
+      let attempts = 0
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        const path = new URL(url).pathname
+        if (path.endsWith('/delegations')) {
+          attempts += 1
+          keys.push(new Headers(init.headers as HeadersInit).get('idempotency-key'))
+          if (attempts === 1) return new Response('upstream unavailable', { status: 503 })
+          return new Response(JSON.stringify({ delegation_edge_id: 'edge-retry' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({}), { status: 200 })
+      }) as unknown as typeof fetch
+      const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+      const result = bind(baseCtx(), () => delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }))
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(result).resolves.toMatchObject({ delegationId: 'edge-retry' })
+      expect(attempts).toBe(2)
+      expect(keys[0]).toBeTruthy()
+      expect(keys[1]).toBe(keys[0])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry a delegation rejected by policy', async () => {
+    let attempts = 0
+    const fetchImpl = (async (url: string) => {
+      if (new URL(url).pathname.endsWith('/delegations')) {
+        attempts += 1
+        return new Response('denied', { status: 403 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await bind(baseCtx(), async () => {
+      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow()
+    })
+    expect(attempts).toBe(1)
+  })
+})
+
+describe('attachSession', () => {
+  it('validates the session with a lease renewal and returns a live handle', async () => {
+    const calls: { method: string; path: string }[] = []
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET'
+      const path = new URL(url).pathname
+      calls.push({ method, path })
+      if (method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+    const handle = await attachSession({
+      coordinator: { baseUrl: 'http://coord', fetchImpl },
+      zoneId: 'zone-1',
+      applicationId: 'app-1',
+      subjectToken: 'tok',
+      sessionId: 'agent-persisted',
+      heartbeatIntervalMs: 0,
+    })
+    expect(handle.sessionId).toBe('agent-persisted')
+    expect(handle.context.sessionId).toBe('agent-persisted')
+    expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
+    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/heartbeat')
+    await handle.close()
+    expect(calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/agent-persisted'))).toBe(true)
+  })
+
+  it('fails fast when the session is no longer live', async () => {
+    const fetchImpl = (async () => new Response('gone', { status: 404 })) as unknown as typeof fetch
+    await expect(
+      attachSession({
+        coordinator: { baseUrl: 'http://coord', fetchImpl },
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        sessionId: 'agent-reaped',
+        heartbeatIntervalMs: 0,
+      }),
+    ).rejects.toThrow(/404/)
   })
 })
 

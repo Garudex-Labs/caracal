@@ -53,6 +53,9 @@ function fakeFetch(): { fetchImpl: typeof fetch; calls: RecordedCall[]; counters
     if (url.endsWith('/delegations') && method === 'POST') {
       return json({ delegation_edge_id: 'edge-1' })
     }
+    if (method === 'DELETE') {
+      return new Response(null, { status: 204 })
+    }
     if (url.startsWith(GATEWAY)) {
       return json({ ok: true, presented: headers['authorization'], resource: headers['x-caracal-resource'], target: url })
     }
@@ -117,6 +120,21 @@ describe('Caracal.applicationTransport', () => {
     expect(mint.get('ttl_seconds')).toBe('300')
     // The mint is an application-principal exchange: no subject token rides along.
     expect(mint.get('subject_token')).toBeNull()
+  })
+
+  it('close terminates the sessions backing cached mandates', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const c = client(fetchImpl)
+    const appFetch = c.applicationTransport(RESOURCE, { scopes: ['data:read'] })
+    await appFetch(`${GATEWAY}/v1/things`)
+
+    await c.close()
+
+    const deletes = calls.filter((call) => call.method === 'DELETE')
+    expect(deletes.map((call) => call.url).sort()).toEqual([`${COORD}/zones/zone-1/agents/agent-1`, `${COORD}/zones/zone-1/agents/agent-2`])
+
+    await c.close()
+    expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(2)
   })
 
   it('rewrites bound upstream URLs onto the gateway and passes gateway URLs through unchanged', async () => {
