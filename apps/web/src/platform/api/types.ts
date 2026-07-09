@@ -383,6 +383,14 @@ export interface SubjectOverview {
   connections: SubjectConnection[];
 }
 
+export interface SubjectRevokeResult {
+  subject_id: string;
+  sessions: number;
+  agents: number;
+  delegations: number;
+  connections: number;
+}
+
 export interface AuditEvent {
   id: string;
   zone_id: string;

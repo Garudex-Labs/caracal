@@ -5,9 +5,14 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { insertAdminAuditRecord } from '@caracalai/admin-audit'
 import { ZoneParams, parseParams } from './params.js'
+import { withTransaction } from '../db.js'
+import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
+import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
 
 const SUBJECT_PAGE_LIMIT = 100
+const SESSION_REVOKE_BATCH = 1000
 
 const SubjectsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(SUBJECT_PAGE_LIMIT),
@@ -18,6 +23,11 @@ const SubjectsQuery = z.object({
 
 const OverviewQuery = z.object({
   subject_id: z.string().min(1).max(512),
+})
+
+const RevokeBody = z.object({
+  subject_id: z.string().min(1).max(512),
+  reason: z.string().max(512).optional(),
 })
 
 interface SubjectCursor {
@@ -162,5 +172,162 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
       approvals: approvals.rows[0] ?? { pending: 0, total: 0 },
       connections: connections.rows,
     }
+  })
+
+  // The subject kill switch: one call cuts every path authority can reach the
+  // subject through. Ordered fail-safe: session records are revoked first (the
+  // STS re-checks session status on every exchange, so authority dies at step
+  // one even if a later step fails), then the governed sessions riding them
+  // terminate, delegations touching those sessions fall, and the subject's
+  // provider connections are revoked locally. Revoked session ids feed the
+  // revocation stream so in-flight mandates die before their exp. Idempotent:
+  // re-running on an already cut-off subject reports zero counts.
+  fastify.post('/zones/:zoneId/subjects/revoke', async (req, reply) => {
+    const params = parseParams(ZoneParams, req, reply)
+    if (!params) return
+    const parsed = RevokeBody.safeParse(req.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_subject_revoke' })
+    const subjectId = parsed.data.subject_id
+    const reason = parsed.data.reason ?? 'subject_revoked'
+
+    return withTransaction(fastify.db, async (client) => {
+      const { rows: known } = await client.query(`SELECT 1 FROM sessions WHERE zone_id = $1 AND subject_id = $2 LIMIT 1`, [
+        params.zoneId,
+        subjectId,
+      ])
+      if (!known[0]) {
+        reply.code(404).send({ error: 'subject_not_found' })
+        return reply
+      }
+
+      const events: EnqueueArgs[] = []
+      const revokedSessionIds: string[] = []
+      // Paged so a subject with many active sessions cannot hold a long
+      // UPDATE lock or flood the outbox in a single batch.
+      while (true) {
+        const { rows: sessions } = await client.query<{ id: string }>(
+          `UPDATE sessions SET status = 'revoked',
+                  revoked_at = now(), revoked_reason = 'subject_revoked'
+           WHERE id IN (
+             SELECT id FROM sessions
+             WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
+             ORDER BY created_at
+             LIMIT $3
+             FOR UPDATE SKIP LOCKED
+           )
+           RETURNING id`,
+          [params.zoneId, subjectId, SESSION_REVOKE_BATCH],
+        )
+        for (const s of sessions) {
+          revokedSessionIds.push(s.id)
+          events.push({
+            streamName: STREAM_SESSIONS_REVOKE,
+            payload: { zone_id: params.zoneId, session_id: s.id, reason },
+            requestId: req.id,
+          })
+        }
+        if (sessions.length < SESSION_REVOKE_BATCH) break
+      }
+
+      const { rows: agents } = await client.query<{ id: string; subject_session_id: string; parent_id: string | null }>(
+        `WITH RECURSIVE tree AS (
+           SELECT ag.id, ag.subject_session_id, ag.parent_id
+           FROM agent_sessions ag
+           JOIN sessions s ON s.id = ag.subject_session_id
+           WHERE ag.zone_id = $1
+             AND s.zone_id = $1
+             AND s.subject_id = $2
+             AND ag.status IN ('active','suspended')
+           UNION
+           SELECT child.id, child.subject_session_id, child.parent_id
+           FROM agent_sessions child
+           JOIN tree parent ON child.parent_id = parent.id
+           WHERE child.zone_id = $1 AND child.status IN ('active','suspended')
+         )
+         UPDATE agent_sessions
+         SET status = 'terminated', terminated_at = now(), updated_at = now()
+         WHERE zone_id = $1 AND id IN (SELECT id FROM tree)
+         RETURNING id, subject_session_id, parent_id`,
+        [params.zoneId, subjectId],
+      )
+      for (const row of agents) {
+        events.push({
+          streamName: STREAM_AGENTS_LIFECYCLE,
+          payload: {
+            event: 'terminate',
+            zone_id: params.zoneId,
+            agent_session_id: row.id,
+            parent_id: row.parent_id,
+            reason,
+          },
+          requestId: req.id,
+        })
+        events.push({
+          streamName: STREAM_SESSIONS_REVOKE,
+          payload: { zone_id: params.zoneId, session_id: row.subject_session_id, agent_session_id: row.id, reason },
+          requestId: req.id,
+        })
+      }
+
+      const agentIds = agents.map((row) => row.id)
+      const { rows: delegations } =
+        agentIds.length > 0
+          ? await client.query<{ id: string }>(
+              `UPDATE delegation_edges
+               SET status = 'revoked', revoked_at = now(), edge_version = edge_version + 1, updated_at = now()
+               WHERE zone_id = $1
+                 AND status = 'active'
+                 AND (source_session_id = ANY($2::text[]) OR target_session_id = ANY($2::text[]))
+               RETURNING id`,
+              [params.zoneId, agentIds],
+            )
+          : { rows: [] as { id: string }[] }
+      for (const row of delegations) {
+        events.push({
+          streamName: STREAM_SESSIONS_REVOKE,
+          payload: { zone_id: params.zoneId, delegation_edge_id: row.id, reason },
+          requestId: req.id,
+        })
+      }
+
+      const { rows: connections } = await client.query<{ id: string }>(
+        `UPDATE provider_connections
+         SET status = 'revoked', updated_at = now()
+         WHERE zone_id = $1 AND subject_id = $2 AND status = 'active'
+         RETURNING id`,
+        [params.zoneId, subjectId],
+      )
+
+      await enqueueOutboxBatch(client, events)
+      await insertAdminAuditRecord(client, {
+        requestId: req.id,
+        actorId: req.actor?.id ?? null,
+        actorName: req.actor?.name ?? null,
+        actorScope: req.actor?.scope ?? null,
+        action: 'Subject authority revoked',
+        method: 'POST',
+        path: `/v1/zones/${params.zoneId}/subjects/revoke`,
+        zoneId: params.zoneId,
+        entityType: 'subjects',
+        entityId: subjectId,
+        statusCode: 200,
+        payloadJson: {
+          subject_id: subjectId,
+          reason,
+          revoked_sessions: revokedSessionIds.length,
+          terminated_agents: agents.length,
+          revoked_delegations: delegations.length,
+          revoked_connections: connections.length,
+        },
+      })
+
+      return {
+        subject_id: subjectId,
+        sessions: revokedSessionIds.length,
+        agents: agents.length,
+        delegations: delegations.length,
+        connections: connections.length,
+      }
+    })
   })
 }

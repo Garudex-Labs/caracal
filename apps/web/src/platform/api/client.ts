@@ -66,6 +66,7 @@ import type {
   Session,
   SessionQuery,
   SubjectOverview,
+  SubjectRevokeResult,
   SubjectQuery,
   SubjectSummary,
   SimulateResult,
@@ -750,6 +751,14 @@ export const consoleApi = {
       request<SubjectOverview>(
         `/v1/zones/${encodeURIComponent(zoneId)}/subjects/overview${queryString({ subject_id: subjectId })}`,
       ),
+    // The kill switch: one call cuts every authority path the subject holds. The
+    // subject id travels in the body, never the path, so any issuer-assigned
+    // format stays routable.
+    revoke: (zoneId: string, subjectId: string, reason?: string): Promise<SubjectRevokeResult> =>
+      request<SubjectRevokeResult>(`/v1/zones/${encodeURIComponent(zoneId)}/subjects/revoke`, {
+        method: "POST",
+        body: JSON.stringify({ subject_id: subjectId, ...(reason ? { reason } : {}) }),
+      }),
   },
 
   // Human-approval holds raised by policy. Reads return the full approval fact with a derived
