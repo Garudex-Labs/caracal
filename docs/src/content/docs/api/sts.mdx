@@ -27,7 +27,6 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | --- | --- |
 | `grant_type` | OAuth grant type. |
 | `subject_token`, `subject_token_type` | Existing authority to exchange: a session mandate this STS issued. |
-| `actor_token` | Optional distinct second credential, recorded as actor claims for policy input and audit. |
 | `resource` | One or more target resource identifiers. |
 | `scope` | Requested scopes. |
 | `zone_id` | Zone boundary. |
@@ -36,6 +35,8 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `session_id`, `agent_session_id`, `delegation_edge_id` | Session and delegation anchors. |
 | `ttl_seconds` | Requested TTL. |
 | `challenge_id` | Consumes an approved step-up hold during retry. |
+
+RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. The acting application authenticates with its own client credentials, and its identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
 
 ## Subject Identity
 

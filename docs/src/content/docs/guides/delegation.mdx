@@ -5,13 +5,13 @@ description: Spawn child agents, attach typed constraints, inspect graph impact,
 
 Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
 
-`session()` always creates the child under the **same application** as the parent - `session()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application: it returns the edge, and the receiving session presents it with `acceptDelegation()`.
+`session()` always creates the child under the **same application** as the parent - `session()` never moves a child into a different application. Narrow the child's authority only when it should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application: it returns the edge, and the receiving session presents it with `acceptDelegation()`.
 
 ## Implementation flow
 
 ```mermaid
 flowchart LR
-  Parent["Parent agent session"] --> Spawn["Spawn child with narrowing grant"]
+  Parent["Parent agent session"] --> Spawn["Start child with narrowed authority"]
   Spawn --> Edge["Bounded delegation edge"]
   Edge --> Child["Run child with delegated context"]
   Child --> Exchange["Exchange for resource mandate"]
@@ -21,7 +21,7 @@ flowchart LR
 ## TypeScript example
 
 ```ts
-import { Caracal, Grant } from "@caracalai/sdk";
+import { Caracal, Authority } from "@caracalai/sdk";
 
 const caracal = new Caracal();
 
@@ -30,7 +30,7 @@ await caracal.session(async () => {
     const headers = await caracal.headersAsync();
     await fetch("https://api.example.com/tickets", { headers });
   }, {
-    grant: Authority.narrow(["tickets:read"], {
+    authority: Authority.narrow(["tickets:read"], {
       resourceId: "https://api.example.com/tickets",
       constraints: { maxHops: 1, budget: 5 },
       ttlSeconds: 600,
@@ -46,6 +46,10 @@ await caracal.session(async () => {
 3. Inspect active edges, inbound edges, outbound edges, and traversal.
 4. Use impact before revoking an edge.
 5. Check **Audit** for the delegated exchange and resource decision.
+
+## Hand over the delegation id safely
+
+The issuer and receiver share the delegation id over whatever channel the two agents already use - a queue message, an RPC field, a task payload. The id is a reference, not a bearer credential: the STS binds every mint to the receiving session's own identity, so an intercepted id is useless to any other session. The channel still matters for *integrity* - an attacker who can swap the id can steer the receiver onto a different edge than the issuer intended - so keep the handoff on the same authenticated channel as the work itself, and have the receiver present with `acceptDelegation(delegationId, fn, { validate: true })` when the channel allows retries or replays: the pre-flight confirms the edge is live for this session before any call runs under it. Every presentation also emits a `delegation.accept` event, so acceptance is auditable client-side.
 
 ## Safe constraints
 

@@ -47,6 +47,23 @@ sequenceDiagram
 | Gateway or adapter | Verifies mandate claims and revocation before use. | Runtime and resource server config |
 | Audit ledger | Records decisions, diagnostics, and request correlation. | API, Console, and storage |
 
+## Where Resource Authority Comes From
+
+A session never holds resource authority by itself: starting one grants only lifecycle authority - the right to exist, heartbeat, and be attributed. Resource authority always arrives over a delegation, and the STS mints resource mandates only along one of these paths:
+
+```mermaid
+flowchart TD
+  Zone["Zone grant + policy set<br/>(what the application MAY hold)"] --> App["Application identity"]
+  App --> Session["Session<br/>(lifecycle-only authority)"]
+  Session -- "Authority.narrow(...)<br/>parent issues a bounded edge" --> Edge["Delegation edge<br/>(scopes x resource x TTL)"]
+  Peer["Peer session"] -- "delegate(...) + acceptDelegation" --> Edge
+  App -- "applicationTransport<br/>(SDK builds its own session pair + edge)" --> Edge
+  Edge --> Mint["STS mint: policy evaluates<br/>grant + edge + session"]
+  Mint --> Mandate["Resource mandate<br/>(short-lived, resource-audienced JWT)"]
+```
+
+This is why a mint from a plain session fails with `access_denied` and a lifecycle-only-authority hint: the session sits above the delegation layer, and nothing has issued it an edge yet. Narrow the session at start, accept a delegation from a peer, or call as the application - all three end at the same place, a bounded edge the STS can evaluate.
+
 ## Default Posture
 
 Caracal should be treated as deny-by-default:
