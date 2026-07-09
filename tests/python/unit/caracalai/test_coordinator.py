@@ -55,6 +55,34 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.status, 500)
         self.assertEqual(caught.exception.method, "POST")
         self.assertIn("internal", caught.exception.body)
+        self.assertIsNone(caught.exception.retry_after_seconds)
+
+    async def test_carries_server_retry_after_hint(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                429, headers={"retry-after": "3"}, json={"error": "throttled"}
+            )
+
+        with self.assertRaises(CoordinatorError) as caught:
+            await spawn_agent(
+                _client(handler),
+                "tok",
+                SpawnRequest(zone_id="z", application_id="app"),
+            )
+        self.assertEqual(caught.exception.retry_after_seconds, 3.0)
+
+    async def test_caps_error_body_in_message(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, text="x" * 5000)
+
+        with self.assertRaises(CoordinatorError) as caught:
+            await spawn_agent(
+                _client(handler),
+                "tok",
+                SpawnRequest(zone_id="z", application_id="app"),
+            )
+        self.assertIn("\u2026 (truncated)", str(caught.exception))
+        self.assertLess(len(str(caught.exception)), 2300)
 
     async def test_raises_when_response_has_no_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:

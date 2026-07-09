@@ -111,6 +111,24 @@ class FromEnvTests(unittest.TestCase):
             )
         self.assertIn("expired", str(cm.exception))
 
+    def test_rejects_alg_none_subject_token(self) -> None:
+        header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+        payload = (
+            base64.urlsafe_b64encode(json.dumps({"exp": 4_000_000_000}).encode())
+            .rstrip(b"=")
+            .decode()
+        )
+        token = f"{header}.{payload}."
+        with self.assertRaisesRegex(RuntimeError, 'alg "none"'):
+            Caracal.from_env(
+                {
+                    "CARACAL_COORDINATOR_URL": "http://x",
+                    "CARACAL_ZONE_ID": "z1",
+                    "CARACAL_APPLICATION_ID": "a1",
+                    "CARACAL_BOOTSTRAP_TOKEN": token,
+                }
+            )
+
     def test_production_requires_service_urls(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "CARACAL_COORDINATOR_URL"):
             Caracal.from_env(
@@ -333,7 +351,7 @@ class MintMandateTests(unittest.TestCase):
         token = self._client(handler).mint_mandate(
             "resource://payments", ["pay:write"], ctx=ctx, ttl_seconds=60
         )
-        self.assertEqual(token, "mandate-token")
+        self.assertEqual(token.token, "mandate-token")
         body = captured[0].decode()
         self.assertIn("agent_session_id=agent_9", body)
         self.assertIn("delegation_edge_id=edge_9", body)
@@ -408,6 +426,71 @@ class MintMandateTests(unittest.TestCase):
                 lambda: client.mint_mandate("resource://payments", ["pay:read"]),
             )
         self.assertEqual(getattr(caught.exception, "__notes__", []), [])
+
+
+class FederateSubjectTests(unittest.TestCase):
+    def _client(self, handler) -> Caracal:
+        return Caracal.from_client_secret(
+            coordinator_url="http://coord",
+            sts_url="http://sts",
+            zone_id="z",
+            application_id="app",
+            client_secret="secret",
+            resources=["resource://payments"],
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+    @staticmethod
+    def _subject_mandate(payload: dict[str, Any]) -> str:
+        body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=")
+        return f"eyJhbGciOiJFUzI1NiJ9.{body.decode()}.sig"
+
+    def test_requires_client_secret_credentials(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _build_caracal().federate_subject("id-token")
+
+    def test_returns_subject_session_id_from_minted_mandate(self) -> None:
+        import time as time_module
+
+        token = self._subject_mandate(
+            {
+                "sid": "sess-42",
+                "sub": "richard.hendricks@piedpiper.example",
+                "exp": int(time_module.time()) + 600,
+            }
+        )
+        captured: list[bytes] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req.content)
+            return httpx.Response(200, json={"access_token": token})
+
+        federated = self._client(handler).federate_subject("id-token", ttl_seconds=600)
+        self.assertEqual(federated.subject_session_id, "sess-42")
+        self.assertEqual(federated.token, token)
+        self.assertGreater(federated.expires_in_seconds, 0)
+        body = captured[0].decode()
+        self.assertIn("subject_token=id-token", body)
+        self.assertIn(
+            "subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid_token",
+            body,
+        )
+        self.assertIn("ttl_seconds=600", body)
+        self.assertNotIn("resource=", body)
+
+    def test_rejects_mandate_without_session_id(self) -> None:
+        import time as time_module
+
+        token = self._subject_mandate(
+            {"sub": "user", "exp": int(time_module.time()) + 600}
+        )
+
+        def handler(_req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"access_token": token})
+
+        with self.assertRaises(RuntimeError) as caught:
+            self._client(handler).federate_subject("id-token")
+        self.assertIn("carries no session id", str(caught.exception))
 
 
 class WithApprovalTests(unittest.IsolatedAsyncioTestCase):
@@ -712,6 +795,79 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2", to_application_id="app-2", scopes=["tool:call"]
             )
 
+    async def test_task_option_recorded_as_metadata_task(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        async with c.session(
+            task="Refund order #8412", metadata={"task": "stale", "ticket": "T-1"}
+        ):
+            pass
+        handle = await c.start_session(
+            task="Nightly PiperNet reconciliation", heartbeat_interval=0
+        )
+        await handle.aclose()
+        await client.aclose()
+        spawns = [
+            r for r in requests if r.method == "POST" and str(r.url).endswith("/agents")
+        ]
+        self.assertEqual(
+            json.loads(spawns[0].content)["metadata"],
+            {"task": "Refund order #8412", "ticket": "T-1"},
+        )
+        self.assertEqual(
+            json.loads(spawns[1].content)["metadata"],
+            {"task": "Nightly PiperNet reconciliation"},
+        )
+
+    async def test_caller_idempotency_key_reused_across_redelivery(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        async with c.session(idempotency_key="queue-msg-77"):
+            pass
+        async with c.session(idempotency_key="queue-msg-77"):
+            pass
+        await client.aclose()
+        keys = [
+            r.headers.get("idempotency-key")
+            for r in requests
+            if r.method == "POST" and str(r.url).endswith("/agents")
+        ]
+        self.assertEqual(keys, ["queue-msg-77", "queue-msg-77"])
+
     async def test_service_heartbeats_and_does_not_auto_terminate(self) -> None:
         requests: list[httpx.Request] = []
 
@@ -792,6 +948,132 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0].path, "/zones/z/agents")
         self.assertTrue(events[0].ok)
         self.assertEqual(events[1].method, "DELETE")
+
+    async def test_on_event_disposer_stops_delivery(self) -> None:
+        async def handler(request):
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(204)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        events = []
+        remove = c.on_event(events.append)
+        async with c.session():
+            pass
+        delivered = len(events)
+        self.assertGreater(delivered, 0)
+        remove()
+        async with c.session():
+            pass
+        await client.aclose()
+        self.assertEqual(len(events), delivered)
+
+    async def test_identity_exposes_acting_identity(self) -> None:
+        self.assertEqual(_build_caracal().identity(), ("z", "app"))
+
+    async def test_attach_session_revalidates_persisted_session(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(
+                200,
+                json={
+                    "agent": {
+                        "status": "active",
+                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    }
+                },
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        ends: list[str] = []
+
+        async def on_end(ctx) -> None:
+            ends.append(ctx.session_id)
+
+        c.on_session_end(on_end)
+        handle = await c.attach_session("agent-persisted", heartbeat_interval=0)
+        self.assertEqual(handle.session_id, "agent-persisted")
+        self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
+        self.assertTrue(
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+        )
+        await handle.aclose()
+        await client.aclose()
+        self.assertEqual(ends, ["agent-persisted"])
+        self.assertIn("DELETE", [r.method for r in requests])
+
+    async def test_accept_delegation_validates_against_inbound_list(self) -> None:
+        items = [{"id": "edge-42", "status": "active"}]
+
+        async def handler(request):
+            if "/delegations/inbound/" in str(request.url):
+                return httpx.Response(200, json={"items": items})
+            return httpx.Response(204)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        from caracalai import CaracalContext
+
+        ctx = CaracalContext(
+            subject_token="tok", zone_id="z", application_id="app", session_id="s1"
+        )
+        events = []
+        c.on_event(events.append)
+        async with c.bind(ctx):
+            async with c.accept_delegation("edge-42", validate=True) as accepted:
+                self.assertEqual(accepted.delegation_id, "edge-42")
+
+            items[0]["status"] = "revoked"
+            with self.assertRaisesRegex(RuntimeError, "not live for session s1"):
+                async with c.accept_delegation("edge-42", validate=True):
+                    pass  # pragma: no cover
+
+            async with c.accept_delegation("edge-77") as unchecked:
+                self.assertEqual(unchecked.delegation_id, "edge-77")
+        await client.aclose()
+
+        accepts = [e for e in events if e.type == "delegation.accept"]
+        self.assertEqual(
+            [(e.delegation_id, e.session_id, e.ok) for e in accepts],
+            [
+                ("edge-42", "s1", True),
+                ("edge-42", "s1", False),
+                ("edge-77", "s1", True),
+            ],
+        )
 
 
 class AsgiMiddlewareTests(unittest.IsolatedAsyncioTestCase):
@@ -980,6 +1262,10 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             c.gateway_request("", "/events")
         with self.assertRaises(ValueError):
             c.gateway_request("resource://calendar", "https://api.example.com/events")
+        with self.assertRaises(ValueError):
+            c.gateway_request("resource://calendar", "/events/../admin")
+        with self.assertRaises(ValueError):
+            c.gateway_request("resource://calendar", "./events")
 
     async def test_unmatched_provider_call_is_not_routed(self) -> None:
         c = Caracal(
@@ -1006,6 +1292,41 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             seen, {"url": "https://other.example.com/v1/events", "resource": None}
         )
+
+    async def test_gateway_only_propagation_skips_third_party_hosts(self) -> None:
+        calls: list[dict[str, str | None]] = []
+
+        async def handler(request):
+            calls.append(
+                {
+                    "url": str(request.url),
+                    "traceparent": request.headers.get("traceparent"),
+                    "baggage": request.headers.get("baggage"),
+                }
+            )
+            return httpx.Response(204)
+
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                gateway_url="https://gateway.example.com/proxy",
+                resources=[ResourceBinding("calendar", "https://api.example.com/v1")],
+            )
+        )
+        async with c.transport(
+            transport=httpx.MockTransport(handler),
+            as_application=True,
+            propagation="gateway-only",
+        ) as client:
+            await client.get("https://third-party.example.com/data")
+            await client.get("https://api.example.com/v1/events")
+        self.assertIsNone(calls[0]["traceparent"])
+        self.assertIsNone(calls[0]["baggage"])
+        self.assertEqual(calls[1]["url"], "https://gateway.example.com/proxy/events")
+        self.assertIsNotNone(calls[1]["traceparent"])
 
     async def test_explicit_unbound_resource_routes_to_gateway(self) -> None:
         c = Caracal(

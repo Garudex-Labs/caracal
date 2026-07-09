@@ -279,6 +279,19 @@ class GovernedCycleTests(unittest.TestCase):
                 client.get("http://gateway/direct")
         self.assertEqual(sorted(platform.deletes), ["agent-1", "agent-2"])
 
+    def test_aclose_terminates_sessions_backing_cached_mandates(self) -> None:
+        platform = _Platform()
+        c = _client(platform)
+        with c.sync_application_transport(
+            RESOURCE,
+            scopes=["data:read"],
+            transport=httpx.MockTransport(_gateway_echo),
+        ) as client:
+            client.get(f"{UPSTREAM}/tasks")
+
+        asyncio.run(c.aclose())
+        self.assertEqual(sorted(platform.deletes), ["agent-1", "agent-2"])
+
 
 class GovernedGuardTests(unittest.TestCase):
     def test_requires_client_secret_credentials(self) -> None:

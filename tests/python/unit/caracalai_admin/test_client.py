@@ -478,6 +478,43 @@ class AdminOperationsTests(unittest.TestCase):
         )
         self.assertTrue(all(req.method == "POST" for req in requests))
 
+    def test_subjects_revoke_path(self):
+        requests: list[httpx.Request] = []
+        client = make_client(
+            [
+                httpx.Response(
+                    200,
+                    json={
+                        "subject_id": "auth0|507f1f77bcf86cd799439011",
+                        "sessions": 2,
+                        "agents": 1,
+                        "delegations": 1,
+                        "connections": 1,
+                    },
+                )
+            ],
+            requests,
+        )
+
+        result = client.subjects.revoke(
+            "z1",
+            {
+                "subject_id": "auth0|507f1f77bcf86cd799439011",
+                "reason": "credential compromise",
+            },
+        )
+
+        self.assertEqual(str(requests[0].url), "http://api/v1/zones/z1/subjects/revoke")
+        self.assertEqual(requests[0].method, "POST")
+        self.assertEqual(
+            json.loads(requests[0].content),
+            {
+                "subject_id": "auth0|507f1f77bcf86cd799439011",
+                "reason": "credential compromise",
+            },
+        )
+        self.assertEqual(result["sessions"], 2)
+
     def test_workload_surface_paths_and_custody_secret(self):
         requests: list[httpx.Request] = []
         client = make_client(
