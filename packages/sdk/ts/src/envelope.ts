@@ -47,7 +47,9 @@ export interface Envelope {
   hop: number
 }
 
+/** Reads one header by case-insensitive name; adapters back it with their framework's header store. */
 export type HeaderGetter = (name: string) => string | undefined
+/** Writes one header; adapters back it with their framework's header store. */
 export type HeaderSetter = (name: string, value: string) => void
 
 const BEARER_RE = /^bearer +(.+)$/i

@@ -40,6 +40,11 @@ export class CoordinatorError extends Error {
   }
 }
 
+/**
+ * Session kinds: a Task session lives by its wall-clock TTL and suits bounded
+ * work; a Service session lives by its heartbeat lease and suits daemons and
+ * workers. session() records a task, startSession() records a service.
+ */
 export const Lifecycle = {
   Task: 'task',
   Service: 'service',
@@ -47,7 +52,7 @@ export const Lifecycle = {
 
 export type Lifecycle = (typeof Lifecycle)[keyof typeof Lifecycle]
 
-export type AgentStatus = 'starting' | 'healthy' | 'degraded' | 'unhealthy'
+export type SessionStatus = 'starting' | 'healthy' | 'degraded' | 'unhealthy'
 
 export interface DelegationConstraints {
   resources?: string[]
@@ -90,6 +95,7 @@ export interface DelegationRequest {
   scopes: string[]
   constraints?: DelegationConstraints
   ttlSeconds?: number
+  idempotencyKey?: string
 }
 
 /** The created delegation edge: its id, the scopes it bounds, and when it lapses. */
@@ -229,7 +235,7 @@ export async function createDelegation(
       constraints,
       ttl_seconds: req.ttlSeconds,
     },
-    undefined,
+    req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined,
     signal,
   )
   if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
@@ -240,12 +246,40 @@ export async function createDelegation(
   }
 }
 
+/** One delegation offered to a session, as the coordinator lists it. */
+export interface InboundDelegation {
+  delegationEdgeId: string
+  status: string
+  expiresAt?: string
+}
+
+export async function listInboundDelegations(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<InboundDelegation[]> {
+  const res = await call<{ items?: Array<{ id?: string; status?: string; expires_at?: string | null }> }>(
+    client,
+    'GET',
+    `/zones/${encodeURIComponent(zoneId)}/delegations/inbound/${encodeURIComponent(sessionId)}`,
+    bearer,
+    undefined,
+    undefined,
+    signal,
+  )
+  return (res?.items ?? []).flatMap((item) =>
+    item.id ? [{ delegationEdgeId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }] : [],
+  )
+}
+
 export async function heartbeatAgent(
   client: CoordinatorClient,
   bearer: string,
   zoneId: string,
   agentSessionId: string,
-  status: AgentStatus = 'healthy',
+  status: SessionStatus = 'healthy',
 ): Promise<HeartbeatResponse> {
   const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null } }>(
     client,

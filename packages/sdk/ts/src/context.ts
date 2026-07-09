@@ -9,6 +9,12 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { Envelope } from './envelope.js'
 
 export interface CaracalContext {
+  /**
+   * The bearer credential this context presents: the session mandate every
+   * gateway-bound call and token exchange authenticates with. Named for the
+   * RFC 8693 subject_token it becomes on the wire; it is not an end-user
+   * identity - see subjectSessionId for that.
+   */
   subjectToken: string
   zoneId: string
   applicationId: string
@@ -16,10 +22,12 @@ export interface CaracalContext {
   delegationId?: string
   parentDelegationId?: string
   subjectSessionId?: string
+  /** W3C trace id (32 lowercase hex characters) correlating this context's requests. */
   traceId?: string
   traceFlags?: string
   traceState?: string
   baggage?: Record<string, string>
+  /** Delegation depth: how many delegation hand-offs precede this context; 0 at the root. */
   hop: number
   /**
    * Marks a context whose subject token came from this process's own
