@@ -20,21 +20,21 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     verb: "read",
     action: "read",
     scope: "control:agent:read",
-    summary: "List and inspect agent sessions.",
+    summary: "List and inspect sessions.",
   },
   {
     command: "agent",
     verb: "write",
     action: "write",
     scope: "control:agent:write",
-    summary: "Suspend and resume agent sessions.",
+    summary: "Suspend and resume sessions.",
   },
   {
     command: "agent",
     verb: "delete",
     action: "delete",
     scope: "control:agent:delete",
-    summary: "Terminate agent sessions.",
+    summary: "Terminate sessions.",
   },
   {
     command: "app",
@@ -76,14 +76,14 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     verb: "read",
     action: "read",
     scope: "control:delegation:read",
-    summary: "Inspect delegation edges.",
+    summary: "Inspect delegations.",
   },
   {
     command: "delegation",
     verb: "delete",
     action: "delete",
     scope: "control:delegation:delete",
-    summary: "Revoke delegation edges.",
+    summary: "Revoke delegations.",
   },
   {
     command: "grant",
@@ -232,7 +232,7 @@ export const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission
 // Human-readable noun descriptions for the Reference tab. Scopes and summaries are derived
 // from CONTROL_PERMISSIONS so the reference can never drift from the grantable surface.
 export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
-  agent: "Inspect and manage agent sessions.",
+  agent: "Inspect and manage sessions.",
   app: "Manage application identities.",
   approval: "Inspect human-approval holds raised by policy.",
   audit: "Search the audit ledger.",

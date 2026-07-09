@@ -347,7 +347,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   const governedFetch = caracal
     ? (resourceIdentifier: string): typeof fetch =>
-        caracal.governedTransport(resourceIdentifier, { scopes: [LLM_SCOPE], labels: [OPERATOR_ROLE] })
+        caracal.applicationTransport(resourceIdentifier, { scopes: [LLM_SCOPE], labels: [OPERATOR_ROLE] })
     : null
 
   // The env-configured providers, governed when a key is supplied (the key is dropped from the
