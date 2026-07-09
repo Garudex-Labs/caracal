@@ -295,7 +295,7 @@ function ApprovalFilterBar({
 // facts instead of prose.
 
 // What the requesting agent says about itself, read live from the coordinator: the
-// task its developer annotated at spawn, its role labels, and how recently it started.
+// task its developer annotated at session start, its role labels, and how recently it started.
 // The context a policy cannot evaluate but an approver can. A missing task annotation
 // is stated outright - not knowing why an agent wants authority is itself a signal.
 // Renders nothing only when the agent record is gone.
@@ -573,21 +573,21 @@ function ApprovalDetail({
             </DetailField>
           ) : null}
           {lineage.agentSession ? (
-            <DetailField label="Agent session" hint="The spawned agent run asking for this token">
+            <DetailField label="Session" hint="The governed session asking for this token">
               <CopyValue value={lineage.agentSession} />
             </DetailField>
           ) : null}
           {lineage.edge ? (
             <DetailField
-              label="Delegation edge"
-              hint="The narrowed grant the agent holds; the token cannot exceed it"
+              label="Delegation"
+              hint="The narrowed authority the session holds; the token cannot exceed it"
             >
               <CopyValue value={lineage.edge} />
             </DetailField>
           ) : null}
           <DetailField
             label="Binding"
-            hint="Fingerprint of the exact resources and scopes held. The agent prints the same value beside the challenge id."
+            hint="Fingerprint of the exact resources and scopes held. The requester prints the same value beside the challenge id."
           >
             <CopyValue value={challenge.binding} />
           </DetailField>

@@ -58,7 +58,7 @@ function RunRoute() {
   return (
     <ZoneScopedPage
       title="Launcher"
-      description="Workloads that caracal run launches with injected credentials."
+      description="Workload identities for software you start with caracal run; credentials are minted and injected at launch."
       breadcrumbs={[
         { label: "Console", to: "/app" },
         { label: "Services", to: "/app/services" },
@@ -187,7 +187,7 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
     <>
       <ResourceWorkspace
         title="Launcher"
-        description="Workloads that caracal run launches with injected credentials."
+        description="Workload identities for software you start with caracal run; credentials are minted and injected at launch."
         breadcrumbs={[
           { label: "Console", to: "/app" },
           { label: "Services", to: "/app/services" },

@@ -40,7 +40,7 @@ const DOCS = {
     updated: "Self-hosted · you own your data",
     body: [
       "Caracal is self-hosted. You run the API, Coordinator, STS, Gateway, and Audit services in your own environment and own all data they process.",
-      "Services persist only what the authority lifecycle requires agent sessions, service leases, delegation edges, mandates, and audit evidence. The audit ledger never stores plaintext claims, secrets resolve from files, and logs and responses redact key material and credentials.",
+      "Services persist only what the authority lifecycle requires sessions, service leases, delegations, mandates, and audit evidence. The audit ledger never stores plaintext claims, secrets resolve from files, and logs and responses redact key material and credentials.",
       "Garudex Labs collects no telemetry from self-hosted deployments. For licensing or enterprise inquiries, contact support@caracal.run.",
     ],
   },

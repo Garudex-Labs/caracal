@@ -174,7 +174,7 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "agent_session_id", label: "Agent session" },
   { id: "agent_lifecycle", label: "Agent lifecycle" },
   { id: "agent_labels", label: "Agent labels" },
-  { id: "delegation_edge_id", label: "Delegation edge" },
+  { id: "delegation_edge_id", label: "Delegation" },
   { id: "delegation_hop_count", label: "Delegation hops" },
   { id: "method", label: "HTTP method" },
   { id: "latency_ms", label: "Latency (ms)" },
@@ -762,8 +762,8 @@ function AuditFilterBar({
         ))}
       </Select>
       <Field
-        label="Agent session"
-        placeholder="Follow one agent session"
+        label="Session"
+        placeholder="Follow one session"
         value={agentSession}
         onChange={(e) => onAgentSession(e.target.value)}
       />
@@ -837,7 +837,7 @@ function SubHeading({ children }: { children: ReactNode }) {
 }
 
 // Maps a linked entity to the console page that owns it, so an audit event drills
-// straight into the application, resource, provider, agent, delegation edge, or
+// straight into the application, resource, provider, session, delegation, or
 // approval hold it references.
 function entityLink(entity: AuditEntity): { to: string; search?: Record<string, string> } {
   switch (entity.kind) {
@@ -860,8 +860,8 @@ const ENTITY_KIND_LABELS: Record<AuditEntity["kind"], string> = {
   application: "Application",
   resource: "Resource",
   provider: "Provider",
-  agent: "Agent session",
-  delegation: "Delegation edge",
+  agent: "Session",
+  delegation: "Delegation",
   approval: "Approval hold",
 };
 
