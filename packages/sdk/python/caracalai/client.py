@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import logging
 import os
 import sys
 import threading
@@ -40,8 +41,10 @@ from caracalai_oauth import (
     ClientSecretExchanger,
     CredentialsResolver,
     EventHook,
+    MintedMandate,
     TokenSource,
     decode_jwt_exp,
+    decode_jwt_payload,
     emit_event,
 )
 from .coordinator import (
@@ -49,6 +52,7 @@ from .coordinator import (
     DelegationConstraints,
     DelegationRequest,
     SpawnRequest,
+    list_inbound_delegations,
     sync_create_delegation,
     sync_spawn_agent,
     sync_terminate_agent,
@@ -68,6 +72,7 @@ from .primitives import (
     LifecycleHook,
     SessionHandle,
     accept_delegation,
+    attach_session,
     delegate,
     session,
     start_session,
@@ -80,6 +85,9 @@ DEFAULT_GATEWAY_URL = "http://localhost:8081"
 LIFECYCLE_SCOPE = "agent:lifecycle"
 APP_MANDATE_TTL_SECONDS = 900
 APP_MANDATE_REFRESH_MARGIN_SECONDS = 60.0
+# Cache keys are config-derived, so growth is operator-bounded; the cap is a
+# safety valve against a pathological configuration exhausting memory.
+APP_MANDATE_CACHE_CAP = 128
 
 _T = TypeVar("_T")
 APP_SESSION_TTL_BUFFER_SECONDS = 120
@@ -92,6 +100,19 @@ if TYPE_CHECKING:
 class ResourceBinding:
     resource_id: str
     upstream_prefix: str
+
+
+@dataclass(frozen=True)
+class FederatedSubject:
+    """A federated end user identity: the subject session anchoring the user
+    and the mandate proving it. ``subject_session_id`` anchors governed work
+    to the user (pass as ``subject_session_id`` when starting sessions on
+    their behalf); ``token`` is the user's own mandate, e.g. for approval
+    decisions, and carries no resource authority."""
+
+    subject_session_id: str
+    token: str
+    expires_in_seconds: int
 
 
 @dataclass(frozen=True)
@@ -387,6 +408,9 @@ def _production_env(env: Mapping[str, str]) -> bool:
     return env.get("CARACAL_ENV") == "production"
 
 
+_insecure_config_warned = False
+
+
 def _is_loopback_host(host: str | None) -> bool:
     if host is None:
         return False
@@ -401,9 +425,19 @@ def _is_loopback_host(host: str | None) -> bool:
 def _assert_production_transport(
     name: str, value: str | None, env: Mapping[str, str]
 ) -> None:
+    global _insecure_config_warned
     if not value or not _production_env(env):
         return
     if env.get("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true":
+        # The override disables the https requirement for the whole control
+        # plane, so its presence in production must be loud and unmissable.
+        if not _insecure_config_warned:
+            _insecure_config_warned = True
+            logging.getLogger("caracalai").warning(
+                "caracal: CARACAL_ALLOW_INSECURE_CONFIG_URLS is active in "
+                "production; control-plane traffic may travel over plaintext "
+                "http - remove the override once TLS is in place"
+            )
         return
     parsed = urlparse(value)
     if parsed.scheme == "https":
@@ -598,12 +632,36 @@ def _credential_manifest_from_env(
     )
 
 
+def _task_metadata(task: str | None, metadata: JsonObject | None) -> JsonObject | None:
+    """Folds the task option into session metadata; an explicit task wins over
+    a metadata task the caller also set."""
+    if task is None:
+        return metadata
+    return {**(metadata or {}), "task": task}
+
+
 def _validate_subject_token(token: str) -> None:
     """Local sanity check on a static bootstrap subject token. Rejects JWTs
-    whose `exp` claim is already in the past. Opaque tokens are accepted
-    unchanged. Signature verification is the verifier's responsibility."""
+    signed with ``alg: none`` - the platform never issues them, so the shape
+    only appears in forgeries and miswired test fixtures - and JWTs whose
+    `exp` claim is already in the past. Opaque tokens are accepted unchanged.
+    Signature verification is the verifier's responsibility."""
+    import base64
     import time
 
+    parts = token.split(".")
+    if len(parts) == 3:
+        try:
+            padded = parts[0] + "=" * (-len(parts[0]) % 4)
+            header = json.loads(base64.urlsafe_b64decode(padded))
+            alg = header.get("alg")
+        except (ValueError, AttributeError):
+            alg = None
+        if isinstance(alg, str) and alg.lower() == "none":
+            raise RuntimeError(
+                'CARACAL_BOOTSTRAP_TOKEN uses alg "none": unsigned tokens are '
+                "never valid; supply a token minted by the platform"
+            )
     exp = decode_jwt_exp(token)
     if exp is None:
         return
@@ -886,9 +944,10 @@ class Caracal:
         self._fetch_clients: dict[
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
-        self._app_mandates: dict[str, tuple[str, float]] = {}
+        self._app_mandates: dict[str, tuple[str, float, str, list[str]]] = {}
         self._app_mandate_locks: dict[str, threading.Lock] = {}
         self._app_mandate_guard = threading.Lock()
+        self._unverified_boundary_warned = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
@@ -970,13 +1029,27 @@ class Caracal:
     def on_session_end(self, cb: LifecycleHook) -> None:
         self._session_end_hooks.append(cb)
 
-    def on_event(self, cb: EventHook) -> None:
+    def on_event(self, cb: EventHook) -> Callable[[], None]:
         """Subscribe to control-plane operation events: token exchanges (with
         cache outcome), approval waits, and coordinator calls, each carrying
         outcome and duration. Bridge them to any metrics or tracing system; a
         hook that raises is ignored and never disturbs the operation that
-        emitted the event."""
+        emitted the event. Returns a disposer that removes the hook."""
         self._event_hooks.append(cb)
+
+        def remove() -> None:
+            with suppress(ValueError):
+                self._event_hooks.remove(cb)
+
+        return remove
+
+    def identity(self) -> tuple[str, str]:
+        """The zone and application this client acts as. Useful for logging
+        and metric labels."""
+        if self.config.zone_id and self.config.application_id:
+            return self.config.zone_id, self.config.application_id
+        assert self.config.exchanger is not None
+        return self.config.exchanger.identity()
 
     def _emit_event(self, event: CaracalEvent) -> None:
         for h in self._event_hooks:
@@ -995,16 +1068,20 @@ class Caracal:
         subject_session_id: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
+        task: str | None = None,
         metadata: JsonObject | None = None,
         labels: list[str] | None = None,
         trace_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
         """Run the block inside a governed session: a bounded identity Caracal
         establishes around whatever the block executes - an AI agent step, a
         job, a tool call, any code. The session inherits this application's
         effective authority by default; pass
         ``authority=Authority.narrow([...])`` to bound it to a subset of
-        scopes."""
+        scopes. ``task`` records what the session is for in operator terms
+        (stored as ``metadata.task``); ``idempotency_key`` makes redelivery of
+        the same trigger resume the session instead of minting a duplicate."""
         on_start: LifecycleHook | None = (
             (lambda c: self._fire(self._session_start_hooks, c))
             if self._session_start_hooks
@@ -1039,9 +1116,10 @@ class Caracal:
                 if ttl_seconds is not None
                 else self.config.default_ttl_seconds
             ),
-            metadata=metadata,
+            metadata=_task_metadata(task, metadata),
             labels=labels,
             trace_id=trace_id,
+            idempotency_key=idempotency_key,
             on_session_start=on_start,
             on_session_end=on_end,
         ) as ctx:
@@ -1055,9 +1133,11 @@ class Caracal:
         subject_session_id: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
+        task: str | None = None,
         metadata: JsonObject | None = None,
         labels: list[str] | None = None,
         trace_id: str | None = None,
+        idempotency_key: str | None = None,
         heartbeat_interval: float | None = None,
         on_lease_lost: Callable[[BaseException], None] | None = None,
     ) -> SessionHandle:
@@ -1105,12 +1185,51 @@ class Caracal:
             parent_ctx=parent_ctx,
             authority=authority,
             ttl_seconds=ttl_seconds,
-            metadata=metadata,
+            metadata=_task_metadata(task, metadata),
             labels=labels,
             trace_id=trace_id,
+            idempotency_key=idempotency_key,
             heartbeat_interval=heartbeat_interval,
             on_lease_lost=on_lease_lost,
             on_session_start=on_start,
+            on_session_end=on_end,
+        )
+
+    async def attach_session(
+        self,
+        session_id: str,
+        *,
+        heartbeat_interval: float | None = None,
+        on_lease_lost: Callable[[BaseException], None] | None = None,
+    ) -> SessionHandle:
+        """Re-attach to a service session that already exists - typically
+        after a process restart, using a session id the previous holder
+        persisted from :meth:`start_session`. The session is validated with an
+        immediate lease renewal (a session the coordinator no longer holds
+        live fails with :class:`CoordinatorError`), and the returned handle
+        renews and retires it exactly like one from :meth:`start_session`.
+        Delegations bound by the previous holder are re-presented with
+        :meth:`accept_delegation`."""
+        on_end: LifecycleHook | None = (
+            (lambda c: self._fire(self._session_end_hooks, c))
+            if self._session_end_hooks
+            else None
+        )
+        zone_id, application_id = self.identity()
+        return await attach_session(
+            coordinator=self.config.coordinator,
+            zone_id=zone_id,
+            application_id=application_id,
+            subject_token=await self.config.asubject_token(),
+            session_id=session_id,
+            token_source=self.config._token_source,
+            invalidate=(
+                self.config.exchanger.invalidate
+                if self.config.exchanger is not None
+                else None
+            ),
+            heartbeat_interval=heartbeat_interval,
+            on_lease_lost=on_lease_lost,
             on_session_end=on_end,
         )
 
@@ -1141,15 +1260,50 @@ class Caracal:
 
     @asynccontextmanager
     async def accept_delegation(
-        self, delegation_id: str
+        self, delegation_id: str, *, validate: bool = False
     ) -> AsyncGenerator[CaracalContext, None]:
         """Present a delegation issued to the bound session: binds a derived
-        context carrying the delegation for the duration of the block."""
+        context carrying the delegation for the duration of the block. Pass
+        ``validate=True`` to confirm with the coordinator that the delegation
+        is live for the bound session before presenting it, at the cost of
+        one control-plane call."""
         ctx = current()
         if ctx is None:
             raise RuntimeError(
                 "accept_delegation requires a Caracal context bound on this path"
             )
+        start = time.monotonic()
+
+        def emit(ok: bool) -> None:
+            self._emit_event(
+                CaracalEvent(
+                    type="delegation.accept",
+                    ok=ok,
+                    duration_ms=(time.monotonic() - start) * 1000.0,
+                    delegation_id=delegation_id,
+                    session_id=ctx.session_id or "",
+                )
+            )
+
+        if validate:
+            if not ctx.session_id:
+                raise RuntimeError(
+                    "accept_delegation validation requires an active session in context"
+                )
+            inbound = await list_inbound_delegations(
+                self.config.coordinator, ctx.subject_token, ctx.zone_id, ctx.session_id
+            )
+            match = next(
+                (d for d in inbound if d.delegation_edge_id == delegation_id), None
+            )
+            if match is None or match.status != "active":
+                emit(False)
+                raise RuntimeError(
+                    f"accept_delegation: delegation {delegation_id} is not live for "
+                    f"session {ctx.session_id}; confirm the issuer created it for "
+                    "this session and it has not been revoked"
+                )
+        emit(True)
         accepted = accept_delegation(ctx, delegation_id)
         token = _ctx_var.set(accepted)
         try:
@@ -1255,6 +1409,19 @@ class Caracal:
         as_application: bool = False,
         verifier: TokenVerifier | None = None,
     ) -> AsyncGenerator[CaracalContext, None]:
+        if (
+            verifier is None
+            and not self._unverified_boundary_warned
+            and _production_env(os.environ)
+        ):
+            self._unverified_boundary_warned = True
+            logging.getLogger("caracalai").warning(
+                "caracal: inbound context is being bound without a verifier in "
+                "production; the envelope is propagation-only - pass verifier= "
+                "or keep this boundary behind a verifier such as the Gateway or "
+                "caracalai_identity"
+            )
+
         def get(name: str) -> str | None:
             lower = name.lower()
             for k, v in headers.items():
@@ -1315,14 +1482,45 @@ class Caracal:
         """Release pooled fetch clients, the credential exchanger's HTTP
         client, and the coordinator's HTTP client, and drop cached application
         mandates so nothing stale is served after shutdown. The sessions
-        backing a released mandate retire on their own TTL. Idempotent."""
+        backing released application transports are terminated best-effort -
+        any that termination misses retire on their own TTL. Idempotent."""
         for client in self._fetch_clients.values():
             if not client.is_closed:
                 await client.aclose()
         self._fetch_clients.clear()
-        self._app_mandates.clear()
-        if self.config.exchanger is not None:
-            self.config.exchanger.close()
+        with self._app_mandate_guard:
+            entries = [e for e in self._app_mandates.values() if e[3]]
+            self._app_mandates.clear()
+        exchanger = self.config.exchanger
+        if exchanger is not None and entries:
+            try:
+                zone_id, _ = exchanger.identity()
+                bootstrap = (
+                    await asyncio.to_thread(
+                        exchanger.mint_mandate,
+                        resource=entries[0][2],
+                        scopes=[LIFECYCLE_SCOPE],
+                    )
+                ).token
+                for entry in entries:
+                    for session_id in entry[3]:
+                        with suppress(Exception):
+                            await asyncio.to_thread(
+                                sync_terminate_agent,
+                                self.config.coordinator,
+                                exchanger._http,
+                                bootstrap,
+                                zone_id,
+                                session_id,
+                            )
+            except Exception:
+                logging.getLogger("caracalai").warning(
+                    "close could not retire application-transport sessions; "
+                    "the coordinator TTL sweeper will",
+                    exc_info=True,
+                )
+        if exchanger is not None:
+            exchanger.close()
         await self.config.coordinator.aclose()
 
     def context_middleware(
@@ -1380,6 +1578,7 @@ class Caracal:
         as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
+        propagation: str = "always",
         **kwargs: Any,
     ) -> httpx.AsyncClient:
         """Returns an httpx.AsyncClient that auto-injects the envelope on every request
@@ -1397,12 +1596,20 @@ class Caracal:
         audienced to the target resource and narrowed to those scopes, carrying the
         context's session and delegation. Requires client-secret credentials.
 
+        ``propagation="gateway-only"`` keeps the Caracal context envelope off
+        requests to hosts that are not gateway-routed, for transports that also
+        talk to third parties which must not see caracal.* correlation ids.
+
         The client keeps httpx's default 5-second timeout; pass ``timeout=`` to
         size it for the upstream being called.
         """
         return httpx.AsyncClient(
             auth=self._gateway_auth(
-                as_application=as_application, ctx=ctx, scopes=scopes, label="transport"
+                as_application=as_application,
+                ctx=ctx,
+                scopes=scopes,
+                propagation=propagation,
+                label="transport",
             ),
             **kwargs,
         )
@@ -1414,6 +1621,7 @@ class Caracal:
         ctx: CaracalContext | None,
         scopes: list[str] | None,
         label: str,
+        propagation: str = "always",
     ) -> httpx.Auth:
         outer = self
 
@@ -1458,6 +1666,8 @@ class Caracal:
                         assert bound is not None
                         token = bound.subject_token
                     request.headers["Authorization"] = f"Bearer {token}"
+                if propagation == "gateway-only" and not gateway_bound:
+                    return
                 env = to_envelope(bound) if bound is not None else Envelope(hop=0)
                 encode_envelope(
                     env,
@@ -1468,7 +1678,7 @@ class Caracal:
             def sync_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
                 token = (
-                    outer.mint_mandate(resource, scopes, ctx=bound)
+                    outer.mint_mandate(resource, scopes, ctx=bound).token
                     if resource is not None and scopes
                     else None
                 )
@@ -1487,9 +1697,11 @@ class Caracal:
             async def async_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
                 token = (
-                    await asyncio.to_thread(
-                        outer.mint_mandate, resource, scopes, ctx=bound
-                    )
+                    (
+                        await asyncio.to_thread(
+                            outer.mint_mandate, resource, scopes, ctx=bound
+                        )
+                    ).token
                     if resource is not None and scopes
                     else None
                 )
@@ -1533,7 +1745,7 @@ class Caracal:
         ctx: CaracalContext | None = None,
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
-    ) -> str:
+    ) -> MintedMandate:
         """Mint a resource mandate for the current session: a short-lived token
         audienced to ``resource_id`` and narrowed to ``scopes``, carrying the
         session and delegation of the bound :class:`CaracalContext` (or
@@ -1541,7 +1753,7 @@ class Caracal:
         The STS evaluates policy against that session's authority, so a
         narrowed child can mint only what its delegation allows. Results are
         cached per resource, scope set, and session identity, and refreshed
-        before expiry.
+        before expiry. Returns the mandate token with its remaining lifetime.
 
         When a scope is approval-gated the mint raises
         :class:`caracalai.ApprovalRequired`; retry with ``approval_id`` set to
@@ -1569,6 +1781,38 @@ class Caracal:
             )
         except CaracalError as err:
             raise _lifecycle_authority_hint(err, bound)
+
+    def federate_subject(
+        self, id_token: str, *, ttl_seconds: int | None = None
+    ) -> FederatedSubject:
+        """Exchange an end user's identity token from a zone-trusted external
+        issuer for the user's Caracal subject session. The returned
+        ``subject_session_id`` anchors governed work to that user
+        (``session(subject_session_id=...)``), and the returned token is the
+        user's own mandate for user-facing flows such as approval decisions.
+        Never cached: each federation is an explicit identity event, recorded
+        in the audit stream. Requires client-secret credentials and a subject
+        issuer registered on the zone."""
+        exchanger = self.config.exchanger
+        if exchanger is None:
+            raise RuntimeError(
+                "Caracal.federate_subject requires client-secret credentials; "
+                "build the client with from_client_secret, from_config, or "
+                "CARACAL_APP_CLIENT_SECRET."
+            )
+        minted = exchanger.federate_subject(id_token, ttl_seconds=ttl_seconds)
+        payload = decode_jwt_payload(minted.token) or {}
+        sid = payload.get("sid")
+        if not isinstance(sid, str) or not sid:
+            raise RuntimeError(
+                "Caracal.federate_subject: the minted subject session mandate "
+                "carries no session id"
+            )
+        return FederatedSubject(
+            subject_session_id=sid,
+            token=minted.token,
+            expires_in_seconds=minted.expires_in_seconds,
+        )
 
     def wait_for_approval(
         self, approval_id: str, *, timeout_seconds: float = 300.0
@@ -1686,20 +1930,22 @@ class Caracal:
         as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
+        propagation: str = "always",
         **kwargs: Any,
     ) -> httpx.Client:
         """Sync counterpart to transport(): returns an httpx.Client that auto-injects
         the envelope on every request and rewrites resource-bound calls through the
         configured Caracal gateway. Use with sync httpx-based SDKs.
 
-        See :meth:`transport` for the ``as_application``, ``ctx``, and ``scopes``
-        semantics.
+        See :meth:`transport` for the ``as_application``, ``ctx``, ``scopes``,
+        and ``propagation`` semantics.
         """
         return httpx.Client(
             auth=self._gateway_auth(
                 as_application=as_application,
                 ctx=ctx,
                 scopes=scopes,
+                propagation=propagation,
                 label="sync_transport",
             ),
             **kwargs,
@@ -1861,11 +2107,21 @@ class Caracal:
             cached = self._app_mandate_cached(key)
             if cached is not None:
                 return cached
-            token, exp = self._app_mandate_cycle(
+            token, exp, sessions = self._app_mandate_cycle(
                 zone_id, application_id, resource_id, scopes, labels, mandate_ttl
             )
             with self._app_mandate_guard:
-                self._app_mandates[key] = (token, exp)
+                self._app_mandates[key] = (token, exp, resource_id, sessions)
+                if len(self._app_mandates) > APP_MANDATE_CACHE_CAP:
+                    now = time.time()
+                    for k in [k for k, v in self._app_mandates.items() if v[1] <= now]:
+                        del self._app_mandates[k]
+                    while len(self._app_mandates) > APP_MANDATE_CACHE_CAP:
+                        evicted = next(iter(self._app_mandates))
+                        if evicted == key:
+                            break
+                        del self._app_mandates[evicted]
+                        self._app_mandate_locks.pop(evicted, None)
             return token
 
     def _app_mandate_cycle(
@@ -1876,13 +2132,13 @@ class Caracal:
         scopes: list[str],
         labels: list[str] | None,
         mandate_ttl: int,
-    ) -> tuple[str, float]:
+    ) -> tuple[str, float, list[str]]:
         exchanger = self.config.exchanger
         assert exchanger is not None
         session_ttl = mandate_ttl + APP_SESSION_TTL_BUFFER_SECONDS
         bootstrap = exchanger.mint_mandate(
             resource=resource_id, scopes=[LIFECYCLE_SCOPE]
-        )
+        ).token
         coordinator = self.config.coordinator
         http = exchanger._http
         session_labels = labels if labels else [application_id]
@@ -1936,8 +2192,8 @@ class Caracal:
                 delegation_edge_id=edge.delegation_edge_id,
                 ttl_seconds=mandate_ttl,
             )
-            exp = decode_jwt_exp(token) or (time.time() + mandate_ttl)
-            return token, exp
+            exp = time.time() + token.expires_in_seconds
+            return token.token, exp, spawned
         except BaseException:
             for agent_session_id in spawned:
                 with suppress(Exception):
@@ -2016,6 +2272,14 @@ def _url_matches_prefix(target, prefix: str) -> bool:
     return target.path.startswith(pp)
 
 
+def _task_metadata(task: str | None, metadata: JsonObject | None) -> JsonObject | None:
+    """Folds the task option into session metadata; an explicit task wins over
+    a metadata.task the caller also set."""
+    if task is None:
+        return metadata
+    return {**(metadata or {}), "task": task}
+
+
 def _lifecycle_authority_hint(
     err: CaracalError, ctx: CaracalContext | None
 ) -> CaracalError:
@@ -2030,7 +2294,8 @@ def _lifecycle_authority_hint(
     err.add_note(
         "hint: the bound session has no delegation, so it holds lifecycle-only "
         "authority; narrow the session with Authority.narrow, accept one with "
-        "accept_delegation, or call as the application with application_transport"
+        "accept_delegation, or call as the application with application_transport "
+        "(decision contract: https://docs.caracal.run/concepts/policy/)"
     )
     return err
 
@@ -2046,5 +2311,9 @@ def _join_gateway_path(gateway_url: str, path: str) -> str:
     split = normalized.split("?", 1)
     pathname = split[0] or "/"
     query = split[1] if len(split) == 2 else ""
+    # Dot segments could climb out of a base-pathed gateway once the URL
+    # normalizes, so the path must arrive already resolved.
+    if any(segment in (".", "..") for segment in pathname.split("/")):
+        raise ValueError("Caracal.gateway_request: path must not contain dot segments")
     base_path = gw.path.rstrip("/")
     return urlunparse((gw.scheme, gw.netloc, base_path + pathname, "", query, ""))

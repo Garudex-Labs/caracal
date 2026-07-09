@@ -18,6 +18,7 @@ from caracalai_oauth import (
     EventHook,
     InvalidRequest,
     InvalidToken,
+    MintedMandate,
     OperationNotPermitted,
     ResourceNotFound,
     ScopeInsufficient,
@@ -25,7 +26,13 @@ from caracalai_oauth import (
     ZoneMismatch,
 )
 
-from .client import Caracal, CaracalConfig, GatewayTarget, ResourceBinding
+from .client import (
+    Caracal,
+    CaracalConfig,
+    FederatedSubject,
+    GatewayTarget,
+    ResourceBinding,
+)
 from .context import (
     AuthoritySummary,
     CaracalContext,
@@ -61,6 +68,7 @@ __all__ = [
     "DelegationRequired",
     "InvalidRequest",
     "InvalidToken",
+    "MintedMandate",
     "MissingTokenError",
     "OperationNotPermitted",
     "ResourceNotFound",
@@ -86,6 +94,7 @@ __all__ = [
     "DelegationResponse",
     "Envelope",
     "GatewayTarget",
+    "FederatedSubject",
     "Authority",
     "Delegation",
     "JsonObject",

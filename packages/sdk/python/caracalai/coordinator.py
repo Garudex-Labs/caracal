@@ -8,8 +8,10 @@ Coordinator REST client for the Python SDK.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from enum import StrEnum
 from time import monotonic
+import time
 from urllib.parse import quote
 
 import httpx
@@ -43,6 +45,22 @@ class CoordinatorClient:
         if self.http_client is not None:
             await self.http_client.aclose()
             self.http_client = None
+
+
+def _retry_after_seconds(resp: httpx.Response) -> float | None:
+    raw = resp.headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        secs = float(raw)
+        return secs if secs >= 0 else None
+    except ValueError:
+        pass
+    try:
+        at = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, at.timestamp() - time.time())
 
 
 async def _call(
@@ -83,7 +101,9 @@ async def _call(
         raise
     if resp.status_code >= 300:
         finish(resp.status_code, False)
-        raise CoordinatorError(method, path, resp.status_code, resp.text)
+        raise CoordinatorError(
+            method, path, resp.status_code, resp.text, _retry_after_seconds(resp)
+        )
     finish(resp.status_code, True)
     return resp
 
@@ -127,7 +147,9 @@ def _sync_call(
         raise
     if resp.status_code >= 300:
         finish(resp.status_code, False)
-        raise CoordinatorError(method, path, resp.status_code, resp.text)
+        raise CoordinatorError(
+            method, path, resp.status_code, resp.text, _retry_after_seconds(resp)
+        )
     finish(resp.status_code, True)
     return resp
 
@@ -198,6 +220,7 @@ class DelegationRequest:
     resource_id: str | None = None
     constraints: DelegationConstraints | None = None
     ttl_seconds: int | None = None
+    idempotency_key: str | None = None
 
 
 @dataclass
@@ -206,6 +229,15 @@ class DelegationResponse:
 
     delegation_edge_id: str
     scopes: list[str] = field(default_factory=list)
+    expires_at: str | None = None
+
+
+@dataclass
+class InboundDelegation:
+    """A delegation issued to a session, as the coordinator holds it."""
+
+    delegation_edge_id: str
+    status: str
     expires_at: str | None = None
 
 
@@ -368,19 +400,45 @@ def _parse_delegation(data: dict[str, JsonValue]) -> DelegationResponse:
 async def create_delegation(
     client: CoordinatorClient, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
+    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
     resp = await _call(
         client,
         "POST",
         f"/zones/{quote(req.zone_id, safe='')}/delegations",
         bearer,
         json_body=_delegation_body(req),
+        headers=headers,
     )
     return _parse_delegation(resp.json())
+
+
+async def list_inbound_delegations(
+    client: CoordinatorClient, bearer: str, zone_id: str, session_id: str
+) -> list[InboundDelegation]:
+    """List the delegations issued to a session, letting a receiver confirm a
+    handed-over delegation id is live before presenting it."""
+    resp = await _call(
+        client,
+        "GET",
+        f"/zones/{quote(zone_id, safe='')}/delegations/inbound/{quote(session_id, safe='')}",
+        bearer,
+    )
+    items = resp.json().get("items") or []
+    return [
+        InboundDelegation(
+            delegation_edge_id=str(item["id"]),
+            status=str(item.get("status") or ""),
+            expires_at=item.get("expires_at"),
+        )
+        for item in items
+        if item.get("id")
+    ]
 
 
 def sync_create_delegation(
     client: CoordinatorClient, http: httpx.Client, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
+    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
     resp = _sync_call(
         client,
         http,
@@ -388,5 +446,6 @@ def sync_create_delegation(
         f"/zones/{quote(req.zone_id, safe='')}/delegations",
         bearer,
         json_body=_delegation_body(req),
+        headers=headers,
     )
     return _parse_delegation(resp.json())
