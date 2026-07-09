@@ -32,19 +32,22 @@ caracal = Caracal()
 
 | Method | Purpose |
 | --- | --- |
-| `async with caracal.session(...)` | Run the block inside a governed session - a bounded identity Caracal establishes around whatever the block executes; pass `authority=Authority.narrow(...)` to bound its authority. |
-| `await caracal.start_session(...)` | Start a governed session that outlives a block; auto-renews its lease and returns a handle with `heartbeat()` and `aclose()`. Pass `authority=Authority.narrow(...)` to bound the handle's authority. |
-| `await caracal.delegate(...)` | Delegate a slice of the bound session's authority to an existing peer session; returns the delegation for the receiver to accept. |
-| `async with caracal.accept_delegation(delegation_id)` | Present a received delegation: bind a derived context carrying it. |
+| `async with caracal.session(...)` | Run the block inside a governed session - a bounded identity Caracal establishes around whatever the block executes; pass `authority=Authority.narrow(...)` to bound its authority, `task=` to record what the session is for (shown wherever the session is inspected), and `idempotency_key=` so a redelivered trigger resumes the session instead of minting a duplicate. |
+| `await caracal.start_session(...)` | Start a governed session that outlives a block; auto-renews its lease and returns a handle with `heartbeat()` and `aclose()`. Pass `authority=Authority.narrow(...)` to bound the handle's authority; `task=` and `idempotency_key=` work exactly as in `session`. |
+| `await caracal.attach_session(session_id, ...)` | Re-attach to a persisted service session after a restart: validates it with an immediate lease renewal and returns the same handle `start_session` does. |
+| `await caracal.delegate(...)` | Delegate a slice of the bound session's authority to an existing peer session; returns the delegation for the receiver to accept. A transient coordinator failure is retried once under an idempotency key, so no duplicate delegation is issued. |
+| `async with caracal.accept_delegation(delegation_id, validate=False)` | Present a received delegation: bind a derived context carrying it. Pass `validate=True` to confirm with the coordinator that the delegation is live for the bound session first. |
 | `caracal.headers(as_application=False, ctx=None)` | Project the bound context (or an explicit `ctx`) into HTTP headers. |
 | `async with caracal.bind(ctx)` | Rebind a captured context into a new async task. |
 | `async with caracal.bind_from_headers(headers, as_application=False, verifier=None)` | Bind inbound Caracal envelope headers; pass `verifier=` to enforce the bearer token before binding. |
-| `caracal.transport(as_application=False, ctx=None, scopes=None, **kwargs)` | Return an `httpx.AsyncClient` that injects Caracal headers and Gateway routing. Pass `ctx=` from thread pools or executors; pass `scopes=` to authorize gateway calls with a scoped resource mandate instead of the raw subject token. |
+| `caracal.transport(as_application=False, ctx=None, scopes=None, propagation="always", **kwargs)` | Return an `httpx.AsyncClient` that injects Caracal headers and Gateway routing. Pass `ctx=` from thread pools or executors; pass `scopes=` to authorize gateway calls with a scoped resource mandate instead of the raw subject token; pass `propagation="gateway-only"` to keep the context envelope off third-party hosts. |
 | `caracal.sync_transport(as_application=False, ctx=None, scopes=None, **kwargs)` | Synchronous `httpx.Client` counterpart. |
+| `caracal.application_transport(resource_id, scopes=[...], labels=None, mandate_ttl_seconds=None, **kwargs)` | Return an `httpx.AsyncClient` pinned to one resource, calling as the application's own identity: each mint cycle starts a source/target session pair, narrows a delegation to `scopes` on the resource, and caches the minted mandate until expiry. A cycle costs five control-plane calls and runs roughly once per mandate TTL (default 15 minutes); requests in between are served from cache. Requires client-secret credentials. `sync_application_transport(...)` is the synchronous counterpart. |
 | `await caracal.fetch(resource_id, path, ctx=None, scopes=None, ...)` | One-call Gateway request to a resource with context and authority injected. |
 | `caracal.context_middleware(verifier=None)` | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed. |
 | `caracal.gateway_request(resource_id, path="/")` | Build a Gateway URL and `X-Caracal-Resource` header. |
-| `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)` | Mint a cached resource mandate carrying the bound session and delegation; requires client-secret credentials. |
+| `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)` | Mint a cached resource mandate carrying the bound session and delegation; returns a `MintedMandate` with `token` and `expires_in_seconds`. Requires client-secret credentials. |
+| `caracal.federate_subject(id_token, ttl_seconds=None)` | Exchange an end user's identity token from a zone-trusted issuer for the user's subject session: returns a `FederatedSubject` with `subject_session_id`, `token`, and `expires_in_seconds`. Pass `subject_session_id=` when starting sessions on the user's behalf; the token is the user's own mandate for approval decisions. Never cached; requires client-secret credentials. |
 | `caracal.wait_for_approval(challenge_id, timeout_seconds=300.0)` | Long-poll an approval challenge raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`). |
 | `await caracal.with_approval(fn, timeout_seconds=300.0)` | Run an approval-gated operation end to end: on `ApprovalRequired` the client waits for the decision and, once approved, awaits `fn` again with the approval id. |
 
@@ -102,7 +105,37 @@ caracal.on_event(
 )
 ```
 
-`on_event(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challenge_id` and the final `state`), and `coordinator.call` (with `method`, `path`, and `status`). Each event carries `ok` and `duration_ms`, ready to bridge into any metrics or tracing system. A hook that raises is ignored and never disturbs the operation that emitted the event.
+`on_event(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challenge_id` and the final `state`), `coordinator.call` (with `method`, `path`, and `status`), and `delegation.accept` (with `delegation_id` and `session_id`, so delegation presentations are auditable client-side). Each event carries `ok` and `duration_ms`, ready to bridge into any metrics or tracing system. A hook that raises is ignored and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `is_retryable`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```python
+from prometheus_client import Counter, Histogram
+
+operations = Counter(
+    "caracal_operations_total", "Caracal control-plane operations", ["type", "ok"]
+)
+latency = Histogram(
+    "caracal_operation_duration_ms", "Caracal control-plane operation latency", ["type"]
+)
+
+caracal.on_event(
+    lambda event: (
+        operations.labels(type=event.type, ok=str(event.ok)).inc(),
+        latency.labels(type=event.type).observe(event.duration_ms),
+    )
+)
+```
+
+## Advanced Surface
+
+`caracalai.advanced` is the low-level entrypoint for integrations that outgrow the facade: the envelope codec (`decode_envelope`, `encode_envelope`, header and baggage constants), bound-context plumbing (`bind`, `current`, `capture_context`), the raw coordinator wire client (`spawn_agent`, `create_delegation`, `heartbeat_agent`, `list_inbound_delegations`, `terminate_agent`), and the session primitives (`session`, `start_session`, `attach_session`, `delegate`) that take explicit inputs instead of client configuration. Everything in it is supported API; reach for it when building middleware, custom transports, or another layer's Caracal integration, and stay on `caracalai.Caracal` for application code.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom HTTP client - `http_client` on `CoordinatorClient` and `from_client_secret`, and standard `httpx` keyword arguments (`verify=`, `cert=`, `transport=`) on the transports - so deployments that require mutual TLS or a private CA toward the STS and coordinator inject a configured `httpx` client instead of patching globals. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: Python strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the credentials resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
 ## Related pages
 
