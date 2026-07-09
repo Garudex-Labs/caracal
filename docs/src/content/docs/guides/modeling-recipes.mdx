@@ -53,6 +53,8 @@ Separate production, staging, and development so a policy or key change in one c
 
 Trade-off: clean blast-radius isolation and independent key rotation, at the cost of registering resources and activating policy in each zone. Automate this with the Admin API so environments stay consistent.
 
+In application code, zones stay isolated at the client boundary: one SDK client binds exactly one `(zone, application)` identity, and its token, mandate, and session caches never cross zones. A workload that talks to several zones - a control-plane job spanning environments, a shared service authenticating into per-customer zones - constructs one `Caracal` per zone with that zone's credentials and routes work to the matching client. Do not multiplex zones through one client by swapping configuration; the isolation the zones exist for ends where a shared cache begins.
+
 ## Multiple Customers or Workspaces
 
 A platform with many customer workspaces and one shared agent service must choose how customer isolation maps onto zones. The open-source edition gives you the **zone** as the isolation primitive; you provision and automate customer onboarding yourself through the Admin API. Managed tenant, team, and SSO lifecycle features are covered in [Compare Editions](/enterprise/).

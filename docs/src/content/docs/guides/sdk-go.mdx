@@ -1,6 +1,6 @@
 ---
 title: Integrate the Go SDK
-description: Install the Go SDK, load a runtime profile, spawn agents with context.Context, delegate authority, and inject Caracal headers.
+description: Install the Go SDK, load a runtime profile, run governed sessions with context.Context, delegate authority, and inject Caracal headers.
 ---
 
 Use the Go SDK in services and agents that need Caracal context propagation, agent sessions, delegation, and Gateway-aware HTTP clients.
@@ -63,10 +63,10 @@ The transport injects Caracal envelope headers from `context.Context`. For expli
 
 ## Long-lived service agents
 
-Daemons and workers that outlive a single request use `StartSession` instead of `Spawn`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the session with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the session with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
 
 ```go
-svc, err := client.StartSession(context.Background(), caracal.ServiceOptions{
+svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
 	Labels: []string{"billing-worker"},
 })
 if err != nil {
@@ -79,7 +79,17 @@ for running {
 }
 ```
 
-The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `ServiceOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `ServiceOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
+
+A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `*CoordinatorError`, telling the worker to start a new one - and returns the same handle `StartSession` does:
+
+```go
+svc, err := client.AttachSession(ctx, persistedSessionID, caracal.AttachSessionOptions{
+	OnLeaseLost: func(error) { shutdown() },
+})
+```
+
+The rebuilt context carries the session identity only; delegations bound by the previous holder are re-presented with `AcceptDelegation`.
 
 ## Spawn a narrowed child
 
@@ -89,12 +99,10 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 		_, _ = client.Current(child)
 		return nil
 	}, caracal.SessionOptions{
-		Grant: caracal.Grant{
-			Mode:        caracal.GrantModeNarrow,
-			Scopes:      []string{"tickets:read"},
+		Authority: caracal.AuthorityNarrow([]string{"tickets:read"}, caracal.NarrowOptions{
 			Constraints: &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
 			TTLSeconds:  600,
-		},
+		}),
 	})
 })
 ```

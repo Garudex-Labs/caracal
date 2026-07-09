@@ -1,6 +1,6 @@
 ---
 title: Integrate the Python SDK
-description: Install caracalai-sdk, load a runtime profile, spawn agents with async context managers, delegate authority, and use httpx transport injection.
+description: Install caracalai-sdk, load a runtime profile, run governed sessions with async context managers, delegate authority, and use httpx transport injection.
 ---
 
 Use `caracalai-sdk` in Python services and agents that need async session lifecycle, delegation, Gateway routing, or ASGI context propagation.
@@ -81,11 +81,22 @@ svc = await caracal.start_session(
 
 A renewal cannot run while the event loop is blocked synchronously (CPU-bound work with no `await`); in that case the lease correctly lapses, which is the liveness signal working as intended.
 
+A worker that restarts does not need a fresh session: persist `svc.session_id` and re-attach with `attach_session()`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `CoordinatorError`, telling the worker to start a new one - and returns the same handle `start_session()` does:
+
+```python
+svc = await caracal.attach_session(
+    persisted_session_id,
+    on_lease_lost=lambda exc: shutdown(),
+)
+```
+
+The rebuilt context carries the session identity only; delegations bound by the previous holder are re-presented with `accept_delegation()`.
+
 
 ## Spawn a narrowed child
 
 ```python
-from caracalai import Grant, DelegationConstraints
+from caracalai import Authority, DelegationConstraints
 
 async with caracal.session() as parent:
     async with caracal.session(

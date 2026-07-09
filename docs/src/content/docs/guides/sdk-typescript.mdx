@@ -64,7 +64,15 @@ try {
 }
 ```
 
-The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeatIntervalMs` to fix the cadence, or `0` to disable the background timer and call `heartbeat()` yourself. The handle exposes `deadlineAt` - the lease deadline the coordinator reported on the last renewal - so a worker can surface its own liveness margin. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
+The renewal cadence is controlled by `heartbeatIntervalMs`:
+
+| `heartbeatIntervalMs` | Behavior |
+| --- | --- |
+| unset | Cadence derives from the server lease: renew at roughly a third of the remaining lease, with jitter. The right default for almost every worker. |
+| positive | Fixed cadence. Use when you need deterministic renewal timing, for example under test clocks. |
+| `0` or negative | No background timer; the lease is renewed only by your own `heartbeat()` calls, and a missed renewal lets the lease lapse. |
+
+The handle exposes `deadlineAt` - the lease deadline the coordinator reported on the last renewal - so a worker can surface its own liveness margin. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
 Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning:
 
@@ -76,6 +84,16 @@ const svc = await caracal.startSession({
 ```
 
 A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
+
+A worker that restarts does not need a fresh session: persist `svc.sessionId` and re-attach with `attachSession()`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `CoordinatorError`, telling the worker to start a new one - and returns the same handle `startSession()` does:
+
+```ts
+const svc = await caracal.attachSession(persistedSessionId, {
+  onLeaseLost: () => shutdown(),
+});
+```
+
+The rebuilt context carries the session identity only; delegations bound by the previous holder are re-presented with `acceptDelegation()`.
 
 ## Spawn a narrowed child
 
@@ -124,6 +142,26 @@ await fetch(request.url, {
 ```
 
 For provider SDKs that accept a custom `fetch`, pass `caracal.transport()` so Caracal headers and Gateway routing are applied automatically.
+
+## Call as the application
+
+Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })`: a fetch pinned to one resource, calling as the application's own identity. There is no ambient authority to borrow, so each mint cycle *builds* the authority the platform requires: it starts a **source and target session pair**, issues a delegation narrowing `scopes` to the resource between them, and mints the mandate from that delegation - which is why every request the transport sends is still session-attributed, policy-checked, and delegation-bounded in audit, exactly like user-context traffic.
+
+A cycle costs five control-plane calls (a lifecycle bootstrap mint, two session starts, one delegation, the final mint) and runs roughly **once per mandate TTL** - 15 minutes by default - with concurrent requests sharing one in-flight cycle. Every request in between is served from cache, so the steady-state overhead is effectively zero; tune `mandateTtlSeconds` only when policy requires shorter-lived authority.
+
+```ts
+const llm = new OpenAI({
+  baseURL: "https://api.pipernet.example/v1",
+  apiKey: "unused-gateway-injects-credentials",
+  fetch: caracal.applicationTransport("resource://pipernet", { scopes: ["chat:complete"] }),
+});
+```
+
+## Shut down cleanly
+
+`await caracal.close()` releases client-held state: cached application mandates and in-flight mint cycles are dropped, the credential exchanger's cached lifecycle token is invalidated, and the sessions backing released application transports are terminated best-effort (anything missed retires on its own TTL). The client stays usable afterwards - the next call simply mints fresh state.
+
+Two things `close()` deliberately does **not** do. It does not retire `startSession()`/`attachSession()` handles - those sessions are yours, so call `handle.close()` on each before the process exits (or persist the session id and re-attach after restart). And it does not abort in-flight requests on transports you handed to provider SDKs; bound them with `timeoutMs` or an `AbortSignal` and let them drain.
 
 ## Troubleshooting
 
