@@ -195,7 +195,7 @@ export default defineConfig({
               items: [
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
-                { label: 'Step-Up Re-Authentication', link: '/guides/step-up/' },
+                { label: 'Human Approvals', link: '/guides/step-up/' },
                 { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
                 { label: 'Production Integration Patterns', link: '/guides/enterprise-runtime-patterns/' },
               ],
@@ -265,7 +265,7 @@ export default defineConfig({
             { label: 'Run Workloads', link: '/runtime-console/runtime/' },
             { label: 'Manage Product Objects', link: '/runtime-console/admin/' },
             { label: 'Inspect Diagnostics and Audit', link: '/runtime-console/observability/' },
-            { label: 'Manage Agents and Delegation', link: '/runtime-console/agents/' },
+            { label: 'Manage Sessions and Delegation', link: '/runtime-console/agents/' },
           ],
         },
         {
@@ -291,7 +291,7 @@ export default defineConfig({
                 { label: 'Providers', link: '/concepts/provider/' },
                 { label: 'Policies and Policy Sets', link: '/concepts/policy/' },
                 { label: 'Mandates', link: '/concepts/mandate/' },
-                { label: 'Step-Up Challenges', link: '/concepts/step-up/' },
+                { label: 'Approvals', link: '/concepts/step-up/' },
               ],
             },
             {
@@ -555,10 +555,10 @@ export default defineConfig({
           items: [
             { label: 'Use API Reference', link: '/api/' },
             {
-              label: 'Management APIs',
+              label: 'Admin APIs',
               collapsed: true,
               items: [
-                { label: 'Use Management API', link: '/api/control-plane/' },
+                { label: 'Use the Admin API', link: '/api/control-plane/' },
                 { label: 'Use Coordinator API', link: '/api/coordinator/' },
               ],
             },

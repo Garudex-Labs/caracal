@@ -1082,7 +1082,8 @@ function AuthorityEnvelope({
 
               {noAuthority ? (
                 <p className="text-sm text-muted-foreground">
-                  No inbound delegations. This session acts only under its own application authority.
+                  No inbound delegations. This session acts only under its own application
+                  authority.
                 </p>
               ) : (
                 <>
@@ -1282,7 +1283,8 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
         <Skeleton className="mt-3 h-16 w-full" />
       ) : events.length === 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          No recorded activity yet. Exchanges and authority decisions appear here as the session acts.
+          No recorded activity yet. Exchanges and authority decisions appear here as the session
+          acts.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">

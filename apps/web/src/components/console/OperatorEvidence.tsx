@@ -19,8 +19,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   resource: "Resources",
   policy: "Policies",
   grant: "Grants",
-  session: "Sessions",
-  agent: "Agents",
+  session: "Sign-ins",
+  agent: "Sessions",
   delegation: "Delegations",
   audit: "Audit",
 };

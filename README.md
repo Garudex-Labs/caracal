@@ -63,8 +63,8 @@ flowchart LR
 | **No standing secrets**              | Credentials are injected at the edge, at call time. Nothing to steal from prompts, code, or env files.                           |
 | **Delegation that only narrows**     | Agents hand work to sub-agents, never with more access than they hold. Least privilege is enforced, not requested.               |
 | **Decisions before actions**         | Default-deny policy evaluates every request _before_ it reaches a resource, not flagged in a log afterwards.                     |
-| **One-call kill switch**             | Revoke an agent and everything it spawned loses access at once. No waiting for tokens to expire.                                 |
-| **Human approval for risky actions** | Step-up gates hold high-risk operations for an authenticated approver before they execute.                                       |
+| **One-call kill switch**             | Revoke an agent and everything it started loses access at once. No waiting for tokens to expire.                                 |
+| **Human approval for risky actions** | Approval gates hold high-risk operations for an authenticated approver before they execute.                                        |
 | **Evidence, not just logs**          | An append-only, tamper-evident trail of every decision, exportable for SOC 2, EU AI Act, NIST AI RMF, and OWASP Agentic reviews. |
 
 ---
