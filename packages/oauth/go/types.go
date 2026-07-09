@@ -15,7 +15,6 @@ type ExchangeOptions struct {
 	ClientSecret        string
 	ClientAssertion     string
 	ClientAssertionType string
-	ActorToken          string
 	SessionID           string
 	AgentSessionID      string
 	DelegationEdgeID    string
@@ -35,6 +34,14 @@ type TokenExchangeResponse struct {
 	TokenType   string
 	ExpiresIn   int
 	IssuedAt    int64
+}
+
+// MintedMandate is a minted resource mandate: the bearer token to present and
+// how long it stays valid, so callers can schedule refresh without decoding
+// the JWT.
+type MintedMandate struct {
+	Token            string
+	ExpiresInSeconds int
 }
 
 // ApprovalState is the lifecycle state of an approval challenge.
@@ -104,22 +111,40 @@ func (e *CaracalError) Error() string {
 	return msg
 }
 
+// Retryable reports whether retrying the operation may succeed without any
+// change on the caller's side: transport-level congestion and availability
+// failures are retryable, policy and validation outcomes are not. A hint, not
+// a guarantee - callers still own backoff and attempt budgets.
+func (e *CaracalError) Retryable() bool {
+	if e.Code == "sts_unavailable" {
+		return true
+	}
+	switch e.HTTPStatus {
+	case 408, 425, 429:
+		return true
+	}
+	return e.HTTPStatus >= 500
+}
+
 // Event is one completed control-plane operation reported to the OnEvent sink.
-// Type is "token.exchange" or "approval.wait"; the SDK adds "coordinator.call".
-// Cache hits count as exchanges with Cached set; single-flight joiners do not
-// report. Status carries the HTTP status when a response arrived and Code the
-// platform error code when the operation failed with one.
+// Type is "token.exchange" or "approval.wait"; the SDK adds "coordinator.call"
+// and "delegation.accept" (carrying DelegationID and SessionID for forensic
+// correlation). Cache hits count as exchanges with Cached set; single-flight
+// joiners do not report. Status carries the HTTP status when a response
+// arrived and Code the platform error code when the operation failed with one.
 type Event struct {
-	Type       string
-	Ok         bool
-	Duration   time.Duration
-	Resources  []string
-	Scopes     []string
-	Cached     bool
-	Status     int
-	Code       string
-	Method     string
-	Path       string
-	ApprovalID string
-	State      string
+	Type         string
+	Ok           bool
+	Duration     time.Duration
+	Resources    []string
+	Scopes       []string
+	Cached       bool
+	Status       int
+	Code         string
+	Method       string
+	Path         string
+	ApprovalID   string
+	State        string
+	DelegationID string
+	SessionID    string
 }

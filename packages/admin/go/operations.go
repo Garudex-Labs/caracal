@@ -676,6 +676,30 @@ func (s *SessionsService) List(ctx context.Context, zoneID string, query *Sessio
 	return out.Items, nil
 }
 
+// SubjectsService covers /v1/zones/{zone}/subjects: the subject kill switch
+// cutting every authority path a subject holds - session records, governed
+// sessions riding them, delegations, and provider connections - and feeding
+// the revocation stream so in-flight mandates die before their exp.
+// Idempotent.
+type SubjectsService struct{ client *AdminClient }
+
+// SubjectRevokeResult reports what one revoke call cut off.
+type SubjectRevokeResult struct {
+	SubjectID   string `json:"subject_id"`
+	Sessions    int    `json:"sessions"`
+	Agents      int    `json:"agents"`
+	Delegations int    `json:"delegations"`
+	Connections int    `json:"connections"`
+}
+
+func (s *SubjectsService) Revoke(ctx context.Context, zoneID string, body map[string]any) (*SubjectRevokeResult, error) {
+	var out SubjectRevokeResult
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/subjects/revoke", body, &out, false); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AgentSessionsService covers /v1/zones/{zone}/agent-sessions reads; CSV
 // export is available directly from the API endpoint with format=csv.
 type AgentSessionsService struct{ client *AdminClient }

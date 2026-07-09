@@ -183,7 +183,6 @@ func (c *Client) cacheSubject(subjectToken string, opts ExchangeOptions) string 
 	parts := []string{
 		c.zoneID + "::" + c.applicationID,
 		hashSecret(subjectToken),
-		hashSecret(opts.ActorToken),
 		opts.SessionID,
 		opts.AgentSessionID,
 		opts.DelegationEdgeID,
@@ -225,7 +224,6 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	setFormValue(form, "client_secret", opts.ClientSecret)
 	setFormValue(form, "client_assertion", opts.ClientAssertion)
 	setFormValue(form, "client_assertion_type", opts.ClientAssertionType)
-	setFormValue(form, "actor_token", opts.ActorToken)
 	setFormValue(form, "session_id", opts.SessionID)
 	setFormValue(form, "agent_session_id", opts.AgentSessionID)
 	setFormValue(form, "delegation_edge_id", opts.DelegationEdgeID)

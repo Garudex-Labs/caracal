@@ -92,6 +92,7 @@ type AdminClient struct {
 	ProviderConnections *ProviderConnectionsService
 	Workloads           *WorkloadsService
 	Sessions            *SessionsService
+	Subjects            *SubjectsService
 	AgentSessions       *AgentSessionsService
 	Audit               *AuditService
 	AdminAudit          *AdminAuditService
@@ -135,6 +136,7 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	client.ProviderConnections = &ProviderConnectionsService{client}
 	client.Workloads = &WorkloadsService{client}
 	client.Sessions = &SessionsService{client}
+	client.Subjects = &SubjectsService{client}
 	client.AgentSessions = &AgentSessionsService{client}
 	client.Audit = &AuditService{client}
 	client.AdminAudit = &AdminAuditService{client}
