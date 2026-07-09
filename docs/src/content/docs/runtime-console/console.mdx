@@ -59,17 +59,17 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 
 | Section | What it manages |
 | --- | --- |
-| **Guided setup** | First zone, agent app, provider, resource, and access policy. |
+| **Guided setup** | First zone, application, provider, resource, and access policy. |
 | **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope. |
 | **Zones** | Zone records and active zone selection. |
-| **Applications** | Confidential agent applications and their client secrets. |
+| **Applications** | Confidential applications and their client secrets. |
 | **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
 | **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
 | **Policies** | Policy content and versions. |
 | **Policy Sets** | Policy-set composition, simulation, and activation. |
-| **Sessions** | Active authority-session records. |
-| **Agents** | Agent sessions, lifecycle, lease health, and session trees. |
-| **Delegation** | Authority edges between agent sessions. |
+| **Sign-ins** | Authenticated subject sessions issued in the zone. |
+| **Sessions** | Governed execution sessions, lifecycle, lease health, and session trees. |
+| **Delegation** | Authority delegated between sessions. |
 | **Audit** | Recent decisions, filters, event details, and built-in request tracing. |
 | **Services** | Catalog of platform surfaces beyond the console and SDK, opening the Run and Control API pages. |
 | **Run** | Workload identities, launch bindings, gateway requirements, and exact launch commands. |
@@ -78,17 +78,17 @@ Open the packaged or development URL in a browser, sign in to the session-guarde
 
 ## Sessions Views
 
-The session, agent, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the agent SDK; the web console lists and inspects them.
+The sign-in, session, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the SDK; the web console lists and inspects them.
 
 | View | What it shows | Object |
 | --- | --- | --- |
-| **Sessions** | STS-minted subject sessions for a user or application | a `sessions` row |
-| **Agents** | A spawned agent's runtime session, lifecycle, and lease health | an `agent_sessions` row |
-| **Delegation** | Authority edges between agent sessions | a `delegation_edges` row |
+| **Sign-ins** | STS-minted subject sessions for a user or application | a `sessions` row |
+| **Sessions** | A governed execution session, its lifecycle, and lease health | an `agent_sessions` row |
+| **Delegation** | Authority delegated between sessions | a `delegation_edges` row |
 
-An **authority session** is the root credential a principal holds after a token exchange. An **agent session** is one spawned agent under an application; a *delegated* session is an agent session with an inbound delegation edge. A **delegation** edge connects two agent sessions, so inbound and outbound edges are anchored on the agent session id.
+A **sign-in** is the root credential a principal holds after a token exchange. A **session** is one governed execution under an application; a *delegated* session is a session holding an inbound delegation. A **delegation** connects two sessions, so inbound and outbound delegations are anchored on the session id.
 
-The **Agents** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegation edges.
+The **Sessions** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegations.
 
 ## Caracal Operator
 

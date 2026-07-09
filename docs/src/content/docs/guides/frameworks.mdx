@@ -10,7 +10,7 @@ The pattern is always the same:
 1. Bind the provider upstream to a Caracal resource.
 2. Build the provider client with `caracal.transport()` (or the language equivalent).
 3. Hand that client to the framework.
-4. Run framework work inside `spawn()` so each agent gets its own session identity.
+4. Run framework work inside `session()` so each agent gets its own session identity.
 
 ## LangChain
 
@@ -54,7 +54,7 @@ from langgraph.prebuilt import create_react_agent
 
 agent = create_react_agent(llm, tools)
 
-async with caracal.spawn(labels=["research-agent"]):
+async with caracal.session(labels=["research-agent"]):
     result = await agent.ainvoke({"messages": [("user", question)]})
 ```
 
