@@ -148,8 +148,8 @@ function PostureStrip({ data }: { data: ZoneOverview }) {
           }
         />
         <PostureCell
-          to={appLink("/signins")}
-          label="Active sign-ins"
+          to={appLink("/subjects")}
+          label="Active subject sessions"
           value={String(activeSessions)}
           tone={activeSessions > 0 ? "ok" : "muted"}
           sub={activeSessions > 0 ? "Currently authenticated" : "None authenticated"}

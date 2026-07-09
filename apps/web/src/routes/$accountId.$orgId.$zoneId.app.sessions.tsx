@@ -767,7 +767,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 }
 
 // Lifecycle confirmation that previews the cascade blast radius. Suspend and terminate
-// recurse the session subtree and revoke sign-ins held only by it, so the operator
+// recurse the session subtree and revoke subject sessions held only by it, so the operator
 // sees the direct child sessions that will be affected before committing. Resume is the
 // undo action and runs directly without a confirmation.
 function AgentLifecycleConfirm({
@@ -789,8 +789,8 @@ function AgentLifecycleConfirm({
   const title = action === "suspend" ? "Suspend session" : "Terminate session";
   const base =
     action === "suspend"
-      ? "Suspending pauses this session's authority and cascades to its descendant sessions. Sign-ins held only by the suspended subtree are revoked. In-flight work may fail until resumed."
-      : "Terminating ends this session and its entire descendant subtree immediately, revoking their authority and sign-ins. This cannot be undone.";
+      ? "Suspending pauses this session's authority and cascades to its descendant sessions. Subject sessions held only by the suspended subtree are revoked. In-flight work may fail until resumed."
+      : "Terminating ends this session and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
 
   return (
     <Modal
@@ -1024,9 +1024,12 @@ function AgentInspector({
             </DetailField>
           ) : null}
           {agent.subject_session_id ? (
-            <DetailField label="Sign-in" hint="The authenticated sign-in this session acts for">
+            <DetailField
+              label="Subject session"
+              hint="The authenticated subject this session acts for"
+            >
               <Link
-                to={appLink("/signins")}
+                to={appLink("/subjects")}
                 search={{ focus: agent.subject_session_id }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >

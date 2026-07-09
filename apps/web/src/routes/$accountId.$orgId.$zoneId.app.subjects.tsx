@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Sign-ins route.
+This file defines the Subjects route.
 */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
@@ -43,23 +43,23 @@ import {
 } from "@/platform/api/hooks";
 import type { Session, SessionQuery } from "@/platform/api/types";
 
-export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/signins")({
-  component: SigninsRoute,
+export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/subjects")({
+  component: SubjectsRoute,
   validateSearch: (search: Record<string, unknown>): { subject?: string; focus?: string } => ({
     subject: typeof search.subject === "string" ? search.subject : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
   }),
 });
 
-function SigninsRoute() {
+function SubjectsRoute() {
   const { subject } = Route.useSearch();
   return (
     <ZoneScopedPage
-      title="Sign-ins"
-      description="Authenticated sign-ins by users and services in this zone."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Sign-ins" }]}
+      title="Subjects"
+      description="Subject identities your applications exchanged with the STS in this zone."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
     >
-      {(zone) => <SigninsPage zoneId={zone.id} initialSubject={subject} />}
+      {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} />}
     </ZoneScopedPage>
   );
 }
@@ -137,7 +137,7 @@ function sessionOutcome(session: Session, effective: EffectiveStatus): string {
   return "Expired";
 }
 
-function SigninsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {
+function SubjectsPage({ zoneId, initialSubject }: { zoneId: string; initialSubject?: string }) {
   const [status, setStatus] = useState<string>("all");
   const [subject, setSubject] = useState(initialSubject ?? "");
 
@@ -250,9 +250,9 @@ function SigninsPage({ zoneId, initialSubject }: { zoneId: string; initialSubjec
 
   return (
     <ResourceWorkspace
-      title="Sign-ins"
-      description="Authenticated sign-ins by users and services in this zone. They end by expiry, grant revocation, or session termination."
-      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Sign-ins" }]}
+      title="Subjects"
+      description="Each row is a subject session: the identity anchor recorded when an application exchanged an authenticated subject with the STS. These are not console logins. They end by expiry, grant revocation, or session termination."
+      breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
       rows={rows}
       loading={feed.isLoading}
       columns={columns}
@@ -276,13 +276,13 @@ function SigninsPage({ zoneId, initialSubject }: { zoneId: string; initialSubjec
               query={Object.fromEntries(
                 Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
               )}
-              noun="sign-ins"
+              noun="subject sessions"
             />
           }
         />
       }
       search={{
-        placeholder: "Search loaded sign-ins by subject or ID…",
+        placeholder: "Search loaded subject sessions by subject or ID…",
         match: (s, q) =>
           s.subject_id.toLowerCase().includes(q) ||
           s.id.toLowerCase().includes(q) ||
@@ -300,10 +300,10 @@ function SigninsPage({ zoneId, initialSubject }: { zoneId: string; initialSubjec
         outcome: (s) => sessionOutcome(s, effectiveStatus(s, now)).toLowerCase(),
       }}
       empty={{
-        title: feed.isError ? "Could not load sign-ins" : "No sign-ins",
+        title: feed.isError ? "Could not load subject sessions" : "No subject sessions",
         description: feed.isError
           ? errorMessage(feed.error)
-          : "Sign-ins appear here once subjects authenticate in this zone.",
+          : "Subject sessions appear here once applications exchange authenticated identities in this zone.",
       }}
       detail={{
         title: (s) => s.subject_id,
@@ -314,8 +314,8 @@ function SigninsPage({ zoneId, initialSubject }: { zoneId: string; initialSubjec
   );
 }
 
-// Server-side sign-in filters and cursor pagination so operators can locate a subject's
-// sign-in in enterprise-scale zones instead of scanning only the first page.
+// Server-side subject-session filters and cursor pagination so operators can locate a
+// subject's session in enterprise-scale zones instead of scanning only the first page.
 function SessionFilterBar({
   status,
   subject,
@@ -333,7 +333,12 @@ function SessionFilterBar({
 }) {
   const activeFilters = (status !== "all" ? 1 : 0) + (subject.trim() ? 1 : 0);
   return (
-    <FeedToolbar extra={exportControl} activeFilters={activeFilters} loaded={loaded} noun="sign-in">
+    <FeedToolbar
+      extra={exportControl}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="subject session"
+    >
       <Select label="Status" value={status} onChange={(e) => onStatus(e.target.value)}>
         <option value="all">All statuses</option>
         <option value="active">Active</option>
@@ -439,7 +444,7 @@ function SessionDetail({ session, zoneId }: { session: Session; zoneId: string }
   );
 }
 
-// Inline authority cutoff. A sign-in's live authority is held by its session and
+// Inline authority cutoff. A subject session's live authority is held by its session and
 // fed by inbound delegations, so both controls act right here: terminating the session
 // or revoking a delegation takes effect on the runtime immediately, no page change required.
 function AuthorityControls({ zoneId, session }: { zoneId: string; session: Session }) {
@@ -459,8 +464,8 @@ function AuthorityControls({ zoneId, session }: { zoneId: string; session: Sessi
   if (!holdingAgent && edges.length === 0) {
     return (
       <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        This sign-in ends by expiry or grant revocation. No live session or inbound delegation holds
-        authority for it right now.
+        This subject session ends by expiry or grant revocation. No live session or inbound
+        delegation holds authority for it right now.
       </p>
     );
   }
@@ -526,7 +531,7 @@ function AuthorityControls({ zoneId, session }: { zoneId: string; session: Sessi
         open={confirmTerminate}
         onClose={() => setConfirmTerminate(false)}
         title="Terminate session"
-        description="Terminating ends this session and its entire descendant subtree immediately, revoking their authority and sign-ins. This cannot be undone."
+        description="Terminating ends this session and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone."
         confirmLabel="Terminate"
         tone="danger"
         onConfirm={async () => {
