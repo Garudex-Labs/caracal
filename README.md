@@ -34,7 +34,7 @@
 
 ## Why Caracal
 
-> **"Agents never hold secrets. Every action is policy-approved before it runs, scoped to exactly what was delegated, revocable in one call, and recorded as tamper-evident evidence."**
+> **"Gateway-mediated agents never hold upstream credentials. Every action is policy-approved before it runs, scoped to exactly what was delegated, revocable in one call, and recorded as tamper-evident evidence."**
 
 AI agents are entering production with **long-lived API keys in their environment**, **broader access than any task needs**, and **no answer to "which agent did this, under whose authority?"**
 
@@ -46,7 +46,7 @@ Existing tools weren't built for this: identity providers register agents but ne
 
 ## How It Works
 
-Agents never receive upstream credentials. They carry **mandates**: short-lived, signed grants of authority that can only shrink as work is delegated. Caracal's gateway injects the real credential at call time, so there is nothing for an agent to leak.
+For gateway-mediated calls, agents never receive upstream credentials. They carry **mandates**: short-lived, signed grants of authority that can only shrink as work is delegated. Caracal's gateway injects the real credential at call time, so the upstream credential never enters the agent process.
 
 ```mermaid
 flowchart LR
@@ -60,11 +60,11 @@ flowchart LR
 
 | Capability                           | Outcome for your team                                                                                                            |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| **No standing secrets**              | Credentials are injected at the edge, at call time. Nothing to steal from prompts, code, or env files.                           |
+| **No standing secrets**              | For gateway-mediated calls, upstream credentials stay at the edge and are injected only for the request.                         |
 | **Delegation that only narrows**     | Agents hand work to sub-agents, never with more access than they hold. Least privilege is enforced, not requested.               |
 | **Decisions before actions**         | Default-deny policy evaluates every request _before_ it reaches a resource, not flagged in a log afterwards.                     |
 | **One-call kill switch**             | Revoke an agent and everything it started loses access at once. No waiting for tokens to expire.                                 |
-| **Human approval for risky actions** | Approval gates hold high-risk operations for an authenticated approver before they execute.                                        |
+| **Human approval for risky actions** | Approval gates hold high-risk operations for an authenticated approver before they execute.                                      |
 | **Evidence, not just logs**          | An append-only, tamper-evident trail of every decision, exportable for SOC 2, EU AI Act, NIST AI RMF, and OWASP Agentic reviews. |
 
 ---
@@ -78,7 +78,7 @@ flowchart LR
 | **API gateways**         | Route and rate-limit; carry no authority model and no delegation semantics.                                                                                         |
 | **Building it yourself** | A proxy + vault + policy engine gets you plumbing, not narrowing delegation, revocation propagation, or a tamper-evident audit chain. Then you maintain it forever. |
 
-Caracal is standards-native: OAuth 2.0 token exchange (RFC 8693), OPA policy, and MCP and A2A transports. It fits the stack you already run instead of replacing it.
+Caracal is standards-native: OAuth 2.0 token exchange (RFC 8693), OPA policy, and MCP integrations. It fits the stack you already run instead of replacing it.
 
 ---
 
@@ -144,12 +144,14 @@ caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, caches)
 ```
 
-Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env` - see [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env`, then allowlist your email. See [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
 
 ```bash
-caracal web                           # Console Interface http://localhost:3001
+caracal allowlist add you@example.com # admit your first console user
 caracal run -- node worker.js         # workload execution
 ```
+
+Open the console at `http://localhost:3001`.
 
 ---
 

@@ -7,10 +7,10 @@
 | ------------------- | ------- |
 | Node.js             | 24+     |
 | pnpm                | 11.1.1  |
-| Docker + Compose v2 | 24+     |
+| Docker + Compose v2 | 25+     |
 | Go                  | 1.26+   |
 | Python              | 3.14+   |
-| Bun                 | latest  |
+| Bun                 | 1.3.14  |
 
 - `<os>` ∈ `linux` · `darwin` · `windows`
 - `<arch>` ∈ `x64` · `arm64`
@@ -32,6 +32,7 @@
 
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
+pnpm run setup                       # Install workspace and language dependencies
 pnpm caracal up                     # Build and start the Caracal platform
 
 # Essential Commands
@@ -76,23 +77,26 @@ On Windows, source the `.env` file from Git Bash or WSL, or set the same variabl
 
 #### Control API (optional)
 
-The web console is the primary management interface for Caracal. The Control API is an optional OAuth-protected endpoint for approved external automation and can be managed from the **web console → Runtime → Control** item.
-
+The web console is the primary management interface for Caracal. The Control API is an optional OAuth-protected endpoint for approved external automation and can be managed from the **Control** page.
 
 ## Tests
 
 ```bash
 pnpm run style                               # changed-file style gate
 pnpm test                                    # full suite (ts + go + py)
-pnpm run test:typescript | test:go | test:python
+pnpm run test:typescript                     # TypeScript suite
+pnpm run test:go                             # Go suite
+pnpm run test:python                         # Python suite
 ```
 
 `scripts/testCi.sh` mirrors `.github/workflows/test.yml` locally:
 
 ```bash
 scripts/testCi.sh                # full suite (style + ts + go + py + docs)
-scripts/testCi.sh --smoke | --style | --go | --py | --ts
+scripts/testCi.sh --smoke        # workspace build and Go vet
 ```
+
+The script also accepts `--all`, `--style`, `--ts`, `--go`, `--py`, and `--docs`.
 
 ### Testing Policy
 
@@ -127,15 +131,13 @@ The style gate always formats with the same pinned toolchain CI checks against: 
 
 ## Code Review
 
-Changes are proposed against `main`, and the review required to merge depends on the contributor's role.
+Every change is proposed as a pull request against `main` and reviewed before merge.
 
 ### How review is conducted
 
-- Repository admins may push directly to `main`.
-- Maintainers listed in `.github/MAINTAINERS` open a pull request but may merge it without a separate approving review.
-- All other contributors open a pull request that requires at least one approving review from a maintainer before it is merged. Authors must not approve or merge their own changes.
-- Maintainers are listed in `.github/CODEOWNERS`, so they are requested automatically and their approval is required to merge a contributor pull request.
-- Release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
+- At least one maintainer other than the author must approve each pull request. Authors must not approve or merge their own changes.
+- Maintainers are listed in `.github/CODEOWNERS`, so they are requested automatically.
+- Stable release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
 
 ### What reviewers must check
 
@@ -158,7 +160,7 @@ Dependency changes get extra scrutiny because they are a common supply-chain att
 
 ### What is required to be acceptable
 
-A contributor pull request is acceptable to merge only when it has at least one approving review from a maintainer, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion. Maintainers and admins are trusted to hold the changes they merge directly to the same standard.
+A pull request is acceptable to merge only when it has at least one approving review from a maintainer other than the author, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion.
 
 ## Releases
 
@@ -193,22 +195,6 @@ Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves
 | Dry-run | `scripts/release.sh rc dry-run --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
 | Publish | Tag and push `vX.Y.Z-rc.N`. | `scripts/release.sh stable` |
 | Validate | Pre-publish gate proves artifacts before the tag is published. | Pre-publish gate proves artifacts before stable promotion. |
-
-```bash
-# rc (after setting product.version to 0.2.0-rc.1 in release.config.json)
-scripts/release.sh rc prepare
-git add -A && git commit -m "rc: v0.2.0-rc.1"
-scripts/release.sh rc dry-run --local
-git tag -a v0.2.0-rc.1 -m v0.2.0-rc.1
-git push origin HEAD && git push origin v0.2.0-rc.1
-
-# stable (after setting product.version to 0.2.0 and committing the stamp)
-scripts/release.sh stable --dry-run
-scripts/release.sh stable
-
-# or promote a proven rc without rebuilding
-scripts/release.sh promote --from v0.2.0-rc.1
-```
 
 Remote rc dry-runs dispatch `release.yml` without publishing. They only read the default branch or the exact release tag ref, and the working tree must be clean unless `--allow-dirty` is used deliberately.
 
@@ -248,8 +234,8 @@ Never delete a published tag. Roll forward with a new SemVer tag. The floating `
 
 ## Security
 
-Do not file public issues for vulnerabilities. See [SECURITY.md](SECURITY.md).
+Do not file public issues for vulnerabilities. See [SECURITY.md](.github/SECURITY.md).
 
 ## License
 
-Apache-2.0. By contributing you agree your contribution is licensed under the same terms ([LICENSE](../LICENSE)).
+Apache-2.0. By contributing you agree your contribution is licensed under the same terms ([LICENSE](LICENSE)).

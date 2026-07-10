@@ -120,7 +120,7 @@ function runWithStagedSourceTests(args) {
 const mode = process.argv[2] ?? ''
 
 if (mode === '--vet') {
-  run('go', ['vet', ...GO_PKGS])
+  runWithStagedSourceTests(['vet', ...GO_PKGS])
 } else if (mode === '--coverage') {
   const race = raceArgs()
   mkdirSync(join(root, 'coverage', 'go'), { recursive: true })

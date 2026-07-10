@@ -36,7 +36,7 @@ flowchart LR
 | Resource             | Optional resource boundary for the edge.                         |
 | Scopes               | Subset of authority being delegated.                             |
 | Constraints          | Typed limits such as TTL, hop count, and distinct-scope budget, plus audit metadata. |
-| Status               | Active or revoked lifecycle state.                               |
+| Status               | Active, expired, or revoked lifecycle state.                     |
 
 ## Rules
 
@@ -46,6 +46,8 @@ flowchart LR
 - Hop count should be bounded.
 - Revoking an upstream Delegation should invalidate downstream authority.
 - Resource servers should verify delegation claims when they require delegated access.
+
+Expiry removes the edge's authority without terminating either endpoint Session. STS rejects the expired edge and caps every mandate minted through it so the mandate cannot outlive the edge. The target Session remains active but cannot use that Delegation again; it must receive another live Delegation before it can mint delegated authority. Revocation is different: it is an explicit monotonic action that cascades through downstream Delegations and affected Session subtrees.
 
 ## What a Delegation Bounds - and What It Does Not
 
