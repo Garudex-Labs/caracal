@@ -1,13 +1,13 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// AdminClient: typed wrapper over the Caracal admin API and agent coordinator.
+// AdminClient: typed wrapper over the Caracal Admin API and Coordinator.
 
 import { AdminApiError } from './errors.js'
 import type { JsonValue } from '@caracalai/core'
 import type {
-  AgentListQuery,
-  AgentSession,
+  AuthorityRecord,
+  AuthorityRecordQuery,
   Application,
   ApplicationInput,
   ApplicationPatchInput,
@@ -18,8 +18,9 @@ import type {
   AuditQuery,
   DCRInput,
   DecisionTrace,
-  DelegationEdge,
+  Delegation,
   DelegationImpact,
+  DelegationTraversal,
   EffectiveAuthority,
   Grant,
   GrantInput,
@@ -50,11 +51,8 @@ import type {
   SessionQuery,
   SubjectRevokeInput,
   SubjectRevokeResult,
-  AgentSessionRow,
-  AgentSessionQuery,
   StepUpChallenge,
   StepUpDecision,
-  TraverseNode,
   Workload,
   WorkloadUpdateInput,
   Zone,
@@ -96,6 +94,49 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 const MAX_RETRY_AFTER_MS = 30_000
 const MAX_LIST_PAGES = 50
+
+function mapSession(row: Record<string, unknown>): Session {
+  const { agent_session_id, parent_id, subject_session_id, ...rest } = row
+  return {
+    ...rest,
+    session_id: String(agent_session_id),
+    parent_session_id: parent_id === null ? null : String(parent_id),
+    authority_record_id: String(subject_session_id),
+  } as Session
+}
+
+function mapEffectiveAuthority(row: Record<string, unknown>): EffectiveAuthority {
+  const { agent_session_id, inbound_edges, ...rest } = row
+  return {
+    ...rest,
+    session_id: String(agent_session_id),
+    inbound_delegations: Array.isArray(inbound_edges) ? inbound_edges : [],
+  } as unknown as EffectiveAuthority
+}
+
+function mapDelegationImpact(row: Record<string, unknown>): DelegationImpact {
+  const { edge_id, affected_edges, affected_agents, ...rest } = row
+  return {
+    ...rest,
+    delegation_id: String(edge_id),
+    affected_delegations: Array.isArray(affected_edges) ? affected_edges.map(mapDelegationTraversal) : [],
+    affected_sessions: Array.isArray(affected_agents) ? affected_agents : [],
+  } as unknown as DelegationImpact
+}
+
+function mapDelegation(row: Record<string, unknown>): Delegation {
+  const { id, parent_edge_id, ...rest } = row
+  return {
+    ...rest,
+    delegation_id: String(id),
+    parent_delegation_id: parent_edge_id === null ? null : String(parent_edge_id),
+  } as Delegation
+}
+
+function mapDelegationTraversal(row: Record<string, unknown>): DelegationTraversal {
+  const { id, ...rest } = row
+  return { ...rest, delegation_id: String(id) } as DelegationTraversal
+}
 
 function grantListQuery(query?: GrantQuery): Record<string, string | number | undefined> | undefined {
   if (!query) return undefined
@@ -445,11 +486,11 @@ export class AdminClient {
       this.request<void>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
-  // Sessions (read; revocation is a side effect of grant.revoke or agent.terminate)
-  sessions = {
-    list: async (zoneId: string, query?: SessionQuery) => {
-      const response = await this.request<ListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
-      if (!Array.isArray(response.items)) throw new Error('sessions response missing items')
+  // Authority records issued by STS. Revocation is performed through the owning authority operation.
+  authorityRecords = {
+    list: async (zoneId: string, query?: AuthorityRecordQuery) => {
+      const response = await this.request<ListResponse<AuthorityRecord>>(`/v1/zones/${zoneId}/authority-records`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('authority-records response missing items')
       return response.items
     },
   }
@@ -463,14 +504,33 @@ export class AdminClient {
       this.request<SubjectRevokeResult>(`/v1/zones/${zoneId}/subjects/revoke`, { method: 'POST', body: input }),
   }
 
-  // Agent sessions (read; status filtering for active/suspended/terminated). CSV export is
-  // available directly from the API endpoint with format=csv.
-  agentSessions = {
-    list: async (zoneId: string, query?: AgentSessionQuery) => {
-      const response = await this.request<ListResponse<AgentSessionRow>>(`/v1/zones/${zoneId}/agent-sessions`, { query: { ...query } })
-      if (!Array.isArray(response.items)) throw new Error('agent-sessions response missing items')
+  // Governed sessions. Reads use the Admin API; lifecycle operations map to Coordinator wire routes.
+  sessions = {
+    list: async (zoneId: string, query?: SessionQuery) => {
+      const response = await this.request<ListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('sessions response missing items')
       return response.items
     },
+    get: async (zoneId: string, sessionId: string) =>
+      mapSession(await this.request<Record<string, unknown>>(`/zones/${zoneId}/agents/${sessionId}`, { base: 'coordinator' })),
+    children: async (zoneId: string, sessionId: string, query?: SessionQuery) => {
+      const response = await this.request<ListResponse<Record<string, unknown>>>(`/zones/${zoneId}/agents/${sessionId}/children`, {
+        base: 'coordinator',
+        query: { ...query },
+      })
+      if (!Array.isArray(response.items)) throw new Error('session children response missing items')
+      return response.items.map(mapSession)
+    },
+    suspend: (zoneId: string, sessionId: string) =>
+      this.request<{ suspended: true }>(`/zones/${zoneId}/agents/${sessionId}/suspend`, { method: 'PATCH', base: 'coordinator' }),
+    resume: (zoneId: string, sessionId: string) =>
+      this.request<{ resumed: true }>(`/zones/${zoneId}/agents/${sessionId}/resume`, { method: 'PATCH', base: 'coordinator' }),
+    terminate: (zoneId: string, sessionId: string) =>
+      this.request<void>(`/zones/${zoneId}/agents/${sessionId}`, { method: 'DELETE', base: 'coordinator', expectEmpty: true }),
+    effectiveAuthority: async (zoneId: string, sessionId: string) =>
+      mapEffectiveAuthority(
+        await this.request<Record<string, unknown>>(`/zones/${zoneId}/agents/${sessionId}/effective-authority`, { base: 'coordinator' }),
+      ),
   }
 
   // Audit
@@ -508,50 +568,36 @@ export class AdminClient {
       }),
   }
 
-  // Agents (coordinator)
-  agents = {
-    list: async (zoneId: string, query?: AgentListQuery) => {
-      const response = await this.request<ListResponse<AgentSession>>(`/zones/${zoneId}/agents`, {
-        base: 'coordinator',
-        query: { ...query },
-      })
-      if (!Array.isArray(response.items)) throw new Error('agents response missing items')
-      return response.items
-    },
-    get: (zoneId: string, id: string) => this.request<AgentSession>(`/zones/${zoneId}/agents/${id}`, { base: 'coordinator' }),
-    children: async (zoneId: string, id: string, query?: AgentListQuery) => {
-      const response = await this.request<ListResponse<AgentSession>>(`/zones/${zoneId}/agents/${id}/children`, {
-        base: 'coordinator',
-        query: { ...query },
-      })
-      if (!Array.isArray(response.items)) throw new Error('agent children response missing items')
-      return response.items
-    },
-    suspend: (zoneId: string, id: string) =>
-      this.request<{ suspended: true }>(`/zones/${zoneId}/agents/${id}/suspend`, { method: 'PATCH', base: 'coordinator' }),
-    resume: (zoneId: string, id: string) =>
-      this.request<{ resumed: true }>(`/zones/${zoneId}/agents/${id}/resume`, { method: 'PATCH', base: 'coordinator' }),
-    terminate: (zoneId: string, id: string) =>
-      this.request<void>(`/zones/${zoneId}/agents/${id}`, { method: 'DELETE', base: 'coordinator', expectEmpty: true }),
-    effectiveAuthority: (zoneId: string, id: string) =>
-      this.request<EffectiveAuthority>(`/zones/${zoneId}/agents/${id}/effective-authority`, { base: 'coordinator' }),
-  }
-
   // Delegations (coordinator)
   delegations = {
-    active: (zoneId: string) => this.request<ListResponse<DelegationEdge>>(`/zones/${zoneId}/delegations/active`, { base: 'coordinator' }),
-    inbound: (zoneId: string, sessionId: string) =>
-      this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' }),
-    outbound: (zoneId: string, sessionId: string) =>
-      this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/outbound/${sessionId}`, { base: 'coordinator' }),
-    traverse: (zoneId: string, id: string) =>
-      this.request<TraverseNode[]>(`/zones/${zoneId}/delegations/${id}/traverse`, { base: 'coordinator' }),
-    impact: (zoneId: string, id: string) =>
-      this.request<DelegationImpact>(`/zones/${zoneId}/delegations/${id}/impact`, { base: 'coordinator' }),
-    revoke: (zoneId: string, id: string) =>
-      this.request<{ revoked_edges: number; affected_sessions: number }>(`/zones/${zoneId}/delegations/${id}/revoke`, {
-        method: 'PATCH',
+    active: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Record<string, unknown>>>(`/zones/${zoneId}/delegations/active`, {
         base: 'coordinator',
-      }),
+      })
+      return { ...response, items: response.items.map(mapDelegation) }
+    },
+    inbound: async (zoneId: string, sessionId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' })).map(
+        mapDelegation,
+      ),
+    outbound: async (zoneId: string, sessionId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/outbound/${sessionId}`, { base: 'coordinator' })).map(
+        mapDelegation,
+      ),
+    traverse: async (zoneId: string, delegationId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/${delegationId}/traverse`, { base: 'coordinator' })).map(
+        mapDelegationTraversal,
+      ),
+    impact: async (zoneId: string, delegationId: string) =>
+      mapDelegationImpact(
+        await this.request<Record<string, unknown>>(`/zones/${zoneId}/delegations/${delegationId}/impact`, { base: 'coordinator' }),
+      ),
+    revoke: async (zoneId: string, delegationId: string) => {
+      const response = await this.request<{ revoked_edges: number; affected_sessions: number }>(
+        `/zones/${zoneId}/delegations/${delegationId}/revoke`,
+        { method: 'PATCH', base: 'coordinator' },
+      )
+      return { revoked_delegations: response.revoked_edges, affected_sessions: response.affected_sessions }
+    },
   }
 }

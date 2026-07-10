@@ -449,8 +449,8 @@ export interface SubjectRevokeInput {
 
 export interface SubjectRevokeResult {
   subject_id: string
+  authority_records: number
   sessions: number
-  agents: number
   delegations: number
   connections: number
 }
@@ -467,12 +467,12 @@ export interface ProviderConnection {
   updated_at: string
 }
 
-export interface Session {
-  id: string
+export interface AuthorityRecord {
+  authority_record_id: string
   zone_id: string
-  session_type: string
+  authority_record_type: string
   subject_id: string
-  parent_id: string | null
+  parent_authority_record_id: string | null
   status: string
   expires_at: string
   authenticated_at: string
@@ -523,7 +523,8 @@ export interface AuditQuery {
   request_id?: string
   decision?: 'allow' | 'deny' | 'partial'
   event_type?: string
-  agent_session_id?: string
+  session_id?: string
+  authority_record_id?: string
   label?: string
   cursor?: string
   limit?: number
@@ -558,16 +559,19 @@ export interface AdminAuditQuery {
   limit?: number
 }
 
-export interface SessionQuery {
+export interface AuthorityRecordQuery {
+  authority_record_id?: string
   status?: 'active' | 'revoked' | 'expired'
   subject_id?: string
+  cursor?: string
   limit?: number
 }
 
-export interface AgentSessionRow {
-  id: string
+export interface Session {
+  session_id: string
+  zone_id?: string
   application_id: string
-  parent_id: string | null
+  parent_session_id: string | null
   status: string
   lifecycle: string
   labels: string[]
@@ -577,22 +581,17 @@ export interface AgentSessionRow {
   last_active_at: string
   terminated_at: string | null
   ttl_seconds: number | null
+  authority_record_id?: string
+  metadata?: Record<string, unknown> | null
+  last_heartbeat_at?: string | null
+  heartbeat_deadline_at?: string | null
 }
 
-export interface AgentSessionQuery {
+export interface SessionQuery {
   status?: 'active' | 'suspended' | 'terminated' | 'expired'
   lifecycle?: 'task' | 'service'
   application_id?: string
-  parent_id?: string
-  label?: string
-  cursor?: string
-  limit?: number
-}
-
-export interface AgentListQuery {
-  status?: 'active' | 'suspended' | 'terminated' | 'expired'
-  lifecycle?: 'task' | 'service'
-  application_id?: string
+  parent_session_id?: string
   label?: string
   cursor?: string
   limit?: number
@@ -628,32 +627,14 @@ export interface StepUpDecision {
   approver_subject_id: string
 }
 
-export interface AgentSession {
-  agent_session_id: string
-  zone_id: string
-  application_id: string
-  parent_id: string | null
-  subject_session_id: string
-  lifecycle: string
-  labels: string[]
-  status: string
-  depth: number
-  ttl_seconds: number | null
-  metadata: Record<string, unknown> | null
-  spawned_at: string
-  terminated_at?: string | null
-  last_heartbeat_at?: string | null
-  heartbeat_deadline_at?: string | null
-}
-
-export interface DelegationEdge {
-  id: string
+export interface Delegation {
+  delegation_id: string
   zone_id: string
   source_session_id: string
   target_session_id: string
   issuer_application_id: string
   receiver_application_id: string
-  parent_edge_id: string | null
+  parent_delegation_id: string | null
   resource_id: string | null
   scopes: string[]
   constraints_json: JsonObject
@@ -664,23 +645,23 @@ export interface DelegationEdge {
   created_at: string
 }
 
-export interface TraverseNode {
-  id: string
+export interface DelegationTraversal {
+  delegation_id: string
   source_session_id: string
   target_session_id: string
   depth: number
 }
 
 export interface DelegationImpact {
-  edge_id: string
-  affected_edges: TraverseNode[]
-  affected_agents: string[]
+  delegation_id: string
+  affected_delegations: DelegationTraversal[]
+  affected_sessions: string[]
   affected_subject_sessions: string[]
 }
 
 export interface EffectiveAuthority {
-  agent_session_id: string
-  inbound_edges: string[]
+  session_id: string
+  inbound_delegations: string[]
   effective_scopes: string[]
   effective_resource_ids?: string[]
   effective_resources: string[]

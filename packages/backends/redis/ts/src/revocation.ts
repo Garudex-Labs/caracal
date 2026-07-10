@@ -43,19 +43,19 @@ export class RedisRevocationStore implements RevocationStore {
     this.failClosed = opts.failClosed ?? true
   }
 
-  async isRevoked(sid: string): Promise<boolean> {
-    if (sid === '') return false
+  async isRevoked(anchorId: string): Promise<boolean> {
+    if (anchorId === '') return false
     try {
-      return (await this.redis.get(this.key(sid))) !== null
+      return (await this.redis.get(this.key(anchorId))) !== null
     } catch (err) {
       if (this.failClosed) return true
       throw err
     }
   }
 
-  async markRevoked(sid: string, ttlMs?: number): Promise<void> {
-    if (sid === '') return
-    await this.redis.set(this.key(sid), '1', 'PX', ttlMs ?? this.defaultTtlMs)
+  async markRevoked(anchorId: string, ttlMs?: number): Promise<void> {
+    if (anchorId === '') return
+    await this.redis.set(this.key(anchorId), '1', 'PX', ttlMs ?? this.defaultTtlMs)
   }
 
   async currentDelegationEpoch(zoneId: string): Promise<number> {
@@ -76,8 +76,8 @@ export class RedisRevocationStore implements RevocationStore {
     await this.redis.set(this.delegationEpochKey(zoneId), String(epoch), 'PX', ttlMs ?? this.defaultTtlMs)
   }
 
-  private key(sid: string): string {
-    return `${this.keyPrefix}${sid}`
+  private key(anchorId: string): string {
+    return `${this.keyPrefix}${anchorId}`
   }
 
   private delegationEpochKey(zoneId: string): string {
