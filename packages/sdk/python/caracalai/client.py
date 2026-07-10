@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, TypeVar
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import httpx
 
@@ -60,6 +60,7 @@ from .coordinator import (
 )
 from .envelope import (
     HEADER_AUTHORIZATION,
+    MAX_HOP,
     Envelope,
     decode_envelope,
     encode_envelope,
@@ -844,7 +845,7 @@ class Caracal:
         if self.config.exchanger is not None:
             self.config.exchanger.on_event = self._emit_event
         self._fetch_clients: dict[
-            tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
+            tuple[bool, tuple[str, ...] | None, str | None], httpx.AsyncClient
         ] = {}
         self._app_mandates: dict[str, _AppAuthority] = {}
         self._app_mandate_locks: dict[str, tuple[threading.Lock, int]] = {}
@@ -949,6 +950,7 @@ class Caracal:
         authority: Authority | None = None,
         ttl_seconds: int | None = None,
         subject_authority_record_id: str | None = None,
+        subject_authority_record_token: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         task: str | None = None,
@@ -995,6 +997,7 @@ class Caracal:
             token_source=self.config._token_source,
             invalidate=invalidate,
             subject_authority_record_id=subject_authority_record_id,
+            subject_authority_record_token=subject_authority_record_token,
             parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
@@ -1017,6 +1020,7 @@ class Caracal:
         *,
         authority: Authority | None = None,
         subject_authority_record_id: str | None = None,
+        subject_authority_record_token: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         task: str | None = None,
@@ -1069,6 +1073,7 @@ class Caracal:
             token_source=self.config._token_source,
             invalidate=invalidate,
             subject_authority_record_id=subject_authority_record_id,
+            subject_authority_record_token=subject_authority_record_token,
             parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
@@ -1352,30 +1357,38 @@ class Caracal:
                     "run as the application's own identity."
                 )
             env.subject_token = await self.config.asubject_token()
+            env.session_id = None
+            env.delegation_id = None
+            env.parent_delegation_id = None
+            env.subject_authority_record_id = None
+            env.hop = 0
             root_injected = True
         elif verifier is not None:
             claims = await verifier(env.subject_token)
+            if claims is None:
+                raise TypeError(
+                    "Caracal.bind_from_headers(): verifier must return complete VerifiedClaims"
+                )
         if claims is not None:
-            if claims.session_id is not None:
-                env.session_id = claims.session_id
-            if claims.delegation_id is not None:
-                env.delegation_id = claims.delegation_id
-            if claims.parent_delegation_id is not None:
-                env.parent_delegation_id = claims.parent_delegation_id
-            if claims.subject_authority_record_id is not None:
-                env.subject_authority_record_id = claims.subject_authority_record_id
-            if claims.hop is not None:
-                env.hop = claims.hop
+            if not claims.zone_id or not claims.application_id:
+                raise ValueError(
+                    "Caracal.bind_from_headers(): verified claims require zone_id and application_id"
+                )
+            if type(claims.hop) is not int or not 0 <= claims.hop <= MAX_HOP:
+                raise ValueError(
+                    f"Caracal.bind_from_headers(): verified claims hop must be an integer from 0 to {MAX_HOP}"
+                )
+            env.session_id = claims.session_id
+            env.delegation_id = claims.delegation_id
+            env.parent_delegation_id = claims.parent_delegation_id
+            env.subject_authority_record_id = claims.subject_authority_record_id
+            env.hop = claims.hop
         ctx = from_envelope(
             env,
-            zone_id=(
-                claims.zone_id
-                if claims is not None and claims.zone_id is not None
-                else self.config.zone_id
-            ),
+            zone_id=claims.zone_id if claims is not None else self.config.zone_id,
             application_id=(
                 claims.application_id
-                if claims is not None and claims.application_id is not None
+                if claims is not None
                 else self.config.application_id
             ),
         )
@@ -1498,6 +1511,7 @@ class Caracal:
         as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
+        approval_id: str | None = None,
         propagation: str = "always",
         **kwargs: Any,
     ) -> httpx.AsyncClient:
@@ -1511,8 +1525,8 @@ class Caracal:
         unless the transport was created with ``as_application=True`` (the
         application's own identity).
 
-        Pass ``scopes`` to send a scoped resource mandate instead of the raw subject
-        token on gateway-routed requests: the SDK mints (and caches) a mandate
+        Pass ``scopes`` to send the scoped ``use=gateway`` mandate required on
+        gateway-routed requests: the SDK mints a fresh mandate
         audienced to the target resource and narrowed to those scopes, carrying the
         context's session and delegation. Requires client-secret credentials.
 
@@ -1523,11 +1537,17 @@ class Caracal:
         The client keeps httpx's default 5-second timeout; pass ``timeout=`` to
         size it for the upstream being called.
         """
+        if kwargs.get("follow_redirects"):
+            raise ValueError(
+                "Caracal.transport(): Gateway redirects cannot be followed with a single-use mandate"
+            )
+        kwargs["follow_redirects"] = False
         return httpx.AsyncClient(
             auth=self._gateway_auth(
                 as_application=as_application,
                 ctx=ctx,
                 scopes=scopes,
+                approval_id=approval_id,
                 propagation=propagation,
                 label="transport",
             ),
@@ -1540,6 +1560,7 @@ class Caracal:
         as_application: bool,
         ctx: CaracalContext | None,
         scopes: list[str] | None,
+        approval_id: str | None,
         label: str,
         propagation: str = "always",
     ) -> httpx.Auth:
@@ -1585,6 +1606,14 @@ class Caracal:
                     if token is None:
                         assert bound is not None
                         token = bound.subject_token
+                    use = (decode_jwt_payload(token) or {}).get("use")
+                    if isinstance(use, str) and use != "gateway":
+                        raise RuntimeError(
+                            "Caracal.transport(): Gateway calls require a scoped "
+                            f"use=gateway mandate; received use={use}. Pass scopes "
+                            "with a delegated session, or use application_transport() "
+                            "for application-owned work."
+                        )
                     request.headers["Authorization"] = f"Bearer {token}"
                 if propagation == "gateway-only" and not gateway_bound:
                     return
@@ -1597,12 +1626,18 @@ class Caracal:
 
             def sync_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
+                if gateway_bound and scopes and resource is None:
+                    raise RuntimeError(
+                        f"Caracal.{label}(): scopes require X-Caracal-Resource "
+                        "or a configured resource binding"
+                    )
                 token = (
                     outer.config.exchanger.mint_mandate(
                         resource=resource,
                         scopes=scopes,
                         session_id=bound.session_id if bound else None,
                         delegation_id=bound.delegation_id if bound else None,
+                        approval_id=approval_id,
                         cache=False,
                     ).token
                     if resource is not None and scopes
@@ -1622,6 +1657,11 @@ class Caracal:
 
             async def async_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
+                if gateway_bound and scopes and resource is None:
+                    raise RuntimeError(
+                        f"Caracal.{label}(): scopes require X-Caracal-Resource "
+                        "or a configured resource binding"
+                    )
                 if resource is not None and scopes and outer.config.exchanger is None:
                     raise RuntimeError(
                         f"Caracal.{label}(): scopes require client-secret credentials"
@@ -1634,6 +1674,7 @@ class Caracal:
                             scopes=scopes,
                             session_id=bound.session_id if bound else None,
                             delegation_id=bound.delegation_id if bound else None,
+                            approval_id=approval_id,
                             cache=False,
                         )
                     ).token
@@ -1658,9 +1699,7 @@ class Caracal:
         gw = self.config.gateway_url
         if not gw:
             return False
-        g = urlparse(gw)
-        parsed = urlparse(str(url))
-        return parsed.scheme == g.scheme and parsed.netloc == g.netloc
+        return _targets_gateway_path(str(url), gw)
 
     def gateway_request(self, resource_id: str, path: str = "/") -> GatewayTarget:
         if not self.config.gateway_url:
@@ -1814,6 +1853,7 @@ class Caracal:
         as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
+        approval_id: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         **request_kwargs: Any,
     ) -> httpx.Response:
@@ -1840,15 +1880,22 @@ class Caracal:
                 as_application=as_application,
                 ctx=ctx,
                 scopes=scopes,
+                approval_id=approval_id,
                 transport=transport,
             ) as client:
                 return await client.request(
                     method, request.url, headers=merged, **request_kwargs
                 )
-        key = (as_application, tuple(sorted(set(scopes))) if scopes else None)
+        key = (
+            as_application,
+            tuple(sorted(set(scopes))) if scopes else None,
+            approval_id,
+        )
         client = self._fetch_clients.get(key)
         if client is None or client.is_closed:
-            client = self.transport(as_application=as_application, scopes=scopes)
+            client = self.transport(
+                as_application=as_application, scopes=scopes, approval_id=approval_id
+            )
             self._fetch_clients[key] = client
         if ctx is not None:
             async with self.bind(ctx):
@@ -1865,6 +1912,7 @@ class Caracal:
         as_application: bool = False,
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
+        approval_id: str | None = None,
         propagation: str = "always",
         **kwargs: Any,
     ) -> httpx.Client:
@@ -1875,11 +1923,17 @@ class Caracal:
         See :meth:`transport` for the ``as_application``, ``ctx``, ``scopes``,
         and ``propagation`` semantics.
         """
+        if kwargs.get("follow_redirects"):
+            raise ValueError(
+                "Caracal.sync_transport(): Gateway redirects cannot be followed with a single-use mandate"
+            )
+        kwargs["follow_redirects"] = False
         return httpx.Client(
             auth=self._gateway_auth(
                 as_application=as_application,
                 ctx=ctx,
                 scopes=scopes,
+                approval_id=approval_id,
                 propagation=propagation,
                 label="sync_transport",
             ),
@@ -1925,6 +1979,11 @@ class Caracal:
                 "Caracal.application_transport requires gateway_url so mandates "
                 "are sent only to the Gateway"
             )
+        if kwargs.get("follow_redirects"):
+            raise ValueError(
+                "Caracal.application_transport(): Gateway redirects cannot be followed with a single-use mandate"
+            )
+        kwargs["follow_redirects"] = False
         return httpx.AsyncClient(
             auth=auth,
             **kwargs,
@@ -1955,6 +2014,11 @@ class Caracal:
                 "Caracal.sync_application_transport requires gateway_url so mandates "
                 "are sent only to the Gateway"
             )
+        if kwargs.get("follow_redirects"):
+            raise ValueError(
+                "Caracal.sync_application_transport(): Gateway redirects cannot be followed with a single-use mandate"
+            )
+        kwargs["follow_redirects"] = False
         return httpx.Client(
             auth=auth,
             **kwargs,
@@ -1990,9 +2054,22 @@ class Caracal:
         class _AppAuth(httpx.Auth):
             requires_request_body = False
 
-            def _finish(self, request: httpx.Request, mandate: str) -> None:
+            def _finish(
+                self,
+                request: httpx.Request,
+                mandate: str,
+                authority: _AppAuthority,
+            ) -> None:
                 request.headers["Authorization"] = f"Bearer {mandate}"
                 request.headers["X-Caracal-Resource"] = resource_id
+                encode_envelope(
+                    Envelope(
+                        session_id=authority.target_session_id,
+                        delegation_id=authority.delegation_id,
+                    ),
+                    lambda name, value: request.headers.__setitem__(name, value),
+                    lambda name: request.headers.get(name),
+                )
                 rewritten = outer._route_through_gateway(request.url, resource_id)
                 if rewritten is not None:
                     request.url = httpx.URL(rewritten[0])
@@ -2010,7 +2087,7 @@ class Caracal:
                     ttl_seconds=mandate_ttl,
                     cache=False,
                 ).token
-                self._finish(request, mandate)
+                self._finish(request, mandate, authority)
                 yield request
 
             async def async_auth_flow(self, request: httpx.Request):
@@ -2028,7 +2105,7 @@ class Caracal:
                         cache=False,
                     )
                 ).token
-                self._finish(request, mandate)
+                self._finish(request, mandate, authority)
                 yield request
 
         return _AppAuth()
@@ -2258,7 +2335,9 @@ class Caracal:
         if not parsed.scheme or not parsed.netloc:
             return None
         gw_parsed = urlparse(gw)
-        if parsed.scheme == gw_parsed.scheme and parsed.netloc == gw_parsed.netloc:
+        if _path_contains_traversal(parsed.path):
+            return None
+        if _targets_gateway_path(target_url, gw):
             return None
         binding: ResourceBinding | None = None
         if explicit_resource:
@@ -2312,6 +2391,36 @@ def _url_matches_prefix(target, prefix: str) -> bool:
     return target.path.startswith(pp)
 
 
+def _targets_gateway_path(target_url: str, gateway_url: str) -> bool:
+    target = urlparse(target_url)
+    gateway = urlparse(gateway_url)
+    if (
+        target.scheme != gateway.scheme
+        or target.netloc != gateway.netloc
+        or _path_contains_traversal(target.path)
+    ):
+        return False
+    base = gateway.path.rstrip("/") or "/"
+    return base == "/" or target.path == base or target.path.startswith(f"{base}/")
+
+
+def _path_contains_traversal(pathname: str) -> bool:
+    decoded = pathname
+    for _ in range(8):
+        if "\\" in decoded or any(
+            segment in (".", "..") for segment in decoded.split("/")
+        ):
+            return True
+        try:
+            next_value = unquote(decoded, errors="strict")
+        except UnicodeDecodeError:
+            return True
+        if next_value == decoded:
+            return False
+        decoded = next_value
+    return True
+
+
 def _task_metadata(task: str | None, metadata: JsonObject | None) -> JsonObject | None:
     """Folds the task option into session metadata; an explicit task wins over
     a metadata.task the caller also set."""
@@ -2346,6 +2455,8 @@ def _join_gateway_path(gateway_url: str, path: str) -> str:
         raise ValueError(
             "Caracal.gateway_request: path must be relative to the configured gateway"
         )
+    if parsed_path.fragment:
+        raise ValueError("Caracal.gateway_request: path must not contain a fragment")
     gw = urlparse(gateway_url)
     normalized = path if path.startswith("/") else f"/{path}"
     split = normalized.split("?", 1)
@@ -2353,7 +2464,7 @@ def _join_gateway_path(gateway_url: str, path: str) -> str:
     query = split[1] if len(split) == 2 else ""
     # Dot segments could climb out of a base-pathed gateway once the URL
     # normalizes, so the path must arrive already resolved.
-    if any(segment in (".", "..") for segment in pathname.split("/")):
+    if _path_contains_traversal(pathname):
         raise ValueError("Caracal.gateway_request: path must not contain dot segments")
     base_path = gw.path.rstrip("/")
     return urlunparse((gw.scheme, gw.netloc, base_path + pathname, "", query, ""))

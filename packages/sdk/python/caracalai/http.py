@@ -21,7 +21,7 @@ Scope = dict[str, Any]
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-TokenVerifier = Callable[[str], Awaitable[VerifiedClaims | None]]
+TokenVerifier = Callable[[str], Awaitable[VerifiedClaims]]
 
 
 class CaracalASGIMiddleware:
@@ -30,7 +30,8 @@ class CaracalASGIMiddleware:
 
     When a ``verifier`` is supplied it runs at the boundary before binding, so
     the request reaches the application only after the mandate has been proven;
-    claims the verifier returns override the caller-supplied envelope. Boundary
+    the complete claims projection returned by the verifier is authoritative.
+    Optional claims omitted from it do not fall back to envelope baggage. Boundary
     failures answer the client directly - 401 for HTTP, policy-violation close
     (1008) for WebSocket - while errors raised by the application itself
     propagate unchanged. The middleware never inspects token internals; that

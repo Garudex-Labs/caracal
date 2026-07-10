@@ -216,17 +216,12 @@ def _sync_call(
 
 @dataclass
 class DelegationConstraints:
-    """Typed Delegation limits. ``budget`` is the maximum distinct requested
-    scopes per token exchange; repeated exchanges do not consume it.
-
-    ``policy_approved`` and ``broad_reason`` are audit and display metadata.
-    """
+    """Typed Delegation limits and audit metadata."""
 
     resources: list[str] | None = None
     max_depth: int | None = None
     max_hops: int | None = None
     ttl_seconds: int | None = None
-    budget: int | None = None
     policy_approved: bool | None = None
     expires_at: str | None = None
     broad_reason: str | None = None
@@ -241,8 +236,6 @@ class DelegationConstraints:
             out["max_hops"] = self.max_hops
         if self.ttl_seconds is not None:
             out["ttl_seconds"] = self.ttl_seconds
-        if self.budget is not None:
-            out["budget"] = self.budget
         if self.policy_approved is not None:
             out["policy_approved"] = self.policy_approved
         if self.expires_at is not None:
@@ -257,6 +250,7 @@ class StartSessionRequest:
     zone_id: str
     application_id: str
     subject_authority_record_id: str | None = None
+    subject_authority_record_token: str | None = None
     parent_id: str | None = None
     lifecycle: Lifecycle | None = None
     ttl_seconds: int | None = None
@@ -322,6 +316,8 @@ def _session_body(req: StartSessionRequest) -> dict[str, JsonValue]:
         body["lifecycle"] = str(req.lifecycle)
     if req.subject_authority_record_id:
         body["subject_session_id"] = req.subject_authority_record_id
+    if req.subject_authority_record_token:
+        body["subject_token"] = req.subject_authority_record_token
     if req.parent_id:
         body["parent_id"] = req.parent_id
     if req.ttl_seconds:

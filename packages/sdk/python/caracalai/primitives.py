@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
@@ -57,9 +58,20 @@ def _retry_delay(attempt: int, exc: BaseException) -> float:
 
 
 def _is_gone(exc: BaseException) -> bool:
-    """A session the coordinator no longer holds live (terminated or reaped)
+    """A session the coordinator no longer holds live
     counts as retired."""
-    return isinstance(exc, CoordinatorError) and exc.status in (404, 409)
+    return isinstance(exc, CoordinatorError) and (
+        exc.status == 404
+        or (
+            exc.status == 409
+            and exc.code
+            in {
+                "already_terminated",
+                "session_not_live",
+                "session_not_found_or_not_active",
+            }
+        )
+    )
 
 
 def _parse_deadline(value: str | None) -> float | None:
@@ -91,12 +103,12 @@ async def _terminate_shielded(
     orphan a live server-side session. A session the coordinator already
     retired counts as success; other failures raise only when ``propagate``
     is set - cleanup paths log instead so they never mask the caller's
-    primary outcome, and the coordinator's TTL sweeper retires whatever this
-    misses."""
+    primary outcome. Set ``propagate`` when successful work must fail if the
+    server-side Session cannot be retired."""
 
     async def retire() -> None:
-        bearer = await _resolve_bearer(token_source, fallback_token)
         try:
+            bearer = await _resolve_bearer(token_source, fallback_token)
             await terminate_session(coordinator, bearer, zone_id, session_id)
         except Exception as exc:
             if _is_gone(exc):
@@ -140,7 +152,7 @@ class Authority:
     session cannot present delegated authority. Inheritance never crosses an
     application boundary. ``narrow`` issues a bounded delegation so the child
     holds only the listed scopes; the server re-validates the subset, so a
-    narrow can never broaden. A narrowing delegation defaults to a hop budget
+    narrow can never broaden. A narrowing delegation defaults to a hop allowance
     of 1; pass ``constraints=DelegationConstraints(max_hops=2)`` (or more) when
     the child must re-delegate or sub-narrow. ``none`` starts the child
     explicitly delegation-less, suppressing server-side inheritance.
@@ -200,6 +212,7 @@ async def _establish_session(
     token_source: TokenSource | None,
     invalidate: Callable[[], None] | None,
     subject_authority_record_id: str | None,
+    subject_authority_record_token: str | None,
     parent_id: str | None,
     parent_ctx: CaracalContext | None,
     authority: Authority | None,
@@ -214,6 +227,10 @@ async def _establish_session(
         _validate_idempotency_key(idempotency_key)
     authority = authority or Authority.inherit()
     parent = parent_ctx if parent_ctx is not None else current()
+    if parent_id and parent and parent.session_id and parent_id != parent.session_id:
+        raise ValueError(
+            "parent_session_id must match the Session bound on the calling context"
+        )
     parent_session_id = parent_id or (parent.session_id if parent else None)
     bearer = subject_token
 
@@ -224,6 +241,7 @@ async def _establish_session(
         zone_id=zone_id,
         application_id=application_id,
         subject_authority_record_id=subject_authority_record_id,
+        subject_authority_record_token=subject_authority_record_token,
         parent_id=parent_session_id,
         lifecycle=lifecycle,
         ttl_seconds=ttl_seconds,
@@ -316,7 +334,9 @@ async def _establish_session(
         parent_delegation_id=parent.delegation_id if parent else None,
         subject_authority_record_id=subject_authority_record_id
         or (parent.subject_authority_record_id if parent else None),
-        trace_id=trace_id or (parent.trace_id if parent else None),
+        trace_id=trace_id
+        or (parent.trace_id if parent else None)
+        or secrets.token_hex(16),
         trace_flags=parent.trace_flags if parent else None,
         trace_state=parent.trace_state if parent else None,
         baggage=parent.baggage if parent else (),
@@ -350,6 +370,7 @@ async def session(
     token_source: TokenSource | None = None,
     invalidate: Callable[[], None] | None = None,
     subject_authority_record_id: str | None = None,
+    subject_authority_record_token: str | None = None,
     parent_session_id: str | None = None,
     parent_ctx: CaracalContext | None = None,
     authority: Authority | None = None,
@@ -389,6 +410,7 @@ async def session(
         token_source=token_source,
         invalidate=invalidate,
         subject_authority_record_id=subject_authority_record_id,
+        subject_authority_record_token=subject_authority_record_token,
         parent_id=parent_session_id,
         parent_ctx=parent_ctx,
         authority=authority,
@@ -402,26 +424,51 @@ async def session(
 
     token = None
     started = False
+    body_error: BaseException | None = None
     try:
         if on_session_start is not None:
             await on_session_start(ctx)
         started = True
         token = _ctx_var.set(ctx)
         yield ctx
+    except BaseException as exc:
+        body_error = exc
     finally:
         if token is not None:
             _ctx_var.reset(token)
+
+    end_error: BaseException | None = None
+    if started and on_session_end is not None:
         try:
-            if started and on_session_end is not None:
-                await on_session_end(ctx)
-        finally:
-            await _terminate_shielded(
-                coordinator,
-                zone_id,
+            await on_session_end(ctx)
+        except BaseException as exc:
+            end_error = exc
+
+    cleanup_error: BaseException | None = None
+    try:
+        await _terminate_shielded(
+            coordinator,
+            zone_id,
+            established.session_id,
+            token_source=token_source,
+            fallback_token=established.subject_token,
+            propagate=body_error is None and end_error is None,
+        )
+    except BaseException as exc:
+        cleanup_error = exc
+
+    if body_error is not None:
+        if end_error is not None:
+            logger.warning(
+                "on_session_end failed for session %s after the block failed",
                 established.session_id,
-                token_source=token_source,
-                fallback_token=established.subject_token,
+                exc_info=end_error,
             )
+        raise body_error.with_traceback(body_error.__traceback__)
+    if end_error is not None:
+        raise end_error.with_traceback(end_error.__traceback__)
+    if cleanup_error is not None:
+        raise cleanup_error.with_traceback(cleanup_error.__traceback__)
 
 
 class SessionHandle:
@@ -616,6 +663,7 @@ async def start_session(
     token_source: TokenSource | None = None,
     invalidate: Callable[[], None] | None = None,
     subject_authority_record_id: str | None = None,
+    subject_authority_record_token: str | None = None,
     parent_session_id: str | None = None,
     parent_ctx: CaracalContext | None = None,
     authority: Authority | None = None,
@@ -655,6 +703,7 @@ async def start_session(
         token_source=token_source,
         invalidate=invalidate,
         subject_authority_record_id=subject_authority_record_id,
+        subject_authority_record_token=subject_authority_record_token,
         parent_id=parent_session_id,
         parent_ctx=parent_ctx,
         authority=authority,
