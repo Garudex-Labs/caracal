@@ -358,10 +358,9 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
   const debounceSec = opts.lastUsedDebounceSec ?? 0
   const accountKey = opts.accountAssertionKey ?? null
 
-  // Resolves the account behind a request from the BFF's signed assertion. Binding is opt-in: it
-  // needs the verifying key, and a malformed, expired, or unsigned header binds no account rather
-  // than failing the request, so a direct admin call or an unconfigured deployment is unaffected.
-  // A present-but-invalid assertion is logged and dropped - it is never trusted.
+  // Resolves the account behind a request from the BFF's signed assertion. Direct admin calls do
+  // not carry this signal; every derived Console credential must carry a valid assertion so an
+  // absent, expired, or forged header cannot bypass account ownership checks.
   function resolveAccount(req: FastifyRequest): Account | null {
     if (!accountKey) return null
     const raw = req.headers[ACCOUNT_ASSERTION_HEADER]
@@ -522,7 +521,11 @@ const adminAuthImpl: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opt
     // and every zone-scoped child path, since they all carry the zone id in the URL, so one account
     // can never see or change another account's zone, applications, policies, audit, or operator
     // history.
-    const account = resolveAccount(req)
+    const accountRequired = Boolean(accountKey) && isDerivedConsoleActor(actor)
+    const account = accountRequired ? resolveAccount(req) : null
+    if (accountRequired && !account) {
+      return reply.code(401).send({ error: 'invalid_account_assertion' })
+    }
     if (account) {
       const reqZone = zoneFromUrl(req.url)
       if (reqZone !== INVALID_ZONE_ID) {

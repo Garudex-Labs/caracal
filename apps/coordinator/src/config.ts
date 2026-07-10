@@ -86,7 +86,6 @@ function buildCfg() {
     jwksCacheMax: intEnv('JWKS_CACHE_MAX', 256),
     verifyRateLimitPerMin: intEnv('VERIFY_RATE_LIMIT_PER_MIN', 60, 0),
     invocationRateLimitPerMin: intEnv('INVOCATION_RATE_LIMIT_PER_MIN', 120, 0),
-    v1RateLimitPerMin: intEnv('V1_RATE_LIMIT_PER_MIN', 300, 0),
     coordinatorRateLimitPerMin: intEnv('COORDINATOR_RATE_LIMIT_PER_MIN', 600, 0),
     readyRateLimitPerMin: intEnv('READY_RATE_LIMIT_PER_MIN', 120, 0),
     dedupeWindowSec: intEnv('RELAY_DEDUPE_WINDOW_SEC', 3600),

@@ -82,6 +82,10 @@ export type SubjectProofResult =
   | { ok: true; authorityRecordId: string; subject: string }
   | { ok: false; status: 401 | 403; error: 'invalid_subject_proof' | 'subject_proof_application_mismatch' }
 
+export function isSessionMandate(payload: JWTPayload): boolean {
+  return payload['use'] === 'session'
+}
+
 export function validateSubjectProofClaims(payload: JWTPayload, applicationId: string): SubjectProofResult {
   if (payload['client_id'] !== applicationId) {
     return { ok: false, status: 403, error: 'subject_proof_application_mismatch' }
@@ -98,7 +102,7 @@ export function validateSubjectProofClaims(payload: JWTPayload, applicationId: s
     typeof authorityRecordId !== 'string' ||
     authorityRecordId === '' ||
     rootAuthorityRecordId !== authorityRecordId ||
-    payload['use'] !== 'session' ||
+    !isSessionMandate(payload) ||
     payload['sub_type'] !== 'user' ||
     (payload.scope !== undefined && payload.scope !== '') ||
     !emptyArray(target) ||
@@ -281,6 +285,10 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
   const zoneId = payload['zone_id']
   if (typeof zoneId !== 'string' || zoneId === '' || zoneId !== tokenZone) {
     req.log.warn('jwt_zone_claim_mismatch')
+    reply.code(401).send({ error: 'invalid_token' })
+    return
+  }
+  if (!isSessionMandate(payload)) {
     reply.code(401).send({ error: 'invalid_token' })
     return
   }

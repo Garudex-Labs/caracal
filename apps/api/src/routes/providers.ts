@@ -49,6 +49,28 @@ const HEADER_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/
 const OAUTH_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/
 const HOST_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/
+const RESERVED_CREDENTIAL_HEADERS = new Set([
+  'baggage',
+  'connection',
+  'content-encoding',
+  'content-length',
+  'content-type',
+  'expect',
+  'forwarded',
+  'host',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'traceparent',
+  'tracestate',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'via',
+  'x-real-ip',
+  'x-request-id',
+])
 const RESERVED_OAUTH_AUTHORIZATION_PARAMS = new Set([
   'client_id',
   'code_challenge',
@@ -184,8 +206,19 @@ function requireAbsoluteUri(config: Record<string, unknown>, key: string, messag
 function requireOptionalHeaderName(config: Record<string, unknown>, key: string, message: string): void {
   const value = config[key]
   if (value === undefined) return
-  if (typeof value !== 'string' || !HEADER_TOKEN_PATTERN.test(value.trim())) throw new Error(message)
+  if (typeof value !== 'string' || !HEADER_TOKEN_PATTERN.test(value.trim()) || !safeCredentialHeader(value)) throw new Error(message)
   config[key] = value.trim()
+}
+
+function safeCredentialHeader(value: string): boolean {
+  const name = value.trim().toLowerCase()
+  return (
+    name !== '' &&
+    !RESERVED_CREDENTIAL_HEADERS.has(name) &&
+    !name.startsWith('x-caracal-') &&
+    !name.startsWith('x-forwarded-') &&
+    !name.startsWith('proxy-')
+  )
 }
 
 function requireOptionalAuthScheme(config: Record<string, unknown>, key: string, message: string): void {

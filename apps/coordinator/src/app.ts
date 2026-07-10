@@ -17,7 +17,7 @@ import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
 import { invocationsRoutes } from './routes/invocations.js'
 import { outboxRoutes } from './routes/outbox.js'
-import { v1Routes } from './routes/v1.js'
+import { verifyRoutes } from './routes/verify.js'
 import type { Cfg } from './config.js'
 import { verifyBearer } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
@@ -285,6 +285,6 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   await app.register(delegationsRoutes)
   await app.register(invocationsRoutes)
   await app.register(outboxRoutes)
-  await app.register(v1Routes)
+  await app.register(verifyRoutes)
   return app
 }
