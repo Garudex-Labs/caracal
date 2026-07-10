@@ -55,6 +55,7 @@
           "type": "boolean"
         },
         "anchors": {
+          "description": "Supported raw revocation anchors: sid is an Authority record ID, root_sid is a Root authority record ID, agent_session_id is a Session ID, and delegation_edge_id is a Delegation ID.",
           "type": "array",
           "items": {
             "enum": ["sid", "root_sid", "agent_session_id", "delegation_edge_id"]

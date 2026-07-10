@@ -6,16 +6,20 @@
   "type": "object",
   "properties": {
     "caracal.agent_session": {
-      "type": "string"
+      "type": "string",
+      "description": "Governed Session ID."
     },
     "caracal.delegation_edge": {
-      "type": "string"
+      "type": "string",
+      "description": "Delegation ID."
     },
     "caracal.parent_edge": {
-      "type": "string"
+      "type": "string",
+      "description": "Parent Delegation ID."
     },
     "caracal.session": {
-      "type": "string"
+      "type": "string",
+      "description": "Subject Authority record ID."
     },
     "caracal.hop": {
       "type": "string",

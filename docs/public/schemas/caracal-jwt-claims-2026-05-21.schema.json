@@ -56,11 +56,13 @@
     },
     "sid": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Authority record ID for this STS exchange."
     },
     "root_sid": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Root authority record ID for the STS exchange ancestry."
     },
     "use": {
       "enum": ["session", "resource"]
@@ -77,16 +79,20 @@
       "uniqueItems": true
     },
     "agent_session_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Governed Session ID."
     },
     "delegation_edge_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Delegation ID."
     },
     "source_session_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Source governed Session ID for the Delegation."
     },
     "target_session_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Target governed Session ID for the Delegation."
     },
     "delegation_path": {
       "type": "array",
@@ -106,10 +112,12 @@
             "minLength": 1
           },
           "agent_session_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Governed Session ID for this delegation-chain hop."
           },
           "delegation_edge_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Delegation ID for this delegation-chain hop."
           }
         },
         "additionalProperties": false

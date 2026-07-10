@@ -90,6 +90,8 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/auditHmacKey
   streamsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/streamsHmacKey
+  idempotencyHmacKey:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/idempotencyHmacKey
   gatewayStsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/gatewayStsHmacKey
   databaseUrl:
@@ -514,6 +516,8 @@ services:
         target: redisUrl
       - source: streamsHmacKey
         target: streamsHmacKey
+      - source: idempotencyHmacKey
+        target: idempotencyHmacKey
       - source: caracalCoordinatorToken
         target: caracalCoordinatorToken
       - source: metricsBearer
@@ -528,7 +532,12 @@ services:
       # authenticated with HMAC keys and tokens, so plain http between containers is safe.
       CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
+      IDEMPOTENCY_HMAC_KEY_FILE: /run/secrets/idempotencyHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
+      IDEMPOTENCY_RETENTION_SECONDS: ${IDEMPOTENCY_RETENTION_SECONDS:-604800}
+      GENERATED_IDEMPOTENCY_RETENTION_SECONDS: ${GENERATED_IDEMPOTENCY_RETENTION_SECONDS:-86400}
+      IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE: ${IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE:-10000}
+      COORDINATOR_BODY_LIMIT_BYTES: ${COORDINATOR_BODY_LIMIT_BYTES:-262144}
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       PORT: 4000

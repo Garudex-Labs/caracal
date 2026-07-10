@@ -30,10 +30,16 @@ spec:
   serviceName: {{ include "caracal.fullname" $root }}-{{ $name }}
   {{- else }}
   strategy:
+    {{- if eq $name "coordinator" }}
+    # Coordinator creation idempotency is a wire-plus-storage contract. Recreate
+    # prevents old plaintext-key replicas from overlapping receipt-aware replicas.
+    type: Recreate
+    {{- else }}
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+    {{- end }}
   {{- end }}
   replicas: {{ $service.replicas }}
   selector:
@@ -156,6 +162,16 @@ spec:
             {{- if eq $name "coordinator" }}
             - name: CARACAL_COORDINATOR_TOKEN_FILE
               value: /run/secrets/caracalCoordinatorToken
+            - name: IDEMPOTENCY_HMAC_KEY_FILE
+              value: /run/secrets/idempotencyHmacKey
+            - name: IDEMPOTENCY_RETENTION_SECONDS
+              value: {{ $root.Values.secrets.idempotency.retentionSeconds | quote }}
+            - name: GENERATED_IDEMPOTENCY_RETENTION_SECONDS
+              value: {{ $root.Values.secrets.idempotency.generatedRetentionSeconds | quote }}
+            - name: IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE
+              value: {{ $root.Values.secrets.idempotency.maxReceiptsPerScope | quote }}
+            - name: COORDINATOR_BODY_LIMIT_BYTES
+              value: {{ $root.Values.secrets.idempotency.bodyLimitBytes | quote }}
             - name: AGENT_COORDINATOR_SCOPE
               value: {{ default "agent:lifecycle" $service.requiredScope | quote }}
             {{- end }}

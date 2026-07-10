@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://docs.caracal.run/schemas/caracal-revocation-event-2026-05-21.schema.json",
-  "title": "Caracal Session Revocation Event",
-  "description": "Flat-field payload published to caracal.sessions.revoke.",
+  "title": "Caracal Authority Revocation Event",
+  "description": "Flat-field payload published to caracal.sessions.revoke for Authority record, governed Session, and Delegation revocation anchors.",
   "type": "object",
   "required": ["zone_id", "session_id", "reason"],
   "properties": {
@@ -12,7 +12,24 @@
     },
     "session_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Authority record ID; the field name is retained as a versioned wire key."
+    },
+    "sid": {
+      "type": "string",
+      "description": "Authority record ID carried by the raw JWT sid claim."
+    },
+    "root_sid": {
+      "type": "string",
+      "description": "Root authority record ID carried by the raw JWT root_sid claim."
+    },
+    "agent_session_id": {
+      "type": "string",
+      "description": "Governed Session ID."
+    },
+    "delegation_edge_id": {
+      "type": "string",
+      "description": "Delegation ID."
     },
     "reason": {
       "type": "string",

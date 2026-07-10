@@ -175,6 +175,7 @@ export default defineConfig({
                 { label: 'Integrate the TypeScript SDK', link: '/guides/sdk-typescript/' },
                 { label: 'Integrate the Python SDK', link: '/guides/sdk-python/' },
                 { label: 'Integrate the Go SDK', link: '/guides/sdk-go/' },
+                { label: 'Safe Retries and Idempotency', link: '/guides/idempotency/' },
                 { label: 'Test Caracal Integrations', link: '/guides/testing/' },
                 { label: 'Govern Agent Frameworks', link: '/guides/frameworks/' },
                 { label: 'Run an Agent with caracal run', link: '/guides/runtime-run/' },
@@ -235,9 +236,7 @@ export default defineConfig({
             {
               label: 'Token Exchange',
               collapsed: true,
-              items: [
-                { label: 'OAuth Package', link: '/sdks/oauth/' },
-              ],
+              items: [{ label: 'OAuth Package', link: '/sdks/oauth/' }],
             },
             {
               label: 'Admin Automation',
@@ -247,9 +246,7 @@ export default defineConfig({
             {
               label: 'State Backends',
               collapsed: true,
-              items: [
-                { label: 'Redis Revocation Store', link: '/sdks/backends/redis/' },
-              ],
+              items: [{ label: 'Redis Revocation Store', link: '/sdks/backends/redis/' }],
             },
           ],
         },
