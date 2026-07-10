@@ -109,6 +109,26 @@ spec:
             summary: STS audit replay backlog is aging
             description: STS has audit replay files waiting on disk for longer than the configured threshold. Recover Redis/Audit and confirm replay files drain before continuing risky rollouts.
             runbook_url: https://docs.caracal.run/operations/alerts/#caracalstsauditreplaybacklogold
+        - alert: CaracalGatewayAuditEvidenceLost
+          expr: caracal_gateway_audit_dropped_total > 0
+          for: 0m
+          labels:
+            severity: critical
+            component: gateway
+          annotations:
+            summary: Gateway audit evidence was irrecoverably lost
+            description: Gateway failed both Redis audit delivery and durable replay persistence. Preserve service and storage evidence, stop risky traffic, and replace the affected pod only after recording the incident scope.
+            runbook_url: https://docs.caracal.run/operations/alerts/#caracalgatewayauditevidencelost
+        - alert: CaracalSTSAuditEvidenceLost
+          expr: caracal_sts_audit_dropped_total > 0
+          for: 0m
+          labels:
+            severity: critical
+            component: sts
+          annotations:
+            summary: STS audit evidence was irrecoverably lost
+            description: STS failed both Redis audit delivery and durable replay persistence. Preserve service and storage evidence, stop token issuance through the affected pod, and replace it only after recording the incident scope.
+            runbook_url: https://docs.caracal.run/operations/alerts/#caracalstsauditevidencelost
         - alert: CaracalAuditTamperDetected
           expr: increase(caracal_audit_tamper_mismatch_total[5m]) + increase(caracal_audit_tamper_chain_breaks_total[5m]) + increase(caracal_audit_tamper_hmac_failures_total[5m]) > 0
           for: 0m
