@@ -102,7 +102,9 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 HTTPXClientInstrumentor().instrument()
 
-client = caracal.transport()
+client = caracal.transport(
+  scopes=["inference:read"], propagation="gateway-only"
+)
 response = await client.get("https://api.openai.com/v1/models")
 ```
 

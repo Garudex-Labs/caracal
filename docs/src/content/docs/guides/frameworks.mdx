@@ -8,7 +8,7 @@ Caracal does not ship framework connectors for LangChain, LangGraph, or CrewAI, 
 The pattern is always the same:
 
 1. Bind the provider upstream to a Caracal resource.
-2. Build the provider client with `caracal.transport()` (or the language equivalent).
+2. Build the provider client with a scoped transport and `gateway-only` propagation.
 3. Hand that client to the framework.
 4. Run framework work inside `session()` so each agent execution gets its own Session ID.
 
@@ -25,8 +25,12 @@ caracal = Caracal()
 llm = ChatOpenAI(
     model="gpt-4o",
     api_key="caracal-gateway",
-    http_client=caracal.sync_transport(),
-    http_async_client=caracal.transport(),
+    http_client=caracal.sync_transport(
+        scopes=["inference:invoke"], propagation="gateway-only"
+    ),
+    http_async_client=caracal.transport(
+        scopes=["inference:invoke"], propagation="gateway-only"
+    ),
 )
 ```
 
@@ -39,7 +43,9 @@ const caracal = new Caracal()
 const llm = new ChatOpenAI({
   model: 'gpt-4o',
   apiKey: 'caracal-gateway',
-  configuration: { fetch: caracal.transport() },
+    configuration: {
+        fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+    },
 })
 ```
 
@@ -69,8 +75,12 @@ import litellm
 from caracalai import Caracal
 
 caracal = Caracal()
-litellm.client_session = caracal.sync_transport()
-litellm.aclient_session = caracal.transport()
+litellm.client_session = caracal.sync_transport(
+    scopes=["inference:invoke"], propagation="gateway-only"
+)
+litellm.aclient_session = caracal.transport(
+    scopes=["inference:invoke"], propagation="gateway-only"
+)
 ```
 
 Set the sessions before constructing agents. Each provider LiteLLM reaches needs its own resource binding, exactly as in the [LiteLLM recipe](/guides/provider-recipes/#litellm).

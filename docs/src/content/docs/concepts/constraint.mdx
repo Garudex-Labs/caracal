@@ -1,6 +1,6 @@
 ---
 title: Delegation Constraints
-description: Resource, TTL, hop, and distinct-scope limits plus audit metadata carried by a Delegation.
+description: Resource, scope, lifetime, and hop limits plus audit metadata carried by a Delegation.
 sidebar:
   order: 11
 ---
@@ -15,7 +15,6 @@ Typed constraints make delegated authority explicit. Coordinator validates them 
 | Scopes           | Which actions can be requested.                             |
 | TTL              | How long the delegated edge remains useful.                 |
 | Hop count        | How deep the delegation chain may become.                   |
-| Budget            | Maximum distinct requested scopes in one token exchange.    |
 | Approval metadata | Audit/display annotation; it does not authorize the edge.    |
 | Broad reason      | Audit/display note for an elevated resource-unbounded edge.  |
 
@@ -26,13 +25,12 @@ Typed constraints make delegated authority explicit. Coordinator validates them 
   "resource": "https://api.example.com/tickets",
   "scopes": ["tickets:read", "tickets:comment"],
   "max_hops": 2,
-  "budget": 5,
   "expires_at": "2026-06-01T12:00:00Z",
   "policy_approved": true
 }
 ```
 
-`budget` stays between 1 and 1024. Repeated exchanges do not consume it, and duplicate scope tokens count once. It is not a call, work, cost, spend, quota, or cumulative-capacity ledger. `policy_approved` and `broad_reason` are metadata only.
+Delegation constraints bound authority, lifetime, and propagation. They are not usage accounting. Use STS rate limits for exchange volume and a durable domain-specific quota when calls, work, or cost must be consumed atomically. `policy_approved` and `broad_reason` are metadata only.
 
 Application-chain requirements are verifier options rather than edge constraints. Use `requireChainContains` at a resource boundary when a specific application must appear in the signed delegation chain.
 

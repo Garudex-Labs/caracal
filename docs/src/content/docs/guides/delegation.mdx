@@ -34,7 +34,7 @@ await caracal.session(async () => {
     {
       authority: Authority.narrow(['tickets:read'], {
         resourceId: 'https://api.example.com/tickets',
-        constraints: { maxHops: 1, budget: 5 },
+        constraints: { maxHops: 1 },
         ttlSeconds: 600,
       }),
     },
@@ -61,7 +61,6 @@ The issuer and receiver share the opaque Delegation ID over their authenticated 
 | Scopes     | Small subset of parent authority.         |
 | TTL        | Required; use minutes, not days.          |
 | Hop count  | `1` unless a deeper graph is intentional. |
-| Budget     | Maximum distinct scopes in each exchange. |
 | Resource   | Single resource whenever possible.        |
 
 ## Troubleshooting

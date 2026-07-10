@@ -41,7 +41,7 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 
 ## Delegation
 
-Runtime credentials see only Delegations where their application is the issuer or receiver. The managed operator token retains zone-wide inspection for Console and Admin SDK workflows.
+Runtime credentials see only Delegations where their application is the issuer or receiver. Recursive traversal and impact analysis are operator-only because descendants can cross application boundaries and expose another application's topology or Authority record IDs. The managed operator token retains zone-wide inspection for Console and Admin SDK workflows.
 
 | Method  | Path                                                   | Purpose                                                                                              |
 | ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -50,8 +50,8 @@ Runtime credentials see only Delegations where their application is the issuer o
 | `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId`        | List inbound edges for a session.                                                                    |
 | `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId/:id`    | Validate one opaque inbound Delegation ID for its receiver Session.                                  |
 | `GET`   | `/zones/:zoneId/delegations/outbound/:sessionId`       | List outbound edges for a session.                                                                   |
-| `GET`   | `/zones/:zoneId/delegations/:id/traverse`              | Traverse a Delegation.                                                                               |
-| `GET`   | `/zones/:zoneId/delegations/:id/impact`                | Compute revocation impact.                                                                           |
+| `GET`   | `/zones/:zoneId/delegations/:id/traverse`              | Traverse a Delegation; `coordinator.admin` required.                                                  |
+| `GET`   | `/zones/:zoneId/delegations/:id/impact`                | Compute revocation impact; `coordinator.admin` required.                                              |
 | `GET`   | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a Session.                                                           |
 | `PATCH` | `/zones/:zoneId/delegations/:id/revoke`                | Revoke delegated authority.                                                                          |
 

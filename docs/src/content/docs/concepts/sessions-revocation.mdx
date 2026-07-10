@@ -20,7 +20,7 @@ Authority records, Sessions, and Delegations make Caracal authority temporary an
 
 Caracal does not generate Subjects, and **Subjects** is not a login surface. The `sub` on an Authority record is taken verbatim from the token the application exchanges. To federate end users, a zone registers the identity system as a Subject issuer and the application exchanges each identity token for an Authority record with no resource authority.
 
-A Session may attach that record through `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`. This Subject authority record ID supports attribution and lifecycle linkage. It does **not** by itself cause later resource mandates minted for the Session to carry the federated user's `sub`; callers that need the user's own mandate must present the federated mandate on the supported exchange or approval path.
+A Session may attach that record through `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`. Session creation must also present the federated Subject mandate through `subjectAuthorityRecordToken`, `subject_authority_record_token`, or `SubjectAuthorityRecordToken`; a bare record ID is not proof of control. The verified record remains the Session's immutable attribution and revocation anchor while application credentials rotate for lease maintenance. It does **not** by itself cause later resource mandates minted for the Session to carry the federated user's `sub`; callers that need the user's own mandate must present the federated mandate on the supported exchange or approval path.
 
 ## Revocation Anchors
 
