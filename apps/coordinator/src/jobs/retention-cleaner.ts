@@ -104,8 +104,6 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
            AND NOT EXISTS (
              SELECT 1 FROM delegation_edges child
              WHERE child.parent_edge_id = delegation_edges.id
-               AND child.status = 'active'
-               AND child.expires_at > now()
            )
          ORDER BY COALESCE(revoked_at, expires_at, updated_at, created_at)
          LIMIT $2

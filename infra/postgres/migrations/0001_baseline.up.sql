@@ -1186,6 +1186,14 @@ ALTER TABLE ONLY public.delegation_edges
 
 
 --
+-- Name: delegation_edges delegation_edges_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
 -- Name: delegation_graph_epochs delegation_graph_epochs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2415,11 +2423,11 @@ ALTER TABLE ONLY public.delegated_grants
 
 
 --
--- Name: delegation_edges delegation_edges_parent_edge_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: delegation_edges delegation_edges_zone_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_parent_edge_id_fkey FOREIGN KEY (parent_edge_id) REFERENCES public.delegation_edges(id) ON DELETE SET NULL;
+    ADD CONSTRAINT delegation_edges_zone_parent_fk FOREIGN KEY (zone_id, parent_edge_id) REFERENCES public.delegation_edges(zone_id, id);
 
 
 --

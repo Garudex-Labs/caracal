@@ -126,6 +126,14 @@ for t in "${RLS_TABLES[@]}"; do
 done
 
 echo ""
+echo "=== Delegation lineage: parent edge is same-zone and retained ==="
+if [ "$(scalar "SELECT count(*) FROM pg_constraint WHERE conname = 'delegation_edges_zone_parent_fk' AND pg_get_constraintdef(oid) = 'FOREIGN KEY (zone_id, parent_edge_id) REFERENCES delegation_edges(zone_id, id)';")" != "1" ]; then
+  echo "  FAIL: delegation parent edge foreign key is not zone-aware"
+  exit 1
+fi
+echo "  zone-aware parent edge foreign key OK"
+
+echo ""
 echo "=== Audit partitions: current rolling window exists ==="
 if [ "$(scalar "WITH expected AS (
   SELECT format('audit_events_y%sm%s',

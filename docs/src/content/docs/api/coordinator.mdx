@@ -41,6 +41,8 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 
 ## Delegation
 
+Runtime credentials see only Delegations where their application is the issuer or receiver. The managed operator token retains zone-wide inspection for Console and Admin SDK workflows.
+
 | Method  | Path                                                   | Purpose                                                                                              |
 | ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `POST`  | `/zones/:zoneId/delegations`                           | Create a Delegation. The response field `delegation_edge_id` is the protocol name for Delegation ID. |
