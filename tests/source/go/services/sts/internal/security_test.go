@@ -138,6 +138,11 @@ type stubApprovalDB struct {
 	consumeErr error
 }
 
+func (s *stubApprovalDB) InsertAuthorityRecordWithApproval(_ context.Context, _ *AuthorityRecord, p ConsumeApprovalParams) error {
+	s.gotParams = p
+	return s.consumeErr
+}
+
 func (s *stubApprovalDB) ConsumeApprovalChallenge(_ context.Context, p ConsumeApprovalParams) error {
 	s.gotParams = p
 	return s.consumeErr
@@ -221,6 +226,22 @@ func TestIsUnsafeIPCoversReservedRanges(t *testing.T) {
 		if isUnsafeIP(ip) {
 			t.Errorf("%s must be safe", c)
 		}
+	}
+}
+
+func TestPrivateEgressGrantAllowsPrivateRangesButNeverMetadataOrLoopback(t *testing.T) {
+	for _, address := range []string{"10.0.0.1", "172.16.0.1", "192.168.0.1", "100.64.0.1", "fd00::1"} {
+		if isUnsafeIP(net.ParseIP(address), true) {
+			t.Fatalf("explicit private egress grant must allow %s", address)
+		}
+	}
+	for _, address := range []string{"127.0.0.1", "169.254.169.254", "::1", "fe80::1", "64:ff9b::a9fe:a9fe"} {
+		if !isUnsafeIP(net.ParseIP(address), true) {
+			t.Fatalf("private egress grant must never allow %s", address)
+		}
+	}
+	if !hostAllowed("idp.internal.example", []string{"IDP.INTERNAL.EXAMPLE"}) {
+		t.Fatal("private host allowlist must be exact and case-insensitive")
 	}
 }
 

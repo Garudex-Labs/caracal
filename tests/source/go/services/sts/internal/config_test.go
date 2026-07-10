@@ -35,6 +35,38 @@ func TestLoadConfigRejectsSlowOPAPoll(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsInvalidLifecycleBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "zero opa poll", key: "OPA_POLL_SECONDS", value: "0"},
+		{name: "zero provider ttl", key: "MAX_GRANT_TTL_SECONDS", value: "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PORT", "8080")
+			t.Setenv("DATABASE_URL", "postgres://example")
+			t.Setenv("REDIS_URL", "redis://example")
+			t.Setenv("ISSUER_URL", "https://issuer.example")
+			t.Setenv(tc.key, tc.value)
+			if _, err := loadConfig(); err == nil {
+				t.Fatalf("%s must be rejected", tc.key)
+			}
+		})
+	}
+}
+
+func TestLoadConfigRejectsMalformedIssuer(t *testing.T) {
+	t.Setenv("PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("REDIS_URL", "redis://example")
+	t.Setenv("ISSUER_URL", "issuer.example")
+	if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "ISSUER_URL") {
+		t.Fatalf("malformed issuer must fail, got %v", err)
+	}
+}
+
 func TestLoadConfigRejectsPublishedModeWithoutGatewayHMAC(t *testing.T) {
 	t.Setenv("CARACAL_MODE", "stable")
 	t.Setenv("PORT", "8080")

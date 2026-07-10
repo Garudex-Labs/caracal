@@ -17,6 +17,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
+func TestStreamResponseRecognizesSSEAndUnknownLengthBodies(t *testing.T) {
+	for _, response := range []*http.Response{
+		{Header: http.Header{"Content-Type": {"text/event-stream; charset=utf-8"}}, ContentLength: 12},
+		{Header: make(http.Header), ContentLength: -1},
+	} {
+		if !streamResponse(response) {
+			t.Fatal("expected streaming response")
+		}
+	}
+	if streamResponse(&http.Response{Header: http.Header{"Content-Type": {"application/json"}}, ContentLength: 12}) {
+		t.Fatal("fixed-length JSON must use the ordinary write deadline")
+	}
+}
+
 func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 	store := newRevocationStore(zerolog.Nop())
 	resp := &http.Response{

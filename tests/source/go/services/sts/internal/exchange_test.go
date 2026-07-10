@@ -46,6 +46,30 @@ func TestTokenExchangeErrorIncludesGeneratedRequestID(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeRejectsUnsupportedOAuthParameters(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		form url.Values
+	}{
+		{name: "grant", form: url.Values{"grant_type": {"client_credentials"}}},
+		{name: "subject type", form: url.Values{
+			"grant_type":         {tokenExchangeGrantType},
+			"subject_token":      {"token"},
+			"subject_token_type": {"urn:unsupported"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader(tc.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			(&Server{}).handleTokenExchange(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }
@@ -409,7 +433,7 @@ func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
 	s.agentIndex++
 	return session, nil
 }
-func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]string, error) {
+func (s *stubDB) GetDelegationLineage(_ context.Context, _, _ string, _ int) ([]string, error) {
 	return s.path, s.pathErr
 }
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
@@ -418,6 +442,13 @@ func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, er
 func (s *stubDB) InsertAuthorityRecord(_ context.Context, sess *AuthorityRecord) error {
 	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
 	return s.sessErr
+}
+func (s *stubDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
 }
 func (s *stubDB) RevokeAuthorityRecord(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
@@ -1721,8 +1752,8 @@ func TestValidateAuthorityRecordReferencesRejectsSourceUsingDelegationEdge(t *te
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation edge target mismatch" {
-		t.Fatalf("source agent must not consume target delegation edge, got %#v", err)
+	if err == nil || err.Description != "delegation target mismatch" {
+		t.Fatalf("source Session must not consume target Delegation, got %#v", err)
 	}
 }
 
@@ -1765,7 +1796,7 @@ func TestValidateAuthorityRecordReferencesRejectsUnrelatedAppUsingDelegationEdge
 		Scope:            "read",
 	}, true)
 	if err == nil || err.Description != "delegation target inactive or unauthorized" {
-		t.Fatalf("unrelated app must not consume target delegation edge, got %#v", err)
+		t.Fatalf("unrelated app must not consume target Delegation, got %#v", err)
 	}
 }
 
@@ -1790,7 +1821,7 @@ func TestValidateAuthorityRecordReferencesRejectsExpiredDelegationEdge(t *testin
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation edge inactive or expired" {
+	if err == nil || err.Description != "delegation inactive or expired" {
 		t.Fatalf("expired edge must fail, got %#v", err)
 	}
 }
@@ -2138,7 +2169,7 @@ func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation path invalid" {
+	if err == nil || err.Description != "delegation hop budget exhausted" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
 }
@@ -2161,6 +2192,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
+	parentEdgeID := "edge0"
 	mainEdge := &DelegationEdge{
 		ID:              "edge1",
 		ZoneID:          "zone1",
@@ -2168,16 +2200,17 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		TargetSessionID: target.ID,
 		IssuerAppID:     source.ApplicationID,
 		ReceiverAppID:   target.ApplicationID,
+		ParentEdgeID:    &parentEdgeID,
 		Scopes:          []string{"read"},
 		Status:          "active",
 		ExpiresAt:       now.Add(time.Minute),
 		ConstraintsJSON: []byte(`{"max_hops":3}`),
 	}
-	// Build a valid 3-edge chain: app1→app1 (edge0), app1→app2 (edge1), app2→app2 (edge2).
+	// Build a valid 2-edge parent lineage: app1→app1 (edge0), app1→app2 (edge1).
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
 	db := &stubDB{
 		sessions:   []*Session{source, target},
-		path:       []string{"edge0", "edge1", "edge2"},
+		path:       []string{"edge0", "edge1"},
 		graphEpoch: 12,
 		edge:       mainEdge,
 		edgesMap: map[string]*DelegationEdge{
@@ -2190,18 +2223,9 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 				ReceiverAppID:   "app1",
 				Status:          "active",
 				ExpiresAt:       now.Add(time.Minute),
+				ConstraintsJSON: []byte(`{"max_hops":2}`),
 			},
 			"edge1": mainEdge,
-			"edge2": {
-				ID:              "edge2",
-				ZoneID:          "zone1",
-				SourceSessionID: target.ID,
-				TargetSessionID: target.ID,
-				IssuerAppID:     "app2",
-				ReceiverAppID:   "app2",
-				Status:          "active",
-				ExpiresAt:       now.Add(time.Minute),
-			},
 		},
 	}
 	srv := &Server{db: db}
@@ -2210,7 +2234,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
+	if err != nil || proof == nil || len(proof.path) != 2 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
 	}
 }

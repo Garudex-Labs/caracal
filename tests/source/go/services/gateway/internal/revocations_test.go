@@ -116,7 +116,7 @@ func TestProcessRevocationMessageMarksSignedDelegation(t *testing.T) {
 	processRevocationMessage(context.Background(), redis, store, redisMessage("1-4", map[string]any{"delegation_edge_id": "edge1"}), nil, zerolog.New(io.Discard))
 
 	if !store.IsDelegationRevoked("edge1") {
-		t.Fatalf("valid revocation message should mark delegation edge revoked")
+		t.Fatalf("valid revocation message should mark Delegation revoked")
 	}
 	if len(redis.acked) != 1 || redis.acked[0] != "1-4" {
 		t.Fatalf("valid stream message should be acked once, got %v", redis.acked)
@@ -127,13 +127,25 @@ func TestApplyRevocationSnapshotMarksAllAuthorityAnchors(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	applyRevocationSnapshot(store, []string{"sid1"}, []string{"agent1"}, []string{"edge1"})
 	if !store.IsRevoked("sid1") {
-		t.Fatalf("snapshot should mark session revoked")
+		t.Fatalf("snapshot should mark Authority record revoked")
 	}
 	if !store.IsSessionRevoked("agent1") {
-		t.Fatalf("snapshot should mark agent session revoked")
+		t.Fatalf("snapshot should mark Session revoked")
 	}
 	if !store.IsDelegationRevoked("edge1") {
-		t.Fatalf("snapshot should mark delegation revoked")
+		t.Fatalf("snapshot should mark Delegation revoked")
+	}
+}
+
+func TestApplyRevocationSnapshotRemovesResumedSession(t *testing.T) {
+	store := newRevocationStore(zerolog.New(io.Discard))
+	applyRevocationSnapshot(store, nil, []string{"agent1"}, nil)
+	if !store.IsSessionRevoked("agent1") {
+		t.Fatal("suspended Session must be present in the snapshot")
+	}
+	applyRevocationSnapshot(store, nil, nil, nil)
+	if store.IsSessionRevoked("agent1") {
+		t.Fatal("resumed Session must be removed by the current-state snapshot")
 	}
 }
 

@@ -123,6 +123,27 @@ func TestParseSubjectJWKS(t *testing.T) {
 	}
 }
 
+func TestSubjectKeyCacheRefreshesWhenTrustURLChanges(t *testing.T) {
+	key := federationKey(t)
+	cache := newSubjectKeyCache()
+	fetches := 0
+	cache.fetch = func(_ context.Context, _ string) ([]byte, error) {
+		fetches++
+		return federationJWKS(t, key, "ext-kid"), nil
+	}
+	issuer := &SubjectIssuer{ID: "si1", JWKSURL: "https://login.hooli.example/keys-1"}
+	if _, err := cache.keysFor(context.Background(), issuer); err != nil {
+		t.Fatal(err)
+	}
+	issuer.JWKSURL = "https://login.hooli.example/keys-2"
+	if _, err := cache.keysFor(context.Background(), issuer); err != nil {
+		t.Fatal(err)
+	}
+	if fetches != 2 {
+		t.Fatalf("trust URL change must refresh keys, fetches=%d", fetches)
+	}
+}
+
 func TestValidateSubjectIdentifierIsFormatAgnostic(t *testing.T) {
 	accepted := []string{
 		"user_123",
@@ -247,7 +268,7 @@ func TestFederatedAuthorityRecordCannotMintResources(t *testing.T) {
 	}
 	// A federated user session presented as subject_token must not open a direct
 	// resource mint: resource exchanges are Gateway-only, and the platform contract
-	// has no allow rule for a subject-bearing exchange without a delegation edge.
+	// has no allow rule for a subject-bearing exchange without a Delegation.
 	sessRow := db.insertedAuthorityRecords[0]
 	db.session = &AuthorityRecord{ID: sessRow.ID, ZoneID: "zone1", Status: "active", ExpiresAt: time.Now().Add(time.Hour), SubjectID: sessRow.SubjectID}
 	direct := TokenExchangeRequest{

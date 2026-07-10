@@ -52,7 +52,7 @@ func TestKeyCacheGeneratesMissingZoneSigningKey(t *testing.T) {
 	if _, _, err := cache.getKeyAndKid(context.Background(), "zone-1"); err != nil {
 		t.Fatal(err)
 	}
-	if db.getCalls != 1 || db.ensureCalls != 1 {
-		t.Fatalf("expected cached key reuse, got loads=%d ensures=%d", db.getCalls, db.ensureCalls)
+	if db.getCalls != 2 || db.ensureCalls != 1 {
+		t.Fatalf("expected active-key version check with cached key reuse, got loads=%d ensures=%d", db.getCalls, db.ensureCalls)
 	}
 }

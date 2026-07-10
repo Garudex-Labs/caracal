@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -84,7 +85,7 @@ func TestDecisionContractDelegatedMintAllow(t *testing.T) {
 }
 
 // TestDecisionContractDelegatedMintNarrowing is the floor that the hand-authored Rego
-// silently lost across adopters: a scope the delegation edge never granted must never
+// silently lost across adopters: a scope the Delegation never granted must never
 // be mintable, even when the role grant and resource would otherwise allow it.
 func TestDecisionContractDelegatedMintNarrowing(t *testing.T) {
 	res := simulateContract(t, OPAInput{
@@ -99,7 +100,7 @@ func TestDecisionContractDelegatedMintNarrowing(t *testing.T) {
 		},
 	}, dataModules())
 	if res.Decision != "deny" {
-		t.Fatalf("scope outside delegation edge must deny, got %q", res.Decision)
+		t.Fatalf("scope outside Delegation must deny, got %q", res.Decision)
 	}
 }
 
@@ -110,7 +111,7 @@ import rego.v1
 
 risk := [{"scope": "nucleus:pay", "tier": "money"}]
 
-approval_declarations := [{"tier": "money", "approver": "subject", "ttl_seconds": 900, "privacy": "pseudonymous"}]
+	approval_tiers := [{"tier": "money", "approver": "subject", "ttl_seconds": 900, "privacy": "pseudonymous"}]
 `
 	input := OPAInput{
 		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
@@ -150,7 +151,7 @@ import rego.v1
 
 risk := [{"scope": "nucleus:pay", "tier": "money"}]
 
-approval_declarations := [{"approver": "operator"}]
+approval_tiers := [{"approver": "operator"}]
 `
 	res := simulateContract(t, OPAInput{
 		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
@@ -192,6 +193,29 @@ risk := [{"scope": "nucleus:pay", "tier": "sensitive"}]
 	}
 	if riskTier(res, "nucleus:pay") != "sensitive" {
 		t.Fatalf("a classified scope must ride in diagnostics for audit even when ungated, got %+v", res.Diagnostics)
+	}
+}
+
+func TestDecisionContractMalformedRiskDenies(t *testing.T) {
+	risk := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope": "nucleus:pay"}]
+`
+	res := simulateContract(t, OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:       OPAResource{Identifier: "resource://nucleus"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+		Context: OPAContext{
+			SessionID:       "agent-1",
+			RequestedScopes: []string{"nucleus:pay"},
+			ActorClaims:     map[string]any{},
+		},
+	}, dataModules(OPAPolicyModule{ID: "risk", Content: risk}))
+	if res.Decision != "deny" {
+		t.Fatalf("a risk rule without a tier must fail the mint closed, got %q", res.Decision)
 	}
 }
 
@@ -239,12 +263,59 @@ func TestDecisionContractMandateUseAllow(t *testing.T) {
 		Action:    OPAAction{ID: "token_exchange"},
 		Context: OPAContext{
 			RequestedScopes: []string{},
-			SubjectClaims:   map[string]any{"delegation_edge_id": "edge1", "target": []string{"resource://nucleus"}},
-			ActorClaims:     map[string]any{},
+			SubjectClaims: map[string]any{
+				"delegation_edge_id": "edge1",
+				"target":             []string{"resource://nucleus"},
+				"scope":              "nucleus:pay",
+			},
+			ActorClaims: map[string]any{},
 		},
 	}, dataModules())
 	if res.Decision != "allow" {
 		t.Fatalf("mandate use bound to the resource must allow, got %q", res.Decision)
+	}
+}
+
+func TestDecisionContractMandateUseRejectsScopeRemovedFromRole(t *testing.T) {
+	grants := `package caracal.authz
+
+import rego.v1
+
+grants := {"resource://nucleus": {"application": "payments", "roles": {"payment-execution": ["nucleus:read"]}}}
+app_ids := {"payments": "app-payments"}
+`
+	res := simulateContract(t, OPAInput{
+		Principal: OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:  OPAResource{Identifier: "resource://nucleus"},
+		Action:    OPAAction{ID: "token_exchange"},
+		Context: OPAContext{
+			RequestedScopes: []string{},
+			SubjectClaims: map[string]any{
+				"delegation_edge_id": "edge1",
+				"target":             []string{"resource://nucleus"},
+				"scope":              "nucleus:pay",
+			},
+			ActorClaims: map[string]any{},
+		},
+	}, []OPAPolicyModule{{ID: "grants", Content: grants}})
+	if res.Decision != "deny" {
+		t.Fatalf("a mandate scope removed from the current role must deny, got %q", res.Decision)
+	}
+}
+
+func TestDecisionContractMandateUseRejectsMissingScope(t *testing.T) {
+	res := simulateContract(t, OPAInput{
+		Principal: OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+		Resource:  OPAResource{Identifier: "resource://nucleus"},
+		Action:    OPAAction{ID: "token_exchange"},
+		Context: OPAContext{
+			RequestedScopes: []string{},
+			SubjectClaims:   map[string]any{"delegation_edge_id": "edge1", "target": []string{"resource://nucleus"}},
+			ActorClaims:     map[string]any{},
+		},
+	}, dataModules())
+	if res.Decision != "deny" {
+		t.Fatalf("a mandate without carried scopes must deny, got %q", res.Decision)
 	}
 }
 
@@ -337,7 +408,7 @@ import rego.v1
 
 risk := [{"scope": "nucleus:read", "tier": "sensitive"}]
 
-approval_declarations := [{"tier": "sensitive", "approver": "operator", "ttl_seconds": 600, "privacy": "identified"}]
+approval_tiers := [{"tier": "sensitive", "approver": "operator", "ttl_seconds": 600, "privacy": "identified"}]
 `
 	res := simulateContract(t, workloadMintInput(), []OPAPolicyModule{{ID: "risk", Content: risk}})
 	if res.Decision != "allow" {
@@ -365,6 +436,27 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 	}, []OPAPolicyModule{{ID: "adopter", Content: adopterDecision}})
 	if err == nil {
 		t.Fatal("an adopter module that defines result must be rejected")
+	}
+}
+
+func TestDecisionContractRejectsAdopterHelperOverride(t *testing.T) {
+	adopter := `package caracal.authz
+
+import rego.v1
+
+principal_app := "attacker"
+principal_owns_resource if true
+	approval_tiers := [{"approver": "operator"}]
+use_role_allowed if true
+`
+	_, err := newOPAEngine(nil).Simulate(context.Background(), OPAInput{
+		SchemaVersion: "2026-05-20",
+		Principal:     OPAPrincipal{ID: "unowned-app", ZoneID: "z1", Type: "application"},
+		Resource:      OPAResource{Identifier: "resource://nucleus"},
+		Action:        OPAAction{ID: "token_exchange"},
+	}, []OPAPolicyModule{{ID: "adopter", Content: adopter}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported data rule") {
+		t.Fatalf("an adopter module that overrides a contract helper must be rejected, got %v", err)
 	}
 }
 

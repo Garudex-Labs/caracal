@@ -160,11 +160,12 @@ func TestExchangeGatewaySignedRequestMintsResourceMandate(t *testing.T) {
 	mandate := sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
 
 	form := url.Values{
-		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"zone_id":        {"zone1"},
-		"application_id": {"app1"},
-		"subject_token":  {mandate},
-		"resource":       {"resource://pipernet"},
+		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"zone_id":            {"zone1"},
+		"application_id":     {"app1"},
+		"subject_token":      {mandate},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
+		"resource":           {"resource://pipernet"},
 	}
 	requestID := "req-gateway-1"
 	now := time.Now().UTC()
@@ -472,6 +473,14 @@ func (d *approvalFlowDB) GetOrCreateApprovalChallenge(_ context.Context, c *Step
 
 func (d *approvalFlowDB) ConsumeApprovalChallenge(context.Context, ConsumeApprovalParams) error {
 	return d.consumeErr
+}
+
+func (d *approvalFlowDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
+	if d.consumeErr != nil {
+		return ErrChallengeInvalid
+	}
+	d.insertedAuthorityRecords = append(d.insertedAuthorityRecords, sess)
+	return nil
 }
 
 func exchangeApprovalChallenge(t *testing.T) *StepUpChallengePG {

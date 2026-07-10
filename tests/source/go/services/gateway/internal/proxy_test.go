@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -360,10 +361,10 @@ func TestProxyRejectsRevokedRootSession(t *testing.T) {
 		"X-Caracal-Resource": {"r1"},
 	})
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected revoked root session to return 401, got %d", resp.StatusCode)
+		t.Fatalf("expected revoked Root authority record to return 401, got %d", resp.StatusCode)
 	}
 	if atomic.LoadInt32(&calls) != 0 {
-		t.Fatalf("revoked root session must not reach STS")
+		t.Fatalf("revoked Root authority record must not reach STS")
 	}
 }
 
@@ -441,6 +442,21 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "ok" {
 		t.Errorf("body = %q", body)
+	}
+}
+
+func TestTrustedProxyPreservesSanitizedClientAndScheme(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.2:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	upstream, _ := url.Parse("https://upstream.example")
+	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{}, nil, "request-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Header.Get("X-Forwarded-For") != "203.0.113.10" || req.Header.Get("X-Forwarded-Proto") != "https" {
+		t.Fatalf("unexpected forwarding metadata: %#v", req.Header)
 	}
 }
 

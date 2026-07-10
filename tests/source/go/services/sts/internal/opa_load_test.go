@@ -7,8 +7,10 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -44,13 +46,14 @@ func (d *policyDB) ListBoundZoneIDs(_ context.Context) ([]string, error) {
 	return d.boundZones, d.boundErr
 }
 
-func boundPolicyDB(policies []PolicyVersion, manifestSHA string) *policyDB {
+func boundPolicyDB(policies []PolicyVersion) *policyDB {
 	versionID := "psv-1"
 	manifest := make([]map[string]string, len(policies))
 	for i, p := range policies {
 		manifest[i] = map[string]string{"policy_version_id": p.ID}
 	}
 	manifestJSON, _ := json.Marshal(manifest)
+	manifestSHA := fmt.Sprintf("%x", sha256.Sum256(manifestJSON))
 	return &policyDB{
 		binding:  &PolicySetBinding{ZoneID: "zone-1", PolicySetID: "ps-1", ActiveVersionID: &versionID},
 		version:  &PolicySetVersion{ID: versionID, ManifestJSON: manifestJSON, ManifestSHA256: manifestSHA},
@@ -59,14 +62,14 @@ func boundPolicyDB(policies []PolicyVersion, manifestSHA string) *policyDB {
 }
 
 func TestLoadZoneCompilesActiveBundle(t *testing.T) {
-	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}}, "sha-1")
+	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}})
 	engine := newOPAEngine(db, zerolog.Nop())
 
 	if err := engine.loadZone(context.Background(), "zone-1"); err != nil {
 		t.Fatalf("loadZone: %v", err)
 	}
 	info := engine.BundleInfo("zone-1")
-	if info.PolicySetVersionID != "psv-1" || info.ManifestSHA != "sha-1" {
+	if info.PolicySetVersionID != "psv-1" || info.ManifestSHA != db.version.ManifestSHA256 {
 		t.Fatalf("bundle info = %+v", info)
 	}
 	if engine.metrics.CompileTotal.Load() != 1 {
@@ -93,7 +96,7 @@ func TestLoadZoneRejectsBadBundles(t *testing.T) {
 	})
 
 	t.Run("malformed manifest", func(t *testing.T) {
-		db := boundPolicyDB(nil, "sha-1")
+		db := boundPolicyDB(nil)
 		db.version.ManifestJSON = json.RawMessage(`{not json`)
 		engine := newOPAEngine(db, zerolog.Nop())
 		if err := engine.loadZone(context.Background(), "zone-1"); err == nil {
@@ -102,7 +105,7 @@ func TestLoadZoneRejectsBadBundles(t *testing.T) {
 	})
 
 	t.Run("incomplete bundle", func(t *testing.T) {
-		db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}}, "sha-1")
+		db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}})
 		db.policies = nil
 		engine := newOPAEngine(db, zerolog.Nop())
 		err := engine.loadZone(context.Background(), "zone-1")
@@ -113,7 +116,7 @@ func TestLoadZoneRejectsBadBundles(t *testing.T) {
 
 	t.Run("policy defining result is rejected", func(t *testing.T) {
 		content := "package caracal.authz\n\nimport rego.v1\n\nresult := {\"decision\": \"allow\"}\n"
-		db := boundPolicyDB([]PolicyVersion{{ID: "pv-rogue", Content: content}}, "sha-1")
+		db := boundPolicyDB([]PolicyVersion{{ID: "pv-rogue", Content: content}})
 		engine := newOPAEngine(db, zerolog.Nop())
 		err := engine.loadZone(context.Background(), "zone-1")
 		if err == nil || !strings.Contains(err.Error(), "defines result") {
@@ -125,16 +128,26 @@ func TestLoadZoneRejectsBadBundles(t *testing.T) {
 	})
 
 	t.Run("compile failure counts", func(t *testing.T) {
-		db := boundPolicyDB([]PolicyVersion{{ID: "pv-broken", Content: "package caracal.authz\n\ngrants := data.oops["}}, "sha-1")
+		db := boundPolicyDB([]PolicyVersion{{ID: "pv-broken", Content: "package caracal.authz\n\ngrants := data.oops["}})
 		engine := newOPAEngine(db, zerolog.Nop())
 		if err := engine.loadZone(context.Background(), "zone-1"); err == nil {
 			t.Fatal("unparsable policy must fail")
 		}
 	})
+
+	t.Run("manifest hash mismatch", func(t *testing.T) {
+		db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}})
+		db.version.ManifestSHA256 = strings.Repeat("0", 64)
+		engine := newOPAEngine(db, zerolog.Nop())
+		err := engine.loadZone(context.Background(), "zone-1")
+		if err == nil || !strings.Contains(err.Error(), "hash mismatch") {
+			t.Fatalf("tampered manifest hash must fail, got %v", err)
+		}
+	})
 }
 
 func TestLoadZoneKeepsCachedBundleOnTransientVersionError(t *testing.T) {
-	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}}, "sha-1")
+	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}})
 	engine := newOPAEngine(db, zerolog.Nop())
 	if err := engine.loadZone(context.Background(), "zone-1"); err != nil {
 		t.Fatal(err)
@@ -144,7 +157,7 @@ func TestLoadZoneKeepsCachedBundleOnTransientVersionError(t *testing.T) {
 	if err := engine.loadZone(context.Background(), "zone-1"); err != nil {
 		t.Fatalf("cached bundle must absorb transient version errors: %v", err)
 	}
-	if engine.BundleInfo("zone-1").ManifestSHA != "sha-1" {
+	if engine.BundleInfo("zone-1").ManifestSHA != db.version.ManifestSHA256 {
 		t.Fatal("cached bundle must survive the flap")
 	}
 
@@ -155,13 +168,13 @@ func TestLoadZoneKeepsCachedBundleOnTransientVersionError(t *testing.T) {
 }
 
 func TestSeedZonesLoadsEveryBoundZone(t *testing.T) {
-	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}}, "sha-1")
+	db := boundPolicyDB([]PolicyVersion{{ID: "pv-grants", Content: grantsData}})
 	db.boundZones = []string{"zone-1", "zone-2"}
 	engine := newOPAEngine(db, zerolog.Nop())
 
 	engine.SeedZones(context.Background())
 
-	if engine.BundleInfo("zone-1").ManifestSHA != "sha-1" || engine.BundleInfo("zone-2").ManifestSHA != "sha-1" {
+	if engine.BundleInfo("zone-1").ManifestSHA != db.version.ManifestSHA256 || engine.BundleInfo("zone-2").ManifestSHA != db.version.ManifestSHA256 {
 		t.Fatal("seeding must compile every bound zone")
 	}
 
