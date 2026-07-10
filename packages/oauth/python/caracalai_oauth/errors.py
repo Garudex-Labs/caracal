@@ -99,8 +99,8 @@ class OperationNotPermitted(CaracalError):
 
 
 class DelegationRequired(CaracalError):
-    """The exchange must run on behalf of an agent through a delegation edge.
-    Supply the agent session and delegation edge before retrying."""
+    """The exchange requires delegated authority.
+    Supply the Session and Delegation before retrying."""
 
     code = "delegation_required"
 

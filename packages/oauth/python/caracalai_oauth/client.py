@@ -153,7 +153,7 @@ class OAuthClient:
         inflight_key = f"{cache_subject}::{cache_resource}"
         task = self._inflight.get(inflight_key)
         if task is not None:
-            return await task
+            return await asyncio.shield(task)
 
         task = asyncio.create_task(
             self._exchange_and_cache(
@@ -162,7 +162,7 @@ class OAuthClient:
         )
         self._inflight[inflight_key] = task
         try:
-            return await task
+            return await asyncio.shield(task)
         finally:
             self._inflight.pop(inflight_key, None)
 
@@ -185,9 +185,9 @@ class OAuthClient:
             [
                 f"{self._zone_id}::{self._application_id}",
                 _hash_secret(subject_token),
+                opts.authority_record_id or "",
                 opts.session_id or "",
-                opts.agent_session_id or "",
-                opts.delegation_edge_id or "",
+                opts.delegation_id or "",
                 self._auth_context(opts),
                 _hash_secret(opts.client_assertion),
             ]
@@ -224,9 +224,9 @@ class OAuthClient:
         _set_value(data, "client_secret", opts.client_secret)
         _set_value(data, "client_assertion", opts.client_assertion)
         _set_value(data, "client_assertion_type", opts.client_assertion_type)
-        _set_value(data, "session_id", opts.session_id)
-        _set_value(data, "agent_session_id", opts.agent_session_id)
-        _set_value(data, "delegation_edge_id", opts.delegation_edge_id)
+        _set_value(data, "session_id", opts.authority_record_id)
+        _set_value(data, "agent_session_id", opts.session_id)
+        _set_value(data, "delegation_edge_id", opts.delegation_id)
         _set_value(data, "challenge_id", opts.challenge_id)
         scope = _normalized_scopes(opts.scopes)
         if scope:
@@ -278,9 +278,9 @@ class OAuthClient:
                         client_secret=opts.client_secret,
                         client_assertion=opts.client_assertion,
                         client_assertion_type=opts.client_assertion_type,
+                        authority_record_id=opts.authority_record_id,
                         session_id=opts.session_id,
-                        agent_session_id=opts.agent_session_id,
-                        delegation_edge_id=opts.delegation_edge_id,
+                        delegation_id=opts.delegation_id,
                         challenge_id=opts.challenge_id,
                         scopes=opts.scopes,
                         timeout_ms=opts.timeout_ms,

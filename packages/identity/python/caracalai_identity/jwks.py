@@ -12,6 +12,8 @@ import httpx
 from caracalai_core import JsonValue
 
 _TTL = 300.0
+_MAX_JWKS_BYTES = 256 * 1024
+_FETCH_TIMEOUT = 5.0
 
 
 def _assert_secure_issuer(issuer: str) -> None:
@@ -40,12 +42,13 @@ def _is_loopback_host(host: str | None) -> bool:
 
 
 class JwksCache:
-    def __init__(self) -> None:
+    def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
         self._cache: dict[
             tuple[str, str], tuple[list[dict[str, JsonValue]], float]
         ] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
+        self._http_client = http_client
 
     async def _lock_for(self, key: tuple[str, str]) -> asyncio.Lock:
         async with self._locks_guard:
@@ -78,10 +81,15 @@ class JwksCache:
             if entry and time.monotonic() - entry[1] < _TTL:
                 return entry[0]
 
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                body = resp.json()
+            if self._http_client is None:
+                async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
+                    resp = await client.get(url)
+            else:
+                resp = await self._http_client.get(url, timeout=_FETCH_TIMEOUT)
+            resp.raise_for_status()
+            if len(resp.content) > _MAX_JWKS_BYTES:
+                raise ValueError("JWKS document too large")
+            body = resp.json()
 
             keys = body.get("keys", []) if isinstance(body, dict) else []
             keys = [k for k in keys if isinstance(k, dict)]
