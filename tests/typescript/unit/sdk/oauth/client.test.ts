@@ -157,7 +157,7 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('retries once on 401', async () => {
+  it('does not retry unchanged credentials on 401', async () => {
     let callCount = 0
     vi.stubGlobal(
       'fetch',
@@ -170,9 +170,8 @@ describe('OAuthClient', () => {
       }),
     )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    const res = await client.exchange('subject-tok', 'resource://api')
-    expect(res.accessToken).toBe('tok-retry')
-    expect(callCount).toBe(2)
+    await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow()
+    expect(callCount).toBe(1)
   })
 
   it('throws ApprovalRequiredError on interaction_required', async () => {

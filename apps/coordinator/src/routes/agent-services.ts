@@ -164,6 +164,15 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
+      if (own[0].status !== 'active' && own[0].status !== 'suspended') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_not_live' })
+      }
+      if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
+        await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
+        await client.query('COMMIT')
+        return reply.code(409).send({ error: 'session_lease_expired' })
+      }
       const authorityRecordId = req.caracalAuth?.authorityRecordId
       if (!authorityRecordId) {
         await client.query('ROLLBACK')
@@ -178,15 +187,6 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (!authority[0]) {
         await client.query('ROLLBACK')
         return reply.code(401).send({ error: 'identity_revoked' })
-      }
-      if (own[0].status !== 'active' && own[0].status !== 'suspended') {
-        await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'session_not_live' })
-      }
-      if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
-        await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
-        await client.query('COMMIT')
-        return reply.code(409).send({ error: 'session_lease_expired' })
       }
       const { rows: agents } = await client.query(
         `UPDATE sessions

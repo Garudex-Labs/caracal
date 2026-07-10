@@ -5,7 +5,7 @@
  * SDK primitives: run governed sessions and delegate authority.
  */
 
-import { bind, cloneBaggage, current, CaracalContext } from './context.js'
+import { bind, cloneBaggage, contextBearer, current, CaracalContext } from './context.js'
 import {
   SessionStatus,
   CoordinatorClient,
@@ -226,7 +226,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       }
       const delRes = await createDelegation(
         input.coordinator,
-        parent.subjectToken,
+        await contextBearer(parent),
         {
           zoneId: input.zoneId,
           issuerApplicationId: parent.applicationId,
@@ -263,6 +263,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     baggage: cloneBaggage(parent?.baggage),
     hop,
     ownToken: true,
+    tokenSource: input.tokenSource,
   }
   return { sessionId: res.sessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
 }
@@ -375,7 +376,7 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
   let res: DelegationResponse | undefined
   for (let attempt = 0; res === undefined; attempt++) {
     try {
-      res = await createDelegation(input.coordinator, ctx.subjectToken, req, input.signal)
+      res = await createDelegation(input.coordinator, await contextBearer(ctx), req, input.signal)
     } catch (e) {
       if (input.signal?.aborted) throw e
       const transient = !(e instanceof CoordinatorError) || e.status >= 500
@@ -518,6 +519,7 @@ export async function attachSession(input: AttachSessionInput): Promise<SessionH
     sessionId: input.sessionId,
     hop: 0,
     ownToken: true,
+    tokenSource: input.tokenSource,
   }
   return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt, first.status)
 }

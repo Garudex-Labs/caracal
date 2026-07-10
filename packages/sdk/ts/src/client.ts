@@ -5,7 +5,7 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
+import { bind, contextBearer, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHmac, randomBytes } from 'node:crypto'
 import { parse } from 'smol-toml'
@@ -498,7 +498,13 @@ export class Caracal {
   async revokeDelegation(delegationId: string, signal?: AbortSignal): Promise<void> {
     const ctx = current()
     const identity = await this.identity()
-    await revokeDelegation(this.config.coordinator, ctx?.subjectToken ?? (await this.rootToken()), identity.zoneId, delegationId, signal)
+    await revokeDelegation(
+      this.config.coordinator,
+      ctx ? await contextBearer(ctx) : await this.rootToken(),
+      identity.zoneId,
+      delegationId,
+      signal,
+    )
   }
 
   /**
@@ -527,7 +533,7 @@ export class Caracal {
       if (!ctx.sessionId) throw new Error('acceptDelegation validation requires an active session in context')
       let match
       try {
-        match = await getInboundDelegation(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId, delegationId)
+        match = await getInboundDelegation(this.config.coordinator, await contextBearer(ctx), ctx.zoneId, ctx.sessionId, delegationId)
       } catch {
         emit(false)
         throw new Error(
@@ -1309,7 +1315,8 @@ function defaultWarn(message: string, err?: unknown): void {
  * the developer does not need the policy model to decode the deny.
  */
 function lifecycleAuthorityHint(err: unknown, ctx: CaracalContext | undefined): unknown {
-  if (!(err instanceof CaracalError) || err.code !== 'access_denied') return err
+  if (!(err instanceof CaracalError)) return err
+  if (err.code !== 'access_denied') return err
   if (!ctx?.sessionId || ctx.delegationId) return err
   return new CaracalError(
     err.code,
@@ -1890,7 +1897,7 @@ function createClientSecretTokenSource(
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
         signal: opts.signal,
-        cache: opts.cache,
+        cache: opts.cache ?? !(opts.sessionId && opts.delegationId),
       })
       return { token: token.accessToken, expiresInSeconds: token.expiresIn }
     },

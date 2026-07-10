@@ -36,6 +36,8 @@ export interface CaracalContext {
    * Process-local; never serialized to the envelope.
    */
   ownToken?: boolean
+  /** Fresh bearer resolver for owned contexts; process-local and never serialized. */
+  tokenSource?: () => string | Promise<string>
 }
 
 export interface AuthoritySummary {
@@ -82,6 +84,10 @@ export function captureContext(): CaracalContext | undefined {
 
 export function bind<T>(ctx: CaracalContext, fn: () => T): T {
   return storage.run(ctx, fn)
+}
+
+export async function contextBearer(ctx: CaracalContext): Promise<string> {
+  return ctx.ownToken && ctx.tokenSource ? await ctx.tokenSource() : ctx.subjectToken
 }
 
 export function withOverrides(patch: Partial<CaracalContext>): CaracalContext {

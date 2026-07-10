@@ -22,6 +22,7 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
       subject: 'test',
       clientId,
       sessionId: 'sid-test',
+      authorityRecordId: 'authority-fresh',
     }
   })
   app.register(agentServicesRoutes, { prefix: '/v1' })
@@ -190,6 +191,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active' }] })
+        .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', zone_id: 'z1', application_id: 'app-1', last_active_at: new Date() }] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1', zone_id: 'z1', application_id: 'app-1' }] })
         .mockResolvedValue({ rows: [] }),
@@ -218,6 +220,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockRejectedValueOnce(new Error('update failed')),
       release: vi.fn(),
     }
@@ -233,6 +236,38 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(res.statusCode).toBe(500)
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
     expect(client.release).toHaveBeenCalled()
+  })
+
+  it('rebinds the Session to the fresh authenticated Authority record', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ application_id: 'app-1', subject_authority_record_id: 'authority-stale', status: 'active', lifecycle: 'service' }],
+        })
+        .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('subject_authority_record_id = $4'), [
+      'agent-1',
+      'z1',
+      expect.any(Number),
+      'authority-fresh',
+    ])
   })
 })
 
@@ -335,6 +370,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),
