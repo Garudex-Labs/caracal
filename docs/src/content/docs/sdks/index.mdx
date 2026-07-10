@@ -7,40 +7,40 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 
 ## Choose by What You Are Building
 
-| I am building... | Start here | Then read |
-| --- | --- | --- |
-| TypeScript app or agent workflow | [TypeScript SDK](./typescript/) | [OAuth Package](./oauth/), [Verify Package](./verify/) |
-| Python app, agent, or ASGI service | [Python SDK](./python/) | [ASGI Adapter](./adapters/asgi/), [FastMCP Adapter](./adapters/fastmcp/), [Verify Package](./verify/) |
-| Go service or agent workflow | [Go SDK](./go/) | [Go net/http Adapter](./adapters/nethttp/) |
-| Express resource server | [Express Adapter](./adapters/express/) | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/) |
-| FastAPI or Starlette resource server | [ASGI Adapter](./adapters/asgi/) | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/) |
-| FastMCP server | [FastMCP Adapter](./adapters/fastmcp/) | [Verify Package](./verify/) |
-| Custom verification boundary | [Verification Layer Overview](./verification-layer/) | [Identity Package](./identity/), [Revocation Package](./revocation/) |
-| Admin or provisioning automation | [Admin Package](./admin/) | [Use the Admin API](/api/control-plane/) |
-| Shared revocation storage | [Redis Revocation Store](./backends/redis/) | [Revocation Package](./revocation/) |
+| I am building...                     | Start here                                           | Then read                                                                                             |
+| ------------------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| TypeScript app or agent workflow     | [TypeScript SDK](./typescript/)                      | [OAuth Package](./oauth/), [Verify Package](./verify/)                                                |
+| Python app, agent, or ASGI service   | [Python SDK](./python/)                              | [ASGI Adapter](./adapters/asgi/), [FastMCP Adapter](./adapters/fastmcp/), [Verify Package](./verify/) |
+| Go service or agent workflow         | [Go SDK](./go/)                                      | [Go net/http Adapter](./adapters/nethttp/)                                                            |
+| Express resource server              | [Express Adapter](./adapters/express/)               | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/)                              |
+| FastAPI or Starlette resource server | [ASGI Adapter](./adapters/asgi/)                     | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/)                              |
+| FastMCP server                       | [FastMCP Adapter](./adapters/fastmcp/)               | [Verify Package](./verify/)                                                                           |
+| Custom verification boundary         | [Verification Layer Overview](./verification-layer/) | [Identity Package](./identity/), [Revocation Package](./revocation/)                                  |
+| Admin or provisioning automation     | [Admin Package](./admin/)                            | [Use the Admin API](/api/control-plane/)                                                              |
+| Shared revocation storage            | [Redis Revocation Store](./backends/redis/)          | [Revocation Package](./revocation/)                                                                   |
 
 ## Package Map
 
-| Area | TypeScript / Node | Python | Go |
-| --- | --- | --- | --- |
-| App SDK | `@caracalai/sdk` | `caracalai-sdk` | `github.com/garudex-labs/caracal/packages/sdk/go` |
-| Identity verification | `@caracalai/identity` | `caracalai-identity` | `github.com/garudex-labs/caracal/packages/identity/go` |
-| OAuth token exchange | `@caracalai/oauth` | `caracalai-oauth` | `github.com/garudex-labs/caracal/packages/oauth/go` |
-| Revocation store | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
-| Verification engine | `@caracalai/verify` | `caracalai-verify` | `github.com/garudex-labs/caracal/packages/verify/go` |
-| Express adapter | `@caracalai/express` | Not applicable | Not applicable |
-| FastMCP adapter | `@caracalai/fastmcp` | `caracalai-fastmcp` | Not applicable |
-| ASGI adapter | Not applicable | `caracalai-asgi` | Not applicable |
-| net/http adapter | Not applicable | Not applicable | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
-| Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/backends/redis/go` |
+| Area                   | TypeScript / Node             | Python                       | Go                                                             |
+| ---------------------- | ----------------------------- | ---------------------------- | -------------------------------------------------------------- |
+| App SDK                | `@caracalai/sdk`              | `caracalai-sdk`              | `github.com/garudex-labs/caracal/packages/sdk/go`              |
+| Identity verification  | `@caracalai/identity`         | `caracalai-identity`         | `github.com/garudex-labs/caracal/packages/identity/go`         |
+| OAuth token exchange   | `@caracalai/oauth`            | `caracalai-oauth`            | `github.com/garudex-labs/caracal/packages/oauth/go`            |
+| Revocation store       | `@caracalai/revocation`       | `caracalai-revocation`       | `github.com/garudex-labs/caracal/packages/revocation/go`       |
+| Verification engine    | `@caracalai/verify`           | `caracalai-verify`           | `github.com/garudex-labs/caracal/packages/verify/go`           |
+| Express adapter        | `@caracalai/express`          | Not applicable               | Not applicable                                                 |
+| FastMCP adapter        | `@caracalai/fastmcp`          | `caracalai-fastmcp`          | Not applicable                                                 |
+| ASGI adapter           | Not applicable                | `caracalai-asgi`             | Not applicable                                                 |
+| net/http adapter       | Not applicable                | Not applicable               | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
+| Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/backends/redis/go`   |
 
 ## Runtime Requirements
 
-| Ecosystem | Current package target |
-| --- | --- |
-| Node.js | Node `>=22` for published TypeScript packages that declare an engine. |
-| Python | Python `>=3.12` for published Python packages. |
-| Go | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
+| Ecosystem | Current package target                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| Node.js   | Node `>=22` for published TypeScript packages that declare an engine.                                                 |
+| Python    | Python `>=3.12` for published Python packages.                                                                        |
+| Go        | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
 
 ## Related Guides
 

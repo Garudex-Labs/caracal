@@ -7,44 +7,44 @@ The OAuth packages exchange existing subject authority for resource mandates thr
 
 ## Install
 
-| Ecosystem | Package |
-| --- | --- |
-| TypeScript | `npm install @caracalai/oauth` |
-| Python | `pip install caracalai-oauth` |
-| Go | `go get github.com/garudex-labs/caracal/packages/oauth/go` |
+| Ecosystem  | Package                                                    |
+| ---------- | ---------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/oauth`                             |
+| Python     | `pip install caracalai-oauth`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/oauth/go` |
 
 ## Exchange inputs
 
-| Option | Meaning |
-| --- | --- |
-| Subject token | Existing user, service, agent, or application authority. |
-| Resource | Resource identifier or audience requested from STS. |
-| Client secret or assertion | Application authentication for client-secret flows. |
-| Actor token | Optional actor authority for delegated exchanges. |
-| Session ID | Subject session anchor. |
-| Agent session ID | Agent execution anchor. |
-| Delegation edge ID | Delegated authority anchor. |
-| Scopes | Requested resource scopes. |
-| TTL seconds | Requested mandate lifetime. |
+| Option                     | Meaning                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Subject token              | Existing user, service, agent, or application authority.                                                                      |
+| Resource                   | Resource identifier or audience requested from STS.                                                                           |
+| Client secret or assertion | Application authentication for client-secret flows.                                                                           |
+| Actor token                | Optional actor authority for delegated exchanges.                                                                             |
+| Session ID                 | OAuth client's compatibility name for an Authority record ID; sent as protocol `session_id`. It is not a governed Session ID. |
+| Session ID                 | Protocol name for the governed Session ID; sent as `agent_session_id`.                                                        |
+| Delegation ID              | Protocol name for Delegation ID; sent as `delegation_edge_id`.                                                                |
+| Scopes                     | Requested resource scopes.                                                                                                    |
+| TTL seconds                | Requested mandate lifetime.                                                                                                   |
 
 ## TypeScript example
 
 ```ts
-import { OAuthClient, ApprovalRequiredError } from "@caracalai/oauth";
+import { OAuthClient, ApprovalRequiredError } from '@caracalai/oauth'
 
-const oauth = new OAuthClient(stsUrl, zoneId, applicationId);
+const oauth = new OAuthClient(stsUrl, zoneId, applicationId)
 
 try {
-  const token = await oauth.exchange(subjectToken, "https://api.example.com/tickets", {
-    scopes: ["tickets:read"],
+  const token = await oauth.exchange(subjectToken, 'https://api.example.com/tickets', {
+    scopes: ['tickets:read'],
     clientSecret: process.env.CARACAL_APP_CLIENT_SECRET,
-  });
-  console.log(token.accessToken, token.expiresIn);
+  })
+  console.log(token.accessToken, token.expiresIn)
 } catch (error) {
   if (error instanceof ApprovalRequiredError) {
-    console.log("step-up required", error.approvalId);
+    console.log('step-up required', error.approvalId)
   } else {
-    throw error;
+    throw error
   }
 }
 ```
@@ -59,9 +59,9 @@ try {
 
 ## Subject Federation
 
-When the zone registers the application's identity system as a subject issuer, the client exchanges an end user's identity token for a Caracal user subject session and can post that user's decision on a subject-reserved approval hold:
+When the zone registers the application's identity system as a Subject issuer, the client exchanges an end user's identity token for a Caracal Authority record and can post that user's decision on a Subject-reserved approval hold:
 
-- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - mints the user subject session. Never cached: each federation is an explicit identity event, and the minted session carries no resource authority.
+- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns its compatibility `subjectSessionId` field. Never cached: each federation is an explicit identity event, and the record carries no resource authority.
 - `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
 
 See [Human Approval](/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.

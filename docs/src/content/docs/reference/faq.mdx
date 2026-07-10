@@ -4,16 +4,29 @@ description: Stable, searchable answers to recurring Caracal modeling, runtime, 
 pageType: reference
 ---
 
-import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
+import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
 
 <section className="faqSearchPanel" aria-label="Search FAQs">
   <div className="faqSearchMeta">
-    <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">26 results</span>
+    <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">
+      26 results
+    </span>
   </div>
   <div className="faqSearchRow">
-    <label className="faqSearchLabel" htmlFor="faq-search">Search FAQs</label>
-    <input id="faq-search" className="faqSearchInput" type="search" placeholder="Search by FAQ ID, title, keyword..." aria-controls="faq-registry" autocomplete="off" />
-    <button type="button" className="faqClearFilters" data-faq-clear hidden>Clear</button>
+    <label className="faqSearchLabel" htmlFor="faq-search">
+      Search FAQs
+    </label>
+    <input
+      id="faq-search"
+      className="faqSearchInput"
+      type="search"
+      placeholder="Search by FAQ ID, title, keyword..."
+      aria-controls="faq-registry"
+      autocomplete="off"
+    />
+    <button type="button" className="faqClearFilters" data-faq-clear hidden>
+      Clear
+    </button>
     <button type="button" className="faqFilterToggle" data-faq-filter-toggle aria-expanded="false" aria-controls="faq-filter-popover">
       <span data-faq-filter-label>Filter</span>
       <svg className="faqFilterIcon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -22,24 +35,60 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
     </button>
   </div>
   <div id="faq-filter-popover" className="faqFilterPopover" data-faq-filter-popover aria-label="Filter FAQs by category" hidden>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="platform" data-faq-filter-name="Platform" /> <span>Platform</span></label>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="model" data-faq-filter-name="Model" /> <span>Model</span></label>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="resources" data-faq-filter-name="Resources" /> <span>Resources</span></label>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="providers" data-faq-filter-name="Providers" /> <span>Providers</span></label>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="runtime" data-faq-filter-name="Runtime" /> <span>Runtime</span></label>
-    <label className="faqFilterOption"><input type="checkbox" data-faq-filter-option="editions" data-faq-filter-name="Editions" /> <span>Editions</span></label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="platform" data-faq-filter-name="Platform" /> <span>Platform</span>
+    </label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="model" data-faq-filter-name="Model" /> <span>Model</span>
+    </label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="resources" data-faq-filter-name="Resources" /> <span>Resources</span>
+    </label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="providers" data-faq-filter-name="Providers" /> <span>Providers</span>
+    </label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="runtime" data-faq-filter-name="Runtime" /> <span>Runtime</span>
+    </label>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="editions" data-faq-filter-name="Editions" /> <span>Editions</span>
+    </label>
   </div>
 </section>
 
 <nav className="faqStrip" data-faq-strip aria-label="Suggested FAQs">
-  <a className="faqStripItem" href="#faq-001"><span>FAQ-001</span><strong>What problem does Caracal solve?</strong></a>
-  <a className="faqStripItem" href="#faq-003"><span>FAQ-003</span><strong>What should a zone represent?</strong></a>
-  <a className="faqStripItem" href="#faq-006"><span>FAQ-006</span><strong>Should I create one application per agent?</strong></a>
-  <a className="faqStripItem" href="#faq-008"><span>FAQ-008</span><strong>Can policy and audit tell agents apart under one application?</strong></a>
-  <a className="faqStripItem" href="#faq-021"><span>FAQ-021</span><strong>Policy vs grant - which wins?</strong></a>
-  <a className="faqStripItem" href="#faq-016"><span>FAQ-016</span><strong>403 from STS vs Gateway?</strong></a>
-  <a className="faqStripItem" href="#faq-017"><span>FAQ-017</span><strong>Where is the diagnostic bundle or doctor command?</strong></a>
-  <a className="faqStripItem" href="#faq-019"><span>FAQ-019</span><strong>Which features are Enterprise Edition only?</strong></a>
+  <a className="faqStripItem" href="#faq-001">
+    <span>FAQ-001</span>
+    <strong>What problem does Caracal solve?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-003">
+    <span>FAQ-003</span>
+    <strong>What should a zone represent?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-006">
+    <span>FAQ-006</span>
+    <strong>Should I create one application per agent?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-008">
+    <span>FAQ-008</span>
+    <strong>Can policy and audit tell agents apart under one application?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-021">
+    <span>FAQ-021</span>
+    <strong>Policy vs grant - which wins?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-016">
+    <span>FAQ-016</span>
+    <strong>403 from STS vs Gateway?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-017">
+    <span>FAQ-017</span>
+    <strong>Where is the diagnostic bundle or doctor command?</strong>
+  </a>
+  <a className="faqStripItem" href="#faq-019">
+    <span>FAQ-019</span>
+    <strong>Which features are Enterprise Edition only?</strong>
+  </a>
 </nav>
 
 <section className="faqListPanel" aria-label="FAQ results">
@@ -98,20 +147,20 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-019">FAQ-019</a></p>
     </details>
 
-    <details id="faq-005" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-005" data-faq-title="What is the difference between an application, principal, and agent session?" data-keywords="application principal agent session identity subject runtime credential policy">
+    <details id="faq-005" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-005" data-faq-title="What is the difference between an application, Subject, Authority record, and Session?" data-keywords="application subject authority record session identity runtime credential policy">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-005</span>
         <span className="faqTag faqTagIdentity">Identity</span>
-        <h3>What is the difference between an application, principal, and agent session?</h3>
+        <h3>What is the difference between an application, Subject, Authority record, and Session?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-005">Share</button>
       </summary>
       <span id="faq-application-principal-agent-session" className="faqAnchor"></span>
-      <p>An application is registered software that authenticates to Caracal. A principal is the acting identity, such as a user, service, or agent. An agent session is a time-bounded execution context spawned from a subject session or application context.</p>
-      <p>Policy decisions consider all of them: which application is asking, which principal is acting, which session anchors the request, and which resource scopes are requested.</p>
+      <p>An application is registered software that authenticates to Caracal. A Subject is the opaque JWT <code>sub</code> identity the work is attributed to. An Authority record is one STS exchange record. A Session is one governed Coordinator execution.</p>
+      <p>These identifiers are distinct: Authority record ID is the raw JWT <code>sid</code>, Root authority record ID is <code>root_sid</code>, and Session ID is the Coordinator protocol's <code>agent_session_id</code>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
 
-    <details id="faq-006" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-006" data-faq-title="Should I create one application per agent?" data-keywords="application per agent managed application agent session DCR fan out delegation common mistake">
+    <details id="faq-006" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-006" data-faq-title="Should I create one application per agent?" data-keywords="application per agent managed application Session DCR fan out delegation common mistake">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-006</span>
         <span className="faqTag faqTagIdentity">Identity</span>
@@ -122,10 +171,10 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p>No. This is the most common modeling mistake, and it does not match how Caracal scales. An <strong>application</strong> and an <strong>agent</strong> are different layers:</p>
       <ul>
         <li>An <strong>application</strong> is the credentialed security boundary. It is operator-provisioned (managed) or dynamically registered (DCR), holds a server-owned secret, and is the identity Caracal authenticates. Creating one is a deliberate, secret-bearing act.</li>
-        <li>An <strong>agent session</strong> is the scalable runtime unit. The workload that already holds the application credential creates agent sessions at runtime - no secret, no registration, no Console step. One application backs many concurrent agent sessions (up to 200 per application by default).</li>
+        <li>An <strong>Session</strong> is the scalable runtime unit. The workload that already holds the application credential creates Sessions at runtime - no secret, no registration, no Console step. One application backs many concurrent Sessions (up to 200 per application by default).</li>
       </ul>
-      <p>The default model is <strong>one managed application per durable workload, with many agent sessions under it</strong>. When that workload fans out - spawning sub-agents, delegating a narrower slice of authority, or building an agent hierarchy for a single request - each of those is a new agent session under the <em>same</em> application, not a new application. Policy and audit still tell them apart by agent session, lifecycle, labels, and delegation chain (see <a href="#faq-008">FAQ-008</a>).</p>
-      <p>One application per agent breaks this. Managed applications are operator-provisioned, so a workload cannot mint one per spawned agent at runtime. DCR can register at runtime, but a DCR application is meant to expire and bind exactly one session, so per-request fan-out would register and tear down an application for every sub-agent - adding registration latency, credential sprawl, and registry churn for no policy or audit benefit. Reach for an application per agent only when a spawned agent genuinely needs its own isolated, expiring credential and a registry-visible identity; then use a DCR application with one session, as described in <a href="#faq-007">FAQ-007</a>.</p>
+      <p>The default model is <strong>one managed application per durable workload, with many Sessions under it</strong>. When that workload fans out across sub-agents or jobs, each execution is a new Session under the <em>same</em> application. Policy and audit tell them apart by Session ID, lifecycle, labels, and Delegation chain.</p>
+      <p>Use a separate application only when an independently launched agent or workload needs an isolated, expiring credential and registry-visible identity. DCR supplies that boundary and binds exactly one Session.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and the <a href="/concepts/model-overview/">Caracal Mental Model</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
@@ -138,7 +187,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-007">Share</button>
       </summary>
       <span id="faq-managed-application-versus-dcr" className="faqAnchor"></span>
-      <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or agent runtime - including the runtime that spawns and fans out child agents. Ordinary spawn fan-out does <strong>not</strong> need DCR: every spawned child is an <code>agent</code> session under the runtime's own managed application. Reach for DCR only when an identity needs its own isolated, auto-expiring credential boundary - for example a per-tenant or per-integration identity. DCR applications are registered through the zone DCR endpoint as a control-plane action (the SDK <code>session()</code> primitive never registers applications), always expire, and bind exactly one session, so a DCR application is not reused across agents and is not a spawn parent for further sessions.</p>
+      <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or agent runtime. Ordinary Session fan-out does <strong>not</strong> need DCR. Use DCR only when an independently launched identity needs an isolated, auto-expiring credential boundary, such as a per-tenant or per-integration workload. DCR applications are registered through the Admin API, always expire, bind exactly one Session, and cannot parent further Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
@@ -152,9 +201,9 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       </summary>
       <span id="faq-distinguish-agents-under-one-application" className="faqAnchor"></span>
       <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
-      <p>The agent's identity in a decision is the agent session, not the application. You do not pre-register agents in the web console; the workload that holds the application credential creates each agent session at runtime and declares its <code>labels</code> then, while the coordinator records the session's <code>lifecycle</code> (<code>task</code> for an ordinary session, <code>service</code> for a heartbeat-leased one). The token exchange carries the acting <code>agent_session_id</code>, <code>lifecycle</code>, and <code>labels</code>, plus the delegation edge and chain, alongside the <code>application_id</code>. Policy reads these as <code>input.principal.agent_session_id</code>, <code>input.principal.lifecycle</code>, and <code>input.principal.labels</code>, and audit records the same fields with the parent and delegation context. The Console agent list shows the <code>lifecycle</code> and <code>labels</code> of every session, so you can see which agent is which under a shared application. So two agents under one managed application present different sessions, labels, and delegation paths, and both policy and audit can tell them apart without referencing the application.</p>
-      <p>What is actually enforced is the <strong>authority</strong>, not the label. Spawning is gated by application ownership, the asserted <code>agent_session_id</code> is bound to the owning application at exchange, and requested scopes must stay within the delegation chain, which is itself bounded by the parent's authority. The <code>labels</code>, by contrast, are asserted by the credentialed workload and are not delegation-constrained. They are a sound basis for policy and audit when you control and trust the spawner, but they are not a defense against a compromised workload mislabeling its own sub-agents. For that, the boundary is scopes, delegation, and policy.</p>
-      <p>A single managed application is therefore the right fit for one durable workload that spawns many agents: per-agent attribution comes from the agent session, lifecycle, and labels, not from one application per agent. To investigate a specific agent, the zone audit endpoint filters directly by <code>agent_session_id</code> (one exact session) or by <code>label</code> (a role across a fleet). Reach for a DCR application per agent only when a spawned agent needs its own isolated, expiring credential and a registry-visible identity. What that buys you is credential isolation, not additional policy or audit distinguishability.</p>
+      <p>Each execution has a unique Session ID. On the protocol it is <code>agent_session_id</code>; policy reads <code>input.principal.agent_session_id</code>, and audit records it with lifecycle, labels, parentage, and Delegation context. The Console **Sessions** view shows the same execution records.</p>
+      <p>Authority, not labels, is the security boundary. Labels are asserted by the credentialed workload and help policy and audit classify work; scopes, Delegations, and policy contain compromised workloads.</p>
+      <p>Filter the Admin API audit protocol by <code>agent_session_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
@@ -297,7 +346,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
       <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a></p>
     </details>
 
-    <details id="faq-020" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-020" data-faq-title="Two agents share the same application and labels - how do I tell which one acted?" data-keywords="agent session id attribution which agent did this fungible fan out labels metadata trace id audit filter observability identity">
+    <details id="faq-020" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-020" data-faq-title="Two agents share the same application and labels - how do I tell which one acted?" data-keywords="Session id attribution which agent did this fungible fan out labels metadata trace id audit filter observability identity">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-020</span>
         <span className="faqTag faqTagIdentity">Identity</span>
@@ -305,78 +354,78 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-020">Share</button>
       </summary>
       <span id="faq-which-agent-session-acted" className="faqAnchor"></span>
-      <p>Every agent has exactly one canonical identity: the server-minted <code>agent_session_id</code>. It is unique, returned to the caller the moment <code>session()</code> or <code>service()</code> creates the session, and stamped onto every token exchange and audit event that session produces. That id - not the application, lifecycle, or labels - is the answer to "which agent did this?". Even two sessions that share the same application, labels, and metadata are still separated by their <code>agent_session_id</code> in audit.</p>
+      <p>Every governed execution has one canonical Session ID. The Coordinator protocol names it <code>agent_session_id</code>. It is returned when <code>session()</code> or <code>startSession()</code> starts the Session and is stamped onto its token exchanges and audit events.</p>
       <p>Identical sessions are interchangeable on purpose. A hundred <code>["pricing-worker"]</code> sessions fanned out under one application are meant to be fungible - that is how fan-out works, and it is why labels are a descriptor rather than a unique name. When you need to tell sessions apart by <em>meaning</em> rather than by raw id, give them distinguishing <code>labels</code>, attach business correlation in <code>metadata</code>, or propagate a <code>trace_id</code> through the work.</p>
       <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>agent_session_id</code> to follow one exact session end to end, or <code>label</code> to scope to a role across a whole fleet of sessions. The web console audit view exposes both filters.</p>
-      <p>To see the sessions themselves - including ones that have ended - the management API exposes <code>GET /v1/zones/&#123;zone&#125;/agent-sessions</code>, filterable by <code>status</code> (<code>active</code>, <code>suspended</code>, <code>terminated</code>, <code>expired</code>), <code>lifecycle</code>, <code>label</code>, <code>parent_id</code>, and <code>application_id</code>. Rows are never deleted on termination - a session keeps its row and its <code>status</code> flips to <code>terminated</code> or <code>suspended</code> - so this is the authoritative place to review past agents. Add <code>format=csv</code> to the same endpoint to export the filtered set for offline analysis.</p>
+      <p>To see Sessions that have ended, the Admin API exposes <code>GET /v1/zones/&#123;zone&#125;/agent-sessions</code>. The stable protocol path retains <code>agent-sessions</code>; it returns governed Sessions and supports status, lifecycle, label, parent, and application filters plus CSV export.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-021">FAQ-021</a></p>
     </details>
 
-    <details id="faq-021" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-021" data-faq-title="A spawned agent inherits its application's policy and also carries a grant - which wins?" data-keywords="policy grant scope intersection AND narrower wins least privilege delegation edge spawned agent application authority authorization defense in depth">
+    <details id="faq-021" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-021" data-faq-title="A started Session uses application policy and narrowed authority - which wins?" data-keywords="policy authority scope intersection narrower wins least privilege delegation application authorization defense in depth">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-021</span>
         <span className="faqTag faqTagSecurity">Security</span>
-        <h3>A spawned agent inherits its application's policy and also carries a grant - which wins?</h3>
+        <h3>A started Session uses application policy and narrowed authority - which wins?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-021">Share</button>
       </summary>
       <span id="faq-policy-and-grant-composition" className="faqAnchor"></span>
-      <p>Both apply, and they compose as a strict intersection - a logical <strong>AND</strong> - so the <em>narrower</em> of the two always wins. They are two independent layers with different jobs: a <strong>grant</strong> (the delegation edge a narrowing <code>session(grant=…)</code> creates) caps <em>which scopes the token may carry at all</em>, while <strong>policy</strong> decides <em>whether the action is allowed</em>. Neither layer can ever add authority; each one can only subtract.</p>
+      <p>Both apply, and they compose as a strict intersection - a logical <strong>AND</strong> - so the <em>narrower</em> of the two always wins. They are two independent layers with different jobs: a <strong>grant</strong> (the Delegation a narrowing <code>session(grant=…)</code> creates) caps <em>which scopes the token may carry at all</em>, while <strong>policy</strong> decides <em>whether the action is allowed</em>. Neither layer can ever add authority; each one can only subtract.</p>
       <p>At token exchange a resource is released only if it passes every gate: the requested scopes must be within the resource's own scopes, within the grant edge's scopes (which is itself re-validated to be within the parent's authority), the resource must fall inside the delegation, and policy must return <code>allow</code>. The effective authority is therefore <code>policy ∩ grant ∩ resource ∩ delegation</code>. This holds in both directions: if policy is the narrower of the two, policy wins and the grant cannot widen past it; if the grant is the narrower, the grant wins, because the token cannot request scopes outside the grant and resources outside the delegation are rejected even when policy would have allowed them.</p>
-      <p>This means there is no "clash" to resolve when a spawned agent runs under its parent's application. A plain <code>session()</code> mints no new grant: under a root parent the child carries no edge and runs at the application's full, policy-bounded authority, while under a narrowed parent the coordinator mirrors the parent's edge onto the child - deliberately identical to the parent, which is what inheriting means. Reach for <code>session(authority=Authority.narrow([...]))</code> when the child should hold strictly less; the grant then sub-bounds the authority further while policy continues to apply on top. Because every layer is subtractive, inheriting an application's policy and carrying a grant can only ever narrow access, never expand it.</p>
+      <p>There is no clash. A plain <code>session()</code> under a top-level parent runs at the application's policy-bounded authority. Under a narrowed parent, Coordinator mirrors the parent's Delegation onto the child. Use <code>session(authority=Authority.narrow([...]))</code> when the child should hold less. Every layer is subtractive.</p>
       <p>See <a href="/concepts/delegation/">Delegation</a> and <a href="/concepts/policy/">Policy</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-011">FAQ-011</a></p>
     </details>
 
-    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If spawned children inherit the parent's application, when is a DCR application actually used?" data-keywords="DCR ephemeral agent lifecycle managed authenticate as client credentials root session per tenant isolation use case orchestrator">
+    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If child Sessions use the parent's application, when is DCR used?" data-keywords="DCR ephemeral agent lifecycle managed authenticate client credentials session per tenant isolation use case orchestrator">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-022</span>
         <span className="faqTag faqTagIdentity">Identity</span>
-        <h3>If spawned children inherit the parent's application, when is a DCR application actually used?</h3>
+        <h3>If child Sessions use the parent's application, when is DCR used?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-022">Share</button>
       </summary>
       <span id="faq-when-is-dcr-actually-used" className="faqAnchor"></span>
-      <p>A DCR application is used by <strong>authenticating as it</strong>, not by spawning under it. Because <code>session()</code> always runs under the caller's own application, a DCR application - bound to exactly one session - cannot be a spawn parent. Its single root session is created by a workload that already holds the DCR credentials.</p>
+      <p>A DCR application is used by <strong>authenticating as it</strong>, not by starting it as a child. Because <code>session()</code> uses the caller's application, a DCR application bound to exactly one Session cannot parent another Session.</p>
       <p>The credential boundary between durable managed identities and short-lived DCR identities is named by <code>registration_method</code> (managed vs DCR), not by an agent's <code>lifecycle</code>. A session's <code>lifecycle</code> is either <code>task</code> (the default) or <code>service</code> (heartbeat-leased), and a DCR application cannot host a <code>service</code> session, so its one session is always a <code>task</code> session. A short-lived worker is therefore <em>not</em> a separate lifecycle - it is an ordinary <code>task</code> session with a TTL (see <a href="#faq-023">FAQ-023</a>).</p>
-      <p>That root session is created by a workload that holds the DCR application's credentials. The control plane registers the DCR application through the Admin API DCR endpoint, which returns a one-time client secret and a short expiry; the SDK never registers applications. An orchestrator injects those credentials into an independently launched workload - for example a per-tenant container - and that workload, configured with the DCR <code>application_id</code> and secret, authenticates with the <code>client_credentials</code> grant and creates its one root session. The application then expires (one hour or less) and is archived by DCR cleanup.</p>
+      <p>The Admin API registers the DCR application and returns a one-time client secret and short expiry. An orchestrator injects those credentials into an independently launched workload, which authenticates with <code>client_credentials</code> and starts its single Session. STS creates Authority records as that workload exchanges.</p>
       <p>The credential split is deliberate: minting a new credentialed identity is a privileged control-plane action, so a runtime cannot register applications for itself. The SDK <em>consumes</em> a DCR application by being configured with its credentials; only an operator or orchestrator with Admin API access <em>mints</em> one.</p>
-      <p>Because a DCR root has no parent and no delegation edge, its authority is decided entirely by <strong>policy</strong>, not by inheritance - and policy is <strong>default-deny</strong>, so a DCR identity opens no tools until a policy grants it scopes. Policies receive <code>input.principal.registration_method</code>, so you write <em>one</em> policy class targeting <code>registration_method == "dcr"</code> (optionally narrowed by <code>labels</code>, resource, or zone) that covers every DCR application; you do not author a policy per DCR app. Pair that with per-tenant or per-job resources to keep each DCR identity scoped to its own data.</p>
-      <p>So DCR has a real, distinct purpose that managed applications do not serve: a per-tenant, per-job, or per-integration identity that is credential-isolated, independently revocable, auto-expiring, and registry-visible. What it does not add is extra policy or audit distinguishability - the agent session already provides that. Reach for DCR when you need an isolated, short-lived credential boundary for an independently launched unit of work; use one managed application with many <code>agent</code> sessions for ordinary spawn fan-out.</p>
+      <p>Because a DCR root has no parent and no Delegation, its authority is decided entirely by <strong>policy</strong>, not by inheritance - and policy is <strong>default-deny</strong>, so a DCR identity opens no tools until a policy grants it scopes. Policies receive <code>input.principal.registration_method</code>, so you write <em>one</em> policy class targeting <code>registration_method == "dcr"</code> (optionally narrowed by <code>labels</code>, resource, or zone) that covers every DCR application; you do not author a policy per DCR app. Pair that with per-tenant or per-job resources to keep each DCR identity scoped to its own data.</p>
+      <p>DCR provides a credential-isolated, independently revocable, auto-expiring, registry-visible identity for a per-tenant, per-job, or per-integration workload. It does not add execution attribution; Session ID already provides that.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-007">FAQ-007</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
-    <details id="faq-023" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-023" data-faq-title="How do I model an orchestrator that spawns managers and short-lived workers, and where does a spawned agent's authority come from?" data-keywords="orchestrator manager worker ephemeral short lived spawn ttl tree hierarchy authority parent application client credentials inherit grant narrow instance kind">
+    <details id="faq-023" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-023" data-faq-title="How do I model an orchestrator, managers, and short-lived workers?" data-keywords="orchestrator manager worker ephemeral short lived session ttl tree hierarchy authority parent application client credentials inherit narrow">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-023</span>
         <span className="faqTag faqTagIdentity">Identity</span>
-        <h3>How do I model an orchestrator that spawns managers and short-lived workers, and where does a spawned agent's authority come from?</h3>
+        <h3>How do I model an orchestrator, managers, and short-lived workers?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-023">Share</button>
       </summary>
       <span id="faq-orchestrator-worker-tree" className="faqAnchor"></span>
-      <p>This is the mainstream multi-agent shape, and it is modelled under <strong>one managed application</strong>. Every node is an agent session under that app. A short-lived worker is <strong>not</strong> a separate lifecycle: a spawned agent is <strong>task-scoped</strong> - it dies when its block exits - and "least-privilege" is expressed by a narrowed grant. An optional <code>ttl_seconds</code> adds a hard upper bound for the case where the agent should also expire on a clock (see <a href="#faq-025">FAQ-025</a>):</p>
+      <p>Model the runtime under <strong>one managed application</strong>. Every execution is a Session. A short-lived worker is a task Session; least privilege is expressed with narrowed authority, and <code>ttl_seconds</code> adds an optional wall-clock cap.</p>
       <ul>
-        <li>The <strong>orchestrator</strong> is the durable root session - or a <code>service()</code> handle when it needs a heartbeat lease.</li>
+        <li>The <strong>orchestrator</strong> uses a long-lived Session from <code>startSession()</code> when it needs a heartbeat lease.</li>
         <li>Each <strong>manager</strong> is a plain <code>session()</code> that inherits the application's authority.</li>
         <li>Each <strong>task worker</strong> is <code>session(authority=Authority.narrow([...]))</code> - bounded to a subset of authority and auto-terminated when its block exits - with <code>ttl_seconds=…</code> added only when you also want a wall-clock cap.</li>
       </ul>
-      <p>On where authority comes from: a spawned agent's authority comes from its <strong>application</strong>, not from its parent. The SDK authenticates with the <code>client_credentials</code> grant using the configured <code>application_id</code> and secret, so every session under that application already acts under the application's own authority - which is why <code>session()</code> needs no parent and a parentless (root) spawn is well-defined. A parent matters only when authority is <strong>narrowed</strong>: <code>authority=Authority.narrow([...])</code> creates a delegation edge that the server re-validates as a subset of the parent's effective authority, and with the default <code>grant=inherit</code> the coordinator carries a narrowed parent's edge forward onto the child so a bounded subtree stays bounded. A cross-application grant goes through <code>delegate(to=peer)</code> with receiver consent. An inherit child of a root parent holds no edge and simply shares the application's authority, bounded by policy.</p>
+      <p>A Session's authority comes from its application, bounded by policy. A parent matters when authority is narrowed: <code>Authority.narrow([...])</code> creates a Delegation that the server validates as a subset of the parent's effective authority. Cross-application authority uses <code>delegate(to=peer)</code> with receiver consent.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a>, <a href="/concepts/delegation/">Delegation</a>, and <a href="/reference/faq/#faq-022">FAQ-022</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-022">FAQ-022</a></p>
     </details>
-    <details id="faq-024" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="security" data-faq-id="FAQ-024" data-faq-title="If A narrows a grant to B, and B spawns C without narrowing, does C stay bounded by B's restriction?" data-keywords="delegation chain inherit narrow grant escalation A B C subset application boundary policy least privilege subtree hop transitive">
+    <details id="faq-024" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="security" data-faq-id="FAQ-024" data-faq-title="If A narrows authority to B and B starts C, does C stay bounded?" data-keywords="delegation chain inherit narrow authority escalation A B C subset application boundary policy least privilege subtree hop transitive">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-024</span>
         <span className="faqTag faqTagSecurity">Security</span>
-        <h3>If A narrows a grant to B, and B spawns C without narrowing, does C stay bounded by B's restriction?</h3>
+        <h3>If A narrows authority to B and B starts C, does C stay bounded?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-024">Share</button>
       </summary>
       <span id="faq-inherit-vs-narrow-chain" className="faqAnchor"></span>
-      <p>Yes - by default. <code>inherit</code> carries the parent's <em>effective</em> authority forward, so least-privilege is <strong>transitive</strong> down a same-application spawn tree. Take A spawns B with <code>grant=narrow([tickets:read])</code>, then B spawns C:</p>
+      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow([tickets:read])</code>, then B starts C:</p>
       <ul>
-        <li>If B spawns C with <strong>inherit</strong> (the default), the coordinator <strong>mirrors B's delegation edge onto C</strong> in the same transaction: a <code>B → C</code> edge is recorded holding B's exact scopes, resource, constraints, and expiry. C is therefore bounded by B's <code>tickets:read</code> slice - it does <em>not</em> regain the application's full authority. A narrowed intermediary contains its descendants without you having to re-narrow at every hop.</li>
-        <li>If B spawns C with a <strong>narrowing grant</strong>, a <code>B → C</code> edge is recorded and the coordinator rejects it unless <code>C ⊆ B</code> (scopes, TTL, hop count, budget, and resource are all checked). So B can never pass on authority it does not hold.</li>
-        <li>If B is a <strong>root</strong> session (no inbound edge - it already holds the application's full authority), an inherit child of B creates no edge and runs under the application's authority bounded by policy. There is nothing narrower to carry forward, so this is correct, not an escalation.</li>
+        <li>With <strong>inherit</strong>, Coordinator mirrors B's Delegation onto C. C stays within B's scopes, resource, constraints, and expiry.</li>
+        <li>With further narrowing, Coordinator rejects C unless <code>C ⊆ B</code>.</li>
+        <li>If B has no inbound Delegation, C runs under the application's authority bounded by policy.</li>
       </ul>
-      <p>Transitive inheritance is enforced for <strong>same-application</strong> spawns, where the mirrored edge is escalation-proof by construction (the child copies the parent edge and can never broaden it). It is not auto-created across applications: a cross-application grant must go through <code>delegate(to=peer)</code> with receiver consent. The hard, server-enforced boundary that contains <em>every</em> session is still the <strong>application plus policy</strong> (default-deny); to place a subtree behind a real cross-trust boundary, give it a different application via <code>delegate(to=peer)</code>.</p>
+      <p>Cross-application authority is never inherited automatically; it requires <code>delegate(to=peer)</code> and receiver consent. Application plus policy remains the hard boundary.</p>
       <p>See <a href="/concepts/delegation/">Delegation</a> and <a href="/reference/faq/#faq-023">FAQ-023</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-021">FAQ-021</a>, <a href="#faq-023">FAQ-023</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
@@ -388,29 +437,30 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-025">Share</button>
       </summary>
       <span id="faq-agent-lifecycle-kinds" className="faqAnchor"></span>
-      <p>Every runtime actor is an <strong>agent session</strong>; <code>lifecycle</code> only describes how it runs. There are <strong>two lifecycles</strong>, and they map directly onto the two SDK primitives:</p>
+      <p>Every runtime actor is an <strong>Session</strong>; <code>lifecycle</code> only describes how it runs. There are <strong>two lifecycles</strong>, and they map directly onto the two SDK primitives:</p>
       <ul>
         <li><strong>Task</strong> - created with <code>session()</code>, recorded as <code>lifecycle = "task"</code>. It lives for the duration of its task: when its block exits it is terminated automatically. This single behavior covers <em>both</em> of the cases you are distinguishing. A "do one task and die" worker (for example a search sub-agent) is just <code>session()</code> whose block returns when the task is done. A "live up to N seconds then expire" worker is the same <code>session()</code> with <code>ttl_seconds=N</code>, which adds a hard wall-clock cap enforced by the TTL sweeper. The difference between "task-and-die" and "time-limited" is <strong>whether you set a TTL</strong>, not a different lifecycle.</li>
-        <li><strong>Service</strong> - created with <code>service()</code>, recorded as <code>lifecycle = "service"</code>. It is the genuinely different lifecycle: it outlives any single task and is kept alive by a heartbeat lease, so the runtime can detect and reap it if it stops reporting. A <code>service</code> is governed <em>only</em> by that lease - it is <strong>not</strong> subject to the wall-clock TTL sweeper that retires tasks, so a faithfully heartbeated service is never terminated on a timer. Each <code>heartbeat()</code> <strong>renews</strong> the lease (extends the deadline); it does not just check status. The SDKs renew the lease from a background auto-heartbeat by default, pacing renewals off the server lease deadline, so the lease stays current even while your code is blocked awaiting a long provider stream; set <code>heartbeat_interval</code> / <code>heartbeatIntervalMs</code> to fix or disable the cadence.</li>
+        <li><strong>Service</strong> - created with <code>startSession()</code>, <code>start_session()</code>, or <code>StartSession()</code> and recorded as <code>lifecycle = "service"</code>. This long-lived Session is governed by a renewable heartbeat lease rather than the task TTL sweeper.</li>
       </ul>
-      <p>The stored <code>lifecycle</code> column carries exactly these two values, and <strong>only <code>service</code> changes runtime behavior</strong> (the heartbeat lease). The default is <code>task</code> - named for the lifecycle, not the actor, so it never collides with the "agent" umbrella that every session already belongs to. So how long a worker lives is expressed by task scope and an optional TTL, not by a separate lifecycle. Reach for <code>service()</code> when you need a durable, heartbeat-leased agent; otherwise use <code>session()</code> and let task scope (optionally plus a TTL) express how long the worker should live.</p>
+      <p>The stored <code>lifecycle</code> column carries exactly these two protocol values. Use a long-lived Session when work must outlive one task; otherwise use <code>session()</code> with an optional TTL.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-023">FAQ-023</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-023">FAQ-023</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
-    <details id="faq-026" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-026" data-faq-title="Can two DCR applications have different policies, and can a DCR agent spawn children?" data-keywords="DCR policy per application labels application id different policy spawn parent leaf one session bind registration method lifecycle">
+    <details id="faq-026" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-026" data-faq-title="Can two DCR applications have different policies, and can a DCR Session start children?" data-keywords="DCR policy per application labels application id different policy parent leaf one session bind registration method lifecycle">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-026</span>
         <span className="faqTag faqTagIdentity">Identity</span>
-        <h3>Can two DCR applications have different policies, and can a DCR agent spawn children?</h3>
+        <h3>Can two DCR applications have different policies, and can a DCR Session start children?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-026">Share</button>
       </summary>
       <span id="faq-dcr-policy-and-spawn" className="faqAnchor"></span>
       <p><strong>Different policies per DCR app: yes.</strong> Policy evaluation receives the full principal, including the specific <code>input.principal.id</code> (the application id), <code>input.principal.labels</code>, and <code>input.principal.registration_method</code>. Matching on <code>registration_method == "dcr"</code> is just the convenient way to write <em>one</em> rule that covers every DCR app; when two DCR apps need different authority, target their distinct application ids or labels, or scope them to different resources. There is no requirement that all DCR apps share a policy.</p>
-      <p><strong>Can a DCR-application agent spawn children: no, in practice.</strong> A DCR application binds <strong>exactly one</strong> agent session (a second spawn under the same DCR app is rejected with <code>dcr_application_already_bound</code>), so a DCR session cannot create further sessions under its own application - it is a leaf. Spawning a child under a <em>different</em> application would require cross-application spawn authority that a DCR workload is not granted. So a DCR identity is a single, isolated, non-parent session by design.</p>
-      <p><strong>Which sessions can be parents:</strong> any session under a managed application can spawn children via <code>session()</code>, with one lifecycle rule - a <code>task</code> parent cannot spawn a <code>service</code> child (<code>task_agent_cannot_spawn_service</code>). A task is bounded by its work or its TTL, so it must not mint a durable, lease-renewable session that could outlive it; a <code>service</code> parent may spawn either lifecycle. The only structural non-parent is the DCR session described above - it can be neither a parent (<code>dcr_application_cannot_spawn</code>) nor a spawned child (<code>dcr_application_cannot_be_child</code>). So the practical answer is that managed sessions spawn (task parents to task children, service parents to either) and DCR sessions are isolated leaves.</p>
+      <p><strong>Can a DCR application start child Sessions: no.</strong> It binds exactly one Session; a second start is rejected with the protocol error <code>dcr_application_already_bound</code>.</p>
+      <p><strong>Which Sessions can be parents:</strong> Sessions under managed applications can start child Sessions. A task parent cannot start a service child; the protocol reports <code>task_agent_cannot_spawn_service</code>. DCR Sessions are isolated leaves, reported by the protocol as <code>dcr_application_cannot_spawn</code> and <code>dcr_application_cannot_be_child</code>.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-022">FAQ-022</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-025">FAQ-025</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
+
 </div>
 
 <nav className="faqPagination" data-faq-pagination aria-label="FAQ pagination" hidden>
@@ -431,12 +481,18 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro';
         </div>
         <h2 id="faq-dialog-title" data-faq-dialog-title></h2>
       </div>
-      <button type="button" className="faqDialogClose" data-faq-dialog-close aria-label="Close FAQ">Close</button>
+      <button type="button" className="faqDialogClose" data-faq-dialog-close aria-label="Close FAQ">
+        Close
+      </button>
     </header>
     <div className="faqDialogBody" data-faq-dialog-body></div>
     <footer className="faqDialogFooter">
-      <button type="button" className="faqDialogCopy" data-faq-dialog-copy>Copy FAQ</button>
-      <button type="button" className="faqDialogShare" data-faq-dialog-share>Share FAQ</button>
+      <button type="button" className="faqDialogCopy" data-faq-dialog-copy>
+        Copy FAQ
+      </button>
+      <button type="button" className="faqDialogShare" data-faq-dialog-share>
+        Share FAQ
+      </button>
     </footer>
   </div>
 </dialog>

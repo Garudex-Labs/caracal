@@ -16,25 +16,31 @@ The adapter has an Express `^5.0.0` peer dependency and targets Node `>=22`.
 ## Middleware
 
 ```ts
-import express from "express";
-import { caracalAuth } from "@caracalai/express";
-import { createMandateVerifier } from "@caracalai/verify";
-import { RedisRevocationStore } from "@caracalai/revocation-redis";
+import express from 'express'
+import { caracalAuth } from '@caracalai/express'
+import { createMandateVerifier } from '@caracalai/verify'
+import { RedisRevocationStore } from '@caracalai/revocation-redis'
 
-const app = express();
+const app = express()
 
 const verifier = createMandateVerifier({
-  issuer: "https://sts.example.com",
-  audience: "https://mcp.example.com",
-  zoneId: "zone_prod",
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
   revocations: new RedisRevocationStore(redis),
-});
+})
 
-app.use("/mcp", caracalAuth({ verifier }, {
-  requiredScopes: ["mcp:tool:call"],
-  requiredTargets: ["https://mcp.example.com"],
-  requireAgent: true,
-}));
+app.use(
+  '/mcp',
+  caracalAuth(
+    { verifier },
+    {
+      requiredScopes: ['mcp:tool:call'],
+      requiredTargets: ['https://mcp.example.com'],
+      requireAgent: true,
+    },
+  ),
+)
 ```
 
 ## Request shape
@@ -42,11 +48,11 @@ app.use("/mcp", caracalAuth({ verifier }, {
 The middleware attaches Caracal claims to `req.caracal` and `req.caracalClaims` when verification succeeds. Use the exported `CaracalRequest` type when a handler needs typed access.
 
 ```ts
-import type { CaracalRequest } from "@caracalai/express";
+import type { CaracalRequest } from '@caracalai/express'
 
-app.post("/mcp/tools/search", (req: CaracalRequest, res) => {
-  res.json({ subject: req.caracal?.sub });
-});
+app.post('/mcp/tools/search', (req: CaracalRequest, res) => {
+  res.json({ subject: req.caracal?.sub })
+})
 ```
 
 ## Failure behavior

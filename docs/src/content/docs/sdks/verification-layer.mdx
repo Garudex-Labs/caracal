@@ -7,15 +7,15 @@ Use this page when you are protecting an inbound resource-server boundary and ne
 
 ## Which Layer Should I Use?
 
-| Need | Use |
-| --- | --- |
-| Express route middleware | [Express Adapter](./adapters/express/) |
-| FastAPI/Starlette (ASGI) middleware | [ASGI Adapter](./adapters/asgi/) |
-| FastMCP server or tool authentication | [FastMCP Adapter](./adapters/fastmcp/) |
-| Go `net/http` middleware | [Go net/http Adapter](./adapters/nethttp/) |
-| Framework-neutral bearer parsing and mandate verification | [Verify Package](./verify/) |
-| Custom JWT claim verification | [Identity Package](./identity/) |
-| Shared revocation checks | [Revocation Package](./revocation/) plus [Redis Revocation Store](./backends/redis/) |
+| Need                                                      | Use                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Express route middleware                                  | [Express Adapter](./adapters/express/)                                               |
+| FastAPI/Starlette (ASGI) middleware                       | [ASGI Adapter](./adapters/asgi/)                                                     |
+| FastMCP server or tool authentication                     | [FastMCP Adapter](./adapters/fastmcp/)                                               |
+| Go `net/http` middleware                                  | [Go net/http Adapter](./adapters/nethttp/)                                           |
+| Framework-neutral bearer parsing and mandate verification | [Verify Package](./verify/)                                                          |
+| Custom JWT claim verification                             | [Identity Package](./identity/)                                                      |
+| Shared revocation checks                                  | [Revocation Package](./revocation/) plus [Redis Revocation Store](./backends/redis/) |
 
 ## Framework Adapters
 
@@ -33,16 +33,16 @@ Use adapters first when your framework is supported. They reduce boilerplate and
 
 ## Revocation and Shared State
 
-Resource servers must reject mandates anchored to revoked sessions, root sessions, agent sessions, or delegation edges. Use in-memory revocation stores for local development only. Use [Redis Revocation Store](./backends/redis/) for multi-instance resource servers that consume `caracal.sessions.revoke`.
+Resource servers must reject mandates anchored to a revoked Authority record ID, Root authority record ID, Session ID, or Delegation ID. Use in-memory revocation stores for local development only. Use [Redis Revocation Store](./backends/redis/) for multi-instance resource servers that consume the protocol stream `caracal.sessions.revoke`.
 
 ## Failure Behavior
 
 All HTTP verification layers should preserve the shared status mapping:
 
-| Status | Meaning |
-| --- | --- |
-| `401` | The credential was missing, invalid, expired, revoked, or from the wrong zone. |
-| `403` | The mandate verified but lacks required scope, target, agent, delegation, chain, or hop authority. |
+| Status | Meaning                                                                                            |
+| ------ | -------------------------------------------------------------------------------------------------- |
+| `401`  | The credential was missing, invalid, expired, revoked, or from the wrong zone.                     |
+| `403`  | The mandate verified but lacks required scope, target, agent, delegation, chain, or hop authority. |
 
 ## Related Pages
 

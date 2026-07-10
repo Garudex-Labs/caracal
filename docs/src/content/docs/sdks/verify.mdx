@@ -7,85 +7,85 @@ The verify packages authenticate Caracal mandates without tying the check to Exp
 
 ## Install
 
-| Ecosystem | Package |
-| --- | --- |
-| TypeScript | `npm install @caracalai/verify` |
-| Python | `pip install caracalai-verify` |
-| Go | `go get github.com/garudex-labs/caracal/packages/verify/go` |
+| Ecosystem  | Package                                                     |
+| ---------- | ----------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/verify`                             |
+| Python     | `pip install caracalai-verify`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/verify/go` |
 
 ## Core APIs
 
-| API | Purpose |
-| --- | --- |
-| `extractBearer` / `extract_bearer` / `ExtractBearer` | Parse a bearer token from an `Authorization` header. |
-| `createMandateVerifier` / `NewVerifier` | Build a reusable verifier with secure defaults, JWKS caching, revocation checks, and per-route overrides. |
-| `create_mandate_verifier` | Python reusable verifier with the same defaults, warmup, and per-route override model. |
-| `authenticate` / `Authenticate` | Verify one token against identity claims and revocation anchors. |
-| `authenticateRequest` / `unauthorizedResponse` | Authenticate a fetch-standard `Request` and render an `AuthError` as a JSON `Response` in WinterTC runtimes. |
-| `checkActiveAuthority` / `check_active_authority` / `CheckActiveAuthority` | Check expiry and revoked anchors for verified claims. |
+| API                                                                        | Purpose                                                                                                      |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `extractBearer` / `extract_bearer` / `ExtractBearer`                       | Parse a bearer token from an `Authorization` header.                                                         |
+| `createMandateVerifier` / `NewVerifier`                                    | Build a reusable verifier with secure defaults, JWKS caching, revocation checks, and per-route overrides.    |
+| `create_mandate_verifier`                                                  | Python reusable verifier with the same defaults, warmup, and per-route override model.                       |
+| `authenticate` / `Authenticate`                                            | Verify one token against identity claims and revocation anchors.                                             |
+| `authenticateRequest` / `unauthorizedResponse`                             | Authenticate a fetch-standard `Request` and render an `AuthError` as a JSON `Response` in WinterTC runtimes. |
+| `checkActiveAuthority` / `check_active_authority` / `CheckActiveAuthority` | Check expiry and revoked anchors for verified claims.                                                        |
 
 ## TypeScript example
 
 ```ts
-import { createMandateVerifier } from "@caracalai/verify";
-import { InMemoryRevocationStore } from "@caracalai/revocation";
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: "https://sts.example.com",
-  audience: "https://mcp.example.com",
-  zoneId: "zone_prod",
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
   revocations: new InMemoryRevocationStore(),
-});
+})
 
 const result = await verifier.authorization(req.headers.authorization, {
-  requiredScopes: ["mcp:tool:call"],
-  requiredTargets: ["https://mcp.example.com"],
+  requiredScopes: ['mcp:tool:call'],
+  requiredTargets: ['https://mcp.example.com'],
   requireAgent: true,
-});
+})
 
 if (!result.ok) {
-  throw new Error(`${result.error.code}: ${result.error.hint}`);
+  throw new Error(`${result.error.code}: ${result.error.hint}`)
 }
 ```
 
-Use one verifier per resource server and add route-level scopes or targets through `verifier.authorization(..., overrides)` or `verifier.require(overrides)`. The verifier defaults to resource mandates, checks the STS issuer and audience, enforces zone/scopes/targets/agent/delegation/hop constraints, checks expiry, and queries all revocation anchors for the session, root session, agent session, and delegation edge.
+Use one verifier per resource server and add route-level scopes or targets through `verifier.authorization(..., overrides)` or `verifier.require(overrides)`. The verifier defaults to resource mandates, checks the STS issuer and audience, enforces zone, scope, target, Session, Delegation, and hop constraints, checks expiry, and queries the Authority record ID (`sid`), Root authority record ID (`root_sid`), Session ID (`agent_session_id`), and Delegation ID (`delegation_edge_id`) raw JWT claims as revocation anchors.
 
 ### Fetch-standard runtimes
 
 Runtimes built on WinterTC `Request`/`Response` globals — Node 18+, Deno, Bun, and edge workers — can authenticate without a framework adapter:
 
 ```ts
-import { authenticateRequest, unauthorizedResponse } from "@caracalai/verify";
+import { authenticateRequest, unauthorizedResponse } from '@caracalai/verify'
 
 export default {
   async fetch(request: Request): Promise<Response> {
-    const result = await authenticateRequest(request, deps);
+    const result = await authenticateRequest(request, deps)
     if (!result.ok) {
-      return unauthorizedResponse(result.error);
+      return unauthorizedResponse(result.error)
     }
-    return handle(request, result.principal);
+    return handle(request, result.principal)
   },
-};
+}
 ```
 
 `unauthorizedResponse` maps error codes to 401 or 403 and renders the same JSON error body as the framework adapters. The same pair drops into any fetch-based framework. In Hono:
 
 ```ts
-app.use("/api/*", async (c, next) => {
-  const result = await authenticateRequest(c.req.raw, deps);
-  if (!result.ok) return unauthorizedResponse(result.error);
-  c.set("principal", result.principal);
-  await next();
-});
+app.use('/api/*', async (c, next) => {
+  const result = await authenticateRequest(c.req.raw, deps)
+  if (!result.ok) return unauthorizedResponse(result.error)
+  c.set('principal', result.principal)
+  await next()
+})
 ```
 
 And in a Next.js route handler:
 
 ```ts
 export async function GET(request: Request): Promise<Response> {
-  const result = await authenticateRequest(request, deps);
-  if (!result.ok) return unauthorizedResponse(result.error);
-  return Response.json(await loadTickets(result.principal));
+  const result = await authenticateRequest(request, deps)
+  if (!result.ok) return unauthorizedResponse(result.error)
+  return Response.json(await loadTickets(result.principal))
 }
 ```
 

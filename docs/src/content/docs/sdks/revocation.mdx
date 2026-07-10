@@ -3,32 +3,32 @@ title: Revocation Package
 description: Revocation-store interfaces and in-memory stores for resource servers.
 ---
 
-The revocation packages define the store contract resource servers use to reject mandates after a session, root session, agent session, or delegation edge has been revoked.
+The revocation packages define the store contract resource servers use to reject mandates after an Authority record, Root authority record, Session, or Delegation has been revoked.
 
 ## Install
 
-| Ecosystem | Package |
-| --- | --- |
-| TypeScript | `npm install @caracalai/revocation` |
-| Python | `pip install caracalai-revocation` |
-| Go | `go get github.com/garudex-labs/caracal/packages/revocation/go` |
+| Ecosystem  | Package                                                         |
+| ---------- | --------------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/revocation`                             |
+| Python     | `pip install caracalai-revocation`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/revocation/go` |
 
 ## Contract
 
-| Operation | Meaning |
-| --- | --- |
-| `isRevoked(sid)` / `is_revoked(sid)` / `IsRevoked(sid)` | Return whether an anchor is revoked. |
-| `markRevoked(sid, ttl)` / `mark_revoked(sid, ttl)` / `MarkRevoked(sid, ttl)` | Record an anchor as revoked for a TTL. |
+| Operation                                                                    | Meaning                                                                                                                                      |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isRevoked(sid)` / `is_revoked(sid)` / `IsRevoked(sid)`                      | Return whether an identifier used as a revocation anchor is revoked. The compatibility parameter name `sid` accepts any supported anchor ID. |
+| `markRevoked(sid, ttl)` / `mark_revoked(sid, ttl)` / `MarkRevoked(sid, ttl)` | Record an anchor ID as revoked for a TTL; `sid` is a compatibility parameter name, not a claim semantic.                                     |
 
 ## In-memory stores
 
 Use in-memory stores for local development, tests, and single-process examples:
 
-| Ecosystem | In-memory API |
-| --- | --- |
+| Ecosystem  | In-memory API                                               |
+| ---------- | ----------------------------------------------------------- |
 | TypeScript | `new InMemoryRevocationStore({ defaultTtlMs, maxEntries })` |
-| Python | `InMemoryRevocationStore(default_ttl_ms=...)` |
-| Go | `revocation.NewInMemoryStore(defaultTTL)` |
+| Python     | `InMemoryRevocationStore(default_ttl_ms=...)`               |
+| Go         | `revocation.NewInMemoryStore(defaultTTL)`                   |
 
 In-memory stores do not share revocation state across processes. Production resource servers should use a shared backend and consume `caracal.sessions.revoke`.
 
