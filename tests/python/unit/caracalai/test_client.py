@@ -17,10 +17,10 @@ import httpx
 
 from caracalai import (
     Caracal,
-    CaracalASGIMiddleware,
     ResourceBinding,
 )
 from caracalai.advanced import (
+    CaracalASGIMiddleware,
     CaracalConfig,
     CoordinatorClient,
     DelegationConstraints,
@@ -1595,13 +1595,14 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
             parse_baggage(h.get(HEADER_BAGGAGE)).get(BAGGAGE_AGENT_SESSION), "agent_7"
         )
 
-    def test_bind_helpers_exported_from_package_root(self) -> None:
+    def test_bind_helpers_are_advanced(self) -> None:
         import caracalai
+        from caracalai import advanced
 
-        self.assertTrue(callable(caracalai.bind))
-        self.assertTrue(callable(caracalai.abind))
-        self.assertTrue(callable(caracalai.current))
-        out = caracalai.bind(self._ctx(), lambda: caracalai.current().session_id)
+        self.assertFalse(hasattr(caracalai, "bind"))
+        self.assertFalse(hasattr(caracalai, "abind"))
+        self.assertFalse(hasattr(caracalai, "current"))
+        out = advanced.bind(self._ctx(), lambda: advanced.current().session_id)
         self.assertEqual(out, "agent_7")
 
 
