@@ -1266,10 +1266,14 @@ func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, o
 	if err != nil {
 		return err
 	}
+	zoneID, applicationID, err := c.Identity(ctx)
+	if err != nil {
+		return err
+	}
 	return Session(ctx, SessionInput{
 		Coordinator:              c.Coordinator,
-		ZoneID:                   c.ZoneID,
-		ApplicationID:            c.ApplicationID,
+		ZoneID:                   zoneID,
+		ApplicationID:            applicationID,
 		SubjectToken:             subjectToken,
 		TokenSource:              c.TokenSource,
 		Invalidate:               c.invalidateHook(),
@@ -1329,10 +1333,14 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 	if err != nil {
 		return nil, err
 	}
+	zoneID, applicationID, err := c.Identity(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return StartSession(ctx, StartSessionInput{
 		Coordinator:              c.Coordinator,
-		ZoneID:                   c.ZoneID,
-		ApplicationID:            c.ApplicationID,
+		ZoneID:                   zoneID,
+		ApplicationID:            applicationID,
 		SubjectToken:             subjectToken,
 		TokenSource:              c.TokenSource,
 		Invalidate:               c.invalidateHook(),
@@ -1436,6 +1444,23 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegatio
 	})
 }
 
+// RevokeDelegation revokes a Delegation issued by this application.
+func (c *Caracal) RevokeDelegation(ctx context.Context, delegationID string) error {
+	cur, _ := Current(ctx)
+	zoneID, _, err := c.Identity(ctx)
+	if err != nil {
+		return err
+	}
+	bearer := cur.SubjectToken
+	if bearer == "" {
+		bearer, err = c.rootToken(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return RevokeDelegation(ctx, c.Coordinator, bearer, zoneID, delegationID)
+}
+
 // AcceptDelegationOptions configures delegation acceptance. Validate confirms
 // with the coordinator that the delegation is live for the bound session
 // before presenting it, at the cost of one control-plane call.
@@ -1464,18 +1489,12 @@ func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string, opt
 		if cur.SessionID == "" {
 			return nil, fmt.Errorf("caracal: AcceptDelegation validation requires an active session in context")
 		}
-		inbound, err := ListInboundDelegations(ctx, c.Coordinator, cur.SubjectToken, cur.ZoneID, cur.SessionID)
+		inbound, err := GetInboundDelegation(ctx, c.Coordinator, cur.SubjectToken, cur.ZoneID, cur.SessionID, delegationID)
 		if err != nil {
-			return nil, err
+			emit(false)
+			return nil, fmt.Errorf("caracal: AcceptDelegation: delegation %s is not live for session %s; confirm the issuer created it for this session and it has not been revoked: %w", delegationID, cur.SessionID, err)
 		}
-		live := false
-		for _, d := range inbound {
-			if d.DelegationID == delegationID && d.Status == "active" {
-				live = true
-				break
-			}
-		}
-		if !live {
+		if inbound.Status != "active" {
 			emit(false)
 			return nil, fmt.Errorf("caracal: AcceptDelegation: delegation %s is not live for session %s; confirm the issuer created it for this session and it has not been revoked", delegationID, cur.SessionID)
 		}
@@ -1819,6 +1838,9 @@ func (c *Caracal) ApplicationTransport(base *http.Client, resourceID string, opt
 	}
 	if len(opts.Scopes) == 0 {
 		return nil, fmt.Errorf("caracal: ApplicationTransport requires at least one scope")
+	}
+	if c.GatewayURL == "" {
+		return nil, fmt.Errorf("caracal: ApplicationTransport requires GatewayURL so mandates are sent only to the Gateway")
 	}
 	scopes := compactStrings(append([]string(nil), opts.Scopes...))
 	sort.Strings(scopes)

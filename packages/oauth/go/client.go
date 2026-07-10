@@ -115,11 +115,12 @@ func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, op
 func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	timeout := timeoutFromOptions(opts)
 	preflightWindow := int64(timeout/time.Second) + 30
+	oneShot := opts.OneShot || opts.ChallengeID != ""
 	cacheSubject := c.cacheSubject(subjectToken, opts)
 	cacheResource := c.cacheResource(resources, opts)
 	eventResources := resourceList(resources)
 	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
-	if !opts.OneShot && !opts.ForceRefresh {
+	if !oneShot && !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
 			// The preflight window is capped at half the token lifetime so
 			// short-lived tokens are still served from cache instead of
@@ -132,7 +133,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 		}
 	}
 
-	if opts.OneShot {
+	if oneShot {
 		start := time.Now()
 		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
 		event := Event{Type: "token.exchange", Ok: err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}

@@ -114,7 +114,9 @@ type StartSessionResponse struct {
 	HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
 }
 
-// DelegationConstraints narrows a Delegation.
+// DelegationConstraints narrows a Delegation. Budget is the maximum number of
+// distinct requested scopes in each token exchange; repeated exchanges do not
+// consume it. PolicyApproved and BroadReason are audit and display metadata.
 type DelegationConstraints struct {
 	Resources      []string
 	MaxDepth       int
@@ -298,6 +300,11 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 	return out, nil
 }
 
+// RevokeDelegation calls the canonical issuer revocation endpoint.
+func RevokeDelegation(ctx context.Context, client *CoordinatorClient, bearer, zoneID, delegationID string) error {
+	return doJSON(ctx, client, "PATCH", "/zones/"+url.PathEscape(zoneID)+"/delegations/"+url.PathEscape(delegationID)+"/revoke", bearer, nil, nil, nil)
+}
+
 // ListInboundDelegations calls GET /zones/:zoneId/delegations/inbound/:sessionId,
 // listing the delegations issued to a session so a receiver can confirm a
 // handed-over delegation id is live before presenting it.
@@ -320,6 +327,36 @@ func ListInboundDelegations(ctx context.Context, client *CoordinatorClient, bear
 		out = append(out, InboundDelegation{DelegationID: item.ID, Status: item.Status, ExpiresAt: item.ExpiresAt})
 	}
 	return out, nil
+}
+
+// GetInboundDelegation confirms one opaque Delegation ID is live for the receiver Session.
+func GetInboundDelegation(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID, delegationID string) (InboundDelegation, error) {
+	var wire struct {
+		ID        string `json:"id"`
+		Status    string `json:"status"`
+		ExpiresAt string `json:"expires_at"`
+		Items     []struct {
+			ID        string `json:"id"`
+			Status    string `json:"status"`
+			ExpiresAt string `json:"expires_at"`
+		} `json:"items"`
+	}
+	err := doJSON(ctx, client, "GET", "/zones/"+url.PathEscape(zoneID)+"/delegations/inbound/"+url.PathEscape(sessionID)+"/"+url.PathEscape(delegationID), bearer, nil, nil, &wire)
+	if err != nil {
+		return InboundDelegation{}, err
+	}
+	if wire.ID == "" {
+		for _, item := range wire.Items {
+			if item.ID == delegationID {
+				wire.ID, wire.Status, wire.ExpiresAt = item.ID, item.Status, item.ExpiresAt
+				break
+			}
+		}
+		if wire.ID == "" {
+			return InboundDelegation{}, errors.New("caracal: coordinator inbound delegation response missing id")
+		}
+	}
+	return InboundDelegation{DelegationID: wire.ID, Status: wire.Status, ExpiresAt: wire.ExpiresAt}, nil
 }
 
 func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer string, body any, extraHeaders map[string]string, out any) error {
