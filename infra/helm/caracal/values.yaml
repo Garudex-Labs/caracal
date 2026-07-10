@@ -6,20 +6,20 @@
 global:
   registry: ghcr.io/garudex-labs
   # Image tag override; defaults to the chart appVersion.
-  tag: ""
+  tag: ''
   imagePullPolicy: IfNotPresent
   # Secret names used to pull images from private registries, e.g. [{name: ghcr-pull}].
   imagePullSecrets: []
   mode: rc
   evaluation: false
-  otelExporterOtlpEndpoint: ""
+  otelExporterOtlpEndpoint: ''
   logLevel: info
   podLabels: {}
   podAnnotations: {}
 
 serviceAccount:
   create: true
-  name: ""
+  name: ''
   automountToken: false
 
 secrets:
@@ -30,20 +30,20 @@ secrets:
   # re-seal sweep completes and the key is removed.
   kekRotation: false
   plaintext:
-    postgresPassword: ""
-    redisPassword: ""
-    caracalAdminToken: ""
-    stsAdminToken: ""
-    auditAdminToken: ""
-    metricsBearer: ""
-    caracalCoordinatorToken: ""
-    caracalAuthSecret: ""
-    secretStoreKek: ""
-    secretStoreKekPrevious: ""
-    auditHmacKey: ""
-    streamsHmacKey: ""
-    idempotencyHmacKey: ""
-    gatewayStsHmacKey: ""
+    postgresPassword: ''
+    redisPassword: ''
+    caracalAdminToken: ''
+    stsAdminToken: ''
+    auditAdminToken: ''
+    metricsBearer: ''
+    caracalCoordinatorToken: ''
+    caracalAuthSecret: ''
+    secretStoreKek: ''
+    secretStoreKekPrevious: ''
+    auditHmacKey: ''
+    streamsHmacKey: ''
+    idempotencyHmacKey: ''
+    gatewayStsHmacKey: ''
   database:
     user: caracal
     passwordKey: postgresPassword
@@ -59,13 +59,13 @@ secrets:
     port: 6379
     database: 0
   stsAdminToken:
-    secretName: ""
+    secretName: ''
     key: stsAdminToken
   auditAdminToken:
-    secretName: ""
+    secretName: ''
     key: auditAdminToken
   metricsBearer:
-    secretName: ""
+    secretName: ''
     key: metricsBearer
   idempotency:
     retentionSeconds: 604800
@@ -102,7 +102,7 @@ networkPolicy:
 
 replayPersistence:
   enabled: true
-  storageClassName: ""
+  storageClassName: ''
   accessModes:
     - ReadWriteOnce
   size: 1Gi
@@ -135,7 +135,7 @@ scheduling:
   # Existing PriorityClass assigned to every Caracal workload so the control plane
   # outlives best-effort pods under node pressure. Override per service via
   # services.<name>.priorityClassName.
-  priorityClassName: ""
+  priorityClassName: ''
   # Rolling updates and evictions first remove the pod from Service endpoints, then the
   # preStop sleep lets in-flight requests drain before SIGTERM; the grace period bounds
   # the remaining shutdown (audit flush, replay persistence, connection close).
@@ -153,7 +153,7 @@ scheduling:
             labelSelector:
               matchLabels:
                 app.kubernetes.io/name: caracal
-                app.kubernetes.io/component: "{{ .name }}"
+                app.kubernetes.io/component: '{{ .name }}'
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: topology.kubernetes.io/zone
@@ -161,7 +161,7 @@ scheduling:
       labelSelector:
         matchLabels:
           app.kubernetes.io/name: caracal
-          app.kubernetes.io/component: "{{ .name }}"
+          app.kubernetes.io/component: '{{ .name }}'
 
 services:
   sts:
@@ -169,17 +169,28 @@ services:
     replicas: 2
     image: caracal-go
     port: 8080
-    issuerUrl: ""
+    # Internal service-routing URL. Leave empty for the release-local ClusterIP Service.
+    internalUrl: ''
+    # Public token issuer identity. Set this to the externally reachable HTTPS STS URL
+    # whenever SDKs or resource verifiers run outside the cluster.
+    issuerUrl: ''
+    # Use extraEnv for deployment-specific settings such as:
+    # - name: CARACAL_PRIVATE_EGRESS_HOSTS
+    #   value: "login.private.example,oauth.private.example"
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     resources:
       requests:
         cpu: 250m
         memory: 256Mi
       limits:
-        cpu: "1"
+        cpu: '1'
         memory: 768Mi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -191,16 +202,23 @@ services:
     replicas: 2
     image: caracal-node
     port: 3000
+    internalUrl: ''
+    # API provider discovery/connectivity checks honor the same exact-host private
+    # egress grant as STS when configured here.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     resources:
       requests:
         cpu: 250m
         memory: 256Mi
       limits:
-        cpu: "1"
+        cpu: '1'
         memory: 768Mi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -212,16 +230,21 @@ services:
     replicas: 2
     image: caracal-go
     port: 8081
+    internalUrl: ''
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     resources:
       requests:
         cpu: 500m
         memory: 256Mi
       limits:
-        cpu: "2"
+        cpu: '2'
         memory: 1Gi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -233,16 +256,24 @@ services:
     replicas: 2
     image: caracal-go
     port: 9090
+    internalUrl: ''
+    # Ephemeral scratch space for one hourly Parquet export. Size for the largest
+    # expected complete-hour partition plus encoder overhead.
+    exportScratchSizeLimit: 2Gi
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     resources:
       requests:
         cpu: 250m
         memory: 256Mi
       limits:
-        cpu: "1"
+        cpu: '1'
         memory: 1Gi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -254,17 +285,22 @@ services:
     replicas: 2
     image: caracal-node
     port: 4000
+    internalUrl: ''
     requiredScope: agent:lifecycle
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     resources:
       requests:
         cpu: 250m
         memory: 256Mi
       limits:
-        cpu: "1"
+        cpu: '1'
         memory: 768Mi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -278,6 +314,7 @@ services:
     replicas: 2
     image: caracal-web
     port: 3002
+    internalUrl: ''
     # The external HTTPS origin browsers load; also the only trusted same-origin for
     # credentialed requests. Required - set this to your public hostname.
     publicUrl: https://caracal.example.com
@@ -285,7 +322,7 @@ services:
     # Better Auth schema provisioning. Keep "false" for multi-replica deployments: the
     # caracal-*-auth-migrate hook Job creates the auth database and applies the schema once
     # before rollout. Set "true" only for a single-replica install with no migration Job.
-    autoMigrate: "false"
+    autoMigrate: 'false'
     # Additional environment entries for the auth tier, rendered verbatim into the container.
     # Use these to configure registration posture (CARACAL_OPEN_REGISTRATION,
     # CARACAL_PASSWORD_SIGNUP), social sign-in (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET,
@@ -299,11 +336,11 @@ services:
         cpu: 100m
         memory: 128Mi
       limits:
-        cpu: "1"
+        cpu: '1'
         memory: 384Mi
     pdb:
       enabled: true
-      minAvailable: "50%"
+      minAvailable: '50%'
     hpa:
       enabled: true
       minReplicas: 2
@@ -317,21 +354,27 @@ control:
   audience: caracal-control
 
 ingress:
+  sts:
+    enabled: false
+    className: ''
+    host: sts.caracal.example.com
+    tlsSecretName: ''
+    annotations: {}
   gateway:
     enabled: false
-    className: ""
+    className: ''
     host: gateway.caracal.example.com
-    tlsSecretName: ""
+    tlsSecretName: ''
     annotations: {}
   api:
     enabled: false
-    className: ""
+    className: ''
     host: api.caracal.example.com
-    tlsSecretName: ""
+    tlsSecretName: ''
     annotations: {}
   web:
     enabled: true
-    className: ""
+    className: ''
     host: caracal.example.com
-    tlsSecretName: ""
+    tlsSecretName: ''
     annotations: {}

@@ -82,11 +82,11 @@ fi
 echo "  DELETE denied OK"
 
 echo ""
-echo "=== Policy versions immutable: trigger installed ==="
-if [ "$(scalar "SELECT count(*) FROM pg_trigger WHERE tgname = 'policy_versions_immutable' AND NOT tgisinternal;")" = "1" ]; then
-  echo "  trigger OK"
+echo "=== Policy snapshots immutable: triggers installed ==="
+if [ "$(scalar "SELECT count(*) FROM pg_trigger WHERE tgname IN ('policy_versions_immutable', 'policy_set_versions_immutable') AND NOT tgisinternal;")" = "2" ]; then
+  echo "  triggers OK"
 else
-  echo "  FAIL: policy_versions immutability trigger missing"
+  echo "  FAIL: policy snapshot immutability trigger missing"
   exit 1
 fi
 

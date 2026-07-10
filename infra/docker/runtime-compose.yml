@@ -8,8 +8,8 @@ name: caracal
 x-logging: &defaultLogging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "5"
+    max-size: '10m'
+    max-file: '5'
 
 x-security: &defaultSecurity
   security_opt:
@@ -33,12 +33,12 @@ x-appResources: &appResources
   deploy:
     resources:
       limits:
-        cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
-        memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
+        cpus: '${CARACAL_APP_CPU_LIMIT:-1.0}'
+        memory: '${CARACAL_APP_MEM_LIMIT:-512M}'
         pids: 256
       reservations:
-        cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
-        memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+        cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+        memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
 
 # Secret backend selection for user-entered provider credentials. The builtin Secret
 # Store needs nothing beyond SECRET_STORE_KEK; the remaining values configure an
@@ -67,6 +67,7 @@ x-secretBackendEnv: &secretBackendEnv
   GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
   CARACAL_CUSTOM_SECRETS_URL: ${CARACAL_CUSTOM_SECRETS_URL:-}
   CARACAL_CUSTOM_SECRETS_TOKEN: ${CARACAL_CUSTOM_SECRETS_TOKEN:-}
+  CARACAL_PRIVATE_EGRESS_HOSTS: ${CARACAL_PRIVATE_EGRESS_HOSTS:-}
 
 networks:
   caracalData:
@@ -128,7 +129,7 @@ secrets:
 services:
   replayVolumeInit:
     image: busybox:1.37.0@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
-    restart: "no"
+    restart: 'no'
     network_mode: none
     security_opt:
       - no-new-privileges:true
@@ -179,17 +180,17 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgresPassword
       POSTGRES_DB: ${POSTGRES_DB:-caracal}
     ports:
-      - "127.0.0.1:5432:5432"
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgresData:/var/lib/postgresql
     tmpfs:
       - /tmp:size=64m,mode=1777
       - /var/run/postgresql:size=16m,mode=0755
-    shm_size: "256m"
+    shm_size: '256m'
     healthcheck:
       # TCP probe: initdb's temporary server only listens on the unix socket, so
       # health reflects the real postmaster that dependents reach over TCP.
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1"]
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -212,7 +213,7 @@ services:
       REDIS_PASSWORD_FILE: /run/secrets/redisPassword
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
     volumes:
       - redisData:/data
       - type: tmpfs
@@ -220,7 +221,11 @@ services:
         tmpfs:
           mode: 1023
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned"]
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned',
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -229,7 +234,7 @@ services:
 
   dbMigrate:
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-postgres:v${CARACAL_VERSION}
-    restart: "no"
+    restart: 'no'
     init: true
     logging: *defaultLogging
     security_opt:
@@ -261,7 +266,7 @@ services:
         target: authDbPassword
     environment:
       PGHOST: postgres
-      PGPORT: "5432"
+      PGPORT: '5432'
       PGUSER: ${POSTGRES_USER:-caracal}
       PGPASSWORD_FILE: /run/secrets/postgresPassword
       PGDATABASE: ${POSTGRES_DB:-caracal}
@@ -274,12 +279,12 @@ services:
       CARACAL_AUDIT_DB_PASSWORD_FILE: /run/secrets/auditDbPassword
       CARACAL_COORDINATOR_DB_PASSWORD_FILE: /run/secrets/coordinatorDbPassword
       CARACAL_AUTH_DB_PASSWORD_FILE: /run/secrets/authDbPassword
-    entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
+    entrypoint: ['/bin/sh', '/usr/local/bin/caracal-migrate']
 
   sts:
     <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/sts"]
+    command: ['/usr/local/bin/sts']
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -318,11 +323,11 @@ services:
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       PORT: 8080
     ports:
-      - "127.0.0.1:8080:8080"
+      - '127.0.0.1:8080:8080'
     volumes:
       - stsReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -332,7 +337,7 @@ services:
   api:
     <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
-    command: ["/app/api/dist/main.js"]
+    command: ['/app/api/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
@@ -365,14 +370,14 @@ services:
       CARACAL_COORDINATOR_URL: http://coordinator:4000
       # Service-to-service traffic stays on the compose-internal bridge network and is
       # authenticated with HMAC keys and tokens, so plain http between containers is safe.
-      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
       SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
-      CARACAL_CONTROL_ENABLED: "true"
+      CARACAL_CONTROL_ENABLED: 'true'
       CONTROL_GATE_FILE: /run/caracal-control/enabled
       STS_JWKS_URL: http://sts:8080/.well-known/jwks.json
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
@@ -387,11 +392,11 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:3000:3000"
+      - '127.0.0.1:3000:3000'
     volumes:
-      - "${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro"
+      - '${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -401,16 +406,16 @@ services:
   gateway:
     <<: *appService
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/gateway"]
+    command: ['/usr/local/bin/gateway']
     deploy:
       resources:
         limits:
-          cpus: "${CARACAL_GATEWAY_CPU_LIMIT:-2.0}"
-          memory: "${CARACAL_GATEWAY_MEM_LIMIT:-1G}"
+          cpus: '${CARACAL_GATEWAY_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_GATEWAY_MEM_LIMIT:-1G}'
           pids: 256
         reservations:
-          cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
-          memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+          cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+          memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -446,13 +451,15 @@ services:
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       UPSTREAM_HOST_ALLOWLIST: ${UPSTREAM_HOST_ALLOWLIST:-}
+      TRUST_PROXY: ${CARACAL_GATEWAY_TRUST_PROXY:-false}
+      STREAM_IDLE_TIMEOUT: ${CARACAL_GATEWAY_STREAM_IDLE_TIMEOUT:-60s}
       PORT: 8081
     ports:
-      - "127.0.0.1:8081:8081"
+      - '127.0.0.1:8081:8081'
     volumes:
       - gatewayReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -462,7 +469,7 @@ services:
   audit:
     <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/audit"]
+    command: ['/usr/local/bin/audit']
     depends_on:
       postgres:
         condition: service_healthy
@@ -489,11 +496,12 @@ services:
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
-      PORT: "9090"
+      AUDIT_EXPORT_TMP_DIR: /tmp
+      PORT: '9090'
     ports:
-      - "127.0.0.1:9090:9090"
+      - '127.0.0.1:9090:9090'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -503,7 +511,7 @@ services:
   coordinator:
     <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
-    command: ["/app/coordinator/dist/main.js"]
+    command: ['/app/coordinator/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
@@ -530,7 +538,7 @@ services:
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
       # Service-to-service traffic stays on the compose-internal bridge network and is
       # authenticated with HMAC keys and tokens, so plain http between containers is safe.
-      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       IDEMPOTENCY_HMAC_KEY_FILE: /run/secrets/idempotencyHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
@@ -543,9 +551,9 @@ services:
       PORT: 4000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:4000:4000"
+      - '127.0.0.1:4000:4000'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -555,7 +563,7 @@ services:
   web:
     <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-web:v${CARACAL_VERSION}
-    command: ["/app/auth/dist/server.js"]
+    command: ['/app/auth/dist/server.js']
     depends_on:
       postgres:
         condition: service_healthy
@@ -577,7 +585,7 @@ services:
       CARACAL_AUTH_DATABASE_URL_FILE: /run/secrets/authDatabaseUrl
       CARACAL_AUTH_DATABASE_SSL: disable
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
-      CARACAL_AUTH_AUTO_MIGRATE: "true"
+      CARACAL_AUTH_AUTO_MIGRATE: 'true'
       CARACAL_AUTH_URL: ${CARACAL_WEB_URL:-http://localhost:3001}
       CARACAL_VERSION: v${CARACAL_VERSION}
       CARACAL_WEB_ORIGIN: ${CARACAL_WEB_ORIGIN:-}
@@ -605,9 +613,9 @@ services:
     volumes:
       - ${CARACAL_SECRETS_DIR:-./secrets}/allowlist:/run/caracalHostSecrets:ro
     ports:
-      - "127.0.0.1:3001:3002"
+      - '127.0.0.1:3001:3002'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20

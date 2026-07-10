@@ -8,8 +8,8 @@ name: caracal-dev
 x-logging: &defaultLogging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "5"
+    max-size: '10m'
+    max-file: '5'
 
 x-security: &defaultSecurity
   security_opt:
@@ -45,12 +45,12 @@ x-appResources: &appResources
   deploy:
     resources:
       limits:
-        cpus: "${CARACAL_APP_CPU_LIMIT:-1.0}"
-        memory: "${CARACAL_APP_MEM_LIMIT:-512M}"
+        cpus: '${CARACAL_APP_CPU_LIMIT:-1.0}'
+        memory: '${CARACAL_APP_MEM_LIMIT:-512M}'
         pids: 256
       reservations:
-        cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
-        memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+        cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+        memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
 
 # Secret backend selection for user-entered provider credentials. The builtin Secret
 # Store needs nothing beyond SECRET_STORE_KEK; the remaining values configure an
@@ -79,6 +79,7 @@ x-secretBackendEnv: &secretBackendEnv
   GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
   CARACAL_CUSTOM_SECRETS_URL: ${CARACAL_CUSTOM_SECRETS_URL:-}
   CARACAL_CUSTOM_SECRETS_TOKEN: ${CARACAL_CUSTOM_SECRETS_TOKEN:-}
+  CARACAL_PRIVATE_EGRESS_HOSTS: ${CARACAL_PRIVATE_EGRESS_HOSTS:-}
 
 networks:
   caracalData:
@@ -143,7 +144,7 @@ secrets:
 services:
   replayVolumeInit:
     image: busybox:1.37.0@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
-    restart: "no"
+    restart: 'no'
     network_mode: none
     security_opt:
       - no-new-privileges:true
@@ -196,49 +197,49 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgresPassword
       POSTGRES_DB: ${POSTGRES_DB:-caracal}
     command:
-      - "postgres"
-      - "-c"
-      - "shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}"
-      - "-c"
-      - "effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}"
-      - "-c"
-      - "work_mem=${POSTGRES_WORK_MEM:-8MB}"
-      - "-c"
-      - "maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}"
-      - "-c"
-      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-100}"
-      - "-c"
-      - "wal_compression=on"
-      - "-c"
-      - "synchronous_commit=on"
-      - "-c"
-      - "checkpoint_completion_target=0.9"
-      - "-c"
-      - "random_page_cost=1.1"
-      - "-c"
-      - "wal_level=replica"
-      - "-c"
-      - "log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-500}"
-      - "-c"
-      - "log_connections=on"
-      - "-c"
-      - "log_disconnections=on"
-      - "-c"
-      - "log_lock_waits=on"
-      - "-c"
-      - "password_encryption=scram-sha-256"
+      - 'postgres'
+      - '-c'
+      - 'shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}'
+      - '-c'
+      - 'effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}'
+      - '-c'
+      - 'work_mem=${POSTGRES_WORK_MEM:-8MB}'
+      - '-c'
+      - 'maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}'
+      - '-c'
+      - 'max_connections=${POSTGRES_MAX_CONNECTIONS:-100}'
+      - '-c'
+      - 'wal_compression=on'
+      - '-c'
+      - 'synchronous_commit=on'
+      - '-c'
+      - 'checkpoint_completion_target=0.9'
+      - '-c'
+      - 'random_page_cost=1.1'
+      - '-c'
+      - 'wal_level=replica'
+      - '-c'
+      - 'log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-500}'
+      - '-c'
+      - 'log_connections=on'
+      - '-c'
+      - 'log_disconnections=on'
+      - '-c'
+      - 'log_lock_waits=on'
+      - '-c'
+      - 'password_encryption=scram-sha-256'
     ports:
-      - "127.0.0.1:5432:5432"
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgresData:/var/lib/postgresql
     tmpfs:
       - /tmp:size=64m,mode=1777
       - /var/run/postgresql:size=16m,mode=0755
-    shm_size: "256m"
+    shm_size: '256m'
     healthcheck:
       # TCP probe: initdb's temporary server only listens on the unix socket, so
       # health reflects the real postmaster that dependents reach over TCP.
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1"]
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -247,10 +248,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${CARACAL_DB_CPU_LIMIT:-2.0}"
-          memory: "${CARACAL_DB_MEM_LIMIT:-1G}"
+          cpus: '${CARACAL_DB_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_DB_MEM_LIMIT:-1G}'
         reservations:
-          memory: "${CARACAL_DB_MEM_RESERVE:-256M}"
+          memory: '${CARACAL_DB_MEM_RESERVE:-256M}'
 
   redis:
     build:
@@ -270,7 +271,7 @@ services:
       - source: redisPassword
         target: redisPassword
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
     volumes:
       - redisData:/data
       - type: tmpfs
@@ -278,7 +279,11 @@ services:
         tmpfs:
           mode: 1023
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned"]
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned',
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -287,16 +292,16 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${CARACAL_REDIS_CPU_LIMIT:-1.0}"
-          memory: "${CARACAL_REDIS_MEM_LIMIT:-768M}"
+          cpus: '${CARACAL_REDIS_CPU_LIMIT:-1.0}'
+          memory: '${CARACAL_REDIS_MEM_LIMIT:-768M}'
         reservations:
-          memory: "${CARACAL_REDIS_MEM_RESERVE:-128M}"
+          memory: '${CARACAL_REDIS_MEM_RESERVE:-128M}'
 
   dbMigrate:
     image: localhost/caracal-postgres:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     build:
       context: ../postgres
-    restart: "no"
+    restart: 'no'
     init: true
     logging: *defaultLogging
     security_opt:
@@ -328,7 +333,7 @@ services:
         target: authDbPassword
     environment:
       PGHOST: postgres
-      PGPORT: "5432"
+      PGPORT: '5432'
       PGUSER: ${POSTGRES_USER:-caracal}
       PGPASSWORD_FILE: /run/secrets/postgresPassword
       PGDATABASE: ${POSTGRES_DB:-caracal}
@@ -339,7 +344,7 @@ services:
       CARACAL_AUDIT_DB_PASSWORD_FILE: /run/secrets/auditDbPassword
       CARACAL_COORDINATOR_DB_PASSWORD_FILE: /run/secrets/coordinatorDbPassword
       CARACAL_AUTH_DB_PASSWORD_FILE: /run/secrets/authDbPassword
-    entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
+    entrypoint: ['/bin/sh', '/usr/local/bin/caracal-migrate']
 
   sts:
     <<: [*appService, *appResources]
@@ -347,7 +352,7 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.go-service
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
-    command: ["/usr/local/bin/sts"]
+    command: ['/usr/local/bin/sts']
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -384,17 +389,20 @@ services:
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
+      UPSTREAM_HOST_ALLOWLIST: ${UPSTREAM_HOST_ALLOWLIST:-}
+      TRUST_PROXY: ${CARACAL_GATEWAY_TRUST_PROXY:-false}
+      STREAM_IDLE_TIMEOUT: ${CARACAL_GATEWAY_STREAM_IDLE_TIMEOUT:-60s}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-sts
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=caracal,deployment.environment=${CARACAL_MODE:-dev}
       PORT: 8080
     ports:
-      - "127.0.0.1:8080:8080"
+      - '127.0.0.1:8080:8080'
     volumes:
       - stsReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -407,7 +415,7 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.node-service
     image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
-    command: ["/app/api/dist/main.js"]
+    command: ['/app/api/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
@@ -442,14 +450,14 @@ services:
       CARACAL_COORDINATOR_URL: http://coordinator:4000
       # Service-to-service traffic stays on the compose-internal bridge network and is
       # authenticated with HMAC keys and tokens, so plain http between containers is safe.
-      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
       SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
-      CARACAL_CONTROL_ENABLED: "true"
+      CARACAL_CONTROL_ENABLED: 'true'
       CONTROL_GATE_FILE: /run/caracal-control/enabled
       STS_JWKS_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}/.well-known/jwks.json
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
@@ -484,11 +492,11 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:3000:3000"
+      - '127.0.0.1:3000:3000'
     volumes:
-      - "${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro"
+      - '${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -500,16 +508,16 @@ services:
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by sts; never reach for the localhost registry.
     pull_policy: never
-    command: ["/usr/local/bin/gateway"]
+    command: ['/usr/local/bin/gateway']
     deploy:
       resources:
         limits:
-          cpus: "${CARACAL_GATEWAY_CPU_LIMIT:-2.0}"
-          memory: "${CARACAL_GATEWAY_MEM_LIMIT:-1G}"
+          cpus: '${CARACAL_GATEWAY_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_GATEWAY_MEM_LIMIT:-1G}'
           pids: 256
         reservations:
-          cpus: "${CARACAL_APP_CPU_RESERVE:-0.1}"
-          memory: "${CARACAL_APP_MEM_RESERVE:-128M}"
+          cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+          memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -552,11 +560,11 @@ services:
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=caracal,deployment.environment=${CARACAL_MODE:-dev}
       PORT: 8081
     ports:
-      - "127.0.0.1:8081:8081"
+      - '127.0.0.1:8081:8081'
     volumes:
       - gatewayReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -568,7 +576,7 @@ services:
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by sts; never reach for the localhost registry.
     pull_policy: never
-    command: ["/usr/local/bin/audit"]
+    command: ['/usr/local/bin/audit']
     depends_on:
       postgres:
         condition: service_healthy
@@ -595,15 +603,16 @@ services:
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
+      AUDIT_EXPORT_TMP_DIR: /tmp
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-audit
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=caracal,deployment.environment=${CARACAL_MODE:-dev}
-      PORT: "9090"
+      PORT: '9090'
     ports:
-      - "127.0.0.1:9090:9090"
+      - '127.0.0.1:9090:9090'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -615,7 +624,7 @@ services:
     image: localhost/caracal-node:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     # Reuses the image built by api; never reach for the localhost registry.
     pull_policy: never
-    command: ["/app/coordinator/dist/main.js"]
+    command: ['/app/coordinator/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
@@ -640,7 +649,7 @@ services:
       REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
-      CARACAL_ALLOW_INSECURE_CONFIG_URLS: "true"
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       IDEMPOTENCY_HMAC_KEY_FILE: /run/secrets/idempotencyHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
@@ -657,9 +666,9 @@ services:
       PORT: 4000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:4000:4000"
+      - '127.0.0.1:4000:4000'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -672,7 +681,7 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.web
     image: localhost/caracal-web:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
-    command: ["/app/auth/dist/server.js"]
+    command: ['/app/auth/dist/server.js']
     depends_on:
       postgres:
         condition: service_healthy
@@ -694,7 +703,7 @@ services:
       CARACAL_AUTH_DATABASE_URL_FILE: /run/secrets/authDatabaseUrl
       CARACAL_AUTH_DATABASE_SSL: disable
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
-      CARACAL_AUTH_AUTO_MIGRATE: "true"
+      CARACAL_AUTH_AUTO_MIGRATE: 'true'
       CARACAL_AUTH_URL: http://localhost:3001
       CARACAL_VERSION: ${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
       CARACAL_API_URL: http://api:3000
@@ -712,19 +721,17 @@ services:
     volumes:
       - ${CARACAL_SECRETS_DIR:-../secrets/files}/allowlist:/run/caracalHostSecrets:ro
     ports:
-      - "127.0.0.1:${CARACAL_WEB_PORT:-3001}:3002"
+      - '127.0.0.1:${CARACAL_WEB_PORT:-3001}:3002'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 20s
       start_interval: 250ms
 
-
 volumes:
   postgresData:
   redisData:
   stsReplay:
   gatewayReplay:
-
