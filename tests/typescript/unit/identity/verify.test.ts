@@ -157,7 +157,7 @@ describe('verify', () => {
     ).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
-  it('throws SessionRequiredError when agent is required but absent', async () => {
+  it('throws SessionRequiredError when a Session is required but absent', async () => {
     const { token, issuer } = await mintToken()
     await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireSession: true })).rejects.toBeInstanceOf(
       SessionRequiredError,

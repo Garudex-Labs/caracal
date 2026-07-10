@@ -204,6 +204,28 @@ describe('POST /v1/revoke-delegation', () => {
 })
 
 describe('POST /v1/verify', () => {
+  it('accepts the canonical require_session verifier option', async () => {
+    const app = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/verify',
+      payload: { token: 'not-a-jwt', zone_id: 'z1', require_session: true },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('rejects the removed require_agent verifier option', async () => {
+    const app = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/verify',
+      payload: { token: 'not-a-jwt', zone_id: 'z1', require_agent: true },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('rate-limits verification separately from the v1 façade limit', async () => {
     const app = Fastify({ logger: false })
     app.decorate('db', {} as never)

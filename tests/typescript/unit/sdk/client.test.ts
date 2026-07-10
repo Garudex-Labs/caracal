@@ -1175,7 +1175,7 @@ describe('Caracal.federateSubject', () => {
     await expect(c.federateSubject('id-token')).rejects.toThrow('requires a client-secret configuration')
   })
 
-  it('returns the subject session id decoded from the minted mandate', async () => {
+  it('returns the Subject authority record ID decoded from the minted mandate', async () => {
     const token = subjectMandate({ sid: 'sess-42', sub: 'richard.hendricks@piedpiper.example' })
     const exchanger = stubExchanger({
       federateSubject: vi.fn().mockResolvedValue({ token, expiresInSeconds: 600 }),

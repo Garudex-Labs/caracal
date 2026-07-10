@@ -798,7 +798,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     )
   })
 
-  it('skips session revocation when another live agent still uses the subject session', async () => {
+  it('skips authority-record revocation when another live Session still uses the record', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi

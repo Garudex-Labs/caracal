@@ -372,6 +372,30 @@ describe('delegate', () => {
 })
 
 describe('attachSession', () => {
+  it('refreshes once when the initial heartbeat rejects a cached bearer', async () => {
+    const seen: string[] = []
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      seen.push(new Headers(init.headers).get('authorization') ?? '')
+      if (seen.length === 1) return new Response('{"error":"invalid_token"}', { status: 401 })
+      if (init.method === 'DELETE') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify({ agent: { status: 'active' } }), { status: 200 })
+    }) as unknown as typeof fetch
+    let invalidations = 0
+    let tokens = 0
+    const handle = await attachSession({
+      coordinator: { baseUrl: 'http://coord', fetchImpl },
+      zoneId: 'z',
+      applicationId: 'app',
+      subjectToken: 'stale',
+      sessionId: 'svc-1',
+      tokenSource: async () => `token-${++tokens}`,
+      invalidate: () => void invalidations++,
+      heartbeatIntervalMs: 0,
+    })
+    expect(invalidations).toBe(1)
+    expect(seen.slice(0, 2)).toEqual(['Bearer token-1', 'Bearer token-2'])
+    await handle.close()
+  })
   it('validates the session with a lease renewal and returns a live handle', async () => {
     const calls: { method: string; path: string }[] = []
     const fetchImpl = (async (url: string, init?: { method?: string }) => {

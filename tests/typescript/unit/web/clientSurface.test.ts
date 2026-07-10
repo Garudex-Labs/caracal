@@ -183,11 +183,11 @@ describe('Authority record, approval, and audit endpoints', () => {
     const calls = record(() => ({
       items: [
         {
-          id: 's1',
+          authority_record_id: 's1',
           zone_id: 'z1',
-          session_type: 'user',
+          authority_record_type: 'user',
           subject_id: 'richard',
-          parent_id: null,
+          parent_authority_record_id: null,
           status: 'active',
           expires_at: '2026-07-10T12:00:00Z',
           authenticated_at: '2026-07-10T11:00:00Z',
@@ -203,6 +203,7 @@ describe('Authority record, approval, and audit endpoints', () => {
     expect(page.nextCursor).toBe('c2')
     expect(last(calls).url).toContain('status=active')
     expect(last(calls).url).toContain('subject_id=richard')
+    expect(last(calls).url).toContain('/v1/zones/z1/authority-records')
   })
 
   it('lists, approves, and rejects approval holds', async () => {
@@ -299,14 +300,14 @@ describe('coordinator endpoints', () => {
           zone_id: 'z1',
           application_id: 'app1',
           parent_id: 'ag1',
-          subject_session_id: 'record1',
+          subject_authority_record_id: 'record1',
           lifecycle: 'task',
           labels: [],
           status: 'active',
           depth: 1,
           ttl_seconds: 60,
           metadata: null,
-          spawned_at: '2026-07-10T11:00:00Z',
+          started_at: '2026-07-10T11:00:00Z',
           terminated_at: null,
           termination_reason: null,
           last_heartbeat_at: null,

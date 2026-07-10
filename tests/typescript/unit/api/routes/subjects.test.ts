@@ -34,7 +34,8 @@ describe('GET /v1/zones/:zoneId/subjects', () => {
     expect(body.items).toHaveLength(1)
     expect(body.items[0].issuer).toBe('https://login.hooli.example')
     const sql = String(db.query.mock.calls[0][0])
-    expect(sql).toContain('GROUP BY s.subject_id')
+    expect(sql).toContain('GROUP BY ar.subject_id')
+    expect(sql).toContain('FROM authority_records ar')
     expect(sql).toContain('LEFT JOIN applications')
   })
 
@@ -50,7 +51,7 @@ describe('GET /v1/zones/:zoneId/subjects', () => {
 
     expect(res.statusCode).toBe(200)
     const [sql, values] = db.query.mock.calls[0]
-    expect(String(sql)).toContain("BOOL_OR(s.session_type = 'user')")
+    expect(String(sql)).toContain("BOOL_OR(ar.session_type = 'user')")
     expect(values).toContain('%richard%')
     expect(String(sql)).not.toContain('richard')
   })
@@ -78,7 +79,7 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
             application_name: 'Son of Anton',
             lifecycle: 'task',
             status: 'active',
-            spawned_at: '2026-07-01T00:00:00.000Z',
+            started_at: '2026-07-01T00:00:00.000Z',
           },
         ],
       })
@@ -132,7 +133,7 @@ describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'sess-1' }, { id: 'sess-2' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'ag-1', subject_session_id: 'sess-1', parent_id: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'ag-1', subject_authority_record_id: 'sess-1', parent_id: null }] })
       .mockResolvedValueOnce({ rows: [{ id: 'edge-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'pc-1' }] })
       .mockResolvedValue({ rows: [] })
@@ -154,7 +155,9 @@ describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
     })
     const calls = db.query.mock.calls.map((call) => String(call[0]))
     expect(calls[1]).toContain("revoked_reason = 'subject_revoked'")
+    expect(calls[1]).toContain('UPDATE authority_records')
     expect(calls[2]).toContain('WITH RECURSIVE tree')
+    expect(calls[2]).toContain('UPDATE sessions')
     expect(calls[3]).toContain('UPDATE delegation_edges')
     expect(calls[4]).toContain('UPDATE provider_connections')
     const outbox = calls.find((sql) => sql.includes('INSERT INTO event_outbox'))

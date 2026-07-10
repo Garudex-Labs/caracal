@@ -873,7 +873,7 @@ describe('DELETE /v1/zones/:zoneId/grants/:id bounded session revocation', () =>
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/grants/g1' })
 
     expect(res.statusCode).toBe(204)
-    const updates = client.query.mock.calls.filter((c: unknown[]) => /UPDATE sessions SET status = 'revoked'/.test(c[0] as string))
+    const updates = client.query.mock.calls.filter((c: unknown[]) => /UPDATE authority_records SET status = 'revoked'/.test(c[0] as string))
     expect(updates.length).toBe(2)
     const limitArg = (updates[0][1] as unknown[])[2]
     expect(limitArg).toBe(1000)
