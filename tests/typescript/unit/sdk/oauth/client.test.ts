@@ -383,6 +383,24 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('aborts during retry backoff without issuing another request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: { get: () => '10' },
+      text: async () => JSON.stringify({ error: 'rate_limited' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const controller = new AbortController()
+    const exchange = client.exchange('subject-tok', 'resource://api', { retries: 1, signal: controller.signal })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort(new Error('caller gave up'))
+
+    await expect(exchange).rejects.toThrow('caller gave up')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('rethrows final fetch errors and times out expired deadlines', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')

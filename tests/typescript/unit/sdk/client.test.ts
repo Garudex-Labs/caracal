@@ -594,7 +594,7 @@ describe('caracal.transport', () => {
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch } })
-    await c.transport({ asApplication: true })('http://api/x')
+    await c.transport({ asApplication: true, propagation: 'always' })('http://api/x')
     expect(calls).toHaveLength(1)
     expect(calls[0].headers.get(HeaderAuthorization)).toBeNull()
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
@@ -660,7 +660,7 @@ describe('caracal.transport', () => {
     expect(calls[0].signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('keeps envelope headers off non-gateway hosts under gateway-only propagation', async () => {
+  it('keeps envelope headers off non-gateway hosts by default', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), headers: new Headers(init.headers) })
@@ -672,7 +672,7 @@ describe('caracal.transport', () => {
       gatewayUrl: 'https://gateway.example.com/proxy',
       resources: [{ resourceId: 'calendar', upstreamPrefix: 'https://api.example.com/v1' }],
     })
-    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
+    const send = c.transport({ asApplication: true })
     await send('https://third-party.example.com/data')
     await send('https://api.example.com/v1/events')
     expect(calls[0].headers.get(HeaderTraceparent)).toBeNull()
@@ -895,10 +895,10 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       if (init.method === 'POST' && String(input).endsWith('/heartbeat')) {
-        return new Response(JSON.stringify({ agent: { id: 'svc-1' } }), { status: 200 })
+        return new Response(JSON.stringify({ agent: { id: 'svc-1', lease_generation: 1 } }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -929,7 +929,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -963,7 +963,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -1430,7 +1430,7 @@ describe('Caracal.attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -1440,7 +1440,7 @@ describe('Caracal.attachSession', () => {
     const handle = await c.attachSession('agent-persisted', { heartbeatIntervalMs: 0 })
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/heartbeat')
+    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/lease')
     await handle.close()
     expect(ends).toEqual(['agent-persisted'])
     expect(calls.some((call) => call.method === 'DELETE' && call.path.endsWith('/agent-persisted'))).toBe(true)
@@ -1459,20 +1459,19 @@ describe('logger routing', () => {
     expect(logger).not.toHaveBeenCalled()
   })
 
-  it('warns once through the logger when binding unverified context in production', async () => {
+  it('rejects unverified context binding in production', async () => {
     const logger = vi.fn()
     const c = new Caracal({ ...baseConfig, logger })
     const headers = { authorization: 'Bearer inbound' }
     const previous = process.env.CARACAL_ENV
     process.env.CARACAL_ENV = 'production'
     try {
-      await c.bindFromHeaders(headers, async () => {})
-      await c.bindFromHeaders(headers, async () => {})
+      await expect(c.bindFromHeaders(headers, async () => {})).rejects.toThrow(/requires \{ verify \} or \{ trustedPropagation: true \}/)
+      await expect(c.bindFromHeaders(headers, async () => 'ok', { trustedPropagation: true })).resolves.toBe('ok')
     } finally {
       if (previous === undefined) delete process.env.CARACAL_ENV
       else process.env.CARACAL_ENV = previous
     }
-    const boundaryWarnings = logger.mock.calls.filter(([message]) => String(message).includes('without a verify hook'))
-    expect(boundaryWarnings).toHaveLength(1)
+    expect(logger).not.toHaveBeenCalled()
   })
 })

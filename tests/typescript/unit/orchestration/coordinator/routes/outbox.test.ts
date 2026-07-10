@@ -24,17 +24,17 @@ function buildApp(scopes = ['coordinator.admin']) {
       clientId: 'control',
     }
   })
-  app.register(outboxRoutes, { prefix: '/v1' })
+  app.register(outboxRoutes)
   return { app, db }
 }
 
-describe('POST /v1/zones/:zoneId/outbox/:id/requeue', () => {
+describe('POST /zones/:zoneId/outbox/:id/requeue', () => {
   it('atomically requeues a dead Coordinator outbox row', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({ rows: [{ id: outboxId }] })
     await app.ready()
 
-    const response = await app.inject({ method: 'POST', url: `/v1/zones/${zoneId}/outbox/${outboxId}/requeue` })
+    const response = await app.inject({ method: 'POST', url: `/zones/${zoneId}/outbox/${outboxId}/requeue` })
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ id: outboxId, status: 'pending' })
@@ -46,7 +46,7 @@ describe('POST /v1/zones/:zoneId/outbox/:id/requeue', () => {
     const { app, db } = buildApp([])
     await app.ready()
 
-    const response = await app.inject({ method: 'POST', url: `/v1/zones/${zoneId}/outbox/${outboxId}/requeue` })
+    const response = await app.inject({ method: 'POST', url: `/zones/${zoneId}/outbox/${outboxId}/requeue` })
 
     expect(response.statusCode).toBe(403)
     expect(db.query).not.toHaveBeenCalled()
@@ -57,7 +57,7 @@ describe('POST /v1/zones/:zoneId/outbox/:id/requeue', () => {
     db.query.mockResolvedValueOnce({ rows: [] })
     await app.ready()
 
-    const response = await app.inject({ method: 'POST', url: `/v1/zones/${zoneId}/outbox/${outboxId}/requeue` })
+    const response = await app.inject({ method: 'POST', url: `/zones/${zoneId}/outbox/${outboxId}/requeue` })
 
     expect(response.statusCode).toBe(404)
     expect(response.json()).toEqual({ error: 'dead_outbox_not_found' })

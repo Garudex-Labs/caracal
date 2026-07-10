@@ -15,7 +15,7 @@ interface Recorder {
 
 function recorder(agentId = 'agent-new', edgeId = 'edge-new'): Recorder {
   const calls: { method: string; path: string }[] = []
-  const fetchImpl = (async (url: string, init?: { method?: string }) => {
+  const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
     const method = init?.method ?? 'GET'
     const path = new URL(url).pathname
     calls.push({ method, path })
@@ -23,7 +23,10 @@ function recorder(agentId = 'agent-new', edgeId = 'edge-new'): Recorder {
     if (path.endsWith('/delegations')) {
       return new Response(JSON.stringify({ delegation_edge_id: edgeId }), { status: 200 })
     }
-    return new Response(JSON.stringify({ agent_session_id: agentId }), { status: 200 })
+    const body = JSON.parse(init?.body ?? '{}') as { lifecycle?: string }
+    return new Response(JSON.stringify({ agent_session_id: agentId, lease_generation: body.lifecycle === 'service' ? 1 : 0 }), {
+      status: 200,
+    })
   }) as unknown as typeof fetch
   return { client: { baseUrl: 'http://coord', fetchImpl }, calls }
 }
@@ -222,9 +225,10 @@ describe('startSession with authority', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, path: new URL(url).pathname })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z' }), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 1 }),
+        { status: 200 },
+      )
     }) as unknown as typeof fetch
     const svc = await startSession({
       coordinator: { baseUrl: 'http://coord', fetchImpl },
@@ -234,6 +238,7 @@ describe('startSession with authority', () => {
       heartbeatIntervalMs: 0,
     })
     expect(svc.deadlineAt).toBe('2026-07-09T12:00:00Z')
+    expect(svc.leaseGeneration).toBe(1)
     await svc.close()
   })
 
@@ -276,7 +281,7 @@ describe('startSession with authority', () => {
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/delegations')) return new Response('denied', { status: 403 })
-      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan' }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan', lease_generation: 1 }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
 
@@ -425,7 +430,7 @@ describe('attachSession', () => {
       seen.push(new Headers(init.headers).get('authorization') ?? '')
       if (seen.length === 1) return new Response('{"error":"invalid_token"}', { status: 401 })
       if (init.method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active' } }), { status: 200 })
+      return new Response(JSON.stringify({ status: 'active', lease_generation: 2 }), { status: 200 })
     }) as unknown as typeof fetch
     let invalidations = 0
     let tokens = 0
@@ -450,7 +455,7 @@ describe('attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -465,7 +470,8 @@ describe('attachSession', () => {
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.context.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/heartbeat')
+    expect(handle.leaseGeneration).toBe(2)
+    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/lease')
     await handle.close()
     expect(calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/agent-persisted'))).toBe(true)
   })
@@ -730,12 +736,18 @@ describe('service auto-heartbeat', () => {
         heartbeats.push(JSON.parse(String(init.body)))
         if (opts.heartbeat) return opts.heartbeat(beats)
         return new Response(
-          JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() } }),
+          JSON.stringify({
+            agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(), lease_generation: 1 },
+          }),
           { status: 200 },
         )
       }
       return new Response(
-        JSON.stringify({ agent_session_id: 'svc-1', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() }),
+        JSON.stringify({
+          agent_session_id: 'svc-1',
+          heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(),
+          lease_generation: 1,
+        }),
         { status: 200 },
       )
     }) as unknown as typeof fetch
@@ -749,7 +761,7 @@ describe('service auto-heartbeat', () => {
       const svc = await startSession({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
       await vi.advanceTimersByTimeAsync(1_500)
       expect(heartbeats.length).toBeGreaterThanOrEqual(1)
-      expect(heartbeats[0]).toEqual({ status: 'healthy' })
+      expect(heartbeats[0]).toEqual({ status: 'healthy', lease_generation: 1 })
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -777,6 +789,33 @@ describe('service auto-heartbeat', () => {
     }
   })
 
+  it('reports a fenced heartbeat as permanent lease loss', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      const { client } = serviceRecorder({
+        heartbeat: () => new Response('{"error":"session_lease_fenced"}', { status: 409 }),
+      })
+      const onLeaseLost = vi.fn()
+      const svc = await startSession({
+        coordinator: client,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        heartbeatIntervalMs: 10,
+        onLeaseLost,
+      })
+
+      await vi.advanceTimersByTimeAsync(20)
+
+      expect(onLeaseLost).toHaveBeenCalledOnce()
+      await svc.close()
+    } finally {
+      vi.useRealTimers()
+      warn.mockRestore()
+    }
+  })
+
   it('does not report resumable lease expiry as terminal loss', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.useFakeTimers()
@@ -785,7 +824,7 @@ describe('service auto-heartbeat', () => {
         heartbeat: (beat) =>
           beat === 1
             ? new Response('{"error":"session_lease_expired"}', { status: 409 })
-            : new Response(JSON.stringify({ agent: { status: 'suspended' } }), { status: 200 }),
+            : new Response(JSON.stringify({ agent: { status: 'suspended', lease_generation: 1 } }), { status: 200 }),
       })
       const onLeaseLost = vi.fn()
       const onStateChange = vi.fn()
@@ -824,7 +863,7 @@ describe('service auto-heartbeat', () => {
       await vi.advanceTimersByTimeAsync(120_000)
       expect(heartbeats.length).toBe(0)
       await svc.heartbeat('degraded')
-      expect(heartbeats).toEqual([{ status: 'degraded' }])
+      expect(heartbeats).toEqual([{ status: 'degraded', lease_generation: 1 }])
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -835,7 +874,7 @@ describe('service auto-heartbeat', () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -862,7 +901,7 @@ describe('service auto-heartbeat', () => {
             resolveBeat = resolve
           })
         }
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       const onLeaseLost = vi.fn()
@@ -893,7 +932,7 @@ describe('service auto-heartbeat', () => {
         return new Response(null, { status: 204 })
       }
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch

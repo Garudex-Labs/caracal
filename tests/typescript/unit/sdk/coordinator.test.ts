@@ -6,9 +6,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   CoordinatorError,
+  Lifecycle,
   startCoordinatorSession,
   terminateSession,
   createDelegation,
+  acquireSessionLease,
   heartbeatSession,
   type CoordinatorCallEvent,
   type CoordinatorClient,
@@ -45,18 +47,26 @@ describe('coordinator client', () => {
             agent_session_id: 'agent-1',
             delegation_edge_id: 'edge-1',
             heartbeat_deadline_at: '2026-07-04T12:00:00.000Z',
+            lease_generation: 1,
           }),
           { status: 201 },
         ),
     )
     const res = await startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1', idempotencyKey: 'key-1' })
-    expect(res).toEqual({ sessionId: 'agent-1', delegationId: 'edge-1', heartbeatDeadlineAt: '2026-07-04T12:00:00.000Z' })
+    expect(res).toEqual({
+      sessionId: 'agent-1',
+      delegationId: 'edge-1',
+      heartbeatDeadlineAt: '2026-07-04T12:00:00.000Z',
+      leaseGeneration: 1,
+    })
     expect(calls[0].headers.get('idempotency-key')).toBe('key-1')
     expect(calls[0].headers.get('authorization')).toBe('Bearer tok')
   })
 
   it('sends a federated Subject mandate as proof without replacing the application bearer', async () => {
-    const { client, calls } = stub(() => new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 201 }))
+    const { client, calls } = stub(
+      () => new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 201 }),
+    )
     await startCoordinatorSession(client, 'application-mandate', {
       zoneId: 'z1',
       applicationId: 'app-1',
@@ -151,13 +161,58 @@ describe('coordinator client', () => {
   it('sends the heartbeat status and parses the renewed lease', async () => {
     const { client, calls } = stub(
       () =>
-        new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-04T12:02:00.000Z' }, service: null }), {
-          status: 200,
-        }),
+        new Response(
+          JSON.stringify({
+            agent: { status: 'active', heartbeat_deadline_at: '2026-07-04T12:02:00.000Z', lease_generation: 2 },
+            service: null,
+          }),
+          {
+            status: 200,
+          },
+        ),
     )
-    const res = await heartbeatSession(client, 'tok', 'z1', 'session-1', 'degraded')
-    expect(calls[0].body).toEqual({ status: 'degraded' })
-    expect(res).toEqual({ status: 'active', heartbeatDeadlineAt: '2026-07-04T12:02:00.000Z' })
+    const res = await heartbeatSession(client, 'tok', 'z1', 'session-1', 1, 'degraded')
+    expect(calls[0].body).toEqual({ status: 'degraded', lease_generation: 1 })
+    expect(res).toEqual({ status: 'active', heartbeatDeadlineAt: '2026-07-04T12:02:00.000Z', leaseGeneration: 2 })
+  })
+
+  it('propagates one lifecycle trace with a fresh span per call', async () => {
+    const trace = { traceId: '1'.repeat(32), traceFlags: '01', traceState: 'vendor=value' }
+    const { client, calls } = stub((rec) =>
+      rec.url.endsWith('/heartbeat')
+        ? new Response(JSON.stringify({ agent: { status: 'active', lease_generation: 1 } }), { status: 200 })
+        : new Response(JSON.stringify({ agent_session_id: 'session-1', lease_generation: 1 }), { status: 201 }),
+    )
+
+    await startCoordinatorSession(client, 'tok', {
+      zoneId: 'z1',
+      applicationId: 'app-1',
+      lifecycle: Lifecycle.Service,
+      trace,
+    })
+    await heartbeatSession(client, 'tok', 'z1', 'session-1', 1, 'healthy', trace)
+
+    const traceparents = calls.map((call) => call.headers.get('traceparent') ?? '')
+    expect(traceparents.every((value) => value.split('-')[1] === trace.traceId)).toBe(true)
+    expect(traceparents[0].split('-')[2]).not.toBe(traceparents[1].split('-')[2])
+    expect(calls.map((call) => call.headers.get('tracestate'))).toEqual(['vendor=value', 'vendor=value'])
+  })
+
+  it('acquires a fresh lease generation and sends it on service termination', async () => {
+    const { client, calls } = stub((rec) =>
+      rec.method === 'POST'
+        ? new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-04T12:02:00.000Z', lease_generation: 5 }), {
+            status: 200,
+          })
+        : new Response(null, { status: 204 }),
+    )
+
+    const lease = await acquireSessionLease(client, 'tok', 'z1', 'session-1')
+    await terminateSession(client, 'tok', 'z1', 'session-1', lease.leaseGeneration)
+
+    expect(lease.leaseGeneration).toBe(5)
+    expect(calls[0].url).toMatch(/\/zones\/z1\/agents\/session-1\/lease$/)
+    expect(calls[1].body).toEqual({ lease_generation: 5 })
   })
 
   it('escapes path segments in zone and agent ids', async () => {
@@ -187,7 +242,7 @@ describe('coordinator client', () => {
     const { client } = stub((rec) =>
       rec.method === 'DELETE'
         ? new Response(JSON.stringify({ error: 'denied' }), { status: 403 })
-        : new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 201 }),
+        : new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 201 }),
     )
     client.onEvent = (event) => {
       events.push(event)
