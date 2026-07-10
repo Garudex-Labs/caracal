@@ -143,7 +143,7 @@ export function Sidebar({
   const systemView = useSystemZoneView();
   const hidden = useHiddenNavItems();
   const { activeZone } = useActiveZone();
-  // The pending count rides on the Approvals nav item so a parked agent run is visible
+  // The pending count rides on the Approvals nav item so a parked Session is visible
   // from anywhere in the console, not just for someone already on the Approvals page.
   const approvalCounts = useApprovalCounts(activeZone?.id ?? null);
   const pendingApprovals = approvalCounts.data?.pending ?? 0;

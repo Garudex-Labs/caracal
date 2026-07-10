@@ -259,7 +259,7 @@ export function GuidedSetup() {
           <p className="text-xs text-muted-foreground">
             Use <span className="text-foreground">Simulate</span> on the policy set to dry-run a
             decision, and watch <span className="text-foreground">Sessions</span> and{" "}
-            <span className="text-foreground">Audit</span> as agents exchange tokens.
+            <span className="text-foreground">Audit</span> as Applications exchange tokens.
           </p>
         ) : undefined,
       },

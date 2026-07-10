@@ -19,7 +19,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   resource: "Resources",
   policy: "Policies",
   grant: "Grants",
-  session: "Subjects",
+  session: "Authority records",
   agent: "Sessions",
   delegation: "Delegations",
   audit: "Audit",
@@ -190,7 +190,7 @@ function GrantRow({ row }: { row: EvidenceRowView }) {
   );
 }
 
-function SessionRow({ row }: { row: EvidenceRowView }) {
+function AuthorityRecordRow({ row }: { row: EvidenceRowView }) {
   return (
     <Row
       lead={
@@ -211,7 +211,7 @@ function SessionRow({ row }: { row: EvidenceRowView }) {
   );
 }
 
-function AgentRow({ row }: { row: EvidenceRowView }) {
+function SessionRow({ row }: { row: EvidenceRowView }) {
   return (
     <Row
       lead={
@@ -300,8 +300,8 @@ const DOMAIN_ROWS: Record<string, (props: { row: EvidenceRowView }) => ReactNode
   resource: ResourceRow,
   policy: PolicyRow,
   grant: GrantRow,
-  session: SessionRow,
-  agent: AgentRow,
+  session: AuthorityRecordRow,
+  agent: SessionRow,
   delegation: DelegationRow,
   audit: AuditRow,
 };

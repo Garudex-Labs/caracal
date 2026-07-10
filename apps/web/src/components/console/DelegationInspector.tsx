@@ -356,7 +356,7 @@ function ImpactView({ impact }: { impact: DelegationImpact | null }) {
       </div>
       {subjects.length > 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          Subject sessions losing access:{" "}
+          Subject authority records losing access:{" "}
           <span className="font-mono">{subjects.map((s) => shortId(s)).join(", ")}</span>
         </p>
       ) : null}
