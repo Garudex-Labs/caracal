@@ -68,18 +68,17 @@ type AuthoritySummary struct {
 	Chain                    []string
 }
 
-// VerifiedClaims is attribution a verify hook proved from the token itself.
-// Claims take precedence over the caller-supplied envelope, so a forged or
-// stale envelope cannot override what the token asserts. Empty string fields
-// and a nil Hop leave the envelope value in place.
+// VerifiedClaims is complete attribution a verify hook proved from the token.
+// Optional fields are authoritatively absent when empty and never fall back to
+// the caller-supplied envelope after verification.
 type VerifiedClaims struct {
 	ZoneID                   string
 	ApplicationID            string
+	Hop                      int
 	SessionID                string
 	DelegationID             string
 	ParentDelegationID       string
 	SubjectAuthorityRecordID string
-	Hop                      *int
 }
 
 func cloneBaggage(baggage map[string]string) map[string]string {

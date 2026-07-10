@@ -94,17 +94,18 @@ const (
 
 // StartSessionRequest contains parameters for starting a governed Session.
 type StartSessionRequest struct {
-	ZoneID                   string
-	ApplicationID            string
-	SubjectAuthorityRecordID string
-	ParentID                 string
-	Lifecycle                Lifecycle
-	TTLSeconds               int
-	Metadata                 map[string]any
-	Labels                   []string
-	IdempotencyKey           string
-	IdempotencyKeyGenerated  bool
-	ParentAuthority          string
+	ZoneID                      string
+	ApplicationID               string
+	SubjectAuthorityRecordID    string
+	SubjectAuthorityRecordToken string
+	ParentID                    string
+	Lifecycle                   Lifecycle
+	TTLSeconds                  int
+	Metadata                    map[string]any
+	Labels                      []string
+	IdempotencyKey              string
+	IdempotencyKeyGenerated     bool
+	ParentAuthority             string
 }
 
 // StartSessionResponse from the coordinator.
@@ -204,6 +205,9 @@ func StartCoordinatorSession(ctx context.Context, client *CoordinatorClient, bea
 	}
 	if req.SubjectAuthorityRecordID != "" {
 		body["subject_session_id"] = req.SubjectAuthorityRecordID
+	}
+	if req.SubjectAuthorityRecordToken != "" {
+		body["subject_token"] = req.SubjectAuthorityRecordToken
 	}
 	if req.ParentID != "" {
 		body["parent_id"] = req.ParentID
