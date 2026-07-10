@@ -200,9 +200,9 @@ func (c *Client) cacheSubject(subjectToken string, opts ExchangeOptions) string 
 	parts := []string{
 		c.zoneID + "::" + c.applicationID,
 		hashSecret(subjectToken),
+		opts.AuthorityRecordID,
 		opts.SessionID,
-		opts.AgentSessionID,
-		opts.DelegationEdgeID,
+		opts.DelegationID,
 		c.authContext(opts),
 		hashSecret(opts.ClientAssertion),
 	}
@@ -241,9 +241,9 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	setFormValue(form, "client_secret", opts.ClientSecret)
 	setFormValue(form, "client_assertion", opts.ClientAssertion)
 	setFormValue(form, "client_assertion_type", opts.ClientAssertionType)
-	setFormValue(form, "session_id", opts.SessionID)
-	setFormValue(form, "agent_session_id", opts.AgentSessionID)
-	setFormValue(form, "delegation_edge_id", opts.DelegationEdgeID)
+	setFormValue(form, "session_id", opts.AuthorityRecordID)
+	setFormValue(form, "agent_session_id", opts.SessionID)
+	setFormValue(form, "delegation_edge_id", opts.DelegationID)
 	if scope := normalizedScopes(opts.Scopes); scope != "" {
 		form.Set("scope", scope)
 	}

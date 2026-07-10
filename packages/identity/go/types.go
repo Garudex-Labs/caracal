@@ -35,6 +35,7 @@ type Config struct {
 	RequireDelegation    bool
 	RequireChainContains []string
 	MaxHopCount          int
+	JWKSCache            *JWKSCache
 }
 
 // ChainHop is one step in a delegation chain.

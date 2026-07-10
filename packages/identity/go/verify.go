@@ -191,7 +191,11 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	mapClaims := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
-		keys, err := GetJWKSContext(ctx, cfg.Issuer, zone)
+		cache := cfg.JWKSCache
+		if cache == nil {
+			cache = defaultJWKSCache
+		}
+		keys, err := cache.Get(ctx, cfg.Issuer, zone)
 		if err != nil {
 			return nil, err
 		}

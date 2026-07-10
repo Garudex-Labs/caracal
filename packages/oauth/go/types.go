@@ -15,9 +15,9 @@ type ExchangeOptions struct {
 	ClientSecret        string
 	ClientAssertion     string
 	ClientAssertionType string
+	AuthorityRecordID   string
 	SessionID           string
-	AgentSessionID      string
-	DelegationEdgeID    string
+	DelegationID        string
 	Scopes              []string
 	TimeoutMillis       int
 	Retries             int
