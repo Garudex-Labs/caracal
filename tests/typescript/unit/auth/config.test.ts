@@ -58,6 +58,19 @@ describe('secure cookies', () => {
     reset({ CARACAL_AUTH_URL: 'https://auth.example.com', CARACAL_AUTH_SECURE_COOKIES: 'false' })
     expect(loadConfig().secureCookies).toBe(false)
   })
+
+  it('supports explicit cross-site cookies only over secure transport', () => {
+    reset({ CARACAL_AUTH_URL: 'https://auth.example.com', CARACAL_AUTH_COOKIE_SAME_SITE: 'none' })
+    expect(loadConfig().cookieSameSite).toBe('none')
+
+    reset({ CARACAL_AUTH_URL: 'http://localhost:3002', CARACAL_AUTH_COOKIE_SAME_SITE: 'none' })
+    expect(() => loadConfig()).toThrow('requires secure cookies')
+  })
+
+  it('rejects unknown cookie site modes', () => {
+    reset({ CARACAL_AUTH_COOKIE_SAME_SITE: 'strict' })
+    expect(() => loadConfig()).toThrow('must be lax or none')
+  })
 })
 
 describe('database TLS posture', () => {

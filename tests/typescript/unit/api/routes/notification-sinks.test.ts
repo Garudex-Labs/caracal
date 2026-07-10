@@ -35,6 +35,8 @@ describe('validateSinkUrl', () => {
     expect(validateSinkUrl('https://user:pass@hooks.hooli.example/')).toContain('credentials')
     expect(validateSinkUrl('not a url')).toContain('not a valid')
     expect(validateSinkUrl('ftp://hooks.hooli.example/')).toContain('https')
+    expect(validateSinkUrl('https://169.254.169.254/latest/meta-data')).toContain('restricted')
+    expect(validateSinkUrl('https://10.0.0.1/hook')).toContain('restricted')
   })
 })
 

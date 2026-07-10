@@ -88,7 +88,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('rejects expired delegation edges', async () => {
+  it('rejects expired Delegations', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
@@ -746,23 +746,23 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 })
 
 describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
-  it('returns revocation blast radius for an active delegation edge', async () => {
+  it('returns revocation blast radius for an active Delegation', async () => {
     const { app, db } = buildApp()
     db.query.mockResolvedValueOnce({
       rows: [
         {
           id: 'edge-1',
-          source_session_id: 'agent-1',
-          target_session_id: 'agent-2',
+          source_session_id: 'session-1',
+          target_session_id: 'session-2',
           depth: 1,
-          subject_authority_record_id: 'sid-2',
+          subject_authority_record_id: 'record-2',
         },
         {
           id: 'edge-2',
-          source_session_id: 'agent-2',
-          target_session_id: 'agent-3',
+          source_session_id: 'session-2',
+          target_session_id: 'session-3',
           depth: 2,
-          subject_authority_record_id: 'sid-3',
+          subject_authority_record_id: 'record-3',
         },
       ],
     })
@@ -776,11 +776,11 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
       edge_id: 'edge-1',
-      affected_sessions: ['agent-2', 'agent-3'],
-      affected_subject_sessions: ['sid-2', 'sid-3'],
+      affected_sessions: ['session-2', 'session-3'],
+      affected_authority_records: ['record-2', 'record-3'],
       affected_edges: [
-        { id: 'edge-1', source_session_id: 'agent-1', target_session_id: 'agent-2', depth: 1 },
-        { id: 'edge-2', source_session_id: 'agent-2', target_session_id: 'agent-3', depth: 2 },
+        { id: 'edge-1', source_session_id: 'session-1', target_session_id: 'session-2', depth: 1 },
+        { id: 'edge-2', source_session_id: 'session-2', target_session_id: 'session-3', depth: 2 },
       ],
     })
   })

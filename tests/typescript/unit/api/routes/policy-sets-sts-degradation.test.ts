@@ -13,6 +13,7 @@ describe('policy-sets STS response degradation', () => {
     app.decorate('cfg', {
       stsUrl: 'http://sts.local',
       gatewayStsHmacKey: Buffer.alloc(32, 1),
+      requestTimeoutMs: 30_000,
     } as never)
     db.query
       .mockResolvedValueOnce({
@@ -63,6 +64,7 @@ describe('policy-sets STS response degradation', () => {
     app.decorate('cfg', {
       stsUrl: 'http://sts.local',
       gatewayStsHmacKey: Buffer.alloc(32, 1),
+      requestTimeoutMs: 30_000,
     } as never)
     db.query.mockResolvedValueOnce({ rows: [{ active_version_id: 'psv-1', manifest_sha256: 'sha-1' }] }).mockResolvedValueOnce({
       rows: [

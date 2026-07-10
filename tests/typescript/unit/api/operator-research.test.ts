@@ -29,10 +29,10 @@ describe('governedReadCapabilities', () => {
     expect(reads.sort()).toEqual([
       'explainRequest',
       'listAdminActivity',
-      'listAgents',
       'listApplications',
       'listApprovals',
       'listAuditEvents',
+      'listAuthorityRecords',
       'listDelegations',
       'listGrants',
       'listPolicies',
@@ -225,21 +225,21 @@ describe('createStateResearcher', () => {
     expect(JSON.stringify(apps)).not.toContain('sk_leak')
   })
 
-  it('unwraps an items envelope and keys agent rows by their session id', async () => {
+  it('unwraps an items envelope and keys Session rows by their Session ID', async () => {
     const { client } = clientFor({
       delegation: {
         items: [{ id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' }],
         next_cursor: null,
       },
-      session: [{ agent_session_id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
+      session: [{ session_id: 'session-1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
     })
-    const { evidence } = await createStateResearcher(client).gather(['delegation', 'agent'])
+    const { evidence } = await createStateResearcher(client).gather(['delegation', 'session'])
     const byDomain = Object.fromEntries(evidence.map((e) => [e.domain, e]))
     expect(byDomain.delegation).toMatchObject({ ok: true, count: 1 })
     expect(byDomain.delegation.rows).toEqual([
       { id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' },
     ])
-    expect(byDomain.agent.rows).toEqual([{ id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: '1' }])
+    expect(byDomain.session.rows).toEqual([{ id: 'session-1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: '1' }])
   })
 
   it('excludes structured payload fields from audit display rows', async () => {

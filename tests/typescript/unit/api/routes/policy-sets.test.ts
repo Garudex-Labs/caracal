@@ -58,6 +58,8 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     const client = { query: vi.fn(), release: vi.fn() }
     client.query
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1' }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
@@ -78,9 +80,43 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/activate', () => {
     const sqls = client.query.mock.calls.map((c) => String(c[0]))
     expect(sqls[0]).toBe('BEGIN')
     expect(sqls.at(-1)).toBe('COMMIT')
+    expect(sqls.some((sql) => sql.includes('pg_advisory_xact_lock') && sql.includes('hashtext'))).toBe(true)
+    expect(sqls.some((sql) => sql.includes('FOR UPDATE OF ps, psv') && sql.includes('ps.archived_at IS NULL'))).toBe(true)
     expect(sqls.some((sql) => sql.includes('policy_set_id <> $2') && sql.includes('active_version_id = NULL'))).toBe(true)
     expect(sqls.some((sql) => sql.includes('INSERT INTO event_outbox'))).toBe(true)
     expect(client.release).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reactivate a set archived before the transaction lock', async () => {
+    const { app, db } = buildRouteApp(policySetsRoutes)
+    const manifest = [{ policy_version_id: 'pv-1' }]
+    const content = '# caracal:data-document\npackage caracal.authz\ngrants := {}'
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 'psv-1', manifest_json: manifest, schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pv-1', content, zone_id: 'z1', schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({ rows: [] })
+
+    const client = { query: vi.fn(), release: vi.fn() }
+    client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/policy-sets/ps-1/activate',
+      payload: { version_id: 'psv-1' },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'version_not_found' })
+    const sqls = client.query.mock.calls.map((call) => String(call[0]))
+    expect(sqls.some((sql) => sql.includes('active_version_id = $1'))).toBe(false)
+    expect(sqls.some((sql) => sql.includes('INSERT INTO event_outbox'))).toBe(false)
+    expect(sqls.at(-1)).toBe('ROLLBACK')
   })
 })
 
@@ -284,6 +320,7 @@ describe('POST /v1/zones/:zoneId/policy-sets/:id/simulate', () => {
       'X-Caracal-Gateway-Request': expect.any(String),
       'X-Caracal-Gateway-Signature': expect.any(String),
     })
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal)
     fetchMock.mockRestore()
   })
 
@@ -689,6 +726,7 @@ describe('DELETE /v1/zones/:zoneId/policy-sets/:id', () => {
     const client = { query: vi.fn(), release: vi.fn() }
     client.query
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -699,6 +737,7 @@ describe('DELETE /v1/zones/:zoneId/policy-sets/:id', () => {
 
     expect(res.statusCode).toBe(204)
     const sqls = client.query.mock.calls.map((c) => String(c[0]))
+    expect(sqls.some((sql) => sql.includes('pg_advisory_xact_lock') && sql.includes('hashtext'))).toBe(true)
     expect(sqls.some((sql) => sql.includes('active_version_id = NULL'))).toBe(true)
     expect(sqls.some((sql) => sql.includes('INSERT INTO event_outbox'))).toBe(true)
     expect(sqls.at(-1)).toBe('COMMIT')
@@ -708,6 +747,7 @@ describe('DELETE /v1/zones/:zoneId/policy-sets/:id', () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     const client = { query: vi.fn(), release: vi.fn() }
     client.query
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
@@ -725,7 +765,11 @@ describe('DELETE /v1/zones/:zoneId/policy-sets/:id', () => {
   it('returns 404 when the policy set is missing', async () => {
     const { app, db } = buildRouteApp(policySetsRoutes)
     const client = { query: vi.fn(), release: vi.fn() }
-    client.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rowCount: 0, rows: [] }).mockResolvedValue({ rows: [] })
+    client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValue({ rows: [] })
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()

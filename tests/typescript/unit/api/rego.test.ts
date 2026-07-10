@@ -81,6 +81,14 @@ result := { "decision": "allow" }`),
 package caracal.authz`),
     ).toBe('data_document_must_define_data')
   })
+
+  it('rejects rules owned by the platform decision contract', () => {
+    expect(
+      validateAuthzPolicy(`# caracal:data-document
+package caracal.authz
+principal_owns_resource if true`),
+    ).toBe('data_document_rule_not_allowed:principal_owns_resource')
+  })
 })
 
 describe('previewAuthzPolicy', () => {

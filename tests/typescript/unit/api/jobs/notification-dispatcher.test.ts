@@ -9,7 +9,7 @@ import { createHmac } from 'node:crypto'
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
 process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
-const { runNotificationDispatch, signSinkPayload, sinkBackoffSeconds, sinkPayload } =
+const { isUnsafeSinkAddress, postNotificationSink, runNotificationDispatch, signSinkPayload, sinkBackoffSeconds, sinkPayload } =
   await import('../../../../../apps/api/src/jobs/notification-dispatcher.js')
 const { AAD_NOTIFICATION_SINK_SECRET, loadSecretStoreKek, sealEnvelope } = await import('@caracalai/server-core')
 import type { DB } from '../../../../../apps/api/src/db.js'
@@ -58,6 +58,47 @@ describe('sinkPayload', () => {
       occurred_at: '2026-01-01T00:00:00.000Z',
       data: { challenge_id: 'challenge-1', tier: 'money' },
     })
+  })
+})
+
+describe('notification sink destination safety', () => {
+  it('rejects private, loopback, metadata, CGNAT, IPv6 local, mapped, and NAT64-local addresses', () => {
+    for (const address of [
+      '127.0.0.1',
+      '10.0.0.1',
+      '100.64.0.1',
+      '169.254.169.254',
+      '172.16.0.1',
+      '192.168.1.1',
+      '::1',
+      'fd00::1',
+      'fe80::1',
+      '::ffff:127.0.0.1',
+      '64:ff9b::a00:1',
+    ]) {
+      expect(isUnsafeSinkAddress(address), address).toBe(true)
+    }
+    expect(isUnsafeSinkAddress('203.0.113.10')).toBe(false)
+    expect(isUnsafeSinkAddress('2001:db8::10')).toBe(false)
+  })
+
+  it('fails before connecting when any resolved address is restricted', async () => {
+    await expect(
+      postNotificationSink(
+        'https://hooks.hooli.example/caracal',
+        {
+          method: 'POST',
+          headers: {},
+          body: '{}',
+          redirect: 'error',
+          signal: AbortSignal.timeout(1_000),
+        },
+        async () => [
+          { address: '203.0.113.10', family: 4 },
+          { address: '169.254.169.254', family: 4 },
+        ],
+      ),
+    ).rejects.toThrow('restricted address')
   })
 })
 
@@ -148,6 +189,73 @@ describe('runNotificationDispatch', () => {
     expect(init.headers['X-Caracal-Signature']).toBe(signSinkPayload('nsk_test', init.headers['X-Caracal-Timestamp'], init.body))
     expect(calls.some((c) => c.sql.includes('SET delivered_at = now()'))).toBe(true)
     expect(calls.some((c) => c.sql.includes('consecutive_failures = 0'))).toBe(true)
+  })
+
+  it('releases the leader lock before outbound delivery begins', async () => {
+    const { db, calls } = fakeDb({
+      due: [
+        {
+          id: 'd1',
+          sink_id: 'sink-1',
+          event_id: 'evt-1',
+          event_type: 'step_up_issued',
+          payload_json: {},
+          attempts: 1,
+          url: 'https://hooks.hooli.example/caracal',
+          secret_ct: sealedSecret('nsk_test'),
+        },
+      ],
+    })
+    const fetchImpl = vi.fn(async () => {
+      expect(calls.some((call) => call.sql.includes('pg_advisory_unlock'))).toBe(true)
+      return { status: 200 }
+    }) as unknown as SinkFetch
+
+    await runNotificationDispatch(db, fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('leases only the oldest unsettled delivery per sink before releasing the lock', async () => {
+    const { db, calls } = fakeDb({})
+
+    await runNotificationDispatch(db, vi.fn())
+
+    const claim = calls.find((call) => call.sql.includes('SET attempts = d.attempts + 1'))
+    expect(claim?.sql).toContain('available_at = now() + $2::interval')
+    expect(claim?.sql).toContain('NOT EXISTS')
+    expect(claim?.sql).toContain('(prior.created_at, prior.id) < (d2.created_at, d2.id)')
+    expect(claim?.params).toEqual([25, '30 seconds'])
+  })
+
+  it('serializes deliveries for each sink while delivering distinct sinks concurrently', async () => {
+    let active = 0
+    let peak = 0
+    const order: string[] = []
+    const due = ['d1', 'd2', 'd3'].map((id, index) => ({
+      id,
+      sink_id: index === 2 ? 'sink-2' : 'sink-1',
+      event_id: `evt-${id}`,
+      event_type: 'step_up_issued',
+      payload_json: {},
+      attempts: 1,
+      url: 'https://hooks.hooli.example/caracal',
+      secret_ct: sealedSecret('nsk_test'),
+    }))
+    const { db } = fakeDb({ due })
+    const fetchImpl = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      active += 1
+      peak = Math.max(peak, active)
+      order.push(init.headers['X-Caracal-Delivery'])
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      active -= 1
+      return { status: 200 }
+    }) as unknown as SinkFetch
+
+    await runNotificationDispatch(db, fetchImpl)
+
+    expect(peak).toBe(2)
+    expect(order.indexOf('d1')).toBeLessThan(order.indexOf('d2'))
   })
 
   it('schedules a backoff retry on failure and abandons after the attempt ceiling', async () => {

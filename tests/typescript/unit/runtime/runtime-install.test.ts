@@ -45,8 +45,8 @@ describe('runtime installer', () => {
     const compose = readFileSync(paths.composeFile, 'utf8')
     expect(compose).toContain('caracal-node:v${CARACAL_VERSION}')
     for (const port of ['5432', '6379', '8080', '3000', '8081', '9090', '4000']) {
-      expect(compose).toContain(`"127.0.0.1:${port}:${port}"`)
-      expect(compose).not.toMatch(new RegExp(`^\\s*-\\s*"${port}:${port}"`, 'm'))
+      expect(compose).toMatch(new RegExp(`['"]127\\.0\\.0\\.1:${port}:${port}['"]`))
+      expect(compose).not.toMatch(new RegExp(`^\\s*-\\s*['"]${port}:${port}['"]`, 'm'))
     }
 
     const env = readFileSync(paths.overrideEnvFile, 'utf8')

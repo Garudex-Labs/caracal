@@ -23,6 +23,8 @@ import {
   BaggageAgentSession,
   BaggageSession,
   BaggageHop,
+  createAdvancedClientFromConfig,
+  createAdvancedClientFromEnv,
   describeAuthority,
   parseTraceparent,
 } from '../../../../packages/sdk/ts/src/advanced.js'
@@ -38,13 +40,13 @@ function resourceMap(resources: { resourceId: string; upstreamPrefix: string }[]
   return Object.fromEntries((resources ?? []).map((binding) => [binding.resourceId, binding.upstreamPrefix]))
 }
 
-describe('Caracal.fromEnv', () => {
+describe('advanced environment loading', () => {
   it('throws on missing vars', () => {
-    expect(() => Caracal.fromEnv({})).toThrow(/CARACAL_/)
+    expect(() => createAdvancedClientFromEnv({})).toThrow(/CARACAL_/)
   })
 
   it('constructs from env', () => {
-    const c = Caracal.fromEnv({
+    const c = createAdvancedClientFromEnv({
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
       CARACAL_BOOTSTRAP_TOKEN: 't1',
@@ -64,12 +66,14 @@ describe('Caracal.fromEnv', () => {
       CARACAL_STS_URL: 'https://sts.internal',
       CARACAL_GATEWAY_URL: 'https://gateway.internal',
     }
-    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000' } as NodeJS.ProcessEnv)).toThrow(
-      /CARACAL_COORDINATOR_URL must use https/,
-    )
-    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://127.0.0.1:4000' } as NodeJS.ProcessEnv)).not.toThrow()
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000' } as NodeJS.ProcessEnv),
+    ).toThrow(/CARACAL_COORDINATOR_URL must use https/)
+    expect(() =>
+      createAdvancedClientFromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://127.0.0.1:4000' } as NodeJS.ProcessEnv),
+    ).not.toThrow()
+    expect(() =>
+      createAdvancedClientFromEnv({
         ...base,
         CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000',
         CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true',
@@ -79,7 +83,7 @@ describe('Caracal.fromEnv', () => {
 
   it('enforces https for the sts url in production client-secret mode', () => {
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({
         CARACAL_ENV: 'production',
         CARACAL_COORDINATOR_URL: 'https://coordinator.internal',
         CARACAL_GATEWAY_URL: 'https://gateway.internal',
@@ -99,7 +103,7 @@ describe('Caracal.fromEnv', () => {
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const c = Caracal.fromEnv({
+    const c = createAdvancedClientFromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
@@ -115,21 +119,21 @@ describe('Caracal.fromEnv', () => {
     expect(body.getAll('resource').sort()).toEqual(['billing', 'calendar'])
   })
 
-  it('keeps credential resources when CARACAL_APP_RESOURCES is explicit', async () => {
+  it('combines application audiences with resource bindings', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const c = Caracal.fromEnv({
+    const c = createAdvancedClientFromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
       CARACAL_APP_CLIENT_SECRET: 'secret',
       CARACAL_STS_URL: 'http://sts',
-      CARACAL_RUN_CREDENTIALS: JSON.stringify([{ resource: 'calendar', upstream_prefix: 'https://calendar.example.com' }]),
       CARACAL_APP_RESOURCES: 'billing',
+      CARACAL_RESOURCES: 'calendar=https://calendar.example.com',
     } as NodeJS.ProcessEnv)
 
     await c.headersAsync({ asApplication: true })
@@ -153,7 +157,7 @@ describe('Caracal.fromEnv', () => {
       { mode: 0o600 },
     )
 
-    const c = Caracal.fromEnv({
+    const c = createAdvancedClientFromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
@@ -181,7 +185,7 @@ describe('Caracal.fromEnv', () => {
     )
 
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -191,56 +195,32 @@ describe('Caracal.fromEnv', () => {
     ).toThrow(/invalid CARACAL_RESOURCES_FILE/)
   })
 
-  it('auto-detects local client secret and credential files', async () => {
+  it('does not inspect implicit local credential files', () => {
     const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
     const credentialDir = join(dir, 'caracal', 'runtime', 'z', 'app')
     mkdirSync(credentialDir, { recursive: true })
     writeFileSync(join(credentialDir, 'client-secret'), 'secret\n', { mode: 0o600 })
     writeFileSync(join(credentialDir, 'credentials.json'), JSON.stringify([{ resource: 'calendar' }]), { mode: 0o600 })
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const c = Caracal.fromEnv({
-      XDG_CONFIG_HOME: dir,
-      CARACAL_ZONE_ID: 'z',
-      CARACAL_APPLICATION_ID: 'app',
-      CARACAL_STS_URL: 'http://sts',
-    } as NodeJS.ProcessEnv)
-    await c.headersAsync({ asApplication: true })
-
-    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('client_secret')).toBe('secret')
-    expect(body.getAll('resource')).toEqual(['calendar'])
+    expect(() =>
+      createAdvancedClientFromEnv({
+        XDG_CONFIG_HOME: dir,
+        CARACAL_ZONE_ID: 'z',
+        CARACAL_APPLICATION_ID: 'app',
+        CARACAL_STS_URL: 'http://sts',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/provide CARACAL_APP_CLIENT_SECRET or CARACAL_BOOTSTRAP_TOKEN/)
   })
 
-  it('auto-detects local credential files with sanitized generated directory names', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
-    const credentialDir = join(dir, 'caracal', 'runtime', 'zone_id', 'app_value')
-    mkdirSync(credentialDir, { recursive: true })
-    writeFileSync(join(credentialDir, 'client-secret'), 'secret\n', { mode: 0o600 })
-    writeFileSync(join(credentialDir, 'credentials.json'), JSON.stringify([{ resource: 'calendar' }]), { mode: 0o600 })
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const c = Caracal.fromEnv({
-      XDG_CONFIG_HOME: dir,
-      CARACAL_ZONE_ID: '__zone id__',
-      CARACAL_APPLICATION_ID: '  app/value  ',
-      CARACAL_STS_URL: 'http://sts',
-    } as NodeJS.ProcessEnv)
-    await c.headersAsync({ asApplication: true })
-
-    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('client_secret')).toBe('secret')
-    expect(body.getAll('resource')).toEqual(['calendar'])
+  it('rejects conflicting credential modes', () => {
+    expect(() =>
+      createAdvancedClientFromEnv({
+        CARACAL_ZONE_ID: 'z',
+        CARACAL_APPLICATION_ID: 'app',
+        CARACAL_APP_CLIENT_SECRET: 'secret',
+        CARACAL_BOOTSTRAP_TOKEN: 'token',
+        CARACAL_RESOURCES: 'calendar=https://calendar.example.com',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/exactly one/)
   })
 })
 
@@ -406,7 +386,7 @@ describe('Caracal.fromConfig', () => {
     writeFileSync(
       profilePath,
       `
-zone_url = "http://sts"
+sts_url = "http://sts"
 coordinator_url = "http://coord"
 gateway_url = "https://gateway.example.com/proxy"
 zone_id = "z"
@@ -431,7 +411,7 @@ upstream_prefix = "https://billing.example.com"
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const c = Caracal.fromConfig(profilePath)
+    const c = createAdvancedClientFromConfig(profilePath)
     await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
@@ -456,7 +436,7 @@ upstream_prefix = "https://billing.example.com"
     writeFileSync(
       profilePath,
       `
-zone_url = "http://sts"
+sts_url = "http://sts"
 coordinator_url = "http://coord"
 zone_id = "z"
 application_id = "app"
@@ -471,7 +451,7 @@ app_client_secret_file = ${JSON.stringify(secretPath)}
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const c = Caracal.fromConfig(profilePath, {
+    const c = createAdvancedClientFromConfig(profilePath, {
       CARACAL_RESOURCES_FILE: bindingsPath,
       CARACAL_RESOURCES: 'calendar=https://env.example.com/v2',
     } as NodeJS.ProcessEnv)
@@ -485,7 +465,7 @@ app_client_secret_file = ${JSON.stringify(secretPath)}
     })
   })
 
-  it('loads the default generated profile before env fallback', () => {
+  it('does not load a default generated profile', () => {
     const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
     const configDir = join(dir, 'caracal')
     mkdirSync(configDir)
@@ -504,18 +484,16 @@ resource = "calendar"
       { mode: 0o600 },
     )
 
-    const c = new Caracal({
-      env: {
-        XDG_CONFIG_HOME: dir,
-        CARACAL_COORDINATOR_URL: 'http://ignored',
-        CARACAL_ZONE_ID: 'ignored',
-        CARACAL_APPLICATION_ID: 'ignored',
-        CARACAL_BOOTSTRAP_TOKEN: 'ignored',
-      } as NodeJS.ProcessEnv,
-    })
+    const c = createAdvancedClientFromEnv({
+      XDG_CONFIG_HOME: dir,
+      CARACAL_COORDINATOR_URL: 'http://env',
+      CARACAL_ZONE_ID: 'env-zone',
+      CARACAL_APPLICATION_ID: 'env-app',
+      CARACAL_BOOTSTRAP_TOKEN: 'env-token',
+    } as NodeJS.ProcessEnv)
 
-    expect(c.config.zoneId).toBe('z')
-    expect(c.config.applicationId).toBe('app')
+    expect(c.config.zoneId).toBe('env-zone')
+    expect(c.config.applicationId).toBe('env-app')
   })
 })
 
@@ -905,9 +883,9 @@ describe('session lifecycle and delegation', () => {
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', stsFetch)
-    const secretSource = Caracal.fromEnv({
+    const secretSource = createAdvancedClientFromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
-      CARACAL_ZONE_URL: 'http://sts',
+      CARACAL_STS_URL: 'http://sts',
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
       CARACAL_APP_CLIENT_SECRET: 'shh',
@@ -972,7 +950,7 @@ describe('config resource sorting and token validation', () => {
     const payload = Buffer.from(JSON.stringify({ exp: 1_000_000 })).toString('base64url')
     const token = `${header}.${payload}.sig`
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -986,7 +964,7 @@ describe('config resource sorting and token validation', () => {
     const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')
     const token = `${header}.${payload}.`
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -997,7 +975,7 @@ describe('config resource sorting and token validation', () => {
 
   it('rejects malformed CARACAL_RESOURCES at startup', () => {
     expect(() =>
-      Caracal.fromEnv({
+      createAdvancedClientFromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -1009,6 +987,43 @@ describe('config resource sorting and token validation', () => {
 })
 
 describe('Caracal.fromClientSecret', () => {
+  it('allows application transports without configured lifecycle resources', () => {
+    const c = Caracal.fromClientSecret({
+      coordinatorUrl: 'http://coord',
+      stsUrl: 'http://sts',
+      zoneId: 'z',
+      applicationId: 'app',
+      clientSecret: 'secret',
+    })
+
+    expect(c.config.resources).toBeUndefined()
+  })
+
+  it('rejects malformed endpoints at initialization', () => {
+    expect(() =>
+      Caracal.fromClientSecret({
+        coordinatorUrl: 'coordinator.internal:4000',
+        stsUrl: 'http://sts',
+        zoneId: 'z',
+        applicationId: 'app',
+        clientSecret: 'secret',
+      }),
+    ).toThrow(/absolute http or https URL/)
+  })
+
+  it('rejects malformed direct resource bindings', () => {
+    expect(() =>
+      Caracal.fromClientSecret({
+        coordinatorUrl: 'http://coord',
+        stsUrl: 'http://sts',
+        zoneId: 'z',
+        applicationId: 'app',
+        clientSecret: 'secret',
+        resources: [{ resourceId: 'calendar', upstreamPrefix: 'ftp://calendar.example.com' }],
+      }),
+    ).toThrow(/absolute http or https URL/)
+  })
+
   it('uses custom fetchImpl for token exchanges', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
