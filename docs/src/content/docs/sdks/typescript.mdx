@@ -51,7 +51,7 @@ The constructor never searches home directories or default profile paths. Multip
 | `withApproval(fn, options?)`                   | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                          |
 | `gatewayRequest(resourceId, path?)`            | Build a Gateway URL and `X-Caracal-Resource` header.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `identity()`                                   | The zone and application the client acts as, for logging and metric labels.                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `close()`                                      | Drop cached application mandates, invalidate the exchanger's cached lifecycle token, and terminate the sessions backing released application transports best-effort; anything missed retires on its own TTL.                                                                                                                                                                                                                                                                                   |
+| `close()`                                      | Terminally close the client: drop cached application mandates, invalidate credentials, and terminate application-transport Sessions best-effort. Repeated close is safe; later operations fail.                                                                                                                                                                                                                                                                                              |
 | `current()`                                    | Return the currently bound `CaracalContext`, if present.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## Context Propagation
@@ -67,7 +67,7 @@ await caracal.session(
   },
   {
     authority: Authority.narrow(['tickets:read'], {
-      resourceId: 'https://api.example.com/tickets',
+      resourceId: 'resource://pipernet',
       constraints: {
         maxHops: 1,
         policyApproved: true,
@@ -124,7 +124,7 @@ STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`,
 import { Caracal, CaracalError } from '@caracalai/sdk'
 
 try {
-  await caracal.mintMandate('https://api.example.com/tickets', ['tickets:read'])
+  await caracal.mintMandate('resource://pipernet', ['tickets:read'])
 } catch (err) {
   if (err instanceof CaracalError && err.code === 'access_denied') {
     console.warn(`denied by policy (request ${err.requestId})`)
@@ -166,7 +166,7 @@ Approval-gated flows resolve in one call with `withApproval`, which encapsulates
 
 ```ts
 const mandate = await caracal.withApproval((approvalId) =>
-  caracal.mintMandate('https://api.example.com/tickets', ['tickets:admin'], { approvalId }),
+  caracal.mintMandate('resource://pipernet', ['tickets:admin'], { approvalId }),
 )
 ```
 

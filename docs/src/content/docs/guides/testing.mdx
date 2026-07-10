@@ -126,4 +126,12 @@ Client-secret flows need the STS stub too: answer `POST /oauth/2/token` with a b
 
 Fakes prove your code; a local runtime proves the contract. `caracal up` starts the full platform on localhost, and the same test binary points at it by swapping the injected client for real URLs from `caracal status`. Keep this tier thin - a handful of end-to-end paths per integration - and let the fake-backed tests carry the matrix.
 
+Caracal's source CI runs [the protected-resource contract](https://github.com/Garudex-Labs/caracal/blob/main/tests/typescript/e2e/protected-resource.mjs) against a freshly built stack and a real HTTP upstream. It provisions a zone, application, provider, resource, grant policy, and active policy set; opens a lifecycle parent and narrowed child Session; calls the upstream through Gateway; waits for correlated STS and Gateway audit events; and removes every object it created. This is the canonical deployable proof for the safe path:
+
+```text
+application credential -> parent Session -> narrowed child Delegation -> one-shot Gateway mandate -> upstream -> audit
+```
+
+The workflow owns the admin-token file and upstream container. Application tests should continue using injected transports unless they intentionally run in an isolated operator environment.
+
 Related pages: [Integrate the TypeScript SDK](/guides/sdk-typescript/), [Integrate the Python SDK](/guides/sdk-python/), and [Integrate the Go SDK](/guides/sdk-go/).

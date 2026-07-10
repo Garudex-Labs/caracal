@@ -74,10 +74,10 @@ const governedFetch = caracal.applicationTransport(resourceId, {
 const target = caracal.gatewayRequest(resourceId, resourcePath)
 try {
     const response = await governedFetch(target.url, {
-    method: 'GET',
-  })
+        method: 'GET',
+    })
     if (!response.ok) throw new Error(`protected call failed: ${response.status}`)
-  console.log(await response.text())
+    console.log(await response.text())
 } finally {
     await caracal.close()
 }
@@ -164,12 +164,10 @@ func main() {
 
 ## SDK Calls
 
-| Call                                                                              | Role                                                                                              |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `new Caracal()` / `Caracal()` / `New()`                                           | Loads the runtime profile or environment configuration and prepares token exchange.               |
-| `applicationTransport()` / `application_transport()` / `ApplicationTransport()` | Builds application-owned, Delegation-bounded authority and returns a transport pinned to one resource. |
-| `gatewayRequest()` / `GatewayRequest()`                                           | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing.             |
-| `transport()` / `Transport()`                                                     | Mints scoped Gateway authority, injects trace and baggage context, and applies resource routing.  |
+- `new Caracal()` / `Caracal()` / `New()` loads runtime configuration and prepares token exchange.
+- `applicationTransport()` / `application_transport()` / `ApplicationTransport()` builds application-owned, Delegation-bounded authority and returns a transport pinned to one resource.
+- `gatewayRequest()` / `GatewayRequest()` builds the Gateway URL and `X-Caracal-Resource` routing header.
+- `transport()` / `Transport()` mints scoped Gateway authority, injects context, and applies resource routing.
 
 `applicationTransport()` is the smallest application-owned call path. It provisions a source and target Session, narrows the requested scope over a Delegation, and mints a fresh replay-protected Gateway mandate for each request. For agent work that already runs under delegated authority, use `session()` with `fetch(..., { scopes })`; see the language SDK guide before switching paths. You reuse one configured application for all Sessions your workload starts; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 

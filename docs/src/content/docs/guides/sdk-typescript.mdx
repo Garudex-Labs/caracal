@@ -15,31 +15,37 @@ npm install @caracalai/sdk
 
 `new Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.fromClientSecret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `@caracalai/sdk/advanced`.
 
-## Connect and start a Session
+## Connect and call a protected resource
 
 ```ts
-import { Caracal } from '@caracalai/sdk'
+import { Authority, Caracal } from '@caracalai/sdk'
 
 const caracal = new Caracal()
+const resourceId = 'resource://pipernet'
 
 await caracal.session(async () => {
-  const headers = await caracal.headersAsync()
-
-  await fetch('https://api.example.com/tickets', {
-    headers,
-  })
+  await caracal.session(
+    async () => {
+      await caracal.fetch(resourceId, '/tickets', { scopes: ['tickets:read'] })
+    },
+    {
+      authority: Authority.narrow(['tickets:read'], {
+        resourceId,
+        ttlSeconds: 600,
+      }),
+    },
+  )
 })
 ```
 
-`session()` creates a Session, binds the Caracal context while the callback runs, and terminates the session when the callback exits.
+The outer `session()` creates the lifecycle parent. The narrowed child creates the positive-TTL Delegation required for resource authority, and `fetch()` mints a one-shot Gateway mandate for the protected call. Both Sessions terminate when their callbacks exit.
 
 To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and Delegation. The Session lifecycle is handled for you: `session()` records a `task` Session, while `startSession()` records a heartbeat-leased `service` Session.
 
 ```ts
 await caracal.session(
-  async () => {
-    const headers = await caracal.headersAsync()
-    await fetch('https://api.example.com/tickets', { headers })
+  async (ctx) => {
+    console.log('refund Session', ctx.sessionId)
   },
   { labels: ['refund-agent'] },
 )
@@ -105,12 +111,11 @@ import { Authority } from '@caracalai/sdk'
 await caracal.session(async () => {
   await caracal.session(
     async () => {
-      const headers = await caracal.headersAsync()
-      await fetch('https://api.example.com/tickets', { headers })
+      await caracal.fetch('resource://pipernet', '/tickets', { scopes: ['tickets:read'] })
     },
     {
       authority: Authority.narrow(['tickets:read'], {
-        resourceId: 'https://api.example.com/tickets',
+        resourceId: 'resource://pipernet',
         constraints: { maxHops: 1 },
         ttlSeconds: 600,
       }),
@@ -127,7 +132,7 @@ A mint whose scope is approval-gated throws `ApprovalRequiredError`. `withApprov
 
 ```ts
 const mandate = await caracal.withApproval((approvalId) =>
-  caracal.mintMandate('https://api.example.com/tickets', ['tickets:admin'], { approvalId }),
+  caracal.mintMandate('resource://pipernet', ['tickets:admin'], { approvalId }),
 )
 ```
 
@@ -136,7 +141,7 @@ A rejected, expired, or already-consumed decision rethrows the original `Approva
 ## Route through the Gateway
 
 ```ts
-await caracal.fetch('https://api.example.com/tickets', '/tickets', {
+await caracal.fetch('resource://pipernet', '/tickets', {
   scopes: ['tickets:read'],
 })
 ```
@@ -159,7 +164,7 @@ const llm = new OpenAI({
 
 ## Shut down cleanly
 
-`await caracal.close()` releases client-held state: cached application mandates and in-flight mint cycles are dropped, the credential exchanger's cached lifecycle token is invalidated, and the sessions backing released application transports are terminated best-effort (anything missed retires on its own TTL). The client stays usable afterwards - the next call simply mints fresh state.
+`await caracal.close()` terminally releases client-held state: cached application mandates and in-flight mint cycles are dropped, the credential exchanger's cached lifecycle token is invalidated, and the Sessions backing released application transports are terminated best-effort (anything missed retires on its own TTL). Repeated close is safe. Construct a new client for later work; operations on the closed client fail deterministically.
 
 Two things `close()` deliberately does **not** do. It does not retire `startSession()`/`attachSession()` handles - those Sessions are yours, so call `handle.close()` on each before the process exits, or persist the Session ID and re-attach after restart. It also does not abort in-flight requests on transports you handed to provider SDKs; bound them with `timeoutMs` or an `AbortSignal` and let them drain.
 

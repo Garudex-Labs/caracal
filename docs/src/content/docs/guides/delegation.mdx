@@ -33,7 +33,7 @@ await caracal.session(async () => {
     },
     {
       authority: Authority.narrow(['tickets:read'], {
-        resourceId: 'https://api.example.com/tickets',
+        resourceId: 'resource://pipernet',
         constraints: { maxHops: 1 },
         ttlSeconds: 600,
       }),
