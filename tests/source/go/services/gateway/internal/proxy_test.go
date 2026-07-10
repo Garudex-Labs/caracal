@@ -458,7 +458,7 @@ func TestTrustedProxyPreservesSanitizedClientAndScheme(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
 	r.Header.Set("X-Forwarded-Proto", "https")
 	upstream, _ := url.Parse("https://upstream.example")
-	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{}, nil, "request-1", true)
+	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{AuthMode: "none"}, nil, "request-1", true)
 	if err != nil {
 		t.Fatal(err)
 	}

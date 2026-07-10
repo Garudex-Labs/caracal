@@ -114,20 +114,12 @@ class ControlClient:
 
     def _mint_token(self, scopes: Sequence[str]) -> str:
         """Exchanges the identity's client credentials for a control token
-        scoped to exactly the requested scopes. A transient failure (a server
-        error or a lost response) is retried once: a failed mint is always
-        definitive - no token exists and nothing was applied - so the retry is
-        safe for every caller."""
-        try:
-            return self._exchange_token(scopes)
-        except ControlClientError as err:
-            if err.status >= 500 or err.status == 0:
-                return self._exchange_token(scopes)
-            raise
+        scoped to exactly the requested scopes."""
+        return self._exchange_token(scopes)
 
     def _exchange_token(self, scopes: Sequence[str]) -> str:
         form = {
-            "grant_type": "client_credentials",
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "application_id": self._application_id,
             "client_secret": self._client_secret,
             "resource": self._audience,

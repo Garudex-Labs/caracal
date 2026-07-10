@@ -1,13 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for OAuth client pure helpers: retry, scope, and response logic.
+// Unit tests for OAuth client pure helpers covering scopes, resources, and responses.
 
 package oauth
 
 import (
-	"context"
-	"net/http"
 	"testing"
 	"time"
 )
@@ -41,71 +39,9 @@ func TestFirstResource(t *testing.T) {
 }
 
 func TestResourceList(t *testing.T) {
-	got := resourceList([]string{" a ", "", "  ", "b"})
+	got := resourceList([]string{" b ", "", "  ", "a", "b"})
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Fatalf("must trim and drop empties, got %v", got)
-	}
-}
-
-func TestTransientStatus(t *testing.T) {
-	for _, s := range []int{http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests, 500, 503} {
-		if !transientStatus(s) {
-			t.Fatalf("status %d must be transient", s)
-		}
-	}
-	for _, s := range []int{200, 400, 401, 404} {
-		if transientStatus(s) {
-			t.Fatalf("status %d must not be transient", s)
-		}
-	}
-}
-
-func TestRetryDelayHonorsRetryAfterSeconds(t *testing.T) {
-	res := &http.Response{Header: http.Header{}}
-	res.Header.Set("Retry-After", "2")
-	if got := retryDelay(res, 0); got != 2*time.Second {
-		t.Fatalf("numeric Retry-After must be honored, got %s", got)
-	}
-}
-
-func TestRetryDelayHonorsRetryAfterHTTPDateAndInvalidValues(t *testing.T) {
-	res := &http.Response{Header: http.Header{}}
-	when := time.Now().Add(2 * time.Second).UTC().Format(http.TimeFormat)
-	res.Header.Set("Retry-After", when)
-	if got := retryDelay(res, 0); got <= 0 || got > 3*time.Second {
-		t.Fatalf("date Retry-After must be near future, got %s", got)
-	}
-	res.Header.Set("Retry-After", "soon")
-	if got := retryDelay(res, 1); got < 250*time.Millisecond || got > 500*time.Millisecond {
-		t.Fatalf("invalid Retry-After must fall back to jittered attempt backoff, got %s", got)
-	}
-}
-
-func TestRetryDelayExponentialBackoffWithCap(t *testing.T) {
-	if got := retryDelay(nil, 0); got < 125*time.Millisecond || got > 250*time.Millisecond {
-		t.Fatalf("attempt 0 must jitter within (125ms, 250ms], got %s", got)
-	}
-	if got := retryDelay(nil, 2); got < 500*time.Millisecond || got > time.Second {
-		t.Fatalf("attempt 2 must jitter within (500ms, 1s], got %s", got)
-	}
-	if got := retryDelay(nil, 10); got < 2500*time.Millisecond || got > 5*time.Second {
-		t.Fatalf("backoff must cap at 5s with jitter, got %s", got)
-	}
-}
-
-func TestSleepWithinDeadline(t *testing.T) {
-	if err := sleepWithinDeadline(context.Background(), 5*time.Millisecond, time.Now().Add(time.Second)); err != nil {
-		t.Fatalf("short sleep within deadline must succeed: %v", err)
-	}
-
-	if err := sleepWithinDeadline(context.Background(), time.Second, time.Now().Add(-time.Second)); err == nil {
-		t.Fatal("a passed deadline must error")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := sleepWithinDeadline(ctx, time.Second, time.Now().Add(time.Second)); err == nil {
-		t.Fatal("a cancelled context must return its error")
 	}
 }
 
@@ -152,12 +88,15 @@ func TestHashSecret(t *testing.T) {
 }
 
 func TestValidateSuccess(t *testing.T) {
-	ok, err := validateSuccess(stsSuccessResponse{AccessToken: "t", ExpiresIn: 60})
+	ok, err := validateSuccess(stsSuccessResponse{AccessToken: "t", ExpiresIn: 60, TargetResources: []string{"resource://api"}})
 	if err != nil {
 		t.Fatalf("valid response must pass: %v", err)
 	}
 	if ok.TokenType != "Bearer" || ok.AccessToken != "t" || ok.ExpiresIn != 60 || ok.IssuedAt == 0 {
 		t.Fatalf("normalized response wrong: %+v", ok)
+	}
+	if len(ok.TargetResources) != 1 || ok.TargetResources[0] != "resource://api" {
+		t.Fatalf("target resources were not preserved: %+v", ok)
 	}
 
 	if _, err := validateSuccess(stsSuccessResponse{ExpiresIn: 60}); err == nil {

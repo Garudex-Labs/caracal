@@ -59,7 +59,7 @@ func TestBuildUpstreamRequestGeneratesValidTraceparentForOpaqueRequestID(t *test
 		httptest.NewRequest(http.MethodPost, "https://gateway.example.com/v1/messages?foo=bar", nil),
 		mustParseURL(t, "https://api.example.com/base"),
 		"caracal-token",
-		corests.UpstreamDirective{},
+		corests.UpstreamDirective{AuthMode: "none"},
 		http.NoBody,
 		"customer_request_42",
 	)
@@ -86,7 +86,7 @@ func TestBuildUpstreamRequestPreservesInboundTraceparent(t *testing.T) {
 		req,
 		mustParseURL(t, "https://api.example.com"),
 		"caracal-token",
-		corests.UpstreamDirective{},
+		corests.UpstreamDirective{AuthMode: "none"},
 		http.NoBody,
 		"customer_request_42",
 	)
@@ -150,7 +150,7 @@ func TestBuildUpstreamRequestRegeneratesMalformedInboundTraceparent(t *testing.T
 		req,
 		mustParseURL(t, "https://api.example.com"),
 		"caracal-token",
-		corests.UpstreamDirective{},
+		corests.UpstreamDirective{AuthMode: "none"},
 		http.NoBody,
 		"customer_request_42",
 	)
@@ -177,7 +177,7 @@ func TestBuildUpstreamRequestPreservesFutureVersionTraceparent(t *testing.T) {
 		req,
 		mustParseURL(t, "https://api.example.com"),
 		"caracal-token",
-		corests.UpstreamDirective{},
+		corests.UpstreamDirective{AuthMode: "none"},
 		http.NoBody,
 		"customer_request_42",
 	)

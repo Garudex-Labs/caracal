@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from typing import Protocol
@@ -15,8 +16,18 @@ from redis.exceptions import RedisError, ResponseError
 REVOCATION_STREAM = "caracal.sessions.revoke"
 DELEGATION_INVALIDATION_STREAM = "caracal.delegations.invalidate"
 DEFAULT_REVOCATION_TTL_MS = 24 * 60 * 60 * 1000
+DEFAULT_DEAD_LETTER_MAX_LENGTH = 10_000
 FAIL_CLOSED_EPOCH = 2**63 - 1
 STREAM_SIG_FIELD = "_sig"
+MAX_EPOCH_SCRIPT = """
+local current = tonumber(redis.call('GET', KEYS[1]) or '0') or 0
+local candidate = tonumber(ARGV[1])
+if candidate > current then
+    redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+    return 1
+end
+return 0
+"""
 
 
 class RedisClient(Protocol):
@@ -24,6 +35,9 @@ class RedisClient(Protocol):
         pass
 
     def set(self, key: str, value: str, px: int) -> object:
+        pass
+
+    def eval(self, script: str, numkeys: int, *keys_and_args: object) -> object:
         pass
 
 
@@ -43,6 +57,15 @@ class RedisStreamClient(RedisClient, Protocol):
         pass
 
     def xack(self, stream: str, group: str, message_id: str) -> object:
+        pass
+
+    def xadd(
+        self,
+        name: str,
+        fields: Mapping[str, str],
+        maxlen: int,
+        approximate: bool,
+    ) -> object:
         pass
 
 
@@ -92,12 +115,12 @@ class RedisRevocationStore:
     ) -> None:
         if zone_id == "" or epoch < 0:
             return
-        if epoch <= self.current_delegation_epoch(zone_id):
-            return
-        self._redis.set(
+        self._redis.eval(
+            MAX_EPOCH_SCRIPT,
+            1,
             self._delegation_epoch_key(zone_id),
             str(epoch),
-            px=ttl_ms or self._default_ttl_ms,
+            str(ttl_ms or self._default_ttl_ms),
         )
 
     def _key(self, anchor_id: str) -> str:
@@ -120,6 +143,7 @@ class RedisRevocationConsumer:
         pending_idle_ms: int = 30_000,
         stream_hmac_key: bytes | None = None,
         require_signature: bool | None = None,
+        dead_letter_max_length: int = DEFAULT_DEAD_LETTER_MAX_LENGTH,
     ) -> None:
         self._redis = redis
         self._store = store
@@ -133,6 +157,7 @@ class RedisRevocationConsumer:
         self._require_signature = (
             bool(stream_hmac_key) if require_signature is None else require_signature
         )
+        self._dead_letter_max_length = dead_letter_max_length
         if self._require_signature and not self._stream_hmac_key:
             raise ValueError(
                 "stream_hmac_key is required when require_signature is true"
@@ -182,9 +207,15 @@ class RedisRevocationConsumer:
 
     def _process_message(self, message_id: str, values: dict[str, str]) -> None:
         if not self._verify(values):
+            self._dead_letter(message_id, values, "invalid_signature")
             self._redis.xack(self._stream, self._group, message_id)
             return
-        for anchor in _revocation_anchors(values):
+        anchors = _revocation_anchors(values)
+        if not anchors:
+            self._dead_letter(message_id, values, "missing_revocation_anchor")
+            self._redis.xack(self._stream, self._group, message_id)
+            return
+        for anchor in anchors:
             self._store.mark_revoked(anchor)
         self._redis.xack(self._stream, self._group, message_id)
 
@@ -196,6 +227,20 @@ class RedisRevocationConsumer:
             return False
         want = _sign_stream(self._stream_hmac_key, self._stream, values)
         return hmac.compare_digest(sig, want)
+
+    def _dead_letter(
+        self, message_id: str, values: Mapping[str, str], reason: str
+    ) -> None:
+        self._redis.xadd(
+            f"{self._stream}.dead",
+            {
+                "source_id": message_id,
+                "reason": reason,
+                "payload": json.dumps(values, separators=(",", ":"), sort_keys=True),
+            },
+            maxlen=self._dead_letter_max_length,
+            approximate=True,
+        )
 
 
 class RedisDelegationInvalidationConsumer(RedisRevocationConsumer):
@@ -211,6 +256,7 @@ class RedisDelegationInvalidationConsumer(RedisRevocationConsumer):
         pending_idle_ms: int = 30_000,
         stream_hmac_key: bytes | None = None,
         require_signature: bool | None = None,
+        dead_letter_max_length: int = DEFAULT_DEAD_LETTER_MAX_LENGTH,
     ) -> None:
         super().__init__(
             redis,
@@ -223,10 +269,12 @@ class RedisDelegationInvalidationConsumer(RedisRevocationConsumer):
             pending_idle_ms=pending_idle_ms,
             stream_hmac_key=stream_hmac_key,
             require_signature=require_signature,
+            dead_letter_max_length=dead_letter_max_length,
         )
 
     def _process_message(self, message_id: str, values: dict[str, str]) -> None:
         if not self._verify(values):
+            self._dead_letter(message_id, values, "invalid_signature")
             self._redis.xack(self._stream, self._group, message_id)
             return
         zone_id = values.get("zone_id", "")
@@ -236,6 +284,8 @@ class RedisDelegationInvalidationConsumer(RedisRevocationConsumer):
             epoch = -1
         if zone_id and epoch >= 0:
             self._store.mark_delegation_epoch(zone_id, epoch)
+        else:
+            self._dead_letter(message_id, values, "invalid_delegation_epoch")
         self._redis.xack(self._stream, self._group, message_id)
 
 
