@@ -19,6 +19,8 @@ A governed session touches a handful of endpoints. Stub the ones your code path 
 
 Return an error status to exercise failure paths: a `503` drives the idempotent Session-start retry, `429` with `Retry-After` drives hinted backoff, and a `401` from an `interaction_required` body raises the approval hold.
 
+Make scoped-transport Gateway fakes replay-sensitive: remember each presented bearer and reject a duplicate with `token_replayed`. Repeated and concurrent requests must carry distinct mandates, while an application transport must still create only one source/target Session pair and one delegation per authority-cache key.
+
 ## TypeScript
 
 ```ts

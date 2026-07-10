@@ -67,7 +67,7 @@ const state = await caracal.waitForApproval(persistedApprovalId, { timeoutMs: 60
 // 'rejected' | 'expired' | 'consumed' -> terminal; re-request the operation
 ```
 
-An approval is **single-use**: the first mint that presents the approval id spends it. When two workers race one approval - a retried queue message, a redeployed worker resuming the same persisted id - one wins and the other fails with the hold in state `consumed`. Consumed is not an error to wait out: the operation was already performed once, so check for its effect before re-requesting a fresh approval.
+An approval is **single-use**: the first mint that presents the approval id spends it. When two workers race one approval - a retried queue message, a redeployed worker resuming the same persisted id - one wins and the loser receives the typed `approval_consumed` error. This is not a new `ApprovalRequired` hold and is not an error to wait out: check whether the intended effect already happened before requesting another approval.
 
 The Python and Go clients expose the same surface as `with_approval`/`wait_for_approval` and `WithApproval`/`WaitForApproval`. The lower-level `@caracalai/oauth` client offers `waitForApproval` directly for integrations that drive the exchange themselves. Under `caracal run` none of this is hand-written: the engine prints an `approval_required` notice with the approval id and binding, waits on the hold, and retries the exchange itself.
 

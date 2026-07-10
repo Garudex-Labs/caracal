@@ -72,6 +72,8 @@ The renewal cadence follows the server lease, renewing at roughly a third of the
 
 Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning:
 
+The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `on_state_change` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attach_session()` to restart lease renewal. `on_lease_lost` remains reserved for terminal loss.
+
 ```python
 svc = await caracal.start_session(
     labels=["voice-worker"],
