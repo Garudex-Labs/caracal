@@ -1029,6 +1029,14 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/suspend', () => {
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/suspend' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ suspended: 1 })
+    const suspendOutbox = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
+    expect(suspendOutbox?.[1]).toEqual(
+      expect.arrayContaining([
+        'caracal.agents.lifecycle',
+        expect.objectContaining({ event: 'suspend', agent_session_id: 'a1', reason: 'requested' }),
+      ]),
+    )
+    expect(client.query.mock.calls.some((call) => JSON.stringify(call[1] ?? []).includes('caracal.sessions.revoke'))).toBe(false)
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })
@@ -1091,6 +1099,10 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ resumed: 1 })
+    const resumeOutbox = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
+    expect(resumeOutbox?.[1]).toEqual(
+      expect.arrayContaining(['caracal.agents.lifecycle', expect.objectContaining({ event: 'resume', agent_session_id: 'a1' })]),
+    )
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })

@@ -83,6 +83,7 @@ describe('runRetentionCleanup', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges d'), [90, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM caracal_outbox o'), [7, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM coordinator_idempotency_receipts r'), [500])
+    expect(client.query.mock.calls.some((call) => String(call[0]).includes('UPDATE sessions'))).toBe(false)
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
