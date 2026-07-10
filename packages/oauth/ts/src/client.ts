@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// RFC 8693 token exchange client with pluggable token cache and 401-retry.
+// RFC 8693 token exchange client with pluggable token caching.
 
 import { createHmac, randomBytes } from 'node:crypto'
 import { InMemoryTokenCache, type TokenCache } from './cache.js'
@@ -24,7 +24,6 @@ interface STSSuccessResponse {
   token_type?: unknown
   expires_in?: unknown
   target_resources?: unknown
-  upstreams?: unknown
 }
 
 const SECRET_CACHE_KEY = randomBytes(32)
@@ -161,7 +160,6 @@ export class OAuthClient {
       opts.sessionId ?? '',
       opts.delegationId ?? '',
       this.authContext(opts),
-      secretCacheId(opts.clientAssertion),
     ].join('::')
   }
 
@@ -174,11 +172,7 @@ export class OAuthClient {
   }
 
   private authContext(opts: ExchangeOptions): string {
-    return [
-      opts.clientSecret ? `secret:${secretCacheId(opts.clientSecret)}` : '',
-      opts.clientAssertion ? 'assertion' : '',
-      opts.clientAssertionType ?? '',
-    ].join(':')
+    return opts.clientSecret ? `secret:${secretCacheId(opts.clientSecret)}` : ''
   }
 
   private async doExchange(
@@ -198,8 +192,6 @@ export class OAuthClient {
     }
     for (const value of resourceList(resource)) body.append('resource', value)
     if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
-    if (opts.clientAssertion) body.set('client_assertion', opts.clientAssertion)
-    if (opts.clientAssertionType) body.set('client_assertion_type', opts.clientAssertionType)
     if (opts.authorityRecordId) body.set('session_id', opts.authorityRecordId)
     if (opts.sessionId) body.set('agent_session_id', opts.sessionId)
     if (opts.delegationId) body.set('delegation_edge_id', opts.delegationId)
@@ -208,41 +200,21 @@ export class OAuthClient {
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
     if (opts.challengeId) body.set('challenge_id', opts.challengeId)
 
-    const maxRetries = opts.retries ?? 3
-    let res: Awaited<ReturnType<typeof fetch>> | undefined
-    let lastErr: unknown
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (opts.signal?.aborted) throw abortReason(opts.signal)
-      const remainingMs = deadlineMs - performance.now()
-      if (remainingMs <= 0) throw new Error('STS request timed out')
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), remainingMs)
-      try {
-        res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/oauth/2/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-          signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
-        })
-      } catch (err) {
-        if (opts.signal?.aborted) throw abortReason(opts.signal)
-        lastErr = err
-        if (attempt === maxRetries) throw err
-      } finally {
-        clearTimeout(timeout)
-      }
-      if (!res) {
-        await delayWithinDeadline(jitteredBackoff(attempt), deadlineMs, opts.signal)
-        continue
-      }
-      const status = res.status
-      const transient = status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
-      if (!transient || attempt === maxRetries) break
-      await delayWithinDeadline(retryDelayMs(res, attempt), deadlineMs, opts.signal)
-    }
-    if (!res) {
-      if (lastErr instanceof Error) throw lastErr
-      throw new Error('STS request failed: no response')
+    if (opts.signal?.aborted) throw abortReason(opts.signal)
+    const remainingMs = deadlineMs - performance.now()
+    if (remainingMs <= 0) throw new Error('STS request timed out')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), remainingMs)
+    let res: Awaited<ReturnType<typeof fetch>>
+    try {
+      res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/oauth/2/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
     }
 
     if (!res.ok) {
@@ -452,99 +424,7 @@ function validateSuccessResponse(data: STSSuccessResponse): TokenExchangeRespons
     }
     response.targetResources = data.target_resources
   }
-  if (data.upstreams !== undefined) response.upstreams = validateUpstreams(data.upstreams)
   return response
-}
-
-function validateUpstreams(value: unknown): NonNullable<TokenExchangeResponse['upstreams']> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('STS response invalid: upstreams must be an object')
-  }
-  const upstreams: NonNullable<TokenExchangeResponse['upstreams']> = {}
-  for (const [resource, directive] of Object.entries(value)) {
-    if (!directive || typeof directive !== 'object' || Array.isArray(directive)) {
-      throw new Error('STS response invalid: upstream directive must be an object')
-    }
-    const item = directive as Record<string, unknown>
-    upstreams[resource] = {
-      url: optionalString(item.url, 'upstreams.url'),
-      authMode: optionalString(item.auth_mode, 'upstreams.auth_mode'),
-      authLocation: optionalString(item.auth_location, 'upstreams.auth_location'),
-      authHeader: optionalString(item.auth_header, 'upstreams.auth_header'),
-      queryParamName: optionalString(item.query_param_name, 'upstreams.query_param_name'),
-      authScheme: optionalString(item.auth_scheme, 'upstreams.auth_scheme'),
-      allowedTokenHosts: optionalStringArray(item.allowed_token_hosts, 'upstreams.allowed_token_hosts'),
-      providerToken: optionalString(item.provider_token, 'upstreams.provider_token'),
-      providerId: optionalString(item.provider_id, 'upstreams.provider_id'),
-      grantId: optionalString(item.grant_id, 'upstreams.grant_id'),
-      forwardCaracalIdentity: optionalBoolean(item.forward_caracal_identity, 'upstreams.forward_caracal_identity'),
-      expiresAt: optionalInteger(item.expires_at, 'upstreams.expires_at'),
-    }
-  }
-  return upstreams
-}
-
-function optionalString(value: unknown, name: string): string | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'string') throw new Error(`STS response invalid: ${name} must be a string`)
-  return value
-}
-
-function optionalStringArray(value: unknown, name: string): string[] | undefined {
-  if (value === undefined) return undefined
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw new Error(`STS response invalid: ${name} must be a string array`)
-  }
-  return value
-}
-
-function optionalBoolean(value: unknown, name: string): boolean | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'boolean') throw new Error(`STS response invalid: ${name} must be a boolean`)
-  return value
-}
-
-function optionalInteger(value: unknown, name: string): number | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`STS response invalid: ${name} must be an integer`)
-  return value
-}
-
-function retryDelayMs(res: Response, attempt: number): number {
-  const retryAfter = res.headers?.get('retry-after')
-  if (retryAfter) {
-    const secs = Number(retryAfter)
-    if (Number.isFinite(secs)) return Math.max(0, secs * 1000)
-    const date = Date.parse(retryAfter)
-    if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
-  }
-  return jitteredBackoff(attempt)
-}
-
-function jitteredBackoff(attempt: number): number {
-  const base = Math.min(2 ** attempt * 250, 5_000)
-  return base / 2 + Math.random() * (base / 2)
-}
-
-async function delayWithinDeadline(waitMs: number, deadlineMs: number, signal?: AbortSignal): Promise<void> {
-  const remainingMs = deadlineMs - performance.now()
-  if (remainingMs <= 0) throw new Error('STS request timed out')
-  if (signal?.aborted) throw abortReason(signal)
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => {
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
-      },
-      Math.min(waitMs, remainingMs),
-    )
-    timer.unref?.()
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(signal ? abortReason(signal) : new Error('aborted'))
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 function isJsonResponse(res: Response): boolean {
@@ -560,5 +440,5 @@ function secretCacheId(value: string | undefined): string {
 }
 
 function resourceList(resource: string | string[]): string[] {
-  return (Array.isArray(resource) ? resource : [resource]).map((value) => value.trim()).filter(Boolean)
+  return [...new Set((Array.isArray(resource) ? resource : [resource]).map((value) => value.trim()).filter(Boolean))].sort()
 }

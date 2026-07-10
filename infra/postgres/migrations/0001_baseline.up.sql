@@ -212,6 +212,8 @@ CREATE TABLE public.sessions (
     last_heartbeat_at timestamp with time zone,
     heartbeat_deadline_at timestamp with time zone,
     termination_reason text,
+    lease_generation bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT sessions_lease_generation_check CHECK ((lease_generation >= 0)),
     CONSTRAINT sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
     CONSTRAINT sessions_lifecycle_fields_check CHECK ((((lifecycle = 'task'::text) AND (ttl_seconds IS NOT NULL) AND (ttl_seconds > 0) AND (last_heartbeat_at IS NULL) AND (heartbeat_deadline_at IS NULL)) OR ((lifecycle = 'service'::text) AND (ttl_seconds IS NULL) AND (last_heartbeat_at IS NOT NULL) AND (heartbeat_deadline_at IS NOT NULL)))),
     CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text]))),
@@ -1584,6 +1586,13 @@ CREATE INDEX coordinator_idempotency_expiry_idx ON public.coordinator_idempotenc
 --
 
 CREATE INDEX sessions_last_active_at_idx ON public.sessions USING btree (last_active_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: sessions_terminal_retention_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_terminal_retention_idx ON public.sessions USING btree (terminated_at, id) WHERE (status = ANY (ARRAY['terminated'::text, 'expired'::text]));
 
 
 --
@@ -3119,7 +3128,7 @@ GRANT SELECT,INSERT,DELETE ON TABLE public.coordinator_idempotency_receipts TO c
 -- Name: TABLE sessions; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.sessions TO caracalcoordinator;
+GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.sessions TO caracalcoordinator;
 GRANT SELECT,UPDATE ON TABLE public.sessions TO caracalapi;
 
 

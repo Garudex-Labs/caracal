@@ -6,4 +6,3 @@
 export * from './types.js'
 export * from './cache.js'
 export * from './client.js'
-export * from './manifest.js'

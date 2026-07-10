@@ -33,19 +33,15 @@ fi
 echo "  down migrations are not referenced by production tooling"
 
 echo ""
-echo "=== Migration: canonical baseline and ordered forward migrations ==="
-if [ ! -f "${MIGRATIONS_DIR}/0001_baseline.up.sql" ] || [ ! -f "${MIGRATIONS_DIR}/0001_baseline.down.sql" ]; then
-    echo "FAIL: the consolidated 0001 baseline pair is required" >&2
+echo "=== Migration: unreleased schema stays in one baseline ==="
+mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort)
+expected_migrations=("0001_baseline.down.sql" "0001_baseline.up.sql")
+if [ "${migration_files[*]}" != "${expected_migrations[*]}" ]; then
+    echo "FAIL: before the first stable release, migrations must remain consolidated in the 0001 baseline pair" >&2
+    printf '  found: %s\n' "${migration_files[*]:-none}" >&2
     exit 1
 fi
-for up in "${MIGRATIONS_DIR}"/*.up.sql; do
-    down="${up%.up.sql}.down.sql"
-    if [ ! -f "${down}" ]; then
-        echo "FAIL: developer reset migration missing for $(basename "${up}")" >&2
-        exit 1
-    fi
-done
-echo "  baseline exists and every forward migration has a developer reset aid"
+echo "  baseline-only layout OK"
 
 echo ""
 echo "=== Migration: version prefixes are unique ==="
