@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// TTL sweeper: settles expired task agents as expired and their descendants as terminated transactionally.
+// TTL sweeper settles expired task Sessions and their descendants transactionally.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
-import { spawnLockKey, terminateSubtree } from '../routes/agents.js'
+import { sessionLockKey, terminateSubtree } from '../routes/agents.js'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 
 const SWEEP_LOCK = 'coordinator:ttl_sweep'
@@ -28,11 +28,11 @@ export async function runTTLSweep(db: Pool): Promise<number> {
       return 0
     }
     const { rows: expired } = await client.query<{ id: string; zone_id: string }>(
-      `SELECT id, zone_id FROM agent_sessions
+      `SELECT id, zone_id FROM sessions
        WHERE status IN ('active','suspended')
          AND lifecycle <> 'service'
          AND ttl_seconds IS NOT NULL
-         AND spawned_at + (ttl_seconds * interval '1 second') < now()
+         AND started_at + (ttl_seconds * interval '1 second') < now()
        ORDER BY id
        LIMIT $1
        FOR UPDATE SKIP LOCKED`,
@@ -50,7 +50,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
     }
     let terminated = 0
     for (const [zoneId, ids] of byZone) {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [spawnLockKey(zoneId)])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       terminated += await terminateSubtree(client, zoneId, ids, 'ttl', 'expired')
     }
     await client.query('COMMIT')

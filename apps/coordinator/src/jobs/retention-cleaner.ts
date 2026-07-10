@@ -15,6 +15,7 @@ interface RetentionCleanupResult {
   expiredEdges: number
   deletedEdges: number
   deletedOutbox: number
+  deletedIdempotencyReceipts: number
 }
 
 interface ExpiredEdge {
@@ -30,12 +31,14 @@ export const retentionCleanerStats = {
   expired_edges: 0,
   deleted_edges: 0,
   deleted_outbox: 0,
+  deleted_idempotency_receipts: 0,
 }
 
 const emptyResult = (): RetentionCleanupResult => ({
   expiredEdges: 0,
   deletedEdges: 0,
   deletedOutbox: 0,
+  deletedIdempotencyReceipts: 0,
 })
 
 export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupResult> {
@@ -123,11 +126,26 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
        WHERE o.id = old_rows.id`,
       [cfg.outboxRetentionDays, cfg.retentionCleanupBatchSize],
     )
+    const { rowCount: deletedIdempotencyReceipts } = await client.query(
+      `WITH expired_receipts AS (
+         SELECT id
+         FROM coordinator_idempotency_receipts
+         WHERE expires_at <= now()
+         ORDER BY expires_at, id
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       DELETE FROM coordinator_idempotency_receipts r
+       USING expired_receipts
+       WHERE r.id = expired_receipts.id`,
+      [cfg.retentionCleanupBatchSize],
+    )
     await client.query('COMMIT')
     return {
       expiredEdges: expiredRows.length,
       deletedEdges: deletedEdges ?? 0,
       deletedOutbox: deletedOutbox ?? 0,
+      deletedIdempotencyReceipts: deletedIdempotencyReceipts ?? 0,
     }
   } catch (err) {
     await client.query('ROLLBACK')
@@ -146,6 +164,7 @@ export function startRetentionCleaner(db: Pool, options: { intervalMs?: number; 
         retentionCleanerStats.expired_edges += result.expiredEdges
         retentionCleanerStats.deleted_edges += result.deletedEdges
         retentionCleanerStats.deleted_outbox += result.deletedOutbox
+        retentionCleanerStats.deleted_idempotency_receipts += result.deletedIdempotencyReceipts
       })
     },
     intervalMs,

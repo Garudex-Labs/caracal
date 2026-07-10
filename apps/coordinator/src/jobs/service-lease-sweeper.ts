@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Service lease sweeper suspends service agent sessions with expired heartbeat leases.
+// Service lease sweeper suspends Sessions with expired heartbeat leases.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
-import { spawnLockKey, suspendSubtree } from '../routes/agents.js'
+import { sessionLockKey, suspendSubtree } from '../routes/agents.js'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 
 const SWEEP_LOCK = 'coordinator:service_lease_sweep'
@@ -28,7 +28,7 @@ export async function runServiceLeaseSweep(db: Pool): Promise<number> {
       return 0
     }
     const { rows: expired } = await client.query<{ id: string; zone_id: string }>(
-      `SELECT id, zone_id FROM agent_sessions
+      `SELECT id, zone_id FROM sessions
        WHERE status = 'active'
          AND lifecycle = 'service'
          AND heartbeat_deadline_at IS NOT NULL
@@ -50,7 +50,7 @@ export async function runServiceLeaseSweep(db: Pool): Promise<number> {
     }
     let suspended = 0
     for (const [zoneId, ids] of byZone) {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [spawnLockKey(zoneId)])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       suspended += await suspendSubtree(client, zoneId, ids, 'service_heartbeat_lost')
     }
     await client.query('COMMIT')
