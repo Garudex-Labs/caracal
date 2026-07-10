@@ -1,77 +1,77 @@
 ---
 title: Use Coordinator API
-description: Agent-session, service-agent, invocation, and delegation endpoints served by Coordinator.
+description: Session, long-lived Session, invocation, and Delegation protocol endpoints served by Coordinator.
 pageType: api
 ---
 
-Coordinator is served on port `4000`. It owns agent runtime state and delegation graph state.
+Coordinator is served on port `4000`. It owns governed Session and Delegation graph state. This page documents the raw protocol, whose stable paths and fields retain `agents`, `agent_session_id`, and `delegation_edge_id` names.
 
 ## Health and Metrics
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Dependency and job readiness. |
-| `GET` | `/metrics` | Service metrics. |
+| Method | Path       | Purpose                       |
+| ------ | ---------- | ----------------------------- |
+| `GET`  | `/health`  | Liveness check.               |
+| `GET`  | `/ready`   | Dependency and job readiness. |
+| `GET`  | `/metrics` | Service metrics.              |
 
-## Agent Management
+## Session Management
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/zones/:zoneId/agents` | Create an agent session. |
-| `GET` | `/zones/:zoneId/agents` | List agent sessions. |
-| `GET` | `/zones/:zoneId/agents/:id` | Inspect one session. |
-| `GET` | `/zones/:zoneId/agents/:id/children` | List child sessions. |
-| `PATCH` | `/zones/:zoneId/agents/:id/suspend` | Suspend a session subtree. |
-| `PATCH` | `/zones/:zoneId/agents/:id/resume` | Resume a suspended session subtree. |
-| `DELETE` | `/zones/:zoneId/agents/:id` | Terminate a session. |
+| Method   | Path                                 | Purpose                                          |
+| -------- | ------------------------------------ | ------------------------------------------------ |
+| `POST`   | `/zones/:zoneId/agents`              | Start a Session. `/agents` is the protocol path. |
+| `GET`    | `/zones/:zoneId/agents`              | List Sessions.                                   |
+| `GET`    | `/zones/:zoneId/agents/:id`          | Inspect one Session.                             |
+| `GET`    | `/zones/:zoneId/agents/:id/children` | List child Sessions.                             |
+| `PATCH`  | `/zones/:zoneId/agents/:id/suspend`  | Suspend a Session subtree.                       |
+| `PATCH`  | `/zones/:zoneId/agents/:id/resume`   | Resume a suspended Session subtree.              |
+| `DELETE` | `/zones/:zoneId/agents/:id`          | Terminate a Session.                             |
 
-## Service Agents and Invocations
+## Long-lived Sessions and Invocations
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/zones/:zoneId/agent-services` | Register or update a service agent. |
-| `GET` | `/zones/:zoneId/agent-services` | List service agents. |
-| `POST` | `/zones/:zoneId/agents/:id/heartbeat` | Refresh a service-agent lease. |
-| `POST` | `/zones/:zoneId/invocations` | Create an invocation. |
-| `GET` | `/zones/:zoneId/invocations/:id` | Inspect an invocation. |
-| `PATCH` | `/zones/:zoneId/invocations/:id/start` | Mark an invocation running. |
-| `PATCH` | `/zones/:zoneId/invocations/:id/cancel` | Cancel an invocation. |
-| `PATCH` | `/zones/:zoneId/invocations/:id/complete` | Complete an invocation. |
+| Method  | Path                                      | Purpose                                                                               |
+| ------- | ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST`  | `/zones/:zoneId/agent-services`           | Register or update a long-lived Session lease. `agent-services` is the protocol path. |
+| `GET`   | `/zones/:zoneId/agent-services`           | List long-lived Session leases.                                                       |
+| `POST`  | `/zones/:zoneId/agents/:id/heartbeat`     | Refresh a long-lived Session lease.                                                   |
+| `POST`  | `/zones/:zoneId/invocations`              | Create an invocation.                                                                 |
+| `GET`   | `/zones/:zoneId/invocations/:id`          | Inspect an invocation.                                                                |
+| `PATCH` | `/zones/:zoneId/invocations/:id/start`    | Mark an invocation running.                                                           |
+| `PATCH` | `/zones/:zoneId/invocations/:id/cancel`   | Cancel an invocation.                                                                 |
+| `PATCH` | `/zones/:zoneId/invocations/:id/complete` | Complete an invocation.                                                               |
 
 ## Delegation
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/zones/:zoneId/delegations` | Create a delegation edge. |
-| `GET` | `/zones/:zoneId/delegations/active` | List active delegation edges. |
-| `GET` | `/zones/:zoneId/delegations/inbound/:sessionId` | List inbound edges for a session. |
-| `GET` | `/zones/:zoneId/delegations/outbound/:sessionId` | List outbound edges for a session. |
-| `GET` | `/zones/:zoneId/delegations/:id/traverse` | Traverse a delegation edge. |
-| `GET` | `/zones/:zoneId/delegations/:id/impact` | Compute revocation impact. |
-| `GET` | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a session. |
-| `PATCH` | `/zones/:zoneId/delegations/:id/revoke` | Revoke delegated authority. |
+| Method  | Path                                                   | Purpose                                                                                              |
+| ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `POST`  | `/zones/:zoneId/delegations`                           | Create a Delegation. The response field `delegation_edge_id` is the protocol name for Delegation ID. |
+| `GET`   | `/zones/:zoneId/delegations/active`                    | List active Delegations.                                                                             |
+| `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId`        | List inbound edges for a session.                                                                    |
+| `GET`   | `/zones/:zoneId/delegations/outbound/:sessionId`       | List outbound edges for a session.                                                                   |
+| `GET`   | `/zones/:zoneId/delegations/:id/traverse`              | Traverse a Delegation.                                                                               |
+| `GET`   | `/zones/:zoneId/delegations/:id/impact`                | Compute revocation impact.                                                                           |
+| `GET`   | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a Session.                                                           |
+| `PATCH` | `/zones/:zoneId/delegations/:id/revoke`                | Revoke delegated authority.                                                                          |
 
-## SDK Lifecycle Endpoints
+## SDK Lifecycle Protocol Endpoints
 
-| Method | Path |
-| --- | --- |
-| `POST` | `/v1/begin` |
-| `POST` | `/v1/end` |
-| `POST` | `/v1/spawn-child` |
-| `POST` | `/v1/exchange` |
+| Method | Path                             |
+| ------ | -------------------------------- |
+| `POST` | `/v1/begin`                      |
+| `POST` | `/v1/end`                        |
+| `POST` | `/v1/spawn-child`                |
+| `POST` | `/v1/exchange`                   |
 | `POST` | `/v1/delegate-to-existing-agent` |
-| `POST` | `/v1/revoke-delegation` |
-| `POST` | `/v1/verify` |
+| `POST` | `/v1/revoke-delegation`          |
+| `POST` | `/v1/verify`                     |
 
-SDKs usually call these endpoints through the language-specific Caracal client rather than direct HTTP.
+SDKs usually call these protocol endpoints through a language-specific Caracal client rather than direct HTTP. `/v1/spawn-child` and `/v1/delegate-to-existing-agent` are stable wire names; product code starts child Sessions and delegates to peer Sessions.
 
 ## Next Step
 
-Continue to [Use STS Endpoint](/api/sts/) to see how agent sessions and delegation anchors participate in token exchange.
+Continue to [Use STS Endpoint](/api/sts/) to see how Session IDs and Delegation IDs participate in token exchange.
 
 ## Related Pages
 
-- [Coordinate Agent State](/services/coordinator/)
-- [Coordinate Agents](/architecture/delegation-flow/)
+- [Coordinate Session State](/services/coordinator/)
+- [Coordinate Sessions](/architecture/delegation-flow/)
 - [Manage Sessions and Delegation](/runtime-console/agents/)

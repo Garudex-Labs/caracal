@@ -1,32 +1,35 @@
 ---
 title: Sessions and Revocation
-description: Agent sessions, cascading revocation, and the revocation event stream.
+description: Authority records, Sessions, Delegations, cascading revocation, and the revocation event stream.
 sidebar:
   order: 13
 ---
 
-Sessions make Caracal authority temporary and revocable. A mandate includes session anchors, and resource servers check those anchors before accepting the mandate.
+Authority records, Sessions, and Delegations make Caracal authority temporary and revocable. A mandate includes their revocation anchors, and resource servers check those anchors before accepting it.
 
-## Session Types
+## Identity and Execution Records
 
-| Session | Role |
-| --- | --- |
-| Subject session | Original authenticated user or service context. Shown on the web console's *Subjects* page. |
-| Agent session | Runtime context for a spawned agent. |
-| Delegated session | An agent session that holds an inbound delegation edge - a *state* of an agent session, not a separate object. |
+| Record                | Role                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Subject               | Opaque JWT `sub` identity. The Console's **Subjects** page groups Authority records by this value.                                                              |
+| Authority record      | One STS exchange record, stored internally in `sessions`. Its Authority record ID is the raw JWT `sid`.                                                         |
+| Root authority record | Root of an STS exchange ancestry chain. Its ID is the raw JWT `root_sid`.                                                                                       |
+| Session               | Governed Coordinator execution, stored internally in `agent_sessions`. A delegated Session is a Session with an inbound Delegation, not a separate object type. |
 
 ## Subject Identity Is Federated
 
-Caracal does not generate subject identities, and the *Subjects* page is not a login surface. The `sub` on a subject session is taken verbatim from the subject token the application exchanged: the application's own identity system (Auth0, Keycloak, Better Auth, a custom JWT issuer) authenticates the user or service, and the exchange carries that identity into Caracal. To federate end users directly, a zone registers the identity system as a **subject issuer** (issuer, JWKS URL, audience); the application then exchanges each user's identity token for a user subject session. Caracal treats the identifier as opaque - it does not need to know whether it names a user id, an employee id, or a customer id - and requires only that it is unique and stable for the same identity over time, so revocation and audit history stay attributable. Everything below the subject session is keyed by that `sub`: derived sessions, delegations, provider connections, approvals, and every audit event.
+Caracal does not generate Subjects, and **Subjects** is not a login surface. The `sub` on an Authority record is taken verbatim from the token the application exchanges. To federate end users, a zone registers the identity system as a Subject issuer and the application exchanges each identity token for an Authority record with no resource authority.
+
+A Session may attach that record through the SDK compatibility field `subjectSessionId`, `subject_session_id`, or `SubjectSessionID`. This Subject authority record ID supports attribution and lifecycle linkage. It does **not** by itself cause later resource mandates minted for the Session to carry the federated user's `sub`; callers that need the user's own mandate must present the federated mandate on the supported exchange or approval path.
 
 ## Revocation Anchors
 
 Resource servers check every relevant anchor:
 
-- session ID;
-- root session ID;
-- agent session ID;
-- delegation edge ID.
+- Authority record ID, carried in the raw JWT `sid` claim;
+- Root authority record ID, carried in the raw JWT `root_sid` claim;
+- Session ID, carried in the raw JWT `agent_session_id` claim;
+- Delegation ID, carried in the raw JWT `delegation_edge_id` claim.
 
 If any anchor is revoked, the mandate should be rejected as `session_revoked`.
 
@@ -39,7 +42,7 @@ sequenceDiagram
   participant Stream as Redis revocation stream
   participant Resource as Gateway or adapter
 
-  Control->>Store: Revoke grant, session, agent, or edge
+  Control->>Store: Revoke grant, Authority record, Session, or Delegation
   Store->>Stream: Publish revocation anchor
   Resource->>Stream: Consume caracal.sessions.revoke
   Resource->>Resource: Cache revoked anchor
@@ -52,10 +55,10 @@ The Redis stream name is `caracal.sessions.revoke`. The Redis backend packages c
 
 Revocation should follow authority:
 
-- revoking a subject session invalidates derived agent sessions;
-- revoking an agent session invalidates its child edges;
-- revoking a delegation edge invalidates downstream delegated authority;
-- revoking a grant prevents future exchange and can invalidate active sessions depending on workflow.
+- revoking an Authority record invalidates authority descended from it;
+- revoking a Session invalidates its child Delegations;
+- revoking a Delegation invalidates downstream delegated authority;
+- revoking a grant prevents future exchange and can invalidate active Authority records and Sessions depending on workflow.
 
 ## Resource-Server Responsibility
 

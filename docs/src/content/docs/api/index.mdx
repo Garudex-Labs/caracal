@@ -8,24 +8,24 @@ Use this section when you need wire-level behavior. For task workflows, start in
 
 ## API Surfaces
 
-| Surface | Base | Purpose |
-| --- | --- | --- |
-| [Use the Admin API](/api/control-plane/) | API service `/v1` | Zones, applications, providers, resources, policies, policy sets, grants, sessions, audit, step-up, and templates. |
-| [Use Coordinator API](/api/coordinator/) | Coordinator service | Agent sessions, agent services, invocations, delegation edges, and SDK lifecycle endpoints. |
-| [Use STS Endpoint](/api/sts/) | STS service | OAuth token exchange, JWKS, step-up status, and internal policy operations. |
-| [Proxy Through Gateway](/api/gateway/) | Gateway service | Protected reverse-proxy behavior rather than CRUD endpoints. |
-| [Use Event Topics](/api/event-topics/) | Redis Streams | Audit, invalidation, revocation, agent, invocation, and delegation topics. |
+| Surface                                  | Base                | Purpose                                                                                                            |
+| ---------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| [Use the Admin API](/api/control-plane/) | API service `/v1`   | Zones, applications, providers, resources, policies, policy sets, grants, sessions, audit, step-up, and templates. |
+| [Use Coordinator API](/api/coordinator/) | Coordinator service | Sessions, agent services, invocations, Delegations, and SDK lifecycle endpoints.                                   |
+| [Use STS Endpoint](/api/sts/)            | STS service         | OAuth token exchange, JWKS, step-up status, and internal policy operations.                                        |
+| [Proxy Through Gateway](/api/gateway/)   | Gateway service     | Protected reverse-proxy behavior rather than CRUD endpoints.                                                       |
+| [Use Event Topics](/api/event-topics/)   | Redis Streams       | Audit, invalidation, revocation, agent, invocation, and delegation topics.                                         |
 
 ## Service Ports
 
-| Service | Local port |
-| --- | --- |
-| API | `3000` |
-| Coordinator | `4000` |
-| STS | `8080` |
-| Gateway | `8081` |
-| Audit | `9090` |
-| Control | API `3000` when enabled |
+| Service     | Local port              |
+| ----------- | ----------------------- |
+| API         | `3000`                  |
+| Coordinator | `4000`                  |
+| STS         | `8080`                  |
+| Gateway     | `8081`                  |
+| Audit       | `9090`                  |
+| Control     | API `3000` when enabled |
 
 ## Error Shape
 
@@ -43,13 +43,13 @@ See [Error Codes](/reference/errors/) for canonical codes.
 
 ## Reading Path
 
-| Need | Page |
-| --- | --- |
-| Manage product objects over HTTP | [Use the Admin API](/api/control-plane/) |
+| Need                                      | Page                                     |
+| ----------------------------------------- | ---------------------------------------- |
+| Manage product objects over HTTP          | [Use the Admin API](/api/control-plane/) |
 | Manage agent and delegation runtime state | [Use Coordinator API](/api/coordinator/) |
-| Exchange authority for mandates | [Use STS Endpoint](/api/sts/) |
-| Understand Gateway proxy requirements | [Proxy Through Gateway](/api/gateway/) |
-| Consume or verify stream contracts | [Use Event Topics](/api/event-topics/) |
+| Exchange authority for mandates           | [Use STS Endpoint](/api/sts/)            |
+| Understand Gateway proxy requirements     | [Proxy Through Gateway](/api/gateway/)   |
+| Consume or verify stream contracts        | [Use Event Topics](/api/event-topics/)   |
 
 ## Next Step
 

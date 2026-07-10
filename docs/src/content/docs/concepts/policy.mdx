@@ -9,17 +9,17 @@ The platform decision contract decides whether the STS may issue a mandate. The 
 
 ## Policy Objects
 
-| Object | Purpose |
-| --- | --- |
-| Policy | Named policy data document with immutable versions. |
-| Policy version | A specific content hash and schema version. |
-| Policy set | A named bundle of policy versions. |
-| Policy set version | A specific manifest of policy versions. |
-| Active policy set version | The version the STS evaluates for a zone. |
+| Object                    | Purpose                                             |
+| ------------------------- | --------------------------------------------------- |
+| Policy                    | Named policy data document with immutable versions. |
+| Policy version            | A specific content hash and schema version.         |
+| Policy set                | A named bundle of policy versions.                  |
+| Policy set version        | A specific manifest of policy versions.             |
+| Active policy set version | The version the STS evaluates for a zone.           |
 
 ## Decision Contract
 
-The platform decision contract owns the `result` object in `package caracal.authz`. It is deny by default and only allows an exchange that matches one of its vetted rules: a bootstrap mandate, a delegated mint narrowed to the delegation edge, or a mandate presented at the Gateway. You never write `result`; you supply the data the contract reads.
+The platform decision contract owns the `result` object in `package caracal.authz`. It is deny by default and only allows an exchange that matches one of its vetted rules: a bootstrap mandate, a delegated mint narrowed to the Delegation, or a mandate presented at the Gateway. You never write `result`; you supply the data the contract reads.
 
 ```text
 # caracal:data-document
@@ -37,52 +37,52 @@ grants := {
 
 The contract reads four adopter documents from `package caracal.authz`:
 
-| Document | Shape | Effect |
-| --- | --- | --- |
-| `app_ids` | `{binding_key: application_id}` | Binds the application key used in `grants` to the control-plane id the STS sees as `input.principal.id`. |
-| `grants` | `{resource: {application, roles: {role: [scopes]}}}` | Declares which application owns a resource view and which scopes each role may hold. |
-| `confinement` | `[{label_prefix, scopes}]` | Caps every agent session whose principal carries a matching label prefix to a fixed scope set. Optional; omitting it confines nothing. |
-| `restrict` | set of reasons | Deny overlay. Any entry denies every exchange in the zone. Optional; keep it empty to authorize normally. |
+| Document      | Shape                                                | Effect                                                                                                                           |
+| ------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `app_ids`     | `{binding_key: application_id}`                      | Binds the application key used in `grants` to the control-plane id the STS sees as `input.principal.id`.                         |
+| `grants`      | `{resource: {application, roles: {role: [scopes]}}}` | Declares which application owns a resource view and which scopes each role may hold.                                             |
+| `confinement` | `[{label_prefix, scopes}]`                           | Caps every Session whose principal carries a matching label prefix to a fixed scope set. Optional; omitting it confines nothing. |
+| `restrict`    | set of reasons                                       | Deny overlay. Any entry denies every exchange in the zone. Optional; keep it empty to authorize normally.                        |
 
 A zone that supplies no data authorizes nothing: every allow rule collapses to the default deny.
 
 Example input values the contract evaluates:
 
-| Input | Example |
-| --- | --- |
-| `input.principal.id` | `app_lynx_control` (the acting application, user, or agent) |
-| `input.principal.registration_method` | `managed` or `dcr` |
-| `input.resource.identifier` | `resource://mercury-bank` |
-| `input.context.requested_scopes` | `["payments:read", "payments:write"]` |
-| `input.delegation_edge` | Present when authority was delegated from another agent session. |
+| Input                                 | Example                                                     |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `input.principal.id`                  | `app_lynx_control` (the acting application, user, or agent) |
+| `input.principal.registration_method` | `managed` or `dcr`                                          |
+| `input.resource.identifier`           | `resource://mercury-bank`                                   |
+| `input.context.requested_scopes`      | `["payments:read", "payments:write"]`                       |
+| `input.delegation_edge`               | Present when authority was delegated from another Session.  |
 
 ## Policy Input Contract
 
 Every evaluation receives this exact input shape (`schema_version` `2026-05-20`). There is no `input.application` or `input.grant` object - the acting application is the principal, and grant bounds are enforced by the STS before the contract runs. The platform decision contract evaluates the fields below; your data documents map applications, roles, and scopes onto them.
 
-| Path | Type | Meaning |
-| --- | --- | --- |
-| `input.principal.type` | string | `Application`, user, service, or agent principal class. |
-| `input.principal.id` | string | Stable identifier of the acting application/user/agent. |
-| `input.principal.zone_id` | string | Zone the principal belongs to. |
-| `input.principal.registration_method` | string | `managed` or `dcr`; match `dcr` to scope dynamically registered workloads. |
-| `input.principal.lifecycle` | string | `task` or `service` for agent sessions. |
-| `input.principal.labels` | string[] | Role descriptors set at `session(labels=[...])`; drive least-privilege role checks. |
-| `input.principal.agent_session_id` | string | Agent session that initiated the exchange, when present. |
-| `input.resource.type` | string | Resource class, e.g. `Resource`. |
-| `input.resource.id` | string | Internal resource id. |
-| `input.resource.identifier` | string | Stable audience URI, e.g. `resource://mercury-bank`. |
-| `input.resource.scopes` | string[] | Scopes the resource defines (the full allowlist). |
-| `input.action.id` | string | The exchange action, currently `TokenExchange`. |
-| `input.action.method` | string | Upstream HTTP method (upper-cased) the gateway is authorizing. Present only on gateway-authenticated exchanges; absent on direct exchanges. Gate operation authority against this. |
-| `input.action.path` | string | Upstream request path the gateway is authorizing. Present only on gateway-authenticated exchanges; absent on direct exchanges. |
-| `input.session.id` | string | Present when the request is bound to a session. |
-| `input.delegation_edge` | object | Present only on delegated exchange (see below). |
-| `input.context.requested_scopes` | string[] | Scopes the caller is requesting now; gate these against the allowlist. |
-| `input.context.actor_claims` | object | Verified claims of the optional actor credential; recorded for audit, not read by any allow rule. |
-| `input.context.subject_claims` | object | Verified claims of the presented subject token; the contract uses them for structural binding checks, never for scope authority. |
-| `input.context.challenge_resolved` | bool | `true` after a step-up challenge is satisfied. |
-| `input.context.trace_id` | string | Request trace id for audit correlation. |
+| Path                                  | Type     | Meaning                                                                                                                                                                            |
+| ------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input.principal.type`                | string   | `Application`, user, service, or agent principal class.                                                                                                                            |
+| `input.principal.id`                  | string   | Stable identifier of the acting application/user/agent.                                                                                                                            |
+| `input.principal.zone_id`             | string   | Zone the principal belongs to.                                                                                                                                                     |
+| `input.principal.registration_method` | string   | `managed` or `dcr`; match `dcr` to scope dynamically registered workloads.                                                                                                         |
+| `input.principal.lifecycle`           | string   | `task` or `service` for Sessions.                                                                                                                                                  |
+| `input.principal.labels`              | string[] | Role descriptors set at `session(labels=[...])`; drive least-privilege role checks.                                                                                                |
+| `input.principal.agent_session_id`    | string   | Protocol field carrying the Session ID that initiated the exchange, when present.                                                                                                  |
+| `input.resource.type`                 | string   | Resource class, e.g. `Resource`.                                                                                                                                                   |
+| `input.resource.id`                   | string   | Internal resource id.                                                                                                                                                              |
+| `input.resource.identifier`           | string   | Stable audience URI, e.g. `resource://mercury-bank`.                                                                                                                               |
+| `input.resource.scopes`               | string[] | Scopes the resource defines (the full allowlist).                                                                                                                                  |
+| `input.action.id`                     | string   | The exchange action, currently `TokenExchange`.                                                                                                                                    |
+| `input.action.method`                 | string   | Upstream HTTP method (upper-cased) the gateway is authorizing. Present only on gateway-authenticated exchanges; absent on direct exchanges. Gate operation authority against this. |
+| `input.action.path`                   | string   | Upstream request path the gateway is authorizing. Present only on gateway-authenticated exchanges; absent on direct exchanges.                                                     |
+| `input.session.id`                    | string   | Present when the request is bound to a session.                                                                                                                                    |
+| `input.delegation_edge`               | object   | Present only on delegated exchange (see below).                                                                                                                                    |
+| `input.context.requested_scopes`      | string[] | Scopes the caller is requesting now; gate these against the allowlist.                                                                                                             |
+| `input.context.actor_claims`          | object   | Verified claims of the optional actor credential; recorded for audit, not read by any allow rule.                                                                                  |
+| `input.context.subject_claims`        | object   | Verified claims of the presented subject token; the contract uses them for structural binding checks, never for scope authority.                                                   |
+| `input.context.challenge_resolved`    | bool     | `true` after a step-up challenge is satisfied.                                                                                                                                     |
+| `input.context.trace_id`              | string   | Request trace id for audit correlation.                                                                                                                                            |
 
 When `input.delegation_edge` is present it carries: `id`, `source_session_id`, `target_session_id`, `issuer_application_id`, `receiver_application_id`, `resource_id`, `scopes` (the narrowed grant), `edge_version`, `path` (the full delegation chain), `graph_epoch`, and `constraints_json` (typed delegation constraints such as a cost budget). The contract enforces hop membership and the scope-subset narrowing against these fields.
 
@@ -90,10 +90,10 @@ The contract reads your data documents through `data.caracal.authz.*` - `grants`
 
 ## Policy Outcomes
 
-| Outcome | Effect |
-| --- | --- |
-| `allow` | STS signs a mandate if token and session checks also pass. |
-| `deny` | STS refuses the exchange and records diagnostics. |
+| Outcome       | Effect                                                                     |
+| ------------- | -------------------------------------------------------------------------- |
+| `allow`       | STS signs a mandate if token and session checks also pass.                 |
+| `deny`        | STS refuses the exchange and records diagnostics.                          |
 | approval gate | STS holds the mint and returns `interaction_required` with a challenge ID. |
 
 Approval gates are declared as data: `risk` names a tier for each sensitive scope and `approval_tiers` declares which tiers require a human decision. When a mint requests a gated scope, the STS creates a durable hold and releases the mandate only after an authorized approver decides it. See [Step-Up Challenges](/concepts/step-up/).

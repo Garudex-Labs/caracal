@@ -38,14 +38,14 @@ sequenceDiagram
 
 ## Control Layers
 
-| Layer | Responsibility | Source of truth |
-| --- | --- | --- |
-| Zone | Owns keys, policies, resources, sessions, and audit data. | Console or Admin API |
-| Grant | Declares which application and user may request resource scopes. | Console or Admin API |
-| Policy set | Makes the final allow, deny, or step-up decision. | Rego policy versions |
-| Mandate | Carries approved authority as a short-lived signed JWT. | STS |
-| Gateway or adapter | Verifies mandate claims and revocation before use. | Runtime and resource server config |
-| Audit ledger | Records decisions, diagnostics, and request correlation. | API, Console, and storage |
+| Layer              | Responsibility                                                   | Source of truth                    |
+| ------------------ | ---------------------------------------------------------------- | ---------------------------------- |
+| Zone               | Owns keys, policies, resources, sessions, and audit data.        | Console or Admin API               |
+| Grant              | Declares which application and user may request resource scopes. | Console or Admin API               |
+| Policy set         | Makes the final allow, deny, or step-up decision.                | Rego policy versions               |
+| Mandate            | Carries approved authority as a short-lived signed JWT.          | STS                                |
+| Gateway or adapter | Verifies mandate claims and revocation before use.               | Runtime and resource server config |
+| Audit ledger       | Records decisions, diagnostics, and request correlation.         | API, Console, and storage          |
 
 ## Where Resource Authority Comes From
 
@@ -55,7 +55,7 @@ A session never holds resource authority by itself: starting one grants only lif
 flowchart TD
   Zone["Zone grant + policy set<br/>(what the application MAY hold)"] --> App["Application identity"]
   App --> Session["Session<br/>(lifecycle-only authority)"]
-  Session -- "Authority.narrow(...)<br/>parent issues a bounded edge" --> Edge["Delegation edge<br/>(scopes x resource x TTL)"]
+  Session -- "Authority.narrow(...)<br/>parent issues a bounded edge" --> Edge["Delegation<br/>(scopes x resource x TTL)"]
   Peer["Peer session"] -- "delegate(...) + acceptDelegation" --> Edge
   App -- "applicationTransport<br/>(SDK builds its own session pair + edge)" --> Edge
   Edge --> Mint["STS mint: policy evaluates<br/>grant + edge + session"]
@@ -85,15 +85,15 @@ Both patterns share the same authority model. The difference is only where manda
 
 The SDK exposes several call paths. They are not interchangeable: each does a different job, and only some **enforce** authority. Pick by what you need at that boundary.
 
-| Call path | Role | Verifies the mandate? | Use when |
-| --- | --- | --- | --- |
-| `caracal.fetch` / `gateway_request` through the Gateway | **Enforce** | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally |
-| Direct Gateway call (`curl` to the Gateway URL) | **Enforce** | Yes - same Gateway verification | Non-SDK clients or debugging the enforced path |
-| Adapter verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, verify engine) | **Enforce** | Yes - the adapter verifies inside the resource server | The resource server should enforce in its own framework |
-| `caracal.transport` / `context_middleware()` (no verifier) | **Propagate** | No - carries and binds the envelope only | A Gateway or adapter already enforced upstream and you only need context to flow |
-| App-managed provider call (your code calls the provider SDK directly) | **Attribute** | No - Caracal records who acted, but does not gate the call | You want audit attribution without routing through the Gateway |
+| Call path                                                                                    | Role          | Verifies the mandate?                                              | Use when                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `caracal.fetch` / `gateway_request` through the Gateway                                      | **Enforce**   | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally                           |
+| Direct Gateway call (`curl` to the Gateway URL)                                              | **Enforce**   | Yes - same Gateway verification                                    | Non-SDK clients or debugging the enforced path                                   |
+| Adapter verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, verify engine) | **Enforce**   | Yes - the adapter verifies inside the resource server              | The resource server should enforce in its own framework                          |
+| `caracal.transport` / `context_middleware()` (no verifier)                                   | **Propagate** | No - carries and binds the envelope only                           | A Gateway or adapter already enforced upstream and you only need context to flow |
+| App-managed provider call (your code calls the provider SDK directly)                        | **Attribute** | No - Caracal records who acted, but does not gate the call         | You want audit attribution without routing through the Gateway                   |
 
-Rule of thumb: **use the Gateway or an adapter verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under *verifies the mandate*, something upstream must have already enforced it.
+Rule of thumb: **use the Gateway or an adapter verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under _verifies the mandate_, something upstream must have already enforced it.
 
 ## Next Step
 

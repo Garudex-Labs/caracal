@@ -1,23 +1,23 @@
 ---
 title: Delegation Constraints
-description: Resource, TTL, hop, budget, and approval restrictions that travel with a delegation edge.
+description: Resource, TTL, hop, budget, and approval restrictions that travel with a Delegation.
 sidebar:
   order: 11
 ---
 
-Typed constraints make delegated authority explicit. They are stored on delegation edges and evaluated by policy, SDK context, and resource-server verification.
+Typed constraints make delegated authority explicit. They are stored on Delegations and evaluated by policy, SDK context, and resource-server verification.
 
 ## Constraint Types
 
-| Constraint | Use it to limit |
-| --- | --- |
-| Resource | Which protected target can be reached. |
-| Scopes | Which actions can be requested. |
-| TTL | How long the delegated edge remains useful. |
-| Hop count | How deep the delegation chain may become. |
-| Budget | How much work, calls, or scope count a child can consume. |
-| Approval | Whether policy or a reviewer has approved a sensitive edge. |
-| Chain membership | Which applications must appear in the delegation path. |
+| Constraint       | Use it to limit                                             |
+| ---------------- | ----------------------------------------------------------- |
+| Resource         | Which protected target can be reached.                      |
+| Scopes           | Which actions can be requested.                             |
+| TTL              | How long the delegated edge remains useful.                 |
+| Hop count        | How deep the delegation chain may become.                   |
+| Budget           | How much work, calls, or scope count a child can consume.   |
+| Approval         | Whether policy or a reviewer has approved a sensitive edge. |
+| Chain membership | Which applications must appear in the delegation path.      |
 
 ## Example Shape
 
@@ -59,6 +59,6 @@ Read [Sessions and Revocation](/concepts/sessions-revocation/) to understand how
 
 ## Related Pages
 
-- [Agent Delegation](/concepts/delegation/)
+- [Session Delegation](/concepts/delegation/)
 - [Policies and Policy Sets](/concepts/policy/)
 - [Implement Multi-Agent Delegation](/guides/delegation/)
