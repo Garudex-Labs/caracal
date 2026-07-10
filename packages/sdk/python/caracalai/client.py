@@ -51,10 +51,10 @@ from .coordinator import (
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
-    SpawnRequest,
+    StartSessionRequest,
     list_inbound_delegations,
     sync_create_delegation,
-    sync_spawn_agent,
+    sync_start_coordinator_session,
     sync_terminate_agent,
 )
 from .envelope import (
@@ -84,13 +84,25 @@ DEFAULT_GATEWAY_URL = "http://localhost:8081"
 
 LIFECYCLE_SCOPE = "agent:lifecycle"
 APP_MANDATE_TTL_SECONDS = 900
-APP_MANDATE_REFRESH_MARGIN_SECONDS = 60.0
-# Cache keys are config-derived, so growth is operator-bounded; the cap is a
-# safety valve against a pathological configuration exhausting memory.
-APP_MANDATE_CACHE_CAP = 128
+APP_AUTHORITY_REFRESH_MARGIN_SECONDS = 60.0
+# Each authority entry owns two sessions. Twenty entries reserve ten of the
+# coordinator's default fifty-session capacity for ordinary work.
+APP_AUTHORITY_CACHE_CAP = 20
 
 _T = TypeVar("_T")
 APP_SESSION_TTL_BUFFER_SECONDS = 120
+_CREDENTIAL_FINGERPRINT_KEY = os.urandom(32)
+
+
+@dataclass(frozen=True)
+class _AppAuthority:
+    resource_id: str
+    zone_id: str
+    target_session_id: str
+    delegation_id: str
+    expires_at: float
+    sessions: tuple[str, ...]
+
 
 if TYPE_CHECKING:
     from .http import ASGIApp, CaracalASGIMiddleware, TokenVerifier
@@ -104,13 +116,14 @@ class ResourceBinding:
 
 @dataclass(frozen=True)
 class FederatedSubject:
-    """A federated end user identity: the subject session anchoring the user
-    and the mandate proving it. ``subject_session_id`` anchors governed work
-    to the user (pass as ``subject_session_id`` when starting sessions on
-    their behalf); ``token`` is the user's own mandate, e.g. for approval
-    decisions, and carries no resource authority."""
+    """A federated Subject and the mandate proving it.
 
-    subject_session_id: str
+    ``subject_authority_record_id`` anchors Coordinator attribution when
+    attached to a Session; it does not alone propagate the user ``sub`` to
+    later mints. ``token`` is the Subject's mandate for user-facing flows.
+    """
+
+    subject_authority_record_id: str
     token: str
     expires_in_seconds: int
 
@@ -127,7 +140,7 @@ class CaracalConfig:
     `subject_token` may be supplied either as a static string or implicitly via
     `token_source`: a callable returning a fresh STS access token on demand.
     Exactly one must be provided. `default_ttl_seconds` applies to sessions run
-    with `session()` only; a session started with `start_session()` lives by
+    with `session()` only; a session started with `start_coordinator_session()` lives by
     its heartbeat lease instead.
     """
 
@@ -944,9 +957,10 @@ class Caracal:
         self._fetch_clients: dict[
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
-        self._app_mandates: dict[str, tuple[str, float, str, list[str]]] = {}
+        self._app_mandates: dict[str, _AppAuthority] = {}
         self._app_mandate_locks: dict[str, threading.Lock] = {}
         self._app_mandate_guard = threading.Lock()
+        self._app_generation = 0
         self._unverified_boundary_warned = False
 
     @classmethod
@@ -1065,7 +1079,7 @@ class Caracal:
         *,
         authority: Authority | None = None,
         ttl_seconds: int | None = None,
-        subject_session_id: str | None = None,
+        subject_authority_record_id: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         task: str | None = None,
@@ -1080,8 +1094,11 @@ class Caracal:
         effective authority by default; pass
         ``authority=Authority.narrow([...])`` to bound it to a subset of
         scopes. ``task`` records what the session is for in operator terms
-        (stored as ``metadata.task``); ``idempotency_key`` makes redelivery of
-        the same trigger resume the session instead of minting a duplicate."""
+        (stored as ``metadata.task``). Ordinary code should omit
+        ``idempotency_key``; when a queue, webhook, workflow, or scheduler
+        supplies a stable operation id, reusing it with identical inputs
+        replays session creation and changed inputs fail with a conflict. It
+        does not suppress this block or make downstream effects exactly once."""
         on_start: LifecycleHook | None = (
             (lambda c: self._fire(self._session_start_hooks, c))
             if self._session_start_hooks
@@ -1107,7 +1124,7 @@ class Caracal:
             subject_token=subject_token,
             token_source=self.config._token_source,
             invalidate=invalidate,
-            subject_session_id=subject_session_id,
+            subject_authority_record_id=subject_authority_record_id,
             parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
@@ -1130,7 +1147,7 @@ class Caracal:
         *,
         authority: Authority | None = None,
         ttl_seconds: int | None = None,
-        subject_session_id: str | None = None,
+        subject_authority_record_id: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
         task: str | None = None,
@@ -1140,6 +1157,7 @@ class Caracal:
         idempotency_key: str | None = None,
         heartbeat_interval: float | None = None,
         on_lease_lost: Callable[[BaseException], None] | None = None,
+        on_state_change: Callable[[str], None] | None = None,
     ) -> SessionHandle:
         """Start a governed session that outlives a block and return a handle
         the caller owns.
@@ -1180,7 +1198,7 @@ class Caracal:
             subject_token=subject_token,
             token_source=self.config._token_source,
             invalidate=invalidate,
-            subject_session_id=subject_session_id,
+            subject_authority_record_id=subject_authority_record_id,
             parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
@@ -1191,6 +1209,7 @@ class Caracal:
             idempotency_key=idempotency_key,
             heartbeat_interval=heartbeat_interval,
             on_lease_lost=on_lease_lost,
+            on_state_change=on_state_change,
             on_session_start=on_start,
             on_session_end=on_end,
         )
@@ -1201,6 +1220,7 @@ class Caracal:
         *,
         heartbeat_interval: float | None = None,
         on_lease_lost: Callable[[BaseException], None] | None = None,
+        on_state_change: Callable[[str], None] | None = None,
     ) -> SessionHandle:
         """Re-attach to a service session that already exists - typically
         after a process restart, using a session id the previous holder
@@ -1230,6 +1250,7 @@ class Caracal:
             ),
             heartbeat_interval=heartbeat_interval,
             on_lease_lost=on_lease_lost,
+            on_state_change=on_state_change,
             on_session_end=on_end,
         )
 
@@ -1293,9 +1314,7 @@ class Caracal:
             inbound = await list_inbound_delegations(
                 self.config.coordinator, ctx.subject_token, ctx.zone_id, ctx.session_id
             )
-            match = next(
-                (d for d in inbound if d.delegation_edge_id == delegation_id), None
-            )
+            match = next((d for d in inbound if d.delegation_id == delegation_id), None)
             if match is None or match.status != "active":
                 emit(False)
                 raise RuntimeError(
@@ -1450,8 +1469,8 @@ class Caracal:
                 env.delegation_id = claims.delegation_id
             if claims.parent_delegation_id is not None:
                 env.parent_delegation_id = claims.parent_delegation_id
-            if claims.subject_session_id is not None:
-                env.subject_session_id = claims.subject_session_id
+            if claims.subject_authority_record_id is not None:
+                env.subject_authority_record_id = claims.subject_authority_record_id
             if claims.hop is not None:
                 env.hop = claims.hop
         ctx = from_envelope(
@@ -1489,7 +1508,8 @@ class Caracal:
                 await client.aclose()
         self._fetch_clients.clear()
         with self._app_mandate_guard:
-            entries = [e for e in self._app_mandates.values() if e[3]]
+            self._app_generation += 1
+            entries = [e for e in self._app_mandates.values() if e.sessions]
             self._app_mandates.clear()
         exchanger = self.config.exchanger
         if exchanger is not None and entries:
@@ -1498,12 +1518,12 @@ class Caracal:
                 bootstrap = (
                     await asyncio.to_thread(
                         exchanger.mint_mandate,
-                        resource=entries[0][2],
+                        resource=entries[0].resource_id,
                         scopes=[LIFECYCLE_SCOPE],
                     )
                 ).token
                 for entry in entries:
-                    for session_id in entry[3]:
+                    for session_id in entry.sessions:
                         with suppress(Exception):
                             await asyncio.to_thread(
                                 sync_terminate_agent,
@@ -1520,7 +1540,7 @@ class Caracal:
                     exc_info=True,
                 )
         if exchanger is not None:
-            exchanger.close()
+            exchanger.invalidate()
         await self.config.coordinator.aclose()
 
     def context_middleware(
@@ -1678,7 +1698,13 @@ class Caracal:
             def sync_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
                 token = (
-                    outer.mint_mandate(resource, scopes, ctx=bound).token
+                    outer.config.exchanger.mint_mandate(
+                        resource=resource,
+                        scopes=scopes,
+                        agent_session_id=bound.session_id if bound else None,
+                        delegation_edge_id=bound.delegation_id if bound else None,
+                        cache=False,
+                    ).token
                     if resource is not None and scopes
                     else None
                 )
@@ -1696,10 +1722,19 @@ class Caracal:
 
             async def async_auth_flow(self, request: httpx.Request):
                 bound, resource, gateway_bound = self._begin(request)
+                if resource is not None and scopes and outer.config.exchanger is None:
+                    raise RuntimeError(
+                        f"Caracal.{label}(): scopes require client-secret credentials"
+                    )
                 token = (
                     (
                         await asyncio.to_thread(
-                            outer.mint_mandate, resource, scopes, ctx=bound
+                            outer.config.exchanger.mint_mandate,
+                            resource=resource,
+                            scopes=scopes,
+                            agent_session_id=bound.session_id if bound else None,
+                            delegation_edge_id=bound.delegation_id if bound else None,
+                            cache=False,
                         )
                     ).token
                     if resource is not None and scopes
@@ -1786,9 +1821,9 @@ class Caracal:
         self, id_token: str, *, ttl_seconds: int | None = None
     ) -> FederatedSubject:
         """Exchange an end user's identity token from a zone-trusted external
-        issuer for the user's Caracal subject session. The returned
-        ``subject_session_id`` anchors governed work to that user
-        (``session(subject_session_id=...)``), and the returned token is the
+        issuer for the Subject's Caracal Authority record. The returned
+        ``subject_authority_record_id`` anchors governed work to that user
+        (``session(subject_authority_record_id=...)``), and the returned token is the
         user's own mandate for user-facing flows such as approval decisions.
         Never cached: each federation is an explicit identity event, recorded
         in the audit stream. Requires client-secret credentials and a subject
@@ -1802,14 +1837,14 @@ class Caracal:
             )
         minted = exchanger.federate_subject(id_token, ttl_seconds=ttl_seconds)
         payload = decode_jwt_payload(minted.token) or {}
-        sid = payload.get("sid")
-        if not isinstance(sid, str) or not sid:
+        authority_record_id = payload.get("sid")
+        if not isinstance(authority_record_id, str) or not authority_record_id:
             raise RuntimeError(
-                "Caracal.federate_subject: the minted subject session mandate "
-                "carries no session id"
+                "Caracal.federate_subject: the minted Subject mandate carries "
+                "no authority record ID"
             )
         return FederatedSubject(
-            subject_session_id=sid,
+            subject_authority_record_id=authority_record_id,
             token=minted.token,
             expires_in_seconds=minted.expires_in_seconds,
         )
@@ -1860,10 +1895,10 @@ class Caracal:
         try:
             return await fn(None)
         except ApprovalRequired as err:
-            state = await asyncio.to_thread(
-                self.wait_for_approval,
-                err.approval_id,
-                timeout_seconds=timeout_seconds,
+            exchanger = self.config.exchanger
+            assert exchanger is not None
+            state = await exchanger.await_approval(
+                err.approval_id, timeout_seconds=timeout_seconds
             )
             if state != "approved":
                 raise
@@ -1969,9 +2004,10 @@ class Caracal:
         upstream (or any absolute URL) are rewritten through the configured
         gateway; requests already addressed to the gateway pass through.
 
-        The mandate is cached per application identity, resource, scope set,
-        effective labels, and mandate TTL, refreshed before expiry with a
-        fresh session cycle; concurrent requests share one in-flight cycle.
+        Authority state is cached per application identity, resource, scope
+        set, effective labels, and mandate TTL. Every request mints a fresh
+        replay-protected mandate against that cached session/delegation pair;
+        concurrent requests share provisioning but never a bearer.
         ``labels`` tag the started sessions (default: the application id).
         ``mandate_ttl_seconds`` bounds each mandate; sessions outlive it by a
         fixed buffer.
@@ -2051,29 +2087,49 @@ class Caracal:
                     request.headers["host"] = request.url.netloc.decode("ascii")
 
             def sync_auth_flow(self, request: httpx.Request):
-                self._finish(
-                    request,
-                    outer._app_mandate(resource_id, granted, labels, mandate_ttl),
+                authority = outer._app_mandate(
+                    resource_id, granted, labels, mandate_ttl
                 )
+                mandate = outer.config.exchanger.mint_mandate(
+                    resource=resource_id,
+                    scopes=granted,
+                    agent_session_id=authority.target_session_id,
+                    delegation_edge_id=authority.delegation_id,
+                    ttl_seconds=mandate_ttl,
+                    cache=False,
+                ).token
+                self._finish(request, mandate)
                 yield request
 
             async def async_auth_flow(self, request: httpx.Request):
-                mandate = await asyncio.to_thread(
+                authority = await asyncio.to_thread(
                     outer._app_mandate, resource_id, granted, labels, mandate_ttl
                 )
+                mandate = (
+                    await asyncio.to_thread(
+                        outer.config.exchanger.mint_mandate,
+                        resource=resource_id,
+                        scopes=granted,
+                        agent_session_id=authority.target_session_id,
+                        delegation_edge_id=authority.delegation_id,
+                        ttl_seconds=mandate_ttl,
+                        cache=False,
+                    )
+                ).token
                 self._finish(request, mandate)
                 yield request
 
         return _AppAuth()
 
-    def _app_mandate_cached(self, key: str) -> str | None:
+    def _app_mandate_cached(self, key: str) -> _AppAuthority | None:
         with self._app_mandate_guard:
             cached = self._app_mandates.get(key)
             if (
                 cached is not None
-                and cached[1] - time.time() > APP_MANDATE_REFRESH_MARGIN_SECONDS
+                and cached.expires_at - time.time()
+                > APP_AUTHORITY_REFRESH_MARGIN_SECONDS
             ):
-                return cached[0]
+                return cached
         return None
 
     def _app_mandate_lock(self, key: str) -> threading.Lock:
@@ -2090,14 +2146,15 @@ class Caracal:
         scopes: list[str],
         labels: list[str] | None,
         mandate_ttl: int,
-    ) -> str:
+    ) -> _AppAuthority:
         exchanger = self.config.exchanger
         assert exchanger is not None
         zone_id, application_id = exchanger.identity()
         session_labels = labels if labels else [application_id]
         encoded_labels = json.dumps(session_labels, separators=(",", ":"))
         key = (
-            f"{zone_id}::{application_id}::{resource_id}::{' '.join(scopes)}::"
+            f"{zone_id}::{application_id}::{exchanger.credential_generation()}::"
+            f"{resource_id}::{' '.join(scopes)}::"
             f"{encoded_labels}::{mandate_ttl}"
         )
         cached = self._app_mandate_cached(key)
@@ -2107,22 +2164,33 @@ class Caracal:
             cached = self._app_mandate_cached(key)
             if cached is not None:
                 return cached
-            token, exp, sessions = self._app_mandate_cycle(
+            generation = self._app_generation
+            authority = self._app_mandate_cycle(
                 zone_id, application_id, resource_id, scopes, labels, mandate_ttl
             )
+            evicted: list[_AppAuthority] = []
             with self._app_mandate_guard:
-                self._app_mandates[key] = (token, exp, resource_id, sessions)
-                if len(self._app_mandates) > APP_MANDATE_CACHE_CAP:
+                if generation != self._app_generation:
+                    evicted.append(authority)
+                else:
+                    self._app_mandates[key] = authority
+                if len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
                     now = time.time()
-                    for k in [k for k, v in self._app_mandates.items() if v[1] <= now]:
-                        del self._app_mandates[k]
-                    while len(self._app_mandates) > APP_MANDATE_CACHE_CAP:
-                        evicted = next(iter(self._app_mandates))
-                        if evicted == key:
+                    for k in [
+                        k
+                        for k, v in self._app_mandates.items()
+                        if v.expires_at <= now and k != key
+                    ]:
+                        evicted.append(self._app_mandates.pop(k))
+                    while len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
+                        evicted_key = next(iter(self._app_mandates))
+                        if evicted_key == key:
                             break
-                        del self._app_mandates[evicted]
-                        self._app_mandate_locks.pop(evicted, None)
-            return token
+                        evicted.append(self._app_mandates.pop(evicted_key))
+                        self._app_mandate_locks.pop(evicted_key, None)
+            for entry in evicted:
+                self._retire_app_authority(entry)
+            return authority
 
     def _app_mandate_cycle(
         self,
@@ -2132,7 +2200,7 @@ class Caracal:
         scopes: list[str],
         labels: list[str] | None,
         mandate_ttl: int,
-    ) -> tuple[str, float, list[str]]:
+    ) -> _AppAuthority:
         exchanger = self.config.exchanger
         assert exchanger is not None
         session_ttl = mandate_ttl + APP_SESSION_TTL_BUFFER_SECONDS
@@ -2142,13 +2210,13 @@ class Caracal:
         coordinator = self.config.coordinator
         http = exchanger._http
         session_labels = labels if labels else [application_id]
-        spawned: list[str] = []
+        sessions: list[str] = []
         try:
-            source = sync_spawn_agent(
+            source = sync_start_coordinator_session(
                 coordinator,
                 http,
                 bootstrap,
-                SpawnRequest(
+                StartSessionRequest(
                     zone_id=zone_id,
                     application_id=application_id,
                     ttl_seconds=session_ttl,
@@ -2156,12 +2224,12 @@ class Caracal:
                     idempotency_key=str(uuid.uuid4()),
                 ),
             )
-            spawned.append(source.agent_session_id)
-            target = sync_spawn_agent(
+            sessions.append(source.session_id)
+            target = sync_start_coordinator_session(
                 coordinator,
                 http,
                 bootstrap,
-                SpawnRequest(
+                StartSessionRequest(
                     zone_id=zone_id,
                     application_id=application_id,
                     ttl_seconds=session_ttl,
@@ -2169,7 +2237,7 @@ class Caracal:
                     idempotency_key=str(uuid.uuid4()),
                 ),
             )
-            spawned.append(target.agent_session_id)
+            sessions.append(target.session_id)
             edge = sync_create_delegation(
                 coordinator,
                 http,
@@ -2177,30 +2245,51 @@ class Caracal:
                 DelegationRequest(
                     zone_id=zone_id,
                     issuer_application_id=application_id,
-                    source_session_id=source.agent_session_id,
-                    target_session_id=target.agent_session_id,
+                    source_session_id=source.session_id,
+                    target_session_id=target.session_id,
                     receiver_application_id=application_id,
                     scopes=list(scopes),
                     constraints=DelegationConstraints(resources=[resource_id]),
                     ttl_seconds=session_ttl,
                 ),
             )
-            token = exchanger.mint_mandate(
-                resource=resource_id,
-                scopes=list(scopes),
-                agent_session_id=target.agent_session_id,
-                delegation_edge_id=edge.delegation_edge_id,
-                ttl_seconds=mandate_ttl,
+            return _AppAuthority(
+                resource_id=resource_id,
+                zone_id=zone_id,
+                target_session_id=target.session_id,
+                delegation_id=edge.delegation_id,
+                expires_at=time.time() + session_ttl,
+                sessions=tuple(sessions),
             )
-            exp = time.time() + token.expires_in_seconds
-            return token.token, exp, spawned
         except BaseException:
-            for agent_session_id in spawned:
+            for session_id in sessions:
                 with suppress(Exception):
                     sync_terminate_agent(
-                        coordinator, http, bootstrap, zone_id, agent_session_id
+                        coordinator, http, bootstrap, zone_id, session_id
                     )
             raise
+
+    def _retire_app_authority(self, authority: _AppAuthority) -> None:
+        exchanger = self.config.exchanger
+        assert exchanger is not None
+        try:
+            bootstrap = exchanger.mint_mandate(
+                resource=authority.resource_id, scopes=[LIFECYCLE_SCOPE]
+            ).token
+            for session_id in authority.sessions:
+                with suppress(Exception):
+                    sync_terminate_agent(
+                        self.config.coordinator,
+                        exchanger._http,
+                        bootstrap,
+                        authority.zone_id,
+                        session_id,
+                    )
+        except Exception:
+            logging.getLogger("caracalai").warning(
+                "could not retire application-transport sessions; the coordinator TTL sweeper will",
+                exc_info=True,
+            )
 
     def _route_through_gateway(
         self,

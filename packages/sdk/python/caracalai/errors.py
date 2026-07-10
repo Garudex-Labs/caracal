@@ -30,6 +30,8 @@ class CoordinatorError(RuntimeError):
         status: int,
         body: str,
         retry_after_seconds: float | None = None,
+        code: str | None = None,
+        request_id: str | None = None,
     ) -> None:
         capped = (
             f"{body[: self.BODY_CAP]}\u2026 (truncated)"
@@ -42,3 +44,5 @@ class CoordinatorError(RuntimeError):
         self.status = status
         self.retry_after_seconds = retry_after_seconds
         self.body = body
+        self.code = code
+        self.request_id = request_id

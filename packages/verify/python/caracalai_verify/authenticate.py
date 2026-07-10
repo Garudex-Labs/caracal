@@ -9,12 +9,12 @@ import re
 from typing import Any
 
 from caracalai_identity import (
-    AgentIdentityRequiredError,
     ChainMismatchError,
     DelegationRequiredError,
     HopCountExceededError,
     JwtConfig,
     ScopeInsufficientError,
+    SessionRequiredError,
     TokenInvalidError,
     ZoneInvalidError,
     verify_config,
@@ -42,7 +42,7 @@ async def authenticate(
     required_scopes: list[str] | None,
     expected_zone_id: str,
     revocations: RevocationStore,
-    require_agent: bool = False,
+    require_session: bool = False,
     require_delegation: bool = False,
     require_chain_contains: list[str] | None = None,
     max_hop_count: int | None = None,
@@ -59,7 +59,7 @@ async def authenticate(
         required_scopes=required_scopes or [],
         required_targets=required_targets or [],
         required_use=required_use,
-        require_agent=require_agent,
+        require_session=require_session,
         require_delegation=require_delegation,
         require_chain_contains=require_chain_contains or [],
         max_hop_count=max_hop_count,
@@ -69,8 +69,8 @@ async def authenticate(
         claims = await verify_config(token, cfg)
     except ScopeInsufficientError as err:
         return AuthResult(None, auth_error("insufficient_scope", str(err)))
-    except AgentIdentityRequiredError:
-        return AuthResult(None, auth_error("agent_required"))
+    except SessionRequiredError:
+        return AuthResult(None, auth_error("session_required"))
     except DelegationRequiredError:
         return AuthResult(None, auth_error("delegation_required"))
     except ChainMismatchError as err:
@@ -101,7 +101,7 @@ async def authenticate_options(token: str, options: AuthOptions) -> AuthResult:
         options.required_scopes,
         options.expected_zone_id,
         options.revocations,
-        require_agent=options.require_agent,
+        require_session=options.require_session,
         require_delegation=options.require_delegation,
         require_chain_contains=options.require_chain_contains,
         max_hop_count=options.max_hop_count,
@@ -145,7 +145,7 @@ def merge_options(defaults: AuthOptions, overrides: dict[str, Any]) -> AuthOptio
         "revocations": defaults.revocations,
         "required_scopes": defaults.required_scopes,
         "expected_zone_id": defaults.expected_zone_id,
-        "require_agent": defaults.require_agent,
+        "require_session": defaults.require_session,
         "require_delegation": defaults.require_delegation,
         "require_chain_contains": defaults.require_chain_contains,
         "max_hop_count": defaults.max_hop_count,
@@ -163,8 +163,8 @@ def check_active_authority(
 ) -> AuthError | None:
     import time
 
-    sid = getattr(claims, "sid", "")
-    if not sid:
+    authority_record_id = getattr(claims, "authority_record_id", "")
+    if not authority_record_id:
         return auth_error("invalid_token")
     expires_at = getattr(claims, "expires_at", 0)
     if expires_at and expires_at <= (
@@ -191,10 +191,10 @@ def _graph_epoch_error(
 
 def _revocation_anchors(claims: object) -> list[str]:
     anchors = [
-        getattr(claims, "sid", None),
-        getattr(claims, "root_sid", None),
-        getattr(claims, "agent_session_id", None),
-        getattr(claims, "delegation_edge_id", None),
+        getattr(claims, "authority_record_id", None),
+        getattr(claims, "root_authority_record_id", None),
+        getattr(claims, "session_id", None),
+        getattr(claims, "delegation_id", None),
     ]
     out: list[str] = []
     for anchor in anchors:
@@ -210,7 +210,7 @@ def auth_error(code: ErrorCode, description: str | None = None) -> AuthError:
 def http_status_for_auth_error(code: ErrorCode) -> int:
     if code in (
         "insufficient_scope",
-        "agent_required",
+        "session_required",
         "delegation_required",
         "chain_mismatch",
         "hop_count_exceeded",
@@ -230,8 +230,8 @@ def default_description(code: ErrorCode) -> str:
         return "Session revoked"
     if code == "delegation_stale":
         return "Delegation graph changed"
-    if code == "agent_required":
-        return "Agent identity required"
+    if code == "session_required":
+        return "Session required"
     if code == "delegation_required":
         return "Delegation required"
     if code == "chain_mismatch":
@@ -255,8 +255,8 @@ def default_hint(code: ErrorCode) -> str:
             "Refresh the mandate so delegated authority is evaluated against "
             "the latest graph."
         )
-    if code == "agent_required":
-        return "Use an agent-issued resource mandate for this endpoint."
+    if code == "session_required":
+        return "Use a resource mandate issued for a governed Session."
     if code == "delegation_required":
         return "Use a mandate produced by a delegated grant flow."
     if code == "chain_mismatch":

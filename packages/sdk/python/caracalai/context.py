@@ -26,14 +26,14 @@ class CaracalContext:
     # The bearer credential this context presents: the session mandate every
     # gateway-bound call and token exchange authenticates with. Named for the
     # RFC 8693 subject_token it becomes on the wire; it is not an end-user
-    # identity - see subject_session_id for that.
+    # identity - see subject_authority_record_id for that.
     subject_token: str
     zone_id: str
     application_id: str
     session_id: str | None = None
     delegation_id: str | None = None
     parent_delegation_id: str | None = None
-    subject_session_id: str | None = None
+    subject_authority_record_id: str | None = None
     # W3C trace id (32 lowercase hex characters) correlating this context's requests.
     trace_id: str | None = None
     trace_flags: str | None = None
@@ -52,7 +52,7 @@ class CaracalContext:
 class AuthoritySummary:
     zone_id: str
     application_id: str
-    subject_session_id: str | None
+    subject_authority_record_id: str | None
     session_id: str | None
     delegation_id: str | None
     parent_delegation_id: str | None
@@ -72,7 +72,7 @@ class VerifiedClaims:
     session_id: str | None = None
     delegation_id: str | None = None
     parent_delegation_id: str | None = None
-    subject_session_id: str | None = None
+    subject_authority_record_id: str | None = None
     hop: int | None = None
 
 
@@ -83,7 +83,7 @@ class CaracalContextPatch(TypedDict):
     session_id: NotRequired[str | None]
     delegation_id: NotRequired[str | None]
     parent_delegation_id: NotRequired[str | None]
-    subject_session_id: NotRequired[str | None]
+    subject_authority_record_id: NotRequired[str | None]
     trace_id: NotRequired[str | None]
     trace_flags: NotRequired[str | None]
     trace_state: NotRequired[str | None]
@@ -129,7 +129,7 @@ def to_envelope(ctx: CaracalContext) -> Envelope:
         session_id=ctx.session_id,
         delegation_id=ctx.delegation_id,
         parent_delegation_id=ctx.parent_delegation_id,
-        subject_session_id=ctx.subject_session_id,
+        subject_authority_record_id=ctx.subject_authority_record_id,
         trace_id=ctx.trace_id,
         trace_flags=ctx.trace_flags,
         trace_state=ctx.trace_state,
@@ -153,7 +153,7 @@ def from_envelope(
         session_id=env.session_id,
         delegation_id=env.delegation_id,
         parent_delegation_id=env.parent_delegation_id,
-        subject_session_id=env.subject_session_id,
+        subject_authority_record_id=env.subject_authority_record_id,
         trace_id=env.trace_id,
         trace_flags=env.trace_flags,
         trace_state=env.trace_state,
@@ -168,8 +168,8 @@ def describe_authority(ctx: CaracalContext | None = None) -> AuthoritySummary | 
     if ctx is None:
         return None
     chain: list[str] = []
-    if ctx.subject_session_id:
-        chain.append(f"subject:{ctx.subject_session_id}")
+    if ctx.subject_authority_record_id:
+        chain.append(f"subject:{ctx.subject_authority_record_id}")
     if ctx.session_id:
         chain.append(f"session:{ctx.session_id}")
     if ctx.parent_delegation_id:
@@ -179,7 +179,7 @@ def describe_authority(ctx: CaracalContext | None = None) -> AuthoritySummary | 
     return AuthoritySummary(
         zone_id=ctx.zone_id,
         application_id=ctx.application_id,
-        subject_session_id=ctx.subject_session_id,
+        subject_authority_record_id=ctx.subject_authority_record_id,
         session_id=ctx.session_id,
         delegation_id=ctx.delegation_id,
         parent_delegation_id=ctx.parent_delegation_id,

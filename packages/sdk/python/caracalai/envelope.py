@@ -62,7 +62,7 @@ class Envelope:
     session_id: str | None = None
     delegation_id: str | None = None
     parent_delegation_id: str | None = None
-    subject_session_id: str | None = None
+    subject_authority_record_id: str | None = None
     trace_id: str | None = None
     trace_flags: str | None = None
     trace_state: str | None = None
@@ -168,7 +168,7 @@ def decode_envelope(get: HeaderGetter) -> Envelope:
         session_id=bag.get(BAGGAGE_AGENT_SESSION) or None,
         delegation_id=bag.get(BAGGAGE_DELEGATION_EDGE) or None,
         parent_delegation_id=bag.get(BAGGAGE_PARENT_EDGE) or None,
-        subject_session_id=bag.get(BAGGAGE_SESSION) or None,
+        subject_authority_record_id=bag.get(BAGGAGE_SESSION) or None,
         trace_id=trace.trace_id if trace else None,
         trace_flags=trace.flags if trace else None,
         trace_state=trace_state or None,
@@ -203,14 +203,14 @@ def encode_envelope(
         merged[BAGGAGE_DELEGATION_EDGE] = env.delegation_id
     if env.parent_delegation_id:
         merged[BAGGAGE_PARENT_EDGE] = env.parent_delegation_id
-    if env.subject_session_id:
-        merged[BAGGAGE_SESSION] = env.subject_session_id
+    if env.subject_authority_record_id:
+        merged[BAGGAGE_SESSION] = env.subject_authority_record_id
     if env.hop > 0 or any(
         (
             env.session_id,
             env.delegation_id,
             env.parent_delegation_id,
-            env.subject_session_id,
+            env.subject_authority_record_id,
         )
     ):
         merged[BAGGAGE_HOP] = str(env.hop)

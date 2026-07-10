@@ -20,7 +20,7 @@ ErrorCode = Literal[
     "insufficient_scope",
     "session_revoked",
     "delegation_stale",
-    "agent_required",
+    "session_required",
     "delegation_required",
     "chain_mismatch",
     "hop_count_exceeded",
@@ -53,7 +53,7 @@ class AuthOptions:
     # signing keyset and can never be steered by the unverified zone_id claim.
     expected_zone_id: str
     required_scopes: list[str] = field(default_factory=list)
-    require_agent: bool = False
+    require_session: bool = False
     require_delegation: bool = False
     require_chain_contains: list[str] = field(default_factory=list)
     max_hop_count: int | None = None
