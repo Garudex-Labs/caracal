@@ -69,7 +69,7 @@
   "constraint": {
     "title": "Delegation Constraint",
     "path": "/concepts/constraint/",
-    "description": "A typed restriction on delegated authority, such as resource, TTL, hop, or budget limits.",
+    "description": "A typed restriction on delegated authority, such as resource, scope, TTL, or hop limits.",
     "aliases": ["caveat", "attenuation"],
     "relations": {
       "limits": ["delegation"],

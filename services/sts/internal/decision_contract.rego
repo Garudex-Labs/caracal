@@ -224,6 +224,14 @@ valid_approval_declaration(decl) if {
 	is_object(decl)
 	is_string(decl.tier)
 	decl.tier != ""
+	approver := object.get(decl, "approver", "operator")
+	approver in {"operator", "subject", "any"}
+	privacy := object.get(decl, "privacy", "identified")
+	privacy in {"identified", "pseudonymous", "anonymous"}
+	ttl := object.get(decl, "ttl_seconds", 1800)
+	is_number(ttl)
+	ttl == round(ttl)
+	ttl > 0
 }
 
 malformed_approval_declarations if {

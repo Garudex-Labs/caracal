@@ -98,7 +98,7 @@ async def fetch_ticket(ticket_id: str) -> dict:
     return response.json()
 ```
 
-Build the transport once and share it: identity is resolved per request from the bound context, so concurrent agents can safely use the same client. Passing `scopes` makes each call present a narrowed resource mandate instead of the raw subject token, so a tool holds only the authority it needs. For a complete multi-agent LangChain and LangGraph deployment governed this way, see the [Lynx Capital example](/examples/lynx-capital/).
+Build the transport once and share it: identity is resolved per request from the bound context, so concurrent agents can safely use the same client. Passing `scopes` mints the narrowed `use=gateway` mandate required for each call, so a tool holds only the authority it needs. For a complete multi-agent LangChain and LangGraph deployment governed this way, see the [Lynx Capital example](/examples/lynx-capital/).
 
 ## Related
 
