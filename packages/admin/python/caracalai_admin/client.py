@@ -80,7 +80,7 @@ def _unwrap(response: Any, key: str, message: str) -> list[Any]:
 class AdminClient:
     """Admin API client covering provisioning (zones, applications,
     resources, providers, policies, policy sets, policy templates, grants)
-    and operations (sessions, audit, step-up, agents, delegations) surfaces.
+    and operations (authority records, sessions, audit, approvals, delegations) surfaces.
     Responses are the parsed JSON bodies. Only idempotent (GET/HEAD) requests
     are retried, on transient statuses with jittered backoff honoring
     Retry-After. Coordinator-backed surfaces require coordinator_url and
@@ -117,13 +117,12 @@ class AdminClient:
         self.subject_issuers = _SubjectIssuers(self)
         self.provider_connections = _ProviderConnections(self)
         self.workloads = _Workloads(self)
-        self.sessions = _Sessions(self)
+        self.authority_records = _AuthorityRecords(self)
         self.subjects = _Subjects(self)
-        self.agent_sessions = _AgentSessions(self)
+        self.sessions = _Sessions(self)
         self.audit = _Audit(self)
         self.admin_audit = _AdminAudit(self)
         self.step_up_challenges = _StepUpChallenges(self)
-        self.agents = _Agents(self)
         self.delegations = _Delegations(self)
 
     def with_default_headers(self, headers: dict[str, str]) -> AdminClient:
@@ -610,16 +609,17 @@ class _Workloads:
         )
 
 
-class _Sessions:
-    """Session reads; revocation is a side effect of grant revoke or agent
-    terminate."""
+class _AuthorityRecords:
+    """Reads STS authority records."""
 
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
-        response = self._client._request(f"/v1/zones/{zone_id}/sessions", query=query)
-        return _unwrap(response, "items", "sessions response missing items")
+        response = self._client._request(
+            f"/v1/zones/{zone_id}/authority-records", query=query
+        )
+        return _unwrap(response, "items", "authority-records response missing items")
 
 
 class _Subjects:
@@ -637,18 +637,99 @@ class _Subjects:
         )
 
 
-class _AgentSessions:
-    """Agent session reads; CSV export is available directly from the API
-    endpoint with format=csv."""
+def _map_session(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    session = dict(value)
+    session["session_id"] = session.pop("agent_session_id", None)
+    session["parent_session_id"] = session.pop("parent_id", None)
+    session["authority_record_id"] = session.pop("subject_authority_record_id", None)
+    return session
+
+
+def _map_delegation(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    delegation = dict(value)
+    delegation["delegation_id"] = delegation.pop("id", None)
+    delegation["parent_delegation_id"] = delegation.pop("parent_edge_id", None)
+    return delegation
+
+
+def _map_delegation_traversal(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    node = dict(value)
+    node["delegation_id"] = node.pop("id", None)
+    return node
+
+
+class _Sessions:
+    """Reads and manages governed sessions."""
 
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
         response = self._client._request(
-            f"/v1/zones/{zone_id}/agent-sessions", query=query
+            f"/v1/zones/{zone_id}/sessions", query=dict(query or {})
         )
-        return _unwrap(response, "items", "agent-sessions response missing items")
+        return _unwrap(response, "items", "sessions response missing items")
+
+    def get(self, zone_id: str, session_id: str) -> Any:
+        return _map_session(
+            self._client._request(
+                f"/zones/{zone_id}/agents/{session_id}", base="coordinator"
+            )
+        )
+
+    def children(
+        self, zone_id: str, session_id: str, query: dict[str, Any] | None = None
+    ) -> Any:
+        response = self._client._request(
+            f"/zones/{zone_id}/agents/{session_id}/children",
+            base="coordinator",
+            query=query,
+        )
+        return [
+            _map_session(item)
+            for item in _unwrap(
+                response, "items", "session children response missing items"
+            )
+        ]
+
+    def suspend(self, zone_id: str, session_id: str) -> Any:
+        return self._client._request(
+            f"/zones/{zone_id}/agents/{session_id}/suspend",
+            method="PATCH",
+            base="coordinator",
+        )
+
+    def resume(self, zone_id: str, session_id: str) -> Any:
+        return self._client._request(
+            f"/zones/{zone_id}/agents/{session_id}/resume",
+            method="PATCH",
+            base="coordinator",
+        )
+
+    def terminate(self, zone_id: str, session_id: str) -> None:
+        return self._client._request(
+            f"/zones/{zone_id}/agents/{session_id}",
+            method="DELETE",
+            base="coordinator",
+            expect_empty=True,
+        )
+
+    def effective_authority(self, zone_id: str, session_id: str) -> Any:
+        authority = self._client._request(
+            f"/zones/{zone_id}/agents/{session_id}/effective-authority",
+            base="coordinator",
+        )
+        if isinstance(authority, dict):
+            authority = dict(authority)
+            authority["session_id"] = authority.pop("agent_session_id", None)
+            authority["inbound_delegations"] = authority.pop("inbound_edges", [])
+        return authority
 
 
 class _Audit:
@@ -712,92 +793,68 @@ class _StepUpChallenges:
         )
 
 
-class _Agents:
-    def __init__(self, client: AdminClient) -> None:
-        self._client = client
-
-    def list(self, zone_id: str, query: dict[str, Any] | None = None) -> Any:
-        response = self._client._request(
-            f"/zones/{zone_id}/agents", base="coordinator", query=query
-        )
-        return _unwrap(response, "items", "agents response missing items")
-
-    def get(self, zone_id: str, agent_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}", base="coordinator"
-        )
-
-    def children(
-        self, zone_id: str, agent_id: str, query: dict[str, Any] | None = None
-    ) -> Any:
-        response = self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}/children",
-            base="coordinator",
-            query=query,
-        )
-        return _unwrap(response, "items", "agent children response missing items")
-
-    def suspend(self, zone_id: str, agent_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}/suspend",
-            method="PATCH",
-            base="coordinator",
-        )
-
-    def resume(self, zone_id: str, agent_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}/resume",
-            method="PATCH",
-            base="coordinator",
-        )
-
-    def terminate(self, zone_id: str, agent_id: str) -> None:
-        return self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}",
-            method="DELETE",
-            base="coordinator",
-            expect_empty=True,
-        )
-
-    def effective_authority(self, zone_id: str, agent_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/agents/{agent_id}/effective-authority",
-            base="coordinator",
-        )
-
-
 class _Delegations:
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def active(self, zone_id: str) -> Any:
-        return self._client._request(
+        page = self._client._request(
             f"/zones/{zone_id}/delegations/active", base="coordinator"
         )
+        if isinstance(page, dict) and isinstance(page.get("items"), list):
+            page = dict(page)
+            page["items"] = [_map_delegation(item) for item in page["items"]]
+        return page
 
     def inbound(self, zone_id: str, session_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/delegations/inbound/{session_id}", base="coordinator"
-        )
+        return [
+            _map_delegation(item)
+            for item in self._client._request(
+                f"/zones/{zone_id}/delegations/inbound/{session_id}",
+                base="coordinator",
+            )
+        ]
 
     def outbound(self, zone_id: str, session_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/delegations/outbound/{session_id}", base="coordinator"
-        )
+        return [
+            _map_delegation(item)
+            for item in self._client._request(
+                f"/zones/{zone_id}/delegations/outbound/{session_id}",
+                base="coordinator",
+            )
+        ]
 
-    def traverse(self, zone_id: str, edge_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/delegations/{edge_id}/traverse", base="coordinator"
-        )
+    def traverse(self, zone_id: str, delegation_id: str) -> Any:
+        return [
+            _map_delegation_traversal(item)
+            for item in self._client._request(
+                f"/zones/{zone_id}/delegations/{delegation_id}/traverse",
+                base="coordinator",
+            )
+        ]
 
-    def impact(self, zone_id: str, edge_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/delegations/{edge_id}/impact", base="coordinator"
+    def impact(self, zone_id: str, delegation_id: str) -> Any:
+        impact = self._client._request(
+            f"/zones/{zone_id}/delegations/{delegation_id}/impact",
+            base="coordinator",
         )
+        if isinstance(impact, dict):
+            impact = dict(impact)
+            impact["delegation_id"] = impact.pop("edge_id", None)
+            impact["affected_delegations"] = [
+                _map_delegation_traversal(item)
+                for item in impact.pop("affected_edges", [])
+            ]
+            impact["affected_sessions"] = impact.pop("affected_agents", [])
+        return impact
 
-    def revoke(self, zone_id: str, edge_id: str) -> Any:
-        return self._client._request(
-            f"/zones/{zone_id}/delegations/{edge_id}/revoke",
+    def revoke(self, zone_id: str, delegation_id: str) -> Any:
+        result = self._client._request(
+            f"/zones/{zone_id}/delegations/{delegation_id}/revoke",
             method="PATCH",
             base="coordinator",
         )
+        if isinstance(result, dict):
+            result = dict(result)
+            result["revoked_delegations"] = result.pop("revoked_edges", 0)
+        return result

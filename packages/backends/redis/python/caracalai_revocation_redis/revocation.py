@@ -59,20 +59,20 @@ class RedisRevocationStore:
         self._default_ttl_ms = default_ttl_ms
         self._fail_closed = fail_closed
 
-    def is_revoked(self, sid: str) -> bool:
-        if sid == "":
+    def is_revoked(self, anchor_id: str) -> bool:
+        if anchor_id == "":
             return False
         try:
-            return self._redis.get(self._key(sid)) is not None
+            return self._redis.get(self._key(anchor_id)) is not None
         except RedisError:
             if self._fail_closed:
                 return True
             raise
 
-    def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
-        if sid == "":
+    def mark_revoked(self, anchor_id: str, ttl_ms: int | None = None) -> None:
+        if anchor_id == "":
             return
-        self._redis.set(self._key(sid), "1", px=ttl_ms or self._default_ttl_ms)
+        self._redis.set(self._key(anchor_id), "1", px=ttl_ms or self._default_ttl_ms)
 
     def current_delegation_epoch(self, zone_id: str) -> int:
         try:
@@ -100,8 +100,8 @@ class RedisRevocationStore:
             px=ttl_ms or self._default_ttl_ms,
         )
 
-    def _key(self, sid: str) -> str:
-        return f"{self._key_prefix}{sid}"
+    def _key(self, anchor_id: str) -> str:
+        return f"{self._key_prefix}{anchor_id}"
 
     def _delegation_epoch_key(self, zone_id: str) -> str:
         return f"{self._key_prefix}delegation-epoch:{zone_id}"

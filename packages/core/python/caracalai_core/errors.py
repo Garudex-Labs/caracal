@@ -24,7 +24,7 @@ class ErrorCode:
     PAYLOAD_TOO_LARGE = "payload_too_large"
     ZONE_INVALID = "zone_invalid"
     SCOPE_INSUFFICIENT = "scope_insufficient"
-    AGENT_IDENTITY_REQUIRED = "agent_identity_required"
+    SESSION_REQUIRED = "session_required"
     DELEGATION_REQUIRED = "delegation_required"
     CHAIN_MISMATCH = "chain_mismatch"
     HOP_COUNT_EXCEEDED = "hop_count_exceeded"
