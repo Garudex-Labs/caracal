@@ -164,10 +164,16 @@ class Authority:
     def narrow(
         scopes: list[str] | str,
         *,
+        ttl_seconds: int,
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
-        ttl_seconds: int | None = None,
     ) -> Authority:
+        if (
+            not isinstance(ttl_seconds, int)
+            or isinstance(ttl_seconds, bool)
+            or ttl_seconds <= 0
+        ):
+            raise ValueError("Authority.narrow ttl_seconds must be a positive integer")
         return Authority(
             mode="narrow",
             scopes=(scopes,) if isinstance(scopes, str) else tuple(scopes),
@@ -612,7 +618,6 @@ async def start_session(
     parent_session_id: str | None = None,
     parent_ctx: CaracalContext | None = None,
     authority: Authority | None = None,
-    ttl_seconds: int | None = None,
     metadata: JsonObject | None = None,
     labels: list[str] | None = None,
     trace_id: str | None = None,
@@ -652,7 +657,7 @@ async def start_session(
         parent_id=parent_session_id,
         parent_ctx=parent_ctx,
         authority=authority,
-        ttl_seconds=ttl_seconds,
+        ttl_seconds=None,
         metadata=metadata,
         labels=labels,
         trace_id=trace_id,
@@ -760,9 +765,9 @@ async def delegate(
     to_session_id: str,
     to_application_id: str,
     scopes: list[str],
+    ttl_seconds: int,
     resource_id: str | None = None,
     constraints: DelegationConstraints | None = None,
-    ttl_seconds: int | None = None,
 ) -> Delegation:
     """Delegate a slice of the bound session's authority to a peer session.
 
@@ -772,6 +777,12 @@ async def delegate(
     ``delegation_id`` to the receiving session, which presents it by deriving
     its context with :func:`accept_delegation`.
     """
+    if (
+        not isinstance(ttl_seconds, int)
+        or isinstance(ttl_seconds, bool)
+        or ttl_seconds <= 0
+    ):
+        raise ValueError("delegate ttl_seconds must be a positive integer")
     ctx = current()
     if ctx is None or not ctx.session_id:
         raise RuntimeError("delegate requires an active session in context")

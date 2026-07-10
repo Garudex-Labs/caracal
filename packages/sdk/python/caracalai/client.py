@@ -1015,7 +1015,6 @@ class Caracal:
         self,
         *,
         authority: Authority | None = None,
-        ttl_seconds: int | None = None,
         subject_authority_record_id: str | None = None,
         parent_session_id: str | None = None,
         parent_ctx: CaracalContext | None = None,
@@ -1072,7 +1071,6 @@ class Caracal:
             parent_session_id=parent_session_id,
             parent_ctx=parent_ctx,
             authority=authority,
-            ttl_seconds=ttl_seconds,
             metadata=_task_metadata(task, metadata),
             labels=labels,
             trace_id=trace_id,
@@ -1130,9 +1128,9 @@ class Caracal:
         to_session_id: str,
         to_application_id: str,
         scopes: list[str],
+        ttl_seconds: int,
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
-        ttl_seconds: int | None = None,
     ) -> Delegation:
         """Delegate a slice of the bound session's authority to a peer session.
 

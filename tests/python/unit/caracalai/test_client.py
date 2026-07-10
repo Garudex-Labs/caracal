@@ -808,7 +808,10 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(RuntimeError):
             await c.delegate(
-                to_session_id="agent-2", to_application_id="app-2", scopes=["tool:call"]
+                to_session_id="agent-2",
+                to_application_id="app-2",
+                scopes=["tool:call"],
+                ttl_seconds=60,
             )
 
     async def test_task_option_recorded_as_metadata_task(self) -> None:
