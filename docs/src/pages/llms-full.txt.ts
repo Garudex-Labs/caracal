@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from 'astro:content'
+import { logicalDocId, publishedDocs } from '../../versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 
@@ -159,8 +160,8 @@ const pageOrder = [
 ]
 
 export async function GET() {
-  const docs = await getCollection('docs')
-  const byId = new Map(docs.map((d) => [d.id, d]))
+  const docs = publishedDocs(await getCollection('docs'))
+  const byId = new Map(docs.map((d) => [logicalDocId(d.id), d]))
 
   const header = [
     '# Caracal',
@@ -186,8 +187,8 @@ export async function GET() {
 
   // Any remaining pages not in the explicit order
   for (const doc of docs) {
-    if (seen.has(doc.id)) continue
-    if (doc.id === 'index') continue
+    if (seen.has(logicalDocId(doc.id))) continue
+    if (logicalDocId(doc.id) === 'index') continue
     pages.push(formatPage(doc, site))
   }
 

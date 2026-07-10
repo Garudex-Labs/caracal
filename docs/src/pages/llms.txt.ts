@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from 'astro:content'
+import { logicalDocId, publishedDocs, publishedPath } from '../../versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 
@@ -137,8 +138,8 @@ const sections: Record<string, string[]> = {
 }
 
 export async function GET() {
-  const docs = await getCollection('docs')
-  const byId = new Map(docs.map((d) => [d.id, d]))
+  const docs = publishedDocs(await getCollection('docs'))
+  const byId = new Map(docs.map((d) => [logicalDocId(d.id), d]))
 
   const lines: string[] = [
     '# Caracal',
@@ -162,7 +163,7 @@ export async function GET() {
     for (const id of ids) {
       const doc = byId.get(id)
       if (!doc) continue
-      entries.push(`- [${doc.data.title}](${site}/${id}/) ([Markdown](${site}/markdown/${id}.md)): ${doc.data.description}`)
+      entries.push(`- [${doc.data.title}](${site}${publishedPath(doc.id)}) ([Markdown](${site}/markdown/${doc.id}.md)): ${doc.data.description}`)
     }
     if (entries.length === 0) continue
     lines.push(`## ${sectionTitle}`)

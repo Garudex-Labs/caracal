@@ -5,7 +5,7 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
+import { bind, fromEnvelope, fromVerifiedEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHmac, randomBytes } from 'node:crypto'
 import { homedir, platform } from 'node:os'
@@ -42,15 +42,18 @@ const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
 const APP_MANDATE_TTL_SECONDS = 900
 const APP_AUTHORITY_REFRESH_MARGIN_SECONDS = 60
-// Each authority entry owns two coordinator sessions. Twenty entries reserve
-// ten of the coordinator's default fifty-session capacity for ordinary work.
-const APP_AUTHORITY_CACHE_CAP = 20
+// Each authority entry owns two coordinator sessions. Nineteen entries leave
+// room for ten ordinary sessions and the next two-session provisioning cycle.
+const APP_AUTHORITY_CACHE_CAP = 19
 const APP_SESSION_TTL_BUFFER_SECONDS = 120
 const CREDENTIAL_FINGERPRINT_KEY = randomBytes(32)
 
 interface AppAuthorityEntry {
   resourceId: string
   zoneId: string
+  applicationId: string
+  credentialGeneration: string
+  ttlSeconds: number
   targetSessionId: string
   delegationId: string
   expiresAt: number
@@ -148,6 +151,8 @@ export interface SessionOptions {
   ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -172,6 +177,8 @@ export interface StartSessionOptions {
   ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -202,7 +209,7 @@ export interface DelegateOptions {
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
-  ttlSeconds?: number
+  ttlSeconds: number
   signal?: AbortSignal
 }
 
@@ -272,6 +279,8 @@ export interface ApplicationTransportOptions {
   scopes: string[]
   labels?: string[]
   mandateTtlSeconds?: number
+  approvalId?: string
+  timeoutMs?: number
 }
 
 export interface BindOptions extends CallOptions {
@@ -319,6 +328,8 @@ export class Caracal {
   private appAuthorities = new Map<string, AppAuthorityEntry>()
   private appInflight = new Map<string, Promise<AppAuthorityEntry>>()
   private appGeneration = 0
+  private appProvisionTail: Promise<void> = Promise.resolve()
+  private closed = false
   private unverifiedBoundaryWarned = false
 
   /**
@@ -364,17 +375,13 @@ export class Caracal {
    * simply mints fresh state.
    */
   async close(): Promise<void> {
-    const generation = ++this.appGeneration
+    if (this.closed) return
+    this.closed = true
+    ++this.appGeneration
     const pending = [...this.appInflight.values()]
     const entries = [...this.appAuthorities.values()].filter((entry) => entry.sessions.length)
     this.appAuthorities.clear()
-    if (pending.length) {
-      const settled = await Promise.allSettled(pending)
-      for (const result of settled) {
-        if (result.status === 'fulfilled' && result.value.sessions.length) entries.push(result.value)
-      }
-    }
-    if (generation !== this.appGeneration) return
+    if (pending.length) await Promise.allSettled(pending)
     const exchanger = this.config.exchanger
     if (exchanger && entries.length) {
       try {
@@ -394,6 +401,10 @@ export class Caracal {
     sink(message, err)
   }
 
+  private ensureOpen(): void {
+    if (this.closed) throw new Error('Caracal client is closed')
+  }
+
   /**
    * The zone and application this client acts as: the static configuration
    * when present, otherwise resolved through the credentials source, which
@@ -401,6 +412,7 @@ export class Caracal {
    * metric labels.
    */
   async identity(): Promise<{ zoneId: string; applicationId: string }> {
+    this.ensureOpen()
     const { zoneId, applicationId, exchanger } = this.config
     if (zoneId && applicationId) return { zoneId, applicationId }
     return exchanger!.identity()
@@ -430,6 +442,7 @@ export class Caracal {
    * ```
    */
   async session<T>(fn: (ctx: CaracalContext) => Promise<T>, opts: SessionOptions = {}): Promise<T> {
+    this.ensureOpen()
     const identity = await this.identity()
     const input: SessionInput = {
       coordinator: this.config.coordinator,
@@ -441,6 +454,7 @@ export class Caracal {
       authority: opts.authority,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       metadata: taskMetadata(opts),
       labels: opts.labels,
@@ -459,6 +473,7 @@ export class Caracal {
    * the session's lease renewed and the holder retires it with close.
    */
   async startSession(opts: StartSessionOptions = {}): Promise<SessionHandle> {
+    this.ensureOpen()
     const identity = await this.identity()
     return await startSessionPrimitive({
       coordinator: this.config.coordinator,
@@ -467,8 +482,9 @@ export class Caracal {
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
-      ttlSeconds: opts.ttlSeconds,
+      ttlSeconds: opts.ttlSeconds ?? 60,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       authority: opts.authority,
       metadata: taskMetadata(opts),
@@ -491,6 +507,7 @@ export class Caracal {
    * it with acceptDelegation.
    */
   delegate(opts: DelegateOptions): Promise<Delegation> {
+    this.ensureOpen()
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toSessionId: opts.toSessionId,
@@ -514,6 +531,7 @@ export class Caracal {
    * revoked id fails here with a targeted error.
    */
   async acceptDelegation<T>(delegationId: string, fn: () => Promise<T>, opts: { validate?: boolean } = {}): Promise<T> {
+    this.ensureOpen()
     const ctx = current()
     if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
     const start = performance.now()
@@ -552,6 +570,7 @@ export class Caracal {
     sessionId: string,
     opts: { heartbeatIntervalMs?: number; onLeaseLost?: (err: unknown) => void } = {},
   ): Promise<SessionHandle> {
+    this.ensureOpen()
     const identity = await this.identity()
     return await attachSessionPrimitive({
       coordinator: this.config.coordinator,
@@ -704,18 +723,7 @@ export class Caracal {
       const verified = await opts.verify(env.subjectToken)
       if (verified) claims = verified
     }
-    if (claims) {
-      if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
-      if (claims.delegationId !== undefined) env.delegationId = claims.delegationId
-      if (claims.parentDelegationId !== undefined) env.parentDelegationId = claims.parentDelegationId
-      if (claims.subjectAuthorityRecordId !== undefined) env.subjectAuthorityRecordId = claims.subjectAuthorityRecordId
-      if (claims.hop !== undefined) env.hop = claims.hop
-    }
-    const own = claims?.zoneId !== undefined && claims?.applicationId !== undefined ? undefined : await this.identity()
-    const ctx = fromEnvelope(env as Envelope, {
-      zoneId: claims?.zoneId ?? own!.zoneId,
-      applicationId: claims?.applicationId ?? own!.applicationId,
-    })
+    const ctx = claims ? fromVerifiedEnvelope(env as Envelope, claims) : fromEnvelope(env as Envelope, await this.identity())
     return await bind(rootInjected ? { ...ctx, ownToken: true } : ctx, fn)
   }
 
@@ -908,6 +916,7 @@ export class Caracal {
   }
 
   gatewayRequest(resourceId: string, path: string = '/'): GatewayTarget {
+    this.ensureOpen()
     if (!this.config.gatewayUrl) throw new Error('Caracal.gatewayRequest(): gatewayUrl is not configured')
     if (!resourceId.trim()) throw new Error('Caracal.gatewayRequest(): resourceId is required')
     return {
@@ -959,32 +968,48 @@ export class Caracal {
    * ```
    */
   applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.applicationTransport(): requires a client-secret configuration')
+    if (!this.config.gatewayUrl)
+      throw new Error('Caracal.applicationTransport(): requires gatewayUrl so mandates are sent only to the Gateway')
     if (!resourceId.trim()) throw new Error('Caracal.applicationTransport(): resourceId is required')
     if (!opts.scopes.length) throw new Error('Caracal.applicationTransport(): scopes are required')
     const scopes = [...new Set(opts.scopes)].sort()
     const outer = this
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      outer.ensureOpen()
       const request = input instanceof Request ? input : undefined
       if (request?.bodyUsed) throw new TypeError('Caracal.applicationTransport(): cannot send a Request whose body was already consumed')
-      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts)
+      let signal = init?.signal ?? request?.signal
+      if (opts.timeoutMs) {
+        const timeout = AbortSignal.timeout(opts.timeoutMs)
+        signal = signal ? AbortSignal.any([signal, timeout]) : timeout
+      }
+      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, signal)
+      outer.ensureOpen()
       const minted = await exchanger.mintMandate(resourceId, scopes, {
         sessionId: authority.targetSessionId,
         delegationId: authority.delegationId,
         ttlSeconds: opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS,
+        approvalId: opts.approvalId,
         cache: false,
-        signal: init?.signal ?? request?.signal,
+        signal,
       })
       const merged = new Headers(request?.headers)
       if (init?.headers) new Headers(init.headers).forEach((value, key) => merged.set(key, value))
       merged.set('Authorization', `Bearer ${minted.token}`)
       merged.set('X-Caracal-Resource', resourceId)
+      encodeEnvelope(
+        { sessionId: authority.targetSessionId, delegationId: authority.delegationId, hop: 0 },
+        (key, value) => merged.set(key, value),
+        (key) => merged.get(key) ?? undefined,
+      )
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
       const rewritten = outer.routeThroughGateway(input, resourceId)
-      const requestInit = { ...init, headers: merged, signal: init?.signal ?? request?.signal }
-      if (rewritten) return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
-      return fetchImpl(request ? new Request(request, requestInit) : (input as URL), request ? undefined : requestInit)
+      if (!rewritten) throw new Error('Caracal.applicationTransport(): request could not be pinned to the configured Gateway')
+      const requestInit = { ...init, headers: merged, signal, redirect: 'manual' as const }
+      return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
     }) as typeof fetch
     return fn
   }
@@ -994,23 +1019,44 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
+    signal?: AbortSignal,
   ): Promise<AppAuthorityEntry> {
     // The cache key carries the acting identity, so a credential re-provisioned into a
     // different zone or application can never be served a mandate minted for the old one.
     // Labels and TTL also shape the mint cycle, so transports with different
     // attribution or lifetime requirements must not share a cached mandate.
     const identity = await exchanger.identity()
+    this.ensureOpen()
+    const credentialGeneration = identity.credentialGeneration ?? ''
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
-    const key = `${identity.zoneId}::${identity.applicationId}::${identity.credentialGeneration ?? ''}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
+    const stale: AppAuthorityEntry[] = []
+    const now = Date.now() / 1000
+    for (const [cachedKey, entry] of this.appAuthorities) {
+      if (
+        entry.expiresAt <= now ||
+        (entry.zoneId === identity.zoneId &&
+          entry.applicationId === identity.applicationId &&
+          entry.credentialGeneration !== credentialGeneration)
+      ) {
+        this.appAuthorities.delete(cachedKey)
+        stale.push(entry)
+      }
+    }
+    if (stale.length) await this.retireAppAuthorities(exchanger, stale)
+    this.ensureOpen()
+    const key = `${identity.zoneId}::${identity.applicationId}::${credentialGeneration}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
     const cached = this.appAuthorities.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - APP_AUTHORITY_REFRESH_MARGIN_SECONDS) return cached
-    const inflight = this.appInflight.get(key)
-    if (inflight) return inflight
     const generation = this.appGeneration
+    const inflightKey = `${generation}::${key}`
+    const inflight = this.appInflight.get(inflightKey)
+    if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts)
+        const fresh = await this.withAppProvisioning(signal, () =>
+          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts, signal),
+        )
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
           return fresh
@@ -1036,23 +1082,58 @@ export class Caracal {
         if (evicted.length) await this.retireAppAuthorities(exchanger, evicted)
         return fresh
       } finally {
-        this.appInflight.delete(key)
+        this.appInflight.delete(inflightKey)
       }
     })()
-    this.appInflight.set(key, pending)
+    this.appInflight.set(inflightKey, pending)
     return pending
+  }
+
+  private async withAppProvisioning<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+    const previous = this.appProvisionTail
+    let release!: () => void
+    this.appProvisionTail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    if (signal?.aborted) {
+      void previous.finally(release)
+      throw signal.reason
+    }
+    let abort: (() => void) | undefined
+    try {
+      if (signal) {
+        await Promise.race([
+          previous,
+          new Promise<never>((_, reject) => {
+            abort = () => reject(signal.reason)
+            signal.addEventListener('abort', abort, { once: true })
+          }),
+        ])
+      } else {
+        await previous
+      }
+      return await fn()
+    } catch (err) {
+      if (signal?.aborted) void previous.finally(release)
+      else release()
+      throw err
+    } finally {
+      if (abort) signal?.removeEventListener('abort', abort)
+      if (!signal?.aborted) release()
+    }
   }
 
   private async appAuthorityCycle(
     exchanger: ClientSecretExchanger,
-    identity: { zoneId: string; applicationId: string },
+    identity: { zoneId: string; applicationId: string; credentialGeneration?: string },
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
+    signal?: AbortSignal,
   ): Promise<AppAuthorityEntry> {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
-    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
+    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE], { signal })).token
     const spawnReq = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
@@ -1062,26 +1143,34 @@ export class Caracal {
     const sessions: string[] = []
     try {
       const source = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() }, signal)
       ).sessionId
       sessions.push(source)
       const target = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() }, signal)
       ).sessionId
       sessions.push(target)
-      const edge = await createDelegation(this.config.coordinator, bootstrap, {
-        zoneId: identity.zoneId,
-        issuerApplicationId: identity.applicationId,
-        sourceSessionId: source,
-        targetSessionId: target,
-        receiverApplicationId: identity.applicationId,
-        scopes,
-        constraints: { resources: [resourceId] },
-        ttlSeconds: sessionTtl,
-      })
+      const edge = await createDelegation(
+        this.config.coordinator,
+        bootstrap,
+        {
+          zoneId: identity.zoneId,
+          issuerApplicationId: identity.applicationId,
+          sourceSessionId: source,
+          targetSessionId: target,
+          receiverApplicationId: identity.applicationId,
+          scopes,
+          constraints: { resources: [resourceId] },
+          ttlSeconds: sessionTtl,
+        },
+        signal,
+      )
       return {
         resourceId,
         zoneId: identity.zoneId,
+        applicationId: identity.applicationId,
+        credentialGeneration: identity.credentialGeneration ?? '',
+        ttlSeconds: sessionTtl,
         targetSessionId: target,
         delegationId: edge.delegationId,
         expiresAt: Date.now() / 1000 + sessionTtl,
@@ -1115,7 +1204,7 @@ export class Caracal {
     } catch {
       return null
     }
-    if (sameOrigin(parsed, gw)) return null
+    if (sameOrigin(parsed, gw)) return { url: parsed.toString(), resourceId: explicitResource ?? '' }
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
@@ -1867,6 +1956,7 @@ function createClientSecretTokenSource(
     },
     invalidate: () => {
       force = true
+      active?.client.invalidate()
     },
     identity: async () => {
       const { creds } = await resolve()
@@ -1886,7 +1976,7 @@ function createClientSecretTokenSource(
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
         signal: opts.signal,
-        cache: opts.cache,
+        cache: opts.cache ?? !(opts.sessionId && opts.delegationId),
       })
       return { token: token.accessToken, expiresInSeconds: token.expiresIn }
     },

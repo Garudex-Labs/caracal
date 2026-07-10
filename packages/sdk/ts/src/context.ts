@@ -6,7 +6,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { Envelope } from './envelope.js'
+import { Envelope, MaxHop } from './envelope.js'
 
 export interface CaracalContext {
   /**
@@ -36,6 +36,8 @@ export interface CaracalContext {
    * Process-local; never serialized to the envelope.
    */
   ownToken?: boolean
+  /** Fresh bearer resolver for owned contexts; process-local and never serialized. */
+  tokenSource?: () => string | Promise<string>
 }
 
 export interface AuthoritySummary {
@@ -56,13 +58,13 @@ export interface AuthoritySummary {
  * attribution comes from verified claims rather than forgeable headers.
  */
 export interface VerifiedClaims {
-  zoneId?: string
-  applicationId?: string
+  zoneId: string
+  applicationId: string
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
   subjectAuthorityRecordId?: string
-  hop?: number
+  hop: number
 }
 
 export function cloneBaggage(baggage: Record<string, string> | undefined): Record<string, string> | undefined {
@@ -82,6 +84,10 @@ export function captureContext(): CaracalContext | undefined {
 
 export function bind<T>(ctx: CaracalContext, fn: () => T): T {
   return storage.run(ctx, fn)
+}
+
+export async function contextBearer(ctx: CaracalContext): Promise<string> {
+  return ctx.ownToken && ctx.tokenSource ? await ctx.tokenSource() : ctx.subjectToken
 }
 
 export function withOverrides(patch: Partial<CaracalContext>): CaracalContext {
@@ -126,24 +132,23 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
 }
 
 export function fromVerifiedEnvelope(env: Envelope, claims: VerifiedClaims): CaracalContext {
-  if (!env.subjectToken) throw new Error('envelope missing subject token')
-  if (!claims.zoneId || !claims.applicationId || claims.hop === undefined) {
-    throw new Error('verified claims require zoneId, applicationId, and hop')
+  if (!claims.zoneId || !claims.applicationId) {
+    throw new Error('verified claims require zoneId and applicationId')
   }
-  return {
-    subjectToken: env.subjectToken,
-    zoneId: claims.zoneId,
-    applicationId: claims.applicationId,
-    sessionId: claims.sessionId,
-    delegationId: claims.delegationId,
-    parentDelegationId: claims.parentDelegationId,
-    subjectAuthorityRecordId: claims.subjectAuthorityRecordId,
-    traceId: env.traceId,
-    traceFlags: env.traceFlags,
-    traceState: env.traceState,
-    baggage: cloneBaggage(env.baggage),
-    hop: claims.hop,
+  if (!Number.isInteger(claims.hop) || claims.hop < 0 || claims.hop > MaxHop) {
+    throw new Error(`verified claims hop must be an integer from 0 to ${MaxHop}`)
   }
+  return fromEnvelope(
+    {
+      ...env,
+      sessionId: claims.sessionId,
+      delegationId: claims.delegationId,
+      parentDelegationId: claims.parentDelegationId,
+      subjectAuthorityRecordId: claims.subjectAuthorityRecordId,
+      hop: claims.hop,
+    },
+    { zoneId: claims.zoneId, applicationId: claims.applicationId },
+  )
 }
 
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {

@@ -7,19 +7,20 @@
 
 import { getCollection } from 'astro:content'
 import concepts from '../data/concepts.json'
+import { docsVersionState, logicalDocId, publishedDocs, publishedPath } from '../../versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 
 export async function GET() {
-  const docs = await getCollection('docs')
+  const docs = publishedDocs(await getCollection('docs'))
 
   const nodes = docs
-    .filter((d) => d.id !== 'index')
+    .filter((d) => logicalDocId(d.id) !== 'index')
     .map((d) => {
       const data = d.data as Record<string, unknown>
       return {
-        id: d.id,
-        url: `${site}/${d.id}/`,
+        id: logicalDocId(d.id),
+        url: `${site}${publishedPath(d.id)}`,
         markdownUrl: `${site}/markdown/${d.id}.md`,
         title: d.data.title,
         pageType: (data.pageType as string | undefined) ?? null,
@@ -41,6 +42,7 @@ export async function GET() {
   const body = JSON.stringify(
     {
       generated: new Date().toISOString(),
+      version: docsVersionState.current ?? docsVersionState.target,
       nodes,
       edges,
       conceptRegistry: concepts,

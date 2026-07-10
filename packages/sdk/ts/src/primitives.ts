@@ -5,7 +5,7 @@
  * SDK primitives: run governed sessions and delegate authority.
  */
 
-import { bind, cloneBaggage, current, CaracalContext } from './context.js'
+import { bind, cloneBaggage, contextBearer, current, CaracalContext } from './context.js'
 import {
   SessionStatus,
   CoordinatorClient,
@@ -14,12 +14,15 @@ import {
   StartSessionResponse,
   startCoordinatorSession,
   terminateSession,
-  heartbeatAgent,
+  acquireSessionLease,
+  heartbeatSession,
   createDelegation,
   Lifecycle,
   DelegationConstraints,
+  type CoordinatorTrace,
 } from './coordinator.js'
 import type { JsonObject } from './json.js'
+import { genTraceId } from './envelope.js'
 
 const SESSION_RETRIES = 2
 const MIN_AUTO_HEARTBEAT_MS = 1_000
@@ -35,7 +38,18 @@ function defaultWarn(message: string, err?: unknown): void {
 
 /** A session the coordinator no longer holds live (terminated or reaped) counts as retired. */
 function isGone(e: unknown): boolean {
-  return e instanceof CoordinatorError && (e.status === 404 || e.status === 409)
+  return (
+    e instanceof CoordinatorError &&
+    (e.status === 404 ||
+      (e.status === 409 &&
+        [
+          'already_terminated',
+          'session_not_live',
+          'session_not_found_or_not_active',
+          'session_lease_fenced',
+          'session_subject_inactive',
+        ].includes(e.code ?? '')))
+  )
 }
 
 // A server-requested Retry-After wins over the default backoff, capped so a
@@ -96,12 +110,15 @@ export const Authority = {
     return { mode: 'none' }
   },
   /**
-   * A narrowing delegation defaults to a hop budget of 1; pass
+   * A narrowing delegation defaults to a hop allowance of 1; pass
    * `constraints: { maxHops: 2 }` (or more) when the child must re-delegate or
    * sub-narrow its slice further down the tree. A single scope may be passed
    * as a bare string.
    */
-  narrow(scopes: string | string[], opts?: { resourceId?: string; constraints?: DelegationConstraints; ttlSeconds?: number }): Authority {
+  narrow(scopes: string | string[], opts: { resourceId?: string; constraints?: DelegationConstraints; ttlSeconds: number }): Authority {
+    if (!Number.isInteger(opts.ttlSeconds) || opts.ttlSeconds <= 0) {
+      throw new TypeError('Authority.narrow ttlSeconds must be a positive integer')
+    }
     return { mode: 'narrow', scopes: typeof scopes === 'string' ? [scopes] : scopes, ...opts }
   },
 }
@@ -115,6 +132,8 @@ export interface SessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -139,6 +158,7 @@ interface EstablishInput {
   tokenSource?: () => string | Promise<string>
   invalidate?: () => void
   subjectAuthorityRecordId?: string
+  subjectAuthorityRecordToken?: string
   parentSessionId?: string
   authority?: Authority
   ttlSeconds?: number
@@ -155,6 +175,7 @@ interface Established {
   ctx: CaracalContext
   bearer: () => Promise<string>
   heartbeatDeadlineAt?: string
+  leaseGeneration: number
 }
 
 /**
@@ -166,7 +187,15 @@ interface Established {
 async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): Promise<Established> {
   const authority = input.authority ?? Authority.inherit()
   const parent = current()
+  if (input.parentSessionId && parent?.sessionId && input.parentSessionId !== parent.sessionId) {
+    throw new Error('parentSessionId must match the Session bound on the calling context')
+  }
   const parentId = input.parentSessionId ?? parent?.sessionId
+  const trace: CoordinatorTrace = {
+    traceId: input.traceId ?? parent?.traceId ?? genTraceId(),
+    traceFlags: parent?.traceFlags,
+    traceState: parent?.traceState,
+  }
   let token = input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
   if (input.idempotencyKey !== undefined) validateIdempotencyKey(input.idempotencyKey)
@@ -175,6 +204,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     subjectAuthorityRecordId: input.subjectAuthorityRecordId,
+    subjectAuthorityRecordToken: input.subjectAuthorityRecordToken,
     parentId,
     lifecycle,
     ttlSeconds: input.ttlSeconds,
@@ -186,6 +216,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     parentAuthority: (authority.mode === 'inherit' ? 'inherit' : 'none') as 'inherit' | 'none',
     idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
     idempotencyKeyGenerated: generatedIdempotencyKey,
+    trace,
   }
   let res: StartSessionResponse | undefined
   let refreshed = false
@@ -223,7 +254,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       }
       const delRes = await createDelegation(
         input.coordinator,
-        parent.subjectToken,
+        await contextBearer(parent),
         {
           zoneId: input.zoneId,
           issuerApplicationId: parent.applicationId,
@@ -235,6 +266,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
           scopes: authority.scopes ?? [],
           constraints: authority.constraints,
           ttlSeconds: authority.ttlSeconds,
+          trace,
         },
         input.signal,
       )
@@ -242,7 +274,15 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       hop = parent.hop + 1
     }
   } catch (e) {
-    await retire(input.coordinator, bearer, input.zoneId, res.sessionId, input.warn)
+    await retireAfterFailure(
+      input.coordinator,
+      bearer,
+      input.zoneId,
+      res.sessionId,
+      lifecycle === Lifecycle.Service ? res.leaseGeneration : undefined,
+      trace,
+      input.warn,
+    )
     throw e
   }
 
@@ -254,14 +294,15 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     delegationId,
     parentDelegationId: parent?.delegationId,
     subjectAuthorityRecordId: input.subjectAuthorityRecordId ?? parent?.subjectAuthorityRecordId,
-    traceId: input.traceId ?? parent?.traceId,
+    traceId: trace.traceId,
     traceFlags: parent?.traceFlags,
     traceState: parent?.traceState,
     baggage: cloneBaggage(parent?.baggage),
     hop,
     ownToken: true,
+    tokenSource: input.tokenSource,
   }
-  return { sessionId: res.sessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
+  return { sessionId: res.sessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt, leaseGeneration: res.leaseGeneration }
 }
 
 function validateIdempotencyKey(key: string): void {
@@ -274,22 +315,41 @@ function validateIdempotencyKey(key: string): void {
 
 /**
  * Terminate a session on a cleanup path. A session the coordinator already
- * retired counts as success; any other failure is reported to the warn sink
- * rather than thrown so cleanup never masks the caller's primary outcome —
- * the coordinator's TTL sweeper retires whatever this misses.
+ * retired counts as success; any other failure is returned to the caller so a
+ * successful callback cannot conceal a leaked server-side Session.
  */
 async function retire(
   coordinator: CoordinatorClient,
   bearer: () => Promise<string>,
   zoneId: string,
   sessionId: string,
+  trace?: CoordinatorTrace,
+): Promise<void> {
+  try {
+    await terminateSession(coordinator, await bearer(), zoneId, sessionId, undefined, trace)
+  } catch (e) {
+    if (isGone(e)) return
+    throw e
+  }
+}
+
+async function retireAfterFailure(
+  coordinator: CoordinatorClient,
+  bearer: () => Promise<string>,
+  zoneId: string,
+  sessionId: string,
+  leaseGeneration: number | undefined,
+  trace: CoordinatorTrace,
   warn: WarnSink = defaultWarn,
 ): Promise<void> {
   try {
-    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
-  } catch (e) {
-    if (isGone(e)) return
-    warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, e)
+    try {
+      await terminateSession(coordinator, await bearer(), zoneId, sessionId, leaseGeneration, trace)
+    } catch (e) {
+      if (!isGone(e)) throw e
+    }
+  } catch (err) {
+    warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, err)
   }
 }
 
@@ -305,16 +365,32 @@ async function retire(
 export async function session<T>(input: SessionInput, fn: (ctx: CaracalContext) => Promise<T>): Promise<T> {
   const established = await establishSession(input)
   const { ctx, sessionId, bearer } = established
+  const trace: CoordinatorTrace = { traceId: ctx.traceId!, traceFlags: ctx.traceFlags, traceState: ctx.traceState }
+  const warn = input.warn ?? defaultWarn
   let started = false
+  let failed = false
+  let primary: unknown
   try {
     if (input.onSessionStart) await input.onSessionStart(ctx)
     started = true
     return await bind(ctx, () => fn(ctx))
+  } catch (err) {
+    failed = true
+    primary = err
+    throw err
   } finally {
     try {
       if (started && input.onSessionEnd) await input.onSessionEnd(ctx)
     } finally {
-      await retire(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
+      if (failed) await retireAfterFailure(input.coordinator, bearer, input.zoneId, sessionId, undefined, trace, warn)
+      else {
+        try {
+          await retire(input.coordinator, bearer, input.zoneId, sessionId, trace)
+        } catch (cleanupErr) {
+          if (primary === undefined) throw cleanupErr
+          warn(`caracal: terminate failed for session ${sessionId}; preserving primary error`, cleanupErr)
+        }
+      }
     }
   }
 }
@@ -326,7 +402,7 @@ export interface DelegateInput {
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
-  ttlSeconds?: number
+  ttlSeconds: number
   signal?: AbortSignal
 }
 
@@ -351,6 +427,9 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
   if (!ctx.sessionId) {
     throw new Error('delegate requires an active session in context')
   }
+  if (!Number.isInteger(input.ttlSeconds) || input.ttlSeconds <= 0) {
+    throw new TypeError('delegate ttlSeconds must be a positive integer')
+  }
   const req = {
     zoneId: ctx.zoneId,
     issuerApplicationId: ctx.applicationId,
@@ -365,11 +444,12 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
     // The key makes retrying a network failure or 5xx safe: the coordinator
     // replays the already-created delegation instead of issuing a duplicate.
     idempotencyKey: crypto.randomUUID(),
+    trace: { traceId: ctx.traceId ?? genTraceId(), traceFlags: ctx.traceFlags, traceState: ctx.traceState },
   }
   let res: DelegationResponse | undefined
   for (let attempt = 0; res === undefined; attempt++) {
     try {
-      res = await createDelegation(input.coordinator, ctx.subjectToken, req, input.signal)
+      res = await createDelegation(input.coordinator, await contextBearer(ctx), req, input.signal)
     } catch (e) {
       if (input.signal?.aborted) throw e
       const transient = !(e instanceof CoordinatorError) || e.status >= 500
@@ -405,6 +485,8 @@ export interface StartSessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -448,6 +530,7 @@ export interface SessionHandle {
   /** The lease deadline the coordinator reported on the last renewal; undefined until the server reports one. */
   readonly deadlineAt: string | undefined
   readonly status: string
+  readonly leaseGeneration: number
   heartbeat: (status?: SessionStatus) => Promise<void>
   close: () => Promise<void>
 }
@@ -459,11 +542,19 @@ export async function startSession(input: StartSessionInput): Promise<SessionHan
     try {
       await input.onSessionStart(ctx)
     } catch (e) {
-      await retire(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
+      await retireAfterFailure(
+        input.coordinator,
+        bearer,
+        input.zoneId,
+        sessionId,
+        established.leaseGeneration,
+        { traceId: ctx.traceId!, traceFlags: ctx.traceFlags, traceState: ctx.traceState },
+        input.warn,
+      )
       throw e
     }
   }
-  return leaseHandle(input, ctx, sessionId, bearer, established.heartbeatDeadlineAt)
+  return leaseHandle(input, ctx, sessionId, bearer, established.heartbeatDeadlineAt, established.leaseGeneration)
 }
 
 export interface AttachSessionInput {
@@ -480,6 +571,7 @@ export interface AttachSessionInput {
   onStateChange?: (status: string) => void
   warn?: WarnSink
   onSessionEnd?: (ctx: CaracalContext) => void | Promise<void>
+  traceId?: string
 }
 
 /**
@@ -496,22 +588,24 @@ export async function attachSession(input: AttachSessionInput): Promise<SessionH
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : input.subjectToken)
   let first
   try {
-    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await acquireSessionLease(input.coordinator, token, input.zoneId, input.sessionId)
   } catch (err) {
     if (!(err instanceof CoordinatorError) || err.status !== 401 || !input.invalidate || !input.tokenSource) throw err
     input.invalidate()
     token = await input.tokenSource()
-    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await acquireSessionLease(input.coordinator, token, input.zoneId, input.sessionId)
   }
   const ctx: CaracalContext = {
     subjectToken: token,
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     sessionId: input.sessionId,
+    traceId: input.traceId ?? genTraceId(),
     hop: 0,
     ownToken: true,
+    tokenSource: input.tokenSource,
   }
-  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt)
+  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt, first.leaseGeneration)
 }
 
 interface LeaseInput {
@@ -531,24 +625,35 @@ function leaseHandle(
   sessionId: string,
   bearer: () => Promise<string>,
   initialDeadlineAt: string | undefined,
+  initialLeaseGeneration: number,
 ): SessionHandle {
   const warn = input.warn ?? defaultWarn
   let deadlineAt = initialDeadlineAt
+  let leaseGeneration = initialLeaseGeneration
   let sessionStatus = 'active'
   let suspendedNotified = false
   const heartbeat = async (status?: SessionStatus) => {
     let res
     try {
-      res = await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, status, {
+        traceId: ctx.traceId!,
+        traceFlags: ctx.traceFlags,
+        traceState: ctx.traceState,
+      })
     } catch (e) {
       // A cached token can be rejected before its exp (server-side session
       // revocation after a credential rotation); force one refresh and retry
       // so the lease survives the rotation.
       if (!(e instanceof CoordinatorError) || e.status !== 401 || !input.invalidate) throw e
       input.invalidate()
-      res = await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, status, {
+        traceId: ctx.traceId!,
+        traceFlags: ctx.traceFlags,
+        traceState: ctx.traceState,
+      })
     }
     deadlineAt = res.heartbeatDeadlineAt ?? deadlineAt
+    leaseGeneration = res.leaseGeneration
     if (res.status && res.status !== sessionStatus) {
       sessionStatus = res.status
       input.onStateChange?.(sessionStatus)
@@ -602,6 +707,9 @@ function leaseHandle(
     get status() {
       return sessionStatus
     },
+    get leaseGeneration() {
+      return leaseGeneration
+    },
     heartbeat,
     close: () =>
       (closing ??= (async () => {
@@ -611,7 +719,11 @@ function leaseHandle(
           if (input.onSessionEnd) await input.onSessionEnd(ctx)
         } finally {
           try {
-            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId)
+            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, {
+              traceId: ctx.traceId!,
+              traceFlags: ctx.traceFlags,
+              traceState: ctx.traceState,
+            })
           } catch (e) {
             if (!isGone(e)) throw e
           }
