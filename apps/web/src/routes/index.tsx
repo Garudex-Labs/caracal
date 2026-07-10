@@ -875,7 +875,6 @@ function InfrastructureSection() {
       items: ["Engine dispatch", "Replay-protected", "Rate-limited", "Fully audited"],
     },
   ];
-  const stores = ["Postgres", "Redis", "caracal run", "Console CLI"];
   return (
     <section className="border-b border-border px-4 py-10 sm:px-6 md:px-10 md:py-14">
       <SectionLabel>Infrastructure</SectionLabel>

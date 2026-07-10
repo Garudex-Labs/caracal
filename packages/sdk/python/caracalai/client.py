@@ -93,7 +93,6 @@ APP_AUTHORITY_CACHE_CAP = 19
 
 _T = TypeVar("_T")
 APP_SESSION_TTL_BUFFER_SECONDS = 120
-_CREDENTIAL_FINGERPRINT_KEY = os.urandom(32)
 
 
 @dataclass(frozen=True)

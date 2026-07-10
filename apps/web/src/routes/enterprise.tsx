@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the enterprise route.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 import Cal, { getCalApi } from "@calcom/embed-react";
 import { SectionLabel } from "@/components/SiteShell";
 
@@ -45,7 +45,6 @@ function EnterprisePage() {
     </div>
   );
 }
-
 function ComparisonTable() {
   const rows = [
     ["Authority model: mandates, delegation, policy, audit", "Included", "Included"],
@@ -108,7 +107,6 @@ function ComparisonTable() {
     </div>
   );
 }
-
 function BookACall() {
   useEffect(() => {
     (async () => {
@@ -130,18 +128,5 @@ function BookACall() {
         />
       </div>
     </section>
-  );
-}
-
-function DocLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="underline hover:text-foreground"
-    >
-      {children}
-    </a>
   );
 }

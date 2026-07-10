@@ -3,7 +3,7 @@
 //
 // Unit tests for the web console HTTP client: error taxonomy, request timeout, and cancellation.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ConsoleApiError, consoleApi } from '../../../../apps/web/src/platform/api/client.ts'
 

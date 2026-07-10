@@ -21,8 +21,7 @@ export interface GovernedStepResult {
 // record a precise error turn without leaking secrets or internal error text. terminal is
 // true when the control command may already have been applied (an ambiguous server or
 // transport failure), so the plan must not be retried; it is false only when the failure
-// is definitive - the token was never minted, or the control plane rejected the command -
-// so nothing was applied and the plan is safe to retry.
+// is a definitive client rejection before either STS or Control accepted the request.
 export interface GovernedStepFailure {
   stepId: string
   capability: string
@@ -128,9 +127,8 @@ async function applyStep(client: ControlClient, step: GovernedPlanStep, outputs:
     return { ok: true, result: { id: step.id, capability: step.capability, detail: outcome.detail, output: outcome.output } }
   } catch (err) {
     if (err instanceof ControlClientError) {
-      // A definitive failure applies nothing and is safe to retry. An ambiguous one - a
-      // server error or a lost response at the invoke stage - may have applied the
-      // mutation, so it is terminal.
+      // A definitive client rejection applies nothing and is safe to retry. A server
+      // error or lost response is ambiguous at either stage, so it is terminal.
       return {
         ok: false,
         failure: { stepId: step.id, capability: step.capability, reason: err.reason, code: err.code, terminal: !err.definitive },

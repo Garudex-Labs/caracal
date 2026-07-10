@@ -17,16 +17,7 @@ import { handleConsole } from './console.ts'
 import { enabledProviders } from './providers.ts'
 import { logger } from './logger.ts'
 import { serveStatic } from './static.ts'
-import {
-  applySecurityHeaders,
-  CLIENT_IP_HEADER,
-  clientIp,
-  downstreamHeaders,
-  isCrossSiteWrite,
-  method,
-  requestId,
-  traceFromRequest,
-} from './security.ts'
+import { applySecurityHeaders, CLIENT_IP_HEADER, clientIp, isCrossSiteWrite, method, requestId, traceFromRequest } from './security.ts'
 
 const cfg = loadConfig()
 

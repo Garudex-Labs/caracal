@@ -5,7 +5,7 @@
 
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AuthError, type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
+import { type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
 import { registerInvokeRoute, type InvokeDeps, type ZoneScopeTarget } from '../../../../../apps/api/src/control/handler.js'
 import { RateLimiter } from '../../../../../apps/api/src/control/ratelimit.js'
 import type { EventSink } from '../../../../../apps/api/src/control/audit.js'

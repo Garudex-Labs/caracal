@@ -13,16 +13,19 @@ vi.mock('@caracalai/oauth', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return {
     ...actual,
-    fetchRunCredential: fetchRunCredentialMock,
-    fetchRunManifest: fetchRunManifestMock,
     pollStepUpState: pollStepUpStateMock,
   }
 })
 
+vi.mock('../../../../packages/engine/src/runClient.js', () => ({
+  fetchRunCredential: fetchRunCredentialMock,
+  fetchRunManifest: fetchRunManifestMock,
+}))
+
 import { buildRunEnv, resolveRunConfig, runExec } from '../../../../packages/engine/src/run.js'
 import type { RunProfile } from '../../../../packages/engine/src/run.js'
 import { ApprovalRequiredError } from '@caracalai/oauth'
-import type { RunBinding } from '@caracalai/oauth'
+import type { RunBinding } from '../../../../packages/engine/src/runClient.js'
 import type { RuntimeIdentity } from '../../../../packages/engine/src/runtimeConfig.js'
 
 const identity: RuntimeIdentity = {
