@@ -80,9 +80,10 @@ type DBQuerier interface {
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityRecord, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
-	GetDelegationPath(ctx context.Context, zoneID, sourceID, targetID string, maxHops int) ([]string, error)
+	GetDelegationLineage(ctx context.Context, zoneID, edgeID string, maxHops int) ([]string, error)
 	GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64, error)
 	InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) error
+	InsertAuthorityRecordWithApproval(ctx context.Context, s *AuthorityRecord, p ConsumeApprovalParams) error
 	RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
@@ -280,6 +281,7 @@ type DelegationEdge struct {
 	TargetSessionID string
 	IssuerAppID     string
 	ReceiverAppID   string
+	ParentEdgeID    *string
 	ResourceID      *string
 	Scopes          []string
 	Status          string
@@ -309,7 +311,7 @@ func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge,
 	var edge DelegationEdge
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id,
-		        receiver_application_id, resource_id, scopes, status, expires_at, edge_version,
+		        receiver_application_id, parent_edge_id, resource_id, scopes, status, expires_at, edge_version,
 		        constraints_json, revoked_at
 		 FROM delegation_edges WHERE id = $1`, id,
 	).Scan(
@@ -319,6 +321,7 @@ func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge,
 		&edge.TargetSessionID,
 		&edge.IssuerAppID,
 		&edge.ReceiverAppID,
+		&edge.ParentEdgeID,
 		&edge.ResourceID,
 		&edge.Scopes,
 		&edge.Status,
@@ -358,25 +361,26 @@ func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 	return &s, nil
 }
 
-func (d *DB) GetDelegationPath(ctx context.Context, zoneID, sourceID, targetID string, maxHops int) ([]string, error) {
+func (d *DB) GetDelegationLineage(ctx context.Context, zoneID, edgeID string, maxHops int) ([]string, error) {
 	var path []string
 	err := d.pool.QueryRow(ctx,
-		`WITH RECURSIVE graph AS (
-		   SELECT id, source_session_id, target_session_id, 1 AS depth, ARRAY[id] AS path
+		`WITH RECURSIVE lineage AS (
+		   SELECT id, parent_edge_id, 1 AS depth, ARRAY[id] AS path
 		   FROM delegation_edges
-		   WHERE zone_id = $1 AND source_session_id = $2 AND status = 'active' AND expires_at > now()
+		   WHERE zone_id = $1 AND id = $2 AND status = 'active' AND expires_at > now()
 		   UNION ALL
-		   SELECT e.id, e.source_session_id, e.target_session_id, g.depth + 1, g.path || e.id
+		   SELECT e.id, e.parent_edge_id, l.depth + 1, l.path || e.id
 		   FROM delegation_edges e
-		   JOIN graph g ON e.source_session_id = g.target_session_id
+		   JOIN lineage l ON e.id = l.parent_edge_id
 		   WHERE e.zone_id = $1
 		     AND e.status = 'active'
 		     AND e.expires_at > now()
-		     AND NOT e.id = ANY(g.path)
-		     AND g.depth < $4
+		     AND NOT e.id = ANY(l.path)
+		     AND l.depth < $3
 		 )
-		 SELECT path FROM graph WHERE target_session_id = $3 ORDER BY depth LIMIT 1`,
-		zoneID, sourceID, targetID, maxHops,
+		 SELECT array_agg(id ORDER BY depth DESC) FROM lineage
+		 HAVING bool_or(parent_edge_id IS NULL)`,
+		zoneID, edgeID, maxHops,
 	).Scan(&path)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -406,6 +410,53 @@ func (d *DB) InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) erro
 		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims,
 	)
 	return err
+}
+
+// InsertAuthorityRecordWithApproval atomically consumes an approved hold and creates
+// its authority record. A failed insert leaves the hold spendable, while concurrent
+// consumers can create at most one record.
+func (d *DB) InsertAuthorityRecordWithApproval(ctx context.Context, s *AuthorityRecord, p ConsumeApprovalParams) error {
+	claims := s.ClaimsJSON
+	if len(claims) == 0 {
+		claims = nil
+	}
+	tag, err := d.pool.Exec(ctx,
+		`WITH consumed AS (
+		   UPDATE step_up_challenges c
+		      SET consumed_at = now()
+		    WHERE c.id = $9
+		      AND c.zone_id = $2
+		      AND c.principal_id = $10
+		      AND c.resource_set_hash = $11
+		      AND c.challenge_type = 'human_approval'
+		      AND c.satisfied_at IS NOT NULL
+		      AND c.rejected_at IS NULL
+		      AND c.approver_subject_id IS NOT NULL
+		      AND c.consumed_at IS NULL
+		      AND c.expires_at > now()
+		      AND (c.session_id = '' OR EXISTS (
+		        SELECT 1 FROM authority_records a
+		         WHERE a.id = c.session_id
+		           AND a.zone_id = c.zone_id
+		           AND a.status = 'active'
+		           AND a.expires_at > now()
+		      ))
+		    RETURNING 1
+		 )
+		 INSERT INTO authority_records
+		   (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
+		 SELECT $1, $2, $3, $4, $5, 'active', $6, $7, $8
+		   FROM consumed`,
+		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims,
+		p.ID, p.PrincipalID, p.ResourceSetHash,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrChallengeInvalid
+	}
+	return nil
 }
 
 func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error {
@@ -709,19 +760,31 @@ func (d *DB) GetSecretStoreEnvelope(ctx context.Context, ref string) ([]byte, er
 }
 
 func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error) {
-	current, err := d.GetZoneSigningKeySecret(ctx, zoneID)
-	if err == nil {
-		return current, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "zone_signing_key:"+zoneID); err != nil {
+		return nil, err
+	}
+	var current SecretRow
+	err = tx.QueryRow(ctx,
+		`SELECT id, envelope FROM secrets
+		 WHERE zone_id = $1 AND name = 'zone_signing_key' ORDER BY version DESC LIMIT 1`, zoneID,
+	).Scan(&current.ID, &current.Envelope)
+	if err == nil {
+		return &current, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	var s SecretRow
-	err = d.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`WITH next AS (
 		   SELECT COALESCE(MAX(version), 0) + 1 AS version
 		   FROM secrets WHERE zone_id = $1 AND entity_id = $1 AND name = 'zone_signing_key'
@@ -732,12 +795,9 @@ func (d *DB) EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, enve
 		zoneID, id.String(), envelope,
 	).Scan(&s.ID, &s.Envelope)
 	if err != nil {
-		if current, getErr := d.GetZoneSigningKeySecret(ctx, zoneID); getErr == nil {
-			return current, nil
-		}
 		return nil, err
 	}
-	return &s, nil
+	return &s, tx.Commit(ctx)
 }
 
 func (d *DB) InsertZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error) {

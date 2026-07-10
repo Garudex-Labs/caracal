@@ -83,19 +83,52 @@ func moduleDefinesResult(id, content string) (bool, error) {
 	return false, nil
 }
 
+var adopterDataRules = map[string]struct{}{
+	"app_ids":        {},
+	"grants":         {},
+	"confinement":    {},
+	"restrict":       {},
+	"risk":           {},
+	"approval_tiers": {},
+}
+
+// validateAdopterModule restricts adopter modules to the data roots consumed by
+// the platform contract. Rego modules in one package merge their rules, so allowing
+// any other root would let an adopter redefine a contract helper and widen authority.
+func validateAdopterModule(id, content string) error {
+	module, err := ast.ParseModule(id+".rego", content)
+	if err != nil {
+		return fmt.Errorf("parse policy module %s: %w", id, err)
+	}
+	for _, rule := range module.Rules {
+		name := ruleHeadName(rule)
+		if name == "result" {
+			return fmt.Errorf("policy module %s defines result; adopters supply data documents only", id)
+		}
+		if _, ok := adopterDataRules[name]; !ok {
+			return fmt.Errorf("policy module %s defines unsupported data rule %s", id, name)
+		}
+	}
+	return nil
+}
+
 // ruleHeadNamed reports whether a rule's head names the given top-level document.
 func ruleHeadNamed(rule *ast.Rule, name string) bool {
+	return ruleHeadName(rule) == name
+}
+
+func ruleHeadName(rule *ast.Rule) string {
 	if rule.Head == nil {
-		return false
+		return ""
 	}
-	if string(rule.Head.Name) == name {
-		return true
+	if value := string(rule.Head.Name); value != "" {
+		return value
 	}
 	ref := rule.Head.Ref()
 	if len(ref) > 0 {
-		if v, ok := ref[0].Value.(ast.Var); ok && string(v) == name {
-			return true
+		if v, ok := ref[0].Value.(ast.Var); ok {
+			return string(v)
 		}
 	}
-	return false
+	return ""
 }
