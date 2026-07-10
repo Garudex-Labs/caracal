@@ -271,8 +271,9 @@ func TestDefinitiveClassification(t *testing.T) {
 		status     int
 		definitive bool
 	}{
-		{"token", http.StatusServiceUnavailable, true},
-		{"token", 0, true},
+		{"token", http.StatusForbidden, true},
+		{"token", http.StatusServiceUnavailable, false},
+		{"token", 0, false},
 		{"invoke", http.StatusForbidden, true},
 		{"invoke", http.StatusGatewayTimeout, false},
 		{"invoke", 0, false},

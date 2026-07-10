@@ -17,6 +17,8 @@ func TestValidUpstreamCredentialHeader(t *testing.T) {
 
 	reserved := []string{
 		"",
+		"Bad Header",
+		"Bad:Header",
 		"Host",
 		"Connection",
 		"Content-Length",

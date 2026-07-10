@@ -32,9 +32,15 @@ const (
 )
 
 const maxEpochScript = `
-local current = tonumber(redis.call('GET', KEYS[1]) or '0') or 0
-local candidate = tonumber(ARGV[1])
-if candidate > current then
+local function normalize(value)
+	if not string.match(value, '^%d+$') then return '0' end
+	value = string.gsub(value, '^0+', '')
+	if value == '' then return '0' end
+	return value
+end
+local current = normalize(redis.call('GET', KEYS[1]) or '0')
+local candidate = normalize(ARGV[1])
+if string.len(candidate) > string.len(current) or (string.len(candidate) == string.len(current) and candidate > current) then
   redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
   return 1
 end

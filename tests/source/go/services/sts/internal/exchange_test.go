@@ -1259,6 +1259,37 @@ func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 	}
 }
 
+func TestBuildUpstreamDirectiveRejectsReservedCredentialHeaders(t *testing.T) {
+	for _, header := range []string{"Host", "Connection", "Content-Length", "Transfer-Encoding", "X-Caracal-Identity", "X-Forwarded-For", "Proxy-Authorization", "Traceparent", "Baggage", "X-Request-Id"} {
+		t.Run(header, func(t *testing.T) {
+			providerID := "provider1"
+			upstreamURL := "https://upstream.example"
+			resource := &Resource{
+				ID:                   "res1",
+				Identifier:           "resource://api",
+				UpstreamURL:          &upstreamURL,
+				CredentialProviderID: &providerID,
+			}
+			zek := []byte("12345678901234567890123456789012")
+			config, err := json.Marshal(map[string]string{"header_name": header})
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr("api_key"),
+					ConfigJSON:   config,
+				},
+				storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+			}, zek)
+			if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
+				t.Fatal("provider directive accepted a reserved credential header")
+			}
+		})
+	}
+}
+
 func TestBuildUpstreamDirectiveRejectsLegacyAPIKeyAuthHeader(t *testing.T) {
 	providerID := "provider1"
 	upstreamURL := "https://upstream.example"

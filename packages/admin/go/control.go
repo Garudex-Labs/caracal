@@ -55,13 +55,11 @@ func (e *ControlClientError) Error() string {
 	return fmt.Sprintf("control %s failed (%d): %s", e.Stage, e.Status, e.Reason)
 }
 
-// Definitive reports whether the failure provably applied nothing: any
-// token-stage failure (no token was minted, so nothing was invoked) or an
-// invoke the control plane rejected with a client error. An invoke-stage
-// server error or lost response is not definitive - the command may already
-// have applied - so a caller must never blindly retry it.
+// Definitive reports whether the server rejected the request before accepting
+// it. Lost responses and server failures are outcome-ambiguous at both stages:
+// STS may have minted a token, or Control may have applied the command.
 func (e *ControlClientError) Definitive() bool {
-	return e.Stage == "token" || (e.Status >= 400 && e.Status < 500)
+	return e.Status >= 400 && e.Status < 500
 }
 
 // ControlClient is a control-plane client bound to one identity. Each invoke

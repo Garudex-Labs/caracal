@@ -1565,13 +1565,12 @@ type mandateOptions struct {
 	OneShot bool
 }
 
-// MintMandate mints a resource mandate for the current session: a short-lived
-// token audienced to resourceID and narrowed to scopes, carrying the session
-// and delegation of the bound CaracalContext. The STS evaluates policy
-// against that session's authority, so a narrowed child can mint only what
-// its delegation allows. Results are cached per resource, scope set, and
-// session identity, and refreshed before expiry. Returns the mandate token
-// with its remaining lifetime.
+// MintMandate mints a scoped mandate narrowed to resourceID and scopes. A
+// bound Session and Delegation produce an uncached, one-shot use=gateway
+// mandate. Application-principal lifecycle calls produce a reusable
+// use=session mandate that may be cached and refreshed before expiry. The STS
+// evaluates policy against the bound authority. The result includes the
+// mandate token and its remaining lifetime.
 //
 // When a scope is approval-gated the mint returns
 // *oauth.ApprovalRequiredError; retry with ApprovalID set to the returned

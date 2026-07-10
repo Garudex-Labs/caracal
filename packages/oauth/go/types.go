@@ -36,7 +36,7 @@ type TokenExchangeResponse struct {
 	TargetResources []string
 }
 
-// MintedMandate is a minted resource mandate: the bearer token to present and
+// MintedMandate is a minted scoped mandate: the bearer token to present and
 // how long it stays valid, so callers can schedule refresh without decoding
 // the JWT.
 type MintedMandate struct {

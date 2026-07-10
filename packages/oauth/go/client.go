@@ -264,10 +264,11 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	client := c.httpClient
 	c.mu.Unlock()
 	res, err := client.Do(req)
-	cancel()
 	if err != nil {
+		cancel()
 		return TokenExchangeResponse{}, err
 	}
+	defer cancel()
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
