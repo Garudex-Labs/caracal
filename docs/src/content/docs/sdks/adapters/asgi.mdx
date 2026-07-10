@@ -46,7 +46,7 @@ async def balances(request):
 | `audience`                                               | The provider's own resource identifier; mandates minted for other resources are rejected.                       |
 | `revocations`                                            | Revocation store consulted on every request. Use [Redis Revocation Store](/sdks/backends/redis/) in production. |
 | `required_scopes` / `required_targets`                   | Default scope and target requirements for every route.                                                          |
-| `require_agent` / `require_delegation` / `max_hop_count` | Agent identity, delegated authority, and delegation-depth requirements.                                         |
+| `require_session` / `require_delegation` / `max_hop_count` | Session identity, delegated authority, and Delegation-depth requirements.                                      |
 | `routes`                                                 | Per-route overrides by path prefix; the longest matching prefix wins. Any option above can be overridden.       |
 | `exclude`                                                | Path prefixes served without verification (health and readiness probes).                                        |
 

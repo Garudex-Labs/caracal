@@ -20,7 +20,7 @@ Caracal's security requirements are met under an explicit assurance case maintai
 | Area                     | Scope                                                                                               |
 | ------------------------ | --------------------------------------------------------------------------------------------------- |
 | API                      | Control-plane routes, admin auth, product state, step-up APIs, admin audit, AI Operator routes.     |
-| Coordinator              | Agent lifecycle, delegation, invocation, TTL, retention, outbox.                                    |
+| Coordinator              | Session lifecycle, Delegation, invocation, TTL, retention, outbox.                                  |
 | STS                      | OAuth token exchange, signing, JWKS, policy decisions, replay, revocation, step-up, audit emission. |
 | Gateway                  | Proxy enforcement, upstream safety, STS exchange, bindings, replay, revocation checks.              |
 | Audit                    | Redis stream consumption, append-only ledger, HMAC chain, tamper sweeps, retention, export.         |

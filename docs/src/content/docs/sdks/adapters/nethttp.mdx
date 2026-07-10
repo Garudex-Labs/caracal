@@ -35,7 +35,7 @@ verifier := verify.NewVerifier(verify.Options{
 handler := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 	RequiredScopes:  []string{"tickets:read"},
 	RequiredTargets: []string{"https://api.example.com/tickets"},
-	RequireAgent:    true,
+	RequireSession:  true,
 }))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	claims, ok := nethttp.ClaimsFromContext(r.Context())
 	if !ok {

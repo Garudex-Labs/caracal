@@ -32,7 +32,7 @@ if (!token) throw new Error('missing bearer token')
 const context = await verifyFastMcpToken(token, verifier, {
   requiredScopes: ['mcp:tool:call'],
   requiredTargets: ['https://mcp.example.com'],
-  requireAgent: true,
+  requireSession: true,
 })
 
 console.log(context.sub, context.zoneId, context.scope)
@@ -51,7 +51,7 @@ auth = CaracalAuth(
     zone_id="zone_prod",
     required_scopes=["mcp:tool:call"],
     required_targets=["https://mcp.example.com"],
-    require_agent=True,
+    require_session=True,
     revocations=revocations,
 )
 
