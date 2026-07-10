@@ -7,6 +7,7 @@ import type { Pool } from 'pg'
 import type { Redis } from 'ioredis'
 import { STREAM_SIG_FIELD, signStream } from '@caracalai/core'
 import { isPublished, loadStreamsHmacKey } from '@caracalai/server-core'
+import { withTimeout } from '@caracalai/server-core'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 import { cfg } from '../config.js'
 
@@ -22,6 +23,8 @@ interface OutboxRow {
   payload_json: Record<string, unknown>
   attempts: number
 }
+
+const OUTBOX_PUBLISH_TIMEOUT_MS = 5_000
 
 export interface OutboxPublisherOptions {
   intervalMs?: number
@@ -62,7 +65,11 @@ export async function publishBatch(db: Pool, redis: Redis, batchSize: number, ma
     const dead: string[] = []
     for (const row of rows) {
       try {
-        await redis.xadd(row.topic, 'MAXLEN', '~', String(cfg.streamsMaxLen), '*', ...streamFields(row))
+        await withTimeout(
+          redis.xadd(row.topic, 'MAXLEN', '~', String(cfg.streamsMaxLen), '*', ...streamFields(row)),
+          OUTBOX_PUBLISH_TIMEOUT_MS,
+          'outbox Redis publish timed out',
+        )
         published.push(row.id)
       } catch (err) {
         const nextAttempts = row.attempts + 1
@@ -97,6 +104,7 @@ export async function publishBatch(db: Pool, redis: Redis, batchSize: number, ma
          WHERE id = ANY($1::text[])`,
         [dead],
       )
+      log?.error({ outboxIds: dead }, 'outbox_rows_dead')
     }
     await client.query('COMMIT')
   } catch (err) {

@@ -152,6 +152,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     const value = Array.isArray(h) ? h[0] : h
     const tc = parseTraceparent(value)
     bindTrace({ traceId: tc.traceId, spanId: tc.spanId || req.id })
+    if (req.url === '/health') return
     if (cfg.coordinatorRateLimitPerMin <= 0) return
     const minute = await redisMinuteBucket(redis)
     const key = `coordinator:global_rl:${req.ip}:${minute}`

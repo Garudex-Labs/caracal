@@ -14,7 +14,7 @@ export interface JobHandle {
   stop: () => Promise<void>
 }
 
-const JOB_STOP_TIMEOUT_MS = 5_000
+const JOB_STOP_TIMEOUT_MS = 12_000
 
 export function makeIntervalJob(run: () => Promise<unknown>, intervalMs: number, onError: (err: unknown) => void): JobHandle {
   let running = false

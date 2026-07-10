@@ -34,8 +34,7 @@ export async function runServiceLeaseSweep(db: Pool): Promise<number> {
          AND heartbeat_deadline_at IS NOT NULL
          AND heartbeat_deadline_at < now()
        ORDER BY heartbeat_deadline_at, id
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED`,
+      LIMIT $1`,
       [cfg.sweeperBatchSize],
     )
     if (expired.length === 0) {
@@ -49,7 +48,7 @@ export async function runServiceLeaseSweep(db: Pool): Promise<number> {
       byZone.set(row.zone_id, list)
     }
     let suspended = 0
-    for (const [zoneId, ids] of byZone) {
+    for (const [zoneId, ids] of [...byZone].sort(([a], [b]) => a.localeCompare(b))) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       suspended += await suspendSubtree(client, zoneId, ids, 'service_heartbeat_lost')
     }

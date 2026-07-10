@@ -87,7 +87,8 @@ export async function startIdempotency(
   const keyHash = keyHashes[0]
   const previousKeyHash = keyHashes[1] ?? keyHash
   const bodyHash = requestDigest(input.request)
-  const lockName = `${input.operation}:${input.zoneId}:${input.scopeId}:${keyHash.toString('hex')}`
+  const lockDigest = [...keyHashes].sort(Buffer.compare)[0]
+  const lockName = `${input.operation}:${input.zoneId}:${input.scopeId}:${lockDigest.toString('hex')}`
   await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockName])
   const expired = await db.query(
     `DELETE FROM coordinator_idempotency_receipts
@@ -108,6 +109,27 @@ export async function startIdempotency(
     await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
       `idempotency-quota:${input.operation}:${input.zoneId}:${input.scopeId}`,
     ])
+    const { rows: concurrent } = await db.query<ReceiptRow>(
+      `SELECT request_digest, response_status, response_json, resource_id
+       FROM coordinator_idempotency_receipts
+       WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)
+         AND expires_at > now()
+       FOR UPDATE`,
+      [input.operation, input.zoneId, input.scopeId, keyHash, previousKeyHash],
+    )
+    if (concurrent[0]) {
+      if (!concurrent[0].request_digest.equals(bodyHash)) {
+        idempotencyStats.conflicts += 1
+        return { outcome: 'conflict' }
+      }
+      idempotencyStats.replayed += 1
+      return {
+        outcome: 'replayed',
+        status: concurrent[0].response_status,
+        response: concurrent[0].response_json,
+        resourceId: concurrent[0].resource_id,
+      }
+    }
     const { rows: counts } = await db.query<{ n: string }>(
       `SELECT COUNT(*) AS n
        FROM coordinator_idempotency_receipts

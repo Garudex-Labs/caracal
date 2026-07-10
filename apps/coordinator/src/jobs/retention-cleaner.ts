@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Retention cleaner: expires stale delegation edges and prunes Console coordinator rows.
+// Retention cleaner: expires stale Delegations and prunes Console Coordinator rows.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
@@ -101,6 +101,12 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
          WHERE status IN ('revoked', 'expired')
            AND COALESCE(revoked_at, expires_at, updated_at, created_at)
                < now() - ($1::int * interval '1 day')
+           AND NOT EXISTS (
+             SELECT 1 FROM delegation_edges child
+             WHERE child.parent_edge_id = delegation_edges.id
+               AND child.status = 'active'
+               AND child.expires_at > now()
+           )
          ORDER BY COALESCE(revoked_at, expires_at, updated_at, created_at)
          LIMIT $2
          FOR UPDATE SKIP LOCKED

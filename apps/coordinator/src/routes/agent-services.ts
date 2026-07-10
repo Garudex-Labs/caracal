@@ -9,7 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ownsApplication, requireScope } from '../auth.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
-import { suspendSubtree } from './agents.js'
+import { sessionLockKey, suspendSubtree } from './agents.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -144,11 +144,12 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         heartbeat_deadline_at: Date | null
         lease_expired: boolean
       }>(
-        `SELECT application_id, status, lifecycle, heartbeat_deadline_at,
+        `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
+         SELECT application_id, status, lifecycle, heartbeat_deadline_at,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
-         FROM sessions
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
-        [id, zoneId],
+         FROM sessions, locked
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+        [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
         await client.query('ROLLBACK')
