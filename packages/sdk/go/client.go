@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -41,9 +40,9 @@ const appMandateTTLSeconds = 900
 const appAuthorityRefreshMargin = 60 * time.Second
 const appSessionTTLBuffer = 120
 
-// Each authority entry owns two sessions. Twenty entries reserve ten of the
-// coordinator's default fifty-session capacity for ordinary work.
-const appAuthorityCacheCap = 20
+// Each authority entry owns two sessions. Nineteen entries leave room for ten
+// ordinary sessions and the next two-session provisioning cycle.
+const appAuthorityCacheCap = 19
 
 var credentialFingerprintKey = func() []byte {
 	key := make([]byte, 32)
@@ -74,7 +73,9 @@ type Caracal struct {
 
 	appMandateMu  sync.Mutex
 	appMandates   map[string]appMandateEntry
+	appOrder      []string
 	appInflight   map[string]*appMandateCall
+	appProvision  chan struct{}
 	appGeneration uint64
 
 	unverifiedBoundaryOnce sync.Once
@@ -115,18 +116,10 @@ type GatewayTarget struct {
 	Header http.Header
 }
 
-// New builds a Caracal client from explicit values, a generated profile, or env.
-func New(opts ...ClientSecretOptions) (*Caracal, error) {
-	if len(opts) > 0 {
-		return FromClientSecret(opts[0])
-	}
+// New builds a Caracal client from CARACAL_CONFIG when set, otherwise from environment variables.
+func New() (*Caracal, error) {
 	if path := os.Getenv("CARACAL_CONFIG"); path != "" {
 		return FromConfig(path)
-	}
-	if path := defaultProfilePath(); path != "" {
-		if _, err := os.Stat(path); err == nil {
-			return FromConfig(path)
-		}
 	}
 	return FromEnv()
 }
@@ -177,16 +170,12 @@ func FromEnv() (*Caracal, error) {
 	if err != nil {
 		return nil, err
 	}
-	credentialIDs, credentialBindings, err := credentialManifestFromEnv(zone, app)
-	if err != nil {
-		return nil, err
+	bindings := sortBindingsLongestFirst(mergeResourceBindings(fileBindings, envBindings))
+	if clientSecret != "" && tok != "" {
+		return nil, fmt.Errorf("caracal: configure exactly one of CARACAL_APP_CLIENT_SECRET and CARACAL_BOOTSTRAP_TOKEN")
 	}
-	bindings := sortBindingsLongestFirst(mergeResourceBindings(credentialBindings, fileBindings, envBindings))
 	if clientSecret != "" {
-		resources := resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), credentialIDs, bindings)
-		if len(resources) == 0 {
-			return nil, fmt.Errorf("caracal: FromEnv with a client secret requires resources; set CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE, or provide run credentials")
-		}
+		resources := resourceIDsFromEnv(os.Getenv("CARACAL_APP_RESOURCES"), bindings)
 		return FromClientSecret(ClientSecretOptions{
 			CoordinatorURL:    coordinatorURL,
 			STSURL:            stsURL,
@@ -224,36 +213,27 @@ func FromEnv() (*Caracal, error) {
 
 // ClientSecretOptions configures an SDK client backed by STS client-secret exchange.
 // DefaultTTLSeconds seeds Caracal.DefaultTTLSeconds for sessions run with Session.
-// Credentials replaces the static ZoneID/ApplicationID/ClientSecret triple
-// with a resolver consulted before each exchange.
 type ClientSecretOptions struct {
 	CoordinatorURL    string
 	STSURL            string
 	ZoneID            string
 	ApplicationID     string
 	ClientSecret      string
-	Credentials       CredentialsResolver
 	Resources         []string
 	ResourceBindings  []ResourceBinding
 	GatewayURL        string
-	Scope             string
 	HTTPClient        *http.Client
 	DefaultTTLSeconds int
 }
 
 // FromClientSecret returns a Caracal client that refreshes its application subject token through STS.
 func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
-	if opts.Credentials != nil && (opts.ZoneID != "" || opts.ApplicationID != "" || opts.ClientSecret != "") {
-		return nil, fmt.Errorf("caracal: FromClientSecret: pass either Credentials or the ZoneID/ApplicationID/ClientSecret triple, not both")
-	}
 	required := map[string]string{
 		"CoordinatorURL": opts.CoordinatorURL,
 		"STSURL":         opts.STSURL,
-	}
-	if opts.Credentials == nil {
-		required["ZoneID"] = opts.ZoneID
-		required["ApplicationID"] = opts.ApplicationID
-		required["ClientSecret"] = opts.ClientSecret
+		"ZoneID":         opts.ZoneID,
+		"ApplicationID":  opts.ApplicationID,
+		"ClientSecret":   opts.ClientSecret,
 	}
 	missing := []string{}
 	for name, value := range required {
@@ -277,9 +257,98 @@ func FromClientSecret(opts ClientSecretOptions) (*Caracal, error) {
 	if err := assertProductionTransport("GatewayURL", opts.GatewayURL); err != nil {
 		return nil, err
 	}
+	return fromClientOptions(clientOptions{
+		CoordinatorURL:    opts.CoordinatorURL,
+		STSURL:            opts.STSURL,
+		ZoneID:            opts.ZoneID,
+		ApplicationID:     opts.ApplicationID,
+		ClientSecret:      opts.ClientSecret,
+		Resources:         opts.Resources,
+		ResourceBindings:  opts.ResourceBindings,
+		GatewayURL:        opts.GatewayURL,
+		HTTPClient:        opts.HTTPClient,
+		DefaultTTLSeconds: opts.DefaultTTLSeconds,
+	})
+}
+
+// AdvancedCredentialsOptions configures credentials resolved at operation time.
+type AdvancedCredentialsOptions struct {
+	CoordinatorURL    string
+	STSURL            string
+	Credentials       CredentialsResolver
+	Resources         []string
+	ResourceBindings  []ResourceBinding
+	GatewayURL        string
+	Scope             string
+	HTTPClient        *http.Client
+	DefaultTTLSeconds int
+}
+
+// FromCredentials returns a client backed by a dynamic credential resolver.
+func FromCredentials(opts AdvancedCredentialsOptions) (*Caracal, error) {
+	if opts.Credentials == nil {
+		return nil, fmt.Errorf("caracal: FromCredentials requires Credentials")
+	}
+	if opts.CoordinatorURL == "" || opts.STSURL == "" {
+		return nil, fmt.Errorf("caracal: FromCredentials requires CoordinatorURL and STSURL")
+	}
+	if opts.DefaultTTLSeconds < 0 {
+		return nil, fmt.Errorf("caracal: FromCredentials DefaultTTLSeconds must be a positive integer")
+	}
+	if err := assertProductionTransport("CoordinatorURL", opts.CoordinatorURL); err != nil {
+		return nil, err
+	}
+	if err := assertProductionTransport("STSURL", opts.STSURL); err != nil {
+		return nil, err
+	}
+	if err := assertProductionTransport("GatewayURL", opts.GatewayURL); err != nil {
+		return nil, err
+	}
+	return fromClientOptions(clientOptions{
+		CoordinatorURL:    opts.CoordinatorURL,
+		STSURL:            opts.STSURL,
+		Credentials:       opts.Credentials,
+		Resources:         opts.Resources,
+		ResourceBindings:  opts.ResourceBindings,
+		GatewayURL:        opts.GatewayURL,
+		Scope:             opts.Scope,
+		HTTPClient:        opts.HTTPClient,
+		DefaultTTLSeconds: opts.DefaultTTLSeconds,
+	})
+}
+
+type clientOptions struct {
+	CoordinatorURL    string
+	STSURL            string
+	ZoneID            string
+	ApplicationID     string
+	ClientSecret      string
+	Credentials       CredentialsResolver
+	Resources         []string
+	ResourceBindings  []ResourceBinding
+	GatewayURL        string
+	Scope             string
+	HTTPClient        *http.Client
+	DefaultTTLSeconds int
+}
+
+func fromClientOptions(opts clientOptions) (*Caracal, error) {
+	for _, resourceID := range opts.Resources {
+		if strings.TrimSpace(resourceID) == "" {
+			return nil, fmt.Errorf("caracal: resource IDs must be non-empty")
+		}
+	}
+	for _, binding := range opts.ResourceBindings {
+		if strings.TrimSpace(binding.ResourceID) == "" {
+			return nil, fmt.Errorf("caracal: resource IDs must be non-empty")
+		}
+		if !isAbsoluteURL(binding.UpstreamPrefix) {
+			return nil, fmt.Errorf("caracal: UpstreamPrefix must be an absolute http or https URL: %s", binding.UpstreamPrefix)
+		}
+	}
 	exchanger := newClientSecretExchanger(opts)
 	return &Caracal{
-		Coordinator:       &CoordinatorClient{BaseURL: opts.CoordinatorURL},
+		Coordinator:       &CoordinatorClient{BaseURL: opts.CoordinatorURL, HTTPClient: opts.HTTPClient},
 		ZoneID:            opts.ZoneID,
 		ApplicationID:     opts.ApplicationID,
 		TokenSource:       exchanger.source,
@@ -298,9 +367,6 @@ func FromConfig(path string) (*Caracal, error) {
 	}
 	stsURL := cfg.STSURL
 	if stsURL == "" {
-		stsURL = cfg.ZoneURL
-	}
-	if stsURL == "" {
 		stsURL, err = stsURLFromEnv()
 		if err != nil {
 			return nil, err
@@ -318,10 +384,6 @@ func FromConfig(path string) (*Caracal, error) {
 		return nil, err
 	}
 	resourceIDs, profileBindings := resourceIDsFromProfile(cfg)
-	credentialIDs, credentialBindings, err := credentialManifestFromEnv(cfg.ZoneID, cfg.ApplicationID)
-	if err != nil {
-		return nil, err
-	}
 	fileBindings, err := resourceBindingsFromFile(os.Getenv("CARACAL_RESOURCES_FILE"))
 	if err != nil {
 		return nil, err
@@ -330,11 +392,8 @@ func FromConfig(path string) (*Caracal, error) {
 	if err != nil {
 		return nil, err
 	}
-	bindings := sortBindingsLongestFirst(mergeResourceBindings(profileBindings, credentialBindings, fileBindings, envBindings))
-	resourceIDs = compactStrings(append(append(resourceIDs, credentialIDs...), bindingResourceIDs(bindings)...))
-	if len(resourceIDs) == 0 {
-		return nil, fmt.Errorf("caracal: %s requires at least one resource via credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE", path)
-	}
+	bindings := sortBindingsLongestFirst(mergeResourceBindings(profileBindings, fileBindings, envBindings))
+	resourceIDs = compactStrings(append(resourceIDs, bindingResourceIDs(bindings)...))
 	gatewayURL := cfg.GatewayURL
 	if gatewayURL == "" {
 		gatewayURL, err = serviceURL("CARACAL_GATEWAY_URL", defaultGatewayURL)
@@ -391,7 +450,14 @@ func isLoopbackHost(host string) bool {
 var insecureConfigWarnOnce sync.Once
 
 func assertProductionTransport(name string, value string) error {
-	if value == "" || !productionEnv() {
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("caracal: %s must be an absolute http or https URL: %s", name, value)
+	}
+	if !productionEnv() {
 		return nil
 	}
 	if os.Getenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true" {
@@ -401,10 +467,6 @@ func assertProductionTransport(name string, value string) error {
 			slog.Warn("caracal: CARACAL_ALLOW_INSECURE_CONFIG_URLS is active in production; control-plane traffic may travel over plaintext http - remove the override once TLS is in place")
 		})
 		return nil
-	}
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return fmt.Errorf("caracal: %s is not a valid URL: %s", name, value)
 	}
 	if parsed.Scheme == "https" {
 		return nil
@@ -431,9 +493,6 @@ func stsURLFromEnv() (string, error) {
 	if value := os.Getenv("CARACAL_STS_URL"); value != "" {
 		return value, nil
 	}
-	if value := os.Getenv("CARACAL_ZONE_URL"); value != "" {
-		return value, nil
-	}
 	return serviceURL("CARACAL_STS_URL", defaultSTSURL)
 }
 
@@ -457,7 +516,7 @@ type clientSecretExchanger struct {
 	onEvent      func(oauth.Event)
 }
 
-func newClientSecretExchanger(opts ClientSecretOptions) *clientSecretExchanger {
+func newClientSecretExchanger(opts clientOptions) *clientSecretExchanger {
 	scope := opts.Scope
 	if scope == "" {
 		scope = lifecycleScope
@@ -563,7 +622,11 @@ func (e *clientSecretExchanger) waitForApproval(ctx context.Context, approvalID 
 func (e *clientSecretExchanger) invalidate() {
 	e.mu.Lock()
 	e.force = true
+	client := e.client
 	e.mu.Unlock()
+	if client != nil {
+		client.Invalidate()
+	}
 }
 
 func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, sessionID, delegationID string, opts MandateOptions) (oauth.TokenExchangeResponse, error) {
@@ -572,13 +635,13 @@ func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID stri
 		return oauth.TokenExchangeResponse{}, err
 	}
 	return client.Exchange(ctx, "", resourceID, oauth.ExchangeOptions{
-		ClientSecret:     creds.ClientSecret,
-		Scopes:           scopes,
-		AgentSessionID:   sessionID,
-		DelegationEdgeID: delegationID,
-		TTLSeconds:       opts.TTLSeconds,
-		ChallengeID:      opts.ApprovalID,
-		OneShot:          opts.OneShot,
+		ClientSecret: creds.ClientSecret,
+		Scopes:       scopes,
+		SessionID:    sessionID,
+		DelegationID: delegationID,
+		TTLSeconds:   opts.TTLSeconds,
+		ChallengeID:  opts.ApprovalID,
+		OneShot:      opts.OneShot,
 	})
 }
 
@@ -691,9 +754,9 @@ func decodeJWTSegment(segment string) ([]byte, error) {
 	return base64.URLEncoding.DecodeString(segment)
 }
 
-// jwtSessionID extracts the sid claim of a JWT-shaped token without verifying
+// jwtAuthorityRecordID extracts the sid claim of a JWT-shaped token without verifying
 // it - verification is the STS's job. Empty for opaque or malformed tokens.
-func jwtSessionID(token string) string {
+func jwtAuthorityRecordID(token string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""
@@ -734,7 +797,6 @@ func taskMetadata(task string, metadata map[string]any) map[string]any {
 func (c *Caracal) Close() error {
 	c.appMandateMu.Lock()
 	c.appGeneration++
-	generation := c.appGeneration
 	inflight := make([]*appMandateCall, 0, len(c.appInflight))
 	for _, call := range c.appInflight {
 		inflight = append(inflight, call)
@@ -746,19 +808,11 @@ func (c *Caracal) Close() error {
 		}
 	}
 	c.appMandates = nil
+	c.appOrder = nil
 	c.appMandateMu.Unlock()
 	for _, call := range inflight {
 		<-call.done
-		if call.err == nil && len(call.entry.sessions) > 0 {
-			entries = append(entries, call.entry)
-		}
 	}
-	c.appMandateMu.Lock()
-	if generation != c.appGeneration {
-		c.appMandateMu.Unlock()
-		return nil
-	}
-	c.appMandateMu.Unlock()
 	if c.exchanger != nil && len(entries) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -783,7 +837,7 @@ func (c *Caracal) closeSessions(ctx context.Context, entries []appMandateEntry) 
 	}
 	for _, entry := range entries {
 		for _, id := range entry.sessions {
-			if terr := TerminateAgent(ctx, c.Coordinator, boot.AccessToken, zoneID, id); terr != nil && !isGone(terr) {
+			if terr := TerminateSession(ctx, c.Coordinator, boot.AccessToken, zoneID, id); terr != nil && !isGone(terr) {
 				slog.Warn("caracal: Close terminate failed; the coordinator TTL sweeper will retire it", "agent_session_id", id, "err", terr)
 			}
 		}
@@ -912,11 +966,11 @@ func resourceBindingsFromFile(path string) ([]ResourceBinding, error) {
 
 func isAbsoluteURL(value string) bool {
 	parsed, err := url.Parse(value)
-	return err == nil && parsed.Scheme != "" && parsed.Host != ""
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
-func resourceIDsFromEnv(raw string, first []string, bindings []ResourceBinding) []string {
-	out := append([]string(nil), first...)
+func resourceIDsFromEnv(raw string, bindings []ResourceBinding) []string {
+	out := []string{}
 	for _, value := range strings.Split(raw, ",") {
 		value = strings.TrimSpace(value)
 		if value != "" {
@@ -929,85 +983,6 @@ func resourceIDsFromEnv(raw string, first []string, bindings []ResourceBinding) 
 		out = append(out, binding.ResourceID)
 	}
 	return compactStrings(out)
-}
-
-func defaultProfilePath() string {
-	dir := defaultConfigDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "caracal.toml")
-}
-
-func defaultConfigDir() string {
-	if value := os.Getenv("CARACAL_CONFIG_HOME"); value != "" {
-		return value
-	}
-	if value := os.Getenv("XDG_CONFIG_HOME"); value != "" {
-		return filepath.Join(value, "caracal")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	if runtime.GOOS == "windows" {
-		if value := os.Getenv("APPDATA"); value != "" {
-			return filepath.Join(value, "Caracal")
-		}
-		if value := os.Getenv("LOCALAPPDATA"); value != "" {
-			return filepath.Join(value, "Caracal")
-		}
-		return filepath.Join(home, "AppData", "Roaming", "Caracal")
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", "Caracal")
-	}
-	return filepath.Join(home, ".config", "caracal")
-}
-
-func defaultCredentialDir(zoneID string, applicationID string) string {
-	return filepath.Join(defaultConfigDir(), "runtime", safePathSegment(zoneID), safePathSegment(applicationID))
-}
-
-func defaultClientSecretPath(zoneID string, applicationID string) string {
-	return filepath.Join(defaultCredentialDir(zoneID, applicationID), "client-secret")
-}
-
-func defaultRunCredentialsPath(zoneID string, applicationID string) string {
-	return filepath.Join(defaultCredentialDir(zoneID, applicationID), "credentials.json")
-}
-
-func safePathSegment(value string) string {
-	value = strings.TrimSpace(value)
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		ok := r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	out := strings.Trim(b.String(), "_")
-	if out == "" {
-		return "default"
-	}
-	return out
-}
-
-func existingLocalFile(path string) string {
-	if path == "" || productionEnv() {
-		return ""
-	}
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	return ""
 }
 
 // POSIX write bits are meaningless on Windows, where NTFS ACLs govern access
@@ -1053,9 +1028,6 @@ func clientSecretFromEnv(zoneID string, applicationID string) (string, error) {
 	if value != "" {
 		return value, nil
 	}
-	if localFile := existingLocalFile(defaultClientSecretPath(zoneID, applicationID)); localFile != "" {
-		return readSecretFile(localFile)
-	}
 	return "", nil
 }
 
@@ -1075,10 +1047,7 @@ func clientSecretFromProfile(path string, cfg profileFile) (string, error) {
 	}
 	fileValue := cfg.AppClientSecretFile
 	if fileValue == "" {
-		fileValue = existingLocalFile(defaultClientSecretPath(cfg.ZoneID, cfg.ApplicationID))
-	}
-	if fileValue == "" {
-		return "", fmt.Errorf("caracal: %s requires a client secret; local dev/stable auto-detects %s when it exists", path, defaultClientSecretPath(cfg.ZoneID, cfg.ApplicationID))
+		return "", fmt.Errorf("caracal: %s requires app_client_secret or app_client_secret_file", path)
 	}
 	return readSecretFile(fileValue)
 }
@@ -1094,7 +1063,6 @@ type profileFile struct {
 	ZoneID              string              `toml:"zone_id"`
 	ApplicationID       string              `toml:"application_id"`
 	STSURL              string              `toml:"sts_url"`
-	ZoneURL             string              `toml:"zone_url"`
 	CoordinatorURL      string              `toml:"coordinator_url"`
 	GatewayURL          string              `toml:"gateway_url"`
 	AppClientSecret     string              `toml:"app_client_secret"`
@@ -1143,55 +1111,6 @@ func resourceIDsFromProfile(cfg profileFile) ([]string, []ResourceBinding) {
 		}
 	}
 	return ids, sortBindingsLongestFirst(bindings)
-}
-
-func credentialManifestFromEnv(zoneID string, applicationID string) ([]string, []ResourceBinding, error) {
-	fileValue := os.Getenv("CARACAL_RUN_CREDENTIALS_FILE")
-	inline := os.Getenv("CARACAL_RUN_CREDENTIALS")
-	if fileValue != "" && inline != "" {
-		return nil, nil, fmt.Errorf("caracal: set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE")
-	}
-	if fileValue == "" && inline == "" {
-		fileValue = existingLocalFile(defaultRunCredentialsPath(zoneID, applicationID))
-		if fileValue == "" {
-			return nil, nil, nil
-		}
-	}
-	raw := []byte(inline)
-	if fileValue != "" {
-		data, err := os.ReadFile(fileValue)
-		if err != nil {
-			return nil, nil, err
-		}
-		raw = data
-	}
-	type credentialEntry struct {
-		Resource       string `json:"resource"`
-		UpstreamPrefix string `json:"upstream_prefix"`
-	}
-	var entries []credentialEntry
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		var manifest struct {
-			Credentials         []credentialEntry `json:"credentials"`
-			OptionalCredentials []credentialEntry `json:"optional_credentials"`
-		}
-		if err := json.Unmarshal(raw, &manifest); err != nil {
-			return nil, nil, err
-		}
-		entries = append(manifest.Credentials, manifest.OptionalCredentials...)
-	}
-	ids := []string{}
-	bindings := []ResourceBinding{}
-	for _, entry := range entries {
-		if entry.Resource == "" {
-			continue
-		}
-		ids = append(ids, entry.Resource)
-		if entry.UpstreamPrefix != "" {
-			bindings = append(bindings, ResourceBinding{ResourceID: entry.Resource, UpstreamPrefix: entry.UpstreamPrefix})
-		}
-	}
-	return ids, bindings, nil
 }
 
 func compactStrings(values []string) []string {
@@ -1357,7 +1276,7 @@ type StartSessionOptions struct {
 	OnLeaseLost       func(error)
 }
 
-// Service starts a long-lived service agent and returns a handle the caller
+// StartSession starts a long-lived Session and returns a handle the caller
 // owns. Unlike Session, the session is not retired when a block exits: a
 // background goroutine renews the lease by default and the handle is retired
 // with SessionHandle.Close. Use for daemons and workers that outlive a single
@@ -1605,7 +1524,7 @@ func (c *Caracal) FederateSubject(ctx context.Context, idToken string, opts ...F
 	if err != nil {
 		return FederatedSubject{}, err
 	}
-	authorityRecordID := jwtSessionID(minted.AccessToken)
+	authorityRecordID := jwtAuthorityRecordID(minted.AccessToken)
 	if authorityRecordID == "" {
 		return FederatedSubject{}, fmt.Errorf("caracal: FederateSubject: the minted Subject mandate carries no authority record ID")
 	}
@@ -2050,6 +1969,8 @@ type appMandateEntry struct {
 	expiresAt       time.Time
 	resourceID      string
 	zoneID          string
+	applicationID   string
+	credentialKey   string
 	targetSessionID string
 	delegationID    string
 	sessions        []string
@@ -2079,12 +2000,28 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 	}
 	key := appMandateKey(zoneID, applicationID, generationKey, resourceID, scopes, sessionLabels, mandateTTL)
 	c.appMandateMu.Lock()
+	generation := c.appGeneration
+	stale := []appMandateEntry{}
+	for cachedKey, entry := range c.appMandates {
+		if !entry.expiresAt.After(time.Now()) || entry.zoneID == zoneID && entry.applicationID == applicationID && entry.credentialKey != generationKey {
+			delete(c.appMandates, cachedKey)
+			c.removeAppOrder(cachedKey)
+			stale = append(stale, entry)
+		}
+	}
 	if cached, ok := c.appMandates[key]; ok && time.Until(cached.expiresAt) > appAuthorityRefreshMargin {
 		c.appMandateMu.Unlock()
+		for _, entry := range stale {
+			c.retireAppAuthority(entry)
+		}
 		return cached, nil
 	}
-	if inflight, ok := c.appInflight[key]; ok {
+	inflightKey := strconv.FormatUint(generation, 10) + "::" + key
+	if inflight, ok := c.appInflight[inflightKey]; ok {
 		c.appMandateMu.Unlock()
+		for _, entry := range stale {
+			c.retireAppAuthority(entry)
+		}
 		select {
 		case <-inflight.done:
 			return inflight.entry, inflight.err
@@ -2096,15 +2033,32 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 	if c.appInflight == nil {
 		c.appInflight = map[string]*appMandateCall{}
 	}
-	c.appInflight[key] = call
-	generation := c.appGeneration
+	c.appInflight[inflightKey] = call
+	if c.appProvision == nil {
+		c.appProvision = make(chan struct{}, 1)
+	}
+	provision := c.appProvision
 	c.appMandateMu.Unlock()
+	for _, entry := range stale {
+		c.retireAppAuthority(entry)
+	}
 
-	entry, err := c.appMandateCycle(ctx, zoneID, applicationID, resourceID, scopes, labels, mandateTTL)
+	select {
+	case provision <- struct{}{}:
+	case <-ctx.Done():
+		c.appMandateMu.Lock()
+		delete(c.appInflight, inflightKey)
+		call.err = ctx.Err()
+		c.appMandateMu.Unlock()
+		close(call.done)
+		return appMandateEntry{}, ctx.Err()
+	}
+	entry, err := c.appMandateCycle(ctx, zoneID, applicationID, generationKey, resourceID, scopes, labels, mandateTTL)
+	<-provision
 	call.entry, call.err = entry, err
 	evicted := []appMandateEntry{}
 	c.appMandateMu.Lock()
-	delete(c.appInflight, key)
+	delete(c.appInflight, inflightKey)
 	if err == nil {
 		if generation != c.appGeneration {
 			evicted = append(evicted, entry)
@@ -2112,22 +2066,35 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 			c.appMandates = map[string]appMandateEntry{}
 		}
 		if generation == c.appGeneration {
+			if _, exists := c.appMandates[key]; !exists {
+				c.appOrder = append(c.appOrder, key)
+			}
 			c.appMandates[key] = entry
 		}
 		if len(c.appMandates) > appAuthorityCacheCap {
 			now := time.Now()
-			for k, cached := range c.appMandates {
+			for _, k := range append([]string(nil), c.appOrder...) {
+				cached, exists := c.appMandates[k]
+				if !exists {
+					continue
+				}
 				if !cached.expiresAt.After(now) && k != key {
 					delete(c.appMandates, k)
+					c.removeAppOrder(k)
 					evicted = append(evicted, cached)
 				}
 			}
-			for k, cached := range c.appMandates {
+			for _, k := range append([]string(nil), c.appOrder...) {
 				if len(c.appMandates) <= appAuthorityCacheCap {
 					break
 				}
 				if k != key {
+					cached, exists := c.appMandates[k]
+					if !exists {
+						continue
+					}
 					delete(c.appMandates, k)
+					c.removeAppOrder(k)
 					evicted = append(evicted, cached)
 				}
 			}
@@ -2141,6 +2108,15 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 	return entry, err
 }
 
+func (c *Caracal) removeAppOrder(key string) {
+	for index, cachedKey := range c.appOrder {
+		if cachedKey == key {
+			c.appOrder = append(c.appOrder[:index], c.appOrder[index+1:]...)
+			return
+		}
+	}
+}
+
 func appMandateKey(zoneID, applicationID, generation, resourceID string, scopes, labels []string, mandateTTL int) string {
 	encodedLabels, _ := json.Marshal(labels)
 	return zoneID + "::" + applicationID + "::" + generation + "::" + resourceID + "::" + strings.Join(scopes, " ") + "::" + string(encodedLabels) + "::" + strconv.Itoa(mandateTTL)
@@ -2151,7 +2127,7 @@ func appMandateKey(zoneID, applicationID, generation, resourceID string, scopes,
 // session, and a delegation narrowing the requested scopes to the resource.
 // Started sessions are terminated on failure; on success they back fresh
 // per-request mandates and are retired by Close, eviction, or their own TTL.
-func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, resourceID string, scopes, labels []string, mandateTTL int) (appMandateEntry, error) {
+func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, credentialKey, resourceID string, scopes, labels []string, mandateTTL int) (appMandateEntry, error) {
 	sessionTTL := mandateTTL + appSessionTTLBuffer
 	boot, err := c.exchanger.mintMandate(ctx, resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
 	if err != nil {
@@ -2166,7 +2142,7 @@ func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, re
 	cleanup := func() {
 		cleanupCtx := context.WithoutCancel(ctx)
 		for _, id := range sessions {
-			_ = TerminateAgent(cleanupCtx, c.Coordinator, bootstrap, zoneID, id)
+			_ = TerminateSession(cleanupCtx, c.Coordinator, bootstrap, zoneID, id)
 		}
 	}
 	start := func() (string, error) {
@@ -2212,6 +2188,8 @@ func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, re
 		expiresAt:       time.Now().Add(time.Duration(sessionTTL) * time.Second),
 		resourceID:      resourceID,
 		zoneID:          zoneID,
+		applicationID:   applicationID,
+		credentialKey:   credentialKey,
 		targetSessionID: target,
 		delegationID:    edge.DelegationID,
 		sessions:        sessions,
@@ -2227,7 +2205,7 @@ func (c *Caracal) retireAppAuthority(entry appMandateEntry) {
 		return
 	}
 	for _, id := range entry.sessions {
-		if err := TerminateAgent(ctx, c.Coordinator, boot.AccessToken, entry.zoneID, id); err != nil && !isGone(err) {
+		if err := TerminateSession(ctx, c.Coordinator, boot.AccessToken, entry.zoneID, id); err != nil && !isGone(err) {
 			slog.Warn("caracal: terminate failed; the coordinator TTL sweeper will retire it", "agent_session_id", id, "err", err)
 		}
 	}

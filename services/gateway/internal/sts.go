@@ -98,6 +98,7 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken, zoneID, applicat
 		"resource":           {resource},
 		"request_method":     {method},
 		"request_path":       {path},
+		"gateway_request_id": {requestID},
 	}
 	body := form.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -114,9 +115,14 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken, zoneID, applicat
 	}
 	if len(c.exchangeHMACKey) > 0 {
 		timestamp := time.Now().UTC()
+		nonce, err := newExchangeNonce()
+		if err != nil {
+			return exchangeOutcome{Status: http.StatusInternalServerError,
+				ClientErr: sharederr.New(sharederr.STSUnavailable, "sts request signing failed"), InternalErr: err}
+		}
 		req.Header.Set(corests.GatewayTimestampHeader, fmt.Sprintf("%d", timestamp.Unix()))
-		req.Header.Set(corests.GatewayRequestHeader, requestID)
-		req.Header.Set(corests.GatewaySignatureHeader, corests.SignGatewayExchange(c.exchangeHMACKey, timestamp, requestID, req.Method, req.URL.Path, []byte(body)))
+		req.Header.Set(corests.GatewayRequestHeader, nonce)
+		req.Header.Set(corests.GatewaySignatureHeader, corests.SignGatewayExchange(c.exchangeHMACKey, timestamp, nonce, req.Method, req.URL.Path, []byte(body)))
 	}
 
 	start := time.Now()

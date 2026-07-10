@@ -114,7 +114,7 @@ type StartSessionResponse struct {
 	HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
 }
 
-// DelegationConstraints narrows a delegation edge.
+// DelegationConstraints narrows a Delegation.
 type DelegationConstraints struct {
 	Resources      []string
 	MaxDepth       int
@@ -155,7 +155,7 @@ func (d *DelegationConstraints) toWire() map[string]any {
 	return out
 }
 
-// DelegationRequest parameters for coordinator delegation edge creation.
+// DelegationRequest contains the parameters for creating a Delegation.
 type DelegationRequest struct {
 	ZoneID                string
 	IssuerApplicationID   string
@@ -170,7 +170,7 @@ type DelegationRequest struct {
 	IdempotencyKey        string
 }
 
-// DelegationResponse is the created delegation edge: its id, the scopes it
+// DelegationResponse is the created Delegation: its ID, the scopes it
 // bounds, and when it lapses.
 type DelegationResponse struct {
 	DelegationID string   `json:"delegation_edge_id"`
@@ -237,16 +237,16 @@ func StartCoordinatorSession(ctx context.Context, client *CoordinatorClient, bea
 	return out, nil
 }
 
-// TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
-func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) error {
+// TerminateSession calls the protocol Session termination endpoint.
+func TerminateSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) error {
 	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID), bearer, nil, nil, nil)
 }
 
-// HeartbeatAgent renews a service agent's lease. A service session is reaped by
+// HeartbeatSession renews a service Session's lease. A service Session is reaped by
 // the coordinator if it stops heartbeating before the lease expires; the
 // response reports the renewed deadline so callers can pace renewals. An empty
 // status reports "healthy".
-func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID, status string) (HeartbeatResponse, error) {
+func HeartbeatSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID, status string) (HeartbeatResponse, error) {
 	if status == "" {
 		status = "healthy"
 	}

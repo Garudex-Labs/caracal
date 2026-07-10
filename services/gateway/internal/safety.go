@@ -85,6 +85,19 @@ func stripCaracalBaggage(h http.Header) {
 	h.Set("Baggage", strings.Join(kept, ","))
 }
 
+// stripReservedHeaders removes metadata owned by Caracal and forwarding proxies.
+// The Gateway rebuilds the small trusted forwarding set after this boundary.
+func stripReservedHeaders(h http.Header) {
+	for name := range h {
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-caracal-") || strings.HasPrefix(lower, "x-forwarded-") {
+			h.Del(name)
+		}
+	}
+	h.Del("Forwarded")
+	h.Del("X-Real-Ip")
+}
+
 // pathContainsTraversal reports whether p contains a "." or ".." segment, recursively
 // undoing percent-encoding so multi-decoded sequences like %252e are also caught.
 func pathContainsTraversal(p string) bool {
@@ -96,6 +109,9 @@ func pathContainsTraversal(p string) bool {
 			return true
 		}
 		p = decoded
+		if strings.ContainsRune(p, '\\') {
+			return true
+		}
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == ".." || seg == "." {
@@ -276,6 +292,14 @@ func newRequestID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func newExchangeNonce() (string, error) {
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate gateway exchange nonce: %w", err)
+	}
+	return hex.EncodeToString(nonce[:]), nil
 }
 
 // newTraceparent returns a standards-compliant W3C traceparent header value.

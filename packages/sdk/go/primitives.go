@@ -153,7 +153,7 @@ func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(con
 	if err != nil {
 		return err
 	}
-	err = TerminateAgent(cleanupCtx, coordinator, token, zoneID, sessionID)
+	err = TerminateSession(cleanupCtx, coordinator, token, zoneID, sessionID)
 	if isGone(err) {
 		return nil
 	}
@@ -204,7 +204,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		IdempotencyKeyGenerated:  in.idempotencyKey == "",
 		ParentAuthority:          parentAuthority,
 	}
-	const spawnRetries = 2
+	const sessionStartRetries = 2
 	var res StartSessionResponse
 	refreshed := false
 	for attempt := 0; ; {
@@ -235,10 +235,10 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 			}
 			// The idempotency key makes retrying a 5xx safe: the coordinator
 			// replays the already-created session instead of minting a duplicate.
-			if coordErr.StatusCode < 500 || attempt >= spawnRetries {
+			if coordErr.StatusCode < 500 || attempt >= sessionStartRetries {
 				return nil, err
 			}
-		} else if attempt >= spawnRetries {
+		} else if attempt >= sessionStartRetries {
 			return nil, err
 		}
 		delay := retryDelay(attempt, err)
@@ -558,7 +558,7 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 	if err != nil {
 		return err
 	}
-	res, err := HeartbeatAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st)
+	res, err := HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st)
 	if err != nil {
 		// A cached token can be rejected before its exp (server-side session
 		// revocation after a credential rotation); force one refresh and retry
@@ -571,7 +571,7 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 		if token, err = s.bearer(ctx); err != nil {
 			return err
 		}
-		if res, err = HeartbeatAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st); err != nil {
+		if res, err = HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st); err != nil {
 			return err
 		}
 	}
@@ -588,7 +588,14 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 		s.status = res.Status
 		s.mu.Unlock()
 		if changed && s.onStateChange != nil {
-			s.onStateChange(res.Status)
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						slog.Warn("caracal state-change callback failed", "agent_session_id", s.Context.SessionID, "panic", recovered)
+					}
+				}()
+				s.onStateChange(res.Status)
+			}()
 		}
 	}
 	return nil
@@ -667,7 +674,7 @@ func (s *SessionHandle) Close(ctx context.Context) error {
 			s.closeErr = errors.Join(endErr, err)
 			return
 		}
-		err = TerminateAgent(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID)
+		err = TerminateSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID)
 		if isGone(err) {
 			err = nil
 		}
@@ -680,7 +687,7 @@ func (s *SessionHandle) Close(ctx context.Context) error {
 // the caller owns. A background goroutine renews the heartbeat lease by
 // default (see StartSessionInput.HeartbeatInterval); retire the session with
 // SessionHandle.Close. Set Authority to AuthorityNarrow(...) to issue a bounded
-// delegation edge so the handle holds only a subset of scopes.
+// Delegation so the handle holds only a subset of scopes.
 func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, error) {
 	sess, err := establishSession(ctx, sessionInput{
 		coordinator:              opts.Coordinator,
@@ -760,7 +767,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		}
 		token = fresh
 	}
-	first, err := HeartbeatAgent(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+	first, err := HeartbeatSession(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
 	if err != nil {
 		var coordErr *CoordinatorError
 		if !errors.As(err, &coordErr) || coordErr.StatusCode != 401 || opts.Invalidate == nil || opts.TokenSource == nil {
@@ -771,7 +778,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		if err != nil {
 			return nil, err
 		}
-		first, err = HeartbeatAgent(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+		first, err = HeartbeatSession(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
 		if err != nil {
 			return nil, err
 		}

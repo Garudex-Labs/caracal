@@ -185,8 +185,8 @@ func NewClient(s Streamer, cfg ClientConfig) (*Client, error) {
 	}, nil
 }
 
-// Emit enqueues an event. Returns immediately; on overflow the event is dropped
-// and counted. A nil receiver is a no-op so callers without configured audit
+// Emit enqueues an event. On overflow it durably persists the event before
+// returning. A nil receiver is a no-op so callers without configured audit
 // (e.g. unit tests) need not branch.
 func (c *Client) Emit(ev Event) {
 	if c == nil {
@@ -196,13 +196,11 @@ func (c *Client) Emit(ev Event) {
 	case c.ch <- ev:
 		c.emitted.Add(1)
 	default:
-		dropped := c.dropped.Add(1)
-		if c.cfg.Metrics.OnDropped != nil {
-			c.cfg.Metrics.OnDropped(dropped)
+		if err := c.persistBatch([]Event{ev}); err != nil {
+			c.recordLoss(1, err)
+			return
 		}
-		if dropped == 1 || dropped%1000 == 0 {
-			c.cfg.Logger.Warn().Uint64("dropped", dropped).Msg("audit buffer full")
-		}
+		c.emitted.Add(1)
 	}
 }
 
