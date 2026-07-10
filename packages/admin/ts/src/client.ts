@@ -96,12 +96,12 @@ const MAX_RETRY_AFTER_MS = 30_000
 const MAX_LIST_PAGES = 50
 
 function mapSession(row: Record<string, unknown>): Session {
-  const { agent_session_id, parent_id, subject_session_id, ...rest } = row
+  const { agent_session_id, parent_id, subject_authority_record_id, ...rest } = row
   return {
     ...rest,
     session_id: String(agent_session_id),
     parent_session_id: parent_id === null ? null : String(parent_id),
-    authority_record_id: String(subject_session_id),
+    authority_record_id: String(subject_authority_record_id),
   } as Session
 }
 

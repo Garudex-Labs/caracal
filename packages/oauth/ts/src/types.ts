@@ -59,6 +59,8 @@ export interface ExchangeOptions {
   challengeId?: string
   /** Skip the cached token and mint a fresh one; the result still refills the cache. */
   forceRefresh?: boolean
+  /** Mint without reading, writing, or joining the token cache. */
+  cache?: boolean
   /** Aborts the exchange, including retries and backoff waits. */
   signal?: AbortSignal
 }

@@ -61,14 +61,16 @@ const RevokeDelegationBody = z.object({
   delegation_edge_id: z.string().min(1),
 })
 
-const VerifyBody = z.object({
-  authorization: z.string().min(1).optional(),
-  token: z.string().min(1).optional(),
-  zone_id: z.string().min(1),
-  required_scope: z.string().min(1).optional(),
-  require_session: z.boolean().optional(),
-  require_delegation: z.boolean().optional(),
-})
+const VerifyBody = z
+  .object({
+    authorization: z.string().min(1).optional(),
+    token: z.string().min(1).optional(),
+    zone_id: z.string().min(1),
+    required_scope: z.string().min(1).optional(),
+    require_session: z.boolean().optional(),
+    require_delegation: z.boolean().optional(),
+  })
+  .strict()
 
 function bearerOf(req: { headers: { authorization?: string } }): string {
   return req.headers.authorization ?? ''
@@ -221,7 +223,9 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         return reply.code(429).send({ valid: false, error: 'rate_limited' })
       }
     }
-    const body = VerifyBody.parse(req.body ?? {})
+    const parsed = VerifyBody.safeParse(req.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ valid: false, error: 'invalid_request' })
+    const body = parsed.data
     const raw = body.token ?? (body.authorization?.startsWith('Bearer ') ? body.authorization.slice(7).trim() : body.authorization)
     if (!raw) return reply.code(400).send({ valid: false, error: 'missing_token' })
     const config: JwtConfig = {

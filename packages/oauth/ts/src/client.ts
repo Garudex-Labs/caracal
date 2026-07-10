@@ -84,7 +84,7 @@ export class OAuthClient {
     const scopes = [...new Set(opts.scopes ?? [])].sort()
     const cacheSubject = this.cacheSubject(subjectToken, opts)
     const cacheResource = this.cacheResource(resource, opts)
-    if (!opts.forceRefresh) {
+    if (opts.cache !== false && !opts.forceRefresh) {
       const cached = this.cache.get(cacheSubject, cacheResource)
       if (cached) {
         // Cap the preflight window at half the token lifetime so short-lived
@@ -99,6 +99,25 @@ export class OAuthClient {
     }
 
     const inflightKey = `${cacheSubject}::${cacheResource}`
+    if (opts.cache === false) {
+      const start = performance.now()
+      try {
+        const token = await this.doExchange(subjectToken, resource, opts, false)
+        this.emit({ type: 'token.exchange', resources, scopes, cached: false, ok: true, durationMs: performance.now() - start })
+        return token
+      } catch (err) {
+        this.emit({
+          type: 'token.exchange',
+          resources,
+          scopes,
+          cached: false,
+          ok: false,
+          durationMs: performance.now() - start,
+          ...(err instanceof CaracalError ? { code: err.code, status: err.httpStatus } : {}),
+        })
+        throw err
+      }
+    }
     const existing = this.inflight.get(inflightKey)
     if (existing) return existing
 
@@ -277,8 +296,8 @@ export class OAuthClient {
 
   /**
    * Exchanges an end user's identity token from a zone-trusted external issuer
-   * for a Caracal user subject session. The application authenticates itself
-   * with its client secret and relays the token verbatim; the minted session is
+   * for a Caracal Subject authority record. The application authenticates itself
+   * with its client secret and relays the token verbatim; the minted record is
    * the subject's identity anchor and carries no resource authority. Never
    * cached: each federation is an explicit identity event.
    */
@@ -378,9 +397,9 @@ export async function pollStepUpState(
     const remainingMs = deadline - performance.now()
     if (remainingMs <= 0) return 'pending'
     const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
-    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(approvalId)}?wait=${wait}`, {
-      signal: opts.signal,
-    })
+    const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)))
+    const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout
+    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(approvalId)}?wait=${wait}`, { signal })
     if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
     const data = (await res.json()) as { state?: unknown }
     if (typeof data.state === 'string' && data.state !== 'pending') return approvalState(data.state)

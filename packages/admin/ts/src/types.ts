@@ -577,7 +577,7 @@ export interface Session {
   labels: string[]
   depth: number
   child_count: number
-  spawned_at: string
+  started_at: string
   last_active_at: string
   terminated_at: string | null
   ttl_seconds: number | null

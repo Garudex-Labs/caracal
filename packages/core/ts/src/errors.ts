@@ -21,7 +21,7 @@ export type WellKnownErrorCode =
   | 'payload_too_large'
   | 'zone_invalid'
   | 'scope_insufficient'
-  | 'agent_identity_required'
+  | 'session_required'
   | 'delegation_required'
   | 'chain_mismatch'
   | 'hop_count_exceeded'
