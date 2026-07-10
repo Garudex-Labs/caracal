@@ -1941,6 +1941,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 	hops := make([]ChainHop, 0, len(path)+1)
 	edges := make([]*DelegationEdge, 0, len(path))
 	var prevReceiverApp string
+	var prevTargetSessionID string
 	var parentEdge *DelegationEdge
 	var parentConstraints delegationConstraints
 	for index, edgeID := range path {
@@ -1954,9 +1955,8 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 			}
 			hopEdge = fetched
 		}
-		// Re-validate each lineage edge against current state.
-		// filters in SQL, but a revoke racing the path computation could
-		// otherwise let a stale-but-attested chain hop ship in the JWT.
+		// Every lineage edge must remain active while the auditable chain is built.
+		// The guarded insert repeats the check under the Coordinator mutation lock.
 		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
 		}
@@ -1966,6 +1966,9 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		}
 		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+		}
+		if prevTargetSessionID != "" && hopEdge.SourceSessionID != prevTargetSessionID {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation Session chain discontinuous")
 		}
 		if len(hops) > 0 {
 			previousEdgeID := hops[len(hops)-1].DelegationEdgeID
@@ -1983,6 +1986,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 			DelegationEdgeID: hopEdge.ID,
 		})
 		prevReceiverApp = hopEdge.ReceiverAppID
+		prevTargetSessionID = hopEdge.TargetSessionID
 		parentEdge = hopEdge
 		parentConstraints = hopConstraints
 	}

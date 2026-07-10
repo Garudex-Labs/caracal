@@ -393,7 +393,7 @@ func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
 	s.agentIndex++
 	return session, nil
 }
-func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]string, error) {
+func (s *stubDB) GetDelegationLineage(_ context.Context, _, _ string, _ int) ([]string, error) {
 	return s.path, s.pathErr
 }
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
@@ -402,6 +402,20 @@ func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, er
 func (s *stubDB) InsertAuthorityRecord(_ context.Context, sess *AuthorityRecord) error {
 	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
 	return s.sessErr
+}
+func (s *stubDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
+}
+func (s *stubDB) InsertDelegatedAuthorityRecord(_ context.Context, sess *AuthorityRecord, _ DelegationIssuanceProof, _ *ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
 }
 func (s *stubDB) RevokeAuthorityRecord(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
@@ -2122,7 +2136,7 @@ func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation path invalid" {
+	if err == nil || err.Description != "delegation hop budget exhausted" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
 }
@@ -2145,6 +2159,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
+	parentEdgeID := "edge0"
 	mainEdge := &DelegationEdge{
 		ID:              "edge1",
 		ZoneID:          "zone1",
@@ -2152,16 +2167,17 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		TargetSessionID: target.ID,
 		IssuerAppID:     source.ApplicationID,
 		ReceiverAppID:   target.ApplicationID,
+		ParentEdgeID:    &parentEdgeID,
 		Scopes:          []string{"read"},
 		Status:          "active",
 		ExpiresAt:       now.Add(time.Minute),
-		ConstraintsJSON: []byte(`{"max_hops":3}`),
+		ConstraintsJSON: []byte(`{"max_hops":2}`),
 	}
-	// Build a valid 3-edge chain: app1→app1 (edge0), app1→app2 (edge1), app2→app2 (edge2).
+	// Build a valid 2-edge parent lineage: app1→app1 (edge0), app1→app2 (edge1).
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
 	db := &stubDB{
 		sessions:   []*Session{source, target},
-		path:       []string{"edge0", "edge1", "edge2"},
+		path:       []string{"edge0", "edge1"},
 		graphEpoch: 12,
 		edge:       mainEdge,
 		edgesMap: map[string]*DelegationEdge{
@@ -2172,20 +2188,12 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 				TargetSessionID: source.ID,
 				IssuerAppID:     "app1",
 				ReceiverAppID:   "app1",
+				Scopes:          []string{"read"},
 				Status:          "active",
 				ExpiresAt:       now.Add(time.Minute),
+				ConstraintsJSON: []byte(`{"max_hops":3}`),
 			},
 			"edge1": mainEdge,
-			"edge2": {
-				ID:              "edge2",
-				ZoneID:          "zone1",
-				SourceSessionID: target.ID,
-				TargetSessionID: target.ID,
-				IssuerAppID:     "app2",
-				ReceiverAppID:   "app2",
-				Status:          "active",
-				ExpiresAt:       now.Add(time.Minute),
-			},
 		},
 	}
 	srv := &Server{db: db}
@@ -2194,7 +2202,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
+	if err != nil || proof == nil || len(proof.path) != 2 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
 	}
 }

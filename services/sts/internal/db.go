@@ -535,8 +535,10 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 		   SELECT session.id
 		   FROM sessions session
 		   JOIN expected_sessions x ON x.id = session.id AND x.application_id = session.application_id
+		   JOIN authority_records authority ON authority.id = session.subject_authority_record_id AND authority.zone_id = session.zone_id
 		   WHERE session.zone_id = $2
 		     AND session.status = 'active'
+		     AND authority.status = 'active' AND authority.expires_at > now()
 		     AND ((session.lifecycle = 'service' AND session.heartbeat_deadline_at > now())
 		       OR (session.lifecycle = 'task' AND session.ttl_seconds > 0
 		         AND session.started_at + (session.ttl_seconds * interval '1 second') > now()))
@@ -591,7 +593,15 @@ func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason stri
 	if reason == "" {
 		reason = "session_revoked"
 	}
-	_, err := d.pool.Exec(ctx,
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delegation:"+zoneID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
 		`WITH RECURSIVE revoked_tree AS (
 		   SELECT id FROM authority_records WHERE id = $1 AND zone_id = $2
 		   UNION ALL
@@ -605,7 +615,10 @@ func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason stri
 		 WHERE zone_id = $2 AND id IN (SELECT id FROM revoked_tree)`,
 		sid, zoneID, reason,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // StepUpChallengePG is the durable approval hold behind a gated mint: one live row per

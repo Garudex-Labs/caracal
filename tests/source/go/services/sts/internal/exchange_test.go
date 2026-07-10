@@ -2245,7 +2245,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		Scopes:          []string{"read"},
 		Status:          "active",
 		ExpiresAt:       now.Add(time.Minute),
-		ConstraintsJSON: []byte(`{"max_hops":3}`),
+		ConstraintsJSON: []byte(`{"max_hops":2}`),
 	}
 	// Build a valid 2-edge parent lineage: app1→app1 (edge0), app1→app2 (edge1).
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
@@ -2262,9 +2262,10 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 				TargetSessionID: source.ID,
 				IssuerAppID:     "app1",
 				ReceiverAppID:   "app1",
+				Scopes:          []string{"read"},
 				Status:          "active",
 				ExpiresAt:       now.Add(time.Minute),
-				ConstraintsJSON: []byte(`{"max_hops":2}`),
+				ConstraintsJSON: []byte(`{"max_hops":3}`),
 			},
 			"edge1": mainEdge,
 		},
@@ -2277,6 +2278,25 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 	}, true)
 	if err != nil || proof == nil || len(proof.path) != 2 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
+	}
+}
+
+func TestValidateAncestorAttenuationResolvesCanonicalResourceIDs(t *testing.T) {
+	resourceID := "resource-row-id"
+	srv := &Server{db: &stubDB{resource: &Resource{ID: resourceID, ZoneID: "zone1", Identifier: "resource://pipernet"}}}
+	parent := &DelegationEdge{ZoneID: "zone1", Scopes: []string{"read"}, ExpiresAt: time.Now().Add(time.Hour)}
+	child := &DelegationEdge{ZoneID: "zone1", ResourceID: &resourceID, Scopes: []string{"read"}, ExpiresAt: time.Now().Add(time.Minute)}
+
+	err := srv.validateAncestorAttenuation(
+		context.Background(),
+		parent,
+		delegationConstraints{Resources: []string{"resource://pipernet"}, MaxHops: 2},
+		child,
+		delegationConstraints{MaxHops: 1},
+	)
+
+	if err != nil {
+		t.Fatalf("canonical resource id must remain inside the ancestor resource identifier: %v", err)
 	}
 }
 
