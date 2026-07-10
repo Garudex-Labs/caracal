@@ -5,7 +5,7 @@
 
 // DefaultMaxHopCount caps delegation chain depth when verifier callers leave
 // JwtConfig.maxHopCount unset. Matches the coordinator's MAX_DEPTH so a token
-// that would have been blocked at spawn time cannot pass a permissive resource
+// that would have been blocked when a Session starts cannot pass a permissive resource
 // server.
 export const DEFAULT_MAX_HOP_COUNT = 10
 export const MANDATE_USE_SESSION = 'session'
@@ -23,7 +23,7 @@ export interface JwtConfig {
   requiredScopes?: string[]
   requiredTargets?: string[]
   requiredUse?: string
-  requireAgent?: boolean
+  requireSession?: boolean
   requireDelegation?: boolean
   requireChainContains?: string[]
   maxHopCount?: number
@@ -31,16 +31,16 @@ export interface JwtConfig {
 
 export interface ChainHop {
   applicationId: string
-  agentSessionId?: string
-  delegationEdgeId?: string
+  sessionId?: string
+  delegationId?: string
 }
 
 export interface Claims {
   sub: string
   zoneId: string
   clientId: string
-  sid: string
-  rootSid: string
+  authorityRecordId: string
+  rootAuthorityRecordId: string
   use: string
   subType: string
   jti: string
@@ -48,8 +48,8 @@ export interface Claims {
   expiresAt: number
   scope: string
   targetResources?: string[]
-  agentSessionId?: string
-  delegationEdgeId?: string
+  sessionId?: string
+  delegationId?: string
   sourceSessionId?: string
   targetSessionId?: string
   delegationPath?: string[]

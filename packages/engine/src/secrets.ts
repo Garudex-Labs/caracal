@@ -32,6 +32,7 @@ export const SECRET_FILES: readonly SecretFile[] = [
   { envKey: 'SECRET_STORE_KEK', fileName: 'secretStoreKek', bytes: 32 },
   { envKey: 'AUDIT_HMAC_KEY', fileName: 'auditHmacKey', bytes: 32 },
   { envKey: 'STREAMS_HMAC_KEY', fileName: 'streamsHmacKey', bytes: 32 },
+  { envKey: 'IDEMPOTENCY_HMAC_KEY', fileName: 'idempotencyHmacKey', bytes: 32 },
   { envKey: 'GATEWAY_STS_HMAC_KEY', fileName: 'gatewayStsHmacKey', bytes: 32 },
   { envKey: 'CARACAL_API_DB_PASSWORD', fileName: 'apiDbPassword', bytes: 24 },
   { envKey: 'CARACAL_STS_DB_PASSWORD', fileName: 'stsDbPassword', bytes: 24 },

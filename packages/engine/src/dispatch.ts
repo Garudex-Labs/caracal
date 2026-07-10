@@ -358,9 +358,9 @@ const workloadHandler = bySubcommand({
   delete: ({ principal, flags, ctx }) => ctx.admin.workloads.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
-const sessionHandler = bySubcommand({
+const authorityRecordHandler = bySubcommand({
   list: ({ principal, flags, ctx }) =>
-    ctx.admin.sessions.list(requireZone(principal), {
+    ctx.admin.authorityRecords.list(requireZone(principal), {
       subject: getStr(flags, 'subject'),
       status: getStr(flags, 'status'),
       limit: getNum(flags, 'limit'),
@@ -387,13 +387,13 @@ const approvalHandler = bySubcommand({
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
   ctx.admin.audit.explain(requireZone(principal), mustStr(flags, 'request-id'))
 
-const agentHandler = bySubcommand({
-  list: ({ principal, ctx }) => ctx.admin.agents.list(requireZone(principal)),
-  get: ({ principal, flags, ctx }) => ctx.admin.agents.get(requireZone(principal), mustStr(flags, 'id')),
-  tree: ({ principal, flags, ctx }) => ctx.admin.agents.children(requireZone(principal), mustStr(flags, 'id')),
-  suspend: ({ principal, flags, ctx }) => ctx.admin.agents.suspend(requireZone(principal), mustStr(flags, 'id')),
-  resume: ({ principal, flags, ctx }) => ctx.admin.agents.resume(requireZone(principal), mustStr(flags, 'id')),
-  terminate: ({ principal, flags, ctx }) => ctx.admin.agents.terminate(requireZone(principal), mustStr(flags, 'id')),
+const sessionHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.sessions.list(requireZone(principal)),
+  get: ({ principal, flags, ctx }) => ctx.admin.sessions.get(requireZone(principal), mustStr(flags, 'id')),
+  tree: ({ principal, flags, ctx }) => ctx.admin.sessions.children(requireZone(principal), mustStr(flags, 'id')),
+  suspend: ({ principal, flags, ctx }) => ctx.admin.sessions.suspend(requireZone(principal), mustStr(flags, 'id')),
+  resume: ({ principal, flags, ctx }) => ctx.admin.sessions.resume(requireZone(principal), mustStr(flags, 'id')),
+  terminate: ({ principal, flags, ctx }) => ctx.admin.sessions.terminate(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const delegationHandler = bySubcommand({
@@ -489,8 +489,8 @@ function commandHandler(command: string): Handler | undefined {
       return ensureHandler
     case 'catalog':
       return catalogHandler
-    case 'session':
-      return sessionHandler
+    case 'authority-record':
+      return authorityRecordHandler
     case 'workload':
       return workloadHandler
     case 'approval':
@@ -499,8 +499,8 @@ function commandHandler(command: string): Handler | undefined {
       return auditHandler
     case 'explain':
       return explainHandler
-    case 'agent':
-      return agentHandler
+    case 'session':
+      return sessionHandler
     case 'delegation':
       return delegationHandler
     case 'grant':

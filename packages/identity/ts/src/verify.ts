@@ -34,10 +34,10 @@ export class ScopeInsufficientError extends CaracalError {
   }
 }
 
-export class AgentIdentityRequiredError extends CaracalError {
-  constructor(message = 'Agent identity required') {
-    super('agent_identity_required', message)
-    this.name = 'AgentIdentityRequiredError'
+export class SessionRequiredError extends CaracalError {
+  constructor(message = 'Session required') {
+    super('session_required', message)
+    this.name = 'SessionRequiredError'
   }
 }
 
@@ -117,9 +117,9 @@ function readChain(raw: unknown): ChainHop[] | undefined {
     }
     const r = item as Record<string, unknown>
     const applicationId = requiredString(r, 'application_id')
-    const agentSessionId = optionalString(r, 'agent_session_id')
-    const delegationEdgeId = optionalString(r, 'delegation_edge_id')
-    out.push({ applicationId, agentSessionId, delegationEdgeId })
+    const sessionId = optionalString(r, 'agent_session_id')
+    const delegationId = optionalString(r, 'delegation_edge_id')
+    out.push({ applicationId, sessionId, delegationId })
   }
   return out.length === 0 ? undefined : out
 }
@@ -147,8 +147,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   const jti = requiredString(payload, 'jti')
   const sub = requiredString(payload, 'sub')
   const clientId = requiredString(payload, 'client_id')
-  const sid = requiredString(payload, 'sid')
-  const rootSid = requiredString(payload, 'root_sid')
+  const authorityRecordId = requiredString(payload, 'sid')
+  const rootAuthorityRecordId = requiredString(payload, 'root_sid')
   const use = requiredString(payload, 'use')
   if (use !== MANDATE_USE_SESSION && use !== MANDATE_USE_RESOURCE) throw new TokenInvalidError('Token use validation failed')
   const subType = requiredString(payload, 'sub_type')
@@ -175,8 +175,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     }
   }
 
-  const agentSessionId = optionalString(payload, 'agent_session_id')
-  const delegationEdgeId = optionalString(payload, 'delegation_edge_id')
+  const sessionId = optionalString(payload, 'agent_session_id')
+  const delegationId = optionalString(payload, 'delegation_edge_id')
   const sourceSessionId = optionalString(payload, 'source_session_id')
   const targetSessionId = optionalString(payload, 'target_session_id')
   const delegationPath = readStringList(payload['delegation_path'], 'delegation_path')
@@ -184,10 +184,10 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   const graphEpoch = optionalInteger(payload, 'delegation_graph_epoch')
   const hopCount = optionalInteger(payload, 'hop_count')
 
-  if (config.requireAgent && !agentSessionId) {
-    throw new AgentIdentityRequiredError()
+  if (config.requireSession && !sessionId) {
+    throw new SessionRequiredError()
   }
-  if (config.requireDelegation && !delegationEdgeId) {
+  if (config.requireDelegation && !delegationId) {
     throw new DelegationRequiredError()
   }
   const maxHops = config.maxHopCount !== undefined && config.maxHopCount > 0 ? config.maxHopCount : DEFAULT_MAX_HOP_COUNT
@@ -203,8 +203,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     sub,
     zoneId,
     clientId,
-    sid,
-    rootSid,
+    authorityRecordId,
+    rootAuthorityRecordId,
     use,
     subType,
     jti,
@@ -212,8 +212,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     expiresAt,
     scope,
     targetResources,
-    agentSessionId,
-    delegationEdgeId,
+    sessionId,
+    delegationId,
     sourceSessionId,
     targetSessionId,
     delegationPath,

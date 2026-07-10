@@ -299,9 +299,9 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'session',
+    name: 'authority-record',
     group: 'admin',
-    summary: 'List authority sessions',
+    summary: 'List STS authority records',
     subcommands: ['list'],
     requiresZone: true,
     flags: {
@@ -359,9 +359,9 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'agent',
+    name: 'session',
     group: 'multiagent',
-    summary: 'Manage sessions',
+    summary: 'Manage governed sessions',
     subcommands: ['list', 'get', 'tree', 'suspend', 'resume', 'terminate'],
     requiresZone: true,
   },

@@ -152,6 +152,17 @@ export const ENV_SCHEMA = {
     secret: true,
     file: 'streamsHmacKey',
   },
+  IDEMPOTENCY_HMAC_KEY: {
+    kind: 'secret',
+    description: 'HMAC key used to digest Coordinator idempotency keys before storage.',
+    secret: true,
+    file: 'idempotencyHmacKey',
+  },
+  IDEMPOTENCY_HMAC_KEY_PREVIOUS: {
+    kind: 'secret',
+    description: 'Previous idempotency HMAC key accepted temporarily during rotation.',
+    secret: true,
+  },
   GATEWAY_STS_HMAC_KEY: {
     kind: 'secret',
     description: 'HMAC key used by Gateway to authenticate brokered STS exchanges.',

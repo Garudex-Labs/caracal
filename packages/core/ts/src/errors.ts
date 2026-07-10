@@ -15,6 +15,7 @@ export type WellKnownErrorCode =
   | 'policy_eval_failed'
   | 'provider_rate_limited'
   | 'interaction_required'
+  | 'approval_consumed'
   | 'sts_unavailable'
   | 'credential_expired_not_renewable'
   | 'payload_too_large'

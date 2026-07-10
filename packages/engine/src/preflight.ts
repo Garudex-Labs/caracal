@@ -22,6 +22,7 @@ const SECRET_FILES: Record<string, string> = {
   SECRET_STORE_KEK: 'secretStoreKek',
   AUDIT_HMAC_KEY: 'auditHmacKey',
   STREAMS_HMAC_KEY: 'streamsHmacKey',
+  IDEMPOTENCY_HMAC_KEY: 'idempotencyHmacKey',
   GATEWAY_STS_HMAC_KEY: 'gatewayStsHmacKey',
   POSTGRES_PASSWORD: 'postgresPassword',
   REDIS_PASSWORD: 'redisPassword',
