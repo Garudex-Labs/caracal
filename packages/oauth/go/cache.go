@@ -31,6 +31,7 @@ func mustRandomBytes(n int) []byte {
 type TokenCache interface {
 	Get(subjectToken, resource string) (TokenExchangeResponse, bool)
 	Set(subjectToken, resource string, token TokenExchangeResponse)
+	Clear()
 }
 
 // InMemoryTokenCache is a bounded process-local cache.
@@ -98,6 +99,14 @@ func (c *InMemoryTokenCache) Set(subjectToken, resource string, token TokenExcha
 		c.order = c.order[1:]
 		delete(c.entries, oldest)
 	}
+}
+
+// Clear drops every cached token.
+func (c *InMemoryTokenCache) Clear() {
+	c.mu.Lock()
+	clear(c.entries)
+	c.order = nil
+	c.mu.Unlock()
 }
 
 func (c *InMemoryTokenCache) touch(key string) {

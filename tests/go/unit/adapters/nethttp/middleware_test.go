@@ -19,6 +19,8 @@ import (
 	"time"
 
 	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
+	identity "github.com/garudex-labs/caracal/packages/identity/go"
+	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 

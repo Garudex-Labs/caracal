@@ -101,6 +101,11 @@ func (c *Client) emit(event Event) {
 	c.OnEvent(event)
 }
 
+// Invalidate drops every cached token derived by this client. In-flight exchanges are not canceled.
+func (c *Client) Invalidate() {
+	c.cache.Clear()
+}
+
 // Exchange performs RFC 8693 token exchange or returns a safe cached response.
 func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	return c.ExchangeResources(ctx, subjectToken, []string{resource}, opts)
