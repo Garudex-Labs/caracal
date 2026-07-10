@@ -113,6 +113,7 @@ type StartSessionResponse struct {
 	SessionID           string `json:"agent_session_id"`
 	DelegationID        string `json:"delegation_edge_id"`
 	HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
+	LeaseGeneration     int64  `json:"lease_generation"`
 }
 
 // DelegationConstraints narrows a Delegation. Budget is the maximum number of
@@ -193,6 +194,7 @@ type InboundDelegation struct {
 type HeartbeatResponse struct {
 	Status              string
 	HeartbeatDeadlineAt string
+	LeaseGeneration     int64
 }
 
 // StartCoordinatorSession calls POST /zones/:zoneId/agents.
@@ -240,31 +242,56 @@ func StartCoordinatorSession(ctx context.Context, client *CoordinatorClient, bea
 	if out.SessionID == "" {
 		return out, errors.New("caracal: coordinator session response missing agent_session_id")
 	}
+	if out.LeaseGeneration < 0 || (req.Lifecycle == LifecycleService && out.LeaseGeneration < 1) {
+		return out, errors.New("caracal: coordinator session response missing valid lease_generation")
+	}
 	return out, nil
 }
 
 // TerminateSession calls the protocol Session termination endpoint.
-func TerminateSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) error {
-	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID), bearer, nil, nil, nil)
+func TerminateSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string, leaseGeneration ...int64) error {
+	var body map[string]any
+	if len(leaseGeneration) > 0 {
+		body = map[string]any{"lease_generation": leaseGeneration[0]}
+	}
+	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID), bearer, body, nil, nil)
 }
 
 // HeartbeatSession renews a service Session's lease. A service Session is reaped by
 // the coordinator if it stops heartbeating before the lease expires; the
 // response reports the renewed deadline so callers can pace renewals. An empty
 // status reports "healthy".
-func HeartbeatSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID, status string) (HeartbeatResponse, error) {
+func HeartbeatSession(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string, leaseGeneration int64, status string) (HeartbeatResponse, error) {
 	if status == "" {
 		status = "healthy"
 	}
-	body := map[string]any{"status": status}
+	body := map[string]any{"status": status, "lease_generation": leaseGeneration}
 	var wire struct {
 		Agent struct {
 			Status              string `json:"status"`
 			HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
+			LeaseGeneration     int64  `json:"lease_generation"`
 		} `json:"agent"`
 	}
 	err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID)+"/heartbeat", bearer, body, nil, &wire)
-	return HeartbeatResponse{Status: wire.Agent.Status, HeartbeatDeadlineAt: wire.Agent.HeartbeatDeadlineAt}, err
+	if err == nil && wire.Agent.LeaseGeneration < 1 {
+		err = errors.New("caracal: coordinator heartbeat response missing valid lease_generation")
+	}
+	return HeartbeatResponse{Status: wire.Agent.Status, HeartbeatDeadlineAt: wire.Agent.HeartbeatDeadlineAt, LeaseGeneration: wire.Agent.LeaseGeneration}, err
+}
+
+// AcquireSessionLease takes ownership of an active service Session with a new generation.
+func AcquireSessionLease(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) (HeartbeatResponse, error) {
+	var wire struct {
+		Status              string `json:"status"`
+		HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
+		LeaseGeneration     int64  `json:"lease_generation"`
+	}
+	err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID)+"/lease", bearer, nil, nil, &wire)
+	if err == nil && wire.LeaseGeneration < 1 {
+		err = errors.New("caracal: coordinator lease response missing valid lease_generation")
+	}
+	return HeartbeatResponse{Status: wire.Status, HeartbeatDeadlineAt: wire.HeartbeatDeadlineAt, LeaseGeneration: wire.LeaseGeneration}, err
 }
 
 // CreateDelegation calls POST /zones/:zoneId/delegations.
@@ -381,6 +408,12 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", "Bearer "+bearer)
+	if trace, ok := Current(ctx); ok && traceIDRE.MatchString(trace.TraceID) && trace.TraceID != strings.Repeat("0", 32) {
+		req.Header.Set("Traceparent", FormatTraceparent(trace.TraceID, trace.TraceFlags))
+		if trace.TraceState != "" {
+			req.Header.Set("Tracestate", trace.TraceState)
+		}
+	}
 	for k, v := range extraHeaders {
 		req.Header.Set(k, v)
 	}

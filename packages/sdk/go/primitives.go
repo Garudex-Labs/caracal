@@ -123,6 +123,7 @@ type session struct {
 	ctx                 CaracalContext
 	bearer              func(context.Context) (string, error)
 	heartbeatDeadlineAt string
+	leaseGeneration     int64
 }
 
 // isGone reports a session the coordinator no longer holds live; retiring it
@@ -135,7 +136,7 @@ func isGone(err error) bool {
 	if coordErr.StatusCode == 404 {
 		return true
 	}
-	return coordErr.StatusCode == 409 && (coordErr.Code == "already_terminated" || coordErr.Code == "session_not_live" || coordErr.Code == "session_not_found_or_not_active")
+	return coordErr.StatusCode == 409 && (coordErr.Code == "already_terminated" || coordErr.Code == "session_not_live" || coordErr.Code == "session_not_found_or_not_active" || coordErr.Code == "session_lease_fenced" || coordErr.Code == "session_subject_inactive")
 }
 
 // retryAfterCap bounds a server-requested Retry-After so a hostile or
@@ -155,14 +156,14 @@ func retryDelay(attempt int, err error) time.Duration {
 // cancellation (with its own deadline) so an expired or canceled caller
 // context cannot strand the session, resolves a fresh bearer when a token
 // source is configured, and treats an already-retired session as success.
-func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(context.Context) (string, error), zoneID, sessionID string) error {
+func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(context.Context) (string, error), zoneID, sessionID string, leaseGeneration ...int64) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	token, err := bearer(cleanupCtx)
 	if err != nil {
 		return err
 	}
-	err = TerminateSession(cleanupCtx, coordinator, token, zoneID, sessionID)
+	err = TerminateSession(cleanupCtx, coordinator, token, zoneID, sessionID, leaseGeneration...)
 	if isGone(err) {
 		return nil
 	}
@@ -185,6 +186,16 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	if parentID == "" {
 		parentID = parent.SessionID
 	}
+	traceID := in.traceID
+	if traceID == "" {
+		traceID = parent.TraceID
+	}
+	if traceID == "" {
+		traceID = newTraceID()
+	}
+	traceContext := parent
+	traceContext.TraceID = traceID
+	requestCtx := Bind(ctx, traceContext)
 	token := in.subjectToken
 	bearer := func(c context.Context) (string, error) {
 		if in.tokenSource != nil {
@@ -225,7 +236,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	refreshed := false
 	for attempt := 0; ; {
 		var err error
-		res, err = StartCoordinatorSession(ctx, in.coordinator, token, req)
+		res, err = StartCoordinatorSession(requestCtx, in.coordinator, token, req)
 		if err == nil {
 			break
 		}
@@ -267,21 +278,25 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	}
 
 	delegationID := res.DelegationID
+	var leaseGeneration []int64
+	if lifecycle == LifecycleService {
+		leaseGeneration = []int64{res.LeaseGeneration}
+	}
 	hop := parent.Hop
 	if delegationID != "" && hasParent {
 		hop = parent.Hop + 1
 	}
 	if authority.Mode == AuthorityModeNarrow {
 		if parent.SessionID == "" {
-			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
+			logRetire(retire(requestCtx, in.coordinator, bearer, in.zoneID, res.SessionID, leaseGeneration...), res.SessionID)
 			return nil, errors.New("caracal: Authority narrow requires an active parent session")
 		}
 		parentBearer, berr := contextBearer(ctx, parent)
 		if berr != nil {
-			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
+			logRetire(retire(requestCtx, in.coordinator, bearer, in.zoneID, res.SessionID, leaseGeneration...), res.SessionID)
 			return nil, berr
 		}
-		delRes, derr := CreateDelegation(ctx, in.coordinator, parentBearer, DelegationRequest{
+		delRes, derr := CreateDelegation(requestCtx, in.coordinator, parentBearer, DelegationRequest{
 			ZoneID:                in.zoneID,
 			IssuerApplicationID:   parent.ApplicationID,
 			SourceSessionID:       parent.SessionID,
@@ -294,20 +309,13 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 			TTLSeconds:            authority.TTLSeconds,
 		})
 		if derr != nil {
-			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
+			logRetire(retire(requestCtx, in.coordinator, bearer, in.zoneID, res.SessionID, leaseGeneration...), res.SessionID)
 			return nil, derr
 		}
 		delegationID = delRes.DelegationID
 		hop = parent.Hop + 1
 	}
 
-	traceID := in.traceID
-	if traceID == "" {
-		traceID = parent.TraceID
-	}
-	if traceID == "" {
-		traceID = newTraceID()
-	}
 	sessionID := in.subjectAuthorityRecordID
 	if sessionID == "" {
 		sessionID = parent.SubjectAuthorityRecordID
@@ -329,7 +337,13 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		OwnToken:                 true,
 		TokenSource:              in.tokenSource,
 	}
-	return &session{sessionID: res.SessionID, ctx: c, bearer: bearer, heartbeatDeadlineAt: res.HeartbeatDeadlineAt}, nil
+	return &session{
+		sessionID:           res.SessionID,
+		ctx:                 c,
+		bearer:              bearer,
+		heartbeatDeadlineAt: res.HeartbeatDeadlineAt,
+		leaseGeneration:     res.LeaseGeneration,
+	}, nil
 }
 
 func validateIdempotencyKey(key string) error {
@@ -385,7 +399,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 	child := Bind(ctx, sess.ctx)
 	if opts.OnSessionStart != nil {
 		if err := opts.OnSessionStart(child, sess.ctx); err != nil {
-			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
+			logRetire(retire(child, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
 			return err
 		}
 	}
@@ -394,7 +408,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 	if opts.OnSessionEnd != nil {
 		endErr = opts.OnSessionEnd(child, sess.ctx)
 	}
-	cleanupErr := retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID)
+	cleanupErr := retire(child, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID)
 	if runErr != nil {
 		logRetire(cleanupErr, sess.sessionID)
 		return errors.Join(runErr, endErr)
@@ -557,6 +571,7 @@ type SessionHandle struct {
 	mu                sync.Mutex
 	deadlineAt        time.Time
 	status            string
+	leaseGeneration   int64
 	stop              chan struct{}
 	wg                sync.WaitGroup
 	closeOnce         sync.Once
@@ -566,6 +581,11 @@ type SessionHandle struct {
 // SessionID returns the service session identifier.
 func (s *SessionHandle) SessionID() string {
 	return s.Context.SessionID
+}
+
+// LeaseGeneration returns the ownership generation fencing previous holders.
+func (s *SessionHandle) LeaseGeneration() int64 {
+	return s.leaseGeneration
 }
 
 // DeadlineAt returns the lease deadline the coordinator reported on the last
@@ -593,6 +613,7 @@ func (s *SessionHandle) bearer(ctx context.Context) (string, error) {
 // Heartbeat renews the service session lease, reporting the given status
 // ("healthy" when omitted).
 func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
+	ctx = Bind(ctx, s.Context)
 	st := ""
 	if len(status) > 0 {
 		st = status[0]
@@ -601,7 +622,7 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 	if err != nil {
 		return err
 	}
-	res, err := HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st)
+	res, err := HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, s.leaseGeneration, st)
 	if err != nil {
 		// A cached token can be rejected before its exp (server-side session
 		// revocation after a credential rotation); force one refresh and retry
@@ -614,7 +635,7 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 		if token, err = s.bearer(ctx); err != nil {
 			return err
 		}
-		if res, err = HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, st); err != nil {
+		if res, err = HeartbeatSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, s.leaseGeneration, st); err != nil {
 			return err
 		}
 	}
@@ -704,6 +725,7 @@ func (s *SessionHandle) startAutoHeartbeat() {
 // counts as success.
 func (s *SessionHandle) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
+		ctx = Bind(ctx, s.Context)
 		if s.stop != nil {
 			close(s.stop)
 			s.wg.Wait()
@@ -717,7 +739,7 @@ func (s *SessionHandle) Close(ctx context.Context) error {
 			s.closeErr = errors.Join(endErr, err)
 			return
 		}
-		err = TerminateSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID)
+		err = TerminateSession(ctx, s.coordinator, token, s.Context.ZoneID, s.Context.SessionID, s.leaseGeneration)
 		if isGone(err) {
 			err = nil
 		}
@@ -754,7 +776,7 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 	}
 	if opts.OnSessionStart != nil {
 		if err := opts.OnSessionStart(ctx, sess.ctx); err != nil {
-			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
+			logRetire(retire(Bind(ctx, sess.ctx), opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID, sess.leaseGeneration), sess.sessionID)
 			return nil, err
 		}
 	}
@@ -767,6 +789,7 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		onLeaseLost:       opts.OnLeaseLost,
 		onStateChange:     opts.OnStateChange,
 		status:            "active",
+		leaseGeneration:   sess.leaseGeneration,
 		onSessionEnd:      opts.OnSessionEnd,
 	}
 	if t, perr := time.Parse(time.RFC3339Nano, sess.heartbeatDeadlineAt); perr == nil {
@@ -803,6 +826,8 @@ type AttachSessionInput struct {
 // delegations bound by the previous holder are re-presented with
 // AcceptDelegation.
 func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle, error) {
+	traceID := newTraceID()
+	requestCtx := Bind(ctx, CaracalContext{TraceID: traceID})
 	token := opts.SubjectToken
 	if opts.TokenSource != nil {
 		fresh, err := opts.TokenSource(ctx)
@@ -811,7 +836,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		}
 		token = fresh
 	}
-	first, err := HeartbeatSession(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+	first, err := AcquireSessionLease(requestCtx, opts.Coordinator, token, opts.ZoneID, opts.SessionID)
 	if err != nil {
 		var coordErr *CoordinatorError
 		if !errors.As(err, &coordErr) || coordErr.StatusCode != 401 || opts.Invalidate == nil || opts.TokenSource == nil {
@@ -822,7 +847,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		if err != nil {
 			return nil, err
 		}
-		first, err = HeartbeatSession(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+		first, err = AcquireSessionLease(requestCtx, opts.Coordinator, token, opts.ZoneID, opts.SessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -833,6 +858,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 			ZoneID:        opts.ZoneID,
 			ApplicationID: opts.ApplicationID,
 			SessionID:     opts.SessionID,
+			TraceID:       traceID,
 			OwnToken:      true,
 			TokenSource:   opts.TokenSource,
 		},
@@ -843,6 +869,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		onLeaseLost:       opts.OnLeaseLost,
 		onStateChange:     opts.OnStateChange,
 		status:            first.Status,
+		leaseGeneration:   first.LeaseGeneration,
 		onSessionEnd:      opts.OnSessionEnd,
 	}
 	if t, perr := time.Parse(time.RFC3339Nano, first.HeartbeatDeadlineAt); perr == nil {

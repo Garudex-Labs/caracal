@@ -79,8 +79,6 @@ type Caracal struct {
 	appInflight   map[string]*appMandateCall
 	appProvision  chan struct{}
 	appGeneration uint64
-
-	unverifiedBoundaryOnce sync.Once
 }
 
 // TokenSource returns an application subject token for root SDK operations.
@@ -1678,13 +1676,16 @@ const (
 // Scopes mints the scoped use=gateway mandate required by gateway-routed
 // requests for the routed resource and bound agent identity; requires a
 // client-secret configuration. Propagation defaults to
-// PropagationAlways. Used by Transport and Fetch.
+// PropagationGatewayOnly. Used by Transport and Fetch.
 type CallOptions struct {
 	AsApplication bool
 	Verify        func(context.Context, string) (*VerifiedClaims, error)
-	Scopes        []string
-	ApprovalID    string
-	Propagation   Propagation
+	// TrustedPropagation accepts unsigned envelope attribution because an
+	// upstream boundary already verified the request.
+	TrustedPropagation bool
+	Scopes             []string
+	ApprovalID         string
+	Propagation        Propagation
 }
 
 func asApplication(opts []CallOptions) bool {
@@ -1707,7 +1708,7 @@ func approvalIDOf(opts []CallOptions) string {
 
 func propagationOf(opts []CallOptions) Propagation {
 	if len(opts) == 0 || opts[0].Propagation == "" {
-		return PropagationAlways
+		return PropagationGatewayOnly
 	}
 	return opts[0].Propagation
 }
@@ -1754,14 +1755,15 @@ func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	if opt.Verify == nil && productionEnv() {
-		c.unverifiedBoundaryOnce.Do(func() {
-			slog.Warn("caracal: inbound context is being bound without a Verify hook in production; the envelope is propagation-only - pass CallOptions.Verify or keep this boundary behind a verifier such as the Gateway or the identity package")
-		})
+	if opt.Verify != nil && opt.TrustedPropagation {
+		return ctx, fmt.Errorf("caracal: BindFromRequest requires either Verify or TrustedPropagation, not both")
 	}
 	env := FromHTTPRequest(r)
 	var claims *VerifiedClaims
 	rootInjected := false
+	if env.SubjectToken != "" && opt.Verify == nil && !opt.TrustedPropagation && productionEnv() {
+		return ctx, fmt.Errorf("caracal: BindFromRequest production ingress requires Verify or TrustedPropagation when an upstream boundary already verified the request")
+	}
 	if env.SubjectToken == "" {
 		if !opt.AsApplication {
 			return ctx, fmt.Errorf("caracal: BindFromRequest missing bearer token")
