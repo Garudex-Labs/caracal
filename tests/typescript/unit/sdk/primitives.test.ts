@@ -515,7 +515,7 @@ describe('session with narrowed authority', () => {
   })
 
   it('terminateAgent throws when the coordinator DELETE fails', async () => {
-    const { terminateAgent } = await import('../../../../packages/sdk/ts/src/coordinator.js')
+    const { terminateSession: terminateAgent } = await import('../../../../packages/sdk/ts/src/coordinator.js')
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 })) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)

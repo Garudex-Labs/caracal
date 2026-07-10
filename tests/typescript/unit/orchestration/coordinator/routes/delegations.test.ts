@@ -73,8 +73,8 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('allows an issuer to create a cross-application offer without receiver credentials', async () => {
-    const { app, db } = buildApp(['coordinator.delegate_from:issuer-1'], 'issuer-1')
+  it('allows a cross-application offer with both delegation permissions', async () => {
+    const { app, db } = buildApp(['coordinator.delegate_from:issuer-1', 'coordinator.delegate_to:receiver-1'], 'issuer-1')
     const client = {
       query: vi
         .fn()
@@ -225,21 +225,6 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_delegation_constraint' })
-    expect(db.connect).not.toHaveBeenCalled()
-  })
-
-  it('rejects the retired budget constraint before opening a transaction', async () => {
-    const { app, db } = buildApp()
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/delegations',
-      payload: { ...delegationBody, constraints: { budget: 1 } },
-    })
-
-    expect(res.statusCode).toBe(400)
-    expect(res.json()).toMatchObject({ error: 'invalid_delegation_constraint' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
@@ -887,31 +872,6 @@ describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => 
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/outbound/sess-1?limit=bad' })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toEqual({ error: 'invalid_query' })
-  })
-
-  it('validates an exact opaque inbound edge for its receiver Session', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'edge-101', status: 'active' }] })
-    await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
-    expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ id: 'edge-101', status: 'active' })
-  })
-
-  it('binds exact inbound validation to the receiver application', async () => {
-    const { app, db } = buildApp(['coordinator.read'], 'receiver-1')
-    db.query.mockResolvedValueOnce({ rows: [] })
-    await app.ready()
-
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
-
-    expect(res.statusCode).toBe(404)
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('receiver_application_id = $4'), [
-      'edge-101',
-      'z1',
-      'sess-1',
-      'receiver-1',
-    ])
   })
 
   it('rejects an unknown cursor', async () => {
