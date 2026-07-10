@@ -55,6 +55,18 @@ describe('coordinator client', () => {
     expect(calls[0].headers.get('authorization')).toBe('Bearer tok')
   })
 
+  it('sends a federated Subject mandate as proof without replacing the application bearer', async () => {
+    const { client, calls } = stub(() => new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 201 }))
+    await startCoordinatorSession(client, 'application-mandate', {
+      zoneId: 'z1',
+      applicationId: 'app-1',
+      subjectAuthorityRecordId: 'subject-record',
+      subjectAuthorityRecordToken: 'subject-mandate',
+    })
+    expect(calls[0].headers.get('authorization')).toBe('Bearer application-mandate')
+    expect(calls[0].body).toMatchObject({ subject_session_id: 'subject-record', subject_token: 'subject-mandate' })
+  })
+
   it('rejects a Session-start response that lacks the protocol Session ID', async () => {
     const { client } = stub(() => new Response(JSON.stringify({}), { status: 201 }))
     await expect(startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow(

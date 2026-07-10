@@ -228,6 +228,21 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
+  it('rejects the retired budget constraint before opening a transaction', async () => {
+    const { app, db } = buildApp()
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/delegations',
+      payload: { ...delegationBody, constraints: { budget: 1 } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ error: 'invalid_delegation_constraint' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
   it('requires elevated permission for broad resource-null delegation', async () => {
     const { app, db } = buildApp(['coordinator.delegate_from:issuer-1', 'coordinator.delegate_to:receiver-1'])
 
@@ -818,6 +833,17 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
     expect(res.statusCode).toBe(404)
     expect(res.json()).toEqual({ error: 'delegation_not_found' })
   })
+
+  it('rejects recursive impact reads from runtime application credentials', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'issuer-1')
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/edge-1/impact' })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'coordinator_admin_required' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
 })
 
 describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => {
@@ -948,6 +974,17 @@ describe('GET /v1/zones/:zoneId/delegations/:id/traverse', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/e1/traverse' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual([{ id: 'e1', depth: 1 }])
+  })
+
+  it('rejects recursive traversal from runtime application credentials', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'issuer-1')
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/e1/traverse' })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'coordinator_admin_required' })
+    expect(db.query).not.toHaveBeenCalled()
   })
 })
 

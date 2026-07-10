@@ -21,6 +21,8 @@ import {
   HeaderTraceparent,
   HeaderBaggage,
   BaggageAgentSession,
+  BaggageDelegationEdge,
+  BaggageParentEdge,
   BaggageSession,
   BaggageHop,
   createAdvancedClientFromConfig,
@@ -38,6 +40,11 @@ const baseConfig = {
 
 function resourceMap(resources: { resourceId: string; upstreamPrefix: string }[] | undefined): Record<string, string> {
   return Object.fromEntries((resources ?? []).map((binding) => [binding.resourceId, binding.upstreamPrefix]))
+}
+
+function tokenWithUse(use: string): string {
+  const encoded = Buffer.from(JSON.stringify({ use })).toString('base64url')
+  return `eyJhbGciOiJFUzI1NiJ9.${encoded}.signature`
 }
 
 describe('advanced environment loading', () => {
@@ -338,7 +345,10 @@ describe('contextMiddleware + bindFromHeaders', () => {
     const c = new Caracal(baseConfig)
     const seen: string[] = []
     await c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
-      verify: (token) => void seen.push(token),
+      verify: (token) => {
+        seen.push(token)
+        return { zoneId: 'z', applicationId: 'app', hop: 0 }
+      },
     })
     expect(seen).toEqual(['inbound'])
 
@@ -374,6 +384,56 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
     )
     expect(seen).toBe('zone-proved|app-proved|agent-proved|sid-proved|3')
+  })
+
+  it('clears unsigned authority fields omitted from verified claims', async () => {
+    const c = new Caracal(baseConfig)
+    await c.bindFromHeaders(
+      {
+        [HeaderAuthorization]: 'Bearer inbound',
+        [HeaderBaggage]: [
+          `${BaggageAgentSession}=forged-session`,
+          `${BaggageDelegationEdge}=forged-edge`,
+          `${BaggageParentEdge}=forged-parent`,
+          `${BaggageSession}=forged-subject`,
+          `${BaggageHop}=9`,
+        ].join(','),
+      },
+      async () => {
+        expect(c.current()).toMatchObject({
+          zoneId: 'zone-proved',
+          applicationId: 'app-proved',
+          hop: 0,
+        })
+        expect(c.current()?.sessionId).toBeUndefined()
+        expect(c.current()?.delegationId).toBeUndefined()
+        expect(c.current()?.parentDelegationId).toBeUndefined()
+        expect(c.current()?.subjectAuthorityRecordId).toBeUndefined()
+      },
+      { verify: () => ({ zoneId: 'zone-proved', applicationId: 'app-proved', hop: 0 }) },
+    )
+  })
+
+  it('rejects malformed authoritative claim projections', async () => {
+    const c = new Caracal(baseConfig)
+    await expect(
+      c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
+        verify: () => ({ zoneId: 'zone-proved', applicationId: 'app-proved', hop: 11 }),
+      }),
+    ).rejects.toThrow(/hop must be an integer from 0 to 10/)
+  })
+
+  it('clears inbound authority baggage when trusted ingress runs as the application', async () => {
+    const c = new Caracal(baseConfig)
+    await c.bindFromHeaders(
+      { [HeaderBaggage]: `${BaggageAgentSession}=forged,${BaggageDelegationEdge}=forged-edge,${BaggageHop}=9` },
+      async () => {
+        expect(c.current()).toMatchObject({ subjectToken: 'tok', zoneId: 'z', applicationId: 'app', hop: 0, ownToken: true })
+        expect(c.current()?.sessionId).toBeUndefined()
+        expect(c.current()?.delegationId).toBeUndefined()
+      },
+      { asApplication: true },
+    )
   })
 })
 
@@ -503,6 +563,30 @@ describe('caracal.transport', () => {
     await expect(c.transport()('http://api/x')).rejects.toThrow(/asApplication/)
   })
 
+  it('rejects lifecycle mandates before sending them to the Gateway', async () => {
+    const fakeFetch = vi.fn() as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      subjectToken: tokenWithUse('session'),
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+    })
+
+    await expect(
+      c.transport({ asApplication: true })('https://gateway.example.com/proxy/events', {
+        headers: { 'X-Caracal-Resource': 'resource://calendar' },
+      }),
+    ).rejects.toThrow(/use=gateway.*use=session/)
+    expect(fakeFetch).not.toHaveBeenCalled()
+  })
+
+  it('requires a routed resource when scopes are requested', async () => {
+    const c = new Caracal({ ...baseConfig, gatewayUrl: 'https://gateway.example.com/proxy' })
+    await expect(c.transport({ asApplication: true, scopes: ['events:read'] })('https://gateway.example.com/proxy/events')).rejects.toThrow(
+      /scopes require X-Caracal-Resource/,
+    )
+  })
+
   it('auto-injects envelope headers on outbound calls', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -595,6 +679,47 @@ describe('caracal.transport', () => {
     expect(calls[0].headers.get(HeaderBaggage)).toBeNull()
     expect(calls[1].url).toBe('https://gateway.example.com/proxy/events')
     expect(parseTraceparent(calls[1].headers.get(HeaderTraceparent)!)).toBeTruthy()
+  })
+
+  it('does not treat unrelated or traversing same-origin paths as Gateway destinations', async () => {
+    const calls: { url: string; headers: Headers }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), headers: new Headers(init.headers) })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+    })
+    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
+
+    await send('https://gateway.example.com/unrelated')
+    await send('https://gateway.example.com/proxy/%252e%252e/admin')
+
+    for (const call of calls) {
+      expect(call.headers.get(HeaderAuthorization)).toBeNull()
+      expect(call.headers.get(HeaderTraceparent)).toBeNull()
+    }
+  })
+
+  it('forces manual redirects for Gateway-bound requests', async () => {
+    let redirect: RequestRedirect | undefined
+    const fakeFetch = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      redirect = init.redirect
+      return new Response(null, { status: 302, headers: { location: '/next' } })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+    })
+
+    await c.transport({ asApplication: true })('https://gateway.example.com/proxy/events', {
+      headers: { 'X-Caracal-Resource': 'resource://calendar' },
+    })
+
+    expect(redirect).toBe('manual')
   })
 
   it('routes bound provider calls through the configured gateway', async () => {
@@ -693,6 +818,8 @@ describe('caracal.transport', () => {
     expect(() => c.gatewayRequest('resource://calendar', 'https://api.example.com/events')).toThrow(/relative/)
     expect(() => c.gatewayRequest('resource://calendar', '/events/../admin')).toThrow(/dot segments/)
     expect(() => c.gatewayRequest('resource://calendar', './events')).toThrow(/dot segments/)
+    expect(() => c.gatewayRequest('resource://calendar', '/events/%252e%252e/admin')).toThrow(/dot segments/)
+    expect(() => c.gatewayRequest('resource://calendar', '/events#fragment')).toThrow(/fragment/)
   })
 })
 
@@ -1321,15 +1448,15 @@ describe('Caracal.attachSession', () => {
 })
 
 describe('logger routing', () => {
-  it('routes session cleanup failures to the injected logger', async () => {
+  it('surfaces session cleanup failures after successful work', async () => {
     const logger = vi.fn()
     const fetchImpl = (async (url: string, init?: { method?: string }) => {
       if (init?.method === 'DELETE') return new Response('cleanup down', { status: 500 })
       return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://coord', fetchImpl }, logger })
-    await expect(c.session(async () => 'ok')).resolves.toBe('ok')
-    expect(logger).toHaveBeenCalledWith(expect.stringContaining('terminate failed'), expect.anything())
+    await expect(c.session(async () => 'ok')).rejects.toThrow(/cleanup down/)
+    expect(logger).not.toHaveBeenCalled()
   })
 
   it('warns once through the logger when binding unverified context in production', async () => {

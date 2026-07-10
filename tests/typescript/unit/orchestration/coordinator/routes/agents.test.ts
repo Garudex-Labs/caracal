@@ -29,7 +29,7 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
       scopes,
       subject: 'test',
       clientId,
-      authorityRecordId: 'sid-test',
+      authorityRecordId: 'sid-1',
     }
   })
   app.register(agentsRoutes, { prefix: '/v1' })
@@ -60,7 +60,7 @@ function inheritEdgeRow(id: string, live: boolean): Record<string, unknown> {
     receiver_application_id: 'app-1',
     resource_id: null,
     scopes: ['payments:read'],
-    constraints_json: { max_hops: 2 },
+    constraints_json: { max_hops: 2, max_depth: 4 },
     expires_at: '2099-01-01T00:00:00.000Z',
     live,
   }
@@ -112,17 +112,17 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'application_not_found' })
   })
 
-  it('rejects inactive sessions', async () => {
+  it('rejects an unproven authority-record override', async () => {
     const { app, db } = buildApp()
-    db.connect.mockResolvedValueOnce(spawnClient({ refs: { application_exists: true, authority_record_exists: false } }))
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-other-zone' },
+      payload: { application_id: 'app-1', subject_session_id: 'sid-other' },
     })
-    expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'session_not_found' })
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'subject_proof_required' })
+    expect(db.connect).not.toHaveBeenCalled()
   })
 
   it('returns 429 when per-app agent cap is reached', async () => {
@@ -442,6 +442,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(edgeSelect?.[1]?.[3]).toBe('edge-parent')
     const edgeInsert = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO delegation_edges'))
     expect(edgeInsert?.[1]?.[8]).toEqual(['payments:read'])
+    expect(edgeInsert?.[1]?.[9]).toMatchObject({ max_hops: 1, max_depth: 3 })
   })
 
   it('fails closed with 409 when the requested inherit parent edge is not active', async () => {
@@ -564,7 +565,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const digest = requestDigest({
       principal: { client_id: 'app-1', subject: 'test' },
       application_id: 'app-1',
-      subject_authority_record_id: 'sid-test',
+      subject_authority_record_id: 'sid-1',
       parent_id: null,
       lifecycle: 'task',
       labels: [],
@@ -625,7 +626,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const request = {
       principal: { client_id: 'app-1', subject: 'test' },
       application_id: 'app-1',
-      subject_authority_record_id: 'sid-test',
+      subject_authority_record_id: 'sid-1',
       parent_id: null,
       lifecycle: 'task',
       labels: [],
@@ -681,7 +682,33 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-sdk' })
     const refsCall = client.query.mock.calls.find((call) => String(call[0]).includes('authority_record_exists'))
-    expect(refsCall?.[1]).toEqual(['z1', 'app-1', 'sid-test'])
+    expect(refsCall?.[1]).toEqual(['z1', 'app-1', 'sid-1', null])
+  })
+
+  it('rejects an Authority record that is not proven by the bearer or a Subject token', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'unrelated-record' },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'subject_proof_required' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed federated Subject proof before starting a transaction', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'subject-record', subject_token: 'not-a-jwt' },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'invalid_subject_proof' })
+    expect(db.connect).not.toHaveBeenCalled()
   })
 
   it('defaults lifecycle to task for managed applications when none is supplied', async () => {

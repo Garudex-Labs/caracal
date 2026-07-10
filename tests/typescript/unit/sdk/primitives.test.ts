@@ -58,6 +58,7 @@ describe('session', () => {
     const { client } = recorder()
     await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async (ctx) => {
       expect(ctx.sessionId).toBe('agent-new')
+      expect(ctx.traceId).toMatch(/^[0-9a-f]{32}$/)
       expect(ctx).toBe(current())
     })
   })
@@ -114,6 +115,25 @@ describe('session', () => {
       await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {})
     })
     expect(calls.some((c) => c.path.endsWith('/agents'))).toBe(true)
+  })
+
+  it('rejects an explicit parent that disagrees with the bound context', async () => {
+    const { client, calls } = recorder()
+    await bind(baseCtx({ sessionId: 'agent-bound' }), async () => {
+      await expect(
+        session(
+          {
+            coordinator: client,
+            zoneId: 'zone-1',
+            applicationId: 'app-1',
+            subjectToken: 'tok',
+            parentSessionId: 'agent-other',
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow(/must match the Session bound/)
+    })
+    expect(calls).toHaveLength(0)
   })
 
   it('requests server-side inheritance and accepts the mirrored delegation', async () => {
@@ -661,6 +681,20 @@ describe('session reliability', () => {
     ).resolves.toBe('result')
   })
 
+  it('surfaces cleanup failure when the fn succeeds', async () => {
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (init.method === 'DELETE') return new Response('db down', { status: 500 })
+      if (new URL(url).pathname.endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
+    await expect(
+      session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'result'),
+    ).rejects.toThrow(/500/)
+  })
+
   it('keeps the fn error when the cleanup terminate itself fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -736,6 +770,39 @@ describe('service auto-heartbeat', () => {
       const beatsAfterLoss = heartbeats.length
       await vi.advanceTimersByTimeAsync(10_000)
       expect(heartbeats.length).toBe(beatsAfterLoss)
+      await svc.close()
+    } finally {
+      vi.useRealTimers()
+      warn.mockRestore()
+    }
+  })
+
+  it('does not report resumable lease expiry as terminal loss', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      const { client, heartbeats } = serviceRecorder({
+        heartbeat: (beat) =>
+          beat === 1
+            ? new Response('{"error":"session_lease_expired"}', { status: 409 })
+            : new Response(JSON.stringify({ agent: { status: 'suspended' } }), { status: 200 }),
+      })
+      const onLeaseLost = vi.fn()
+      const onStateChange = vi.fn()
+      const svc = await startSession({
+        coordinator: client,
+        zoneId: 'zone-1',
+        applicationId: 'app-1',
+        subjectToken: 'tok',
+        heartbeatIntervalMs: 10,
+        onLeaseLost,
+        onStateChange,
+      })
+      await vi.advanceTimersByTimeAsync(100)
+      expect(heartbeats).toHaveLength(2)
+      expect(onLeaseLost).not.toHaveBeenCalled()
+      expect(onStateChange).toHaveBeenCalledWith('suspended')
+      expect(svc.status).toBe('suspended')
       await svc.close()
     } finally {
       vi.useRealTimers()

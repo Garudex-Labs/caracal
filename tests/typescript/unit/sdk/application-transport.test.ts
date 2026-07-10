@@ -19,6 +19,8 @@ interface RecordedCall {
   method: string
   headers: Record<string, string>
   body?: string
+  redirect?: RequestRedirect
+  signal?: AbortSignal | null
 }
 
 function json(body: unknown): Response {
@@ -41,7 +43,7 @@ function fakeFetch(): { fetchImpl: typeof fetch; calls: RecordedCall[]; counters
       headers[key] = value
     })
     const body = init?.body != null ? String(init.body) : request ? await request.clone().text() : undefined
-    calls.push({ url, method, headers, body })
+    calls.push({ url, method, headers, body, redirect: init?.redirect ?? request?.redirect, signal: init?.signal ?? request?.signal })
 
     if (url === `${STS}/oauth/2/token`) {
       const form = new URLSearchParams(body ?? '')
@@ -112,6 +114,20 @@ describe('Caracal.applicationTransport', () => {
     expect(calls.filter((c) => c.url.endsWith('/agents') && c.method === 'POST')).toHaveLength(2)
     expect(calls.filter((c) => c.url.endsWith('/delegations'))).toHaveLength(1)
     expect(calls.at(-1)!.url).toBe(`${GATEWAY}/v1/things`)
+    expect(calls.at(-1)!.headers.traceparent).toMatch(/^00-/)
+    expect(calls.at(-1)!.headers.baggage).toContain('caracal.agent_session=agent-2')
+    expect(calls.at(-1)!.headers.baggage).toContain('caracal.delegation_edge=edge-1')
+    expect(calls.at(-1)!.redirect).toBe('manual')
+  })
+
+  it('applies one timeout signal across provisioning, final mint, and dispatch', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'], timeoutMs: 5000 })
+
+    await appFetch(`${GATEWAY}/v1/things`)
+
+    expect(calls).not.toHaveLength(0)
+    for (const call of calls) expect(call.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('narrows the delegation to the requested scopes on the resource and mints on the target session', async () => {
