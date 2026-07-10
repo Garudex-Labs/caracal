@@ -31,10 +31,10 @@ sequenceDiagram
 
 ## Two Decision Planes
 
-| Plane | Approver | Surface |
-| --- | --- | --- |
-| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/step-up-challenges/{id}/approve` / `/reject`. |
-| Subject | The requesting application's own authenticated end user. | `POST /step-up/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
+| Plane    | Approver                                                  | Surface                                                                                                 |
+| -------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/step-up-challenges/{id}/approve` / `/reject`.          |
+| Subject  | The requesting application's own authenticated end user.  | `POST /step-up/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
 
 The tier's `approver` declaration picks the plane: `operator`, `subject`, or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
 
@@ -42,29 +42,29 @@ A subject-only hold is the application's promise that only its own end user deci
 
 ## Components
 
-| Component | Responsibility |
-| --- | --- |
-| Policy data | Declares `risk` tiers per scope and `approval_tiers` gates; the platform fixes no tier taxonomy. |
-| STS | Creates the hold, serves its state to long-polling agents, records decisions, verifies the binding, and consumes the approval at mint. |
-| Console or Admin API | Lists, inspects, and decides operator-plane holds. |
-| Application | Relays subject-plane holds to its own federated end user and posts the decision with the user's session mandate. |
-| SDK or OAuth client | Surfaces `interaction_required` and waits on the hold (`waitForApproval`); `caracal run` parks and retries automatically. |
+| Component            | Responsibility                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Policy data          | Declares `risk` tiers per scope and `approval_tiers` gates; the platform fixes no tier taxonomy.                                       |
+| STS                  | Creates the hold, serves its state to long-polling agents, records decisions, verifies the binding, and consumes the approval at mint. |
+| Console or Admin API | Lists, inspects, and decides operator-plane holds.                                                                                     |
+| Application          | Relays subject-plane holds to its own federated end user and posts the decision with the user's session mandate.                       |
+| SDK or OAuth client  | Surfaces `interaction_required` and waits on the hold (`waitForApproval`); `caracal run` parks and retries automatically.              |
 
 ## Challenge Lifecycle
 
-| State | Meaning |
-| --- | --- |
-| `pending` | The hold is live and awaiting a decision. |
-| `approved` | An approver granted the hold; the next matching exchange mints. |
-| `rejected` | An approver refused the hold; terminal. |
-| `expired` | The approval window closed without a decision, or an approval lapsed before consumption. |
-| `consumed` | The approval released its one mandate; terminal. |
+| State      | Meaning                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `pending`  | The hold is live and awaiting a decision.                                                |
+| `approved` | An approver granted the hold; the next matching exchange mints.                          |
+| `rejected` | An approver refused the hold; terminal.                                                  |
+| `expired`  | The approval window closed without a decision, or an approval lapsed before consumption. |
+| `consumed` | The approval released its one mandate; terminal.                                         |
 
 An approval releases exactly one token for exactly the held resource and scope set. Consumed and rejected are terminal and outrank expiry, so both planes always report the same state for the same hold.
 
 ## Privacy Modes
 
-The tier's `privacy` declaration controls what the decision record retains of a subject-plane approver: `identified` stores the subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, `anonymous` a redaction marker. The approver's session id is always kept as the forensic and revocation anchor. Operator-plane decisions always record the deciding admin identity. Caracal stores authorization facts, never business context - what was approved, by which authority, under which binding, and nothing else.
+The tier's `privacy` declaration controls what the decision record retains of a Subject-plane approver: `identified` stores the Subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, and `anonymous` a redaction marker. The approver's Authority record ID is always kept as the forensic and revocation anchor. Operator-plane decisions always record the deciding admin identity. Caracal stores authorization facts, never business context.
 
 ## Design Guidance
 

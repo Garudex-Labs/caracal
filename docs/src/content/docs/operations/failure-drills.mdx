@@ -21,84 +21,84 @@ Caracal fails closed for access-safety boundaries, so a healthy drill ends with 
 
 ### Redis outage
 
-| Field | Value |
-| --- | --- |
-| Inject | Scale managed Redis to unavailable, or block the Redis egress port. |
-| Expected alerts | `CaracalAuditConsumerLagHigh`, `CaracalGatewayRevocationSnapshotStale`, `CaracalGatewayRevocationReloadErrors`, and replay backlog via `CaracalGatewayAuditReplayBacklogOld` / `CaracalSTSAuditReplayBacklogOld`. |
-| Expected behavior | Streams, revocation refresh, and audit ingestion lag; STS and Gateway write audit to replay volumes; readiness degrades for affected services. |
-| Recover | Restore Redis, verify streams and consumer groups, drain replay backlog and DLQ, confirm revocation snapshot is fresh before resuming risky traffic. |
+| Field             | Value                                                                                                                                                                                                             |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inject            | Scale managed Redis to unavailable, or block the Redis egress port.                                                                                                                                               |
+| Expected alerts   | `CaracalAuditConsumerLagHigh`, `CaracalGatewayRevocationSnapshotStale`, `CaracalGatewayRevocationReloadErrors`, and replay backlog via `CaracalGatewayAuditReplayBacklogOld` / `CaracalSTSAuditReplayBacklogOld`. |
+| Expected behavior | Streams, revocation refresh, and audit ingestion lag; STS and Gateway write audit to replay volumes; readiness degrades for affected services.                                                                    |
+| Recover           | Restore Redis, verify streams and consumer groups, drain replay backlog and DLQ, confirm revocation snapshot is fresh before resuming risky traffic.                                                              |
 
 ### Postgres outage
 
-| Field | Value |
-| --- | --- |
-| Inject | Fail over or block the managed Postgres endpoint. |
-| Expected alerts | `CaracalPostgresPoolSaturation`, `CaracalAPIOutboxPendingOldest`, and `CaracalReadinessFlapping`. |
-| Expected behavior | API, STS, Gateway, Audit, and Coordinator readiness fail or degrade; outbox delivery stalls. |
-| Recover | Restore Postgres, confirm migrations applied, check connection pools, replay outboxes, confirm readiness stabilizes. |
+| Field             | Value                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Inject            | Fail over or block the managed Postgres endpoint.                                                                    |
+| Expected alerts   | `CaracalPostgresPoolSaturation`, `CaracalAPIOutboxPendingOldest`, and `CaracalReadinessFlapping`.                    |
+| Expected behavior | API, STS, Gateway, Audit, and Coordinator readiness fail or degrade; outbox delivery stalls.                         |
+| Recover           | Restore Postgres, confirm migrations applied, check connection pools, replay outboxes, confirm readiness stabilizes. |
 
 ### STS unreachable from Gateway
 
-| Field | Value |
-| --- | --- |
-| Inject | Scale STS to zero or block Gateway-to-STS traffic. |
-| Expected alerts | `CaracalGatewaySTSExchangeErrors` then `CaracalGatewaySTSCircuitOpen`. |
-| Expected behavior | Gateway token exchanges fail closed; protected upstream traffic is rejected before provider dispatch. |
-| Recover | Restore STS readiness, JWKS, HMAC config, and policy bundle freshness; confirm the circuit closes and a canary exchange succeeds. |
+| Field             | Value                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Inject            | Scale STS to zero or block Gateway-to-STS traffic.                                                                                |
+| Expected alerts   | `CaracalGatewaySTSExchangeErrors` then `CaracalGatewaySTSCircuitOpen`.                                                            |
+| Expected behavior | Gateway token exchanges fail closed; protected upstream traffic is rejected before provider dispatch.                             |
+| Recover           | Restore STS readiness, JWKS, HMAC config, and policy bundle freshness; confirm the circuit closes and a canary exchange succeeds. |
 
 ### Stale policy bundle
 
-| Field | Value |
-| --- | --- |
-| Inject | Pause policy distribution or hold the STS policy bundle past its freshness budget. |
-| Expected alerts | `CaracalSTSPolicyBundleStale`. |
-| Expected behavior | STS keeps evaluating the last good bundle; new policy activations do not take effect. |
-| Recover | Restore distribution, confirm the active policy set version, and verify the alert clears. |
+| Field             | Value                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| Inject            | Pause policy distribution or hold the STS policy bundle past its freshness budget.        |
+| Expected alerts   | `CaracalSTSPolicyBundleStale`.                                                            |
+| Expected behavior | STS keeps evaluating the last good bundle; new policy activations do not take effect.     |
+| Recover           | Restore distribution, confirm the active policy set version, and verify the alert clears. |
 
 ### Bad policy activation
 
-| Field | Value |
-| --- | --- |
-| Inject | Activate a Rego policy set with a compile error in a test zone. |
-| Expected alerts | `CaracalSTSOPACompileErrors`. |
+| Field             | Value                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| Inject            | Activate a Rego policy set with a compile error in a test zone.                                            |
+| Expected alerts   | `CaracalSTSOPACompileErrors`.                                                                              |
 | Expected behavior | STS rejects the broken bundle and continues on the last good policy; the activation does not widen access. |
-| Recover | Roll the policy set forward to a valid version and confirm the alert clears. |
+| Recover           | Roll the policy set forward to a valid version and confirm the alert clears.                               |
 
 ### Provider credential refresh failure
 
-| Field | Value |
-| --- | --- |
-| Inject | Revoke or expire the upstream provider credential the Gateway brokers. |
-| Expected alerts | `CaracalSTSProviderRefreshErrors` then `CaracalSTSProviderCircuitOpen`. |
+| Field             | Value                                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| Inject            | Revoke or expire the upstream provider credential the Gateway brokers.                        |
+| Expected alerts   | `CaracalSTSProviderRefreshErrors` then `CaracalSTSProviderCircuitOpen`.                       |
 | Expected behavior | Provider-backed exchanges fail closed; resources without brokered credentials are unaffected. |
-| Recover | Restore the provider credential, confirm refresh succeeds, and verify the circuit closes. |
+| Recover           | Restore the provider credential, confirm refresh succeeds, and verify the circuit closes.     |
 
 ### Revocation propagation lag
 
-| Field | Value |
-| --- | --- |
-| Inject | Revoke a session and delay the revocation stream consumer. |
-| Expected alerts | `CaracalGatewayRevocationPropagationLag`. |
-| Expected behavior | Revocation eventually reaches the Gateway; the drill measures the propagation window against your budget. |
-| Recover | Clear the consumer delay, confirm the revoked session is denied at the Gateway, and verify the alert clears. |
+| Field             | Value                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| Inject            | Revoke a session and delay the revocation stream consumer.                                                   |
+| Expected alerts   | `CaracalGatewayRevocationPropagationLag`.                                                                    |
+| Expected behavior | Revocation eventually reaches the Gateway; the drill measures the propagation window against your budget.    |
+| Recover           | Clear the consumer delay, confirm the revoked session is denied at the Gateway, and verify the alert clears. |
 
 ### Audit evidence pipeline backpressure
 
-| Field | Value |
-| --- | --- |
-| Inject | Pause the audit consumer or fault the audit datastore. |
-| Expected alerts | `CaracalAuditDLQNonEmpty`, `CaracalAuditDLQGrowth`, `CaracalAPIOutboxDeadMessages`. |
-| Expected behavior | Evidence ingestion is delayed; DLQ and outbox backlogs grow but are not lost. |
-| Recover | Restore the consumer and datastore, replay the DLQ and outboxes, and verify the tamper chain is intact. |
+| Field             | Value                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------- |
+| Inject            | Pause the audit consumer or fault the audit datastore.                                                  |
+| Expected alerts   | `CaracalAuditDLQNonEmpty`, `CaracalAuditDLQGrowth`, `CaracalAPIOutboxDeadMessages`.                     |
+| Expected behavior | Evidence ingestion is delayed; DLQ and outbox backlogs grow but are not lost.                           |
+| Recover           | Restore the consumer and datastore, replay the DLQ and outboxes, and verify the tamper chain is intact. |
 
 ### Audit tamper detection
 
-| Field | Value |
-| --- | --- |
-| Inject | In a disposable environment only, modify a stored audit record out of band. |
-| Expected alerts | `CaracalAuditTamperDetected`. |
+| Field             | Value                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| Inject            | In a disposable environment only, modify a stored audit record out of band.                          |
+| Expected alerts   | `CaracalAuditTamperDetected`.                                                                        |
 | Expected behavior | The integrity check flags the break; treat as a [security incident](/operations/incident-response/). |
-| Recover | Restore from a trusted backup, identify the blast radius, and follow incident response. |
+| Recover           | Restore from a trusted backup, identify the blast radius, and follow incident response.              |
 
 ## After the Drill
 

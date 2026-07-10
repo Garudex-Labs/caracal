@@ -1,112 +1,113 @@
 ---
 title: Identities and Applications
-description: Applications, services, agents, and the subjects they act for.
+description: Applications, Subjects, Authority records, and governed Sessions.
 sidebar:
   order: 5
 ---
 
-A principal is the acting identity. An application is the registered client or workload that authenticates and requests authority for that principal.
+A principal is the acting identity. An application is the registered client or workload that authenticates and requests authority. A Subject is the JWT `sub` identity work is attributed to.
 
 ## Principal Types
 
-| Principal | Typical source | How Caracal sees it |
-| --- | --- | --- |
-| User | Your application's own authenticated end user. | Federated subject (`sub`) recorded for attribution, provider connections, revocation, and audit - never an authorization input. |
-| Service | Workload credential or client secret. | Application-bound session or exchange subject. |
-| Agent | Spawned runtime session. | Agent session with parent and delegation context. |
+| Principal | Typical source                                                 | How Caracal sees it                                                                                                                       |
+| --------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| User      | Your application's own authenticated end user.                 | Federated Subject (`sub`) recorded for attribution, provider connections, revocation, and audit - never an authorization input by itself. |
+| Service   | Workload credential or client secret.                          | Application identity recorded on an Authority record and Session.                                                                         |
+| AI agent  | Agent framework or autonomous software acting through the SDK. | One or more governed Sessions with labels, parentage, and delegation context.                                                             |
 
-Principals are not enough on their own. A request also needs an application, session, resource, scopes, and policy approval.
+Principals are not enough on their own. A request also needs an application, Authority record, resource, scopes, and policy approval. Governed execution additionally has a Session.
 
 ## Application Roles
 
 Applications represent software that can participate in Caracal flows:
 
-- an agent runtime that spawns child agents;
+- an agent runtime that starts Sessions for child agents;
 - a backend service that requests mandates;
 - a Gateway application that fronts protected upstreams;
 - a adapter-protected resource server;
 - a managed or dynamically registered client.
 
-Applications have registration metadata, a server-owned token credential, and a registration method. Managed applications are operator-provisioned for known durable software, including the runtime that spawns and fans out child agents. Dynamically registered applications are short-lived, isolated identities created through the zone DCR endpoint when a separate auto-expiring credential boundary is needed - for example a per-tenant or per-integration identity - rather than for ordinary spawn fan-out.
+Applications have registration metadata, a server-owned token credential, and a registration method. Managed applications are operator-provisioned for known durable software, including runtimes that start Sessions for child agents. Dynamically registered applications are short-lived, isolated identities created through the zone DCR endpoint when a separate auto-expiring credential boundary is needed, such as a per-tenant or per-integration identity, rather than for ordinary Session fan-out.
 
-## Applications Are the Credential Boundary; Agents Are the Runtime Unit
+## Applications Are the Credential Boundary; Sessions Are the Runtime Unit
 
 ```mermaid
 flowchart TD
-  App["Managed application<br/>(credential boundary)"] --> S1["Agent session"]
-  App --> S2["Agent session"]
-  App --> S3["Agent session"]
-  S2 --> C1["Spawned child session"]
-  S3 --> C2["Delegated agent session"]
+  App["Managed application<br/>(credential boundary)"] --> S1["Session"]
+  App --> S2["Session"]
+  App --> S3["Session"]
+  S2 --> C1["Started child Session"]
+  S3 --> C2["Delegated Session"]
 ```
 
-An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. An agent session is created at runtime by the workload that already holds that secret; it costs nothing to create and carries the parent, subject, labels, and delegation context. One application backs many agent sessions, so a durable workload uses **one managed application** and spawns, delegates, and fans out as many agent sessions as it needs. You do not register an application per agent - see [Should I create one application per agent?](/reference/faq/#faq-006).
+An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. A Session is started at runtime by the workload that already holds that secret; it carries parent, Subject authority record ID, labels, and delegation context. One application backs many Sessions, so a durable workload uses **one managed application** and starts, delegates, and fans out as many Sessions as it needs. You do not register an application per AI agent - see [Should I create one application per agent?](/reference/faq/#faq-006).
 
 ## Managed and DCR Applications
 
-| Method | Identity boundary | Operational rule |
-| --- | --- | --- |
-| Managed | One durable service, orchestrator, Gateway, or agent runtime - including the runtime that spawns and fans out child agents. | Created in the web console (or Admin API) and reused across many agent sessions for the same workload. Spawned children run as `agent` sessions under this same application. |
-| DCR | One short-lived, isolated application identity (per tenant, per integration, or per externally-issued ephemeral identity). | Created **programmatically only** through the zone DCR endpoint (Admin API / admin SDK `applications.dcr()`), never in the web console; always expires, binds to exactly one agent session, and is not a spawn parent for further sessions. The Console lists DCR applications read-only. |
+| Method  | Identity boundary                                                                                                | Operational rule                                                                                                                                                                                                                                     |
+| ------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Managed | One durable service, orchestrator, Gateway, or agent runtime - including a runtime that fans out AI-agent work.  | Created in the web console or Admin API and reused across many Sessions for the same workload.                                                                                                                                                       |
+| DCR     | One short-lived, isolated application identity per tenant, integration, or externally issued ephemeral identity. | Created **programmatically only** through the Admin API or Admin SDK `applications.dcr()`, never in the web console; always expires, binds to exactly one Session, and cannot parent further Sessions. The Console lists DCR applications read-only. |
 
-The coordinator records each agent session's `lifecycle`, which is either `task` (the default for every `session()`) or `service` (a durable, heartbeat-leased handle created by [`start_session()`](/sdks/python/)). The value names the runtime lifecycle, not the actor - every runtime actor is an agent session; `lifecycle` only says whether it runs task-scoped or as a heartbeat-leased service. The credential boundary between durable managed identities and short-lived DCR identities is named by `registration_method` (managed vs DCR), not by lifecycle - a DCR application cannot host a `service` session, so its single session is always a `task` session.
+Coordinator records each Session's `lifecycle`: `task` for a block-scoped Session started by `session()`, or `service` for a long-lived, heartbeat-leased Session started by [`start_session()`](/sdks/python/). The value names lifecycle, not actor type. The credential boundary between managed and DCR identities is `registration_method`, not lifecycle; a DCR application's single Session is always `task`.
 
 `lifecycle` carries one behavioral distinction: a `service` session holds a heartbeat lease and is swept when that lease lapses, while a `task` session is task-scoped - it is retired when its work completes (optionally bounded by a TTL). The two are governed by **different reapers**: a `task` is subject to the wall-clock TTL sweeper, and a `service` is **not** - its lifetime is governed solely by the heartbeat lease, so a service that keeps renewing its lease is never terminated on a timer. `lifecycle` does not change what an agent may do or which authority it carries.
 
-The spawn topology enforces two structural rules so a child can never outlast or out-scope what its position allows:
+The Session topology enforces two structural rules so a child can never outlast or out-scope what its position allows:
 
-- A `task` parent cannot spawn a `service` child (`task_agent_cannot_spawn_service`). A task is bounded - it ends with its work or its TTL - so it must not mint a durable, lease-renewable session that could outlive it. A `service` parent may spawn either lifecycle.
-- A DCR session is a **leaf**: it cannot be a spawn parent (`dcr_application_cannot_spawn`) and cannot be a spawned child (`dcr_application_cannot_be_child`). A DCR application is an independently launched, single-session workload identity, not a node in a spawn tree.
+- A `task` parent cannot start a `service` child. The protocol error remains `task_agent_cannot_spawn_service`. A `service` parent may start either lifecycle.
+- A DCR Session is a **leaf**: it cannot parent or be a child Session. The protocol errors remain `dcr_application_cannot_spawn` and `dcr_application_cannot_be_child`.
 
 A **short-lived worker is not a separate lifecycle** - it is an ordinary `task` session created with a TTL. The mainstream tree of a long-lived orchestrator, mid-tier managers, and disposable task workers is modelled under **one managed application**:
 
-- the orchestrator is the durable root session (or a [`start_session()`](/sdks/python/) handle when it needs a heartbeat lease),
+- the orchestrator is the top-level Session, or a [`start_session()`](/sdks/python/) handle when it needs a heartbeat lease,
 - each manager is a plain `session()` that inherits the application's authority,
 - each task worker is `session(authority=Authority.narrow([...]), ttl_seconds=…)` - least-privilege and auto-terminated on block exit, with the TTL sweeper as a backstop.
 
-Every node in that tree is a `task` session under the one managed app, distinguished by its `agent_session_id`, `labels`, and delegation context. "Disposable worker" is expressed by the TTL and the narrowed grant, not by a separate lifecycle.
+Every node in that tree is a `task` Session under one managed application, distinguished by its Session ID, labels, and delegation context. On the Coordinator wire, Session ID is named `agent_session_id`. "Disposable worker" is expressed by TTL and narrowed authority, not a separate lifecycle.
 
-DCR is therefore for credential isolation, not for spawn fan-out: it gives a unit of work its own independently revocable, auto-expiring **application** identity, not a shorter-lived agent.
+DCR is therefore for credential isolation, not Session fan-out: it gives a unit of work an independently revocable, auto-expiring **application** identity.
 
-A DCR application is reached by **authenticating as it**, not by spawning. The control plane registers the DCR application through the zone DCR endpoint (an Admin API action that returns a one-time secret and a short expiry); the SDK never registers applications. An orchestrator injects those credentials into an independently launched workload, and that workload - configured with the DCR `application_id` and secret - authenticates with the `client_credentials` grant and creates its single root session. The application then expires and is archived. Use this when a unit of work needs its own isolated, independently revocable, auto-expiring identity, such as a per-tenant or per-integration runtime.
+A DCR application is reached by **authenticating as it**, not by starting it as a child. The Admin API registers the DCR application and returns a one-time secret and short expiry; the SDK never registers applications. An orchestrator injects those credentials into an independently launched workload, which authenticates with `client_credentials` and starts its single Session. The application then expires and is archived.
 
 :::note[FAQ]
-[What is the difference between an application, principal, and agent session?](/reference/faq/#faq-005) and [when should I use a managed application versus DCR?](/reference/faq/#faq-007)
+[What is the difference between an application, principal, and Session?](/reference/faq/#faq-005) and [when should I use a managed application versus DCR?](/reference/faq/#faq-007)
 :::
 
-Disabling DCR on a zone has two separate operational meanings. The zone flag always stops future dynamic registration immediately. If live DCR applications already exist, operators must choose whether those identities continue until expiry or are revoked immediately. Revocation archives the live DCR applications, revokes related authority sessions and delegation anchors, and terminates related DCR agent access so STS, Gateway, and Coordinator paths stop accepting those identities.
+Disabling DCR on a zone always stops future dynamic registration. If live DCR applications exist, operators choose whether those identities continue until expiry or are revoked immediately. Revocation archives the applications, revokes their Authority records and Delegations, and terminates their Sessions.
 
-Policies receive `input.principal.registration_method`, `input.principal.agent_session_id`, `input.principal.lifecycle`, and `input.principal.labels`, so policy authors can distinguish durable managed clients from short-lived DCR clients through `registration_method` without relying on SDK-specific behavior. Audit metadata records the application id, application name, registration method, agent session id, parent/delegation context, requested scopes, and resource for each token-exchange decision.
+Policies receive protocol fields `input.principal.registration_method`, `input.principal.agent_session_id`, `input.principal.lifecycle`, and `input.principal.labels`. Here `agent_session_id` is the Session ID. Audit metadata records the application, registration method, Session ID, parent and Delegation context, requested scopes, and resource.
 
-## Telling Agent Sessions Apart
+## Telling Sessions Apart
 
-Every agent session has one canonical identity: the server-minted `agent_session_id`. It is unique, returned to the caller the moment `session()` (or `service()`) creates the session, and stamped onto every token exchange and audit event that session produces. That id - not the application, lifecycle, or labels - is the answer to "which agent did this?".
+Every Session has one canonical Session ID. The Coordinator protocol calls it `agent_session_id`; SDK context exposes it as `sessionId`, `session_id`, or `SessionID`. It is returned when `session()` or `startSession()` starts the Session and is stamped onto its token exchanges and audit events.
 
-`labels` are a descriptor, not an identity. Many sessions under one application can share the same labels on purpose: that is how fan-out works, where a hundred `["pricing-worker"]` sessions are intentionally interchangeable. When sessions must be told apart by meaning rather than by raw id, give them distinguishing `labels`, attach business correlation in `metadata`, or propagate a `trace_id`. Two sessions that share the same application, labels, and metadata are fungible by design - the unique `agent_session_id` still separates them in audit.
+`labels` are descriptors, not identity. Many Sessions under one application can intentionally share labels. Use labels, metadata, or a trace ID for business correlation; use Session ID for exact attribution.
 
-The zone audit endpoint filters directly on these fields: query `agent_session_id` to follow one exact session, or `label` to scope to a role across a fleet of sessions.
+The Admin API audit protocol filters by `agent_session_id` for one Session or `label` for a role across many Sessions.
 
 ## Sessions Bind Identity to Time
 
 ```mermaid
 flowchart TD
-  App["Application"] --> Session["Subject session"]
-  Principal["Principal"] --> Session
-  Session --> Spawn["Agent session"]
-  Spawn --> Delegate["Delegated agent session"]
-  Session --> Mandate["Mandate exchange"]
-  Spawn --> Mandate
+  App["Application"] --> Authority["Authority record"]
+  Subject["Subject (JWT sub)"] --> Authority
+  Authority --> Session["Session"]
+  Session --> Delegate["Delegation"]
+  Authority --> Mandate["Mandate exchange"]
+  Session --> Mandate
   Delegate --> Mandate
 ```
 
-Sessions make authority revocable. A mandate contains session anchors, and resource servers check those anchors through the revocation layer.
+Authority records, Sessions, and Delegations make authority revocable. Mandates carry their identifiers as revocation anchors.
 
 ## Naming Guidance
 
 - Use **application** for registered software.
 - Use **principal** for the acting identity.
-- Use **agent session** for a spawned agent execution context.
-- Use **subject session** for the original authenticated subject context.
+- Use **Subject** for the JWT `sub` identity.
+- Use **Authority record** for an STS exchange record.
+- Use **Session** for a governed Coordinator execution.
 - Avoid using "client" unless you are describing OAuth protocol fields.
 
 ## Next Step
@@ -116,5 +117,5 @@ Read [Resources and Grants](/concepts/resource-grant/) to understand what identi
 ## Related Pages
 
 - [Sessions and Revocation](/concepts/sessions-revocation/)
-- [Agent Delegation](/concepts/delegation/)
+- [Session Delegation](/concepts/delegation/)
 - [Integrate the TypeScript SDK](/guides/sdk-typescript/)

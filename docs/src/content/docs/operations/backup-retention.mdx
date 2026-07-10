@@ -8,13 +8,13 @@ Backups must preserve both access state and evidence state. A restore that loses
 
 ## What to Protect
 
-| Asset                            | Why it matters                                                                                            |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Postgres database                | Product state, policies, grants, sessions, audit events, agents, delegations, outboxes.                   |
-| Runtime secrets                  | Database/Redis credentials, admin token, Coordinator token, zone KEK, HMAC keys, service exchange keys.   |
-| STS/Gateway replay volumes       | Audit replay files during Redis/Audit outages.                                                            |
-| Redis snapshot or managed backup | Optional operational recovery for stream pending entries; Postgres remains authoritative.                 |
-| Audit exports                    | Long-term evidence and SIEM/compliance integration.                                                       |
+| Asset                            | Why it matters                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Postgres database                | Product state, policies, grants, sessions, audit events, agents, delegations, outboxes.                 |
+| Runtime secrets                  | Database/Redis credentials, admin token, Coordinator token, zone KEK, HMAC keys, service exchange keys. |
+| STS/Gateway replay volumes       | Audit replay files during Redis/Audit outages.                                                          |
+| Redis snapshot or managed backup | Optional operational recovery for stream pending entries; Postgres remains authoritative.               |
+| Audit exports                    | Long-term evidence and SIEM/compliance integration.                                                     |
 
 ## Backup Flow
 
@@ -55,12 +55,12 @@ After restore, verify with `infra/scripts/smokeTest.sh` and the [restore validat
 
 ## Retention Controls
 
-| Area             | Controls                                                                 |
-| ---------------- | ------------------------------------------------------------------------ |
-| Audit database   | `AUDIT_RETENTION_DAYS`, partitions, audit export watermarks.             |
-| Coordinator data | `DELEGATION_RETENTION_DAYS`, `OUTBOX_RETENTION_DAYS`, sweeper intervals. |
-| Redis streams    | Provisioner intended max lengths and managed Redis retention.            |
-| Backups          | Platform backup policy and legal/compliance requirements.                |
+| Area             | Controls                                                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Audit database   | `AUDIT_RETENTION_DAYS`, partitions, audit export watermarks.                                                                                                                                                                                     |
+| Coordinator data | `DELEGATION_RETENTION_DAYS`, `OUTBOX_RETENTION_DAYS`, `IDEMPOTENCY_RETENTION_SECONDS` (seven days by default), sweeper intervals. Restores also restore live replay receipts; this prevents pre-backup operations from being silently recreated. |
+| Redis streams    | Provisioner intended max lengths and managed Redis retention.                                                                                                                                                                                    |
+| Backups          | Platform backup policy and legal/compliance requirements.                                                                                                                                                                                        |
 
 ## Restore Validation
 
@@ -75,7 +75,7 @@ After restore, verify with `infra/scripts/smokeTest.sh` and the [restore validat
 
 | Symptom                          | Check                                                                                      |
 | -------------------------------- | ------------------------------------------------------------------------------------------ |
-| Restored STS cannot decrypt keys | `SECRET_STORE_KEK` does not match the envelopes in the database.                             |
+| Restored STS cannot decrypt keys | `SECRET_STORE_KEK` does not match the envelopes in the database.                           |
 | Audit chain verification fails   | Missing audit rows, wrong `AUDIT_HMAC_KEY`, or partial restore.                            |
 | Gateway cannot route             | Missing resource rows or resources restored without their upstream URL and provider.       |
 | Revocation state is incomplete   | Restore Postgres revocation/session state and replay Redis revocation events where needed. |

@@ -8,15 +8,15 @@ Caracal is designed to fail closed for access-safety boundaries. Recovery should
 
 ## Failure Matrix
 
-| Failure | User impact | Recovery |
-| --- | --- | --- |
-| Postgres unavailable | API/STS/Gateway/Audit/Coordinator readiness fails or degrades. | Restore Postgres, confirm migrations, check pools, replay outboxes. |
-| Redis unavailable | Streams, revocation, policy invalidation, audit ingestion, and coordination lag. | Restore Redis, verify streams/groups, watch pending entries and replay backlog. |
-| STS unavailable | Token exchange and Gateway exchanges fail. | Restore STS readiness, policy bundle freshness, JWKS, and HMAC config. |
-| Gateway unhealthy | Protected upstream traffic fails before provider dispatch. | Check bindings, STS exchange, revocation snapshot, upstream allowlist, and audit replay. |
-| Audit unhealthy | Evidence ingestion delayed; DLQ or replay grows. | Recover Audit/Postgres/Redis, replay DLQ, verify tamper chain. |
-| Coordinator unhealthy | Agent/delegation views and lifecycle management fail. | Restore Coordinator readiness, token, DB, Redis, and sweeper health. |
-| Control unhealthy | Automation dispatch unavailable. | Use Console/Admin SDK directly if appropriate; restore Control gate, token, JWKS, Redis, and API reachability. |
+| Failure               | User impact                                                                      | Recovery                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Postgres unavailable  | API/STS/Gateway/Audit/Coordinator readiness fails or degrades.                   | Restore Postgres, confirm migrations, check pools, replay outboxes.                                            |
+| Redis unavailable     | Streams, revocation, policy invalidation, audit ingestion, and coordination lag. | Restore Redis, verify streams/groups, watch pending entries and replay backlog.                                |
+| STS unavailable       | Token exchange and Gateway exchanges fail.                                       | Restore STS readiness, policy bundle freshness, JWKS, and HMAC config.                                         |
+| Gateway unhealthy     | Protected upstream traffic fails before provider dispatch.                       | Check bindings, STS exchange, revocation snapshot, upstream allowlist, and audit replay.                       |
+| Audit unhealthy       | Evidence ingestion delayed; DLQ or replay grows.                                 | Recover Audit/Postgres/Redis, replay DLQ, verify tamper chain.                                                 |
+| Coordinator unhealthy | Agent/delegation views and lifecycle management fail.                            | Restore Coordinator readiness, token, DB, Redis, and sweeper health.                                           |
+| Control unhealthy     | Automation dispatch unavailable.                                                 | Use Console/Admin SDK directly if appropriate; restore Control gate, token, JWKS, Redis, and API reachability. |
 
 ## Recovery Order
 
@@ -39,11 +39,11 @@ flowchart TD
 
 ## Troubleshooting
 
-| Symptom | Action |
-| --- | --- |
+| Symptom                           | Action                                                                     |
+| --------------------------------- | -------------------------------------------------------------------------- |
 | Requests fail closed after outage | Confirm STS policy freshness, revocation snapshot, and audit replay drain. |
-| Events appear duplicated | Verify idempotent consumers and dedupe keys before manual cleanup. |
-| Rollback does not restore service | Schema may have moved forward; roll forward with a compatible fix. |
+| Events appear duplicated          | Verify idempotent consumers and dedupe keys before manual cleanup.         |
+| Rollback does not restore service | Schema may have moved forward; roll forward with a compatible fix.         |
 
 ## Next Step
 

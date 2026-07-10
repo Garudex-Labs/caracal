@@ -13,27 +13,27 @@ The reference artifacts live in `infra/helm/caracal/examples`:
 
 ## Prerequisites
 
-| Component | Why |
-| --- | --- |
-| Managed Postgres | Authoritative product, policy, audit, and delegation state. |
-| Managed Redis | Streams for audit, revocation, policy invalidation, and coordination. |
-| [External Secrets Operator](https://external-secrets.io/) | Provisions `caracal-runtime` from your secret manager so no plaintext secret is rendered. |
-| [cert-manager](https://cert-manager.io/) | Issues TLS certificates for the web console ingress and any optional API or Gateway ingress. |
-| Prometheus Operator | Consumes the chart `ServiceMonitor` and `PrometheusRule`. |
+| Component                                                 | Why                                                                                          |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Managed Postgres                                          | Authoritative product, policy, audit, and delegation state.                                  |
+| Managed Redis                                             | Streams for audit, revocation, policy invalidation, and coordination.                        |
+| [External Secrets Operator](https://external-secrets.io/) | Provisions `caracal-runtime` from your secret manager so no plaintext secret is rendered.    |
+| [cert-manager](https://cert-manager.io/)                  | Issues TLS certificates for the web console ingress and any optional API or Gateway ingress. |
+| Prometheus Operator                                       | Consumes the chart `ServiceMonitor` and `PrometheusRule`.                                    |
 
 ## 1. Store Secret Material
 
 Load the Caracal secret material into your secret manager under the keys the `ExternalSecret` reads:
 
-| Secret manager key | Contents |
-| --- | --- |
-| `caracal/postgres` | `username`, `password`, `host`, `port`, `database`, and `authDatabase` naming the dedicated web session database (`caracal_auth`). |
-| `caracal/redis` | `password`, `host`, `port`, `database`. |
-| `caracal/zone-kek` | Zone key-encryption key. |
-| `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity keys. |
-| `caracal/admin-token`, `caracal/coordinator-token` | Control-plane tokens held by services and the web BFF. |
-| `caracal/auth-secret` | Better Auth signing secret; the `ExternalSecret` composes the web session database URL from `caracal/postgres`. |
-| `caracal/sts-admin-token`, `caracal/audit-admin-token`, `caracal/metrics-bearer` | Optional service tokens. |
+| Secret manager key                                                                   | Contents                                                                                                                           |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `caracal/postgres`                                                                   | `username`, `password`, `host`, `port`, `database`, and `authDatabase` naming the dedicated web session database (`caracal_auth`). |
+| `caracal/redis`                                                                      | `password`, `host`, `port`, `database`.                                                                                            |
+| `caracal/zone-kek`                                                                   | Zone key-encryption key.                                                                                                           |
+| `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity keys.                                                                                                                    |
+| `caracal/admin-token`, `caracal/coordinator-token`                                   | Control-plane tokens held by services and the web BFF.                                                                             |
+| `caracal/auth-secret`                                                                | Better Auth signing secret; the `ExternalSecret` composes the web session database URL from `caracal/postgres`.                    |
+| `caracal/sts-admin-token`, `caracal/audit-admin-token`, `caracal/metrics-bearer`     | Optional service tokens.                                                                                                           |
 
 ## 2. Apply the Secret Store and ExternalSecret
 
@@ -61,14 +61,14 @@ Stable mode enforces externalized Postgres and Redis hosts and forbids in-chart 
 
 ## Per-Cloud Substitutions
 
-| Setting | AWS (EKS) | GCP (GKE) | Azure (AKS) |
-| --- | --- | --- | --- |
-| Secret store | `secretstore-aws.yaml` (IRSA) | `secretstore-gcp.yaml` (Workload Identity) | `secretstore-azure.yaml` (Workload Identity) |
-| Managed Postgres | RDS / Aurora PostgreSQL | Cloud SQL for PostgreSQL | Azure Database for PostgreSQL |
-| Managed Redis | ElastiCache / MemoryDB | Memorystore for Redis | Azure Cache for Redis |
-| `replayPersistence.storageClassName` | `gp3` | `premium-rwo` | `managed-csi` |
-| `ingress.*.className` | `alb` | `gce` | `azure-application-gateway` |
-| Ingress annotations | ALB scheme/target-type | GCE managed cert or cert-manager | AGIC annotations |
+| Setting                              | AWS (EKS)                     | GCP (GKE)                                  | Azure (AKS)                                  |
+| ------------------------------------ | ----------------------------- | ------------------------------------------ | -------------------------------------------- |
+| Secret store                         | `secretstore-aws.yaml` (IRSA) | `secretstore-gcp.yaml` (Workload Identity) | `secretstore-azure.yaml` (Workload Identity) |
+| Managed Postgres                     | RDS / Aurora PostgreSQL       | Cloud SQL for PostgreSQL                   | Azure Database for PostgreSQL                |
+| Managed Redis                        | ElastiCache / MemoryDB        | Memorystore for Redis                      | Azure Cache for Redis                        |
+| `replayPersistence.storageClassName` | `gp3`                         | `premium-rwo`                              | `managed-csi`                                |
+| `ingress.*.className`                | `alb`                         | `gce`                                      | `azure-application-gateway`                  |
+| Ingress annotations                  | ALB scheme/target-type        | GCE managed cert or cert-manager           | AGIC annotations                             |
 
 Keep `networkPolicy.allowOpenDns` and `allowOpenHttps` `false`; set `dnsEgress` and `extraEgress` to the named CIDRs of your managed Postgres, Redis, identity provider, and provider APIs.
 

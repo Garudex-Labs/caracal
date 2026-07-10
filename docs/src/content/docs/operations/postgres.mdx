@@ -4,7 +4,7 @@ description: Operate the durable Caracal control-plane database.
 pageType: workflow
 ---
 
-Postgres stores Caracal control-plane state: zones, providers, applications, resources, grants, sessions, policies, audit events, agent sessions, delegation edges, outboxes, admin tokens, and step-up challenges.
+Postgres stores Caracal control-plane state: zones, providers, applications, resources, grants, sessions, policies, audit events, Sessions, Delegations, outboxes, admin tokens, and step-up challenges.
 
 ## Storage Model
 
@@ -48,11 +48,11 @@ The validation script checks migration idempotency, concurrent migrators, expand
 
 ## Capacity Controls
 
-| Area | Settings |
-| --- | --- |
+| Area             | Settings                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | Compose Postgres | `POSTGRES_MAX_CONNECTIONS`, `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_WORK_MEM`, `POSTGRES_LOG_MIN_DURATION_MS` |
-| Service pools | `DB_POOL_MAX`, statement timeout, idle-in-transaction timeout, connection timeout, idle timeout |
-| Helm | Use managed Postgres sizing plus service resource requests/limits. |
+| Service pools    | `DB_POOL_MAX`, statement timeout, idle-in-transaction timeout, connection timeout, idle timeout                                             |
+| Helm             | Use managed Postgres sizing plus service resource requests/limits.                                                                          |
 
 ## Backup and Restore
 
@@ -60,12 +60,12 @@ Back up the whole database. Audit events are append-only and partitioned; restor
 
 ## Troubleshooting
 
-| Phase | Symptom | First check |
-| --- | --- | --- |
-| Bootstrap | Migration Job fails | Database secret, host, port, user, database, SSL mode, and advisory-lock connectivity. |
-| Operations | API outbox grows | Redis reachability, outbox dispatcher logs, DB pool saturation, and `event_outbox` dead rows. |
-| Performance | Audit queries slow | Partition health, indexes, retention, and query time windows. |
-| Access control | RLS errors | Confirm service role and zone context handling before widening permissions. |
+| Phase          | Symptom             | First check                                                                                   |
+| -------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| Bootstrap      | Migration Job fails | Database secret, host, port, user, database, SSL mode, and advisory-lock connectivity.        |
+| Operations     | API outbox grows    | Redis reachability, outbox dispatcher logs, DB pool saturation, and `event_outbox` dead rows. |
+| Performance    | Audit queries slow  | Partition health, indexes, retention, and query time windows.                                 |
+| Access control | RLS errors          | Confirm service role and zone context handling before widening permissions.                   |
 
 ## Next Step
 
