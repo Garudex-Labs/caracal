@@ -15,7 +15,7 @@ Caracal uses separate keys for encryption, mandate signing, audit integrity, str
 | `AUDIT_HMAC_KEY`             | API, STS, Gateway, Audit, Control               | Protect audit event integrity.                                                                                                |
 | `STREAMS_HMAC_KEY`           | API, STS, Gateway, Coordinator, Audit/consumers | Sign Redis stream messages in published modes.                                                                                |
 | `GATEWAY_STS_HMAC_KEY`       | Gateway and STS                                 | Authenticate Gateway token-exchange requests to STS.                                                                          |
-| Admin and Coordinator tokens | API, Coordinator, Console, Control              | Authenticate management and agent/delegation operations.                                                                      |
+| Admin and Coordinator tokens | API, Coordinator, Console, Control              | Authenticate management and Session/Delegation operations.                                                                    |
 
 ## Secret Envelopes
 

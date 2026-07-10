@@ -31,11 +31,11 @@ flowchart LR
 
 | Choice                          | Effect                                                                                                                                             |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres as source of truth     | Product state, policy versions, grants, sessions, audit rows, agents, delegations, and outboxes are durable.                                       |
+| Postgres as source of truth     | Product state, policy versions, grants, Authority records, Sessions, audit rows, Delegations, and outboxes are durable.                            |
 | Redis Streams for propagation   | Audit, invalidation, revocation, key, agent, invocation, and delegation events move asynchronously.                                                |
 | STS for mandate issuance        | Every protected access path receives a scoped, short-lived mandate.                                                                                |
 | Gateway for protected upstreams | Gateway verifies inbound authority, exchanges with STS, blocks unsafe routing, and emits audit evidence.                                           |
-| Coordinator for agent authority | Sessions, service leases, Delegations, and invocation lifecycle stay explicit.                                                                     |
+| Coordinator for Session authority | Sessions, service leases, Delegations, and invocation lifecycle stay explicit.                                                                   |
 | Console/API boundary            | Human management uses Console; broad automation uses the Admin API; zone-scoped dispatch uses the Control API; runtime CLI remains lifecycle-only. |
 
 ## System Flows

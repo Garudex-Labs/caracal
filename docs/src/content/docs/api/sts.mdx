@@ -47,7 +47,7 @@ STS never generates a subject identity. Every exchange records its subject verba
 
 The Subject identifier is opaque to Caracal. It may be a user ID, UUID, employee ID, or customer ID. STS requires only that the same identity always presents the same value. The Authority record stores that `sub`; provider connections, approval bindings, revocation, and audit can attribute activity to it. Scope authority is decided by application bindings, resource grants, Delegation narrowing, and label confinement - not by the Subject identifier.
 
-When an SDK starts a Session with `subjectSessionId`, `subject_session_id`, or `SubjectSessionID`, that compatibility field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's federated `sub`.
+When an SDK starts a Session with `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`, that field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's federated `sub`.
 
 ### Subject Identifier Guarantees
 
