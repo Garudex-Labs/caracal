@@ -112,10 +112,10 @@ describe('OperatorEvidence', () => {
     const sessionId = '019f21dc-8299-735e-bd9d-195101a24c9f'
     const html = render([
       {
-        capability: 'listSessions',
-        domain: 'session',
+        capability: 'listAuthorityRecords',
+        domain: 'authority-record',
         count: 1,
-        rows: [{ id: sessionId, subject_id: sessionId, session_type: 'user', status: 'active' }],
+        rows: [{ id: sessionId, subject_id: sessionId, authority_record_type: 'user', status: 'active' }],
       },
     ])
     expect(html).toContain(`title="${sessionId}"`)

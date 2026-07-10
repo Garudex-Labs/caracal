@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for delegation edge formatting: identity shortening, status tone/label, and error messages.
+// Unit tests for Delegation formatting: identity shortening, status tone/label, and error messages.
 
 import { describe, expect, it } from 'vitest'
 

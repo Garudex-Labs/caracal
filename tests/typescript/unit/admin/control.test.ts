@@ -72,6 +72,37 @@ describe('ControlClient invoke', () => {
     expect(form.get('ttl_seconds')).toBe('60')
   })
 
+  it('applies one total deadline signal to token mint and invoke', async () => {
+    const signals: AbortSignal[] = []
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal as AbortSignal)
+      return signals.length === 1 ? tokenResponse() : invokeResponse({ ok: true })
+    })
+
+    await client({ timeoutMs: 1_000 }, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])
+
+    expect(signals).toHaveLength(2)
+    expect(signals[0]).toBe(signals[1])
+    expect(signals[0]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('normalizes a total-deadline abort as an outcome-ambiguous invoke failure', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (fetchMock.mock.calls.length === 1) return tokenResponse()
+      await new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true }))
+      return invokeResponse(null)
+    })
+
+    const error = await client({ timeoutMs: 5 }, fetchMock)
+      .invoke('zone', 'create', { name: 'x' }, ['control:zone:write'])
+      .catch((err) => err)
+
+    expect(error).toBeInstanceOf(ControlClientError)
+    expect(error.stage).toBe('invoke')
+    expect(error.status).toBe(0)
+    expect(error.definitive).toBe(false)
+  })
+
   it('rides the configured authorizing actor in the invoke body when set', async () => {
     const fetchMock = vi
       .fn()

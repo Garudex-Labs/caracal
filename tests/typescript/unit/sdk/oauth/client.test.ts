@@ -120,6 +120,22 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('drops cached tokens on invalidate', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: `token-${++calls}`, expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    expect((await client.exchange('subject', 'resource://api')).accessToken).toBe('token-1')
+    client.invalidate()
+    expect((await client.exchange('subject', 'resource://api')).accessToken).toBe('token-2')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('retries once on 401', async () => {
     let callCount = 0
     vi.stubGlobal(
@@ -184,7 +200,7 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('sends assertion, session, agent session, and delegation edge fields', async () => {
+  it('sends assertion, Authority record, Session, and Delegation fields', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -195,20 +211,20 @@ describe('OAuthClient', () => {
     await client.exchange('subject-a', 'resource://api', {
       clientAssertion: 'assertion-1',
       clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      authorityRecordId: 'record-1',
       sessionId: 'session-1',
-      agentSessionId: 'agent-session-1',
-      delegationEdgeId: 'edge-1',
+      delegationId: 'delegation-1',
     })
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_assertion')).toBe('assertion-1')
     expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer')
     expect(body.get('actor_token')).toBeNull()
-    expect(body.get('session_id')).toBe('session-1')
-    expect(body.get('agent_session_id')).toBe('agent-session-1')
-    expect(body.get('delegation_edge_id')).toBe('edge-1')
+    expect(body.get('session_id')).toBe('record-1')
+    expect(body.get('agent_session_id')).toBe('session-1')
+    expect(body.get('delegation_edge_id')).toBe('delegation-1')
   })
 
-  it('does not share cache across delegation edges', async () => {
+  it('does not share cache across Delegations', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -216,8 +232,8 @@ describe('OAuthClient', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-a' })
-    await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-b' })
+    await client.exchange('subject-a', 'resource://api', { delegationId: 'delegation-a' })
+    await client.exchange('subject-a', 'resource://api', { delegationId: 'delegation-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -244,16 +260,16 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('does not share cache across agent graph sessions', async () => {
+  it('does not share cache across Sessions', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ access_token: 'tok-agent-session', expires_in: 900 }),
+      json: async () => ({ access_token: 'tok-session', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-a' })
-    await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-b' })
+    await client.exchange('subject-a', 'resource://api', { sessionId: 'session-a' })
+    await client.exchange('subject-a', 'resource://api', { sessionId: 'session-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

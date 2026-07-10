@@ -59,9 +59,9 @@ describe('isControlExecutable', () => {
     expect(isControlExecutable('updateApplication')).toBe(true)
     expect(isControlExecutable('updateProvider')).toBe(true)
     expect(isControlExecutable('updateResource')).toBe(true)
-    expect(isControlExecutable('suspendAgent')).toBe(true)
-    expect(isControlExecutable('resumeAgent')).toBe(true)
-    expect(isControlExecutable('terminateAgent')).toBe(true)
+    expect(isControlExecutable('suspendSession')).toBe(true)
+    expect(isControlExecutable('resumeSession')).toBe(true)
+    expect(isControlExecutable('terminateSession')).toBe(true)
     expect(isControlExecutable('revokeDelegation')).toBe(true)
     expect(isControlExecutable('createWorkload')).toBe(true)
     expect(isControlExecutable('updateWorkload')).toBe(true)
@@ -283,21 +283,21 @@ describe('buildInvocation', () => {
     })
   })
 
-  it('builds the runtime interventions from the session and edge ids', () => {
-    expect(CONTROL_CAPABILITIES.suspendAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+  it('builds the runtime interventions from the Session and Delegation IDs', () => {
+    expect(CONTROL_CAPABILITIES.suspendSession.buildInvocation({ session_id: 'session-1' })).toEqual({
       command: 'session',
       subcommand: 'suspend',
-      flags: { id: 'agent-1' },
+      flags: { id: 'session-1' },
     })
-    expect(CONTROL_CAPABILITIES.resumeAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+    expect(CONTROL_CAPABILITIES.resumeSession.buildInvocation({ session_id: 'session-1' })).toEqual({
       command: 'session',
       subcommand: 'resume',
-      flags: { id: 'agent-1' },
+      flags: { id: 'session-1' },
     })
-    expect(CONTROL_CAPABILITIES.terminateAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
+    expect(CONTROL_CAPABILITIES.terminateSession.buildInvocation({ session_id: 'session-1' })).toEqual({
       command: 'session',
       subcommand: 'terminate',
-      flags: { id: 'agent-1' },
+      flags: { id: 'session-1' },
     })
     expect(CONTROL_CAPABILITIES.revokeDelegation.buildInvocation({ delegation_id: 'edge-1' })).toEqual({
       command: 'delegation',
@@ -362,9 +362,9 @@ describe('buildInvocation', () => {
     expect(CONTROL_CAPABILITIES.simulatePolicySet.scopes).toEqual(['control:policy-set:read'])
   })
 
-  it('carries the optional session and audit filters into control flags', () => {
-    expect(CONTROL_CAPABILITIES.listSessions.buildInvocation({}).flags).toEqual({})
-    expect(CONTROL_CAPABILITIES.listSessions.buildInvocation({ subject: 'user-1', status: 'active', limit: 10 }).flags).toEqual({
+  it('carries the optional Authority record and audit filters into control flags', () => {
+    expect(CONTROL_CAPABILITIES.listAuthorityRecords.buildInvocation({}).flags).toEqual({})
+    expect(CONTROL_CAPABILITIES.listAuthorityRecords.buildInvocation({ subject: 'user-1', status: 'active', limit: 10 }).flags).toEqual({
       subject: 'user-1',
       status: 'active',
       limit: 10,

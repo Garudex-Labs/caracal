@@ -246,7 +246,7 @@ describe('verify authentication', () => {
 
   it.each([
     ['root authority', { root_sid: 'root-1' }, 'root-1'],
-    ['agent session', { agent_session_id: 'agent-1' }, 'agent-1'],
+    ['protocol Session', { agent_session_id: 'session-1' }, 'session-1'],
     ['delegated permission', { delegation_edge_id: 'edge-1' }, 'edge-1'],
   ])('rejects %s revocation anchors after verification', async (_label, claims, revoked) => {
     const { token, issuer, audience } = await mintToken(claims)

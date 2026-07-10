@@ -7,9 +7,9 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   CoordinatorError,
   startCoordinatorSession,
-  terminateAgent,
+  terminateSession,
   createDelegation,
-  heartbeatAgent,
+  heartbeatSession,
   type CoordinatorCallEvent,
   type CoordinatorClient,
 } from '../../../../packages/sdk/ts/src/coordinator.js'
@@ -55,7 +55,7 @@ describe('coordinator client', () => {
     expect(calls[0].headers.get('authorization')).toBe('Bearer tok')
   })
 
-  it('rejects a spawn response that lacks an agent session id', async () => {
+  it('rejects a Session-start response that lacks the protocol Session ID', async () => {
     const { client } = stub(() => new Response(JSON.stringify({}), { status: 201 }))
     await expect(startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow(
       /missing agent_session_id/,
@@ -80,13 +80,13 @@ describe('coordinator client', () => {
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord/', fetchImpl }
-    await terminateAgent(client, 'tok', 'z1', 'agent-1')
-    expect(calls[0]).toBe('http://coord/zones/z1/agents/agent-1')
+    await terminateSession(client, 'tok', 'z1', 'session-1')
+    expect(calls[0]).toBe('http://coord/zones/z1/agents/session-1')
   })
 
   it('treats a 204 terminate as success', async () => {
     const { client } = stub(() => new Response(null, { status: 204 }))
-    await expect(terminateAgent(client, 'tok', 'z1', 'agent-1')).resolves.toBeUndefined()
+    await expect(terminateSession(client, 'tok', 'z1', 'session-1')).resolves.toBeUndefined()
   })
 
   it('omits resource_id from a delegation without one and maps the response', async () => {
@@ -143,7 +143,7 @@ describe('coordinator client', () => {
           status: 200,
         }),
     )
-    const res = await heartbeatAgent(client, 'tok', 'z1', 'agent-1', 'degraded')
+    const res = await heartbeatSession(client, 'tok', 'z1', 'session-1', 'degraded')
     expect(calls[0].body).toEqual({ status: 'degraded' })
     expect(res).toEqual({ status: 'active', heartbeatDeadlineAt: '2026-07-04T12:02:00.000Z' })
   })
@@ -155,8 +155,8 @@ describe('coordinator client', () => {
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await terminateAgent(client, 'tok', 'z/1', 'agent 1')
-    expect(calls[0]).toBe('http://coord/zones/z%2F1/agents/agent%201')
+    await terminateSession(client, 'tok', 'z/1', 'session 1')
+    expect(calls[0]).toBe('http://coord/zones/z%2F1/agents/session%201')
   })
 
   it('aborts the request when the caller signal fires', async () => {
@@ -183,7 +183,7 @@ describe('coordinator client', () => {
     }
 
     await startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })
-    await expect(terminateAgent(client, 'tok', 'z1', 'agent-1')).rejects.toThrow(CoordinatorError)
+    await expect(terminateSession(client, 'tok', 'z1', 'session-1')).rejects.toThrow(CoordinatorError)
 
     const failing: CoordinatorClient = {
       baseUrl: 'http://coord',

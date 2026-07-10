@@ -34,6 +34,9 @@ const SAVED_KEYS = [
   'API_OPERATOR_AI_LOCAL_MODEL',
   'API_MAX_RESOURCES_PER_ZONE',
   'API_READY_OUTBOX_DEAD_MAX',
+  'STS_URL',
+  'CARACAL_GATEWAY_URL',
+  'CARACAL_COORDINATOR_URL',
   'CARACAL_MODE',
   'NODE_ENV',
 ]
@@ -138,6 +141,7 @@ describe('api config trustProxy', () => {
   }
   beforeEach(() => {
     for (const [k, v] of Object.entries(REQ)) process.env[k] = v
+    process.env.CARACAL_MODE = 'dev'
   })
   afterEach(() => {
     for (const k of Object.keys(REQ)) delete process.env[k]
@@ -192,6 +196,9 @@ describe('api config trustProxy', () => {
 
   test('defaults enableDocs off in published builds and on in dev', async () => {
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    process.env.STS_URL = 'https://sts.example.com'
+    process.env.CARACAL_GATEWAY_URL = 'https://gateway.example.com'
+    process.env.CARACAL_COORDINATOR_URL = 'https://coordinator.example.com'
     process.env.CARACAL_MODE = 'stable'
     expect(loadConfig().enableDocs).toBe(false)
     process.env.CARACAL_MODE = 'dev'
@@ -209,6 +216,22 @@ describe('api config trustProxy', () => {
     process.env.API_OPERATOR_ENABLED = 'false'
     expect(loadConfig().operatorEnabled).toBe(false)
     delete process.env.API_OPERATOR_ENABLED
+  })
+
+  test('published deployments require every internal service endpoint explicitly', async () => {
+    process.env.CARACAL_MODE = 'stable'
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+
+    expect(() => loadConfig()).toThrow('STS_URL, CARACAL_GATEWAY_URL, CARACAL_COORDINATOR_URL')
+
+    process.env.STS_URL = 'https://sts.example.com'
+    process.env.CARACAL_GATEWAY_URL = 'https://gateway.example.com'
+    process.env.CARACAL_COORDINATOR_URL = 'https://coordinator.example.com'
+    expect(loadConfig()).toMatchObject({
+      stsUrl: 'https://sts.example.com',
+      gatewayUrl: 'https://gateway.example.com',
+      coordinatorUrl: 'https://coordinator.example.com',
+    })
   })
 
   test('parses operator authority lists, defaulting the grant to null and zones to empty', async () => {
