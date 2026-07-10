@@ -412,9 +412,9 @@ type DelegationTraversal struct {
 
 // DelegationImpact is the blast radius preview for revoking one edge.
 type DelegationImpact struct {
-	DelegationID            string                `json:"delegation_id"`
-	AffectedDelegations     []DelegationTraversal `json:"affected_delegations"`
-	AffectedSessions        []string              `json:"affected_sessions"`
+	DelegationID             string                `json:"delegation_id"`
+	AffectedDelegations      []DelegationTraversal `json:"affected_delegations"`
+	AffectedSessions         []string              `json:"affected_sessions"`
 	AffectedAuthorityRecords []string              `json:"affected_subject_sessions"`
 }
 

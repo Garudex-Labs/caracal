@@ -1648,9 +1648,9 @@ func TestEffectiveTokenTTLCapsAtDelegationConstraint(t *testing.T) {
 	}
 }
 
-func TestBindSubjectSessionCopiesSignedClaim(t *testing.T) {
+func TestBindGovernedSessionCopiesSignedClaim(t *testing.T) {
 	req := TokenExchangeRequest{}
-	err := bindSubjectSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err != nil {
 		t.Fatalf("bind signed Session: %v", err)
 	}
@@ -1659,9 +1659,9 @@ func TestBindSubjectSessionCopiesSignedClaim(t *testing.T) {
 	}
 }
 
-func TestBindSubjectSessionRejectsMismatch(t *testing.T) {
+func TestBindGovernedSessionRejectsMismatch(t *testing.T) {
 	req := TokenExchangeRequest{SessionID: "agent-2"}
-	err := bindSubjectSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err == nil || err.Description != "Session mismatch" {
 		t.Fatalf("want mismatch error, got %#v", err)
 	}

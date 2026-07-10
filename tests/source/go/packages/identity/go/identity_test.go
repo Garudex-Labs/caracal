@@ -181,7 +181,7 @@ func TestVerifyRejectsInvalidClaims(t *testing.T) {
 		{name: "bad zone", cfg: Config{ZoneID: "zone-2"}, want: ErrZoneInvalid},
 		{name: "missing required scope", cfg: Config{RequiredScopes: []string{"delete"}}, want: &ScopeMissingError{}},
 		{name: "missing required target", cfg: Config{RequiredTargets: []string{"resource://missing"}}, want: ErrTokenInvalid},
-		{name: "missing agent", cfg: Config{RequireSession: true}, overrides: jwt.MapClaims{"agent_session_id": ""}, want: ErrSessionRequired},
+		{name: "missing session", cfg: Config{RequireSession: true}, overrides: jwt.MapClaims{"agent_session_id": ""}, want: ErrSessionRequired},
 		{name: "missing delegation", cfg: Config{RequireDelegation: true}, overrides: jwt.MapClaims{"delegation_edge_id": ""}, want: ErrDelegationRequired},
 		{name: "hop exceeded", cfg: Config{MaxHopCount: 1}, want: ErrHopCountExceeded},
 		{name: "chain mismatch", cfg: Config{RequireChainContains: []string{"app-x"}}, want: &ChainMismatchError{}},

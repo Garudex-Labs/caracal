@@ -17,6 +17,12 @@ func TestNewCaracalError(t *testing.T) {
 	}
 }
 
+func TestSessionRequiredCode(t *testing.T) {
+	if SessionRequired != "session_required" {
+		t.Fatalf("unexpected session required code: %q", SessionRequired)
+	}
+}
+
 func TestWithRequestIDMutatesError(t *testing.T) {
 	err := New(InvalidToken, "bad token").WithRequestID("req-1")
 	if err.RequestID != "req-1" {

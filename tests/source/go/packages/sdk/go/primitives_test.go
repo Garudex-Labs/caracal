@@ -347,6 +347,7 @@ func TestServiceCloseTreatsRetiredSessionAsSuccess(t *testing.T) {
 
 func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 	var body map[string]any
+	states := []string{}
 	deadline := time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -370,6 +371,7 @@ func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 		ApplicationID:     "app",
 		SubjectToken:      "tok",
 		HeartbeatInterval: -1,
+		OnStateChange:     func(status string) { states = append(states, status) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -379,6 +381,9 @@ func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 	}
 	if body["status"] != "degraded" {
 		t.Errorf("expected degraded status in heartbeat body, got %#v", body)
+	}
+	if svc.Status() != "suspended" || len(states) != 1 || states[0] != "suspended" {
+		t.Fatalf("expected suspended state callback, status=%q states=%v", svc.Status(), states)
 	}
 	if err := svc.Close(context.Background()); err != nil {
 		t.Fatal(err)

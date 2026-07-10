@@ -198,7 +198,7 @@ func TestProviderGrantsPaths(t *testing.T) {
 func TestSessionListingAndManagementUseTheirOwnTransports(t *testing.T) {
 	transport := &scripted{steps: []any{
 		ok(`{"items":[{"session_id":"a1"}]}`),
-		ok(`{"items":[{"agent_session_id":"a2","parent_id":"a1","subject_session_id":"record-1"}]}`),
+		ok(`{"items":[{"agent_session_id":"a2","parent_id":"a1","subject_authority_record_id":"record-1"}]}`),
 		ok(`{"suspended":true}`),
 		respond(http.StatusNoContent, "", nil),
 		ok(`{"agent_session_id":"a1","inbound_edges":[],"effective_scopes":[],"effective_resources":[]}`),
