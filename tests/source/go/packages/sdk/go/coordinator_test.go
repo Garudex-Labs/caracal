@@ -216,18 +216,84 @@ func TestHeartbeatSessionDefaultsStatusToHealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z"}}`))
+		_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z","lease_generation":1}}`))
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	res, err := sdk.HeartbeatSession(context.Background(), client, "tok", "z", "session-1", "")
+	res, err := sdk.HeartbeatSession(context.Background(), client, "tok", "z", "session-1", 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if body["status"] != "healthy" {
 		t.Fatalf("empty status must default to healthy: %#v", body)
 	}
+	if body["lease_generation"] != float64(1) {
+		t.Fatalf("lease generation missing: %#v", body)
+	}
 	if res.Status != "active" || res.HeartbeatDeadlineAt != "2026-07-05T00:00:00Z" {
 		t.Fatalf("unexpected response: %+v", res)
+	}
+}
+
+func TestCoordinatorLifecyclePropagatesTraceWithFreshSpans(t *testing.T) {
+	var traceparents []string
+	var tracestates []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceparents = append(traceparents, r.Header.Get("Traceparent"))
+		tracestates = append(tracestates, r.Header.Get("Tracestate"))
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			_, _ = w.Write([]byte(`{"agent":{"status":"active","lease_generation":1}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"agent_session_id":"session-1","lease_generation":1}`))
+	}))
+	defer srv.Close()
+	traceID := strings.Repeat("1", 32)
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{TraceID: traceID, TraceFlags: "01", TraceState: "vendor=value"})
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	if _, err := sdk.StartCoordinatorSession(ctx, client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app", Lifecycle: sdk.LifecycleService}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sdk.HeartbeatSession(ctx, client, "tok", "z", "session-1", 1, "healthy"); err != nil {
+		t.Fatal(err)
+	}
+	if len(traceparents) != 2 || strings.Split(traceparents[0], "-")[1] != traceID || strings.Split(traceparents[1], "-")[1] != traceID {
+		t.Fatalf("trace IDs were not preserved: %v", traceparents)
+	}
+	if strings.Split(traceparents[0], "-")[2] == strings.Split(traceparents[1], "-")[2] {
+		t.Fatalf("span IDs must differ: %v", traceparents)
+	}
+	if tracestates[0] != "vendor=value" || tracestates[1] != "vendor=value" {
+		t.Fatalf("tracestate was not preserved: %v", tracestates)
+	}
+}
+
+func TestAcquireSessionLeaseAndFencedTerminate(t *testing.T) {
+	var terminateBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodDelete {
+			_ = json.NewDecoder(r.Body).Decode(&terminateBody)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z","lease_generation":4}`))
+	}))
+	defer srv.Close()
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	lease, err := sdk.AcquireSessionLease(context.Background(), client, "tok", "z", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.LeaseGeneration != 4 {
+		t.Fatalf("expected generation 4, got %+v", lease)
+	}
+	if err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1", lease.LeaseGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if terminateBody["lease_generation"] != float64(4) {
+		t.Fatalf("terminate generation missing: %#v", terminateBody)
 	}
 }

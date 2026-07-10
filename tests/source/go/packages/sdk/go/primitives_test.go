@@ -29,7 +29,7 @@ func makeCoordinatorServer(t *testing.T) (*httptest.Server, *[]string) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
@@ -120,9 +120,9 @@ func TestSessionServiceHeartbeatAndClose(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
-			_, _ = w.Write([]byte(`{"agent":{"id":"svc-1"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"id":"svc-1","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -292,7 +292,7 @@ func TestSessionServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) 
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -336,6 +336,46 @@ func TestSessionServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) 
 	}
 }
 
+func TestSessionServiceFencedHeartbeatNotifiesLeaseLoss(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"session_lease_fenced"}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	lost := make(chan error, 1)
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
+		Coordinator:       &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:            "z",
+		ApplicationID:     "app",
+		SubjectToken:      "tok",
+		HeartbeatInterval: 5 * time.Millisecond,
+		OnLeaseLost:       func(err error) { lost <- err },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-lost:
+		var coordErr *sdk.CoordinatorError
+		if !errors.As(err, &coordErr) || coordErr.Code != "session_lease_fenced" {
+			t.Fatalf("expected fenced CoordinatorError, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnLeaseLost never fired")
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSessionServiceLeaseExpiryIsResumable(t *testing.T) {
 	var mu sync.Mutex
 	heartbeats := 0
@@ -354,9 +394,9 @@ func TestSessionServiceLeaseExpiryIsResumable(t *testing.T) {
 				_, _ = w.Write([]byte(`{"error":"session_lease_expired"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"agent":{"status":"suspended"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -400,7 +440,7 @@ func TestServiceCloseTreatsRetiredSessionAsSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
@@ -434,9 +474,9 @@ func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			raw, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(raw, &body)
-			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","heartbeat_deadline_at":"` + deadline + `"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","heartbeat_deadline_at":"` + deadline + `","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -573,7 +613,7 @@ func TestAttachSessionValidatesLeaseAndReturnsLiveHandle(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+		fmt.Fprint(w, `{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z","lease_generation":2}`)
 	}))
 	defer srv.Close()
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
@@ -595,8 +635,11 @@ func TestAttachSessionValidatesLeaseAndReturnsLiveHandle(t *testing.T) {
 	if handle.DeadlineAt().IsZero() {
 		t.Fatal("expected the validated lease deadline to be exposed")
 	}
-	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
-		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	if handle.LeaseGeneration() != 2 {
+		t.Fatalf("expected generation 2, got %d", handle.LeaseGeneration())
+	}
+	if paths[0] != "POST /zones/z/agents/agent-persisted/lease" {
+		t.Fatalf("expected an immediate fenced lease acquisition, got %v", paths)
 	}
 	if err := handle.Close(context.Background()); err != nil {
 		t.Fatal(err)

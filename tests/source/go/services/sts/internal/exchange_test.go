@@ -1601,6 +1601,41 @@ func TestValidateAuthorityRecordReferencesRejectsAgentSubjectBindingMismatch(t *
 	}
 }
 
+func TestValidateAuthorityRecordReferencesAcceptsGatewayChildAuthorityRecord(t *testing.T) {
+	now := time.Now()
+	parentID := "subject-session-1"
+	subjectID := "app1"
+	db := &stubDB{
+		now: now,
+		session: &AuthorityRecord{
+			ID:          "gateway-session-1",
+			ZoneID:      "zone1",
+			SessionType: "application",
+			SubjectID:   &subjectID,
+			ParentID:    &parentID,
+			Status:      "active",
+			ExpiresAt:   now.Add(time.Minute),
+		},
+		sessions: []*Session{{
+			ID:                       "agent-1",
+			ZoneID:                   "zone1",
+			ApplicationID:            "app1",
+			SubjectAuthorityRecordID: parentID,
+			Status:                   "active",
+			StartedAt:                now.Add(-time.Minute),
+			TTLSeconds:               600,
+		}},
+	}
+	srv := &Server{db: db}
+	_, session, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
+		AuthorityRecordID: "gateway-session-1",
+		SessionID:         "agent-1",
+	}, true)
+	if err != nil || session == nil || session.ID != "agent-1" {
+		t.Fatalf("want Gateway child authority record accepted, session=%#v err=%#v", session, err)
+	}
+}
+
 func TestValidateAuthorityRecordReferencesAcceptsActiveGraphEdge(t *testing.T) {
 	now := time.Now()
 	source := &Session{

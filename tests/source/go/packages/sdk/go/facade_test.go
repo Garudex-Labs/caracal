@@ -89,7 +89,7 @@ func newRecordingCoordinator(t *testing.T, bodies *[]map[string]any) *httptest.S
 				_ = json.NewDecoder(r.Body).Decode(&body)
 				*bodies = append(*bodies, body)
 			}
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","heartbeat_deadline_at":"` + time.Now().Add(30*time.Second).UTC().Format(time.RFC3339Nano) + `"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","heartbeat_deadline_at":"` + time.Now().Add(30*time.Second).UTC().Format(time.RFC3339Nano) + `","lease_generation":1}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
 			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
 		case r.Method == http.MethodDelete:
@@ -126,7 +126,7 @@ func TestSessionRefreshesRejectedCachedToken(t *testing.T) {
 				_, _ = w.Write([]byte(`{"error":"revoked"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -588,7 +588,7 @@ func TestSessionHandleExposesLeaseDeadline(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			fmt.Fprintf(w, `{"agent_session_id":"agent-1","heartbeat_deadline_at":%q}`, deadline)
+			fmt.Fprintf(w, `{"agent_session_id":"agent-1","heartbeat_deadline_at":%q,"lease_generation":1}`, deadline)
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}

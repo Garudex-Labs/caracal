@@ -300,6 +300,10 @@ func TestReadyFailureBranches(t *testing.T) {
 	replayBroken.auditBuffer = &AuditBuffer{log: zerolog.Nop(), replayDir: "/nonexistent/replay-dir", metrics: &STSMetrics{}}
 	assertReason(t, replayBroken, "audit_replay_unavailable")
 
+	evidenceLost := testSTSServer(t)
+	evidenceLost.auditBuffer.recordLoss(1, errors.New("disk failed"))
+	assertReason(t, evidenceLost, "audit_evidence_lost")
+
 	consumersPending := testSTSServer(t)
 	assertReason(t, consumersPending, "stream_consumers_not_ready")
 }

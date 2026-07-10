@@ -8,6 +8,7 @@ package internal
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,6 +40,7 @@ func TestSTSReadySuccessAndRedisFailure(t *testing.T) {
 func TestSTSMetricsHandlersAuthorizeAndRenderSnapshots(t *testing.T) {
 	server := testSTSServer(t)
 	server.cfg.MetricsBearer = "secret"
+	server.auditBuffer.metrics = server.metrics
 	server.metrics.GraphTraversals.Add(2)
 
 	w := httptest.NewRecorder()
@@ -53,6 +55,13 @@ func TestSTSMetricsHandlersAuthorizeAndRenderSnapshots(t *testing.T) {
 	server.handleMetrics(w, req)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "caracal_sts_graph_traversals_total 2") {
 		t.Fatalf("unexpected metrics response status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	server.auditBuffer.recordLoss(1, errors.New("disk failed"))
+	w = httptest.NewRecorder()
+	server.handleMetrics(w, req)
+	if strings.Count(w.Body.String(), "caracal_sts_audit_dropped_total 1") != 1 {
+		t.Fatalf("definitive loss must be counted once: %s", w.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/metrics.json", nil)

@@ -33,9 +33,9 @@ func TestHeartbeatRefreshesRejectedTokenOnce(t *testing.T) {
 				_, _ = w.Write([]byte(`{"error":"revoked"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -90,7 +90,7 @@ func TestHeartbeatWithoutInvalidateSurfaces401(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"revoked"}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -119,7 +119,7 @@ func TestServiceCloseSurfacesBearerAndEndHookErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","lease_generation":1}`))
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
