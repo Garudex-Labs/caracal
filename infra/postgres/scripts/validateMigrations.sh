@@ -33,6 +33,17 @@ fi
 echo "  down migrations are not referenced by production tooling"
 
 echo ""
+echo "=== Migration: pre-release schema is one consolidated baseline ==="
+mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -printf '%f\n' | sort)
+expected_files=("0001_baseline.down.sql" "0001_baseline.up.sql")
+if [ "${migration_files[*]}" != "${expected_files[*]}" ]; then
+    echo "FAIL: pre-release migrations must contain only the consolidated 0001 baseline pair" >&2
+    printf '  found: %s\n' "${migration_files[*]}" >&2
+    exit 1
+fi
+echo "  baseline pair is the only migration"
+
+echo ""
 echo "=== Migration: version prefixes are unique ==="
 # migrate.sh applies files in lexicographic filename order and records the full
 # filename as the version, so duplicate numeric prefixes make ordering depend on

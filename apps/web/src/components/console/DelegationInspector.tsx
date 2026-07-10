@@ -23,8 +23,8 @@ interface DecodedConstraint {
   value: string;
 }
 
-// constraints_json carries the typed limits the control plane enforces (max hops, scope
-// budget, TTL, resource set, policy approval, hard expiry). Surfacing them lets an operator
+// constraints_json carries typed limits and audit metadata (max hops, distinct-scope
+// limit, TTL, resource set, approval annotation, hard expiry). Surfacing them lets an operator
 // understand WHY an edge's authority is bounded rather than treating the edge as opaque.
 function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstraint[] {
   if (!raw) return [];
@@ -35,7 +35,7 @@ function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstrai
   };
   num("max_hops", "Max hops");
   num("max_depth", "Max depth");
-  num("budget", "Scope budget");
+  num("budget", "Max distinct scopes per exchange");
   num("ttl_seconds", "Max TTL", "s");
   if (typeof raw.expires_at === "string") {
     out.push({ label: "Hard expiry", value: new Date(raw.expires_at).toLocaleString() });
@@ -44,10 +44,10 @@ function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstrai
     out.push({ label: "Resource set", value: raw.resources.join(", ") });
   }
   if (typeof raw.policy_approved === "boolean") {
-    out.push({ label: "Policy approved", value: raw.policy_approved ? "yes" : "no" });
+    out.push({ label: "Policy approval metadata", value: raw.policy_approved ? "yes" : "no" });
   }
   if (typeof raw.broad_reason === "string" && raw.broad_reason.trim() !== "") {
-    out.push({ label: "Broad reason", value: raw.broad_reason });
+    out.push({ label: "Broad-delegation note", value: raw.broad_reason });
   }
   return out;
 }

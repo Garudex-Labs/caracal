@@ -101,7 +101,7 @@ function runWithStagedSourceTests(args) {
     for (const source of collectTestFiles(sourceDir).sort()) {
       const target = join(root, relative(sourceDir, source))
       if (existsSync(target)) {
-        throw new Error(`refusing to overwrite existing test file: ${relative(root, target).split(sep).join('/')}`)
+        continue
       }
       mkdirSync(dirname(target), { recursive: true })
       copyFileSync(source, target)

@@ -45,14 +45,14 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- Name: reject_policy_version_mutation(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reject_policy_snapshot_mutation(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.reject_policy_version_mutation() RETURNS trigger
+CREATE FUNCTION public.reject_policy_snapshot_mutation() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    RAISE EXCEPTION 'policy_versions rows are immutable';
+    RAISE EXCEPTION 'policy snapshot rows are immutable';
 END $$;
 
 
@@ -213,7 +213,9 @@ CREATE TABLE public.sessions (
     heartbeat_deadline_at timestamp with time zone,
     termination_reason text,
     CONSTRAINT sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
-    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
+    CONSTRAINT sessions_lifecycle_fields_check CHECK ((((lifecycle = 'task'::text) AND (ttl_seconds IS NOT NULL) AND (ttl_seconds > 0) AND (last_heartbeat_at IS NULL) AND (heartbeat_deadline_at IS NULL)) OR ((lifecycle = 'service'::text) AND (ttl_seconds IS NULL) AND (last_heartbeat_at IS NOT NULL) AND (heartbeat_deadline_at IS NOT NULL)))),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text]))),
+    CONSTRAINT sessions_terminal_fields_check CHECK ((((status = ANY (ARRAY['terminated'::text, 'expired'::text])) AND (terminated_at IS NOT NULL)) OR ((status = ANY (ARRAY['active'::text, 'suspended'::text])) AND (terminated_at IS NULL))))
 );
 
 
@@ -442,6 +444,7 @@ CREATE TABLE public.delegation_edges (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     parent_edge_id text,
     CONSTRAINT delegation_edges_check CHECK ((source_session_id <> target_session_id)),
+    CONSTRAINT delegation_edges_revocation_fields_check CHECK ((((status = 'revoked'::text) AND (revoked_at IS NOT NULL)) OR ((status = ANY (ARRAY['active'::text, 'expired'::text])) AND (revoked_at IS NULL)))),
     CONSTRAINT delegation_edges_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
@@ -2209,7 +2212,14 @@ ALTER INDEX public.audit_events_zone_id_occurred_at_idx ATTACH PARTITION public.
 -- Name: policy_versions policy_versions_immutable; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER policy_versions_immutable BEFORE DELETE OR UPDATE ON public.policy_versions FOR EACH ROW EXECUTE FUNCTION public.reject_policy_version_mutation();
+CREATE TRIGGER policy_versions_immutable BEFORE DELETE OR UPDATE ON public.policy_versions FOR EACH ROW EXECUTE FUNCTION public.reject_policy_snapshot_mutation();
+
+
+--
+-- Name: policy_set_versions policy_set_versions_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER policy_set_versions_immutable BEFORE DELETE OR UPDATE ON public.policy_set_versions FOR EACH ROW EXECUTE FUNCTION public.reject_policy_snapshot_mutation();
 
 
 --
