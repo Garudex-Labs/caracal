@@ -300,7 +300,7 @@ export function auditSummary(event: AuditEventLike, actorName?: string | null): 
 }
 
 export interface AuditEntity {
-  kind: "application" | "resource" | "agent" | "delegation" | "provider" | "approval";
+  kind: "application" | "resource" | "session" | "delegation" | "provider" | "approval";
   id: string;
   label: string;
 }
@@ -322,8 +322,8 @@ export function auditEntities(event: AuditEventLike): AuditEntity[] {
   if (resource) entities.push({ kind: "resource", id: resource, label: resource });
   const providerId = metaStr(meta, "provider_id");
   if (providerId) entities.push({ kind: "provider", id: providerId, label: providerId });
-  const agentSessionId = metaStr(meta, "agent_session_id");
-  if (agentSessionId) entities.push({ kind: "agent", id: agentSessionId, label: agentSessionId });
+  const sessionId = metaStr(meta, "agent_session_id");
+  if (sessionId) entities.push({ kind: "session", id: sessionId, label: sessionId });
   const delegationEdgeId = metaStr(meta, "delegation_edge_id");
   if (delegationEdgeId) {
     entities.push({ kind: "delegation", id: delegationEdgeId, label: delegationEdgeId });
@@ -335,7 +335,7 @@ export function auditEntities(event: AuditEventLike): AuditEntity[] {
 
 export interface DelegationHop {
   applicationId: string | null;
-  agentSessionId: string | null;
+  sessionId: string | null;
   delegationEdgeId: string | null;
 }
 
@@ -347,7 +347,7 @@ export function auditDelegationChain(event: AuditEventLike): DelegationHop[] {
     .filter((hop): hop is Record<string, unknown> => !!hop && typeof hop === "object")
     .map((hop) => ({
       applicationId: typeof hop.application_id === "string" ? hop.application_id : null,
-      agentSessionId: typeof hop.agent_session_id === "string" ? hop.agent_session_id : null,
+      sessionId: typeof hop.agent_session_id === "string" ? hop.agent_session_id : null,
       delegationEdgeId: typeof hop.delegation_edge_id === "string" ? hop.delegation_edge_id : null,
     }));
 }

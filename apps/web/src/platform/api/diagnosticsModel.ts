@@ -39,7 +39,7 @@ export const COMPONENTS: Record<ComponentKey, { name: string; purpose: string }>
   },
   coordinator: {
     name: "Coordinator",
-    purpose: "Agent lifecycle, delegation, and background delivery workers.",
+    purpose: "Session lifecycle, Delegation, and background delivery workers.",
   },
   runtime: {
     name: "Runtime environment",

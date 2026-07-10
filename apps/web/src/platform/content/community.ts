@@ -11,7 +11,7 @@ export const communityContent = {
   },
   auth: {
     signInTitle: "Sign in to Caracal",
-    signInSubtitle: "Operate your zones, policies, and agents from one place.",
+    signInSubtitle: "Operate zones, policy, Subjects, Sessions, and Delegation from one place.",
     signUpTitle: "Create your Caracal account",
     signUpSubtitle: "Set up your profile and your first zone in minutes.",
     resetTitle: "Reset your password",

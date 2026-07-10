@@ -21,7 +21,7 @@ import type {
   ApplicationInput,
   ApplicationPatchInput,
   AdminAuditQuery,
-  AgentQuery,
+  SessionQuery,
   ApprovalQuery,
   AuditQuery,
   ControlKeyCreateInput,
@@ -46,7 +46,7 @@ import type {
   Resource,
   ResourceInput,
   ResourcePatchInput,
-  SessionQuery,
+  AuthorityRecordQuery,
   SubjectQuery,
   Workload,
   WorkloadUpdateInput,
@@ -89,7 +89,7 @@ const keys = {
   policies: (zoneId: string | null) => ["console", "policies", zoneId] as const,
   policy: (zoneId: string | null, id: string | null) => ["console", "policy", zoneId, id] as const,
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
-  sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  authorityRecords: (zoneId: string | null) => ["console", "authority-records", zoneId] as const,
   subjects: (zoneId: string | null) => ["console", "subjects", zoneId] as const,
   approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
   approvalCounts: (zoneId: string | null) => ["console", "approval-counts", zoneId] as const,
@@ -101,8 +101,9 @@ const keys = {
   auditExplain: (zoneId: string | null, requestId: string | null) =>
     ["console", "audit-explain", zoneId, requestId] as const,
   adminAudit: (zoneId: string | null) => ["console", "admin-audit", zoneId] as const,
-  agents: (zoneId: string | null) => ["console", "agents", zoneId] as const,
-  agent: (zoneId: string | null, id: string | null) => ["console", "agent", zoneId, id] as const,
+  sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  session: (zoneId: string | null, id: string | null) =>
+    ["console", "session", zoneId, id] as const,
   delegationsActive: (zoneId: string | null) => ["console", "delegations-active", zoneId] as const,
   operatorCapabilities: ["console", "operator-capabilities"] as const,
   operatorStatus: ["console", "operator-status"] as const,
@@ -960,11 +961,14 @@ export function useZoneOverview(zoneId: string | null) {
 
 // Filtered, cursor-paginated session feed for the Sessions workspace. Server-side
 // filters keep enterprise-scale zones searchable instead of scanning the first page.
-export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
+export function useAuthorityRecordsFeed(zoneId: string | null, query: AuthorityRecordQuery) {
   return useInfiniteQuery({
-    queryKey: [...keys.sessions(zoneId), "feed", query],
+    queryKey: [...keys.authorityRecords(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
-      consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+      consoleApi.authorityRecords.list(zoneId as string, {
+        ...query,
+        cursor: pageParam ?? undefined,
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
@@ -1007,8 +1011,8 @@ export function useRevokeSubject(zoneId: string | null) {
       consoleApi.subjects.revoke(zoneId as string, input.subjectId, input.reason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.subjects(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.authorityRecords(zoneId) });
       qc.invalidateQueries({ queryKey: keys.sessions(zoneId) });
-      qc.invalidateQueries({ queryKey: keys.agents(zoneId) });
       qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) });
     },
   });
@@ -1016,11 +1020,11 @@ export function useRevokeSubject(zoneId: string | null) {
 
 // Resolves one authority record to its subject so a link that only knows the record
 // id can land on the owning subject.
-export function useSessionRecord(zoneId: string | null, recordId: string | null) {
+export function useAuthorityRecord(zoneId: string | null, recordId: string | null) {
   return useQuery({
-    queryKey: [...keys.sessions(zoneId), "record", recordId],
+    queryKey: [...keys.authorityRecords(zoneId), "record", recordId],
     queryFn: async () => {
-      const page = await consoleApi.sessions.list(zoneId as string, {
+      const page = await consoleApi.authorityRecords.list(zoneId as string, {
         id: recordId as string,
         limit: 1,
       });
@@ -1031,7 +1035,7 @@ export function useSessionRecord(zoneId: string | null, recordId: string | null)
 }
 
 // Cursor-paginated feed of human-approval holds. Live polling keeps pending holds visible
-// the moment an agent run parks on one, since approval latency is the whole user experience.
+// the moment a Session parks on one, since approval latency is the whole user experience.
 // State filtering happens server-side so a filtered page is a true page, not a sieve over
 // whatever happened to be in the first hundred rows.
 export function useApprovalsFeed(zoneId: string | null, query: ApprovalQuery = {}) {
@@ -1188,13 +1192,12 @@ export function useDecisionTrace(zoneId: string | null, requestId: string | null
   });
 }
 
-// Cursor-paginated agent feed with server-side filters (status/lifecycle/application/label),
-// so enterprise zones with thousands of live agents stay searchable and bounded.
-export function useAgentsFeed(zoneId: string | null, query: AgentQuery, enabled = true) {
+// Cursor-paginated Session feed with server-side filters, so large zones stay searchable.
+export function useSessionsFeed(zoneId: string | null, query: SessionQuery, enabled = true) {
   return useInfiniteQuery({
-    queryKey: [...keys.agents(zoneId), "feed", query],
+    queryKey: [...keys.sessions(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
-      consoleApi.agents.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+      consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId) && enabled,
@@ -1202,33 +1205,33 @@ export function useAgentsFeed(zoneId: string | null, query: AgentQuery, enabled 
   });
 }
 
-export function useAgent(zoneId: string | null, id: string | null) {
+export function useSession(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: keys.agent(zoneId, id),
-    queryFn: () => consoleApi.agents.get(zoneId as string, id as string),
+    queryKey: keys.session(zoneId, id),
+    queryFn: () => consoleApi.sessions.get(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
-export function useAgentEffectiveAuthority(zoneId: string | null, id: string | null) {
+export function useSessionEffectiveAuthority(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: [...keys.agent(zoneId, id), "authority"],
-    queryFn: () => consoleApi.agents.effectiveAuthority(zoneId as string, id as string),
+    queryKey: [...keys.session(zoneId, id), "authority"],
+    queryFn: () => consoleApi.sessions.effectiveAuthority(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
-export function useAgentChildren(zoneId: string | null, id: string | null) {
+export function useSessionChildren(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: [...keys.agent(zoneId, id), "children"],
-    queryFn: () => consoleApi.agents.children(zoneId as string, id as string),
+    queryKey: [...keys.session(zoneId, id), "children"],
+    queryFn: () => consoleApi.sessions.children(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
 // Per-session delegations. Delegations connect sessions, so inbound/outbound
 // delegation views are keyed by agent_session_id.
-export function useAgentInboundDelegations(zoneId: string | null, sessionId: string | null) {
+export function useSessionInboundDelegations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "delegations-inbound", zoneId, sessionId],
     queryFn: () => consoleApi.delegations.inbound(zoneId as string, sessionId as string),
@@ -1236,7 +1239,7 @@ export function useAgentInboundDelegations(zoneId: string | null, sessionId: str
   });
 }
 
-export function useAgentOutboundDelegations(zoneId: string | null, sessionId: string | null) {
+export function useSessionOutboundDelegations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "delegations-outbound", zoneId, sessionId],
     queryFn: () => consoleApi.delegations.outbound(zoneId as string, sessionId as string),
@@ -1244,9 +1247,9 @@ export function useAgentOutboundDelegations(zoneId: string | null, sessionId: st
   });
 }
 
-// Read-only execution visibility: invocations targeting/originating from this agent, and
+// Read-only execution visibility: invocations targeting or originating from this Session, and
 // the registered services in the zone. Mutations remain runtime-identity gated.
-export function useAgentInvocations(zoneId: string | null, sessionId: string | null) {
+export function useSessionInvocations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "invocations", zoneId, sessionId],
     queryFn: () =>
@@ -1259,9 +1262,9 @@ export function useAgentInvocations(zoneId: string | null, sessionId: string | n
   });
 }
 
-export function useAgentServices(zoneId: string | null, application_id: string | null) {
+export function useSessionServices(zoneId: string | null, application_id: string | null) {
   return useQuery({
-    queryKey: ["console", "agent-services", zoneId, application_id],
+    queryKey: ["console", "session-services", zoneId, application_id],
     queryFn: async () => {
       const services = await consoleApi.execution.services(zoneId as string);
       return application_id
@@ -1272,12 +1275,12 @@ export function useAgentServices(zoneId: string | null, application_id: string |
   });
 }
 
-// Per-agent activity timeline: the durable audit events (token exchanges, resource calls,
+// Per-Session activity timeline: the durable audit events (token exchanges, resource calls,
 // denials) recorded for this session, newest first. This is the authoritative record
-// of what the agent actually did, correlated by agent_session_id.
-export function useAgentActivity(zoneId: string | null, sessionId: string | null) {
+// of what the Session actually did, correlated by the wire `agent_session_id` field.
+export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
   return useQuery({
-    queryKey: ["console", "agent-activity", zoneId, sessionId],
+    queryKey: ["console", "session-activity", zoneId, sessionId],
     queryFn: () =>
       consoleApi.audit.list(zoneId as string, {
         agent_session_id: sessionId as string,
@@ -1288,20 +1291,20 @@ export function useAgentActivity(zoneId: string | null, sessionId: string | null
   });
 }
 
-export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
+export function useAuthorityRecordActivity(zoneId: string | null, recordId: string | null) {
   return useQuery({
-    queryKey: ["console", "session-activity", zoneId, sessionId],
+    queryKey: ["console", "authority-record-activity", zoneId, recordId],
     queryFn: () =>
       consoleApi.audit.list(zoneId as string, {
-        session_id: sessionId as string,
+        session_id: recordId as string,
         limit: 50,
       }),
-    enabled: Boolean(zoneId && sessionId),
+    enabled: Boolean(zoneId && recordId),
     refetchInterval: LIVE_MS,
   });
 }
 
-export function useAgentLifecycle(zoneId: string | null) {
+export function useSessionLifecycle(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -1311,11 +1314,11 @@ export function useAgentLifecycle(zoneId: string | null) {
       id: string;
       action: "suspend" | "resume" | "terminate";
     }) => {
-      if (action === "suspend") await consoleApi.agents.suspend(zoneId as string, id);
-      else if (action === "resume") await consoleApi.agents.resume(zoneId as string, id);
-      else await consoleApi.agents.terminate(zoneId as string, id);
+      if (action === "suspend") await consoleApi.sessions.suspend(zoneId as string, id);
+      else if (action === "resume") await consoleApi.sessions.resume(zoneId as string, id);
+      else await consoleApi.sessions.terminate(zoneId as string, id);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.agents(zoneId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sessions(zoneId) }),
   });
 }
 
@@ -1338,7 +1341,7 @@ export function useRevokeDelegation(zoneId: string | null) {
     mutationFn: (id: string) => consoleApi.delegations.revoke(zoneId as string, id),
     onSuccess: () => {
       // Revocation cascades downstream, so refresh the active feed plus every per-session
-      // inbound/outbound list and agent authority envelope that may now be stale.
+      // inbound/outbound list and Session authority envelope that may be stale.
       qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) });
       qc.invalidateQueries({
         predicate: (q) => {
@@ -1347,8 +1350,8 @@ export function useRevokeDelegation(zoneId: string | null) {
           return (
             k[1] === "delegations-inbound" ||
             k[1] === "delegations-outbound" ||
-            k[1] === "agent" ||
-            k[1] === "agents"
+            k[1] === "session" ||
+            k[1] === "sessions"
           );
         },
       });

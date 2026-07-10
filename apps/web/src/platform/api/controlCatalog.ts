@@ -16,25 +16,11 @@ export const CONTROL_AUDIENCE = "caracal-control";
 // resource STS validates against never fall behind the Console.
 export const CONTROL_PERMISSIONS: ControlPermission[] = [
   {
-    command: "agent",
+    command: "authority-record",
     verb: "read",
     action: "read",
-    scope: "control:agent:read",
-    summary: "List and inspect sessions.",
-  },
-  {
-    command: "agent",
-    verb: "write",
-    action: "write",
-    scope: "control:agent:write",
-    summary: "Suspend and resume sessions.",
-  },
-  {
-    command: "agent",
-    verb: "delete",
-    action: "delete",
-    scope: "control:agent:delete",
-    summary: "Terminate sessions.",
+    scope: "control:authority-record:read",
+    summary: "List STS authority records.",
   },
   {
     command: "app",
@@ -202,7 +188,21 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     verb: "read",
     action: "read",
     scope: "control:session:read",
-    summary: "List authority sessions.",
+    summary: "List and inspect governed sessions.",
+  },
+  {
+    command: "session",
+    verb: "write",
+    action: "write",
+    scope: "control:session:write",
+    summary: "Suspend and resume governed sessions.",
+  },
+  {
+    command: "session",
+    verb: "delete",
+    action: "delete",
+    scope: "control:session:delete",
+    summary: "Terminate governed sessions.",
   },
   {
     command: "workload",
@@ -232,7 +232,7 @@ export const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission
 // Human-readable noun descriptions for the Reference tab. Scopes and summaries are derived
 // from CONTROL_PERMISSIONS so the reference can never drift from the grantable surface.
 export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
-  agent: "Inspect and manage sessions.",
+  "authority-record": "Inspect STS-issued authority records.",
   app: "Manage application identities.",
   approval: "Inspect human-approval holds raised by policy.",
   audit: "Search the audit ledger.",
@@ -243,6 +243,6 @@ export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
   policy: "Author and manage policies.",
   "policy-set": "Group, activate, and simulate policy sets.",
   resource: "Manage protected resources.",
-  session: "Inspect authority sessions.",
+  session: "Inspect and manage governed sessions.",
   workload: "Manage launcher identities and their credential bindings.",
 };

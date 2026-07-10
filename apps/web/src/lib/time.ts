@@ -19,7 +19,7 @@ export function relativeTime(iso: string, now = Date.now()): string {
   return `${days}d ${suffix}`;
 }
 
-// Human-readable span between two instants, used to show how long a session or agent
+// Human-readable span between two instants, used to show how long a Session
 // held authority from its start to its terminal moment (or to now while it is live).
 export function formatDuration(ms: number): string {
   const mins = Math.floor(Math.max(0, ms) / 60_000);

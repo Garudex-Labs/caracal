@@ -10,8 +10,8 @@ import { isSystemZoneViewTab } from "@/platform/state/systemZoneView";
 import { CONTROL_AUDIENCE, CONTROL_SCOPES } from "./controlCatalog";
 
 import type {
-  Agent,
-  AgentService,
+  Session,
+  SessionService,
   AdminAuditEvent,
   AdminAuditQuery,
   Application,
@@ -21,7 +21,7 @@ import type {
   AuditRetention,
   AuditEvent,
   AuditQuery,
-  AgentQuery,
+  SessionQuery,
   ConsoleStatus,
   ControlKey,
   ControlKeyCreateInput,
@@ -63,8 +63,8 @@ import type {
   ResourceInput,
   ResourcePatchInput,
   ListEnvelope,
-  Session,
-  SessionQuery,
+  AuthorityRecord,
+  AuthorityRecordQuery,
   SubjectOverview,
   SubjectRevokeResult,
   SubjectQuery,
@@ -108,6 +108,121 @@ import type {
   Workload,
   WorkloadUpdateInput,
 } from "./types";
+
+interface WireAuthorityRecord {
+  id: string;
+  zone_id: string;
+  session_type: string;
+  subject_id: string;
+  parent_id: string | null;
+  status: string;
+  expires_at: string;
+  authenticated_at: string;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+}
+
+interface WireSession {
+  agent_session_id: string;
+  zone_id: string;
+  application_id: string;
+  parent_id: string | null;
+  subject_session_id: string | null;
+  lifecycle: string;
+  labels: string[];
+  status: Session["status"];
+  depth: number;
+  ttl_seconds: number | null;
+  metadata: Record<string, unknown> | null;
+  spawned_at: string;
+  terminated_at: string | null;
+  termination_reason: string | null;
+  last_heartbeat_at: string | null;
+  heartbeat_deadline_at: string | null;
+}
+
+interface WireEffectiveAuthority {
+  agent_session_id: string;
+  inbound_edges: string[];
+  effective_scopes: string[];
+  effective_resources: string[];
+  effective_resource_ids?: string[];
+  effective_resource_constrained?: boolean;
+  effective_max_hops: number | null;
+  effective_ttl_seconds: number | null;
+  earliest_expires_at: string | null;
+}
+
+interface WireSubjectOverview extends Omit<SubjectOverview, "governed"> {
+  governed: {
+    active: number;
+    total: number;
+    recent: {
+      id: string;
+      application_id: string;
+      application_name: string | null;
+      lifecycle: string;
+      status: string;
+      spawned_at: string;
+    }[];
+  };
+}
+
+interface WireSubjectRevokeResult extends Omit<SubjectRevokeResult, "governed_sessions"> {
+  agents: number;
+}
+
+function authorityRecord(record: WireAuthorityRecord): AuthorityRecord {
+  return {
+    id: record.id,
+    zoneId: record.zone_id,
+    type: record.session_type,
+    subjectId: record.subject_id,
+    parentId: record.parent_id,
+    status: record.status,
+    expiresAt: record.expires_at,
+    authenticatedAt: record.authenticated_at,
+    createdAt: record.created_at,
+    revokedAt: record.revoked_at,
+    revokedReason: record.revoked_reason,
+  };
+}
+
+function session(record: WireSession): Session {
+  return {
+    id: record.agent_session_id,
+    zoneId: record.zone_id,
+    applicationId: record.application_id,
+    parentId: record.parent_id,
+    subjectAuthorityRecordId: record.subject_session_id,
+    lifecycle: record.lifecycle,
+    labels: record.labels,
+    status: record.status,
+    depth: record.depth,
+    ttlSeconds: record.ttl_seconds,
+    metadata: record.metadata,
+    startedAt: record.spawned_at,
+    terminatedAt: record.terminated_at,
+    terminationReason: record.termination_reason,
+    lastHeartbeatAt: record.last_heartbeat_at,
+    heartbeatDeadlineAt: record.heartbeat_deadline_at,
+  };
+}
+
+function effectiveAuthority(record: WireEffectiveAuthority): EffectiveAuthority {
+  return {
+    sessionId: record.agent_session_id,
+    inboundDelegations: record.inbound_edges,
+    scopes: record.effective_scopes,
+    resources: record.effective_resources,
+    resourceIds: record.effective_resource_ids,
+    resourceConstrained: record.effective_resource_constrained,
+    maxHops: record.effective_max_hops,
+    ttlSeconds: record.effective_ttl_seconds,
+    expiresAt: record.earliest_expires_at,
+  };
+}
 
 export class ConsoleApiError extends Error {
   constructor(
@@ -718,9 +833,12 @@ export const consoleApi = {
       ),
   },
 
-  sessions: {
-    list: async (zoneId: string, query: SessionQuery = {}): Promise<Paged<Session>> => {
-      const res = await request<ListEnvelope<Session>>(
+  authorityRecords: {
+    list: async (
+      zoneId: string,
+      query: AuthorityRecordQuery = {},
+    ): Promise<Paged<AuthorityRecord>> => {
+      const res = await request<ListEnvelope<WireAuthorityRecord>>(
         `/v1/zones/${encodeURIComponent(zoneId)}/sessions${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
@@ -729,7 +847,7 @@ export const consoleApi = {
           subject_id: query.subject_id,
         })}`,
       );
-      return { rows: res.items, nextCursor: res.next_cursor };
+      return { rows: res.items.map(authorityRecord), nextCursor: res.next_cursor };
     },
   },
 
@@ -747,18 +865,48 @@ export const consoleApi = {
       );
       return { rows: res.items, nextCursor: res.next_cursor };
     },
-    overview: (zoneId: string, subjectId: string): Promise<SubjectOverview> =>
-      request<SubjectOverview>(
+    overview: async (zoneId: string, subjectId: string): Promise<SubjectOverview> => {
+      const result = await request<WireSubjectOverview>(
         `/v1/zones/${encodeURIComponent(zoneId)}/subjects/overview${queryString({ subject_id: subjectId })}`,
-      ),
+      );
+      return {
+        ...result,
+        governed: {
+          ...result.governed,
+          recent: result.governed.recent.map((record) => ({
+            id: record.id,
+            application_id: record.application_id,
+            application_name: record.application_name,
+            lifecycle: record.lifecycle,
+            status: record.status,
+            startedAt: record.spawned_at,
+          })),
+        },
+      };
+    },
     // The kill switch: one call cuts every authority path the subject holds. The
     // subject id travels in the body, never the path, so any issuer-assigned
     // format stays routable.
-    revoke: (zoneId: string, subjectId: string, reason?: string): Promise<SubjectRevokeResult> =>
-      request<SubjectRevokeResult>(`/v1/zones/${encodeURIComponent(zoneId)}/subjects/revoke`, {
-        method: "POST",
-        body: JSON.stringify({ subject_id: subjectId, ...(reason ? { reason } : {}) }),
-      }),
+    revoke: async (
+      zoneId: string,
+      subjectId: string,
+      reason?: string,
+    ): Promise<SubjectRevokeResult> => {
+      const result = await request<WireSubjectRevokeResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/subjects/revoke`,
+        {
+          method: "POST",
+          body: JSON.stringify({ subject_id: subjectId, ...(reason ? { reason } : {}) }),
+        },
+      );
+      return {
+        subject_id: result.subject_id,
+        sessions: result.sessions,
+        governed_sessions: result.agents,
+        delegations: result.delegations,
+        connections: result.connections,
+      };
+    },
   },
 
   // Human-approval holds raised by policy. Reads return the full approval fact with a derived
@@ -1089,9 +1237,9 @@ export const consoleApi = {
       ),
   },
 
-  agents: {
-    list: async (zoneId: string, query: AgentQuery = {}): Promise<Paged<Agent>> => {
-      const res = await request<CoordinatorList<Agent>>(
+  sessions: {
+    list: async (zoneId: string, query: SessionQuery = {}): Promise<Paged<Session>> => {
+      const res = await request<CoordinatorList<WireSession>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/agents${queryString({
           status: query.status,
           lifecycle: query.lifecycle,
@@ -1101,29 +1249,39 @@ export const consoleApi = {
           cursor: query.cursor,
         })}`,
       );
-      return { rows: res.items, nextCursor: res.next_cursor };
+      return { rows: res.items.map(session), nextCursor: res.next_cursor };
     },
-    get: (zoneId: string, id: string) =>
-      request<Agent>(`/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}`),
+    get: async (zoneId: string, id: string) =>
+      session(
+        await request<WireSession>(
+          `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}`,
+        ),
+      ),
     children: async (zoneId: string, id: string) => {
-      const res = await request<CoordinatorList<Agent>>(
+      const res = await request<CoordinatorList<WireSession>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/children`,
       );
-      return res.items;
+      return res.items.map(session);
     },
-    effectiveAuthority: (zoneId: string, id: string) =>
-      request<EffectiveAuthority>(
-        `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/effective-authority`,
+    effectiveAuthority: async (zoneId: string, id: string) =>
+      effectiveAuthority(
+        await request<WireEffectiveAuthority>(
+          `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/effective-authority`,
+        ),
       ),
-    suspend: (zoneId: string, id: string) =>
-      request<Agent>(
-        `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/suspend`,
-        { method: "PATCH", body: JSON.stringify({}) },
+    suspend: async (zoneId: string, id: string) =>
+      session(
+        await request<WireSession>(
+          `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/suspend`,
+          { method: "PATCH", body: JSON.stringify({}) },
+        ),
       ),
-    resume: (zoneId: string, id: string) =>
-      request<Agent>(
-        `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/resume`,
-        { method: "PATCH", body: JSON.stringify({}) },
+    resume: async (zoneId: string, id: string) =>
+      session(
+        await request<WireSession>(
+          `/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}/resume`,
+          { method: "PATCH", body: JSON.stringify({}) },
+        ),
       ),
     terminate: (zoneId: string, id: string) =>
       request<void>(`/coord/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(id)}`, {
@@ -1133,7 +1291,7 @@ export const consoleApi = {
 
   execution: {
     services: async (zoneId: string) => {
-      const res = await request<CoordinatorList<AgentService>>(
+      const res = await request<CoordinatorList<SessionService>>(
         `/coord/zones/${encodeURIComponent(zoneId)}/agent-services`,
       );
       return res.items;
