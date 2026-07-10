@@ -84,7 +84,7 @@ Every evaluation receives this exact input shape (`schema_version` `2026-05-20`)
 | `input.context.challenge_resolved`    | bool     | `true` after a step-up challenge is satisfied.                                                                                                                                     |
 | `input.context.trace_id`              | string   | Request trace id for audit correlation.                                                                                                                                            |
 
-When `input.delegation_edge` is present it carries: `id`, `source_session_id`, `target_session_id`, `issuer_application_id`, `receiver_application_id`, `resource_id`, `scopes` (the narrowed grant), `edge_version`, `path` (the full delegation chain), `graph_epoch`, and `constraints_json` (typed delegation constraints such as a cost budget). The contract enforces hop membership and the scope-subset narrowing against these fields.
+When `input.delegation_edge` is present it carries: `id`, `source_session_id`, `target_session_id`, `issuer_application_id`, `receiver_application_id`, `resource_id`, `scopes` (the narrowed grant), `edge_version`, `path` (the full delegation chain), `graph_epoch`, and `constraints_json`. The platform contract reads the edge identity and scopes for structural and scope-subset checks; it does not read `constraints_json`. Native STS validation enforces typed resource, expiry, TTL, hop, and distinct-scope budget limits before policy evaluation.
 
 The contract reads your data documents through `data.caracal.authz.*` - `grants`, `app_ids`, `confinement`, and `restrict`. You supply that data; the platform contract reads it and decides.
 

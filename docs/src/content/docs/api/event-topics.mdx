@@ -27,7 +27,7 @@ Caracal uses Redis Streams for propagation. Published modes sign stream messages
 | `caracal.audit.events`           | `audit-ingestor`, `siem-export` |
 | `caracal.audit.events.dlq`       | `audit-dlq-observer`            |
 | `caracal.policy.invalidate`      | `opa-engine`                    |
-| `caracal.sessions.revoke`        | `sts-revocation`                |
+| `caracal.sessions.revoke`        | `sts-revocation`, stable per-host `gateway-revocation:<host>`, deployment-specific resource groups |
 | `caracal.keys.invalidate`        | `sts-keys`                      |
 | `caracal.agents.lifecycle`       | `coordinator-relay`             |
 | `caracal.invocations.lifecycle`  | `invocations-observer`          |

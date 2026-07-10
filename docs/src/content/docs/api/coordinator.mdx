@@ -46,6 +46,7 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 | `POST`  | `/zones/:zoneId/delegations`                           | Create a Delegation. The response field `delegation_edge_id` is the protocol name for Delegation ID. |
 | `GET`   | `/zones/:zoneId/delegations/active`                    | List active Delegations.                                                                             |
 | `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId`        | List inbound edges for a session.                                                                    |
+| `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId/:id`    | Validate one opaque inbound Delegation ID for its receiver Session.                                  |
 | `GET`   | `/zones/:zoneId/delegations/outbound/:sessionId`       | List outbound edges for a session.                                                                   |
 | `GET`   | `/zones/:zoneId/delegations/:id/traverse`              | Traverse a Delegation.                                                                               |
 | `GET`   | `/zones/:zoneId/delegations/:id/impact`                | Compute revocation impact.                                                                           |
@@ -65,6 +66,8 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 | `POST` | `/v1/verify`                     |
 
 SDKs usually call these protocol endpoints through a language-specific Caracal client rather than direct HTTP. `/v1/spawn-child` and `/v1/delegate-to-existing-agent` are stable wire names; product code starts child Sessions and delegates to peer Sessions.
+
+Delegation creation authenticates the issuer and records an offer. Receiver credentials are not distributed to the issuer. The receiver consents by presenting the opaque ID, while STS verifies its target Session and application binding. The Console intentionally has no creation form.
 
 ## Next Step
 

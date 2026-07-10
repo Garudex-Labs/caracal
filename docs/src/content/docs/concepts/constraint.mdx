@@ -1,11 +1,11 @@
 ---
 title: Delegation Constraints
-description: Resource, TTL, hop, budget, and approval restrictions that travel with a Delegation.
+description: Resource, TTL, hop, and distinct-scope limits plus audit metadata carried by a Delegation.
 sidebar:
   order: 11
 ---
 
-Typed constraints make delegated authority explicit. They are stored on Delegations and evaluated by policy, SDK context, and resource-server verification.
+Typed constraints make delegated authority explicit. Coordinator validates them at edge creation and STS revalidates the current edge and its authoritative ancestry at token exchange.
 
 ## Constraint Types
 
@@ -15,9 +15,9 @@ Typed constraints make delegated authority explicit. They are stored on Delegati
 | Scopes           | Which actions can be requested.                             |
 | TTL              | How long the delegated edge remains useful.                 |
 | Hop count        | How deep the delegation chain may become.                   |
-| Budget           | How much work, calls, or scope count a child can consume.   |
-| Approval         | Whether policy or a reviewer has approved a sensitive edge. |
-| Chain membership | Which applications must appear in the delegation path.      |
+| Budget            | Maximum distinct requested scopes in one token exchange.    |
+| Approval metadata | Audit/display annotation; it does not authorize the edge.    |
+| Broad reason      | Audit/display note for an elevated resource-unbounded edge.  |
 
 ## Example Shape
 
@@ -32,22 +32,24 @@ Typed constraints make delegated authority explicit. They are stored on Delegati
 }
 ```
 
-The exact constraint object can vary by policy design, but it should stay typed, stable, and auditable.
+`budget` stays between 1 and 1024. Repeated exchanges do not consume it, and duplicate scope tokens count once. It is not a call, work, cost, spend, quota, or cumulative-capacity ledger. `policy_approved` and `broad_reason` are metadata only.
+
+Application-chain requirements are verifier options rather than edge constraints. Use `requireChainContains` at a resource boundary when a specific application must appear in the signed delegation chain.
 
 ## Where Constraints Are Enforced
 
 ```mermaid
 flowchart TD
   SDK["SDK creates edge"] --> Coordinator["Coordinator stores constraints"]
-  Coordinator --> STS["STS includes edge in policy input"]
-  STS --> Policy["Policy evaluates constraints"]
+  Coordinator --> STS["STS validates live authoritative lineage"]
+  STS --> Policy["Policy evaluates its documented input"]
   Policy --> Mandate["Mandate carries delegation claims"]
   Mandate --> Adapter["Gateway or adapter checks claims"]
 ```
 
 ## Design Guidance
 
-- Put durable business rules in policy.
+- Put durable business rules in policy data documents.
 - Put per-edge runtime limits in constraints.
 - Prefer positive allowlists over open-ended deny lists.
 - Keep constraints small enough to review in audit traces.

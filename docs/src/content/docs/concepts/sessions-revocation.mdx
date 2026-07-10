@@ -46,6 +46,8 @@ sequenceDiagram
 
 The Redis stream name is `caracal.sessions.revoke`. The Redis backend packages can consume the stream and populate local revocation stores.
 
+Suspension is reversible Session state, not permanent revocation. Gateway-routed requests perform a fresh STS exchange and reject a suspended Session immediately through authoritative Session validation. Already issued mandates checked directly by a resource verifier can remain usable until their mandate TTL expires; keep mandate TTLs within the documented 15-minute cap when suspension latency matters. Termination and Delegation revocation remain monotonic revocation events.
+
 ## Cascade Behavior
 
 Revocation should follow authority:
