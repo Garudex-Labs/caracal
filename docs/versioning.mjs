@@ -26,7 +26,11 @@ export function docsEntryId({ entry, data }, state = docsVersionState, snapshot 
   if (typeof data.slug === 'string' && data.slug.length > 0) return data.slug
 
   const id = entry.replace(/\.(?:markdown|mdown|mkdn|mkd|mdwn|md|mdx)$/, '').replace(/\/index$/, '') || 'index'
-  if (!state.current || snapshot || id === '404') return id
+  if (snapshot || id === '404') return id
+  if (!state.current) {
+    if (!state.target) return id
+    return id === 'index' ? state.target : `${state.target}/${id}`
+  }
 
   const segment = id.split('/', 1)[0]
   if (state.versions.some((version) => version.version === segment)) return id
@@ -50,6 +54,7 @@ export function prefixSidebar(items, prefix) {
 export function docsRouteVersion(pathname, state = docsVersionState) {
   const segment = pathname.split('/').filter(Boolean)[0]
   if (segment === 'next') return 'next'
+  if (segment === state.target) return segment
   return state.versions.some((version) => version.version === segment) ? segment : null
 }
 
@@ -59,7 +64,7 @@ export function docsHref(pathname, href, state = docsVersionState) {
   const hrefSegment = href.split('/').filter(Boolean)[0]
   if (hrefSegment === 'next' || state.versions.some((version) => version.version === hrefSegment)) return href
 
-  const version = docsRouteVersion(pathname, state) ?? state.current
+  const version = docsRouteVersion(pathname, state) ?? state.current ?? state.target
   return version ? `/${version}${href}` : href
 }
 
@@ -73,16 +78,18 @@ export function switchDocsVersionPath(pathname, version, state = docsVersionStat
 }
 
 export function logicalDocId(id, state = docsVersionState) {
-  if (!state.current) return id
   const segment = id.split('/', 1)[0]
-  if (segment !== 'next' && !state.versions.some((version) => version.version === segment)) return id
+  const isVersion = segment === 'next' || segment === state.target || state.versions.some((version) => version.version === segment)
+  if (!isVersion) return id
   if (id === segment) return 'index'
   return id.slice(segment.length + 1)
 }
 
 export function publishedDocs(entries, state = docsVersionState) {
   if (!state.current) {
-    return entries.filter((entry) => !entry.id.startsWith('next/') && !versionPattern.test(entry.id.split('/', 1)[0]))
+    return state.target
+      ? entries.filter((entry) => entry.id === state.target || entry.id.startsWith(`${state.target}/`))
+      : entries.filter((entry) => !entry.id.startsWith('next/') && !versionPattern.test(entry.id.split('/', 1)[0]))
   }
 
   return entries.filter((entry) => entry.id === state.current || entry.id.startsWith(`${state.current}/`))
@@ -112,7 +119,10 @@ export function sourceDocRoutes(sourceDir, state = docsVersionState) {
       }
       if (!entry.isFile() || !['.md', '.mdx'].includes(extname(entry.name))) continue
 
-      const stem = sourcePath.replace(/\.(?:md|mdx)$/, '').split(sep).join('/')
+      const stem = sourcePath
+        .replace(/\.(?:md|mdx)$/, '')
+        .split(sep)
+        .join('/')
       if (stem === '404') continue
       if (stem === 'index') routes.push('/')
       else routes.push(`/${stem.replace(/\/index$/, '')}/`)
@@ -124,17 +134,18 @@ export function sourceDocRoutes(sourceDir, state = docsVersionState) {
 }
 
 export function versionedRedirects(legacyRedirects, sourceDir, state = docsVersionState) {
-  if (!state.current) return legacyRedirects
+  const version = state.current ?? state.target
+  if (!version) return legacyRedirects
 
   const redirects = Object.fromEntries(
     Object.entries(legacyRedirects).map(([source, destination]) => [
       source,
-      destination.startsWith('/') ? `/${state.current}${destination}` : destination,
+      destination.startsWith('/') ? `/${version}${destination}` : destination,
     ]),
   )
 
   for (const route of sourceDocRoutes(sourceDir, state)) {
-    redirects[route] = route === '/' ? `/${state.current}/` : `/${state.current}${route}`
+    redirects[route] = route === '/' ? `/${version}/` : `/${version}${route}`
   }
 
   return redirects
@@ -150,23 +161,24 @@ export function docsShellPlugin() {
     hooks: {
       'config:setup'({ addIntegration, addRouteMiddleware, config, updateConfig }) {
         addRouteMiddleware({ entrypoint: './src/middleware/docsVersions.mjs' })
+        const versions = docsVersionState.current
+          ? [...docsVersionState.versions.map((version) => version.version), 'next']
+          : [docsVersionState.target]
         updateConfig({
           components: {
             ...config.components,
             Banner: './src/components/Banner.astro',
             EditLink: './src/components/EditLink.astro',
             PageTitle: './src/components/PageTitle.astro',
-            Search: 'starlight-versions/overrides/Search.astro',
+            ...(docsVersionState.current ? { Search: 'starlight-versions/overrides/Search.astro' } : {}),
             ThemeSelect: './src/components/ThemeSelectWithVersion.astro',
           },
-          sidebar: [
-            ...docsVersionState.versions.map((version) => ({
-              label: version.version,
-              items: prefixSidebar(config.sidebar ?? [], version.version),
-            })),
-            { label: 'next', items: prefixSidebar(config.sidebar ?? [], 'next') },
-          ],
+          sidebar: versions.filter(Boolean).map((version) => ({
+            label: version,
+            items: prefixSidebar(config.sidebar ?? [], version),
+          })),
         })
+        if (!docsVersionState.current) return
         addIntegration({
           name: 'caracal-docs-versions-search',
           hooks: {

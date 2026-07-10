@@ -46,7 +46,7 @@ Open Source documentation is versioned by product minor release:
 - The latest stable minor is the default at `https://docs.caracal.run/`. The unversioned source is available at `/next/` after the first stable documentation release.
 - Superseded minors remain available at `/vX.Y/`, lose their edit link, and are protected by a committed SHA-256 digest.
 
-`v0.2.0` is the first versioned documentation release. Until that stable release is cut, continue editing `docs/src/content/docs/`; do not create `docs/src/content/docs/v0.2/` manually. The stable release command snapshots that exact source as `v0.2`, marks it current, and enables the version selector.
+`v0.2.0` is the first versioned documentation release. Until that stable release is cut, continue editing `docs/src/content/docs/`; the site serves those pages from shareable `/v0.2/` routes, but no `v0.2` source snapshot exists yet. Do not create `docs/src/content/docs/v0.2/` manually. The stable release command snapshots that exact source as `v0.2` and marks it current without changing its public routes.
 
 After `v0.2.0`, patch documentation changes for the active release line go directly into `docs/src/content/docs/v0.2/`. Work intended for the next minor continues in the unversioned source. When `v0.3.0` is published, release automation performs one transaction:
 

@@ -11,14 +11,9 @@ import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
 import starlightVersions from 'starlight-versions'
 import remarkGfm from 'remark-gfm'
+import { remarkDocsRoutes } from './src/plugins/remarkDocsRoutes.mjs'
 import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
-import {
-  docsShellPlugin,
-  docsSnapshotMode,
-  docsVersionState,
-  starlightVersionsConfig,
-  versionedRedirects,
-} from './versioning.mjs'
+import { docsShellPlugin, docsSnapshotMode, docsVersionState, starlightVersionsConfig, versionedRedirects } from './versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
@@ -44,11 +39,9 @@ const legacyRedirects = {
 
 export default defineConfig({
   output: 'static',
-  redirects: docsSnapshotMode
-    ? {}
-    : versionedRedirects(legacyRedirects, new URL('./src/content/docs/', import.meta.url).pathname),
+  redirects: docsSnapshotMode ? {} : versionedRedirects(legacyRedirects, new URL('./src/content/docs/', import.meta.url).pathname),
   markdown: {
-    remarkPlugins: [remarkGfm, remarkMermaid],
+    remarkPlugins: [remarkGfm, remarkMermaid, remarkDocsRoutes],
   },
   site,
   trailingSlash: 'always',
@@ -59,9 +52,7 @@ export default defineConfig({
     react(),
     sitemap({ filter: (page) => !new URL(page).pathname.startsWith('/next/') }),
     starlight({
-      plugins: docsVersionState.current
-        ? [docsSnapshotMode ? starlightVersions(starlightVersionsConfig) : docsShellPlugin()]
-        : [],
+      plugins: docsSnapshotMode && docsVersionState.current ? [starlightVersions(starlightVersionsConfig)] : [docsShellPlugin()],
       title: 'Caracal',
       description,
       logo: {
@@ -135,6 +126,7 @@ export default defineConfig({
         Head: './src/components/Head.astro',
         Header: './src/components/Header.astro',
         Hero: './src/components/Hero.astro',
+        SiteTitle: './src/components/SiteTitle.astro',
         ThemeSelect: './src/components/ThemeSelectWithVersion.astro',
         Footer: './src/components/DocFooter.astro',
         PageSidebar: './src/components/PageSidebar.astro',
