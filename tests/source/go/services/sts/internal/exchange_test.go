@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -444,6 +445,13 @@ func (s *stubDB) InsertAuthorityRecord(_ context.Context, sess *AuthorityRecord)
 	return s.sessErr
 }
 func (s *stubDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
+}
+func (s *stubDB) InsertDelegatedAuthorityRecord(_ context.Context, sess *AuthorityRecord, _ DelegationIssuanceProof, _ *ConsumeApprovalParams) error {
 	if s.sessErr != nil {
 		return s.sessErr
 	}
@@ -1711,6 +1719,39 @@ func TestBindGovernedSessionRejectsMismatch(t *testing.T) {
 	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err == nil || err.Description != "Session mismatch" {
 		t.Fatalf("want mismatch error, got %#v", err)
+	}
+}
+
+func TestBindDelegationEdgeCopiesSignedClaim(t *testing.T) {
+	req := TokenExchangeRequest{}
+	if err := bindDelegationEdge(&req, map[string]any{"delegation_edge_id": "edge-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if req.DelegationEdgeID != "edge-1" {
+		t.Fatalf("signed delegation claim was not copied: %#v", req)
+	}
+}
+
+func TestBindDelegationEdgeRejectsMismatch(t *testing.T) {
+	req := TokenExchangeRequest{DelegationEdgeID: "edge-explicit"}
+	err := bindDelegationEdge(&req, map[string]any{"delegation_edge_id": "edge-signed"})
+	if err == nil || err.Description != "delegation mismatch" {
+		t.Fatalf("expected delegation mismatch, got %#v", err)
+	}
+}
+
+func TestBindDelegationEdgeRejectsExplicitRequestWithoutSignedClaim(t *testing.T) {
+	req := TokenExchangeRequest{DelegationEdgeID: "edge-explicit"}
+	err := bindDelegationEdge(&req, map[string]any{})
+	if err == nil || err.Description != "delegation claim missing from subject token" {
+		t.Fatalf("expected missing claim denial, got %#v", err)
+	}
+}
+
+func TestDistinctScopesCanonicalizesDuplicates(t *testing.T) {
+	got := distinctScopes("write read write read")
+	if !slices.Equal(got, []string{"read", "write"}) {
+		t.Fatalf("unexpected distinct scopes: %v", got)
 	}
 }
 

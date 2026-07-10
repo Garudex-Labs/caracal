@@ -215,7 +215,7 @@ func startRevocationConsumer(ctx context.Context, redis revocationRedis, store *
 		return fmt.Errorf("revocation consumer requires store")
 	}
 	consumer := fmt.Sprintf("gateway-%s-%d", hostname(), os.Getpid())
-	group := groupRevoke + ":" + consumer
+	group := groupRevoke + ":" + hostname()
 	if err := redis.EnsureGroup(ctx, streamRevoke, group); err != nil {
 		return fmt.Errorf("revocation consumer ensure group: %w", err)
 	}
@@ -247,7 +247,7 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	}
 	governedSessions, err := queryRevocationIDs(ctx, pool,
 		`SELECT id FROM sessions
-		 WHERE status IN ('suspended', 'terminated')
+		 WHERE status = 'terminated'
 		   AND updated_at > now() - ($1::int * interval '1 second')`,
 		int(revocationTTL.Seconds()),
 	)

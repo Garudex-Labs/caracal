@@ -102,7 +102,7 @@ func (r *RedisClient) SignedXAdd(ctx context.Context, stream string, values map[
 
 // EnsureGroup creates a Redis consumer group (MKSTREAM) if it does not exist.
 func (r *RedisClient) EnsureGroup(ctx context.Context, stream, group string) error {
-	err := r.c.XGroupCreateMkStream(ctx, stream, group, "0").Err()
+	err := r.c.XGroupCreateMkStream(ctx, stream, group, "$").Err()
 	if err != nil && err.Error() == "BUSYGROUP Consumer Group name already exists" {
 		return nil
 	}

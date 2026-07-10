@@ -1165,7 +1165,7 @@ func TestAcceptDelegationValidatesAgainstInboundList(t *testing.T) {
 	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/delegations/inbound/") {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"items":[{"id":"edge-42","status":%q}]}`, status)
+			fmt.Fprintf(w, `{"id":"edge-42","status":%q}`, status)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

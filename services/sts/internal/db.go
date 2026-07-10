@@ -33,6 +33,8 @@ const (
 // Callers refresh.go retries on this; other errors are returned as-is.
 var ErrConcurrentGrantUpdate = errors.New("concurrent grant update")
 
+var ErrDelegationChanged = errors.New("delegation changed during issuance")
+
 func newDB(ctx context.Context, dsn string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -80,10 +82,8 @@ type DBQuerier interface {
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityRecord, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
-	GetDelegationLineage(ctx context.Context, zoneID, edgeID string, maxHops int) ([]string, error)
 	GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64, error)
 	InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) error
-	InsertAuthorityRecordWithApproval(ctx context.Context, s *AuthorityRecord, p ConsumeApprovalParams) error
 	RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
@@ -180,7 +180,7 @@ func (d *DB) GetResourceByIdentifier(ctx context.Context, zoneID, identifier str
 	var operations []byte
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, zone_id, identifier, upstream_url, scopes, credential_provider_id, operations, operation_enforcement FROM resources
-		 WHERE zone_id = $1 AND identifier = $2 AND archived_at IS NULL`, zoneID, identifier,
+		 WHERE zone_id = $1 AND (identifier = $2 OR id = $2) AND archived_at IS NULL`, zoneID, identifier,
 	).Scan(&r.ID, &r.ZoneID, &r.Identifier, &r.UpstreamURL, &r.Scopes, &r.CredentialProviderID, &operations, &r.OperationEnforcement)
 	if err != nil {
 		return nil, err
@@ -289,6 +289,14 @@ type DelegationEdge struct {
 	EdgeVersion     int
 	ConstraintsJSON json.RawMessage
 	RevokedAt       *time.Time
+}
+
+// DelegationIssuanceProof is the graph version rechecked under the Coordinator mutation lock.
+type DelegationIssuanceProof struct {
+	EdgeID          string
+	EdgeVersion     int
+	TargetSessionID string
+	GraphEpoch      int64
 }
 
 // Session holds coordinator graph node fields needed by STS.
@@ -457,6 +465,68 @@ func (d *DB) InsertAuthorityRecordWithApproval(ctx context.Context, s *Authority
 		return ErrChallengeInvalid
 	}
 	return nil
+}
+
+func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRecord, proof DelegationIssuanceProof, approval *ConsumeApprovalParams) error {
+	claims := s.ClaimsJSON
+	if len(claims) == 0 {
+		claims = nil
+	}
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delegation:"+s.ZoneID); err != nil {
+		return err
+	}
+	var currentEpoch int64
+	if err := tx.QueryRow(ctx, `SELECT epoch FROM delegation_graph_epochs WHERE zone_id = $1`, s.ZoneID).Scan(&currentEpoch); err != nil || currentEpoch != proof.GraphEpoch {
+		return ErrDelegationChanged
+	}
+	var live bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS (
+		   SELECT 1 FROM delegation_edges e
+		   JOIN sessions target ON target.id = e.target_session_id AND target.zone_id = e.zone_id
+		   WHERE e.id = $1 AND e.zone_id = $2 AND e.edge_version = $3
+		     AND e.target_session_id = $4 AND e.status = 'active' AND e.revoked_at IS NULL AND e.expires_at > now()
+		     AND target.status = 'active'
+		     AND ((target.lifecycle = 'service' AND target.heartbeat_deadline_at > now())
+		       OR (target.lifecycle = 'task' AND target.ttl_seconds > 0
+		         AND target.started_at + (target.ttl_seconds * interval '1 second') > now()))
+		 )`,
+		proof.EdgeID, s.ZoneID, proof.EdgeVersion, proof.TargetSessionID,
+	).Scan(&live)
+	if err != nil || !live {
+		return ErrDelegationChanged
+	}
+	if approval != nil {
+		var consumed bool
+		err = tx.QueryRow(ctx,
+			`UPDATE step_up_challenges c SET consumed_at = now()
+			 WHERE c.id = $1 AND c.zone_id = $2 AND c.principal_id = $3 AND c.resource_set_hash = $4
+			   AND c.challenge_type = 'human_approval' AND c.satisfied_at IS NOT NULL
+			   AND c.rejected_at IS NULL AND c.approver_subject_id IS NOT NULL
+			   AND c.consumed_at IS NULL AND c.expires_at > now()
+			 RETURNING true`, approval.ID, approval.ZoneID, approval.PrincipalID, approval.ResourceSetHash,
+		).Scan(&consumed)
+		if errors.Is(err, pgx.ErrNoRows) || !consumed {
+			return ErrChallengeInvalid
+		}
+		if err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO authority_records (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
+		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)`,
+		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims,
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error {
