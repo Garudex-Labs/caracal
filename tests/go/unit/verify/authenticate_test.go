@@ -80,7 +80,7 @@ func TestAuthenticateAcceptsVerifiedTokenAndChecksRevocation(t *testing.T) {
 	if authErr != nil {
 		t.Fatalf("unexpected auth error: %#v", authErr)
 	}
-	if claims.Sub != "user-1" || claims.RootSid != "root-1" || claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" || claims.HopCount != 2 {
+	if claims.Sub != "user-1" || claims.RootAuthorityRecordID != "root-1" || claims.SessionID != "agent-1" || claims.DelegationID != "edge-1" || claims.HopCount != 2 {
 		t.Fatalf("unexpected claims: %#v", claims)
 	}
 }
@@ -138,8 +138,8 @@ func TestAuthenticateRejectsRevokedAuthorityAnchors(t *testing.T) {
 func TestCheckActiveAuthorityRejectsExpiredExecution(t *testing.T) {
 	store := revocation.NewInMemoryStore(time.Hour)
 	authErr := verify.CheckActiveAuthority(identity.Claims{
-		Sid:       "sid-1",
-		ExpiresAt: time.Now().Add(-time.Second).Unix(),
+		AuthorityRecordID: "sid-1",
+		ExpiresAt:         time.Now().Add(-time.Second).Unix(),
 	}, store, time.Now())
 	if authErr == nil || authErr.Code != verify.ErrInvalidToken {
 		t.Fatalf("expected invalid_token, got %#v", authErr)

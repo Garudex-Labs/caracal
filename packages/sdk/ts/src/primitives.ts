@@ -511,7 +511,7 @@ export async function attachSession(input: AttachSessionInput): Promise<SessionH
     hop: 0,
     ownToken: true,
   }
-  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt)
+  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt, first.status)
 }
 
 interface LeaseInput {
@@ -531,10 +531,11 @@ function leaseHandle(
   sessionId: string,
   bearer: () => Promise<string>,
   initialDeadlineAt: string | undefined,
+  initialStatus = 'active',
 ): SessionHandle {
   const warn = input.warn ?? defaultWarn
   let deadlineAt = initialDeadlineAt
-  let sessionStatus = 'active'
+  let sessionStatus = initialStatus
   let suspendedNotified = false
   const heartbeat = async (status?: SessionStatus) => {
     let res

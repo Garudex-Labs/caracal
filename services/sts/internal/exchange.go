@@ -71,6 +71,8 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	if requestID == "" {
 		if id, err := uuid.NewV7(); err == nil {
 			requestID = id.String()
+		} else {
+			requestID = uuid.NewString()
 		}
 	}
 	if requestID != "" {
@@ -98,15 +100,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ttlSeconds = parsedTTL
 	}
 
-	if requestID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			s.log.Error().Err(err).Msg("request id generation failed")
-			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
-			return
-		}
-		requestID = id.String()
-	}
 	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID)
 	if gatewayErr != nil {
 		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid gateway exchange signature"))
@@ -1674,7 +1667,7 @@ func bindGovernedSession(req *TokenExchangeRequest, claims map[string]any) *shar
 		return nil
 	}
 	if req.SessionID != "" && req.SessionID != sessionID {
-		return sharederr.New(sharederr.AccessDenied, "session mismatch")
+		return sharederr.New(sharederr.AccessDenied, "Session mismatch")
 	}
 	req.SessionID = sessionID
 	return nil

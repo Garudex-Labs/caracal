@@ -19,8 +19,6 @@ import (
 	"time"
 
 	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
-	"github.com/garudex-labs/caracal/packages/identity/go"
-	"github.com/garudex-labs/caracal/packages/revocation/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -47,7 +45,7 @@ func TestMiddlewareAttachesClaimsToRequestContext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !ok || claims.Sub != "user-1" || claims.Sid != "sid-1" {
+	if !ok || claims.Sub != "user-1" || claims.AuthorityRecordID != "sid-1" {
 		t.Fatalf("expected verified claims in context, got ok=%v claims=%+v", ok, claims)
 	}
 }

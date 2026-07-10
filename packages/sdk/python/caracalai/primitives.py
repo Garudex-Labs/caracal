@@ -443,6 +443,7 @@ class SessionHandle:
         token_source: TokenSource | None = None,
         invalidate: Callable[[], None] | None = None,
         heartbeat_deadline_at: str | None = None,
+        status: str = "active",
         on_lease_lost: Callable[[BaseException], None] | None = None,
         on_state_change: Callable[[str], None] | None = None,
         on_session_end: LifecycleHook | None = None,
@@ -456,7 +457,7 @@ class SessionHandle:
         self._invalidate = invalidate
         self._on_lease_lost = on_lease_lost
         self._on_state_change = on_state_change
-        self._status = "active"
+        self._status = status
         self._on_session_end = on_session_end
         self._refresh_lock = asyncio.Lock()
         self._auto_task: asyncio.Task[None] | None = None
@@ -727,6 +728,7 @@ async def attach_session(
         token_source=token_source,
         invalidate=invalidate,
         heartbeat_deadline_at=first.heartbeat_deadline_at,
+        status=first.status or "active",
         on_lease_lost=on_lease_lost,
         on_state_change=on_state_change,
         on_session_end=on_session_end,

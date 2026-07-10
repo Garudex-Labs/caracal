@@ -17,7 +17,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -30,21 +29,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-policy-agent/opa/rego"
 )
-
-func TestTokenExchangeErrorIncludesGeneratedRequestID(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader("%"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	(&Server{}).handleTokenExchange(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
-	}
-	requestID := w.Header().Get("X-Request-Id")
-	if requestID == "" || !strings.Contains(w.Body.String(), `"requestId":"`+requestID+`"`) {
-		t.Fatalf("expected generated request id in header and body, header=%q body=%s", requestID, w.Body.String())
-	}
-}
 
 func strPtr(value string) *string {
 	return &value

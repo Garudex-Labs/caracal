@@ -50,7 +50,7 @@ principal_owns_resource if {
 
 # An application bootstrapping its session mandate with its client secret. The only
 # permitted scope is agent:lifecycle, and no agent, delegation, or subject context may
-# ride along: the mandate authorizes coordinator spawns, not resource calls.
+# ride along: the mandate authorizes Coordinator Session starts, not resource calls.
 bootstrap_exchange if {
 	{scope | some scope in input.context.requested_scopes} == {"agent:lifecycle"}
 	not input.context.subject_claims
@@ -58,7 +58,7 @@ bootstrap_exchange if {
 	not input.context.agent_session_id
 }
 
-# A spawned agent minting its resource mandate. The exchange must reference the agent
+# A governed Session minting its resource mandate. The exchange must reference the Session
 # session and its delegation edge, must not carry a subject token, and every requested
 # scope must sit inside the edge's narrowed grant. This subset check is the delegation
 # narrowing floor: removing it would let an agent mint authority its parent never held.
@@ -127,7 +127,7 @@ workload_mint if {
 	not input.context.agent_session_id
 }
 
-# A spawned agent presenting its minted mandate at the Gateway. The mandate must be
+# A governed Session presenting its minted mandate at the Gateway. The mandate must be
 # delegation-bound and name this resource in its target audience, and the Gateway
 # exchange requests no scopes: authority rides in the mandate claims. Per-operation
 # scope authority is enforced natively by the Gateway and STS against the resource's
@@ -143,7 +143,7 @@ requested_scopes_present if {
 	count(input.context.requested_scopes) > 0
 }
 
-# The presenting agent session must carry a role label granted on this resource.
+# The presenting Session must carry a role label granted on this resource.
 use_role_allowed if {
 	some role in input.principal.labels
 	resource_grant.roles[role]
@@ -224,7 +224,7 @@ result := allow_result("caracal-bootstrap") if {
 	not restriction_denied
 }
 
-# A spawned agent minting a resource mandate, narrowed by its delegation edge, confined
+# A governed Session minting a resource mandate, narrowed by its Delegation, confined
 # by its labels, and bound to a role its grants allow.
 result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 	principal_owns_resource
@@ -242,7 +242,7 @@ result := mint_allow("caracal-workload-mint") if {
 	not malformed_approval_declarations
 }
 
-# A spawned agent presenting its minted mandate at the Gateway, bound to a role its
+# A governed Session presenting its minted mandate at the Gateway, bound to a role its
 # grants allow on the named resource.
 result := allow_result(sprintf("caracal-%s-use", [principal_app])) if {
 	principal_owns_resource

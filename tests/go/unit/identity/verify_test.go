@@ -102,13 +102,13 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if claims.Sub != "user-1" || claims.ZoneID != "zone-1" || claims.ClientID != "app-1" || claims.Sid != "sid-1" {
+	if claims.Sub != "user-1" || claims.ZoneID != "zone-1" || claims.ClientID != "app-1" || claims.AuthorityRecordID != "sid-1" {
 		t.Fatalf("wrong basic claims: %+v", claims)
 	}
-	if claims.RootSid != "root-1" || claims.SubType != "user" || claims.IssuedAt == 0 || claims.ExpiresAt <= claims.IssuedAt {
+	if claims.RootAuthorityRecordID != "root-1" || claims.SubType != "user" || claims.IssuedAt == 0 || claims.ExpiresAt <= claims.IssuedAt {
 		t.Fatalf("wrong authority timing claims: %+v", claims)
 	}
-	if claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" {
+	if claims.SessionID != "agent-1" || claims.DelegationID != "edge-1" {
 		t.Fatalf("wrong identity claims: %+v", claims)
 	}
 	if claims.SourceSessionID != "src-1" || claims.TargetSessionID != "tgt-1" {
@@ -124,7 +124,7 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 		t.Fatalf("wrong path length: %v", claims.DelegationPath)
 	}
 	if len(claims.DelegationChain) != 1 || claims.DelegationChain[0].ApplicationID != "app-parent" ||
-		claims.DelegationChain[0].AgentSessionID != "s1" || claims.DelegationChain[0].DelegationEdgeID != "e1" {
+		claims.DelegationChain[0].SessionID != "s1" || claims.DelegationChain[0].DelegationID != "e1" {
 		t.Fatalf("wrong chain: %+v", claims.DelegationChain)
 	}
 }
@@ -353,7 +353,7 @@ func TestVerifyChainHopNames(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	hop := claims.DelegationChain[0]
-	if hop.ApplicationID != "app-parent" || hop.AgentSessionID != "s1" || hop.DelegationEdgeID != "e1" {
+	if hop.ApplicationID != "app-parent" || hop.SessionID != "s1" || hop.DelegationID != "e1" {
 		t.Fatalf("wrong chain hop: %+v", hop)
 	}
 }
