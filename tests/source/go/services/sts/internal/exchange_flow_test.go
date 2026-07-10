@@ -72,13 +72,21 @@ func exchangeFlowServer(t *testing.T, db DBQuerier, policy string) *Server {
 }
 
 func sessionMandate(t *testing.T, srv *Server, sub, sid, scopes string) string {
+	return mandate(t, srv, sub, sid, scopes, UseSession)
+}
+
+func gatewayMandate(t *testing.T, srv *Server, sub, sid, scopes string) string {
+	return mandate(t, srv, sub, sid, scopes, UseGateway)
+}
+
+func mandate(t *testing.T, srv *Server, sub, sid, scopes, use string) string {
 	t.Helper()
 	token, _, err := issueToken(context.Background(), IssueParams{
 		ZoneID:                "zone1",
 		AppID:                 "app1",
 		SubjectID:             sub,
 		SubType:               SubTypeUser,
-		Use:                   UseSession,
+		Use:                   use,
 		AuthorityRecordID:     sid,
 		RootAuthorityRecordID: sid,
 		Scopes:                scopes,
@@ -157,7 +165,7 @@ func TestExchangeGatewaySignedRequestMintsResourceMandate(t *testing.T) {
 		key[i] = byte(i + 7)
 	}
 	srv.cfg.GatewayHMACKey = key
-	mandate := sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
+	mandate := gatewayMandate(t, srv, "user-1", "sess-1", "pipernet:read")
 
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
@@ -443,7 +451,7 @@ func TestExchangeOperationFloor(t *testing.T) {
 	req.ClientSecret = ""
 	req.Scope = ""
 	req.GatewayAuthenticated = true
-	req.SubjectToken = sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
+	req.SubjectToken = gatewayMandate(t, srv, "user-1", "sess-1", "pipernet:read")
 	req.RequestMethod = "get"
 	req.RequestPath = "/items"
 	resp, _, code, apiErr := srv.exchange(context.Background(), req, "req-op-1")

@@ -43,6 +43,16 @@ type CaracalContext struct {
 	// token would escalate authority. Process-local; never serialized to the
 	// envelope.
 	OwnToken bool
+	// TokenSource resolves a fresh bearer for contexts owned by this process.
+	// Inbound contexts remain pinned because OwnToken is false.
+	TokenSource func(context.Context) (string, error)
+}
+
+func contextBearer(ctx context.Context, c CaracalContext) (string, error) {
+	if c.OwnToken && c.TokenSource != nil {
+		return c.TokenSource(ctx)
+	}
+	return c.SubjectToken, nil
 }
 
 // AuthoritySummary is a redacted operator view of the bound authority chain.

@@ -301,7 +301,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
-		subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
+		if req.GatewayAuthenticated {
+			subjectClaims, err = s.validateGatewaySubjectToken(ctx, req.SubjectToken, zoneID)
+		} else {
+			subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
+		}
 		if err != nil {
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid subject_token")
 		}
@@ -1385,11 +1389,19 @@ func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
 // from the zone's active + grace-period key set, ensuring tokens signed by a previous
 // key during key rotation are still accepted within the 24h grace window.
 func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
+	return s.validateSubjectTokenUse(ctx, tokenStr, zoneID, UseSession)
+}
+
+func (s *Server) validateGatewaySubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
+	return s.validateSubjectTokenUse(ctx, tokenStr, zoneID, UseGateway)
+}
+
+func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, expectedUse string) (map[string]any, error) {
 	zoneKeys, err := s.keys.getPublicKeysByZone(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("get zone keys: %w", err)
 	}
-	claims, err := s.parseSubjectToken(tokenStr, zoneID, zoneKeys)
+	claims, err := s.parseSubjectToken(tokenStr, zoneID, expectedUse, zoneKeys)
 	if err == nil || !strings.Contains(err.Error(), "unknown signing key kid") {
 		return claims, err
 	}
@@ -1401,10 +1413,10 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	if refreshErr != nil {
 		return nil, fmt.Errorf("refresh zone keys: %w", refreshErr)
 	}
-	return s.parseSubjectToken(tokenStr, zoneID, zoneKeys)
+	return s.parseSubjectToken(tokenStr, zoneID, expectedUse, zoneKeys)
 }
 
-func (s *Server) parseSubjectToken(tokenStr, zoneID string, zoneKeys map[string]*ecdsa.PublicKey) (map[string]any, error) {
+func (s *Server) parseSubjectToken(tokenStr, zoneID, expectedUse string, zoneKeys map[string]*ecdsa.PublicKey) (map[string]any, error) {
 	mc := jwt.MapClaims{}
 	_, err := jwt.NewParser(
 		jwt.WithValidMethods([]string{"ES256"}),
@@ -1430,8 +1442,8 @@ func (s *Server) parseSubjectToken(tokenStr, zoneID string, zoneKeys map[string]
 	if claimString(mc, "zone_id") != zoneID {
 		return nil, errors.New("token zone mismatch")
 	}
-	if claimString(mc, "use") != UseSession {
-		return nil, errors.New("subject_token must be a session mandate")
+	if claimString(mc, "use") != expectedUse {
+		return nil, fmt.Errorf("subject_token must be a %s mandate", expectedUse)
 	}
 	return mc, nil
 }

@@ -643,7 +643,7 @@ func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID stri
 		DelegationID: delegationID,
 		TTLSeconds:   opts.TTLSeconds,
 		ChallengeID:  opts.ApprovalID,
-		OneShot:      opts.OneShot,
+		OneShot:      opts.OneShot || sessionID != "" && delegationID != "",
 	})
 }
 
@@ -1452,7 +1452,10 @@ func (c *Caracal) RevokeDelegation(ctx context.Context, delegationID string) err
 	if err != nil {
 		return err
 	}
-	bearer := cur.SubjectToken
+	bearer, err := contextBearer(ctx, cur)
+	if err != nil {
+		return err
+	}
 	if bearer == "" {
 		bearer, err = c.rootToken(ctx)
 		if err != nil {
@@ -1490,7 +1493,12 @@ func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string, opt
 		if cur.SessionID == "" {
 			return nil, fmt.Errorf("caracal: AcceptDelegation validation requires an active session in context")
 		}
-		inbound, err := GetInboundDelegation(ctx, c.Coordinator, cur.SubjectToken, cur.ZoneID, cur.SessionID, delegationID)
+		bearer, berr := contextBearer(ctx, cur)
+		if berr != nil {
+			emit(false)
+			return nil, berr
+		}
+		inbound, err := GetInboundDelegation(ctx, c.Coordinator, bearer, cur.ZoneID, cur.SessionID, delegationID)
 		if err != nil {
 			emit(false)
 			return nil, fmt.Errorf("caracal: AcceptDelegation: delegation %s is not live for session %s; confirm the issuer created it for this session and it has not been revoked: %w", delegationID, cur.SessionID, err)

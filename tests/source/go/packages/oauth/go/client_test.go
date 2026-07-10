@@ -161,7 +161,7 @@ func TestExchangeReturnsApprovalRequiredError(t *testing.T) {
 	}
 }
 
-func TestExchangeRetriesOnceAfterUnauthorized(t *testing.T) {
+func TestExchangeDoesNotRetryUnauthorized(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -176,12 +176,12 @@ func TestExchangeRetriesOnceAfterUnauthorized(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "zone1", "app1", nil)
-	token, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{Retries: 0})
-	if err != nil {
-		t.Fatal(err)
+	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{Retries: 0})
+	if err == nil || err.Error() != "expired client credential" {
+		t.Fatalf("expected unauthorized error, got %v", err)
 	}
-	if token.AccessToken != "fresh" || requests != 2 {
-		t.Fatalf("expected one 401 retry and fresh token, got token=%q requests=%d", token.AccessToken, requests)
+	if requests != 1 {
+		t.Fatalf("expected no 401 retry, got requests=%d", requests)
 	}
 }
 

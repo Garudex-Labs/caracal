@@ -264,7 +264,12 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
 			return nil, errors.New("caracal: Authority narrow requires an active parent session")
 		}
-		delRes, derr := CreateDelegation(ctx, in.coordinator, parent.SubjectToken, DelegationRequest{
+		parentBearer, berr := contextBearer(ctx, parent)
+		if berr != nil {
+			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
+			return nil, berr
+		}
+		delRes, derr := CreateDelegation(ctx, in.coordinator, parentBearer, DelegationRequest{
 			ZoneID:                in.zoneID,
 			IssuerApplicationID:   parent.ApplicationID,
 			SourceSessionID:       parent.SessionID,
@@ -307,6 +312,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		Baggage:                  parent.Baggage,
 		Hop:                      hop,
 		OwnToken:                 true,
+		TokenSource:              in.tokenSource,
 	}
 	return &session{sessionID: res.SessionID, ctx: c, bearer: bearer, heartbeatDeadlineAt: res.HeartbeatDeadlineAt}, nil
 }
@@ -426,7 +432,11 @@ func Delegate(ctx context.Context, opts DelegateInput) (Delegation, error) {
 	var res DelegationResponse
 	for attempt := 0; ; {
 		var err error
-		res, err = CreateDelegation(ctx, opts.Coordinator, c.SubjectToken, req)
+		bearer, berr := contextBearer(ctx, c)
+		if berr != nil {
+			return Delegation{}, berr
+		}
+		res, err = CreateDelegation(ctx, opts.Coordinator, bearer, req)
 		if err == nil {
 			break
 		}
@@ -796,6 +806,7 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 			ApplicationID: opts.ApplicationID,
 			SessionID:     opts.SessionID,
 			OwnToken:      true,
+			TokenSource:   opts.TokenSource,
 		},
 		coordinator:       opts.Coordinator,
 		tokenSource:       opts.TokenSource,

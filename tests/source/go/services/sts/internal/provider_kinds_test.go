@@ -93,7 +93,7 @@ func TestExchangeSurfacesProviderCredentialFailure(t *testing.T) {
 	req := baseExchangeRequest()
 	req.ClientSecret = ""
 	req.GatewayAuthenticated = true
-	req.SubjectToken = sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
+	req.SubjectToken = gatewayMandate(t, srv, "user-1", "sess-1", "pipernet:read")
 
 	_, _, code, apiErr := srv.exchange(context.Background(), req, "req-1")
 	if code != http.StatusBadGateway || apiErr == nil || apiErr.Code != sharederr.HTTPRequestFailed {
