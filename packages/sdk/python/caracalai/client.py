@@ -12,7 +12,6 @@ import ipaddress
 import json
 import logging
 import os
-import sys
 import threading
 import time
 import uuid
@@ -55,7 +54,7 @@ from .coordinator import (
     list_inbound_delegations,
     sync_create_delegation,
     sync_start_coordinator_session,
-    sync_terminate_agent,
+    sync_terminate_session,
 )
 from .envelope import (
     HEADER_AUTHORIZATION,
@@ -85,9 +84,9 @@ DEFAULT_GATEWAY_URL = "http://localhost:8081"
 LIFECYCLE_SCOPE = "agent:lifecycle"
 APP_MANDATE_TTL_SECONDS = 900
 APP_AUTHORITY_REFRESH_MARGIN_SECONDS = 60.0
-# Each authority entry owns two sessions. Twenty entries reserve ten of the
-# coordinator's default fifty-session capacity for ordinary work.
-APP_AUTHORITY_CACHE_CAP = 20
+# Each authority entry owns two sessions. Nineteen entries leave room for ten
+# ordinary sessions and the next two-session provisioning cycle.
+APP_AUTHORITY_CACHE_CAP = 19
 
 _T = TypeVar("_T")
 APP_SESSION_TTL_BUFFER_SECONDS = 120
@@ -98,6 +97,8 @@ _CREDENTIAL_FINGERPRINT_KEY = os.urandom(32)
 class _AppAuthority:
     resource_id: str
     zone_id: str
+    application_id: str
+    credential_generation: str
     target_session_id: str
     delegation_id: str
     expires_at: float
@@ -239,7 +240,7 @@ _BINDING_FIELDS = frozenset({"resource_id", "upstream_prefix"})
 
 def _is_absolute_url(value: str) -> bool:
     parsed = urlparse(value)
-    return bool(parsed.scheme and parsed.netloc)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def _validate_resource_bindings(data: object, *, source: str) -> list[ResourceBinding]:
@@ -352,70 +353,6 @@ def _resource_ids_from_env(
     return list(dict.fromkeys(ids + [b.resource_id for b in bindings]))
 
 
-def _default_config_path_for(env: Mapping[str, str]):
-    from pathlib import Path
-
-    explicit = env.get("CARACAL_CONFIG")
-    if explicit:
-        return Path(explicit)
-    return _default_config_dir(env) / "caracal.toml"
-
-
-def _default_config_dir(env: Mapping[str, str]):
-    from pathlib import Path
-
-    if env.get("CARACAL_CONFIG_HOME"):
-        return Path(env["CARACAL_CONFIG_HOME"])
-    if env.get("XDG_CONFIG_HOME"):
-        return Path(env["XDG_CONFIG_HOME"]) / "caracal"
-    if os.name == "nt":
-        return (
-            Path(
-                env.get("APPDATA")
-                or env.get("LOCALAPPDATA")
-                or Path.home() / "AppData" / "Roaming"
-            )
-            / "Caracal"
-        )
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Caracal"
-    return Path.home() / ".config" / "caracal"
-
-
-def _safe_path_segment(value: str) -> str:
-    import re
-
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip()).strip("_")
-    return safe or "default"
-
-
-def _default_credential_dir(env: Mapping[str, str], zone_id: str, application_id: str):
-    return (
-        _default_config_dir(env)
-        / "runtime"
-        / _safe_path_segment(zone_id)
-        / _safe_path_segment(application_id)
-    )
-
-
-def _default_client_secret_path(
-    env: Mapping[str, str], zone_id: str, application_id: str
-):
-    return _default_credential_dir(env, zone_id, application_id) / "client-secret"
-
-
-def _default_run_credentials_path(
-    env: Mapping[str, str], zone_id: str, application_id: str
-):
-    return _default_credential_dir(env, zone_id, application_id) / "credentials.json"
-
-
-def _existing_local_file(path, env: Mapping[str, str]):
-    if _production_env(env):
-        return None
-    return path if path.exists() else None
-
-
 def _production_env(env: Mapping[str, str]) -> bool:
     """CARACAL_ENV is the language-neutral gate every Caracal SDK honors."""
     return env.get("CARACAL_ENV") == "production"
@@ -439,7 +376,14 @@ def _assert_production_transport(
     name: str, value: str | None, env: Mapping[str, str]
 ) -> None:
     global _insecure_config_warned
-    if not value or not _production_env(env):
+    if not value:
+        return
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise RuntimeError(
+            f"Caracal SDK: {name} must be an absolute http or https URL: {value}"
+        )
+    if not _production_env(env):
         return
     if env.get("CARACAL_ALLOW_INSECURE_CONFIG_URLS") == "true":
         # The override disables the https requirement for the whole control
@@ -452,7 +396,6 @@ def _assert_production_transport(
                 "http - remove the override once TLS is in place"
             )
         return
-    parsed = urlparse(value)
     if parsed.scheme == "https":
         return
     if parsed.scheme == "http" and _is_loopback_host(parsed.hostname):
@@ -508,11 +451,7 @@ def _service_url(env: Mapping[str, str], key: str, default: str) -> str:
 
 
 def _sts_url(env: Mapping[str, str]) -> str:
-    return (
-        env.get("CARACAL_STS_URL")
-        or env.get("CARACAL_ZONE_URL")
-        or _service_url(env, "CARACAL_STS_URL", DEFAULT_STS_URL)
-    )
+    return _service_url(env, "CARACAL_STS_URL", DEFAULT_STS_URL)
 
 
 def _client_secret_from_config(
@@ -536,16 +475,9 @@ def _client_secret_from_config(
         return value
     if isinstance(file_value, str) and file_value:
         return _read_secret_path(Path(file_value), "caracal.toml")
-    local_path = _existing_local_file(
-        _default_client_secret_path(env, zone_id, application_id),
-        env,
+    raise RuntimeError(
+        "caracal.toml requires app_client_secret or app_client_secret_file"
     )
-    if local_path is None:
-        raise RuntimeError(
-            "caracal.toml missing client secret; local dev/stable auto-detects "
-            f"{_default_client_secret_path(env, zone_id, application_id)} when it exists"
-        )
-    return _read_secret_path(local_path, "caracal.toml")
 
 
 def _client_secret_from_env(
@@ -564,11 +496,6 @@ def _client_secret_from_env(
         return _read_secret_path(Path(file_value), "Caracal.from_env")
     if value:
         return value
-    local_path = _existing_local_file(
-        _default_client_secret_path(env, zone_id, application_id), env
-    )
-    if local_path is not None:
-        return _read_secret_path(local_path, "Caracal.from_env")
     return None
 
 
@@ -608,41 +535,6 @@ def _resource_bindings_from_credentials(
         if upstream:
             bindings.append(ResourceBinding(resource, upstream))
     return ids, bindings
-
-
-def _credential_manifest_from_env(
-    env: Mapping[str, str], zone_id: str, application_id: str
-) -> list[dict[str, str]]:
-    file_value = env.get("CARACAL_RUN_CREDENTIALS_FILE")
-    inline = env.get("CARACAL_RUN_CREDENTIALS")
-    if file_value and inline:
-        raise RuntimeError(
-            "Caracal.from_env must set only one of CARACAL_RUN_CREDENTIALS or "
-            "CARACAL_RUN_CREDENTIALS_FILE"
-        )
-    if not file_value and not inline:
-        local_path = _existing_local_file(
-            _default_run_credentials_path(env, zone_id, application_id), env
-        )
-        if local_path is None:
-            return []
-        file_value = str(local_path)
-    if file_value:
-        with open(file_value, encoding="utf-8") as fh:
-            data = json.load(fh)
-    else:
-        data = json.loads(inline or "")
-    manifest = {"credentials": data} if isinstance(data, list) else data
-    if not isinstance(manifest, dict):
-        raise RuntimeError(
-            "Caracal.from_env credential manifest must be an array or object"
-        )
-    return _credential_entries(
-        manifest.get("credentials"), source="CARACAL_RUN_CREDENTIALS.credentials"
-    ) + _credential_entries(
-        manifest.get("optional_credentials"),
-        source="CARACAL_RUN_CREDENTIALS.optional_credentials",
-    )
 
 
 def _task_metadata(task: str | None, metadata: JsonObject | None) -> JsonObject | None:
@@ -703,10 +595,7 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
     if missing:
         raise RuntimeError(f"Caracal.from_env: missing {', '.join(missing)}")
 
-    credential_ids, credential_bindings = _resource_bindings_from_credentials(
-        _credential_manifest_from_env(e, zone_id, application_id)
-    )
-    bindings = sort_bindings_longest_first(_resolve_bindings(credential_bindings, e))
+    bindings = sort_bindings_longest_first(_resolve_bindings([], e))
     gateway_url = _service_url(e, "CARACAL_GATEWAY_URL", DEFAULT_GATEWAY_URL)
 
     client_secret = _client_secret_from_env(e, zone_id, application_id)
@@ -714,15 +603,13 @@ def _config_from_env(env: Mapping[str, str] | None = None) -> CaracalConfig:
     subject_token = e.get("CARACAL_BOOTSTRAP_TOKEN")
     default_ttl = _default_ttl_from_env(e)
 
-    if client_secret:
-        resource_ids = list(
-            dict.fromkeys(credential_ids + _resource_ids_from_env(e, bindings))
+    if client_secret and subject_token:
+        raise RuntimeError(
+            "Caracal: configure exactly one of CARACAL_APP_CLIENT_SECRET and "
+            "CARACAL_BOOTSTRAP_TOKEN"
         )
-        if not resource_ids:
-            raise RuntimeError(
-                "Caracal.from_env: client-secret mode requires resources via "
-                "CARACAL_APP_RESOURCES, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
-            )
+    if client_secret:
+        resource_ids = _resource_ids_from_env(e, bindings)
         binding_by_resource = {b.resource_id: b for b in bindings}
         return _config_from_client_secret(
             coordinator_url=coordinator_url,
@@ -770,6 +657,7 @@ def _config_from_client_secret(
     scope: str = "agent:lifecycle",
     default_ttl_seconds: int | None = None,
     http_client: httpx.Client | None = None,
+    coordinator_http_client: httpx.AsyncClient | None = None,
     env: Mapping[str, str] | None = None,
 ) -> CaracalConfig:
     transport_env = env if env is not None else os.environ
@@ -788,7 +676,11 @@ def _config_from_client_secret(
     missing = [name for name, value in checks if not value]
     if missing:
         raise ValueError(f"Caracal.from_client_secret missing {', '.join(missing)}")
-    if default_ttl_seconds is not None and default_ttl_seconds <= 0:
+    if default_ttl_seconds is not None and (
+        isinstance(default_ttl_seconds, bool)
+        or not isinstance(default_ttl_seconds, int)
+        or default_ttl_seconds <= 0
+    ):
         raise ValueError(
             "Caracal.from_client_secret: default_ttl_seconds must be a positive integer"
         )
@@ -799,10 +691,24 @@ def _config_from_client_secret(
     resource_ids: list[str] = []
     for r in resources or []:
         if isinstance(r, ResourceBinding):
+            if not r.resource_id.strip():
+                raise ValueError(
+                    "Caracal.from_client_secret: resource IDs must be non-empty"
+                )
+            if not _is_absolute_url(r.upstream_prefix):
+                raise ValueError(
+                    "Caracal.from_client_secret: upstream_prefix must be an "
+                    f"absolute http or https URL: {r.upstream_prefix}"
+                )
             bindings.append(r)
             resource_ids.append(r.resource_id)
         else:
-            resource_ids.append(str(r))
+            resource_id = str(r)
+            if not resource_id.strip():
+                raise ValueError(
+                    "Caracal.from_client_secret: resource IDs must be non-empty"
+                )
+            resource_ids.append(resource_id)
     if credentials is not None:
         resolver = credentials
     else:
@@ -823,7 +729,9 @@ def _config_from_client_secret(
         http_client=http_client,
     )
     return CaracalConfig(
-        coordinator=CoordinatorClient(base_url=coordinator_url),
+        coordinator=CoordinatorClient(
+            base_url=coordinator_url, http_client=coordinator_http_client
+        ),
         zone_id=zone_id,
         application_id=application_id,
         token_source=exchanger.get_token,
@@ -842,7 +750,9 @@ def _config_from_file(
     from pathlib import Path
 
     e = env if env is not None else os.environ
-    cfg_path = Path(path) if path is not None else _default_config_path_for(e)
+    if path is None:
+        raise ValueError("Caracal.from_config requires an explicit path")
+    cfg_path = Path(path)
     if not cfg_path.exists():
         raise RuntimeError(
             f"Caracal config not found at {cfg_path}; provision a zone "
@@ -858,9 +768,7 @@ def _config_from_file(
     )
     sts_url = (
         cfg.get("sts_url")
-        or cfg.get("zone_url")
         or e.get("CARACAL_STS_URL")
-        or e.get("CARACAL_ZONE_URL")
         or _service_url(e, "CARACAL_STS_URL", DEFAULT_STS_URL)
     )
     coordinator_url = (
@@ -885,17 +793,11 @@ def _config_from_file(
         + _credential_entries(
             cfg.get("optional_credentials"), source=f"{cfg_path}.optional_credentials"
         )
-        + _credential_manifest_from_env(e, zone_id, application_id)
     )
     bindings = sort_bindings_longest_first(_resolve_bindings(credential_bindings, e))
     resource_ids = list(
         dict.fromkeys(credential_ids + [b.resource_id for b in bindings])
     )
-    if not resource_ids:
-        raise RuntimeError(
-            "Caracal.from_config: at least one resource binding is required via "
-            "caracal.toml credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE"
-        )
     binding_by_resource = {b.resource_id: b for b in bindings}
     resources: list[str | ResourceBinding] = [
         binding_by_resource.get(resource_id, resource_id)
@@ -916,38 +818,23 @@ def _config_from_file(
 
 
 def _detect_config(
-    config_path: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None,
 ) -> CaracalConfig:
-    if config_path is not None:
-        return _config_from_file(config_path, env)
     e = env if env is not None else os.environ
-    default = _default_config_path_for(e)
-    if e.get("CARACAL_CONFIG") and not default.exists():
-        raise RuntimeError(f"Caracal config not found at {default}")
-    if default.exists():
-        return _config_from_file(default, env)
+    path = e.get("CARACAL_CONFIG")
+    if path:
+        return _config_from_file(path, e)
     return _config_from_env(env)
 
 
 class Caracal:
-    def __init__(
-        self,
-        config: CaracalConfig | None = None,
-        *,
-        config_path: str | os.PathLike[str] | None = None,
-        env: Mapping[str, str] | None = None,
-    ) -> None:
+    def __init__(self, config: CaracalConfig | None = None) -> None:
         """Create a Caracal client.
 
-        With no arguments, credentials are auto-detected: `CARACAL_CONFIG` or
-        the default `caracal.toml` profile when present, otherwise `CARACAL_*`
-        environment variables. Pass `config_path` to force a profile file, or
-        a `CaracalConfig` for full programmatic control.
+        With no arguments, load `CARACAL_CONFIG` when set, otherwise load
+        `CARACAL_*` environment variables. No implicit profile paths are read.
         """
-        if config is not None and (config_path is not None or env is not None):
-            raise ValueError("Caracal: pass either config or config_path/env, not both")
-        self.config = config if config is not None else _detect_config(config_path, env)
+        self.config = config if config is not None else _detect_config()
         self._session_start_hooks: list[LifecycleHook] = []
         self._session_end_hooks: list[LifecycleHook] = []
         self._event_hooks: list[EventHook] = []
@@ -958,25 +845,11 @@ class Caracal:
             tuple[bool, tuple[str, ...] | None], httpx.AsyncClient
         ] = {}
         self._app_mandates: dict[str, _AppAuthority] = {}
-        self._app_mandate_locks: dict[str, threading.Lock] = {}
+        self._app_mandate_locks: dict[str, tuple[threading.Lock, int]] = {}
+        self._app_provision = threading.Semaphore(1)
         self._app_mandate_guard = threading.Lock()
         self._app_generation = 0
         self._unverified_boundary_warned = False
-
-    @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> Caracal:
-        """Build a Caracal client from environment variables.
-
-        Two authentication shapes are supported:
-
-        * **Static subject token**: set `CARACAL_BOOTSTRAP_TOKEN` directly.
-        * **Application client secret**: set `CARACAL_APP_CLIENT_SECRET`; the SDK
-          exchanges the secret for a fresh access token on demand and refreshes
-          it before expiry.
-
-        Required in both modes: `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`.
-        """
-        return cls(_config_from_env(env))
 
     @classmethod
     def from_client_secret(
@@ -984,27 +857,17 @@ class Caracal:
         *,
         coordinator_url: str,
         sts_url: str,
-        zone_id: str | None = None,
-        application_id: str | None = None,
-        client_secret: str | None = None,
-        credentials: CredentialsResolver | None = None,
+        zone_id: str,
+        application_id: str,
+        client_secret: str,
         resources: list[str | ResourceBinding] | None = None,
         gateway_url: str | None = None,
-        scope: str = "agent:lifecycle",
         default_ttl_seconds: int | None = None,
         http_client: httpx.Client | None = None,
+        coordinator_http_client: httpx.AsyncClient | None = None,
     ) -> Caracal:
         """Build a Caracal client that exchanges an application client_secret
         for an STS access token and refreshes the token automatically.
-
-        Credentials come either from the static
-        ``zone_id``/``application_id``/``client_secret`` triple or from
-        ``credentials``: a callable returning :class:`ClientCredentials` (or
-        ``None``) invoked before every exchange, so secret rotation and
-        identity swaps take effect without rebuilding the client. When the
-        resolver returns no usable credential the client raises
-        :class:`caracalai.CredentialsUnavailableError` without contacting the
-        platform. Pass exactly one of the two shapes.
 
         `resources` may be either a list of resource IDs (the STS audiences) or
         a list of ResourceBinding objects (when gateway routing is also
@@ -1021,21 +884,13 @@ class Caracal:
                 zone_id=zone_id,
                 application_id=application_id,
                 client_secret=client_secret,
-                credentials=credentials,
                 resources=resources,
                 gateway_url=gateway_url,
-                scope=scope,
                 default_ttl_seconds=default_ttl_seconds,
                 http_client=http_client,
+                coordinator_http_client=coordinator_http_client,
             )
         )
-
-    @classmethod
-    def from_config(cls, path: str | os.PathLike[str] | None = None) -> Caracal:
-        """Build a Caracal client from a `caracal.toml` authored from
-        Console values. The config supplies zone, application, client_secret,
-        and resource bindings; tokens are exchanged on demand."""
-        return cls(_config_from_file(path))
 
     def on_session_start(self, cb: LifecycleHook) -> None:
         self._session_start_hooks.append(cb)
@@ -1511,6 +1366,12 @@ class Caracal:
             self._app_generation += 1
             entries = [e for e in self._app_mandates.values() if e.sessions]
             self._app_mandates.clear()
+            locks = [record[0] for record in self._app_mandate_locks.values()]
+        for lock in locks:
+            await asyncio.to_thread(lock.acquire)
+            lock.release()
+        with self._app_mandate_guard:
+            self._app_mandate_locks.clear()
         exchanger = self.config.exchanger
         if exchanger is not None and entries:
             try:
@@ -1526,7 +1387,7 @@ class Caracal:
                     for session_id in entry.sessions:
                         with suppress(Exception):
                             await asyncio.to_thread(
-                                sync_terminate_agent,
+                                sync_terminate_session,
                                 self.config.coordinator,
                                 exchanger._http,
                                 bootstrap,
@@ -1541,6 +1402,7 @@ class Caracal:
                 )
         if exchanger is not None:
             exchanger.invalidate()
+            await exchanger.aclose()
         await self.config.coordinator.aclose()
 
     def context_middleware(
@@ -1571,7 +1433,7 @@ class Caracal:
 
             from caracalai_identity import verify_token
 
-            caracal = Caracal.from_env()
+            caracal = Caracal()
             app = FastAPI()
 
             async def verify(token: str) -> None:
@@ -1701,8 +1563,8 @@ class Caracal:
                     outer.config.exchanger.mint_mandate(
                         resource=resource,
                         scopes=scopes,
-                        agent_session_id=bound.session_id if bound else None,
-                        delegation_edge_id=bound.delegation_id if bound else None,
+                        session_id=bound.session_id if bound else None,
+                        delegation_id=bound.delegation_id if bound else None,
                         cache=False,
                     ).token
                     if resource is not None and scopes
@@ -1732,8 +1594,8 @@ class Caracal:
                             outer.config.exchanger.mint_mandate,
                             resource=resource,
                             scopes=scopes,
-                            agent_session_id=bound.session_id if bound else None,
-                            delegation_edge_id=bound.delegation_id if bound else None,
+                            session_id=bound.session_id if bound else None,
+                            delegation_id=bound.delegation_id if bound else None,
                             cache=False,
                         )
                     ).token
@@ -1809,8 +1671,8 @@ class Caracal:
             return exchanger.mint_mandate(
                 resource=resource_id,
                 scopes=scopes,
-                agent_session_id=bound.session_id if bound else None,
-                delegation_edge_id=bound.delegation_id if bound else None,
+                session_id=bound.session_id if bound else None,
+                delegation_id=bound.delegation_id if bound else None,
                 ttl_seconds=ttl_seconds,
                 approval_id=approval_id,
             )
@@ -2093,8 +1955,8 @@ class Caracal:
                 mandate = outer.config.exchanger.mint_mandate(
                     resource=resource_id,
                     scopes=granted,
-                    agent_session_id=authority.target_session_id,
-                    delegation_edge_id=authority.delegation_id,
+                    session_id=authority.target_session_id,
+                    delegation_id=authority.delegation_id,
                     ttl_seconds=mandate_ttl,
                     cache=False,
                 ).token
@@ -2110,8 +1972,8 @@ class Caracal:
                         outer.config.exchanger.mint_mandate,
                         resource=resource_id,
                         scopes=granted,
-                        agent_session_id=authority.target_session_id,
-                        delegation_edge_id=authority.delegation_id,
+                        session_id=authority.target_session_id,
+                        delegation_id=authority.delegation_id,
                         ttl_seconds=mandate_ttl,
                         cache=False,
                     )
@@ -2134,11 +1996,20 @@ class Caracal:
 
     def _app_mandate_lock(self, key: str) -> threading.Lock:
         with self._app_mandate_guard:
-            lock = self._app_mandate_locks.get(key)
-            if lock is None:
-                lock = threading.Lock()
-                self._app_mandate_locks[key] = lock
+            record = self._app_mandate_locks.get(key)
+            lock = record[0] if record is not None else threading.Lock()
+            self._app_mandate_locks[key] = (lock, (record[1] if record else 0) + 1)
             return lock
+
+    def _release_app_mandate_lock(self, key: str, lock: threading.Lock) -> None:
+        with self._app_mandate_guard:
+            record = self._app_mandate_locks.get(key)
+            if record is None or record[0] is not lock:
+                return
+            if record[1] == 1:
+                del self._app_mandate_locks[key]
+            else:
+                self._app_mandate_locks[key] = (lock, record[1] - 1)
 
     def _app_mandate(
         self,
@@ -2150,52 +2021,80 @@ class Caracal:
         exchanger = self.config.exchanger
         assert exchanger is not None
         zone_id, application_id = exchanger.identity()
+        credential_generation = exchanger.credential_generation()
         session_labels = labels if labels else [application_id]
         encoded_labels = json.dumps(session_labels, separators=(",", ":"))
+        with self._app_mandate_guard:
+            generation = self._app_generation
+            now = time.time()
+            stale_keys = [
+                key
+                for key, entry in self._app_mandates.items()
+                if entry.expires_at <= now
+                or (
+                    entry.zone_id == zone_id
+                    and entry.application_id == application_id
+                    and entry.credential_generation != credential_generation
+                )
+            ]
+            stale = [self._app_mandates.pop(key) for key in stale_keys]
+        for entry in stale:
+            self._retire_app_authority(entry)
         key = (
-            f"{zone_id}::{application_id}::{exchanger.credential_generation()}::"
+            f"{generation}::{zone_id}::{application_id}::"
+            f"{credential_generation}::"
             f"{resource_id}::{' '.join(scopes)}::"
             f"{encoded_labels}::{mandate_ttl}"
         )
         cached = self._app_mandate_cached(key)
         if cached is not None:
             return cached
-        with self._app_mandate_lock(key):
-            cached = self._app_mandate_cached(key)
-            if cached is not None:
-                return cached
-            generation = self._app_generation
-            authority = self._app_mandate_cycle(
-                zone_id, application_id, resource_id, scopes, labels, mandate_ttl
-            )
-            evicted: list[_AppAuthority] = []
-            with self._app_mandate_guard:
-                if generation != self._app_generation:
-                    evicted.append(authority)
-                else:
-                    self._app_mandates[key] = authority
-                if len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
-                    now = time.time()
-                    for k in [
-                        k
-                        for k, v in self._app_mandates.items()
-                        if v.expires_at <= now and k != key
-                    ]:
-                        evicted.append(self._app_mandates.pop(k))
-                    while len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
-                        evicted_key = next(iter(self._app_mandates))
-                        if evicted_key == key:
-                            break
-                        evicted.append(self._app_mandates.pop(evicted_key))
-                        self._app_mandate_locks.pop(evicted_key, None)
-            for entry in evicted:
-                self._retire_app_authority(entry)
-            return authority
+        lock = self._app_mandate_lock(key)
+        try:
+            with lock:
+                cached = self._app_mandate_cached(key)
+                if cached is not None:
+                    return cached
+                with self._app_provision:
+                    authority = self._app_mandate_cycle(
+                        zone_id,
+                        application_id,
+                        credential_generation,
+                        resource_id,
+                        scopes,
+                        labels,
+                        mandate_ttl,
+                    )
+                evicted: list[_AppAuthority] = []
+                with self._app_mandate_guard:
+                    if generation != self._app_generation:
+                        evicted.append(authority)
+                    else:
+                        self._app_mandates[key] = authority
+                    if len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
+                        now = time.time()
+                        for k in [
+                            k
+                            for k, v in self._app_mandates.items()
+                            if v.expires_at <= now and k != key
+                        ]:
+                            evicted.append(self._app_mandates.pop(k))
+                        while len(self._app_mandates) > APP_AUTHORITY_CACHE_CAP:
+                            evicted_key = next(iter(self._app_mandates))
+                            if evicted_key == key:
+                                break
+                            evicted.append(self._app_mandates.pop(evicted_key))
+                for entry in evicted:
+                    self._retire_app_authority(entry)
+                return authority
+        finally:
+            self._release_app_mandate_lock(key, lock)
 
     def _app_mandate_cycle(
         self,
         zone_id: str,
         application_id: str,
+        credential_generation: str,
         resource_id: str,
         scopes: list[str],
         labels: list[str] | None,
@@ -2256,6 +2155,8 @@ class Caracal:
             return _AppAuthority(
                 resource_id=resource_id,
                 zone_id=zone_id,
+                application_id=application_id,
+                credential_generation=credential_generation,
                 target_session_id=target.session_id,
                 delegation_id=edge.delegation_id,
                 expires_at=time.time() + session_ttl,
@@ -2264,7 +2165,7 @@ class Caracal:
         except BaseException:
             for session_id in sessions:
                 with suppress(Exception):
-                    sync_terminate_agent(
+                    sync_terminate_session(
                         coordinator, http, bootstrap, zone_id, session_id
                     )
             raise
@@ -2278,7 +2179,7 @@ class Caracal:
             ).token
             for session_id in authority.sessions:
                 with suppress(Exception):
-                    sync_terminate_agent(
+                    sync_terminate_session(
                         self.config.coordinator,
                         exchanger._http,
                         bootstrap,

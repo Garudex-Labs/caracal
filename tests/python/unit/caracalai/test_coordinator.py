@@ -16,9 +16,9 @@ from caracalai.coordinator import (
     DelegationRequest,
     StartSessionRequest,
     create_delegation,
-    heartbeat_agent,
+    heartbeat_session,
     start_coordinator_session,
-    terminate_agent,
+    terminate_session,
 )
 from caracalai.errors import CoordinatorError
 
@@ -223,7 +223,7 @@ class CoordinatorLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(c.http_client)
 
 
-class HeartbeatAgentTests(unittest.IsolatedAsyncioTestCase):
+class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_status_and_deadline_from_agent_wire(self) -> None:
         captured: list[httpx.Request] = []
 
@@ -239,7 +239,7 @@ class HeartbeatAgentTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
-        res = await heartbeat_agent(
+        res = await heartbeat_session(
             _client(handler), "tok", "z 1", "agent 1", "degraded"
         )
         self.assertEqual(res.status, "suspended")
@@ -256,7 +256,7 @@ class HeartbeatAgentTests(unittest.IsolatedAsyncioTestCase):
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(204)
 
-        res = await heartbeat_agent(_client(handler), "tok", "z", "agent-1")
+        res = await heartbeat_session(_client(handler), "tok", "z", "session-1")
         self.assertIsNone(res.status)
         self.assertIsNone(res.heartbeat_deadline_at)
 
@@ -265,23 +265,23 @@ class HeartbeatAgentTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(409, json={"error": "agent_lease_expired"})
 
         with self.assertRaises(CoordinatorError) as caught:
-            await heartbeat_agent(_client(handler), "tok", "z", "agent-1")
+            await heartbeat_session(_client(handler), "tok", "z", "session-1")
         self.assertEqual(caught.exception.status, 409)
 
 
-class TerminateAgentTests(unittest.IsolatedAsyncioTestCase):
+class TerminateSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_propagates_errors(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500)
 
         with self.assertRaises(CoordinatorError):
-            await terminate_agent(_client(handler), "tok", "z", "agent-1")
+            await terminate_session(_client(handler), "tok", "z", "session-1")
 
     async def test_succeeds_on_204(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(204)
 
-        await terminate_agent(_client(handler), "tok", "z", "agent-1")
+        await terminate_session(_client(handler), "tok", "z", "session-1")
 
 
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
@@ -451,7 +451,7 @@ class EventTests(unittest.IsolatedAsyncioTestCase):
             client, "tok", StartSessionRequest(zone_id="z", application_id="app")
         )
         with self.assertRaises(CoordinatorError):
-            await terminate_agent(client, "tok", "z", "agent-1")
+            await terminate_session(client, "tok", "z", "session-1")
 
         self.assertEqual(len(events), 2)
         sessions, denied = events

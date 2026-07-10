@@ -29,9 +29,9 @@ from .coordinator import (
     DelegationRequest,
     StartSessionRequest,
     create_delegation,
-    heartbeat_agent,
+    heartbeat_session,
     start_coordinator_session,
-    terminate_agent,
+    terminate_session,
 )
 from .errors import CoordinatorError
 from .json_types import JsonObject
@@ -97,7 +97,7 @@ async def _terminate_shielded(
     async def retire() -> None:
         bearer = await _resolve_bearer(token_source, fallback_token)
         try:
-            await terminate_agent(coordinator, bearer, zone_id, session_id)
+            await terminate_session(coordinator, bearer, zone_id, session_id)
         except Exception as exc:
             if _is_gone(exc):
                 return
@@ -477,7 +477,7 @@ class SessionHandle:
     async def heartbeat(self, status: str = "healthy") -> None:
         bearer = await self._bearer()
         try:
-            res = await heartbeat_agent(
+            res = await heartbeat_session(
                 self._coordinator,
                 bearer,
                 self.context.zone_id,
@@ -498,7 +498,7 @@ class SessionHandle:
                 if fresh == bearer:
                     self._invalidate()
                     fresh = await self._bearer()
-            res = await heartbeat_agent(
+            res = await heartbeat_session(
                 self._coordinator,
                 fresh,
                 self.context.zone_id,
@@ -510,7 +510,14 @@ class SessionHandle:
         if res.status and res.status != self._status:
             self._status = res.status
             if self._on_state_change is not None:
-                self._on_state_change(self._status)
+                try:
+                    self._on_state_change(self._status)
+                except Exception:
+                    logger.warning(
+                        "state-change callback failed for session %s",
+                        self.context.session_id,
+                        exc_info=True,
+                    )
         if self._status == "suspended" and self._auto_task is not None:
             self._auto_task.cancel()
 
@@ -705,13 +712,13 @@ async def attach_session(
     :func:`accept_delegation`."""
     bearer = await _resolve_bearer(token_source, subject_token)
     try:
-        first = await heartbeat_agent(coordinator, bearer, zone_id, session_id)
+        first = await heartbeat_session(coordinator, bearer, zone_id, session_id)
     except CoordinatorError as exc:
         if exc.status != 401 or invalidate is None or token_source is None:
             raise
         invalidate()
         bearer = await _resolve_bearer(token_source, subject_token)
-        first = await heartbeat_agent(coordinator, bearer, zone_id, session_id)
+        first = await heartbeat_session(coordinator, bearer, zone_id, session_id)
     ctx = CaracalContext(
         subject_token=bearer,
         zone_id=zone_id,

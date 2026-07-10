@@ -18,12 +18,13 @@ import httpx
 from caracalai import (
     Caracal,
     CaracalASGIMiddleware,
-    CaracalConfig,
     ResourceBinding,
 )
 from caracalai.advanced import (
+    CaracalConfig,
     CoordinatorClient,
     DelegationConstraints,
+    StartSessionRequest,
     HEADER_AUTHORIZATION,
     HEADER_BAGGAGE,
     HEADER_TRACEPARENT,
@@ -32,16 +33,19 @@ from caracalai.advanced import (
     parse_baggage,
     parse_traceparent,
     current,
+    from_config,
+    from_env,
 )
+from caracalai.coordinator import start_coordinator_session
 
 
 class FromEnvTests(unittest.TestCase):
     def test_missing_raises(self) -> None:
         with self.assertRaises(RuntimeError):
-            Caracal.from_env({})
+            from_env({})
 
     def test_loads_full_env(self) -> None:
-        c = Caracal.from_env(
+        c = from_env(
             {
                 "CARACAL_ZONE_ID": "z1",
                 "CARACAL_APPLICATION_ID": "a1",
@@ -53,7 +57,7 @@ class FromEnvTests(unittest.TestCase):
         self.assertEqual(c.config.coordinator.base_url, "http://localhost:4000")
         self.assertEqual(c.config.gateway_url, "http://localhost:8081")
 
-    def test_auto_detects_local_credential_files(self) -> None:
+    def test_does_not_inspect_local_credential_files(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             credential_dir = Path(root) / "caracal" / "runtime" / "z" / "app"
             credential_dir.mkdir(parents=True)
@@ -65,32 +69,30 @@ class FromEnvTests(unittest.TestCase):
                 secret.chmod(0o600)
                 credentials.chmod(0o600)
 
-            c = Caracal.from_env(
-                {
-                    "XDG_CONFIG_HOME": root,
-                    "CARACAL_ZONE_ID": "z",
-                    "CARACAL_APPLICATION_ID": "app",
-                    "CARACAL_STS_URL": "http://sts",
-                }
-            )
+            with self.assertRaisesRegex(
+                RuntimeError, "provide CARACAL_APP_CLIENT_SECRET"
+            ):
+                from_env(
+                    {
+                        "XDG_CONFIG_HOME": root,
+                        "CARACAL_ZONE_ID": "z",
+                        "CARACAL_APPLICATION_ID": "app",
+                        "CARACAL_STS_URL": "http://sts",
+                    }
+                )
 
-        exchanger = getattr(c.config._token_source, "__self__")
-        self.assertEqual(exchanger._resolve().client_secret, "secret")
-        self.assertEqual(exchanger._resources, ["calendar"])
-
-    def test_env_manifest_keeps_explicit_resource_ids(self) -> None:
-        c = Caracal.from_env(
+    def test_explicit_resource_ids_are_deduplicated(self) -> None:
+        c = from_env(
             {
                 "CARACAL_ZONE_ID": "z",
                 "CARACAL_APPLICATION_ID": "app",
                 "CARACAL_APP_CLIENT_SECRET": "secret",
-                "CARACAL_RUN_CREDENTIALS": json.dumps([{"resource": "calendar"}]),
                 "CARACAL_APP_RESOURCES": "drive,calendar",
             }
         )
 
         exchanger = getattr(c.config._token_source, "__self__")
-        self.assertEqual(exchanger._resources, ["calendar", "drive"])
+        self.assertEqual(exchanger._resources, ["drive", "calendar"])
 
     def test_rejects_expired_jwt_subject_token(self) -> None:
         header = base64.urlsafe_b64encode(b'{"alg":"ES256"}').rstrip(b"=").decode()
@@ -101,7 +103,7 @@ class FromEnvTests(unittest.TestCase):
         )
         token = f"{header}.{payload}.sig"
         with self.assertRaises(RuntimeError) as cm:
-            Caracal.from_env(
+            from_env(
                 {
                     "CARACAL_COORDINATOR_URL": "http://x",
                     "CARACAL_ZONE_ID": "z1",
@@ -120,7 +122,7 @@ class FromEnvTests(unittest.TestCase):
         )
         token = f"{header}.{payload}."
         with self.assertRaisesRegex(RuntimeError, 'alg "none"'):
-            Caracal.from_env(
+            from_env(
                 {
                     "CARACAL_COORDINATOR_URL": "http://x",
                     "CARACAL_ZONE_ID": "z1",
@@ -131,7 +133,7 @@ class FromEnvTests(unittest.TestCase):
 
     def test_production_requires_service_urls(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "CARACAL_COORDINATOR_URL"):
-            Caracal.from_env(
+            from_env(
                 {
                     "CARACAL_ENV": "production",
                     "CARACAL_ZONE_ID": "z",
@@ -150,11 +152,11 @@ class FromEnvTests(unittest.TestCase):
             "CARACAL_GATEWAY_URL": "https://gateway.internal",
         }
         with self.assertRaisesRegex(RuntimeError, "must use https"):
-            Caracal.from_env(
+            from_env(
                 base | {"CARACAL_COORDINATOR_URL": "http://coordinator.internal:4000"}
             )
-        Caracal.from_env(base | {"CARACAL_COORDINATOR_URL": "http://127.0.0.1:4000"})
-        Caracal.from_env(
+        from_env(base | {"CARACAL_COORDINATOR_URL": "http://127.0.0.1:4000"})
+        from_env(
             base
             | {
                 "CARACAL_COORDINATOR_URL": "http://coordinator.internal:4000",
@@ -164,7 +166,7 @@ class FromEnvTests(unittest.TestCase):
 
     def test_production_client_secret_requires_https_sts(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "sts_url must use https"):
-            Caracal.from_env(
+            from_env(
                 {
                     "CARACAL_ENV": "production",
                     "CARACAL_COORDINATOR_URL": "https://coordinator.internal",
@@ -179,7 +181,7 @@ class FromEnvTests(unittest.TestCase):
 
     def test_client_secret_env_rejects_conflicting_sources(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "only one"):
-            Caracal.from_env(
+            from_env(
                 {
                     "CARACAL_ZONE_ID": "z",
                     "CARACAL_APPLICATION_ID": "app",
@@ -187,25 +189,6 @@ class FromEnvTests(unittest.TestCase):
                     "CARACAL_APP_CLIENT_SECRET_FILE": "/tmp/secret",
                 }
             )
-
-    def test_credential_manifest_rejects_conflicts_and_bad_shapes(self) -> None:
-        base = {
-            "CARACAL_ZONE_ID": "z",
-            "CARACAL_APPLICATION_ID": "app",
-            "CARACAL_APP_CLIENT_SECRET": "secret",
-        }
-        with self.assertRaisesRegex(RuntimeError, "only one"):
-            Caracal.from_env(
-                {
-                    **base,
-                    "CARACAL_RUN_CREDENTIALS": "[]",
-                    "CARACAL_RUN_CREDENTIALS_FILE": "/tmp/credentials.json",
-                }
-            )
-        with self.assertRaisesRegex(RuntimeError, "must be an array or object"):
-            Caracal.from_env({**base, "CARACAL_RUN_CREDENTIALS": '"bad"'})
-        with self.assertRaisesRegex(RuntimeError, "credentials\\[0\\]\\.resource"):
-            Caracal.from_env({**base, "CARACAL_RUN_CREDENTIALS": "[{}]"})
 
 
 class ConfigTests(unittest.TestCase):
@@ -239,7 +222,7 @@ class AutoDetectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             missing = Path(root) / "missing.toml"
             with self.assertRaisesRegex(RuntimeError, "not found"):
-                Caracal(env={"CARACAL_CONFIG": str(missing)})
+                from_config(missing)
 
     def test_config_path_takes_precedence_over_env_credentials(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
@@ -255,9 +238,9 @@ class AutoDetectTests(unittest.TestCase):
             )
             cfg_path = fh.name
 
-        c = Caracal(
-            config_path=cfg_path,
-            env={
+        c = from_config(
+            cfg_path,
+            {
                 "CARACAL_ZONE_ID": "other",
                 "CARACAL_APPLICATION_ID": "other",
                 "CARACAL_BOOTSTRAP_TOKEN": "tok",
@@ -285,6 +268,40 @@ class ResourceBindingSortTests(unittest.TestCase):
 
 
 class FromClientSecretTests(unittest.TestCase):
+    def test_rejects_malformed_endpoints_at_initialization(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "absolute http or https URL"):
+            Caracal.from_client_secret(
+                coordinator_url="coordinator.internal:4000",
+                sts_url="http://sts",
+                zone_id="z",
+                application_id="app",
+                client_secret="secret",
+            )
+
+    def test_rejects_non_integer_default_ttl(self) -> None:
+        for value in (True, 1.5):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    Caracal.from_client_secret(
+                        coordinator_url="http://coord",
+                        sts_url="http://sts",
+                        zone_id="z",
+                        application_id="app",
+                        client_secret="secret",
+                        default_ttl_seconds=value,
+                    )
+
+    def test_rejects_malformed_direct_resource_binding(self) -> None:
+        with self.assertRaisesRegex(ValueError, "absolute http or https URL"):
+            Caracal.from_client_secret(
+                coordinator_url="http://coord",
+                sts_url="http://sts",
+                zone_id="z",
+                application_id="app",
+                client_secret="secret",
+                resources=[ResourceBinding("calendar", "ftp://calendar.example.com")],
+            )
+
     def test_lifecycle_paths_require_a_resource(self) -> None:
         c = Caracal.from_client_secret(
             coordinator_url="http://coord",
@@ -307,11 +324,10 @@ class FromClientSecretTests(unittest.TestCase):
             client_secret="secret",
             resources=[ResourceBinding("calendar", "https://api.example.com/v1")],
             gateway_url="https://gateway.example.com/proxy",
-            scope="custom",
         )
         exchanger = getattr(c.config._token_source, "__self__")
         self.assertEqual(exchanger._resources, ["calendar"])
-        self.assertEqual(exchanger._scope, "custom")
+        self.assertEqual(exchanger._scope, "agent:lifecycle")
         self.assertEqual(c.config.resources[0].resource_id, "calendar")
         self.assertIs(c.config.exchanger, exchanger)
 
@@ -353,7 +369,7 @@ class MintMandateTests(unittest.TestCase):
         )
         self.assertEqual(token.token, "mandate-token")
         body = captured[0].decode()
-        self.assertIn("session_id=agent_9", body)
+        self.assertIn("agent_session_id=agent_9", body)
         self.assertIn("delegation_edge_id=edge_9", body)
         self.assertIn("ttl_seconds=60", body)
 
@@ -376,7 +392,7 @@ class MintMandateTests(unittest.TestCase):
         client = self._client(handler)
         bind(ctx, lambda: client.mint_mandate("resource://payments", ["pay:read"]))
         body = captured[0].decode()
-        self.assertIn("session_id=agent_3", body)
+        self.assertIn("agent_session_id=agent_3", body)
         self.assertNotIn("delegation_edge_id", body)
 
     def test_appends_lifecycle_hint_for_delegationless_session_deny(self) -> None:
@@ -1502,7 +1518,7 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
         body = sts_calls[-1].decode()
         self.assertIn("scope=cal%3Aread", body)
         self.assertIn("resource=calendar", body)
-        self.assertIn("session_id=agent_7", body)
+        self.assertIn("agent_session_id=agent_7", body)
         self.assertIn("delegation_edge_id=edge_7", body)
 
     async def test_fetch_passes_ctx_and_scopes(self) -> None:
@@ -1620,7 +1636,7 @@ class FromConfigBindingsTests(unittest.TestCase):
         prev = os.environ.get("CARACAL_RESOURCES_FILE")
         os.environ["CARACAL_RESOURCES_FILE"] = bindings_file.name
         try:
-            c = Caracal.from_config(cfg_path)
+            c = from_config(cfg_path)
         finally:
             if prev is None:
                 os.environ.pop("CARACAL_RESOURCES_FILE", None)
@@ -1649,7 +1665,7 @@ class FromConfigBindingsTests(unittest.TestCase):
             'upstream_prefix = "https://api.example.com/v1"\n'
         )
 
-        c = Caracal.from_config(cfg_path)
+        c = from_config(cfg_path)
 
         self.assertEqual([b.resource_id for b in c.config.resources], ["calendar"])
 
@@ -1669,7 +1685,7 @@ class FromConfigBindingsTests(unittest.TestCase):
         prev = os.environ.get("CARACAL_RESOURCES")
         os.environ["CARACAL_RESOURCES"] = "billing=https://billing.example.com/v2"
         try:
-            c = Caracal.from_config(cfg_path)
+            c = from_config(cfg_path)
         finally:
             if prev is None:
                 os.environ.pop("CARACAL_RESOURCES", None)
@@ -1678,7 +1694,7 @@ class FromConfigBindingsTests(unittest.TestCase):
         rids = sorted(b.resource_id for b in c.config.resources)
         self.assertEqual(rids, ["billing", "calendar"])
 
-    def test_from_config_requires_resource_bindings(self) -> None:
+    def test_from_config_allows_no_resource_bindings(self) -> None:
         cfg_path = self._write_toml(
             'zone_id = "z"\n'
             'application_id = "a"\n'
@@ -1686,9 +1702,9 @@ class FromConfigBindingsTests(unittest.TestCase):
             'sts_url = "https://sts.example.com"\n'
             'coordinator_url = "https://coord.example.com"\n'
         )
-        with self.assertRaises(RuntimeError) as cm:
-            Caracal.from_config(cfg_path)
-        self.assertIn("at least one resource binding", str(cm.exception))
+        c = from_config(cfg_path)
+        with self.assertRaisesRegex(RuntimeError, "no resources configured"):
+            c.config.subject_token
 
 
 class ResourceBindingsValidationTests(unittest.TestCase):
@@ -1794,6 +1810,41 @@ class ClientSecretCustomHTTPClientTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await c.aclose()
             self.assertFalse(custom_client.is_closed)
+            custom_client.close()
+
+    async def test_custom_http_transport_reaches_coordinator(self) -> None:
+        urls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            urls.append(str(request.url))
+            if request.url.host == "sts":
+                return httpx.Response(
+                    200, json={"access_token": "abc.def.ghi", "expires_in": 3600}
+                )
+            return httpx.Response(200, json={"agent_session_id": "session-1"})
+
+        custom_client = httpx.Client(transport=httpx.MockTransport(handler))
+        coordinator_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal.from_client_secret(
+            coordinator_url="http://coordinator",
+            sts_url="http://sts",
+            zone_id="z",
+            application_id="app",
+            client_secret="secret",
+            resources=["calendar"],
+            http_client=custom_client,
+            coordinator_http_client=coordinator_client,
+        )
+
+        try:
+            await start_coordinator_session(
+                c.config.coordinator,
+                "token",
+                StartSessionRequest(zone_id="z", application_id="app"),
+            )
+            self.assertIn("http://coordinator/zones/z/agents", urls)
+        finally:
+            await c.aclose()
             custom_client.close()
 
 

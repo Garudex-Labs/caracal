@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import unittest
 
-from caracalai import Caracal, CaracalConfig, VerifiedClaims
+from caracalai import Caracal, VerifiedClaims
+from caracalai.advanced import CaracalConfig
 from caracalai.coordinator import CoordinatorClient
 from caracalai.http import CaracalASGIMiddleware
 

@@ -286,7 +286,7 @@ class DelegationRequest:
 
 @dataclass
 class DelegationResponse:
-    """The created delegation edge: its id, the scopes it bounds, and when it lapses."""
+    """The created Delegation: its ID, the scopes it bounds, and when it lapses."""
 
     delegation_id: str
     scopes: list[str] = field(default_factory=list)
@@ -308,7 +308,7 @@ class HeartbeatResponse:
     heartbeat_deadline_at: str | None = None
 
 
-def _spawn_body(req: StartSessionRequest) -> dict[str, JsonValue]:
+def _session_body(req: StartSessionRequest) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "application_id": req.application_id,
     }
@@ -331,7 +331,7 @@ def _spawn_body(req: StartSessionRequest) -> dict[str, JsonValue]:
     return body
 
 
-def _parse_spawn(data: dict[str, JsonValue]) -> StartSessionResponse:
+def _parse_session(data: dict[str, JsonValue]) -> StartSessionResponse:
     session_id = data.get("agent_session_id")
     if not session_id:
         raise ValueError("coordinator session response missing agent_session_id")
@@ -363,10 +363,10 @@ async def start_coordinator_session(
         "POST",
         f"/zones/{quote(req.zone_id, safe='')}/agents",
         bearer,
-        json_body=_spawn_body(req),
+        json_body=_session_body(req),
         headers=headers,
     )
-    return _parse_spawn(resp.json())
+    return _parse_session(resp.json())
 
 
 def sync_start_coordinator_session(
@@ -380,13 +380,13 @@ def sync_start_coordinator_session(
         "POST",
         f"/zones/{quote(req.zone_id, safe='')}/agents",
         bearer,
-        json_body=_spawn_body(req),
+        json_body=_session_body(req),
         headers=headers,
     )
-    return _parse_spawn(resp.json())
+    return _parse_session(resp.json())
 
 
-async def terminate_agent(
+async def terminate_session(
     client: CoordinatorClient, bearer: str, zone_id: str, session_id: str
 ) -> None:
     await _call(
@@ -397,7 +397,7 @@ async def terminate_agent(
     )
 
 
-def sync_terminate_agent(
+def sync_terminate_session(
     client: CoordinatorClient,
     http: httpx.Client,
     bearer: str,
@@ -413,14 +413,14 @@ def sync_terminate_agent(
     )
 
 
-async def heartbeat_agent(
+async def heartbeat_session(
     client: CoordinatorClient,
     bearer: str,
     zone_id: str,
     session_id: str,
     status: str = "healthy",
 ) -> HeartbeatResponse:
-    """Renew a service agent's lease. A service session is reaped by the
+    """Renew a long-lived Session's lease. The Session is reaped by the
     coordinator if it stops heartbeating before the lease expires; the
     response reports the renewed deadline so callers can pace renewals."""
     resp = await _call(

@@ -1,10 +1,11 @@
 # Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 # Caracal, a product of Garudex Labs
 #
-# Governed transport tests: own-authority session cycle, mandate caching, cleanup, and credentials resolver fail-closed behavior.
+# Governed transport tests: application authority lifecycle, mandate caching, cleanup, and resolver fail-closed behavior.
 
 import asyncio
 import json
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs
@@ -13,10 +14,10 @@ import httpx
 
 from caracalai import (
     Caracal,
-    ClientCredentials,
     CredentialsUnavailableError,
     ResourceBinding,
 )
+from caracalai.advanced import ClientCredentials, from_credentials
 from caracalai.errors import CoordinatorError
 
 RESOURCE = "resource://pipernet"
@@ -125,6 +126,11 @@ def _client(platform: _Platform, **overrides) -> Caracal:
         http_client=httpx.Client(transport=platform.transport()),
     )
     kwargs.update(overrides)
+    if "credentials" in overrides:
+        kwargs.pop("zone_id", None)
+        kwargs.pop("application_id", None)
+        kwargs.pop("client_secret", None)
+        return from_credentials(**kwargs)
     return Caracal.from_client_secret(**kwargs)
 
 
@@ -260,6 +266,20 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(platform.mints, 4)
         self.assertEqual(platform.spawns, 2)
 
+    def test_evicts_and_retires_authority_pairs_at_capacity(self) -> None:
+        platform = _Platform()
+        c = _client(platform)
+        for index in range(20):
+            with c.sync_application_transport(
+                RESOURCE,
+                scopes=["data:read"],
+                labels=[f"worker-{index}"],
+                transport=httpx.MockTransport(_gateway_echo),
+            ) as client:
+                client.get(f"http://gateway/{index}")
+        self.assertEqual(platform.spawns, 40)
+        self.assertEqual(len(platform.deletes), 2)
+
     def test_async_transport_runs_the_cycle(self) -> None:
         platform = _Platform()
         c = _client(platform)
@@ -303,10 +323,72 @@ class GovernedCycleTests(unittest.TestCase):
         asyncio.run(c.aclose())
         self.assertEqual(sorted(platform.deletes), ["agent-1", "agent-2"])
 
+    def test_aclose_separates_authority_provisioning_generations(self) -> None:
+        platform = _Platform()
+        delegation_guard = threading.Lock()
+        first_delegation = threading.Event()
+        release_first = threading.Event()
+        second_delegation = threading.Event()
+        delegation_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal delegation_count
+            if request.method == "POST" and request.url.path.endswith("/delegations"):
+                with delegation_guard:
+                    delegation_count += 1
+                    current = delegation_count
+                if current == 1:
+                    first_delegation.set()
+                    release_first.wait()
+                elif current == 2:
+                    second_delegation.set()
+            return platform.handler(request)
+
+        c = _client(
+            platform,
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        async def run() -> None:
+            async with c.application_transport(
+                RESOURCE,
+                scopes=["data:read"],
+                transport=httpx.MockTransport(_gateway_echo),
+            ) as client:
+                first = asyncio.create_task(client.get("http://gateway/first"))
+                closing: asyncio.Task[None] | None = None
+                second: asyncio.Task[httpx.Response] | None = None
+                try:
+                    self.assertTrue(await asyncio.to_thread(first_delegation.wait, 5))
+                    closing = asyncio.create_task(c.aclose())
+                    await asyncio.sleep(0)
+                    with c._app_mandate_guard:
+                        self.assertEqual(c._app_generation, 1)
+                    second = asyncio.create_task(client.get("http://gateway/second"))
+                    release_first.set()
+                    self.assertTrue(await asyncio.to_thread(second_delegation.wait, 5))
+                    self.assertEqual(platform.spawns, 4)
+                    self.assertEqual((await second).status_code, 200)
+                finally:
+                    release_first.set()
+                    results = await asyncio.gather(
+                        first,
+                        *([second] if second is not None else []),
+                        *([closing] if closing is not None else []),
+                        return_exceptions=True,
+                    )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        raise result
+
+        asyncio.run(run())
+        self.assertEqual(platform.spawns, 4)
+        self.assertEqual(platform.deletes, ["agent-1", "agent-2"])
+
 
 class GovernedGuardTests(unittest.TestCase):
     def test_requires_client_secret_credentials(self) -> None:
-        from caracalai import CaracalConfig
+        from caracalai.advanced import CaracalConfig
         from caracalai.coordinator import CoordinatorClient
 
         c = Caracal(
@@ -410,13 +492,44 @@ class CredentialsResolverTests(unittest.TestCase):
         self.assertEqual(last_mint["zone_id"], ["zone-2"])
         self.assertEqual(last_mint["application_id"], ["app-2"])
 
-    def test_rejects_resolver_combined_with_the_static_triple(self) -> None:
-        with self.assertRaisesRegex(ValueError, "not both"):
-            _client(
-                _Platform(),
+    def test_secret_only_rotation_runs_a_fresh_authority_cycle(self) -> None:
+        platform = _Platform()
+        holder = {
+            "creds": ClientCredentials(
+                zone_id="z", application_id="app", client_secret="secret-1"
+            )
+        }
+        c = _client(
+            platform,
+            zone_id=None,
+            application_id=None,
+            client_secret=None,
+            resources=None,
+            credentials=lambda: holder["creds"],
+        )
+        with c.sync_application_transport(
+            RESOURCE,
+            scopes=["data:read"],
+            transport=httpx.MockTransport(_gateway_echo),
+        ) as client:
+            client.get("http://gateway/one")
+            holder["creds"] = ClientCredentials(
+                zone_id="z", application_id="app", client_secret="secret-2"
+            )
+            client.get("http://gateway/two")
+        self.assertEqual(platform.spawns, 4)
+        self.assertEqual(platform.deletes, ["agent-1", "agent-2"])
+
+    def test_resolver_path_does_not_accept_the_static_triple(self) -> None:
+        with self.assertRaises(TypeError):
+            from_credentials(
+                coordinator_url="http://coord",
+                sts_url="http://sts",
                 credentials=lambda: ClientCredentials(
                     zone_id="z", application_id="app", client_secret="secret"
                 ),
+                resources=[RESOURCE],
+                zone_id="z",
             )
 
     def test_lifecycle_paths_still_require_a_resource(self) -> None:

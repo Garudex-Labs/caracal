@@ -51,10 +51,10 @@ from .coordinator import (
     StartSessionRequest,
     StartSessionResponse,
     create_delegation,
-    heartbeat_agent,
+    heartbeat_session,
     list_inbound_delegations,
     start_coordinator_session,
-    terminate_agent,
+    terminate_session,
 )
 from .primitives import (
     Authority,
@@ -66,7 +66,16 @@ from .primitives import (
     session,
     start_session,
 )
-from .client import Caracal, CaracalConfig, ResourceBinding
+from caracalai_oauth import ClientCredentials, CredentialsResolver
+
+from .client import (
+    Caracal,
+    CaracalConfig,
+    ResourceBinding,
+    _config_from_client_secret,
+    _config_from_env,
+    _config_from_file,
+)
 from .errors import CoordinatorError, MissingTokenError
 from .http import CaracalASGIMiddleware
 
@@ -112,8 +121,8 @@ __all__ = [
     "HeartbeatResponse",
     "InboundDelegation",
     "start_coordinator_session",
-    "terminate_agent",
-    "heartbeat_agent",
+    "terminate_session",
+    "heartbeat_session",
     "create_delegation",
     "list_inbound_delegations",
     "session",
@@ -130,4 +139,47 @@ __all__ = [
     "CoordinatorError",
     "MissingTokenError",
     "CaracalASGIMiddleware",
+    "ClientCredentials",
+    "CredentialsResolver",
+    "from_config",
+    "from_credentials",
+    "from_env",
 ]
+
+
+def from_env(env) -> Caracal:
+    """Build a client from only the supplied environment mapping."""
+    return Caracal(_config_from_env(env))
+
+
+def from_config(path, env=None) -> Caracal:
+    """Build a client from one explicit profile and optional environment values."""
+    return Caracal(_config_from_file(path, env))
+
+
+def from_credentials(
+    *,
+    coordinator_url: str,
+    sts_url: str,
+    credentials: CredentialsResolver,
+    resources=None,
+    gateway_url=None,
+    scope: str = "agent:lifecycle",
+    default_ttl_seconds=None,
+    http_client=None,
+    coordinator_http_client=None,
+) -> Caracal:
+    """Build a client with a dynamic credential resolver."""
+    return Caracal(
+        _config_from_client_secret(
+            coordinator_url=coordinator_url,
+            sts_url=sts_url,
+            credentials=credentials,
+            resources=resources,
+            gateway_url=gateway_url,
+            scope=scope,
+            default_ttl_seconds=default_ttl_seconds,
+            http_client=http_client,
+            coordinator_http_client=coordinator_http_client,
+        )
+    )
