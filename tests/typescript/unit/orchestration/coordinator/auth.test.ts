@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import '../../../../shared/test-utils/typescript/coordinatorEnv.js'
-import { validateSubjectProofClaims, verifyBearer } from '../../../../../apps/coordinator/src/auth.js'
+import { isSessionMandate, validateSubjectProofClaims, verifyBearer } from '../../../../../apps/coordinator/src/auth.js'
 
 function jwtWith(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
@@ -32,6 +32,13 @@ function buildApp() {
 }
 
 describe('coordinator bearer authentication', () => {
+  it('accepts only Session-class runtime mandates', () => {
+    expect(isSessionMandate({ use: 'session' })).toBe(true)
+    expect(isSessionMandate({ use: 'gateway' })).toBe(false)
+    expect(isSessionMandate({ use: 'resource' })).toBe(false)
+    expect(isSessionMandate({})).toBe(false)
+  })
+
   it('accepts only an identity-only federated Subject mandate as attribution proof', () => {
     const proof = validateSubjectProofClaims(
       {
