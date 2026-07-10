@@ -253,7 +253,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
          FROM policy_set_versions psv
          JOIN policy_sets ps ON ps.id = psv.policy_set_id
          WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL
-         FOR UPDATE OF ps, psv`,
+         FOR UPDATE OF ps`,
         [body.version_id, params.id, params.zoneId],
       )
       if (!lockedVersions[0]) {
@@ -402,7 +402,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    return withTransaction(fastify.db, async (client) => {
+    await withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.zoneId])
       const { rowCount } = await client.query(
         `UPDATE policy_sets SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
@@ -429,8 +429,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: req.id,
         })
       }
-      return reply.code(204).send()
     })
+    return reply.code(204).send()
   })
 }
 

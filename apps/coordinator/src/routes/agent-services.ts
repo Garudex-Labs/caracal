@@ -9,7 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ownsApplication, requireScope } from '../auth.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
-import { sessionLockKey, suspendSubtree } from './agents.js'
+import { sessionLockKey, suspendSubtree, terminateSubtree } from './agents.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -142,12 +142,17 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         status: string
         lifecycle: string
         lease_expired: boolean
+        subject_anchor_active: boolean
       }>(
         `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
-         SELECT application_id, status, lifecycle,
+         SELECT session.application_id, session.status, session.lifecycle,
+                (authority.session_type <> 'user' OR
+                  (authority.status = 'active' AND authority.expires_at > now())) AS subject_anchor_active,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
-         FROM sessions, locked
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+         FROM sessions session
+         JOIN authority_records authority ON authority.id = session.subject_authority_record_id
+         CROSS JOIN locked
+         WHERE session.id = $1 AND session.zone_id = $2 FOR UPDATE OF session`,
         [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
@@ -173,6 +178,11 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (own[0].status !== 'active') {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'session_not_live' })
+      }
+      if (own[0].subject_anchor_active === false) {
+        await terminateSubtree(client, zoneId, [id], 'subject_authority_inactive')
+        await client.query('COMMIT')
+        return reply.code(409).send({ error: 'session_subject_inactive' })
       }
       if (own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
@@ -235,12 +245,18 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         heartbeat_deadline_at: Date | null
         lease_expired: boolean
         lease_generation: string
+        subject_anchor_active: boolean
       }>(
         `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
-         SELECT application_id, subject_authority_record_id, status, lifecycle, heartbeat_deadline_at, lease_generation,
-                heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
-         FROM sessions, locked
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+         SELECT session.application_id, session.subject_authority_record_id, session.status, session.lifecycle,
+                session.heartbeat_deadline_at, session.lease_generation,
+                (authority.session_type <> 'user' OR
+                  (authority.status = 'active' AND authority.expires_at > now())) AS subject_anchor_active,
+                session.heartbeat_deadline_at IS NOT NULL AND session.heartbeat_deadline_at <= now() AS lease_expired
+         FROM sessions session
+         JOIN authority_records authority ON authority.id = session.subject_authority_record_id
+         CROSS JOIN locked
+         WHERE session.id = $1 AND session.zone_id = $2 FOR UPDATE OF session`,
         [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
@@ -262,6 +278,11 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (own[0].lifecycle !== 'service') {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'session_not_service' })
+      }
+      if (own[0].subject_anchor_active === false) {
+        await terminateSubtree(client, zoneId, [id], 'subject_authority_inactive')
+        await client.query('COMMIT')
+        return reply.code(409).send({ error: 'session_subject_inactive' })
       }
       if (body.lease_generation !== Number(own[0].lease_generation)) {
         await client.query('ROLLBACK')

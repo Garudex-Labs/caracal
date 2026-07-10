@@ -104,8 +104,7 @@ export async function startIdempotency(
     `SELECT request_digest, response_status, response_json, resource_id
      FROM coordinator_idempotency_receipts
      WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)
-       AND expires_at > now()
-     FOR UPDATE`,
+       AND expires_at > now()`,
     [input.operation, input.zoneId, input.scopeId, keyHash, previousKeyHash],
   )
   if (!rows[0]) {

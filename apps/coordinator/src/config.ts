@@ -71,6 +71,7 @@ function buildCfg() {
     sweeperBatchSize: intEnv('SWEEPER_BATCH_SIZE', 500),
     retentionCleanupIntervalMs: intEnv('RETENTION_CLEANUP_INTERVAL_MS', 900_000),
     retentionCleanupBatchSize: intEnv('RETENTION_CLEANUP_BATCH_SIZE', 500),
+    sessionRetentionDays: intEnv('SESSION_RETENTION_DAYS', 90),
     delegationRetentionDays: intEnv('DELEGATION_RETENTION_DAYS', 90),
     outboxRetentionDays: intEnv('OUTBOX_RETENTION_DAYS', 7),
     idempotencyRetentionSeconds: intEnv('IDEMPOTENCY_RETENTION_SECONDS', 7 * 24 * 60 * 60, 3600),
