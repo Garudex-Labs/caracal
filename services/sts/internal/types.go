@@ -36,8 +36,8 @@ type TokenExchangeRequest struct {
 	ClientAssertion      string
 	ClientAssertionType  string
 	ChallengeID          string // identifier of a previously issued step-up challenge
+	AuthorityRecordID    string
 	SessionID            string
-	AgentSessionID       string
 	DelegationEdgeID     string
 	RequestMethod        string // upstream HTTP method the gateway is authorizing, if any
 	RequestPath          string // upstream request path the gateway is authorizing, if any
@@ -55,13 +55,13 @@ const (
 
 // OPAInput is the canonical input shape for every policy evaluation.
 type OPAInput struct {
-	SchemaVersion  string             `json:"schema_version"`
-	Principal      OPAPrincipal       `json:"principal"`
-	Resource       OPAResource        `json:"resource"`
-	Action         OPAAction          `json:"action"`
-	Session        *OPASession        `json:"session,omitempty"`
-	DelegationEdge *OPADelegationEdge `json:"delegation_edge,omitempty"`
-	Context        OPAContext         `json:"context"`
+	SchemaVersion   string              `json:"schema_version"`
+	Principal       OPAPrincipal        `json:"principal"`
+	Resource        OPAResource         `json:"resource"`
+	Action          OPAAction           `json:"action"`
+	AuthorityRecord *OPAAuthorityRecord `json:"session,omitempty"`
+	DelegationEdge  *OPADelegationEdge  `json:"delegation_edge,omitempty"`
+	Context         OPAContext          `json:"context"`
 }
 
 type OPAPrincipal struct {
@@ -69,7 +69,7 @@ type OPAPrincipal struct {
 	ID                 string   `json:"id"`
 	ZoneID             string   `json:"zone_id"`
 	RegistrationMethod string   `json:"registration_method,omitempty"`
-	AgentSessionID     string   `json:"agent_session_id,omitempty"`
+	SessionID          string   `json:"agent_session_id,omitempty"`
 	Lifecycle          string   `json:"lifecycle,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
 }
@@ -103,7 +103,7 @@ type OPAAction struct {
 	Path   string `json:"path,omitempty"`
 }
 
-type OPASession struct {
+type OPAAuthorityRecord struct {
 	ID string `json:"id"`
 }
 
@@ -125,8 +125,8 @@ type OPAContext struct {
 	ActorClaims       map[string]any `json:"actor_claims"`
 	SubjectClaims     map[string]any `json:"subject_claims,omitempty"`
 	TraceID           string         `json:"trace_id,omitempty"`
-	SessionID         string         `json:"session_id,omitempty"`
-	AgentSessionID    string         `json:"agent_session_id,omitempty"`
+	AuthorityRecordID string         `json:"session_id,omitempty"`
+	SessionID         string         `json:"agent_session_id,omitempty"`
 	DelegationEdgeID  string         `json:"delegation_edge_id,omitempty"`
 	ChallengeResolved bool           `json:"challenge_resolved"`
 	RequestedScopes   []string       `json:"requested_scopes"`

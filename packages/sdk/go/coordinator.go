@@ -40,6 +40,8 @@ type CoordinatorError struct {
 	StatusCode        int
 	Body              string
 	RetryAfterSeconds float64
+	Code              string
+	RequestID         string
 }
 
 // errorBodyCap bounds the response body carried on errors so an oversized or
@@ -90,24 +92,25 @@ const (
 	LifecycleService Lifecycle = "service"
 )
 
-// SpawnRequest parameters for coordinator agent spawn.
-type SpawnRequest struct {
-	ZoneID           string
-	ApplicationID    string
-	SubjectSessionID string
-	ParentID         string
-	Lifecycle        Lifecycle
-	TTLSeconds       int
-	Metadata         map[string]any
-	Labels           []string
-	IdempotencyKey   string
-	ParentAuthority  string
+// StartSessionRequest contains parameters for starting a governed Session.
+type StartSessionRequest struct {
+	ZoneID                   string
+	ApplicationID            string
+	SubjectAuthorityRecordID string
+	ParentID                 string
+	Lifecycle                Lifecycle
+	TTLSeconds               int
+	Metadata                 map[string]any
+	Labels                   []string
+	IdempotencyKey           string
+	IdempotencyKeyGenerated  bool
+	ParentAuthority          string
 }
 
-// SpawnResponse from the coordinator.
-type SpawnResponse struct {
-	AgentSessionID      string `json:"agent_session_id"`
-	DelegationEdgeID    string `json:"delegation_edge_id"`
+// StartSessionResponse from the coordinator.
+type StartSessionResponse struct {
+	SessionID           string `json:"agent_session_id"`
+	DelegationID        string `json:"delegation_edge_id"`
 	HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
 }
 
@@ -170,17 +173,17 @@ type DelegationRequest struct {
 // DelegationResponse is the created delegation edge: its id, the scopes it
 // bounds, and when it lapses.
 type DelegationResponse struct {
-	DelegationEdgeID string   `json:"delegation_edge_id"`
-	Scopes           []string `json:"scopes"`
-	ExpiresAt        string   `json:"expires_at"`
+	DelegationID string   `json:"delegation_edge_id"`
+	Scopes       []string `json:"scopes"`
+	ExpiresAt    string   `json:"expires_at"`
 }
 
 // InboundDelegation is a delegation issued to a session, as the coordinator
 // holds it.
 type InboundDelegation struct {
-	DelegationEdgeID string
-	Status           string
-	ExpiresAt        string
+	DelegationID string
+	Status       string
+	ExpiresAt    string
 }
 
 // HeartbeatResponse reports the session state and renewed lease deadline.
@@ -189,16 +192,16 @@ type HeartbeatResponse struct {
 	HeartbeatDeadlineAt string
 }
 
-// SpawnAgent calls POST /zones/:zoneId/agents.
-func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, req SpawnRequest) (SpawnResponse, error) {
+// StartCoordinatorSession calls POST /zones/:zoneId/agents.
+func StartCoordinatorSession(ctx context.Context, client *CoordinatorClient, bearer string, req StartSessionRequest) (StartSessionResponse, error) {
 	body := map[string]any{
 		"application_id": req.ApplicationID,
 	}
 	if req.Lifecycle != "" {
 		body["lifecycle"] = string(req.Lifecycle)
 	}
-	if req.SubjectSessionID != "" {
-		body["subject_session_id"] = req.SubjectSessionID
+	if req.SubjectAuthorityRecordID != "" {
+		body["subject_session_id"] = req.SubjectAuthorityRecordID
 	}
 	if req.ParentID != "" {
 		body["parent_id"] = req.ParentID
@@ -219,28 +222,31 @@ func SpawnAgent(ctx context.Context, client *CoordinatorClient, bearer string, r
 	extra := map[string]string{}
 	if req.IdempotencyKey != "" {
 		extra["Idempotency-Key"] = req.IdempotencyKey
+		if req.IdempotencyKeyGenerated {
+			extra["Idempotency-Key-Kind"] = "generated"
+		}
 	}
 
-	var out SpawnResponse
+	var out StartSessionResponse
 	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/agents", bearer, body, extra, &out); err != nil {
 		return out, err
 	}
-	if out.AgentSessionID == "" {
-		return out, errors.New("caracal: coordinator spawn response missing agent_session_id")
+	if out.SessionID == "" {
+		return out, errors.New("caracal: coordinator session response missing agent_session_id")
 	}
 	return out, nil
 }
 
 // TerminateAgent calls DELETE /zones/:zoneId/agents/:id.
-func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID string) error {
-	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(agentSessionID), bearer, nil, nil, nil)
+func TerminateAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID string) error {
+	return doJSON(ctx, client, "DELETE", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID), bearer, nil, nil, nil)
 }
 
 // HeartbeatAgent renews a service agent's lease. A service session is reaped by
 // the coordinator if it stops heartbeating before the lease expires; the
 // response reports the renewed deadline so callers can pace renewals. An empty
 // status reports "healthy".
-func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, agentSessionID, status string) (HeartbeatResponse, error) {
+func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zoneID, sessionID, status string) (HeartbeatResponse, error) {
 	if status == "" {
 		status = "healthy"
 	}
@@ -251,7 +257,7 @@ func HeartbeatAgent(ctx context.Context, client *CoordinatorClient, bearer, zone
 			HeartbeatDeadlineAt string `json:"heartbeat_deadline_at"`
 		} `json:"agent"`
 	}
-	err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(agentSessionID)+"/heartbeat", bearer, body, nil, &wire)
+	err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(zoneID)+"/agents/"+url.PathEscape(sessionID)+"/heartbeat", bearer, body, nil, &wire)
 	return HeartbeatResponse{Status: wire.Agent.Status, HeartbeatDeadlineAt: wire.Agent.HeartbeatDeadlineAt}, err
 }
 
@@ -286,7 +292,7 @@ func CreateDelegation(ctx context.Context, client *CoordinatorClient, bearer str
 	if err := doJSON(ctx, client, "POST", "/zones/"+url.PathEscape(req.ZoneID)+"/delegations", bearer, body, extra, &out); err != nil {
 		return out, err
 	}
-	if out.DelegationEdgeID == "" {
+	if out.DelegationID == "" {
 		return out, errors.New("caracal: coordinator delegation response missing delegation_edge_id")
 	}
 	return out, nil
@@ -311,7 +317,7 @@ func ListInboundDelegations(ctx context.Context, client *CoordinatorClient, bear
 		if item.ID == "" {
 			continue
 		}
-		out = append(out, InboundDelegation{DelegationEdgeID: item.ID, Status: item.Status, ExpiresAt: item.ExpiresAt})
+		out = append(out, InboundDelegation{DelegationID: item.ID, Status: item.Status, ExpiresAt: item.ExpiresAt})
 	}
 	return out, nil
 }
@@ -339,7 +345,7 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 	}
 
 	start := time.Now()
-	emit := func(status int, ok bool) {
+	emit := func(status int, ok bool, code, requestID string, replayed bool) {
 		if client.OnEvent == nil {
 			return
 		}
@@ -347,24 +353,32 @@ func doJSON(ctx context.Context, client *CoordinatorClient, method, path, bearer
 			// The observability sink must never break the coordinator path.
 			_ = recover()
 		}()
-		client.OnEvent(oauth.Event{Type: "coordinator.call", Method: method, Path: path, Status: status, Ok: ok, Duration: time.Since(start)})
+		client.OnEvent(oauth.Event{Type: "coordinator.call", Method: method, Path: path, Status: status, Ok: ok, Duration: time.Since(start), Code: code, RequestID: requestID, Replayed: replayed})
 	}
 	resp, err := client.http().Do(req)
 	if err != nil {
-		emit(0, false)
+		emit(0, false, "", "", false)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		emit(resp.StatusCode, false)
 		raw, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: fmt.Sprintf("(reading response body: %v)", readErr), RetryAfterSeconds: retryAfterSeconds(resp)}
 		}
-		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw), RetryAfterSeconds: retryAfterSeconds(resp)}
+		var envelope struct {
+			Code      string `json:"error"`
+			RequestID string `json:"request_id"`
+		}
+		_ = json.Unmarshal(raw, &envelope)
+		if envelope.RequestID == "" {
+			envelope.RequestID = resp.Header.Get("X-Request-Id")
+		}
+		emit(resp.StatusCode, false, envelope.Code, envelope.RequestID, false)
+		return &CoordinatorError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(raw), RetryAfterSeconds: retryAfterSeconds(resp), Code: envelope.Code, RequestID: envelope.RequestID}
 	}
-	emit(resp.StatusCode, true)
+	emit(resp.StatusCode, true, "", "", resp.Header.Get("Idempotency-Replayed") == "true")
 
 	if out != nil && resp.StatusCode != http.StatusNoContent {
 		return json.NewDecoder(resp.Body).Decode(out)

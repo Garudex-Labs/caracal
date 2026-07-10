@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 )
@@ -73,15 +74,16 @@ func AuthorityNarrow(scopes []string, opts ...NarrowOptions) Authority {
 	return g
 }
 
-// SessionInput controls agent session spawning.
+// SessionInput controls governed Session creation.
 type SessionInput struct {
-	Coordinator      *CoordinatorClient
-	ZoneID           string
-	ApplicationID    string
-	SubjectToken     string
-	TokenSource      func(context.Context) (string, error)
-	Invalidate       func()
-	SubjectSessionID string
+	Coordinator   *CoordinatorClient
+	ZoneID        string
+	ApplicationID string
+	SubjectToken  string
+	TokenSource   func(context.Context) (string, error)
+	Invalidate    func()
+	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
+	SubjectAuthorityRecordID string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
 	Authority       Authority
@@ -89,31 +91,31 @@ type SessionInput struct {
 	Metadata        map[string]any
 	Labels          []string
 	TraceID         string
-	// Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate.
+	// Caller-supplied Session-start idempotency key; redelivery resumes the Session instead of creating a duplicate.
 	IdempotencyKey string
 	OnSessionStart LifecycleHook
 	OnSessionEnd   LifecycleHook
 }
 
 type sessionInput struct {
-	coordinator      *CoordinatorClient
-	zoneID           string
-	applicationID    string
-	subjectToken     string
-	tokenSource      func(context.Context) (string, error)
-	invalidate       func()
-	subjectSessionID string
-	parentID         string
-	authority        Authority
-	ttlSeconds       int
-	metadata         map[string]any
-	labels           []string
-	traceID          string
-	idempotencyKey   string
+	coordinator              *CoordinatorClient
+	zoneID                   string
+	applicationID            string
+	subjectToken             string
+	tokenSource              func(context.Context) (string, error)
+	invalidate               func()
+	subjectAuthorityRecordID string
+	parentID                 string
+	authority                Authority
+	ttlSeconds               int
+	metadata                 map[string]any
+	labels                   []string
+	traceID                  string
+	idempotencyKey           string
 }
 
 type session struct {
-	agentSessionID      string
+	sessionID           string
 	ctx                 CaracalContext
 	bearer              func(context.Context) (string, error)
 	heartbeatDeadlineAt string
@@ -144,14 +146,14 @@ func retryDelay(attempt int, err error) time.Duration {
 // cancellation (with its own deadline) so an expired or canceled caller
 // context cannot strand the session, resolves a fresh bearer when a token
 // source is configured, and treats an already-retired session as success.
-func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(context.Context) (string, error), zoneID, agentSessionID string) error {
+func retire(ctx context.Context, coordinator *CoordinatorClient, bearer func(context.Context) (string, error), zoneID, sessionID string) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	token, err := bearer(cleanupCtx)
 	if err != nil {
 		return err
 	}
-	err = TerminateAgent(cleanupCtx, coordinator, token, zoneID, agentSessionID)
+	err = TerminateAgent(cleanupCtx, coordinator, token, zoneID, sessionID)
 	if isGone(err) {
 		return nil
 	}
@@ -186,25 +188,28 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	idempotencyKey := in.idempotencyKey
 	if idempotencyKey == "" {
 		idempotencyKey = newRandomHex(16)
+	} else if err := validateIdempotencyKey(idempotencyKey); err != nil {
+		return nil, err
 	}
-	req := SpawnRequest{
-		ZoneID:           in.zoneID,
-		ApplicationID:    in.applicationID,
-		SubjectSessionID: in.subjectSessionID,
-		ParentID:         parentID,
-		Lifecycle:        lifecycle,
-		TTLSeconds:       in.ttlSeconds,
-		Metadata:         in.metadata,
-		Labels:           in.labels,
-		IdempotencyKey:   idempotencyKey,
-		ParentAuthority:  parentAuthority,
+	req := StartSessionRequest{
+		ZoneID:                   in.zoneID,
+		ApplicationID:            in.applicationID,
+		SubjectAuthorityRecordID: in.subjectAuthorityRecordID,
+		ParentID:                 parentID,
+		Lifecycle:                lifecycle,
+		TTLSeconds:               in.ttlSeconds,
+		Metadata:                 in.metadata,
+		Labels:                   in.labels,
+		IdempotencyKey:           idempotencyKey,
+		IdempotencyKeyGenerated:  in.idempotencyKey == "",
+		ParentAuthority:          parentAuthority,
 	}
 	const spawnRetries = 2
-	var res SpawnResponse
+	var res StartSessionResponse
 	refreshed := false
 	for attempt := 0; ; {
 		var err error
-		res, err = SpawnAgent(ctx, in.coordinator, token, req)
+		res, err = StartCoordinatorSession(ctx, in.coordinator, token, req)
 		if err == nil {
 			break
 		}
@@ -212,7 +217,7 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		if errors.As(err, &coordErr) {
 			// A cached token can be rejected before its exp (server-side
 			// session revocation after a credential rotation); force one
-			// refresh and retry the spawn once. The jittered pause spreads
+			// refresh and retry the Session start once. The jittered pause spreads
 			// the refresh across a fleet so a mass revocation cannot
 			// stampede the STS.
 			if coordErr.StatusCode == 401 && !refreshed && in.invalidate != nil && in.tokenSource != nil {
@@ -245,21 +250,21 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		}
 	}
 
-	delegationID := res.DelegationEdgeID
+	delegationID := res.DelegationID
 	hop := parent.Hop
 	if delegationID != "" && hasParent {
 		hop = parent.Hop + 1
 	}
 	if authority.Mode == AuthorityModeNarrow {
 		if parent.SessionID == "" {
-			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.AgentSessionID), res.AgentSessionID)
+			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
 			return nil, errors.New("caracal: Authority narrow requires an active parent session")
 		}
 		delRes, derr := CreateDelegation(ctx, in.coordinator, parent.SubjectToken, DelegationRequest{
 			ZoneID:                in.zoneID,
 			IssuerApplicationID:   parent.ApplicationID,
 			SourceSessionID:       parent.SessionID,
-			TargetSessionID:       res.AgentSessionID,
+			TargetSessionID:       res.SessionID,
 			ReceiverApplicationID: in.applicationID,
 			ParentEdgeID:          parent.DelegationID,
 			ResourceID:            authority.ResourceID,
@@ -268,10 +273,10 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 			TTLSeconds:            authority.TTLSeconds,
 		})
 		if derr != nil {
-			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.AgentSessionID), res.AgentSessionID)
+			logRetire(retire(ctx, in.coordinator, bearer, in.zoneID, res.SessionID), res.SessionID)
 			return nil, derr
 		}
-		delegationID = delRes.DelegationEdgeID
+		delegationID = delRes.DelegationID
 		hop = parent.Hop + 1
 	}
 
@@ -279,36 +284,48 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	if traceID == "" {
 		traceID = parent.TraceID
 	}
-	sessionID := in.subjectSessionID
+	sessionID := in.subjectAuthorityRecordID
 	if sessionID == "" {
-		sessionID = parent.SubjectSessionID
+		sessionID = parent.SubjectAuthorityRecordID
 	}
 
 	c := CaracalContext{
-		SubjectToken:       token,
-		ZoneID:             in.zoneID,
-		ApplicationID:      in.applicationID,
-		SessionID:          res.AgentSessionID,
-		DelegationID:       delegationID,
-		ParentDelegationID: parent.DelegationID,
-		SubjectSessionID:   sessionID,
-		TraceID:            traceID,
-		TraceFlags:         parent.TraceFlags,
-		TraceState:         parent.TraceState,
-		Baggage:            parent.Baggage,
-		Hop:                hop,
-		OwnToken:           true,
+		SubjectToken:             token,
+		ZoneID:                   in.zoneID,
+		ApplicationID:            in.applicationID,
+		SessionID:                res.SessionID,
+		DelegationID:             delegationID,
+		ParentDelegationID:       parent.DelegationID,
+		SubjectAuthorityRecordID: sessionID,
+		TraceID:                  traceID,
+		TraceFlags:               parent.TraceFlags,
+		TraceState:               parent.TraceState,
+		Baggage:                  parent.Baggage,
+		Hop:                      hop,
+		OwnToken:                 true,
 	}
-	return &session{agentSessionID: res.AgentSessionID, ctx: c, bearer: bearer, heartbeatDeadlineAt: res.HeartbeatDeadlineAt}, nil
+	return &session{sessionID: res.SessionID, ctx: c, bearer: bearer, heartbeatDeadlineAt: res.HeartbeatDeadlineAt}, nil
+}
+
+func validateIdempotencyKey(key string) error {
+	if key == "" || key != strings.TrimSpace(key) || len([]byte(key)) > 255 {
+		return errors.New("caracal: IdempotencyKey must be non-empty, at most 255 UTF-8 bytes, and contain no surrounding whitespace or control characters")
+	}
+	for _, char := range key {
+		if char < 32 || char == 127 {
+			return errors.New("caracal: IdempotencyKey must be non-empty, at most 255 UTF-8 bytes, and contain no surrounding whitespace or control characters")
+		}
+	}
+	return nil
 }
 
 // logRetire records a cleanup-path terminate failure without masking the
 // caller's primary outcome; the coordinator's TTL sweeper retires whatever
 // this misses.
-func logRetire(err error, agentSessionID string) {
+func logRetire(err error, sessionID string) {
 	if err != nil {
 		slog.Warn("caracal: terminate failed; the coordinator TTL sweeper will retire it",
-			"agent_session_id", agentSessionID, "err", err)
+			"agent_session_id", sessionID, "err", err)
 	}
 }
 
@@ -320,20 +337,20 @@ func logRetire(err error, agentSessionID string) {
 // the session to a subset of scopes.
 func Session(ctx context.Context, opts SessionInput, fn func(context.Context) error) error {
 	sess, err := establishSession(ctx, sessionInput{
-		coordinator:      opts.Coordinator,
-		zoneID:           opts.ZoneID,
-		applicationID:    opts.ApplicationID,
-		subjectToken:     opts.SubjectToken,
-		tokenSource:      opts.TokenSource,
-		invalidate:       opts.Invalidate,
-		subjectSessionID: opts.SubjectSessionID,
-		parentID:         opts.ParentSessionID,
-		authority:        opts.Authority,
-		ttlSeconds:       opts.TTLSeconds,
-		metadata:         opts.Metadata,
-		labels:           opts.Labels,
-		traceID:          opts.TraceID,
-		idempotencyKey:   opts.IdempotencyKey,
+		coordinator:              opts.Coordinator,
+		zoneID:                   opts.ZoneID,
+		applicationID:            opts.ApplicationID,
+		subjectToken:             opts.SubjectToken,
+		tokenSource:              opts.TokenSource,
+		invalidate:               opts.Invalidate,
+		subjectAuthorityRecordID: opts.SubjectAuthorityRecordID,
+		parentID:                 opts.ParentSessionID,
+		authority:                opts.Authority,
+		ttlSeconds:               opts.TTLSeconds,
+		metadata:                 opts.Metadata,
+		labels:                   opts.Labels,
+		traceID:                  opts.TraceID,
+		idempotencyKey:           opts.IdempotencyKey,
 	}, "")
 	if err != nil {
 		return err
@@ -342,7 +359,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 	child := Bind(ctx, sess.ctx)
 	if opts.OnSessionStart != nil {
 		if err := opts.OnSessionStart(child, sess.ctx); err != nil {
-			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID), sess.agentSessionID)
+			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
 			return err
 		}
 	}
@@ -350,7 +367,7 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 	if opts.OnSessionEnd != nil {
 		runErr = errors.Join(runErr, opts.OnSessionEnd(child, sess.ctx))
 	}
-	logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID), sess.agentSessionID)
+	logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
 	return runErr
 }
 
@@ -421,7 +438,7 @@ func Delegate(ctx context.Context, opts DelegateInput) (Delegation, error) {
 		case <-time.After(delay):
 		}
 	}
-	return Delegation{DelegationID: res.DelegationEdgeID, Scopes: res.Scopes, ExpiresAt: res.ExpiresAt}, nil
+	return Delegation{DelegationID: res.DelegationID, Scopes: res.Scopes, ExpiresAt: res.ExpiresAt}, nil
 }
 
 // AcceptDelegation derives a receiver context presenting the given delegation
@@ -448,13 +465,14 @@ func AcceptDelegation(ctx context.Context, delegationID string) (context.Context
 // permanently gone. OnSessionEnd runs inside Close before the session
 // terminates, mirroring Session's end hook.
 type StartSessionInput struct {
-	Coordinator      *CoordinatorClient
-	ZoneID           string
-	ApplicationID    string
-	SubjectToken     string
-	TokenSource      func(context.Context) (string, error)
-	Invalidate       func()
-	SubjectSessionID string
+	Coordinator   *CoordinatorClient
+	ZoneID        string
+	ApplicationID string
+	SubjectToken  string
+	TokenSource   func(context.Context) (string, error)
+	Invalidate    func()
+	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
+	SubjectAuthorityRecordID string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
 	Authority       Authority
@@ -462,10 +480,11 @@ type StartSessionInput struct {
 	Metadata        map[string]any
 	Labels          []string
 	TraceID         string
-	// Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate.
+	// Caller-supplied Session-start idempotency key; redelivery resumes the Session instead of creating a duplicate.
 	IdempotencyKey    string
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
+	OnStateChange     func(string)
 	OnSessionStart    LifecycleHook
 	OnSessionEnd      LifecycleHook
 }
@@ -476,7 +495,7 @@ const (
 	fallbackAutoHeartbeat = 30 * time.Second
 )
 
-// SessionHandle is a handle for a long-lived service agent session. Unlike
+// SessionHandle is a handle for a long-lived service Session. Unlike
 // Session, a service session is not terminated automatically: a background
 // goroutine renews the lease by default and the holder retires the session
 // with Close. The renewal cadence follows the server lease deadline unless
@@ -490,9 +509,11 @@ type SessionHandle struct {
 	invalidate        func()
 	heartbeatInterval time.Duration
 	onLeaseLost       func(error)
+	onStateChange     func(string)
 	onSessionEnd      LifecycleHook
 	mu                sync.Mutex
 	deadlineAt        time.Time
+	status            string
 	stop              chan struct{}
 	wg                sync.WaitGroup
 	closeOnce         sync.Once
@@ -510,6 +531,13 @@ func (s *SessionHandle) DeadlineAt() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.deadlineAt
+}
+
+// Status returns the coordinator-reported service-session state.
+func (s *SessionHandle) Status() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status
 }
 
 func (s *SessionHandle) bearer(ctx context.Context) (string, error) {
@@ -552,6 +580,15 @@ func (s *SessionHandle) Heartbeat(ctx context.Context, status ...string) error {
 			s.mu.Lock()
 			s.deadlineAt = t
 			s.mu.Unlock()
+		}
+	}
+	if res.Status != "" {
+		s.mu.Lock()
+		changed := res.Status != s.status
+		s.status = res.Status
+		s.mu.Unlock()
+		if changed && s.onStateChange != nil {
+			s.onStateChange(res.Status)
 		}
 	}
 	return nil
@@ -602,6 +639,9 @@ func (s *SessionHandle) startAutoHeartbeat() {
 					slog.Warn("caracal auto-heartbeat failed; retrying next tick",
 						"agent_session_id", s.Context.SessionID, "err", err)
 				}
+				if s.Status() == "suspended" {
+					return
+				}
 				timer.Reset(s.nextDelay())
 			}
 		}
@@ -636,34 +676,34 @@ func (s *SessionHandle) Close(ctx context.Context) error {
 	return s.closeErr
 }
 
-// StartSession spawns a long-lived service agent session and returns a handle
+// StartSession starts a long-lived service Session and returns a handle
 // the caller owns. A background goroutine renews the heartbeat lease by
 // default (see StartSessionInput.HeartbeatInterval); retire the session with
 // SessionHandle.Close. Set Authority to AuthorityNarrow(...) to issue a bounded
 // delegation edge so the handle holds only a subset of scopes.
 func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, error) {
 	sess, err := establishSession(ctx, sessionInput{
-		coordinator:      opts.Coordinator,
-		zoneID:           opts.ZoneID,
-		applicationID:    opts.ApplicationID,
-		subjectToken:     opts.SubjectToken,
-		tokenSource:      opts.TokenSource,
-		invalidate:       opts.Invalidate,
-		subjectSessionID: opts.SubjectSessionID,
-		parentID:         opts.ParentSessionID,
-		authority:        opts.Authority,
-		ttlSeconds:       opts.TTLSeconds,
-		metadata:         opts.Metadata,
-		labels:           opts.Labels,
-		traceID:          opts.TraceID,
-		idempotencyKey:   opts.IdempotencyKey,
+		coordinator:              opts.Coordinator,
+		zoneID:                   opts.ZoneID,
+		applicationID:            opts.ApplicationID,
+		subjectToken:             opts.SubjectToken,
+		tokenSource:              opts.TokenSource,
+		invalidate:               opts.Invalidate,
+		subjectAuthorityRecordID: opts.SubjectAuthorityRecordID,
+		parentID:                 opts.ParentSessionID,
+		authority:                opts.Authority,
+		ttlSeconds:               opts.TTLSeconds,
+		metadata:                 opts.Metadata,
+		labels:                   opts.Labels,
+		traceID:                  opts.TraceID,
+		idempotencyKey:           opts.IdempotencyKey,
 	}, LifecycleService)
 	if err != nil {
 		return nil, err
 	}
 	if opts.OnSessionStart != nil {
 		if err := opts.OnSessionStart(ctx, sess.ctx); err != nil {
-			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.agentSessionID), sess.agentSessionID)
+			logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
 			return nil, err
 		}
 	}
@@ -674,6 +714,8 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		invalidate:        opts.Invalidate,
 		heartbeatInterval: opts.HeartbeatInterval,
 		onLeaseLost:       opts.OnLeaseLost,
+		onStateChange:     opts.OnStateChange,
+		status:            "active",
 		onSessionEnd:      opts.OnSessionEnd,
 	}
 	if t, perr := time.Parse(time.RFC3339Nano, sess.heartbeatDeadlineAt); perr == nil {
@@ -697,6 +739,7 @@ type AttachSessionInput struct {
 	SessionID         string
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
+	OnStateChange     func(string)
 	OnSessionEnd      LifecycleHook
 }
 
@@ -719,7 +762,19 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 	}
 	first, err := HeartbeatAgent(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
 	if err != nil {
-		return nil, err
+		var coordErr *CoordinatorError
+		if !errors.As(err, &coordErr) || coordErr.StatusCode != 401 || opts.Invalidate == nil || opts.TokenSource == nil {
+			return nil, err
+		}
+		opts.Invalidate()
+		token, err = opts.TokenSource(ctx)
+		if err != nil {
+			return nil, err
+		}
+		first, err = HeartbeatAgent(ctx, opts.Coordinator, token, opts.ZoneID, opts.SessionID, "")
+		if err != nil {
+			return nil, err
+		}
 	}
 	agent := &SessionHandle{
 		Context: CaracalContext{
@@ -734,6 +789,8 @@ func AttachSession(ctx context.Context, opts AttachSessionInput) (*SessionHandle
 		invalidate:        opts.Invalidate,
 		heartbeatInterval: opts.HeartbeatInterval,
 		onLeaseLost:       opts.OnLeaseLost,
+		onStateChange:     opts.OnStateChange,
+		status:            first.Status,
 		onSessionEnd:      opts.OnSessionEnd,
 	}
 	if t, perr := time.Parse(time.RFC3339Nano, first.HeartbeatDeadlineAt); perr == nil {

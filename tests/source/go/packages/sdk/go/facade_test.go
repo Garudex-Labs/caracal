@@ -764,24 +764,28 @@ func TestGatewayBoundRequestResolvesBearerPerContext(t *testing.T) {
 	gateway := governedEcho()
 	defer gateway.Close()
 
+	issued := 0
 	c := &sdk.Caracal{
 		ZoneID:        "z",
 		ApplicationID: "app",
 		SubjectToken:  "root-token",
 		GatewayURL:    gateway.URL,
-		TokenSource:   func(context.Context) (string, error) { return "fresh-own", nil },
+		TokenSource: func(context.Context) (string, error) {
+			issued++
+			return fmt.Sprintf("fresh-own-%d", issued), nil
+		},
 	}
 
 	rootReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/direct", nil)
 	echo := doGovernedEcho(t, c.Transport(nil, sdk.CallOptions{AsApplication: true}), rootReq)
-	if echo["presented"] != "Bearer fresh-own" {
+	if echo["presented"] != "Bearer fresh-own-1" {
 		t.Fatalf("root gateway request must use the token source: %s", echo["presented"])
 	}
 
 	ownCtx := sdk.Bind(context.Background(), sdk.CaracalContext{SubjectToken: "stale", ZoneID: "z", ApplicationID: "app", OwnToken: true})
 	ownReq, _ := http.NewRequestWithContext(ownCtx, http.MethodGet, gateway.URL+"/direct", nil)
 	echo = doGovernedEcho(t, c.Transport(nil), ownReq)
-	if echo["presented"] != "Bearer fresh-own" {
+	if echo["presented"] != "Bearer fresh-own-2" {
 		t.Fatalf("own-token context must refresh through the source: %s", echo["presented"])
 	}
 }

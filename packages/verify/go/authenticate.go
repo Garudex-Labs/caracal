@@ -23,7 +23,7 @@ type Options struct {
 	RequiredScopes       []string
 	RequiredTargets      []string
 	RequiredUse          string
-	RequireAgent         bool
+	RequireSession       bool
 	RequireDelegation    bool
 	RequireChainContains []string
 	MaxHopCount          int
@@ -40,7 +40,7 @@ const (
 	ErrInsufficientScope  ErrorCode = "insufficient_scope"
 	ErrSessionRevoked     ErrorCode = "session_revoked"
 	ErrDelegationStale    ErrorCode = "delegation_stale"
-	ErrAgentRequired      ErrorCode = "agent_required"
+	ErrSessionRequired    ErrorCode = "session_required"
 	ErrDelegationRequired ErrorCode = "delegation_required"
 	ErrChainMismatch      ErrorCode = "chain_mismatch"
 	ErrHopCountExceeded   ErrorCode = "hop_count_exceeded"
@@ -65,7 +65,7 @@ func (e *AuthError) Error() string { return e.Description }
 // an unmet delegation requirement).
 func HTTPStatus(code ErrorCode) int {
 	switch code {
-	case ErrInsufficientScope, ErrAgentRequired, ErrDelegationRequired, ErrChainMismatch, ErrHopCountExceeded:
+	case ErrInsufficientScope, ErrSessionRequired, ErrDelegationRequired, ErrChainMismatch, ErrHopCountExceeded:
 		return 403
 	default:
 		return 401
@@ -136,7 +136,7 @@ func (v *Verifier) AuthenticateContext(ctx context.Context, token string, overri
 		RequiredScopes:       opts.RequiredScopes,
 		RequiredTargets:      opts.RequiredTargets,
 		RequiredUse:          requiredUse,
-		RequireAgent:         opts.RequireAgent,
+		RequireSession:       opts.RequireSession,
 		RequireDelegation:    opts.RequireDelegation,
 		RequireChainContains: opts.RequireChainContains,
 		MaxHopCount:          opts.MaxHopCount,
@@ -150,8 +150,8 @@ func (v *Verifier) AuthenticateContext(ctx context.Context, token string, overri
 			return identity.Claims{}, authError(ErrInsufficientScope, "Missing scope: "+scopeErr.Scope)
 		case errors.Is(err, identity.ErrZoneInvalid):
 			return identity.Claims{}, authError(ErrInvalidZone, "")
-		case errors.Is(err, identity.ErrAgentIdentityRequired):
-			return identity.Claims{}, authError(ErrAgentRequired, "")
+		case errors.Is(err, identity.ErrSessionRequired):
+			return identity.Claims{}, authError(ErrSessionRequired, "")
 		case errors.Is(err, identity.ErrDelegationRequired):
 			return identity.Claims{}, authError(ErrDelegationRequired, "")
 		case errors.As(err, &chainErr):
@@ -165,7 +165,7 @@ func (v *Verifier) AuthenticateContext(ctx context.Context, token string, overri
 	if opts.Revocations == nil {
 		return identity.Claims{}, authError(ErrInvalidToken, "Revocation store required")
 	}
-	if claims.Sid == "" {
+	if claims.AuthorityRecordID == "" {
 		return identity.Claims{}, authError(ErrInvalidToken, "")
 	}
 	if authErr := CheckActiveAuthority(claims, opts.Revocations, time.Now()); authErr != nil {
@@ -192,7 +192,7 @@ func (v *Verifier) Require(overrides Options) *Verifier {
 
 // CheckActiveAuthority validates expiry and all revocation anchors during resource execution.
 func CheckActiveAuthority(claims identity.Claims, revocations revocation.Store, now time.Time) *AuthError {
-	if claims.Sid == "" {
+	if claims.AuthorityRecordID == "" {
 		return authError(ErrInvalidToken, "")
 	}
 	if claims.ExpiresAt > 0 && claims.ExpiresAt <= now.Unix() {
@@ -239,8 +239,8 @@ func mergeOptions(base Options, override Options) Options {
 	if override.RequiredUse != "" {
 		base.RequiredUse = override.RequiredUse
 	}
-	if override.RequireAgent {
-		base.RequireAgent = true
+	if override.RequireSession {
+		base.RequireSession = true
 	}
 	if override.RequireDelegation {
 		base.RequireDelegation = true
@@ -260,7 +260,7 @@ func mergeOptions(base Options, override Options) Options {
 func revocationAnchors(claims identity.Claims) []string {
 	seen := map[string]bool{}
 	out := []string{}
-	for _, anchor := range []string{claims.Sid, claims.RootSid, claims.AgentSessionID, claims.DelegationEdgeID} {
+	for _, anchor := range []string{claims.AuthorityRecordID, claims.RootAuthorityRecordID, claims.SessionID, claims.DelegationID} {
 		if anchor == "" || seen[anchor] {
 			continue
 		}
@@ -289,8 +289,8 @@ func defaultDescription(code ErrorCode) string {
 		return "Session revoked"
 	case ErrDelegationStale:
 		return "Delegation graph changed"
-	case ErrAgentRequired:
-		return "Agent identity required"
+	case ErrSessionRequired:
+		return "Session required"
 	case ErrDelegationRequired:
 		return "Delegation required"
 	case ErrChainMismatch:
@@ -314,8 +314,8 @@ func defaultHint(code ErrorCode) string {
 		return "Refresh the mandate or start a new authorized session."
 	case ErrDelegationStale:
 		return "Refresh the mandate so delegated authority is evaluated against the latest graph."
-	case ErrAgentRequired:
-		return "Use an agent-issued resource mandate for this endpoint."
+	case ErrSessionRequired:
+		return "Use a resource mandate issued for a governed Session."
 	case ErrDelegationRequired:
 		return "Use a mandate produced by a delegated grant flow."
 	case ErrChainMismatch:

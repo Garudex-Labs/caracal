@@ -206,7 +206,7 @@ func TestRunCredentialChallengeLifecycle(t *testing.T) {
 
 	t.Run("consumed", func(t *testing.T) {
 		code, body := request(t, func(c *StepUpChallengePG) { c.ConsumedAt = &now }, nil)
-		if code != http.StatusUnauthorized || !strings.Contains(body, "already used") {
+		if code != http.StatusConflict || !strings.Contains(body, `"error":"approval_consumed"`) || !strings.Contains(body, "already used") {
 			t.Fatalf("code=%d body=%s", code, body)
 		}
 	})
@@ -242,7 +242,7 @@ func TestRunCredentialChallengeLifecycle(t *testing.T) {
 	})
 	t.Run("consume race loses precisely", func(t *testing.T) {
 		code, body := request(t, func(c *StepUpChallengePG) { c.SatisfiedAt = &now }, errors.New("already consumed"))
-		if code != http.StatusUnauthorized || !strings.Contains(body, "no longer valid") {
+		if code != http.StatusConflict || !strings.Contains(body, `"error":"approval_consumed"`) || !strings.Contains(body, "no longer valid") {
 			t.Fatalf("code=%d body=%s", code, body)
 		}
 	})

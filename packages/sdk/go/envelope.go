@@ -8,7 +8,7 @@
 // traceparent and tracestate. The wire keys keep their protocol names: the
 // session id travels as caracal.agent_session, the delegation id as
 // caracal.delegation_edge, its parent as caracal.parent_edge, and the
-// subject session as caracal.session. Decoding reads the subject token from
+// Subject authority record as caracal.session. Decoding reads the subject token from
 // Authorization, but encoding never writes it: credential emission is an
 // explicit client-layer decision. Baggage is unsigned routing metadata;
 // verifiers must treat signed token claims as the only authoritative source
@@ -63,16 +63,16 @@ var (
 
 // Envelope is the transport-neutral identity propagation payload.
 type Envelope struct {
-	SubjectToken       string
-	SessionID          string
-	DelegationID       string
-	ParentDelegationID string
-	SubjectSessionID   string
-	TraceID            string
-	TraceFlags         string
-	TraceState         string
-	Baggage            map[string]string
-	Hop                int
+	SubjectToken             string
+	SessionID                string
+	DelegationID             string
+	ParentDelegationID       string
+	SubjectAuthorityRecordID string
+	TraceID                  string
+	TraceFlags               string
+	TraceState               string
+	Baggage                  map[string]string
+	Hop                      int
 }
 
 func newRandomHex(byteLen int) string {
@@ -239,16 +239,16 @@ func DecodeEnvelope(get func(string) string) Envelope {
 		}
 	}
 	return Envelope{
-		SubjectToken:       subject,
-		SessionID:          bag[BaggageAgentSession],
-		DelegationID:       bag[BaggageDelegationEdge],
-		ParentDelegationID: bag[BaggageParentEdge],
-		SubjectSessionID:   bag[BaggageSession],
-		TraceID:            traceID,
-		TraceFlags:         traceFlags,
-		TraceState:         traceState,
-		Baggage:            extras,
-		Hop:                hop,
+		SubjectToken:             subject,
+		SessionID:                bag[BaggageAgentSession],
+		DelegationID:             bag[BaggageDelegationEdge],
+		ParentDelegationID:       bag[BaggageParentEdge],
+		SubjectAuthorityRecordID: bag[BaggageSession],
+		TraceID:                  traceID,
+		TraceFlags:               traceFlags,
+		TraceState:               traceState,
+		Baggage:                  extras,
+		Hop:                      hop,
 	}
 }
 
@@ -293,11 +293,11 @@ func EncodeEnvelope(env Envelope, set func(name, value string), get func(string)
 	if env.ParentDelegationID != "" {
 		merged[BaggageParentEdge] = env.ParentDelegationID
 	}
-	if env.SubjectSessionID != "" {
-		merged[BaggageSession] = env.SubjectSessionID
+	if env.SubjectAuthorityRecordID != "" {
+		merged[BaggageSession] = env.SubjectAuthorityRecordID
 	}
 	if env.Hop > 0 || env.SessionID != "" || env.DelegationID != "" ||
-		env.ParentDelegationID != "" || env.SubjectSessionID != "" {
+		env.ParentDelegationID != "" || env.SubjectAuthorityRecordID != "" {
 		merged[BaggageHop] = strconv.Itoa(env.Hop)
 	}
 	if bag := EncodeBaggage(merged); bag != "" {

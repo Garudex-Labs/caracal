@@ -507,7 +507,7 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 
 	t.Run("consumed", func(t *testing.T) {
 		_, _, code, apiErr := run(t, func(c *StepUpChallengePG) { c.ConsumedAt = &now }, nil)
-		if code != http.StatusUnauthorized || apiErr == nil || !strings.Contains(apiErr.Description, "already used") {
+		if code != http.StatusConflict || apiErr == nil || apiErr.Code != sharederr.ApprovalConsumed || !strings.Contains(apiErr.Description, "already used") {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
 		}
 	})
@@ -543,7 +543,7 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 	})
 	t.Run("consume race loses precisely", func(t *testing.T) {
 		_, _, code, apiErr := run(t, func(c *StepUpChallengePG) { c.SatisfiedAt = &now }, errors.New("already consumed"))
-		if code != http.StatusUnauthorized || apiErr == nil || !strings.Contains(apiErr.Description, "no longer valid") {
+		if code != http.StatusConflict || apiErr == nil || apiErr.Code != sharederr.ApprovalConsumed || !strings.Contains(apiErr.Description, "no longer valid") {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
 		}
 	})
