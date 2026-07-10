@@ -706,7 +706,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       if (init.method === 'POST' && String(input).endsWith('/delegations')) {
         return new Response(JSON.stringify({ delegation_edge_id: 'edge-1' }), { status: 200 })
@@ -766,10 +766,10 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       if (init.method === 'POST' && String(input).endsWith('/heartbeat')) {
-        return new Response(JSON.stringify({ agent: { id: 'svc-1' } }), { status: 200 })
+        return new Response(JSON.stringify({ agent: { id: 'svc-1', status: 'active', lease_generation: 1 } }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -800,7 +800,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -834,7 +834,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -1260,7 +1260,7 @@ describe('Caracal.attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -1270,7 +1270,7 @@ describe('Caracal.attachSession', () => {
     const handle = await c.attachSession('agent-persisted', { heartbeatIntervalMs: 0 })
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/heartbeat')
+    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/lease')
     await handle.close()
     expect(ends).toEqual(['agent-persisted'])
     expect(calls.some((call) => call.method === 'DELETE' && call.path.endsWith('/agent-persisted'))).toBe(true)
@@ -1278,15 +1278,15 @@ describe('Caracal.attachSession', () => {
 })
 
 describe('logger routing', () => {
-  it('routes session cleanup failures to the injected logger', async () => {
+  it('surfaces session cleanup failures after a successful callback', async () => {
     const logger = vi.fn()
     const fetchImpl = (async (url: string, init?: { method?: string }) => {
       if (init?.method === 'DELETE') return new Response('cleanup down', { status: 500 })
       return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://coord', fetchImpl }, logger })
-    await expect(c.session(async () => 'ok')).resolves.toBe('ok')
-    expect(logger).toHaveBeenCalledWith(expect.stringContaining('terminate failed'), expect.anything())
+    await expect(c.session(async () => 'ok')).rejects.toThrow('cleanup down')
+    expect(logger).not.toHaveBeenCalled()
   })
 
   it('warns once through the logger when binding unverified context in production', async () => {

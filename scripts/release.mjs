@@ -36,6 +36,38 @@ function run(command, args, options = {}) {
   return execFileSync(command, args, { cwd: repoRoot, encoding: 'utf8', ...options })
 }
 
+function prepareDocsVersion(version, dryRun = false) {
+  execFileSync('node', ['scripts/docsVersion.mjs', dryRun ? 'plan' : 'snapshot', version], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  })
+}
+
+function versionDirectories(path, version, directories = []) {
+  if (!existsSync(path)) return directories
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const entryPath = join(path, entry.name)
+    if (entry.name === version) directories.push(entryPath)
+    else versionDirectories(entryPath, version, directories)
+  }
+  return directories
+}
+
+function stageStableRelease(version, tag) {
+  const minor = `v${version.split('.').slice(0, 2).join('.')}`
+  const paths = [
+    join(repoRoot, 'releases', tag, 'manifest.json'),
+    join(repoRoot, 'docs', 'src', 'data', 'releases', `${tag}.json`),
+    join(repoRoot, 'docs', 'versions.json'),
+    join(repoRoot, 'docs', 'src', 'content', 'docs', minor),
+    join(repoRoot, 'docs', 'src', 'content', 'versions', `${minor}.json`),
+    ...versionDirectories(join(repoRoot, 'docs', 'src', 'assets'), minor),
+    ...versionDirectories(join(repoRoot, 'docs', 'public'), minor),
+  ].filter(existsSync)
+  execFileSync('git', ['add', '--', ...paths], { cwd: repoRoot, stdio: 'inherit' })
+}
+
 function parseArgs(argv) {
   const args = { command: argv[0], values: {}, flags: new Set() }
   for (let i = 1; i < argv.length; i += 1) {
@@ -257,6 +289,7 @@ function stable(options) {
     die('artifact files do not match release.config.json; run scripts/release.sh stamp and commit')
   }
   say(`stable: ${tag}`)
+  prepareDocsVersion(version, dryRun)
   const goTags = planGoModuleTags()
   for (const goTag of goTags) say(`go module tag: ${goTag}`)
   const releaseManifest = makeStableManifest(version, tag)
@@ -267,7 +300,7 @@ function stable(options) {
   }
   writeManifest(releaseManifest)
   writeReleaseRecord(releaseManifest)
-  execFileSync('git', ['add', '-A'], { cwd: repoRoot, stdio: 'inherit' })
+  stageStableRelease(version, tag)
   try {
     execFileSync('git', ['diff', '--cached', '--quiet'], { cwd: repoRoot, stdio: 'ignore' })
   } catch {
@@ -456,6 +489,7 @@ function promote(options) {
   const stamped = computeStamp()
   applyStamp(stamped)
   for (const change of stamped) say(`stamped: ${change.path}`)
+  prepareDocsVersion(stableVersion)
   const reg = registries(options)
   const { npm, pypi } = packageVersions(stableVersion)
   const manifest = {

@@ -9,33 +9,44 @@ import { defineConfig } from 'astro/config'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
+import starlightVersions from 'starlight-versions'
 import remarkGfm from 'remark-gfm'
 import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
+import {
+  docsShellPlugin,
+  docsSnapshotMode,
+  docsVersionState,
+  starlightVersionsConfig,
+  versionedRedirects,
+} from './versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
   'The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.'
+const legacyRedirects = {
+  '/get-started/choose-your-path/': '/get-started/',
+  '/get-started/welcome/': '/get-started/',
+  '/get-started/installation/': '/get-started/install-caracal/',
+  '/get-started/quickstart/': '/get-started/first-protected-call/',
+  '/get-started/five-minute-setup/': '/get-started/first-protected-call/',
+  '/get-started/first-integration/': '/get-started/add-sdk-to-your-app/',
+  '/get-started/key-ideas/': '/concepts/model-overview/',
+  '/get-started/what-caracal-does/': '/concepts/authority-model/',
+  '/get-started/contributor-quickstart/': '/contributing/setup/',
+  '/tutorials/protect-real-api/': '/tutorials/protect-an-api/',
+  '/tutorials/connect-sdk-app/': '/tutorials/connect-an-agent/',
+  '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
+  '/guides/model-application/': '/guides/modeling-recipes/',
+  '/guides/debug-authorization/': '/guides/authorize-access/',
+  '/guides/production-integration-patterns/': '/guides/enterprise-runtime-patterns/',
+}
 
 export default defineConfig({
   output: 'static',
-  redirects: {
-    '/get-started/choose-your-path/': '/get-started/',
-    '/get-started/welcome/': '/get-started/',
-    '/get-started/installation/': '/get-started/install-caracal/',
-    '/get-started/quickstart/': '/get-started/first-protected-call/',
-    '/get-started/five-minute-setup/': '/get-started/first-protected-call/',
-    '/get-started/first-integration/': '/get-started/add-sdk-to-your-app/',
-    '/get-started/key-ideas/': '/concepts/model-overview/',
-    '/get-started/what-caracal-does/': '/concepts/authority-model/',
-    '/get-started/contributor-quickstart/': '/contributing/setup/',
-    '/tutorials/protect-real-api/': '/tutorials/protect-an-api/',
-    '/tutorials/connect-sdk-app/': '/tutorials/connect-an-agent/',
-    '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
-    '/guides/model-application/': '/guides/modeling-recipes/',
-    '/guides/debug-authorization/': '/guides/authorize-access/',
-    '/guides/production-integration-patterns/': '/guides/enterprise-runtime-patterns/',
-  },
+  redirects: docsSnapshotMode
+    ? {}
+    : versionedRedirects(legacyRedirects, new URL('./src/content/docs/', import.meta.url).pathname),
   markdown: {
     remarkPlugins: [remarkGfm, remarkMermaid],
   },
@@ -46,8 +57,11 @@ export default defineConfig({
   },
   integrations: [
     react(),
-    sitemap(),
+    sitemap({ filter: (page) => !new URL(page).pathname.startsWith('/next/') }),
     starlight({
+      plugins: docsVersionState.current
+        ? [docsSnapshotMode ? starlightVersions(starlightVersionsConfig) : docsShellPlugin()]
+        : [],
       title: 'Caracal',
       description,
       logo: {
