@@ -71,6 +71,10 @@ export function keyDigest(key: string, hmacKey: Buffer): Buffer {
   return createHmac('sha256', hmacKey).update('caracal:coordinator:idempotency:v1\0').update(key).digest()
 }
 
+function lockDigest(key: string): string {
+  return createHash('sha256').update('caracal:coordinator:idempotency-lock:v1\0').update(key).digest('hex')
+}
+
 export async function startIdempotency(
   db: Queryable,
   input: {
@@ -87,8 +91,8 @@ export async function startIdempotency(
   const keyHash = keyHashes[0]
   const previousKeyHash = keyHashes[1] ?? keyHash
   const bodyHash = requestDigest(input.request)
-  const scopeLockName = `idempotency-scope:${input.operation}:${input.zoneId}:${input.scopeId}`
-  await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [scopeLockName])
+  const lockName = `${input.operation}:${input.zoneId}:${input.scopeId}:${lockDigest(input.key)}`
+  await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockName])
   const expired = await db.query(
     `DELETE FROM coordinator_idempotency_receipts
      WHERE operation = $1 AND zone_id = $2 AND scope_id = $3 AND key_digest IN ($4, $5)

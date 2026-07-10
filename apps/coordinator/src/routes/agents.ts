@@ -281,8 +281,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.parent_id) {
         const { rows: parent } = await client.query(
           `SELECT s.depth, s.child_count, s.max_children, s.application_id, s.lifecycle,
-              CASE WHEN s.lifecycle = 'service' THEN s.heartbeat_deadline_at
-                   ELSE s.started_at + (s.ttl_seconds * interval '1 second') END AS live_until,
+              CASE WHEN s.lifecycle = 'task'
+                THEN FLOOR(EXTRACT(EPOCH FROM (s.started_at + (s.ttl_seconds * interval '1 second') - now())))::int
+                ELSE NULL END AS remaining_ttl_seconds,
                   a.registration_method
            FROM sessions s
            JOIN applications a ON a.id = s.application_id AND a.zone_id = s.zone_id
@@ -303,9 +304,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           await client.query('ROLLBACK')
           return reply.code(409).send({ error: 'task_session_cannot_start_service' })
         }
-        if (lifecycle === 'task' && ttlSeconds !== null) {
-          const remainingSeconds = Math.floor((new Date(parent[0].live_until).getTime() - Date.now()) / 1000)
-          if (remainingSeconds < 1) {
+        if (parent[0].lifecycle === 'task' && lifecycle === 'task' && ttlSeconds !== null) {
+          const remainingSeconds = Number(parent[0].remaining_ttl_seconds)
+          if (!Number.isInteger(remainingSeconds) || remainingSeconds < 1) {
             await client.query('ROLLBACK')
             return reply.code(404).send({ error: 'parent_not_found' })
           }
@@ -565,7 +566,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
          )
          SELECT 1 FROM sessions
          WHERE zone_id = $2 AND id IN (SELECT parent_id FROM ancestors WHERE parent_id IS NOT NULL)
-           AND status <> 'active'
+           AND (status <> 'active' OR NOT ${SESSION_LIVE_SQL})
          LIMIT 1`,
         [id, zoneId],
       )

@@ -150,7 +150,7 @@ For provider SDKs that accept a custom `fetch`, pass `caracal.transport()` so Ca
 
 Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })`: a fetch pinned to one resource, calling as the application's own identity. There is no ambient authority to borrow, so each mint cycle _builds_ the authority the platform requires: it starts a **source and target session pair**, issues a delegation narrowing `scopes` to the resource between them, and mints the mandate from that delegation - which is why every request the transport sends is still session-attributed, policy-checked, and delegation-bounded in audit, exactly like user-context traffic.
 
-A cycle costs five control-plane calls (a lifecycle bootstrap mint, two session starts, one delegation, the final mint) and runs roughly **once per mandate TTL** - 15 minutes by default - with concurrent requests sharing one in-flight cycle. Every request in between is served from cache, so the steady-state overhead is effectively zero; tune `mandateTtlSeconds` only when policy requires shorter-lived authority.
+Authority provisioning costs four control-plane calls (one lifecycle bootstrap mint, two Session starts, and one Delegation) roughly once per authority cache key and mandate TTL. Same-key callers share provisioning, and distinct-key provisioning is serialized to stay within Coordinator Session capacity. Every outbound request then performs one uncached STS mandate mint so its replay-protected JTI is unique. Cache hits avoid Coordinator and Delegation traffic, but STS throughput still scales with governed request throughput. Tune `mandateTtlSeconds` for authority lifetime, not to eliminate the per-request mint.
 
 ```ts
 const llm = new OpenAI({

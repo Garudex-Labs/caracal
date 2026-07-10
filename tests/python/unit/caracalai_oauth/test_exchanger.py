@@ -197,7 +197,7 @@ class RefreshErrorTests(unittest.TestCase):
 
 
 class MintMandateTests(unittest.TestCase):
-    def test_sends_agent_identity_resource_scope_and_ttl(self):
+    def test_sends_session_delegation_resource_scope_and_ttl(self):
         captured: list[bytes] = []
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -210,13 +210,13 @@ class MintMandateTests(unittest.TestCase):
             _exchanger().mint_mandate(
                 resource="resource://payments",
                 scopes=["pay:write", "pay:read"],
-                agent_session_id="agent_1",
-                delegation_edge_id="edge_1",
+                session_id="session_1",
+                delegation_id="delegation_1",
                 ttl_seconds=120,
             )
         body = captured[0].decode()
-        self.assertIn("agent_session_id=agent_1", body)
-        self.assertIn("delegation_edge_id=edge_1", body)
+        self.assertIn("agent_session_id=session_1", body)
+        self.assertIn("delegation_edge_id=delegation_1", body)
         self.assertIn("ttl_seconds=120", body)
         self.assertIn("scope=pay%3Aread+pay%3Awrite", body)
         self.assertIn("resource=resource%3A%2F%2Fpayments", body)
@@ -238,7 +238,7 @@ class MintMandateTests(unittest.TestCase):
         self.assertNotIn("delegation_edge_id", body)
         self.assertNotIn("ttl_seconds", body)
 
-    def test_caches_per_resource_scopes_and_agent(self):
+    def test_caches_per_resource_scopes_and_session(self):
         calls = []
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -253,19 +253,19 @@ class MintMandateTests(unittest.TestCase):
         with _patch_client(handler):
             ex = _exchanger()
             first = ex.mint_mandate(
-                resource="urn:res:a", scopes=["s.read"], agent_session_id="agent_1"
+                resource="urn:res:a", scopes=["s.read"], session_id="session_1"
             )
             again = ex.mint_mandate(
-                resource="urn:res:a", scopes=["s.read"], agent_session_id="agent_1"
+                resource="urn:res:a", scopes=["s.read"], session_id="session_1"
             )
-            other_agent = ex.mint_mandate(
-                resource="urn:res:a", scopes=["s.read"], agent_session_id="agent_2"
+            other_session = ex.mint_mandate(
+                resource="urn:res:a", scopes=["s.read"], session_id="session_2"
             )
             other_scope = ex.mint_mandate(
-                resource="urn:res:a", scopes=["s.write"], agent_session_id="agent_1"
+                resource="urn:res:a", scopes=["s.write"], session_id="session_1"
             )
         self.assertEqual(first.token, again.token)
-        self.assertNotEqual(first.token, other_agent.token)
+        self.assertNotEqual(first.token, other_session.token)
         self.assertNotEqual(first.token, other_scope.token)
         self.assertEqual(len(calls), 3)
 

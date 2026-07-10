@@ -22,11 +22,20 @@ class FakeResponse:
     def json(self) -> dict[str, object]:
         return self.body
 
+    @property
+    def content(self) -> bytes:
+        import json
+
+        return json.dumps(self.body).encode()
+
 
 class FakeAsyncClient:
     urls: list[str] = []
     body: dict[str, object] = {"keys": [{"kid": "kid1"}]}
     fetch_delay: float = 0.0
+
+    def __init__(self, **_kwargs: object) -> None:
+        pass
 
     async def __aenter__(self) -> FakeAsyncClient:
         return self
@@ -34,7 +43,7 @@ class FakeAsyncClient:
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
-    async def get(self, url: str) -> FakeResponse:
+    async def get(self, url: str, **_kwargs: object) -> FakeResponse:
         FakeAsyncClient.urls.append(url)
         if FakeAsyncClient.fetch_delay > 0:
             await asyncio.sleep(FakeAsyncClient.fetch_delay)
@@ -168,6 +177,12 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
             FakeAsyncClient.urls,
             ["http://issuer.example/.well-known/jwks.json?zone_id=zone1"],
         )
+
+    async def test_rejects_oversized_documents(self) -> None:
+        FakeAsyncClient.body = {"keys": [], "padding": "x" * (256 * 1024)}
+
+        with self.assertRaisesRegex(ValueError, "too large"):
+            await jwks.JwksCache().get_keys("https://issuer.example", "zone1")
 
 
 if __name__ == "__main__":
