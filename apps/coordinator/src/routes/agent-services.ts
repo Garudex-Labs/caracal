@@ -146,13 +146,13 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       }>(
         `SELECT application_id, status, lifecycle, heartbeat_deadline_at,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
-         FROM agent_sessions
+         FROM sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
         [id, zoneId],
       )
       if (!own[0]) {
         await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'agent_not_found' })
+        return reply.code(404).send({ error: 'session_not_found' })
       }
       if (
         !ownsApplication(req, own[0].application_id) &&
@@ -164,15 +164,15 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (own[0].status !== 'active' && own[0].status !== 'suspended') {
         await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'agent_not_live' })
+        return reply.code(409).send({ error: 'session_not_live' })
       }
       if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
         await client.query('COMMIT')
-        return reply.code(409).send({ error: 'agent_lease_expired' })
+        return reply.code(409).send({ error: 'session_lease_expired' })
       }
       const { rows: agents } = await client.query(
-        `UPDATE agent_sessions
+        `UPDATE sessions
          SET last_active_at = now(),
              last_heartbeat_at = now(),
              heartbeat_deadline_at = CASE
@@ -182,7 +182,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
              updated_at = now()
          WHERE id = $1 AND zone_id = $2
           RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, cfg.serviceAgentLeaseSeconds],
+        [id, zoneId, cfg.serviceSessionLeaseSeconds],
       )
       let service = null
       if (body.service_id) {

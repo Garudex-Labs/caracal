@@ -24,6 +24,7 @@ import { ttlSweeperStats } from './jobs/ttl-sweeper.js'
 import { serviceLeaseSweeperStats } from './jobs/service-lease-sweeper.js'
 import { retentionCleanerStats } from './jobs/retention-cleaner.js'
 import { redisMinuteBucket } from './redis.js'
+import { IdempotencyKeyError, idempotencyStats } from './idempotency.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -42,6 +43,7 @@ export interface CoordinatorDeps {
 interface RuntimeStats {
   invocations: Record<string, number>
   outbox: Record<string, number>
+  idempotency: { rows: number; oldestSeconds: number }
   expiresAt: number
 }
 
@@ -62,9 +64,19 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
       const { rows: outbox } = await db.query<{ status: string; n: string }>(
         `SELECT status, COUNT(*) AS n FROM caracal_outbox WHERE producer = 'coordinator' GROUP BY status`,
       )
+      const { rows: receipts } = await db.query<{ n: string; oldest_seconds: string | null }>(
+        `SELECT COUNT(*) AS n,
+                EXTRACT(EPOCH FROM now() - MIN(created_at))::text AS oldest_seconds
+         FROM coordinator_idempotency_receipts
+         WHERE expires_at > now()`,
+      )
       runtimeStats = {
         invocations: Object.fromEntries(invocations.map((row) => [row.status, Number(row.n)])),
         outbox: Object.fromEntries(outbox.map((row) => [row.status, Number(row.n)])),
+        idempotency: {
+          rows: Number(receipts[0]?.n ?? 0),
+          oldestSeconds: Number(receipts[0]?.oldest_seconds ?? 0),
+        },
         expiresAt: performance.now() + RUNTIME_STATS_TTL_MS,
       }
       return runtimeStats
@@ -98,6 +110,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
       },
     },
     requestTimeout: cfg.requestTimeoutMs,
+    bodyLimit: cfg.requestBodyLimitBytes,
     keepAliveTimeout: cfg.keepAliveTimeoutMs,
     genReqId: (req) => {
       const incoming = req.headers['x-request-id']
@@ -111,6 +124,10 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   app.decorate('redis', redis)
   instrumentFastifyApp(app, 'caracal-coordinator')
   app.setErrorHandler((err, req, reply) => {
+    if (err instanceof IdempotencyKeyError) {
+      reply.code(400).send({ error: err.code, message: err.message, request_id: req.id })
+      return
+    }
     if (err instanceof ZodError) {
       const issues = err.issues.map((i) => ({ path: i.path.map(String), message: i.message }))
       reply.code(400).send(
@@ -209,6 +226,17 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     for (const [status, n] of Object.entries(stats.outbox)) {
       lines.push(`caracal_outbox_total{status="${status}"} ${n}`)
     }
+    lines.push('# HELP caracal_idempotency_requests_total Coordinator idempotency outcomes')
+    lines.push('# TYPE caracal_idempotency_requests_total counter')
+    for (const outcome of ['created', 'replayed', 'conflicts', 'invalid', 'expired'] as const) {
+      lines.push(`caracal_idempotency_requests_total{outcome="${outcome}"} ${idempotencyStats[outcome]}`)
+    }
+    lines.push('# HELP caracal_idempotency_receipts Coordinator live idempotency receipts')
+    lines.push('# TYPE caracal_idempotency_receipts gauge')
+    lines.push(`caracal_idempotency_receipts ${stats.idempotency.rows}`)
+    lines.push('# HELP caracal_idempotency_oldest_seconds Age of the oldest live idempotency receipt')
+    lines.push('# TYPE caracal_idempotency_oldest_seconds gauge')
+    lines.push(`caracal_idempotency_oldest_seconds ${stats.idempotency.oldestSeconds}`)
     lines.push('# HELP caracal_ttl_sweeper_runs_total Ttl sweeper iterations')
     lines.push('# TYPE caracal_ttl_sweeper_runs_total counter')
     lines.push(`caracal_ttl_sweeper_runs_total ${ttlSweeperStats.runs ?? 0}`)
@@ -226,6 +254,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     return {
       invocations: stats.invocations,
       outbox: stats.outbox,
+      idempotency: { ...stats.idempotency, outcomes: { ...idempotencyStats } },
       ttl_sweeper: { ...ttlSweeperStats },
       service_lease_sweeper: { ...serviceLeaseSweeperStats },
       retention_cleaner: { ...retentionCleanerStats },

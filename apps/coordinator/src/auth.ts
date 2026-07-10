@@ -53,9 +53,9 @@ declare module 'fastify' {
       scopes: string[]
       subject: string
       clientId: string
-      agentSessionId?: string
-      delegationEdgeId?: string
       sessionId?: string
+      delegationEdgeId?: string
+      authorityRecordId?: string
     }
   }
 }
@@ -136,22 +136,22 @@ async function validateRuntimeIdentity(
   app: FastifyInstance,
   zoneId: string,
   clientId: string,
-  sessionId: string | undefined,
+  authorityRecordId: string | undefined,
 ): Promise<boolean> {
   const { rows } = await app.db.query<RuntimeIdentityRow>(
     `SELECT ($3::text = '' OR EXISTS (
-              SELECT 1 FROM sessions s
-              WHERE s.id = $3
-                AND s.zone_id = $2
-                AND s.status = 'active'
-                AND s.expires_at > now()
+              SELECT 1 FROM authority_records a
+              WHERE a.id = $3
+                AND a.zone_id = $2
+                AND a.status = 'active'
+                AND a.expires_at > now()
             )) AS session_active
      FROM applications a
      WHERE a.id = $1
        AND a.zone_id = $2
        AND a.archived_at IS NULL
        AND (a.expires_at IS NULL OR a.expires_at > now())`,
-    [clientId, zoneId, sessionId ?? ''],
+    [clientId, zoneId, authorityRecordId ?? ''],
   )
   const row = rows[0]
   return Boolean(row?.session_active)
@@ -237,12 +237,12 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(401).send({ error: 'invalid_token' })
     return
   }
-  const agentSessionId = typeof payload['agent_session_id'] === 'string' ? payload['agent_session_id'] : undefined
+  const sessionId = typeof payload['agent_session_id'] === 'string' ? payload['agent_session_id'] : undefined
   const delegationEdgeId = typeof payload['delegation_edge_id'] === 'string' ? payload['delegation_edge_id'] : undefined
-  const sessionId = typeof payload['sid'] === 'string' ? payload['sid'] : undefined
-  if (!(await validateRuntimeIdentity(req.server, zoneId, clientId, sessionId))) {
+  const authorityRecordId = typeof payload['sid'] === 'string' ? payload['sid'] : undefined
+  if (!(await validateRuntimeIdentity(req.server, zoneId, clientId, authorityRecordId))) {
     reply.code(401).send({ error: 'identity_revoked' })
     return
   }
-  req.caracalAuth = { zoneId, scopes, subject, clientId, agentSessionId, delegationEdgeId, sessionId }
+  req.caracalAuth = { zoneId, scopes, subject, clientId, sessionId, delegationEdgeId, authorityRecordId }
 }

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Durable agent invocation routes with idempotency, cancellation, and outbox events.
+// Durable Session invocation routes with idempotency, cancellation, and outbox events.
 
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
@@ -11,6 +11,7 @@ import { ownsApplication, requireScope } from '../auth.js'
 import { cfg } from '../config.js'
 import { redisMinuteBucket } from '../redis.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
+import { completeIdempotency, parseIdempotencyKey, startIdempotency } from '../idempotency.js'
 
 const RetryPolicy = z
   .object({
@@ -23,7 +24,7 @@ const InvocationBody = z.object({
   service_id: z.string().min(1),
   source_session_id: z.string().min(1).nullable().default(null),
   target_session_id: z.string().min(1).nullable().default(null),
-  idempotency_key: z.string().min(1),
+  idempotency_key: z.string().min(1).max(255),
   method: z.string().min(1),
   params: z.unknown().default({}),
   metadata: z.record(z.string(), z.unknown()).default({}),
@@ -49,12 +50,12 @@ const InvocationListQuery = z.object({
   session_id: z.string().min(1).optional(),
 })
 
-const INVOCATION_RETURNING = `RETURNING id, zone_id, service_id, source_session_id, target_session_id, idempotency_key,
-                 method, params_json, metadata_json, status, attempts, max_attempts, timeout_ms,
+const INVOCATION_RETURNING = `RETURNING id, zone_id, service_id, source_session_id, target_session_id,
+       method, status, attempts, max_attempts, timeout_ms,
                  retry_policy_json, deadline_at, cancel_requested_at, started_at, completed_at, created_at`
 
-const INVOCATION_SELECT = `SELECT id, zone_id, service_id, source_session_id, target_session_id, idempotency_key,
-                method, params_json, metadata_json, status, attempts, max_attempts, timeout_ms,
+const INVOCATION_SELECT = `SELECT id, zone_id, service_id, source_session_id, target_session_id,
+      method, status, attempts, max_attempts, timeout_ms,
                 retry_policy_json, deadline_at, cancel_requested_at, started_at, completed_at, created_at
          FROM agent_invocations`
 
@@ -63,10 +64,8 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const { zoneId } = params
-    if (await rateLimited(fastify, req, zoneId)) {
-      return reply.code(429).send({ error: 'rate_limited' })
-    }
     const body = InvocationBody.parse(req.body)
+    const idempotencyKey = parseIdempotencyKey(body.idempotency_key) as string
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
@@ -82,7 +81,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
       const sessions = await loadInvocationSessions(client, zoneId, body.source_session_id, body.target_session_id)
       if (sessions === null) {
         await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'agent_session_not_found' })
+        return reply.code(404).send({ error: 'session_not_found' })
       }
       const sourceApp = sessions.source?.application_id ?? services[0].application_id
       if (
@@ -94,6 +93,59 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(403).send({ error: 'invoker_ownership_required' })
       }
 
+      const receipt = await startIdempotency(client, {
+        operation: 'invocation.create.v2',
+        zoneId,
+        scopeId: sourceApp,
+        key: idempotencyKey,
+        request: {
+          principal: { client_id: req.caracalAuth?.clientId, subject: req.caracalAuth?.subject },
+          service_id: body.service_id,
+          source_session_id: body.source_session_id,
+          target_session_id: body.target_session_id,
+          method: body.method,
+          params: body.params,
+          metadata: body.metadata,
+          timeout_ms: body.timeout_ms,
+          retry_policy: body.retry_policy,
+        },
+        hmacKeys: cfg.idempotencyHmacKeys,
+        maxReceiptsPerScope: cfg.idempotencyMaxReceiptsPerScope,
+      })
+      if (receipt.outcome === 'conflict') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({
+          error: 'idempotency_key_conflict',
+          message: 'idempotency_key was already used for a different invocation request',
+        })
+      }
+      if (receipt.outcome === 'limit') {
+        await client.query('ROLLBACK')
+        return reply.code(429).send({ error: 'idempotency_receipt_limit_exceeded' })
+      }
+      if (receipt.outcome === 'replayed') {
+        await client.query('COMMIT')
+        reply.header('Idempotency-Replayed', 'true')
+        return reply.code(receipt.status).send(receipt.response)
+      }
+      const { rows: legacy } = await client.query(
+        `SELECT 1 FROM agent_invocations
+         WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3
+         LIMIT 1`,
+        [zoneId, body.service_id, idempotencyKey],
+      )
+      if (legacy[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({
+          error: 'idempotency_key_legacy_conflict',
+          message: 'idempotency_key belongs to an invocation created before durable receipts; use a new operation identifier',
+        })
+      }
+      if (await rateLimited(fastify, req, zoneId)) {
+        await client.query('ROLLBACK')
+        return reply.code(429).send({ error: 'rate_limited' })
+      }
+
       const id = uuidv7()
       const retryPolicy = body.retry_policy
       const { rows } = await client.query(
@@ -101,7 +153,6 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
          (id, zone_id, service_id, source_session_id, target_session_id, idempotency_key,
           method, params_json, metadata_json, timeout_ms, max_attempts, retry_policy_json)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (zone_id, service_id, idempotency_key) DO NOTHING
          ${INVOCATION_RETURNING}`,
         [
           id,
@@ -109,7 +160,7 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
           body.service_id,
           body.source_session_id,
           body.target_session_id,
-          body.idempotency_key,
+          id,
           body.method,
           JSON.stringify(body.params),
           JSON.stringify(body.metadata),
@@ -118,12 +169,19 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
           retryPolicy,
         ],
       )
-      if (!rows[0]) {
-        const existing = await getInvocationByKey(client, zoneId, body.service_id, body.idempotency_key)
-        await client.query('COMMIT')
-        return reply.code(200).send(existing)
-      }
       await enqueueInvocationEvent(client, zoneId, body.service_id, rows[0].id, 'invocation.created')
+      await completeIdempotency(client, {
+        operation: 'invocation.create.v2',
+        zoneId,
+        scopeId: sourceApp,
+        keyDigest: receipt.keyDigest,
+        requestDigest: receipt.requestDigest,
+        resourceType: 'agent_invocation',
+        resourceId: id,
+        responseStatus: 201,
+        response: rows[0],
+        retentionSeconds: cfg.idempotencyRetentionSeconds,
+      })
       await client.query('COMMIT')
       return reply.code(201).send(rows[0])
     } catch (err) {
@@ -337,15 +395,6 @@ function authorizeInvocationCaller(req: FastifyRequest, appId: string): boolean 
   return ownsApplication(req, appId) || requireScope(req, `coordinator.invoke_from:${appId}`) || requireScope(req, 'coordinator.admin')
 }
 
-async function getInvocationByKey(db: Queryable, zoneId: string, serviceId: string, idempotencyKey: string): Promise<unknown> {
-  const { rows } = await db.query(`${INVOCATION_SELECT} WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3 FOR SHARE`, [
-    zoneId,
-    serviceId,
-    idempotencyKey,
-  ])
-  return rows[0]
-}
-
 interface SessionRef {
   id: string
   application_id: string
@@ -360,12 +409,12 @@ async function loadInvocationSessions(
   const ids = [sourceId, targetId].filter((v): v is string => Boolean(v))
   if (ids.length === 0) return {}
   const { rows } = await db.query<SessionRef>(
-    `SELECT id, application_id FROM agent_sessions
+    `SELECT id, application_id FROM sessions
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
        AND ttl_seconds IS NOT NULL
-       AND spawned_at + (ttl_seconds * interval '1 second') > now()
+       AND started_at + (ttl_seconds * interval '1 second') > now()
      FOR SHARE`,
     [zoneId, ids],
   )

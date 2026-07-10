@@ -121,7 +121,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const subjectId = parsed.data.subject_id
 
-    const [identity, governed, recentAgents, approvals, connections] = await Promise.all([
+    const [identity, governed, recentSessions, approvals, connections] = await Promise.all([
       fastify.db.query(
         `${SUBJECT_AGGREGATE}
          WHERE s.zone_id = $1 AND s.subject_id = $2
@@ -137,7 +137,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         [params.zoneId, subjectId],
       ),
       fastify.db.query(
-        `SELECT ag.id, ag.application_id, ap.name AS application_name, ag.lifecycle, ag.status, ag.spawned_at
+        `SELECT ag.id AS session_id, ag.application_id, ap.name AS application_name, ag.lifecycle, ag.status, ag.spawned_at
          FROM agent_sessions ag
          JOIN sessions s ON s.id = ag.subject_session_id
          LEFT JOIN applications ap ON ap.zone_id = ag.zone_id AND ap.id = ag.application_id
@@ -168,18 +168,18 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!identity.rows[0]) return reply.code(404).send({ error: 'subject_not_found' })
     return {
       subject: identity.rows[0],
-      governed: { ...(governed.rows[0] ?? { active: 0, total: 0 }), recent: recentAgents.rows },
+      governed: { ...(governed.rows[0] ?? { active: 0, total: 0 }), recent: recentSessions.rows },
       approvals: approvals.rows[0] ?? { pending: 0, total: 0 },
       connections: connections.rows,
     }
   })
 
   // The subject kill switch: one call cuts every path authority can reach the
-  // subject through. Ordered fail-safe: session records are revoked first (the
-  // STS re-checks session status on every exchange, so authority dies at step
+  // subject through. Ordered fail-safe: authority records are revoked first (the
+  // STS re-checks authority record status on every exchange, so authority dies at step
   // one even if a later step fails), then the governed sessions riding them
   // terminate, delegations touching those sessions fall, and the subject's
-  // provider connections are revoked locally. Revoked session ids feed the
+  // provider connections are revoked locally. Revoked authority record ids feed the
   // revocation stream so in-flight mandates die before their exp. Idempotent:
   // re-running on an already cut-off subject reports zero counts.
   fastify.post('/zones/:zoneId/subjects/revoke', async (req, reply) => {
@@ -229,7 +229,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         if (sessions.length < SESSION_REVOKE_BATCH) break
       }
 
-      const { rows: agents } = await client.query<{ id: string; subject_session_id: string; parent_id: string | null }>(
+      const { rows: sessionWires } = await client.query<{ id: string; subject_session_id: string; parent_id: string | null }>(
         `WITH RECURSIVE tree AS (
            SELECT ag.id, ag.subject_session_id, ag.parent_id
            FROM agent_sessions ag
@@ -250,7 +250,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, subject_session_id, parent_id`,
         [params.zoneId, subjectId],
       )
-      for (const row of agents) {
+      for (const row of sessionWires) {
         events.push({
           streamName: STREAM_AGENTS_LIFECYCLE,
           payload: {
@@ -269,9 +269,9 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      const agentIds = agents.map((row) => row.id)
+      const sessionIds = sessionWires.map((row) => row.id)
       const { rows: delegations } =
-        agentIds.length > 0
+        sessionIds.length > 0
           ? await client.query<{ id: string }>(
               `UPDATE delegation_edges
                SET status = 'revoked', revoked_at = now(), edge_version = edge_version + 1, updated_at = now()
@@ -279,7 +279,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
                  AND status = 'active'
                  AND (source_session_id = ANY($2::text[]) OR target_session_id = ANY($2::text[]))
                RETURNING id`,
-              [params.zoneId, agentIds],
+              [params.zoneId, sessionIds],
             )
           : { rows: [] as { id: string }[] }
       for (const row of delegations) {
@@ -314,8 +314,8 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         payloadJson: {
           subject_id: subjectId,
           reason,
-          revoked_sessions: revokedSessionIds.length,
-          terminated_agents: agents.length,
+          revoked_authority_records: revokedSessionIds.length,
+          terminated_sessions: sessionWires.length,
           revoked_delegations: delegations.length,
           revoked_connections: connections.length,
         },
@@ -323,8 +323,8 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         subject_id: subjectId,
-        sessions: revokedSessionIds.length,
-        agents: agents.length,
+        authority_records: revokedSessionIds.length,
+        sessions: sessionWires.length,
         delegations: delegations.length,
         connections: connections.length,
       }
