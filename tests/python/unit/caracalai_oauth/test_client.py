@@ -313,9 +313,9 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             "subject",
             "resource://api",
             ExchangeOptions(
-                session_id="record",
-                agent_session_id="session",
-                delegation_edge_id="delegation",
+                authority_record_id="record",
+                session_id="session",
+                delegation_id="delegation",
                 scopes=["write", "read", "write"],
                 ttl_seconds=300,
             ),

@@ -14,10 +14,10 @@ const versionPattern = /^v\d+\.\d+$/
 export const docsVersionState = JSON.parse(readFileSync(join(docsRoot, 'versions.json'), 'utf8'))
 export const docsSnapshotMode = process.env.CARACAL_DOCS_SNAPSHOT === '1'
 export const starlightVersionsConfig = {
-  current: { label: 'Next (unreleased)', redirect: 'same-page' },
+  current: { label: 'Next', redirect: 'same-page' },
   versions: docsVersionState.versions.map((version) => ({
     slug: version.version,
-    label: version.version === docsVersionState.current ? `${version.version} (stable)` : version.version,
+    label: version.version,
     redirect: 'same-page',
   })),
 }

@@ -24,6 +24,7 @@ const ConstraintBody = z
     resources: z.array(z.string().min(1)).max(64).optional(),
     max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
     max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
+    budget: z.number().int().min(1).max(64).optional(),
     ttl_seconds: z.number().int().min(1).max(86400).optional(),
     policy_approved: z.boolean().optional(),
     expires_at: z.string().datetime().optional(),

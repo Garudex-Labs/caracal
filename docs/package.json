@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview"
+    "dev": "node ../scripts/docsVersion.mjs verify && astro dev",
+    "build": "node ../scripts/docsVersion.mjs verify && astro build && node ../scripts/docsVersion.mjs verify --artifact docs/dist",
+    "preview": "astro preview",
+    "test": "vitest run --root .. tests/typescript/unit/docs"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.1",
@@ -19,6 +20,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remark-gfm": "4.0.1",
+    "starlight-versions": "0.9.1",
     "three": "^0.185.1"
   },
   "devDependencies": {

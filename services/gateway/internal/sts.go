@@ -138,7 +138,7 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken, zoneID, applicat
 		var e sharederr.CaracalError
 		body := io.LimitReader(resp.Body, stsErrorBodyLimit)
 		if err := json.NewDecoder(body).Decode(&e); err == nil && e.Code != "" {
-			return exchangeOutcome{Status: resp.StatusCode, Latency: latency, ClientErr: &e, InternalErr: fmt.Errorf("sts %d: %s", resp.StatusCode, e.Code)}
+			return exchangeOutcome{Status: resp.StatusCode, Latency: latency, ClientErr: &e, InternalErr: fmt.Errorf("sts %d: %s: %s", resp.StatusCode, e.Code, e.Description)}
 		}
 		return exchangeOutcome{Status: resp.StatusCode,
 			Latency:     latency,

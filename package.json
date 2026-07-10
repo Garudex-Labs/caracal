@@ -21,6 +21,8 @@
     "test:go": "node scripts/runGoTests.mjs",
     "test:python": "node scripts/runPythonTests.mjs",
     "test:typescript": "node scripts/runTsTests.mjs",
+    "docs:version:verify": "node scripts/docsVersion.mjs verify",
+    "docs:version": "node scripts/docsVersion.mjs snapshot",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 tests/typescript",
     "release:plan": "node scripts/releasePlan.mjs",
     "release:stamp": "node scripts/release.mjs stamp",
