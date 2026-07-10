@@ -412,13 +412,13 @@ type DelegationTraversal struct {
 
 // DelegationImpact is the blast radius preview for revoking one edge.
 type DelegationImpact struct {
-	DelegationID             string                `json:"delegation_id"`
-	AffectedDelegations      []DelegationTraversal `json:"affected_delegations"`
-	AffectedSessions         []string              `json:"affected_sessions"`
-	AffectedAuthorityRecords []string              `json:"affected_authority_records"`
+	DelegationID            string                `json:"delegation_id"`
+	AffectedDelegations     []DelegationTraversal `json:"affected_delegations"`
+	AffectedSessions        []string              `json:"affected_sessions"`
+	AffectedAuthorityRecords []string              `json:"affected_subject_sessions"`
 }
 
-// ActiveDelegations is one page of active Delegations.
+// ActiveDelegations is one page of active delegation edges.
 type ActiveDelegations struct {
 	Items      []Delegation `json:"items"`
 	NextCursor *string      `json:"next_cursor"`
@@ -963,6 +963,7 @@ func (s *DelegationsService) Impact(ctx context.Context, zoneID, delegationID st
 		DelegationImpact
 		DelegationID        string                    `json:"edge_id"`
 		AffectedDelegations []delegationTraversalWire `json:"affected_edges"`
+		AffectedSessions    []string                  `json:"affected_agents"`
 	}
 	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+delegationID+"/impact", nil, nil, &wire, false); err != nil {
 		return nil, err
@@ -974,7 +975,6 @@ func (s *DelegationsService) Impact(ctx context.Context, zoneID, delegationID st
 		out.AffectedDelegations[index] = item.traversal()
 	}
 	out.AffectedSessions = wire.AffectedSessions
-	out.AffectedAuthorityRecords = wire.AffectedAuthorityRecords
 	return &out, nil
 }
 
