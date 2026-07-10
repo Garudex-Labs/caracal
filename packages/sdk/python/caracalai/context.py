@@ -7,6 +7,7 @@ CaracalContext: bound identity and delegation context via contextvars.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 from dataclasses import dataclass, replace
 from typing import NotRequired, TypeVar, TypedDict, Unpack
@@ -46,6 +47,9 @@ class CaracalContext:
     # token source. Inbound contexts carry a caller's token and stay pinned.
     # Process-local; never serialized to the envelope.
     own_token: bool = False
+    # Fresh bearer resolver for contexts owned by this process. Inbound
+    # contexts remain pinned because own_token is false.
+    token_source: Callable[[], str] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,7 @@ class CaracalContextPatch(TypedDict):
     baggage: NotRequired[tuple[tuple[str, str], ...]]
     hop: NotRequired[int]
     own_token: NotRequired[bool]
+    token_source: NotRequired[Callable[[], str] | None]
 
 
 def current() -> CaracalContext | None:
@@ -121,6 +126,12 @@ def with_overrides(**patch: Unpack[CaracalContextPatch]) -> CaracalContext:
     if base is None:
         raise RuntimeError("with_overrides requires an existing Caracal context")
     return replace(base, **patch)
+
+
+async def context_bearer(ctx: CaracalContext) -> str:
+    if ctx.own_token and ctx.token_source is not None:
+        return await asyncio.to_thread(ctx.token_source)
+    return ctx.subject_token
 
 
 def to_envelope(ctx: CaracalContext) -> Envelope:

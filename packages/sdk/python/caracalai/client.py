@@ -27,6 +27,7 @@ from .context import (
     CaracalContext,
     VerifiedClaims,
     _ctx_var,
+    context_bearer,
     current,
     from_envelope,
     to_envelope,
@@ -1153,7 +1154,7 @@ class Caracal:
         zone_id, _ = self.identity()
         await revoke_delegation(
             self.config.coordinator,
-            ctx.subject_token
+            await context_bearer(ctx)
             if ctx is not None
             else await self.config.asubject_token(),
             zone_id,
@@ -1195,7 +1196,7 @@ class Caracal:
             try:
                 match = await get_inbound_delegation(
                     self.config.coordinator,
-                    ctx.subject_token,
+                    await context_bearer(ctx),
                     ctx.zone_id,
                     ctx.session_id,
                     delegation_id,

@@ -225,7 +225,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(seen.get("challenge_id"), "challenge1")
 
-    async def test_exchange_retries_once_after_unauthorized(self) -> None:
+    async def test_exchange_does_not_retry_unauthorized(self) -> None:
         requests = 0
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -254,12 +254,12 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
 
-        token = await client.exchange(
-            "subject", "resource://api", ExchangeOptions(retries=0)
-        )
+        with self.assertRaisesRegex(RuntimeError, "expired client credential"):
+            await client.exchange(
+                "subject", "resource://api", ExchangeOptions(retries=0)
+            )
 
-        self.assertEqual(token.access_token, "fresh")
-        self.assertEqual(requests, 2)
+        self.assertEqual(requests, 1)
 
     async def test_concurrent_exchanges_share_inflight_request(self) -> None:
         requests = 0

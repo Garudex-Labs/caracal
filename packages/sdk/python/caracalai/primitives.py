@@ -21,7 +21,7 @@ import httpx
 
 from caracalai_oauth import TokenSource
 
-from .context import CaracalContext, current, _ctx_var
+from .context import CaracalContext, context_bearer, current, _ctx_var
 from .coordinator import (
     Lifecycle,
     CoordinatorClient,
@@ -281,7 +281,7 @@ async def _establish_session(
                 raise RuntimeError("authority=narrow requires an active parent session")
             deleg = await create_delegation(
                 coordinator,
-                parent.subject_token,
+                await context_bearer(parent),
                 DelegationRequest(
                     zone_id=zone_id,
                     issuer_application_id=parent.application_id,
@@ -322,6 +322,7 @@ async def _establish_session(
         baggage=parent.baggage if parent else (),
         hop=hop,
         own_token=True,
+        token_source=token_source,
     )
     return _Established(res.session_id, ctx, bearer, res.heartbeat_deadline_at)
 
@@ -731,6 +732,7 @@ async def attach_session(
         session_id=session_id,
         hop=0,
         own_token=True,
+        token_source=token_source,
     )
     handle = SessionHandle(
         coordinator=coordinator,
@@ -806,7 +808,7 @@ async def delegate(
     attempt = 0
     while True:
         try:
-            res = await create_delegation(coordinator, ctx.subject_token, req)
+            res = await create_delegation(coordinator, await context_bearer(ctx), req)
             break
         except CoordinatorError as exc:
             if exc.status < 500 or attempt >= 1:
