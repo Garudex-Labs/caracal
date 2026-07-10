@@ -164,10 +164,3 @@ func InstallShutdownHandler(fn func(), timeout time.Duration) func() {
 	}()
 	return func() { close(stopCh) }
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -171,7 +171,8 @@ func TestCoordinatorErrorCapsBodyInMessage(t *testing.T) {
 		t.Fatalf("expected CoordinatorError, got %v", err)
 	}
 	msg := coordErr.Error()
-	if !strings.Contains(msg, "(truncated)") || len(msg) > 2300 {
+	wantBody := strings.Repeat("x", 2048) + "\u2026 (truncated)"
+	if !strings.HasSuffix(msg, wantBody) {
 		t.Fatalf("expected a capped error body, got %d chars", len(msg))
 	}
 }

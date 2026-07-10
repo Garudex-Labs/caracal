@@ -180,9 +180,18 @@ func (s *Server) handleRunManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RunManifestResponse{
+	if err := json.NewEncoder(w).Encode(RunManifestResponse{
 		ZoneID:     workload.ZoneID,
 		WorkloadID: workload.ID,
 		Bindings:   bindings,
-	})
+	}); err != nil {
+		logEvt := s.log.Error().
+			Err(err).
+			Str("request_id", requestID).
+			Str("workload_id", workload.ID)
+		if launchID != "" {
+			logEvt = logEvt.Str("launch_id", launchID)
+		}
+		logEvt.Msg("failed to encode run manifest response")
+	}
 }
