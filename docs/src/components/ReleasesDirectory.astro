@@ -6,6 +6,8 @@
  * Release timeline with channel filters, version search, and per-platform downloads.
  */
 
+import { docsHref } from '../../versioning.mjs'
+
 interface ReleaseRecord {
   release: string;
   channel: "rc" | "stable";
@@ -154,7 +156,7 @@ const groupAssets = (record: ReleaseRecord) => {
     <footer class="rel-footer">
       <p>
         Verify any download against the release <code>SHA256SUMS</code> - see
-        <a href="/security/verify-releases/">Verify a Release</a>.
+        <a href={docsHref(Astro.url.pathname, '/security/verify-releases/')}>Verify a Release</a>.
       </p>
     </footer>
   </div>

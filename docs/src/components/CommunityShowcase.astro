@@ -8,10 +8,13 @@
 
 import { getCollection } from "astro:content";
 import community from "../data/community.json";
+import { docsHref, docsRouteVersion } from "../../versioning.mjs";
 
 const featured = community.vlogs.find((v) => v.featured);
 
-const posts = await getCollection("docs", (entry) => entry.id.startsWith("blog/") && Boolean(entry.data.post));
+const routeVersion = docsRouteVersion(Astro.url.pathname);
+const blogPrefix = routeVersion ? `${routeVersion}/blog/` : "blog/";
+const posts = await getCollection("docs", (entry) => entry.id.startsWith(blogPrefix) && Boolean(entry.data.post));
 const featuredPost = posts
   .sort((a, b) => new Date(b.data.post!.date).valueOf() - new Date(a.data.post!.date).valueOf())
   .find((entry) => entry.data.post!.featured) ?? posts[0];
@@ -32,8 +35,8 @@ const postDate = postMeta
       <h2 id="docs-strip-heading" class="docs-strip__heading">We build this in the open</h2>
       <p class="docs-strip__lede">Talks, posts, and a weekly call where the roadmap actually gets decided.</p>
       <div class="docs-strip__actions">
-        <a class="landing-button landing-button--secondary" href="/blogs/">Read the blog</a>
-        <a class="landing-button landing-button--secondary" href="/vlogs/">Watch the vlogs</a>
+        <a class="landing-button landing-button--secondary" href={docsHref(Astro.url.pathname, "/blogs/")}>Read the blog</a>
+        <a class="landing-button landing-button--secondary" href={docsHref(Astro.url.pathname, "/vlogs/")}>Watch the vlogs</a>
       </div>
     </div>
 

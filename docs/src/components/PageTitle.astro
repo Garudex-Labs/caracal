@@ -1,0 +1,14 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Starlight page title override with documentation version status.
+ */
+
+import Default from '@astrojs/starlight/components/PageTitle.astro'
+import VersionNotice from './VersionNotice.astro'
+---
+
+<Default><slot /></Default>
+<VersionNotice />

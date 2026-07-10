@@ -7,6 +7,7 @@
  */
 import Default from '@astrojs/starlight/components/Hero.astro'
 import { RevealWaveImage } from './ui/reveal-wave-image'
+import { docsHref } from '../../versioning.mjs'
 
 const route = (Astro.locals as any)?.starlightRoute
 const data = route?.entry?.data ?? {}
@@ -57,7 +58,7 @@ const heroImageSrc = '/img/background.jpeg'
               {actions.map((a) => (
                 <a
                   class={`landing-button landing-button--${a.variant ?? 'secondary'}`}
-                  href={a.link}
+                  href={docsHref(Astro.url.pathname, a.link)}
                 >
                   {a.text}
                 </a>

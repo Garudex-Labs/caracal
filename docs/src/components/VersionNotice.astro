@@ -1,0 +1,63 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Status notice for historical and unreleased documentation pages.
+ */
+
+import { docsRouteVersion, docsVersionState } from '../../versioning.mjs'
+
+const routeVersion = docsRouteVersion(Astro.url.pathname)
+const entry = docsVersionState.versions.find((version) => version.version === routeVersion)
+const isNext = routeVersion === 'next'
+const isHistorical = Boolean(entry?.locked)
+const stableHref = docsVersionState.current ? `/${docsVersionState.current}/` : '/'
+---
+
+{(isNext || isHistorical) && (
+  <aside class:list={['version-notice', { 'version-notice--next': isNext }]} aria-label="Documentation version status">
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </svg>
+    <span>
+      {isNext ? 'This documentation describes the next unreleased minor version.' : `This documentation is the locked ${entry?.version} release snapshot.`}
+      {' '}<a href={stableHref}>View the latest stable documentation.</a>
+    </span>
+  </aside>
+)}
+
+<style>
+  .version-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 1rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--sl-color-orange);
+    border-radius: 6px;
+    background: var(--sl-color-orange-low);
+    color: var(--sl-color-orange-high);
+    font-size: var(--sl-text-sm);
+    line-height: 1.45;
+  }
+
+  .version-notice--next {
+    border-color: var(--sl-color-blue);
+    background: var(--sl-color-blue-low);
+    color: var(--sl-color-blue-high);
+  }
+
+  .version-notice svg {
+    flex: 0 0 auto;
+  }
+
+  .version-notice a {
+    color: inherit;
+    font-weight: 650;
+  }
+</style>

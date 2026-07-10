@@ -1,0 +1,27 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Starlight banner override with documentation version status.
+ */
+
+import Default from '@astrojs/starlight/components/Banner.astro'
+import VersionNotice from './VersionNotice.astro'
+---
+
+<div class="version-banner">
+  <VersionNotice />
+</div>
+<Default><slot /></Default>
+
+<style>
+  .version-banner :global(.version-notice) {
+    width: 100%;
+    margin: 0;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    justify-content: center;
+    text-align: center;
+  }
+</style>

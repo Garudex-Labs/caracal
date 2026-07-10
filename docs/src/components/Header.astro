@@ -7,6 +7,8 @@
  */
 import Default from '@astrojs/starlight/components/Header.astro'
 import ThemeSelect from './ThemeSelect.astro'
+import VersionSelect from './VersionSelect.astro'
+import { docsHref, docsVersionState } from '../../versioning.mjs'
 
 const route = (Astro.locals as any)?.starlightRoute
 const isLanding = route?.entry?.data?.template === 'splash'
@@ -15,11 +17,12 @@ const isLanding = route?.entry?.data?.template === 'splash'
 {
   isLanding ? (
     <header class="site-nav">
-      <a class="site-nav__brand" href="/" aria-label="Caracal home">
+      <a class="site-nav__brand" href={docsHref(Astro.url.pathname, '/')} aria-label="Caracal home">
         <img class="site-nav__logo" src="/img/caracal.png" alt="" width="28" height="28" />
         <span>Caracal</span>
       </a>
       <div class="site-nav__end">
+        {docsVersionState.current && <VersionSelect />}
         <details class="edition-menu">
           <summary class="edition-menu__button">
             <span>Open Source</span>
@@ -28,7 +31,7 @@ const isLanding = route?.entry?.data?.template === 'splash'
             </svg>
           </summary>
           <div class="edition-menu__panel">
-            <a class="edition-menu__item" href="/">
+            <a class="edition-menu__item" href={docsHref(Astro.url.pathname, '/')}>
               <span>Open Source</span>
               <span class="edition-menu__current">Current</span>
             </a>

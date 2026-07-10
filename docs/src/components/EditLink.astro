@@ -1,0 +1,13 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Starlight edit-link override that keeps locked documentation read-only.
+ */
+
+import Default from '@astrojs/starlight/components/EditLink.astro'
+import { isLockedDocsPath } from '../../versioning.mjs'
+---
+
+{!isLockedDocsPath(Astro.url.pathname) && <Default />}
