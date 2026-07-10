@@ -79,6 +79,7 @@ type Caracal struct {
 	appInflight   map[string]*appMandateCall
 	appProvision  chan struct{}
 	appGeneration uint64
+	closed        bool
 }
 
 // TokenSource returns an application subject token for root SDK operations.
@@ -792,10 +793,15 @@ func taskMetadata(task string, metadata map[string]any) map[string]any {
 // in-flight mint cycles are dropped, the credential exchanger's cached
 // lifecycle token is invalidated, and the sessions backing released
 // application transports are terminated best-effort - any that termination
-// misses retire on their own TTL. The client stays usable; the next call
-// simply mints fresh state.
+// misses retire on their own TTL. Closing is terminal; construct a new client
+// for later work.
 func (c *Caracal) Close() error {
 	c.appMandateMu.Lock()
+	if c.closed {
+		c.appMandateMu.Unlock()
+		return nil
+	}
+	c.closed = true
 	c.appGeneration++
 	inflight := make([]*appMandateCall, 0, len(c.appInflight))
 	for _, call := range c.appInflight {
@@ -822,6 +828,15 @@ func (c *Caracal) Close() error {
 	}
 	if c.exchanger != nil {
 		c.exchanger.invalidate()
+	}
+	return nil
+}
+
+func (c *Caracal) ensureOpen() error {
+	c.appMandateMu.Lock()
+	defer c.appMandateMu.Unlock()
+	if c.closed {
+		return errors.New("caracal: client is closed")
 	}
 	return nil
 }
@@ -1252,6 +1267,9 @@ type SessionOptions struct {
 // narrowing delegation onto the child; set Options.Authority to
 // AuthorityNarrow(...) to bound the session to a subset of scopes.
 func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, opts ...SessionOptions) error {
+	if err := c.ensureOpen(); err != nil {
+		return err
+	}
 	o := SessionOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
@@ -1325,6 +1343,9 @@ type StartSessionOptions struct {
 // with SessionHandle.Close. Use for daemons and workers that outlive a single
 // request.
 func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions) (*SessionHandle, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
 	o := StartSessionOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
@@ -1375,6 +1396,9 @@ type DelegateOptions struct {
 // Identity returns the zone and application this client acts as. Useful for
 // logging and metric labels.
 func (c *Caracal) Identity(ctx context.Context) (zoneID, applicationID string, err error) {
+	if err := c.ensureOpen(); err != nil {
+		return "", "", err
+	}
 	if c.ZoneID != "" && c.ApplicationID != "" {
 		return c.ZoneID, c.ApplicationID, nil
 	}
@@ -1402,6 +1426,9 @@ type AttachSessionOptions struct {
 // like one from StartSession. Delegations bound by the previous holder are
 // re-presented with AcceptDelegation.
 func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...AttachSessionOptions) (*SessionHandle, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
 	o := AttachSessionOptions{}
 	if len(opts) > 0 {
 		o = opts[0]
@@ -1435,6 +1462,9 @@ func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...A
 // unchanged; hand the delegation id to the receiving session, which presents
 // it with AcceptDelegation.
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegation, error) {
+	if err := c.ensureOpen(); err != nil {
+		return Delegation{}, err
+	}
 	if opts.TTLSeconds <= 0 {
 		return Delegation{}, errors.New("caracal: Delegate TTLSeconds must be a positive integer")
 	}
@@ -1482,6 +1512,9 @@ type AcceptDelegationOptions struct {
 // validation - reports a delegation.accept event so forensic consumers can
 // correlate which workload presented which delegation on which session.
 func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string, opts ...AcceptDelegationOptions) (context.Context, error) {
+	if err := c.ensureOpen(); err != nil {
+		return ctx, err
+	}
 	cur, _ := Current(ctx)
 	start := time.Now()
 	emit := func(ok bool) {
@@ -1545,6 +1578,9 @@ type mandateOptions struct {
 // approval id once an authenticated approver has satisfied it. Requires a
 // client-secret configuration.
 func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []string, opts ...MandateOptions) (oauth.MintedMandate, error) {
+	if err := c.ensureOpen(); err != nil {
+		return oauth.MintedMandate{}, err
+	}
 	if c.exchanger == nil {
 		return oauth.MintedMandate{}, fmt.Errorf("caracal: MintMandate requires a client-secret configuration")
 	}
@@ -1583,6 +1619,9 @@ type FederatedSubject struct {
 // is an explicit identity event, recorded in the audit stream. Requires a
 // client-secret configuration and a subject issuer registered on the zone.
 func (c *Caracal) FederateSubject(ctx context.Context, idToken string, opts ...FederateSubjectOptions) (FederatedSubject, error) {
+	if err := c.ensureOpen(); err != nil {
+		return FederatedSubject{}, err
+	}
 	if c.exchanger == nil {
 		return FederatedSubject{}, fmt.Errorf("caracal: FederateSubject requires a client-secret configuration")
 	}
@@ -1608,6 +1647,9 @@ func (c *Caracal) FederateSubject(ctx context.Context, idToken string, opts ...F
 // terminal; ApprovalPending means the timeout elapsed with no decision and
 // waiting again is safe.
 func (c *Caracal) WaitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (oauth.ApprovalState, error) {
+	if err := c.ensureOpen(); err != nil {
+		return "", err
+	}
 	if c.exchanger == nil {
 		return "", fmt.Errorf("caracal: WaitForApproval requires a client-secret configuration")
 	}
@@ -1719,6 +1761,9 @@ func propagationOf(opts []CallOptions) Propagation {
 // resolved fresh through the token source so long-lived holders never present
 // an expired token.
 func (c *Caracal) Headers(ctx context.Context, opts ...CallOptions) (http.Header, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
 	h := http.Header{}
 	cur, ok := Current(ctx)
 	if !ok {
@@ -1751,6 +1796,9 @@ func (c *Caracal) Headers(ctx context.Context, opts ...CallOptions) (http.Header
 // set, the inbound bearer is verified before binding and any claims it returns
 // override the envelope, so a forged envelope cannot outrun the token.
 func (c *Caracal) BindFromRequest(ctx context.Context, r *http.Request, opts ...CallOptions) (context.Context, error) {
+	if err := c.ensureOpen(); err != nil {
+		return ctx, err
+	}
 	var opt CallOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -1842,6 +1890,7 @@ func (c *Caracal) Transport(base *http.Client, opts ...CallOptions) *http.Client
 // sessions, and an optional mandate TTL override.
 type ApplicationTransportOptions struct {
 	Scopes            []string
+	ApprovalID        string
 	Labels            []string
 	MandateTTLSeconds int
 }
@@ -1855,6 +1904,9 @@ type ApplicationTransportOptions struct {
 // Requests are rewritten through the gateway.
 // Requires a client-secret configuration.
 func (c *Caracal) ApplicationTransport(base *http.Client, resourceID string, opts ApplicationTransportOptions) (*http.Client, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if c.exchanger == nil {
 		return nil, fmt.Errorf("caracal: ApplicationTransport requires a client-secret configuration")
 	}
@@ -1881,13 +1933,16 @@ func (c *Caracal) ApplicationTransport(base *http.Client, resourceID string, opt
 		rt = http.DefaultTransport
 	}
 	out := *base
-	out.Transport = &applicationTransport{base: rt, client: c, resourceID: resourceID, scopes: scopes, labels: opts.Labels, mandateTTL: mandateTTL}
+	out.Transport = &applicationTransport{base: rt, client: c, resourceID: resourceID, scopes: scopes, approvalID: opts.ApprovalID, labels: opts.Labels, mandateTTL: mandateTTL}
 	out.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &out, nil
 }
 
 // GatewayRequest builds a Gateway URL and X-Caracal-Resource header for explicit resource routing.
 func (c *Caracal) GatewayRequest(resourceID, path string) (GatewayTarget, error) {
+	if err := c.ensureOpen(); err != nil {
+		return GatewayTarget{}, err
+	}
 	if c.GatewayURL == "" {
 		return GatewayTarget{}, fmt.Errorf("caracal: GatewayRequest requires GatewayURL")
 	}
@@ -1952,6 +2007,9 @@ type caracalTransport struct {
 }
 
 func (t *caracalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := t.client.ensureOpen(); err != nil {
+		return nil, err
+	}
 	cur, ok := Current(req.Context())
 	if !ok && !t.asApplication {
 		return nil, fmt.Errorf("caracal: Transport request has no bound CaracalContext; pass CallOptions{AsApplication: true} to call as the application's own identity")
@@ -2078,16 +2136,23 @@ type applicationTransport struct {
 	client     *Caracal
 	resourceID string
 	scopes     []string
+	approvalID string
 	labels     []string
 	mandateTTL int
 }
 
 func (t *applicationTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := t.client.ensureOpen(); err != nil {
+		return nil, err
+	}
 	authority, err := t.client.appMandate(req.Context(), t.resourceID, t.scopes, t.labels, t.mandateTTL)
 	if err != nil {
 		return nil, err
 	}
-	token, err := t.client.exchanger.mintMandate(req.Context(), t.resourceID, t.scopes, authority.targetSessionID, authority.delegationID, mandateOptions{MandateOptions: MandateOptions{TTLSeconds: t.mandateTTL}, OneShot: true})
+	if err := t.client.ensureOpen(); err != nil {
+		return nil, err
+	}
+	token, err := t.client.exchanger.mintMandate(req.Context(), t.resourceID, t.scopes, authority.targetSessionID, authority.delegationID, mandateOptions{MandateOptions: MandateOptions{TTLSeconds: t.mandateTTL, ApprovalID: t.approvalID}, OneShot: true})
 	if err != nil {
 		return nil, err
 	}
@@ -2124,6 +2189,9 @@ type appMandateCall struct {
 // for the resource, scope set, labels, and TTL under the current resolved identity.
 // Concurrent requests for the same key share one provisioning cycle.
 func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, labels []string, mandateTTL int) (appMandateEntry, error) {
+	if err := c.ensureOpen(); err != nil {
+		return appMandateEntry{}, err
+	}
 	zoneID, applicationID, err := c.exchanger.identity(ctx)
 	if err != nil {
 		return appMandateEntry{}, err
@@ -2138,6 +2206,10 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 	}
 	key := appMandateKey(zoneID, applicationID, generationKey, resourceID, scopes, sessionLabels, mandateTTL)
 	c.appMandateMu.Lock()
+	if c.closed {
+		c.appMandateMu.Unlock()
+		return appMandateEntry{}, errors.New("caracal: client is closed")
+	}
 	generation := c.appGeneration
 	stale := []appMandateEntry{}
 	for cachedKey, entry := range c.appMandates {
@@ -2239,10 +2311,10 @@ func (c *Caracal) appMandate(ctx context.Context, resourceID string, scopes, lab
 		}
 	}
 	c.appMandateMu.Unlock()
-	close(call.done)
 	for _, stale := range evicted {
 		c.retireAppAuthority(stale)
 	}
+	close(call.done)
 	return entry, err
 }
 
@@ -2350,6 +2422,9 @@ func (c *Caracal) retireAppAuthority(entry appMandateEntry) {
 }
 
 func (c *Caracal) rootToken(ctx context.Context) (string, error) {
+	if err := c.ensureOpen(); err != nil {
+		return "", err
+	}
 	if c.TokenSource != nil {
 		return c.TokenSource(ctx)
 	}

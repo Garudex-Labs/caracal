@@ -280,6 +280,9 @@ jobs:
       - name: Build TypeScript packages
         run: pnpm run build:typescript
 
+      - name: Verify SDK package exports
+        run: node tests/typescript/contract/sdk/package-consumer.mjs
+
       - name: Run lint scripts
         run: pnpm -r --if-present lint
 
@@ -514,7 +517,7 @@ jobs:
   e2e:
     name: Stack end-to-end
     needs: changes
-    if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
+    if: github.event_name != 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.infra == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -565,11 +568,29 @@ jobs:
           pnpm caracal status --ready || true
           exit 1
 
-      - name: Run stack end-to-end tests
+      - name: Build SDK contract clients
+        run: pnpm run build:typescript
+
+      - name: Start protected test upstream
+        run: docker run --rm -d --name caracal-protected-e2e-upstream --network caracalDevData nginx:stable-alpine
+
+      - name: Run Go stack contracts
         working-directory: tests/go
         env:
           CARACAL_STS_URL: http://127.0.0.1:8080
         run: go test -count=1 ./e2e/... ./smoke/...
+
+      - name: Run protected-resource contract
+        env:
+          CARACAL_API_URL: http://127.0.0.1:3000
+          CARACAL_COORDINATOR_URL: http://127.0.0.1:4000
+          CARACAL_STS_URL: http://127.0.0.1:8080
+          CARACAL_GATEWAY_URL: http://127.0.0.1:8081
+          CARACAL_E2E_UPSTREAM_URL: http://caracal-protected-e2e-upstream:80
+          CARACAL_ADMIN_TOKEN_FILE: ${{ runner.temp }}/caracal-admin-token
+        run: |
+          cp "$HOME/.config/caracal/dev-secrets/caracalAdminToken" "$CARACAL_ADMIN_TOKEN_FILE"
+          node tests/typescript/e2e/protected-resource.mjs
 
       - name: Dump service logs on failure
         if: failure()
@@ -583,7 +604,9 @@ jobs:
 
       - name: Stop the stack
         if: always()
-        run: pnpm caracal down -v || true
+        run: |
+          docker rm -f caracal-protected-e2e-upstream 2>/dev/null || true
+          pnpm caracal down -v || true
 
   releaseConfig:
     name: Release config drift

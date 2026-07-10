@@ -350,6 +350,7 @@ export class Caracal {
   private appInflight = new Map<string, Promise<AppAuthorityEntry>>()
   private appGeneration = 0
   private appProvisionTail: Promise<void> = Promise.resolve()
+  private closed = false
 
   /**
    * Creates a Caracal client from `CARACAL_CONFIG` when set, otherwise from
@@ -378,11 +379,11 @@ export class Caracal {
    * Releases client-held state: cached application mandates and their
    * in-flight mint cycles are dropped, the credential exchanger's cached
    * lifecycle token is invalidated, and the sessions backing released
-   * application transports are terminated best-effort - any that termination
-   * misses retire on their own TTL. The client stays usable; the next call
-   * simply mints fresh state.
+   * application transports are terminated best-effort; closing is terminal.
    */
   async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
     ++this.appGeneration
     const pending = [...this.appInflight.values()]
     const entries = [...this.appAuthorities.values()].filter((entry) => entry.sessions.length)
@@ -407,6 +408,10 @@ export class Caracal {
     sink(message, err)
   }
 
+  private ensureOpen(): void {
+    if (this.closed) throw new Error('Caracal client is closed')
+  }
+
   /**
    * The zone and application this client acts as: the static configuration
    * when present, otherwise resolved through the credentials source, which
@@ -414,6 +419,7 @@ export class Caracal {
    * metric labels.
    */
   async identity(): Promise<{ zoneId: string; applicationId: string }> {
+    this.ensureOpen()
     const { zoneId, applicationId, exchanger } = this.config
     if (zoneId && applicationId) return { zoneId, applicationId }
     return exchanger!.identity()
@@ -429,9 +435,7 @@ export class Caracal {
    * @example
    * ```ts
    * const summary = await caracal.session(async (ctx) => {
-   *   log.info({ sessionId: ctx.sessionId }, 'triage run started')
-   *   const res = await caracal.fetch('resource://pipernet', '/tickets')
-   *   return res.json()
+   *   log.info({ sessionId: ctx.sessionId }, 'triage run started'); return triageTickets()
    * }, { labels: ['ticket-triage'] })
    * ```
    *
@@ -508,6 +512,7 @@ export class Caracal {
    * it with acceptDelegation.
    */
   delegate(opts: DelegateOptions): Promise<Delegation> {
+    this.ensureOpen()
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toSessionId: opts.toSessionId,
@@ -544,6 +549,7 @@ export class Caracal {
    * revoked id fails here with a targeted error.
    */
   async acceptDelegation<T>(delegationId: string, fn: () => Promise<T>, opts: { validate?: boolean } = {}): Promise<T> {
+    this.ensureOpen()
     const ctx = current()
     if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
     const start = performance.now()
@@ -613,6 +619,7 @@ export class Caracal {
   }
 
   bind<T>(ctx: CaracalContext, fn: () => Promise<T>): Promise<T> {
+    this.ensureOpen()
     return bind(ctx, fn)
   }
 
@@ -672,6 +679,7 @@ export class Caracal {
    * application's own identity requires `{ asApplication: true }`.
    */
   headers(opts: CallOptions = {}): Record<string, string> {
+    this.ensureOpen()
     const ctx = current()
     if (!ctx) {
       if (!opts.asApplication) {
@@ -697,6 +705,7 @@ export class Caracal {
    * pinned to the caller's token.
    */
   async headersAsync(opts: CallOptions = {}): Promise<Record<string, string>> {
+    this.ensureOpen()
     const ctx = current()
     if (!ctx) {
       if (!opts.asApplication) {
@@ -721,6 +730,7 @@ export class Caracal {
     fn: () => Promise<T>,
     opts: BindOptions = {},
   ): Promise<T> {
+    this.ensureOpen()
     if (opts.verify && opts.trustedPropagation) {
       throw new Error('Caracal.bindFromHeaders(): choose either verify or trustedPropagation, not both')
     }
@@ -780,10 +790,12 @@ export class Caracal {
    * ```
    */
   transport(opts: TransportOptions = {}): typeof fetch {
+    this.ensureOpen()
     const outer = this
     const appAllowed = opts.asApplication === true
     const scopes = opts.scopes
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      outer.ensureOpen()
       const ctx = current()
       if (!ctx && !appAllowed) {
         throw new Error(
@@ -883,6 +895,7 @@ export class Caracal {
    * approver has satisfied it. Requires a client-secret configuration.
    */
   async mintMandate(resourceId: string, scopes: string[], opts: MandateOptions = {}): Promise<MintedMandate> {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.mintMandate(): requires a client-secret configuration')
     const ctx = opts.ctx ?? current()
@@ -912,6 +925,7 @@ export class Caracal {
     idToken: string,
     opts: { ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<FederatedSubject> {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.federateSubject(): requires a client-secret configuration')
     const minted = await exchanger.federateSubject(idToken, opts)
@@ -931,6 +945,7 @@ export class Caracal {
    * to abort the wait early.
    */
   waitForApproval(approvalId: string, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<ApprovalState> {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.waitForApproval(): requires a client-secret configuration')
     return exchanger.waitForApproval(approvalId, opts)
@@ -952,6 +967,7 @@ export class Caracal {
    * ```
    */
   async withApproval<T>(fn: (approvalId?: string) => Promise<T>, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+    this.ensureOpen()
     try {
       return await fn()
     } catch (err) {
@@ -963,6 +979,7 @@ export class Caracal {
   }
 
   gatewayRequest(resourceId: string, path: string = '/'): GatewayTarget {
+    this.ensureOpen()
     if (!this.config.gatewayUrl) throw new Error('Caracal.gatewayRequest(): gatewayUrl is not configured')
     if (!resourceId.trim()) throw new Error('Caracal.gatewayRequest(): resourceId is required')
     return {
@@ -1014,6 +1031,7 @@ export class Caracal {
    * ```
    */
   applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.applicationTransport(): requires a client-secret configuration')
     if (!this.config.gatewayUrl)
@@ -1023,6 +1041,7 @@ export class Caracal {
     const scopes = [...new Set(opts.scopes)].sort()
     const outer = this
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      outer.ensureOpen()
       const request = input instanceof Request ? input : undefined
       if (request?.bodyUsed) throw new TypeError('Caracal.applicationTransport(): cannot send a Request whose body was already consumed')
       let signal = init?.signal ?? request?.signal
@@ -1031,6 +1050,7 @@ export class Caracal {
         signal = signal ? AbortSignal.any([signal, timeout]) : timeout
       }
       const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, signal)
+      outer.ensureOpen()
       const minted = await exchanger.mintMandate(resourceId, scopes, {
         sessionId: authority.targetSessionId,
         delegationId: authority.delegationId,
@@ -1069,6 +1089,7 @@ export class Caracal {
     // Labels and TTL also shape the mint cycle, so transports with different
     // attribution or lifetime requirements must not share a cached mandate.
     const identity = await exchanger.identity()
+    this.ensureOpen()
     const credentialGeneration = identity.credentialGeneration ?? ''
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
@@ -1086,6 +1107,7 @@ export class Caracal {
       }
     }
     if (stale.length) await this.retireAppAuthorities(exchanger, stale)
+    this.ensureOpen()
     const key = `${identity.zoneId}::${identity.applicationId}::${credentialGeneration}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
     const cached = this.appAuthorities.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - APP_AUTHORITY_REFRESH_MARGIN_SECONDS) return cached
@@ -1326,6 +1348,7 @@ export class Caracal {
   }
 
   private rootTokenSync(): string {
+    this.ensureOpen()
     if (this.config.subjectToken) return this.config.subjectToken
     throw new Error(
       'Caracal.headers(): this client uses an async token source. Use headersAsync({ asApplication: true }) for application-identity headers.',
@@ -1333,6 +1356,7 @@ export class Caracal {
   }
 
   private async rootToken(): Promise<string> {
+    this.ensureOpen()
     if (this.config.tokenSource) return await this.config.tokenSource()
     if (this.config.subjectToken) return this.config.subjectToken
     throw new Error('Caracal client has no subject token source')
