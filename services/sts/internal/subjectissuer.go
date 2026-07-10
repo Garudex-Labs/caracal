@@ -31,7 +31,7 @@ import (
 
 // SubjectTokenTypeIDToken selects the subject federation exchange: the application
 // presents its end user's identity token from a zone-trusted external issuer, and
-// the STS mints a user subject session for that identity.
+// the STS mints a user authority record for that identity.
 const SubjectTokenTypeIDToken = "urn:ietf:params:oauth:token-type:id_token"
 
 const (
@@ -334,7 +334,7 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 	return sub, issuer, nil
 }
 
-// federateSubject mints a user subject session from an end user's external
+// federateSubject mints a user authority record from an end user's external
 // identity token. The authenticated application vouches for nothing beyond
 // relaying the token: the zone's issuer registration is the trust decision, the
 // issuer's signature is the identity proof, and the recorded sub is copied
@@ -344,7 +344,7 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, app *Application, zoneID, requestID string) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
 	appMeta := applicationAuditMeta(app)
 	if len(req.Resources) > 0 || req.Scope != "" ||
-		req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" || req.ChallengeID != "" {
+		req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" || req.ChallengeID != "" {
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "subject_federation_invalid", &OPAResult{}, appMeta); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
@@ -372,16 +372,16 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 	}
 	sid, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate authority record id")
 	}
 	sessID := sid.String()
 	// The issuer rides on the session record so operators can answer "where did
 	// this subject come from" without correlating audit events.
 	provenance, err := json.Marshal(map[string]string{"iss": issuer.Issuer})
 	if err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 	}
-	if err := s.db.InsertSession(ctx, &Session{
+	if err := s.db.InsertAuthorityRecord(ctx, &AuthorityRecord{
 		ID:              sessID,
 		ZoneID:          zoneID,
 		SessionType:     "user",
@@ -391,7 +391,7 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 		AuthenticatedAt: now,
 		ClaimsJSON:      provenance,
 	}); err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 	}
 	result := &OPAResult{
 		Decision:            "allow",
@@ -404,15 +404,15 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 		return nil, nil, http.StatusInternalServerError, auditErr
 	}
 	token, jti, err := issueToken(ctx, IssueParams{
-		ZoneID:    zoneID,
-		AppID:     app.ID,
-		SubjectID: sub,
-		SubType:   SubTypeUser,
-		Use:       UseSession,
-		SID:       sessID,
-		RootSID:   sessID,
-		TTL:       ttl,
-		IssuedAt:  now,
+		ZoneID:                zoneID,
+		AppID:                 app.ID,
+		SubjectID:             sub,
+		SubType:               SubTypeUser,
+		Use:                   UseSession,
+		AuthorityRecordID:     sessID,
+		RootAuthorityRecordID: sessID,
+		TTL:                   ttl,
+		IssuedAt:              now,
 	}, s.keys, s.cfg.IssuerURL)
 	if err != nil {
 		s.log.Error().Err(err).Str("zone_id", zoneID).Str("request_id", requestID).Msg("subject federation token issuance failed")

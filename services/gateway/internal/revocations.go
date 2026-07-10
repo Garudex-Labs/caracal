@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Revocation cache: tracks revoked session, agent, and delegation ids and aborts affected gateway streams.
+// Revocation cache tracks authority-record, Session, and Delegation anchors for gateway streams.
 
 package internal
 
@@ -52,36 +52,35 @@ type revocationRedis interface {
 // pruned after revocationTTL: by then any resource mandate bound to that authority
 // has long since expired (max ttlResourceMandate = 15m).
 type revocationStore struct {
-	mu           sync.RWMutex
-	sessions     map[string]time.Time
-	agents       map[string]time.Time
-	edges        map[string]time.Time
-	snapshotUnix atomic.Int64
-	log          zerolog.Logger
+	mu               sync.RWMutex
+	authorityRecords map[string]time.Time
+	governedSessions map[string]time.Time
+	edges            map[string]time.Time
+	snapshotUnix     atomic.Int64
+	log              zerolog.Logger
 }
 
 func newRevocationStore(log zerolog.Logger) *revocationStore {
-	return &revocationStore{sessions: map[string]time.Time{}, agents: map[string]time.Time{}, edges: map[string]time.Time{}, log: log}
+	return &revocationStore{authorityRecords: map[string]time.Time{}, governedSessions: map[string]time.Time{}, edges: map[string]time.Time{}, log: log}
 }
 
-// IsRevoked reports whether the session id has been revoked recently enough that
-// any token bearing it must still be considered invalid.
-func (s *revocationStore) IsRevoked(sid string) bool {
-	if sid == "" {
+// IsRevoked reports whether an authority-record anchor remains revoked.
+func (s *revocationStore) IsRevoked(anchorID string) bool {
+	if anchorID == "" {
 		return false
 	}
 	s.mu.RLock()
-	expiresAt, ok := s.sessions[sid]
+	expiresAt, ok := s.authorityRecords[anchorID]
 	s.mu.RUnlock()
 	return ok && time.Now().Before(expiresAt)
 }
 
-func (s *revocationStore) IsAgentRevoked(agentSessionID string) bool {
-	if agentSessionID == "" {
+func (s *revocationStore) IsSessionRevoked(sessionID string) bool {
+	if sessionID == "" {
 		return false
 	}
 	s.mu.RLock()
-	expiresAt, ok := s.agents[agentSessionID]
+	expiresAt, ok := s.governedSessions[sessionID]
 	s.mu.RUnlock()
 	return ok && time.Now().Before(expiresAt)
 }
@@ -96,15 +95,15 @@ func (s *revocationStore) IsDelegationRevoked(delegationEdgeID string) bool {
 	return ok && time.Now().Before(expiresAt)
 }
 
-func (s *revocationStore) markSession(sid string) {
+func (s *revocationStore) markAuthorityRecord(anchorID string) {
 	s.mu.Lock()
-	s.sessions[sid] = time.Now().Add(revocationTTL)
+	s.authorityRecords[anchorID] = time.Now().Add(revocationTTL)
 	s.mu.Unlock()
 }
 
-func (s *revocationStore) markAgent(agentSessionID string) {
+func (s *revocationStore) markGovernedSession(sessionID string) {
 	s.mu.Lock()
-	s.agents[agentSessionID] = time.Now().Add(revocationTTL)
+	s.governedSessions[sessionID] = time.Now().Add(revocationTTL)
 	s.mu.Unlock()
 }
 
@@ -114,12 +113,12 @@ func (s *revocationStore) markDelegation(delegationEdgeID string) {
 	s.mu.Unlock()
 }
 
-func applyRevocationSnapshot(store *revocationStore, sessions, agents, edges []string) {
-	for _, sid := range sessions {
-		store.markSession(sid)
+func applyRevocationSnapshot(store *revocationStore, authorityRecords, governedSessions, edges []string) {
+	for _, anchorID := range authorityRecords {
+		store.markAuthorityRecord(anchorID)
 	}
-	for _, agentSessionID := range agents {
-		store.markAgent(agentSessionID)
+	for _, sessionID := range governedSessions {
+		store.markGovernedSession(sessionID)
 	}
 	for _, delegationEdgeID := range edges {
 		store.markDelegation(delegationEdgeID)
@@ -157,20 +156,20 @@ func (s *revocationStore) Size() int {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return len(s.sessions) + len(s.agents) + len(s.edges)
+	return len(s.authorityRecords) + len(s.governedSessions) + len(s.edges)
 }
 
 func (s *revocationStore) prune() {
 	cutoff := time.Now()
 	s.mu.Lock()
-	for sid, expiresAt := range s.sessions {
+	for anchorID, expiresAt := range s.authorityRecords {
 		if !cutoff.Before(expiresAt) {
-			delete(s.sessions, sid)
+			delete(s.authorityRecords, anchorID)
 		}
 	}
-	for agentSessionID, expiresAt := range s.agents {
+	for sessionID, expiresAt := range s.governedSessions {
 		if !cutoff.Before(expiresAt) {
-			delete(s.agents, agentSessionID)
+			delete(s.governedSessions, sessionID)
 		}
 	}
 	for delegationEdgeID, expiresAt := range s.edges {
@@ -211,8 +210,8 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	if store == nil {
 		return fmt.Errorf("revocation snapshot requires store")
 	}
-	sessions, err := queryRevocationIDs(ctx, pool,
-		`SELECT id FROM sessions
+	authorityRecords, err := queryRevocationIDs(ctx, pool,
+		`SELECT id FROM authority_records
 		 WHERE status = 'revoked'
 		   AND expires_at > now() - ($1::int * interval '1 second')`,
 		int(revocationTTL.Seconds()),
@@ -220,8 +219,8 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	if err != nil {
 		return err
 	}
-	agents, err := queryRevocationIDs(ctx, pool,
-		`SELECT id FROM agent_sessions
+	governedSessions, err := queryRevocationIDs(ctx, pool,
+		`SELECT id FROM sessions
 		 WHERE status IN ('suspended', 'terminated')
 		   AND updated_at > now() - ($1::int * interval '1 second')`,
 		int(revocationTTL.Seconds()),
@@ -239,7 +238,7 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	if err != nil {
 		return err
 	}
-	applyRevocationSnapshot(store, sessions, agents, edges)
+	applyRevocationSnapshot(store, authorityRecords, governedSessions, edges)
 	store.markSnapshotFresh(time.Now())
 	return nil
 }
@@ -353,21 +352,21 @@ func processRevocationMessage(ctx context.Context, redis revocationRedis, store 
 		}
 		return
 	}
-	sid, _ := msg.Values["session_id"].(string)
-	agentSessionID, _ := msg.Values["agent_session_id"].(string)
+	authorityRecordID, _ := msg.Values["session_id"].(string)
+	sessionID, _ := msg.Values["agent_session_id"].(string)
 	delegationEdgeID, _ := msg.Values["delegation_edge_id"].(string)
 	if delegationEdgeID == "" {
 		delegationEdgeID, _ = msg.Values["edge_id"].(string)
 	}
-	if sid == "" && agentSessionID == "" && delegationEdgeID == "" {
+	if authorityRecordID == "" && sessionID == "" && delegationEdgeID == "" {
 		trackRevocationFailure(ctx, redis, msg, fmt.Errorf("missing session_id, agent_session_id, or delegation_edge_id"), metrics, log)
 		return
 	}
-	if sid != "" {
-		store.markSession(sid)
+	if authorityRecordID != "" {
+		store.markAuthorityRecord(authorityRecordID)
 	}
-	if agentSessionID != "" {
-		store.markAgent(agentSessionID)
+	if sessionID != "" {
+		store.markGovernedSession(sessionID)
 	}
 	if delegationEdgeID != "" {
 		store.markDelegation(delegationEdgeID)
@@ -383,7 +382,7 @@ func processRevocationMessage(ctx context.Context, redis revocationRedis, store 
 	}
 }
 
-func jwtAgentSessionID(token string) string {
+func jwtSessionID(token string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""
@@ -393,12 +392,12 @@ func jwtAgentSessionID(token string) string {
 		return ""
 	}
 	var claims struct {
-		AgentSessionID string `json:"agent_session_id"`
+		SessionID string `json:"agent_session_id"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return ""
 	}
-	return claims.AgentSessionID
+	return claims.SessionID
 }
 
 func jwtDelegationEdgeID(token string) string {
@@ -419,7 +418,7 @@ func jwtDelegationEdgeID(token string) string {
 	return claims.DelegationEdgeID
 }
 
-func jwtRootSID(token string) string {
+func jwtRootAuthorityRecordID(token string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""
@@ -429,12 +428,12 @@ func jwtRootSID(token string) string {
 		return ""
 	}
 	var claims struct {
-		RootSID string `json:"root_sid"`
+		RootAuthorityRecordID string `json:"root_sid"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return ""
 	}
-	return claims.RootSID
+	return claims.RootAuthorityRecordID
 }
 
 func trackRevocationFailure(ctx context.Context, redis revocationRedis, msg redis.XMessage, cause error, metrics *GatewayMetrics, log zerolog.Logger) {
@@ -503,10 +502,10 @@ func hostname() string {
 	return host
 }
 
-// jwtSID extracts the sid (session id) claim from a JWT without verifying its
+// jwtAuthorityRecordID extracts the sid authority-record claim without verifying its
 // signature. Used by the gateway's revocation pre-flight check; trust root is
 // the STS validation that happens during token exchange.
-func jwtSID(token string) string {
+func jwtAuthorityRecordID(token string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""

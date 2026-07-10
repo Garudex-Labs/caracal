@@ -264,7 +264,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_gateway_denials_path_traversal_total", Help: "Gateway denials caused by unsafe upstream paths", Type: coremetrics.Counter, Value: float64(snap.DenialsPathTrav)},
 		{Name: "caracal_gateway_denials_signature_total", Help: "Gateway denials caused by invalid JWT signatures", Type: coremetrics.Counter, Value: float64(snap.DenialsSignature)},
 		{Name: "caracal_gateway_denials_jti_replay_total", Help: "Gateway denials caused by replayed token identifiers", Type: coremetrics.Counter, Value: float64(snap.DenialsJTIReplay)},
-		{Name: "caracal_gateway_denials_revoked_total", Help: "Gateway denials caused by revoked sessions or delegations", Type: coremetrics.Counter, Value: float64(snap.DenialsRevoked)},
+		{Name: "caracal_gateway_denials_revoked_total", Help: "Gateway denials caused by revoked authority records, Sessions, or Delegations", Type: coremetrics.Counter, Value: float64(snap.DenialsRevoked)},
 		{Name: "caracal_gateway_sts_exchange_errors_total", Help: "Gateway STS token exchange failures", Type: coremetrics.Counter, Value: float64(snap.STSExchangeErrors)},
 		{Name: "caracal_gateway_sts_exchange_latency_ms", Help: "Latency of the most recent Gateway STS token exchange", Type: coremetrics.Gauge, Value: float64(snap.STSExchangeLatencyMs)},
 		{Name: "caracal_gateway_sts_circuit_open", Help: "Whether Gateway is currently fast-failing STS exchange calls", Type: coremetrics.Gauge, Value: float64(snap.STSCircuitOpen)},

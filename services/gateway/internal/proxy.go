@@ -62,16 +62,16 @@ type replayTracker interface {
 }
 
 type revocationChecker interface {
-	IsRevoked(sid string) bool
-	IsAgentRevoked(agentSessionID string) bool
+	IsRevoked(anchorID string) bool
+	IsSessionRevoked(sessionID string) bool
 	IsDelegationRevoked(delegationEdgeID string) bool
 }
 
-type tokenRevocationIDs struct {
-	SID              string
-	RootSID          string
-	AgentSessionID   string
-	DelegationEdgeID string
+type tokenRevocationAnchors struct {
+	AuthorityRecordID     string
+	RootAuthorityRecordID string
+	SessionID             string
+	DelegationEdgeID      string
 }
 
 func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
@@ -212,25 +212,25 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revocationIDs := tokenRevocationIDs{
-		SID:              jwtSID(bearer),
-		RootSID:          jwtRootSID(bearer),
-		AgentSessionID:   jwtAgentSessionID(bearer),
-		DelegationEdgeID: jwtDelegationEdgeID(bearer),
+	revocationAnchors := tokenRevocationAnchors{
+		AuthorityRecordID:     jwtAuthorityRecordID(bearer),
+		RootAuthorityRecordID: jwtRootAuthorityRecordID(bearer),
+		SessionID:             jwtSessionID(bearer),
+		DelegationEdgeID:      jwtDelegationEdgeID(bearer),
 	}
-	if p.revocations.IsRevoked(revocationIDs.SID) ||
-		p.revocations.IsRevoked(revocationIDs.RootSID) ||
-		p.revocations.IsAgentRevoked(revocationIDs.AgentSessionID) ||
-		p.revocations.IsDelegationRevoked(revocationIDs.DelegationEdgeID) {
+	if p.revocations.IsRevoked(revocationAnchors.AuthorityRecordID) ||
+		p.revocations.IsRevoked(revocationAnchors.RootAuthorityRecordID) ||
+		p.revocations.IsSessionRevoked(revocationAnchors.SessionID) ||
+		p.revocations.IsDelegationRevoked(revocationAnchors.DelegationEdgeID) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsRevoked.Add(1)
 		logger.Info().
 			Int("status", http.StatusUnauthorized).
-			Str("sid", revocationIDs.SID).
-			Str("root_sid", revocationIDs.RootSID).
-			Str("agent_session_id", revocationIDs.AgentSessionID).
-			Str("delegation_edge_id", revocationIDs.DelegationEdgeID).
+			Str("sid", revocationAnchors.AuthorityRecordID).
+			Str("root_sid", revocationAnchors.RootAuthorityRecordID).
+			Str("agent_session_id", revocationAnchors.SessionID).
+			Str("delegation_edge_id", revocationAnchors.DelegationEdgeID).
 			Msg("denied: session revoked")
 		return
 	}
@@ -372,7 +372,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if exp.After(time.Now()) {
 		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
 	}
-	copyResult := copyResponse(w, resp, p.revocations, revocationIDs)
+	copyResult := copyResponse(w, resp, p.revocations, revocationAnchors)
 	p.metrics.RequestsAllowed.Add(1)
 	p.emitActionAudit(gatewayAuditInput{
 		RequestID:          requestID,
@@ -627,7 +627,7 @@ type responseCopyResult struct {
 	Revoked bool
 }
 
-func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationIDs) responseCopyResult {
+func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors) responseCopyResult {
 	// X-Caracal-Identity is the gateway-side mirror of the Caracal JWT for
 	// provider-native auth modes. Echoing it back to clients would surface a
 	// short-TTL but still usable bearer; strip it before fan-out.
@@ -661,13 +661,13 @@ func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revoca
 // On every chunk boundary it re-checks all authority revocation anchors. Returns
 // true when the stream was truncated due to revocation so the caller can emit the
 // X-Caracal-Revoked trailer.
-func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations revocationChecker, ids tokenRevocationIDs) (int64, bool) {
+func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations revocationChecker, ids tokenRevocationAnchors) (int64, bool) {
 	buf := make([]byte, 4*1024)
 	var total int64
 	for {
-		if revocations.IsRevoked(ids.SID) ||
-			revocations.IsRevoked(ids.RootSID) ||
-			revocations.IsAgentRevoked(ids.AgentSessionID) ||
+		if revocations.IsRevoked(ids.AuthorityRecordID) ||
+			revocations.IsRevoked(ids.RootAuthorityRecordID) ||
+			revocations.IsSessionRevoked(ids.SessionID) ||
 			revocations.IsDelegationRevoked(ids.DelegationEdgeID) {
 			_ = src.Close()
 			return total, true

@@ -36,15 +36,15 @@ const (
 	// initiating long streams must treat ttlResourceMandate as the contract upper
 	// bound: streams running past it should expect upstream-side disconnect
 	// or a fresh exchange and reconnect orchestrated by the SDK.
-	ttlResourceMandate     = 15 * time.Minute
-	ttlSessionMandate      = 60 * time.Minute
-	gatewayExchangeSkew    = 60 * time.Second
-	controlInvokeTrait     = "control:invoke"
-	controlScopeTrait      = "control:scope:"
-	controlMaxTTLTrait     = "control:max-ttl:"
-	controlExpiresTrait    = "control:expires:"
-	defaultControlAudience = "caracal-control"
-	providerTokenCacheSkew = 30 * time.Second
+	ttlResourceMandate        = 15 * time.Minute
+	ttlAuthorityRecordMandate = 60 * time.Minute
+	gatewayExchangeSkew       = 60 * time.Second
+	controlInvokeTrait        = "control:invoke"
+	controlScopeTrait         = "control:scope:"
+	controlMaxTTLTrait        = "control:max-ttl:"
+	controlExpiresTrait       = "control:expires:"
+	defaultControlAudience    = "caracal-control"
+	providerTokenCacheSkew    = 30 * time.Second
 )
 
 type delegationProof struct {
@@ -67,6 +67,15 @@ type delegationConstraints struct {
 }
 
 func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	requestID := r.Header.Get("X-Request-Id")
+	if requestID == "" {
+		if id, err := uuid.NewV7(); err == nil {
+			requestID = id.String()
+		}
+	}
+	if requestID != "" {
+		w.Header().Set("X-Request-Id", requestID)
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
@@ -89,7 +98,6 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ttlSeconds = parsedTTL
 	}
 
-	requestID := r.Header.Get("X-Request-Id")
 	if requestID == "" {
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -117,8 +125,8 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ClientAssertion:      r.FormValue("client_assertion"),
 		ClientAssertionType:  r.FormValue("client_assertion_type"),
 		ChallengeID:          r.FormValue("challenge_id"),
-		SessionID:            r.FormValue("session_id"),
-		AgentSessionID:       r.FormValue("agent_session_id"),
+		AuthorityRecordID:    r.FormValue("session_id"),
+		SessionID:            r.FormValue("agent_session_id"),
 		DelegationEdgeID:     r.FormValue("delegation_edge_id"),
 		RequestMethod:        r.FormValue("request_method"),
 		RequestPath:          r.FormValue("request_path"),
@@ -269,14 +277,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if err != nil {
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid subject_token")
 		}
-		sid, serr := s.validateTokenSession(ctx, zoneID, app.ID, req.SessionID, subjectClaims)
+		sid, serr := s.validateAuthorityRecord(ctx, zoneID, app.ID, req.AuthorityRecordID, subjectClaims)
 		if serr != nil {
 			return nil, nil, http.StatusForbidden, serr
 		}
-		if req.SessionID == "" {
-			req.SessionID = sid
+		if req.AuthorityRecordID == "" {
+			req.AuthorityRecordID = sid
 		}
-		if aerr := bindSubjectAgentSession(&req, subjectClaims); aerr != nil {
+		if aerr := bindSubjectSession(&req, subjectClaims); aerr != nil {
 			return nil, nil, http.StatusForbidden, aerr
 		}
 	}
@@ -302,7 +310,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID)
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
-			existing.SessionID != req.SessionID ||
+			existing.AuthorityRecordID != req.AuthorityRecordID ||
 			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope))) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -314,7 +322,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used")
+			return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval already used; another request consumed it")
 		case ChallengeStateRejected:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
 				mergeAuditMeta(appMeta, stepUpAuditMeta(existing))); auditErr != nil {
@@ -335,7 +343,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			challengeResolved = true
 		}
 	}
-	delegation, agentSession, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
+	delegation, session, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
 	}
@@ -480,9 +488,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				ID:                 app.ID,
 				ZoneID:             zoneID,
 				RegistrationMethod: app.RegistrationMethod,
-				AgentSessionID:     req.AgentSessionID,
-				Lifecycle:          agentSessionLifecycle(agentSession),
-				Labels:             agentSessionLabels(agentSession),
+				SessionID:          req.SessionID,
+				Lifecycle:          sessionLifecycle(session),
+				Labels:             sessionLabels(session),
 			},
 			Resource: OPAResource{
 				Type:       "Resource",
@@ -490,15 +498,15 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				Identifier: resource.Identifier,
 				Scopes:     resource.Scopes,
 			},
-			Action:         action,
-			Session:        sessionInput(req.SessionID),
-			DelegationEdge: delegationEdgeInput(delegation),
+			Action:          action,
+			AuthorityRecord: sessionInput(req.AuthorityRecordID),
+			DelegationEdge:  delegationEdgeInput(delegation),
 			Context: OPAContext{
 				ActorClaims:       actorClaims,
 				SubjectClaims:     subjectClaims,
 				TraceID:           requestID,
+				AuthorityRecordID: req.AuthorityRecordID,
 				SessionID:         req.SessionID,
-				AgentSessionID:    req.AgentSessionID,
 				DelegationEdgeID:  req.DelegationEdgeID,
 				ChallengeResolved: challengeResolved,
 				RequestedScopes:   scopes,
@@ -519,10 +527,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			mergeAuditMeta(mergeAuditMeta(mergeAuditMeta(appMeta, map[string]any{
 				"resource":           resource.Identifier,
 				"requested_scopes":   scopes,
-				"session_id":         req.SessionID,
-				"agent_session_id":   req.AgentSessionID,
+				"session_id":         req.AuthorityRecordID,
+				"agent_session_id":   req.SessionID,
 				"delegation_edge_id": req.DelegationEdgeID,
-			}), agentAuditMeta(agentSession)), delegationMeta), bundle); auditErr != nil {
+			}), agentAuditMeta(session)), delegationMeta), bundle); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 
@@ -548,7 +556,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// an approval bound to this exact request. Issuance is idempotent per binding,
 		// and a hold an approver has already granted releases the mint right here even
 		// when the retry did not carry the challenge id.
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.SessionID, req.AgentSessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
@@ -593,7 +601,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	sid, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate authority record id")
 	}
 	sessID := sid.String()
 	now := exchangeNow
@@ -638,12 +646,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		use = UseSession
 	}
 
-	sess := &Session{
+	record := &AuthorityRecord{
 		ID:              sessID,
 		ZoneID:          zoneID,
 		SessionType:     sessionType,
 		SubjectID:       &subjectID,
-		ParentID:        parentSessionID(req.SessionID, use),
+		ParentID:        parentAuthorityRecordID(req.AuthorityRecordID, use),
 		Status:          "active",
 		ExpiresAt:       now.Add(ttl),
 		AuthenticatedAt: now,
@@ -657,31 +665,31 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval no longer valid")
+			return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it")
 		}
 		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
 			mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 	}
-	if err := s.db.InsertSession(ctx, sess); err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
+	if err := s.db.InsertAuthorityRecord(ctx, record); err != nil {
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 	}
 
 	mintedScope := mintScope(req, subjectClaims)
 	issueParams := IssueParams{
-		ZoneID:         zoneID,
-		AppID:          app.ID,
-		SubjectID:      subjectID,
-		SubType:        subType,
-		Use:            use,
-		SID:            sessID,
-		RootSID:        rootSessionID(subjectClaims, sessID, use),
-		Scopes:         mintedScope,
-		Resources:      grantedResources,
-		TTL:            ttl,
-		AgentSessionID: req.AgentSessionID,
-		IssuedAt:       now,
+		ZoneID:                zoneID,
+		AppID:                 app.ID,
+		SubjectID:             subjectID,
+		SubType:               subType,
+		Use:                   use,
+		AuthorityRecordID:     sessID,
+		RootAuthorityRecordID: rootAuthorityRecordID(subjectClaims, sessID, use),
+		Scopes:                mintedScope,
+		Resources:             grantedResources,
+		TTL:                   ttl,
+		SessionID:             req.SessionID,
+		IssuedAt:              now,
 	}
 	if req.DelegationEdgeID != "" {
 		issueParams.DelegationEdgeID = req.DelegationEdgeID
@@ -1282,7 +1290,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 }
 
 func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
-	if req.SubjectToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(req.Resources) == 0 {
@@ -1349,44 +1357,44 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	return mc, nil
 }
 
-func (s *Server) validateTokenSession(ctx context.Context, zoneID, appID, sessionID string, claims map[string]any) (string, *sharederr.CaracalError) {
+func (s *Server) validateAuthorityRecord(ctx context.Context, zoneID, appID, authorityRecordID string, claims map[string]any) (string, *sharederr.CaracalError) {
 	sid := claimString(claims, "sid")
 	if sid == "" {
-		return "", sharederr.New(sharederr.InvalidToken, "missing token session")
+		return "", sharederr.New(sharederr.InvalidToken, "missing token authority record")
 	}
-	if sessionID != "" && sessionID != sid {
-		return "", sharederr.New(sharederr.AccessDenied, "session mismatch")
+	if authorityRecordID != "" && authorityRecordID != sid {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record mismatch")
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return "", sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	session, err := s.db.GetSession(ctx, sid)
-	if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
-		return "", sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+	record, err := s.db.GetAuthorityRecord(ctx, sid)
+	if err != nil || record.ZoneID != zoneID || record.Status != "active" || !record.ExpiresAt.After(now) {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record inactive or expired")
 	}
-	// Defense in depth: even with a valid signature, the session row's
+	// Defense in depth: even with a valid signature, the authority record's
 	// subject must match the JWT sub claim. A leaked signing key or any
 	// other path that could mint a structurally-valid token still fails
-	// this bind unless the session row was also tampered with.
+	// this bind unless the authority record was also tampered with.
 	sub := claimString(claims, "sub")
-	if sub == "" || session.SubjectID == nil || *session.SubjectID != sub {
-		return "", sharederr.New(sharederr.AccessDenied, "session subject mismatch")
+	if sub == "" || record.SubjectID == nil || *record.SubjectID != sub {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record subject mismatch")
 	}
 	if clientID := claimString(claims, "client_id"); clientID == "" || clientID != appID {
-		return "", sharederr.New(sharederr.AccessDenied, "session client mismatch")
+		return "", sharederr.New(sharederr.AccessDenied, "authority record client mismatch")
 	}
 	return sid, nil
 }
 
-func parentSessionID(sessionID string, use string) *string {
-	if use != UseResource || sessionID == "" {
+func parentAuthorityRecordID(authorityRecordID string, use string) *string {
+	if use != UseResource || authorityRecordID == "" {
 		return nil
 	}
-	return &sessionID
+	return &authorityRecordID
 }
 
-func rootSessionID(claims map[string]any, sid string, use string) string {
+func rootAuthorityRecordID(claims map[string]any, sid string, use string) string {
 	if use == UseSession {
 		return sid
 	}
@@ -1461,7 +1469,7 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 	if controlExpired(app, now.UTC()) {
 		return false
 	}
-	if req.SubjectToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(scopes) == 0 {
@@ -1516,8 +1524,8 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 	if c.ApplicationID != "" {
 		meta["application_id"] = c.ApplicationID
 	}
-	if c.SessionID != "" {
-		meta["session_id"] = c.SessionID
+	if c.AuthorityRecordID != "" {
+		meta["session_id"] = c.AuthorityRecordID
 	}
 	return meta
 }
@@ -1525,14 +1533,14 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 // challengeWire converts a stored challenge row to the 401 interaction_required body.
 func challengeWire(c *StepUpChallengePG, now time.Time) *challengeState {
 	return &challengeState{
-		ID:            c.ID,
-		ZoneID:        c.ZoneID,
-		SessionID:     c.SessionID,
-		ChallengeType: c.ChallengeType,
-		State:         challengeLifecycleState(c, now),
-		Tier:          c.Tier,
-		Binding:       c.ResourceSetHash,
-		ExpiresAt:     c.ExpiresAt,
+		ID:                c.ID,
+		ZoneID:            c.ZoneID,
+		AuthorityRecordID: c.AuthorityRecordID,
+		ChallengeType:     c.ChallengeType,
+		State:             challengeLifecycleState(c, now),
+		Tier:              c.Tier,
+		Binding:           c.ResourceSetHash,
+		ExpiresAt:         c.ExpiresAt,
 	}
 }
 
@@ -1589,7 +1597,7 @@ func delegationAuditMeta(d *delegationProof) map[string]any {
 	for i, h := range d.chain {
 		hops[i] = map[string]any{
 			"application_id":     h.AppID,
-			"agent_session_id":   h.AgentSessionID,
+			"agent_session_id":   h.SessionID,
 			"delegation_edge_id": h.DelegationEdgeID,
 		}
 	}
@@ -1616,34 +1624,34 @@ func mergeAuditMeta(base, extra map[string]any) map[string]any {
 	return merged
 }
 
-func sessionInput(sessionID string) *OPASession {
+func sessionInput(sessionID string) *OPAAuthorityRecord {
 	if sessionID == "" {
 		return nil
 	}
-	return &OPASession{ID: sessionID}
+	return &OPAAuthorityRecord{ID: sessionID}
 }
 
-func agentSessionLifecycle(session *AgentSession) string {
+func sessionLifecycle(session *Session) string {
 	if session == nil {
 		return ""
 	}
 	return session.Lifecycle
 }
 
-func agentSessionLabels(session *AgentSession) []string {
+func sessionLabels(session *Session) []string {
 	if session == nil || len(session.Labels) == 0 {
 		return nil
 	}
 	return append([]string(nil), session.Labels...)
 }
 
-func agentAuditMeta(session *AgentSession) map[string]any {
+func agentAuditMeta(session *Session) map[string]any {
 	if session == nil {
 		return nil
 	}
 	meta := map[string]any{
 		"agent_lifecycle": session.Lifecycle,
-		"agent_labels":    agentSessionLabels(session),
+		"agent_labels":    sessionLabels(session),
 		"agent_depth":     session.Depth,
 	}
 	if session.ParentID != nil {
@@ -1660,15 +1668,15 @@ func applicationAuditMeta(app *Application) map[string]any {
 	}
 }
 
-func bindSubjectAgentSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
-	agentSessionID := claimString(claims, "agent_session_id")
-	if agentSessionID == "" {
+func bindSubjectSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
+	sessionID := claimString(claims, "agent_session_id")
+	if sessionID == "" {
 		return nil
 	}
-	if req.AgentSessionID != "" && req.AgentSessionID != agentSessionID {
-		return sharederr.New(sharederr.AccessDenied, "agent session mismatch")
+	if req.SessionID != "" && req.SessionID != sessionID {
+		return sharederr.New(sharederr.AccessDenied, "session mismatch")
 	}
-	req.AgentSessionID = agentSessionID
+	req.SessionID = sessionID
 	return nil
 }
 
@@ -1709,78 +1717,83 @@ func delegationAllowsResource(proof *delegationProof, resource *Resource) bool {
 	return containsString(proof.constraints.Resources, resource.Identifier)
 }
 
-// validateAgentSessionOwnership binds the asserted agent_session_id to the calling
+// validateSessionOwnership binds the asserted governed Session ID to the calling
 // application: the row must exist, be active in this zone, and be owned by app.ID.
-// This stops two apps in a zone from forging each other's agent identity by passing
-// a peer's agent_session_id.
-func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appID, agentSessionID string) (*AgentSession, *sharederr.CaracalError) {
+// This stops two apps in a zone from forging each other's execution identity.
+func (s *Server) validateSessionOwnership(ctx context.Context, zoneID, appID, sessionID string) (*Session, *sharederr.CaracalError) {
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	session, err := s.db.GetAgentSession(ctx, agentSessionID)
-	if err != nil || !activeAgentSession(session, zoneID, now) {
-		return nil, sharederr.New(sharederr.AccessDenied, "agent session inactive or expired")
+	session, err := s.db.GetSession(ctx, sessionID)
+	if err != nil || !activeSession(session, zoneID, now) {
+		return nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
 	}
 	if session.ApplicationID != appID {
-		return nil, sharederr.New(sharederr.AccessDenied, "agent session not owned by caller")
+		return nil, sharederr.New(sharederr.AccessDenied, "session not owned by caller")
 	}
 	return session, nil
 }
 
-// validateSessionReferences is the single source of truth for binding a token
-// exchange to user/agent sessions and delegation edges. When a delegation_edge_id
-// is present the receiving target agent session's ownership is verified inside
+// validateSessionReferences binds a token exchange to an authority record, governed
+// Sessions, and Delegations. When a delegation_edge_id is present, the receiving
+// target Session's ownership is verified inside
 // the delegation block (target.ApplicationID == appID); otherwise the calling
-// application's ownership of the asserted agent_session_id is verified directly,
+// application's ownership of the asserted Session ID is verified directly,
 // preventing peer-app forgery through either path.
-func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *AgentSession, *sharederr.CaracalError) {
+func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *Session, *sharederr.CaracalError) {
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if req.SessionID != "" {
-		session, err := s.db.GetSession(ctx, req.SessionID)
+	if req.AuthorityRecordID != "" {
+		session, err := s.db.GetAuthorityRecord(ctx, req.AuthorityRecordID)
 		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
-			return nil, nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record inactive or expired")
 		}
 		// Application-principal flows (no subject_token) must assert a
-		// session owned by the calling app. Without this, peer apps in a
+		// authority record owned by the calling app. Without this, peer apps in a
 		// zone could pass another app's session_id and have OPA evaluate
-		// against a session reputation/state that is not their own.
+		// against authority state that is not their own.
 		if !hasSubjectToken {
 			if session.SessionType != "application" || session.SubjectID == nil || *session.SubjectID != appID {
-				return nil, nil, sharederr.New(sharederr.AccessDenied, "session not owned by caller")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record not owned by caller")
 			}
 		}
 	}
-	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
-		agentSession, aerr := s.validateAgentSessionOwnership(ctx, zoneID, appID, req.AgentSessionID)
+	if req.SessionID != "" && req.DelegationEdgeID == "" {
+		session, aerr := s.validateSessionOwnership(ctx, zoneID, appID, req.SessionID)
 		if aerr != nil {
 			return nil, nil, aerr
 		}
-		return nil, agentSession, nil
+		if hasSubjectToken && req.AuthorityRecordID != "" && session.SubjectAuthorityRecordID != req.AuthorityRecordID {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
+		}
+		return nil, session, nil
 	}
 	if req.DelegationEdgeID == "" {
 		return nil, nil, nil
 	}
-	if req.AgentSessionID == "" {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge requires target agent session")
+	if req.SessionID == "" {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation requires a target Session")
 	}
 	edge, err := s.db.GetDelegationEdge(ctx, req.DelegationEdgeID)
 	if err != nil || edge.ZoneID != zoneID || edge.Status != "active" || !edge.ExpiresAt.After(now) || edge.RevokedAt != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge inactive or expired")
 	}
-	if edge.TargetSessionID != req.AgentSessionID {
+	if edge.TargetSessionID != req.SessionID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge target mismatch")
 	}
-	source, err := s.db.GetAgentSession(ctx, edge.SourceSessionID)
-	if err != nil || !activeAgentSession(source, zoneID, now) {
+	source, err := s.db.GetSession(ctx, edge.SourceSessionID)
+	if err != nil || !activeSession(source, zoneID, now) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation source inactive or expired")
 	}
-	target, err := s.db.GetAgentSession(ctx, edge.TargetSessionID)
-	if err != nil || !activeAgentSession(target, zoneID, now) || target.ApplicationID != appID {
+	target, err := s.db.GetSession(ctx, edge.TargetSessionID)
+	if err != nil || !activeSession(target, zoneID, now) || target.ApplicationID != appID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation target inactive or unauthorized")
+	}
+	if hasSubjectToken && req.AuthorityRecordID != "" && target.SubjectAuthorityRecordID != req.AuthorityRecordID {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 	}
 	if source.ApplicationID != edge.IssuerAppID || target.ApplicationID != edge.ReceiverAppID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation application mismatch")
@@ -1827,7 +1840,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 // buildDelegationChain resolves each edge id along the path to a chain hop the
 // resource side can audit and authorize against. The chain walks from the
 // originating issuer to the immediate receiver in order.
-func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
 	if len(path) == 0 {
 		return nil, nil
 	}
@@ -1855,14 +1868,14 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		}
 		hops = append(hops, ChainHop{
 			AppID:            hopEdge.IssuerAppID,
-			AgentSessionID:   hopEdge.SourceSessionID,
+			SessionID:        hopEdge.SourceSessionID,
 			DelegationEdgeID: hopEdge.ID,
 		})
 		prevReceiverApp = hopEdge.ReceiverAppID
 	}
 	hops = append(hops, ChainHop{
-		AppID:          edge.ReceiverAppID,
-		AgentSessionID: target.ID,
+		AppID:     edge.ReceiverAppID,
+		SessionID: target.ID,
 	})
 	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
 		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
@@ -1940,7 +1953,7 @@ func containsString(values []string, wanted string) bool {
 	return false
 }
 
-func activeAgentSession(session *AgentSession, zoneID string, now time.Time) bool {
+func activeSession(session *Session, zoneID string, now time.Time) bool {
 	if session == nil || session.ZoneID != zoneID || session.Status != "active" {
 		return false
 	}
@@ -1950,7 +1963,7 @@ func activeAgentSession(session *AgentSession, zoneID string, now time.Time) boo
 	if session.TTLSeconds <= 0 {
 		return false
 	}
-	return session.SpawnedAt.Add(time.Duration(session.TTLSeconds) * time.Second).After(now)
+	return session.StartedAt.Add(time.Duration(session.TTLSeconds) * time.Second).After(now)
 }
 
 func tokenTTL(ttlSeconds int, sessionMandateAllowed bool) (time.Duration, error) {
@@ -1963,7 +1976,7 @@ func tokenTTL(ttlSeconds int, sessionMandateAllowed bool) (time.Duration, error)
 	ttl := time.Duration(ttlSeconds) * time.Second
 	limit := ttlResourceMandate
 	if sessionMandateAllowed {
-		limit = ttlSessionMandate
+		limit = ttlAuthorityRecordMandate
 	}
 	if ttl > limit {
 		return 0, fmt.Errorf("ttl_seconds exceeds token TTL cap")
@@ -2021,6 +2034,9 @@ func derefStr(s *string) string {
 }
 
 func writeError(w http.ResponseWriter, code int, err *sharederr.CaracalError) {
+	if err.RequestID == "" {
+		err.RequestID = w.Header().Get("X-Request-Id")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(err)

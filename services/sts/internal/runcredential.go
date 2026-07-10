@@ -173,7 +173,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		existing, lookupErr := s.db.GetStepUpChallenge(ctx, challengeID)
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != workload.ID ||
-			existing.SessionID != "" ||
+			existing.AuthorityRecordID != "" ||
 			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(boundResources, scopes)) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, resourceMeta); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)
@@ -188,7 +188,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, auditErr)
 				return
 			}
-			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used"))
+			writeError(w, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval already used; another request consumed it"))
 			return
 		case ChallengeStateRejected:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
@@ -309,7 +309,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, auditErr)
 				return
 			}
-			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval no longer valid"))
+			writeError(w, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it"))
 			return
 		}
 		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",

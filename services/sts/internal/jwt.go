@@ -203,11 +203,11 @@ func (k *KeyCache) Invalidate(zoneID string) {
 // ChainHop is a single step in the delegation chain attribution.
 type ChainHop struct {
 	AppID            string `json:"application_id"`
-	AgentSessionID   string `json:"agent_session_id,omitempty"`
+	SessionID        string `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string `json:"delegation_edge_id,omitempty"`
 }
 
-// Mandate use classes. Session mandates represent an execution session and may be
+// Mandate use classes. Session mandates are anchored by an authority record and may be
 // re-presented to STS as subject_token; resource mandates are narrowed to a specific
 // resource set and must never be reused as subject_token.
 const (
@@ -234,7 +234,7 @@ type Claims struct {
 	Use              string     `json:"use"`
 	SubType          string     `json:"sub_type"`
 	Target           []string   `json:"target,omitempty"`
-	AgentSessionID   string     `json:"agent_session_id,omitempty"`
+	SessionID        string     `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string     `json:"delegation_edge_id,omitempty"`
 	SourceSessionID  string     `json:"source_session_id,omitempty"`
 	TargetSessionID  string     `json:"target_session_id,omitempty"`
@@ -246,24 +246,24 @@ type Claims struct {
 
 // IssueParams holds everything needed to produce a signed JWT.
 type IssueParams struct {
-	ZoneID           string
-	AppID            string
-	SubjectID        string
-	SubType          string
-	Use              string
-	SID              string
-	RootSID          string
-	Scopes           string
-	Resources        []string
-	TTL              time.Duration
-	AgentSessionID   string
-	DelegationEdgeID string
-	SourceSessionID  string
-	TargetSessionID  string
-	DelegationPath   []string
-	DelegationChain  []ChainHop
-	GraphEpoch       int64
-	IssuedAt         time.Time
+	ZoneID                string
+	AppID                 string
+	SubjectID             string
+	SubType               string
+	Use                   string
+	AuthorityRecordID     string
+	RootAuthorityRecordID string
+	Scopes                string
+	Resources             []string
+	TTL                   time.Duration
+	SessionID             string
+	DelegationEdgeID      string
+	SourceSessionID       string
+	TargetSessionID       string
+	DelegationPath        []string
+	DelegationChain       []ChainHop
+	GraphEpoch            int64
+	IssuedAt              time.Time
 }
 
 func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerURL string) (string, string, error) {
@@ -310,12 +310,12 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		ZoneID:           params.ZoneID,
 		ClientID:         params.AppID,
 		Scope:            params.Scopes,
-		SID:              params.SID,
-		RootSID:          params.RootSID,
+		SID:              params.AuthorityRecordID,
+		RootSID:          params.RootAuthorityRecordID,
 		Use:              use,
 		SubType:          subType,
 		Target:           params.Resources,
-		AgentSessionID:   params.AgentSessionID,
+		SessionID:        params.SessionID,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,

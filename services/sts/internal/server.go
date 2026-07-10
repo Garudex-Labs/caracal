@@ -379,7 +379,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "challenge does not admit subject decisions"))
 		return
 	}
-	approverSID, serr := s.validateTokenSession(r.Context(), c.ZoneID, c.ApplicationID, "", claims)
+	approverAuthorityRecordID, serr := s.validateAuthorityRecord(r.Context(), c.ZoneID, c.ApplicationID, "", claims)
 	if serr != nil {
 		writeError(w, http.StatusForbidden, serr)
 		return
@@ -388,13 +388,13 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval requires an operator decision"))
 		return
 	}
-	related, err := s.db.SessionsRelated(r.Context(), c.ZoneID, approverSID, c.SessionID)
+	related, err := s.db.AuthorityRecordsRelated(r.Context(), c.ZoneID, approverAuthorityRecordID, c.AuthorityRecordID)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "session lineage unavailable"))
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "authority record lineage unavailable"))
 		return
 	}
 	if related {
-		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "an approver cannot decide a hold raised by its own session lineage"))
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "an approver cannot decide a hold raised by its own authority record lineage"))
 		return
 	}
 	if body.Binding != hex.EncodeToString(c.ResourceSetHash) {
@@ -402,12 +402,12 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	decideErr := s.db.DecideStepUpChallenge(r.Context(), DecideStepUpParams{
-		ID:                c.ID,
-		ZoneID:            c.ZoneID,
-		Approve:           body.Decision == "approved",
-		ApproverSubjectID: approverRecordID(c.PrivacyMode, c.ZoneID, claimString(claims, "sub")),
-		ApproverSessionID: approverSID,
-		Reason:            body.Reason,
+		ID:                        c.ID,
+		ZoneID:                    c.ZoneID,
+		Approve:                   body.Decision == "approved",
+		ApproverSubjectID:         approverRecordID(c.PrivacyMode, c.ZoneID, claimString(claims, "sub")),
+		ApproverAuthorityRecordID: approverAuthorityRecordID,
+		Reason:                    body.Reason,
 	})
 	if decideErr != nil {
 		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "challenge is not pending"))
@@ -416,7 +416,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 	if auditErr := s.emitStepUpAudit(c.ID, c.ZoneID, "step_up_decided", body.Decision,
 		mergeAuditMeta(stepUpAuditMeta(c), map[string]any{
 			"approver_plane":      "subject",
-			"approver_session_id": approverSID,
+			"approver_session_id": approverAuthorityRecordID,
 		})); auditErr != nil {
 		writeError(w, http.StatusInternalServerError, auditErr)
 		return
@@ -437,8 +437,8 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 // approverRecordID applies a hold's privacy mode to the approver identity the decision
 // record retains. identified stores the subject verbatim; pseudonymous stores a stable
 // zone-scoped pseudonym so decisions by one approver correlate without naming anyone;
-// anonymous stores only a redaction marker. Every mode retains the approver's session
-// id separately as the forensic and revocation anchor.
+// anonymous stores only a redaction marker. Every mode retains the approver's authority
+// record id separately as the forensic and revocation anchor.
 func approverRecordID(privacyMode, zoneID, sub string) string {
 	switch privacyMode {
 	case PrivacyAnonymous:

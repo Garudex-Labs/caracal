@@ -78,17 +78,17 @@ type DBQuerier interface {
 	GetProvider(ctx context.Context, id string) (*ProviderConfig, error)
 	GetSubjectIssuerByIssuer(ctx context.Context, zoneID, issuer string) (*SubjectIssuer, error)
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
-	GetSession(ctx context.Context, sid string) (*Session, error)
-	GetAgentSession(ctx context.Context, id string) (*AgentSession, error)
+	GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityRecord, error)
+	GetSession(ctx context.Context, id string) (*Session, error)
 	GetDelegationPath(ctx context.Context, zoneID, sourceID, targetID string, maxHops int) ([]string, error)
 	GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64, error)
-	InsertSession(ctx context.Context, s *Session) error
-	RevokeSession(ctx context.Context, zoneID, sid, reason string) error
+	InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) error
+	RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
 	DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error
 	ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error
-	SessionsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error)
+	AuthorityRecordsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error)
 	DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error)
 	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error)
 	InsertZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error)
@@ -259,8 +259,8 @@ func (d *DB) GetPolicyVersionsByIDs(ctx context.Context, ids []string) ([]Policy
 	return versions, rows.Err()
 }
 
-// Session holds the STS session fields.
-type Session struct {
+// AuthorityRecord holds the STS token-lineage and revocation fields.
+type AuthorityRecord struct {
 	ID              string
 	ZoneID          string
 	SessionType     string
@@ -289,20 +289,20 @@ type DelegationEdge struct {
 	RevokedAt       *time.Time
 }
 
-// AgentSession holds coordinator graph node fields needed by STS.
-type AgentSession struct {
-	ID                  string
-	ZoneID              string
-	ApplicationID       string
-	SubjectSessionID    string
-	Lifecycle           string
-	Labels              []string
-	Status              string
-	SpawnedAt           time.Time
-	TTLSeconds          int
-	HeartbeatDeadlineAt *time.Time
-	ParentID            *string
-	Depth               int
+// Session holds coordinator graph node fields needed by STS.
+type Session struct {
+	ID                       string
+	ZoneID                   string
+	ApplicationID            string
+	SubjectAuthorityRecordID string
+	Lifecycle                string
+	Labels                   []string
+	Status                   string
+	StartedAt                time.Time
+	TTLSeconds               int
+	HeartbeatDeadlineAt      *time.Time
+	ParentID                 *string
+	Depth                    int
 }
 
 func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error) {
@@ -333,11 +333,11 @@ func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge,
 	return &edge, nil
 }
 
-func (d *DB) GetSession(ctx context.Context, sid string) (*Session, error) {
-	var s Session
+func (d *DB) GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityRecord, error) {
+	var s AuthorityRecord
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at
-		 FROM sessions WHERE id = $1`, sid,
+		 FROM authority_records WHERE id = $1`, sid,
 	).Scan(&s.ID, &s.ZoneID, &s.SessionType, &s.SubjectID, &s.ParentID, &s.Status, &s.ExpiresAt, &s.AuthenticatedAt)
 	if err != nil {
 		return nil, err
@@ -345,13 +345,13 @@ func (d *DB) GetSession(ctx context.Context, sid string) (*Session, error) {
 	return &s, nil
 }
 
-func (d *DB) GetAgentSession(ctx context.Context, id string) (*AgentSession, error) {
-	var s AgentSession
+func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
+	var s Session
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, application_id, subject_session_id, lifecycle, labels, status,
-		        spawned_at, COALESCE(ttl_seconds, 0), heartbeat_deadline_at, parent_id, depth
-		 FROM agent_sessions WHERE id = $1`, id,
-	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectSessionID, &s.Lifecycle, &s.Labels, &s.Status, &s.SpawnedAt, &s.TTLSeconds, &s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth)
+		`SELECT id, zone_id, application_id, subject_authority_record_id, lifecycle, labels, status,
+		        started_at, COALESCE(ttl_seconds, 0), heartbeat_deadline_at, parent_id, depth
+		 FROM sessions WHERE id = $1`, id,
+	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectAuthorityRecordID, &s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.TTLSeconds, &s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -395,32 +395,32 @@ func (d *DB) GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64,
 	return epoch, err
 }
 
-func (d *DB) InsertSession(ctx context.Context, s *Session) error {
+func (d *DB) InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) error {
 	claims := s.ClaimsJSON
 	if len(claims) == 0 {
 		claims = nil
 	}
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO sessions (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
+		`INSERT INTO authority_records (id, zone_id, session_type, subject_id, parent_id, status, expires_at, authenticated_at, claims_json)
 		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8)`,
 		s.ID, s.ZoneID, s.SessionType, s.SubjectID, s.ParentID, s.ExpiresAt, s.AuthenticatedAt, claims,
 	)
 	return err
 }
 
-func (d *DB) RevokeSession(ctx context.Context, zoneID, sid, reason string) error {
+func (d *DB) RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error {
 	if reason == "" {
 		reason = "session_revoked"
 	}
 	_, err := d.pool.Exec(ctx,
 		`WITH RECURSIVE revoked_tree AS (
-		   SELECT id FROM sessions WHERE id = $1 AND zone_id = $2
+		   SELECT id FROM authority_records WHERE id = $1 AND zone_id = $2
 		   UNION ALL
-		   SELECT s.id FROM sessions s
-		   JOIN revoked_tree r ON s.parent_id = r.id
-		   WHERE s.zone_id = $2
+		   SELECT a.id FROM authority_records a
+		   JOIN revoked_tree r ON a.parent_id = r.id
+		   WHERE a.zone_id = $2
 		 )
-		 UPDATE sessions SET status = 'revoked',
+		 UPDATE authority_records SET status = 'revoked',
 		   revoked_at = COALESCE(revoked_at, now()),
 		   revoked_reason = COALESCE(revoked_reason, $3)
 		 WHERE zone_id = $2 AND id IN (SELECT id FROM revoked_tree)`,
@@ -433,24 +433,24 @@ func (d *DB) RevokeSession(ctx context.Context, zoneID, sid, reason string) erro
 // exact authority binding, carrying the resolved tier declaration and the approver's
 // decision.
 type StepUpChallengePG struct {
-	ID                string
-	ZoneID            string
-	SessionID         string
-	ChallengeType     string
-	PrincipalID       string
-	ApplicationID     string
-	Tier              string
-	ApproverClass     string
-	PrivacyMode       string
-	ResourceSetHash   []byte
-	ExpiresAt         time.Time
-	SatisfiedAt       *time.Time
-	RejectedAt        *time.Time
-	ConsumedAt        *time.Time
-	ApproverSubjectID *string
-	ApproverSessionID *string
-	DecisionReason    *string
-	MetadataJSON      []byte
+	ID                        string
+	ZoneID                    string
+	AuthorityRecordID         string
+	ChallengeType             string
+	PrincipalID               string
+	ApplicationID             string
+	Tier                      string
+	ApproverClass             string
+	PrivacyMode               string
+	ResourceSetHash           []byte
+	ExpiresAt                 time.Time
+	SatisfiedAt               *time.Time
+	RejectedAt                *time.Time
+	ConsumedAt                *time.Time
+	ApproverSubjectID         *string
+	ApproverAuthorityRecordID *string
+	DecisionReason            *string
+	MetadataJSON              []byte
 }
 
 // ConsumeApprovalParams holds the bindings the caller must present to consume a
@@ -467,14 +467,14 @@ type ConsumeApprovalParams struct {
 
 // DecideStepUpParams records an authenticated approver's decision on a pending hold.
 // ApproverSubjectID arrives with the challenge's privacy mode already applied; the
-// approver's session id, when present, is the forensic and revocation anchor.
+// approver's authority record id, when present, is the forensic and revocation anchor.
 type DecideStepUpParams struct {
-	ID                string
-	ZoneID            string
-	Approve           bool
-	ApproverSubjectID string
-	ApproverSessionID string
-	Reason            string
+	ID                        string
+	ZoneID                    string
+	Approve                   bool
+	ApproverSubjectID         string
+	ApproverAuthorityRecordID string
+	Reason                    string
 }
 
 const stepUpChallengeColumns = `id, zone_id, session_id, challenge_type, principal_id,
@@ -486,9 +486,9 @@ func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
 	var c StepUpChallengePG
 	var appID *string
 	var tier *string
-	err := row.Scan(&c.ID, &c.ZoneID, &c.SessionID, &c.ChallengeType, &c.PrincipalID,
+	err := row.Scan(&c.ID, &c.ZoneID, &c.AuthorityRecordID, &c.ChallengeType, &c.PrincipalID,
 		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &c.ResourceSetHash, &c.ExpiresAt,
-		&c.SatisfiedAt, &c.RejectedAt, &c.ConsumedAt, &c.ApproverSubjectID, &c.ApproverSessionID,
+		&c.SatisfiedAt, &c.RejectedAt, &c.ConsumedAt, &c.ApproverSubjectID, &c.ApproverAuthorityRecordID,
 		&c.DecisionReason, &c.MetadataJSON)
 	if err != nil {
 		return nil, err
@@ -522,7 +522,7 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 		`DELETE FROM step_up_challenges
 		 WHERE zone_id = $1 AND principal_id = $2 AND session_id = $3 AND resource_set_hash = $4
 		   AND consumed_at IS NULL AND expires_at <= now()`,
-		c.ZoneID, c.PrincipalID, c.SessionID, c.ResourceSetHash,
+		c.ZoneID, c.PrincipalID, c.AuthorityRecordID, c.ResourceSetHash,
 	); err != nil {
 		return nil, false, err
 	}
@@ -534,7 +534,7 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 		 ON CONFLICT (zone_id, principal_id, session_id, resource_set_hash)
 		   WHERE consumed_at IS NULL DO NOTHING
 		 RETURNING `+stepUpChallengeColumns,
-		c.ID, c.ZoneID, c.SessionID, c.ChallengeType, c.PrincipalID, c.ApplicationID,
+		c.ID, c.ZoneID, c.AuthorityRecordID, c.ChallengeType, c.PrincipalID, c.ApplicationID,
 		c.Tier, c.ApproverClass, c.PrivacyMode, c.ResourceSetHash, c.ExpiresAt, metadata,
 	)
 	created, err := scanStepUpChallenge(row)
@@ -549,7 +549,7 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 		 FROM step_up_challenges
 		 WHERE zone_id = $1 AND principal_id = $2 AND session_id = $3 AND resource_set_hash = $4
 		   AND consumed_at IS NULL`,
-		c.ZoneID, c.PrincipalID, c.SessionID, c.ResourceSetHash,
+		c.ZoneID, c.PrincipalID, c.AuthorityRecordID, c.ResourceSetHash,
 	))
 	if err != nil {
 		return nil, false, err
@@ -576,7 +576,7 @@ func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) er
 		   AND rejected_at IS NULL
 		   AND consumed_at IS NULL
 		   AND expires_at > now()`,
-		p.ID, p.ZoneID, p.Approve, p.ApproverSubjectID, p.ApproverSessionID, p.Reason,
+		p.ID, p.ZoneID, p.Approve, p.ApproverSubjectID, p.ApproverAuthorityRecordID, p.Reason,
 	)
 	if err != nil {
 		return err
@@ -609,11 +609,11 @@ func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalPara
 		   AND c.consumed_at IS NULL
 		   AND c.expires_at > now()
 		   AND (c.session_id = '' OR EXISTS (
-		     SELECT 1 FROM sessions s
-		     WHERE s.id = c.session_id
-		       AND s.zone_id = c.zone_id
-		       AND s.status = 'active'
-		       AND s.expires_at > now()
+		     SELECT 1 FROM authority_records a
+		     WHERE a.id = c.session_id
+		       AND a.zone_id = c.zone_id
+		       AND a.status = 'active'
+		       AND a.expires_at > now()
 		   ))`,
 		p.ID, p.ZoneID, p.PrincipalID, p.ResourceSetHash,
 	)
@@ -633,32 +633,31 @@ func (d *DB) GetStepUpChallenge(ctx context.Context, id string) (*StepUpChalleng
 	))
 }
 
-// SessionsRelated reports whether two sessions in a zone sit on the same delegation
-// ancestry line: identical, ancestor, or descendant. Used to stop an approver session
-// from deciding a hold raised by its own session chain, closing the loop where an
-// agent's work is approved by the very session that spawned or descends from it.
-func (d *DB) SessionsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error) {
-	if sessionA == "" || sessionB == "" {
-		return sessionA != "" && sessionA == sessionB, nil
+// AuthorityRecordsRelated reports whether two authority records in a zone sit on
+// the same ancestry line: identical, ancestor, or descendant. It prevents an
+// approver from deciding a hold raised by its own token lineage.
+func (d *DB) AuthorityRecordsRelated(ctx context.Context, zoneID, recordA, recordB string) (bool, error) {
+	if recordA == "" || recordB == "" {
+		return recordA != "" && recordA == recordB, nil
 	}
 	var related bool
 	err := d.pool.QueryRow(ctx,
 		`WITH RECURSIVE lineage AS (
-		   SELECT id, parent_id FROM sessions WHERE id = $2 AND zone_id = $1
+		   SELECT id, parent_id FROM authority_records WHERE id = $2 AND zone_id = $1
 		   UNION ALL
-		   SELECT s.id, s.parent_id FROM sessions s
-		   JOIN lineage l ON s.id = l.parent_id
-		   WHERE s.zone_id = $1
+		   SELECT a.id, a.parent_id FROM authority_records a
+		   JOIN lineage l ON a.id = l.parent_id
+		   WHERE a.zone_id = $1
 		 ), reverse_lineage AS (
-		   SELECT id, parent_id FROM sessions WHERE id = $3 AND zone_id = $1
+		   SELECT id, parent_id FROM authority_records WHERE id = $3 AND zone_id = $1
 		   UNION ALL
-		   SELECT s.id, s.parent_id FROM sessions s
-		   JOIN reverse_lineage r ON s.id = r.parent_id
-		   WHERE s.zone_id = $1
+		   SELECT a.id, a.parent_id FROM authority_records a
+		   JOIN reverse_lineage r ON a.id = r.parent_id
+		   WHERE a.zone_id = $1
 		 )
 		 SELECT EXISTS (SELECT 1 FROM lineage WHERE id = $3)
 		     OR EXISTS (SELECT 1 FROM reverse_lineage WHERE id = $2)`,
-		zoneID, sessionA, sessionB,
+		zoneID, recordA, recordB,
 	).Scan(&related)
 	return related, err
 }

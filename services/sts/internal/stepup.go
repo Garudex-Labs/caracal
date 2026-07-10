@@ -36,7 +36,7 @@ const (
 
 	// Privacy modes: how much approver identity the decision record retains. identified
 	// stores the approver subject verbatim, pseudonymous stores a stable zone-scoped
-	// pseudonym, anonymous stores a redaction marker; the approver's session id is
+	// pseudonym, anonymous stores a redaction marker; the approver's authority record id is
 	// always retained as the forensic and revocation anchor.
 	PrivacyIdentified   = "identified"
 	PrivacyPseudonymous = "pseudonymous"
@@ -201,14 +201,14 @@ func strongerPrivacy(a, b string) string {
 
 // challengeState is the in-memory view of a step-up challenge surfaced on the wire.
 type challengeState struct {
-	ID            string
-	ZoneID        string
-	SessionID     string
-	ChallengeType string
-	State         string
-	Tier          string
-	Binding       []byte
-	ExpiresAt     time.Time
+	ID                string
+	ZoneID            string
+	AuthorityRecordID string
+	ChallengeType     string
+	State             string
+	Tier              string
+	Binding           []byte
+	ExpiresAt         time.Time
 }
 
 // challengeLifecycleState derives the wire state from a stored challenge row. A
@@ -237,7 +237,7 @@ func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
 // requesting agent run before deciding. The second return reports whether a new hold was
 // created.
-func (s *Server) ensureApproval(ctx context.Context, zoneID, sessionID, agentSessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, resources, scopes []string) (*StepUpChallengePG, bool, error) {
+func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, resources, scopes []string) (*StepUpChallengePG, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, false, err
@@ -250,26 +250,26 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, sessionID, agentSes
 		"requested_scopes": scopes,
 		"resources":        resources,
 	}
-	if agentSessionID != "" {
-		meta["agent_session_id"] = agentSessionID
+	if sessionID != "" {
+		meta["agent_session_id"] = sessionID
 	}
 	if delegationEdgeID != "" {
 		meta["delegation_edge_id"] = delegationEdgeID
 	}
 	metadata, _ := json.Marshal(meta)
 	return s.db.GetOrCreateApprovalChallenge(ctx, &StepUpChallengePG{
-		ID:              id.String(),
-		ZoneID:          zoneID,
-		SessionID:       sessionID,
-		ChallengeType:   humanApprovalChallengeType,
-		PrincipalID:     principalID,
-		ApplicationID:   applicationID,
-		Tier:            approval.Tier,
-		ApproverClass:   approval.Approver,
-		PrivacyMode:     approval.Privacy,
-		ResourceSetHash: hashApprovalBinding(resources, scopes),
-		ExpiresAt:       now.Add(approval.TTL),
-		MetadataJSON:    metadata,
+		ID:                id.String(),
+		ZoneID:            zoneID,
+		AuthorityRecordID: authorityRecordID,
+		ChallengeType:     humanApprovalChallengeType,
+		PrincipalID:       principalID,
+		ApplicationID:     applicationID,
+		Tier:              approval.Tier,
+		ApproverClass:     approval.Approver,
+		PrivacyMode:       approval.Privacy,
+		ResourceSetHash:   hashApprovalBinding(resources, scopes),
+		ExpiresAt:         now.Add(approval.TTL),
+		MetadataJSON:      metadata,
 	})
 }
 
