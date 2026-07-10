@@ -38,8 +38,8 @@ def _default_handler(req: httpx.Request) -> httpx.Response:
     return httpx.Response(404)
 
 
-class SpawnTests(unittest.IsolatedAsyncioTestCase):
-    async def test_yields_context_with_agent_session_id(self) -> None:
+class SessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_yields_context_with_session_id(self) -> None:
         coord = _coord(_default_handler)
         async with session(
             coordinator=coord,
@@ -358,7 +358,7 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
             )
 
 
-class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
+class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
     async def test_raises_without_active_parent(self) -> None:
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
@@ -407,7 +407,7 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(posts[2][1].endswith("/delegations"))
         self.assertTrue(any(m == "DELETE" for m, _ in calls))
 
-    async def test_delegation_failure_terminates_spawned_child(self) -> None:
+    async def test_delegation_failure_terminates_sessions_child(self) -> None:
         calls: list[tuple[str, str]] = []
 
         async def handler(req: httpx.Request) -> httpx.Response:
@@ -441,7 +441,7 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_start_hook_failure_terminates_spawned_child_without_end_hook(
+    async def test_start_hook_failure_terminates_sessions_child_without_end_hook(
         self,
     ) -> None:
         calls: list[str] = []
@@ -485,7 +485,7 @@ class SpawnNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
-    """CP-3: spawn must accept an explicit parent context."""
+    """CP-3: Session start must accept an explicit parent context."""
 
     async def test_spawn_uses_explicit_parent_ctx_when_no_current(self) -> None:
         from caracalai.context import CaracalContext
@@ -582,7 +582,7 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
 
-class SpawnInheritEdgeTests(unittest.IsolatedAsyncioTestCase):
+class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
     async def test_inherit_child_carries_parent_edge_forward(self) -> None:
         from caracalai.context import CaracalContext
 

@@ -352,14 +352,16 @@ class AdminOperationsTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            client.sessions.list("z1", {"status": "active"}), [{"id": "s1"}]
+            client.authority_records.list("z1", {"status": "active"}),
+            [{"id": "s1"}],
         )
         self.assertEqual(
-            str(requests[0].url), "http://api/v1/zones/z1/sessions?status=active"
+            str(requests[0].url),
+            "http://api/v1/zones/z1/authority-records?status=active",
         )
         with self.assertRaises(RuntimeError) as caught:
-            client.agent_sessions.list("z1")
-        self.assertEqual(str(caught.exception), "agent-sessions response missing items")
+            client.sessions.list("z1")
+        self.assertEqual(str(caught.exception), "sessions response missing items")
 
     def test_list_drains_cursors_to_the_complete_collection(self):
         requests: list[httpx.Request] = []
@@ -486,8 +488,8 @@ class AdminOperationsTests(unittest.TestCase):
                     200,
                     json={
                         "subject_id": "auth0|507f1f77bcf86cd799439011",
-                        "sessions": 2,
-                        "agents": 1,
+                        "authority_records": 2,
+                        "sessions": 1,
                         "delegations": 1,
                         "connections": 1,
                     },
@@ -513,7 +515,8 @@ class AdminOperationsTests(unittest.TestCase):
                 "reason": "credential compromise",
             },
         )
-        self.assertEqual(result["sessions"], 2)
+        self.assertEqual(result["authority_records"], 2)
+        self.assertEqual(result["sessions"], 1)
 
     def test_workload_surface_paths_and_custody_secret(self):
         requests: list[httpx.Request] = []
@@ -560,12 +563,23 @@ class AdminOperationsTests(unittest.TestCase):
         self.assertEqual(requests[5].method, "GET")
         self.assertEqual(requests[6].method, "DELETE")
 
-    def test_coordinator_surfaces_use_coordinator_base_and_token(self):
+    def test_session_listing_and_management_use_their_own_transports(self):
         requests: list[httpx.Request] = []
         client = make_client(
             [
-                httpx.Response(200, json={"items": [{"agent_session_id": "a1"}]}),
-                httpx.Response(200, json={"items": []}),
+                httpx.Response(200, json={"items": [{"id": "a1"}]}),
+                httpx.Response(
+                    200,
+                    json={
+                        "items": [
+                            {
+                                "agent_session_id": "a2",
+                                "parent_id": "a1",
+                                "subject_session_id": "record-1",
+                            }
+                        ]
+                    },
+                ),
                 httpx.Response(200, json={"suspended": True}),
                 httpx.Response(204),
                 httpx.Response(200, json={"agent_session_id": "a1"}),
@@ -577,19 +591,29 @@ class AdminOperationsTests(unittest.TestCase):
             coordinator_token="ct",
         )
 
-        agents = client.agents.list("z1", {"status": "active"})
-        client.agents.children("z1", "a1")
-        client.agents.suspend("z1", "a1")
-        client.agents.terminate("z1", "a1")
-        client.agents.effective_authority("z1", "a1")
+        sessions = client.sessions.list("z1", {"status": "active"})
+        children = client.sessions.children("z1", "a1")
+        client.sessions.suspend("z1", "a1")
+        client.sessions.terminate("z1", "a1")
+        client.sessions.effective_authority("z1", "a1")
         client.delegations.active("z1")
-        client.delegations.revoke("z1", "edge-1")
+        revocation = client.delegations.revoke("z1", "edge-1")
 
-        self.assertEqual(agents, [{"agent_session_id": "a1"}])
+        self.assertEqual(sessions, [{"id": "a1"}])
         self.assertEqual(
-            str(requests[0].url), "http://coord/zones/z1/agents?status=active"
+            children,
+            [
+                {
+                    "session_id": "a2",
+                    "parent_session_id": "a1",
+                    "authority_record_id": "record-1",
+                }
+            ],
         )
-        self.assertEqual(requests[0].headers["authorization"], "Bearer ct")
+        self.assertEqual(
+            str(requests[0].url), "http://api/v1/zones/z1/sessions?status=active"
+        )
+        self.assertEqual(requests[0].headers["authorization"], "Bearer t")
         self.assertEqual(
             str(requests[1].url), "http://coord/zones/z1/agents/a1/children"
         )
@@ -612,12 +636,13 @@ class AdminOperationsTests(unittest.TestCase):
             (str(requests[6].url), requests[6].method),
             ("http://coord/zones/z1/delegations/edge-1/revoke", "PATCH"),
         )
+        self.assertEqual(revocation, {"revoked_delegations": 1})
 
     def test_coordinator_surfaces_require_configuration(self):
         client = make_client([], [])
 
         with self.assertRaises(RuntimeError) as caught:
-            client.agents.list("z1")
+            client.sessions.get("z1", "session-1")
         self.assertEqual(str(caught.exception), "coordinator_url_not_configured")
 
         client = make_client([], [], coordinator_url="http://coord")
@@ -625,17 +650,15 @@ class AdminOperationsTests(unittest.TestCase):
             client.delegations.active("z1")
         self.assertEqual(str(caught.exception), "coordinator_token_not_configured")
 
-    def test_agents_list_validates_items(self):
+    def test_sessions_list_validates_items(self):
         client = make_client(
             [httpx.Response(200, json={"next_cursor": None})],
             [],
-            coordinator_url="http://coord",
-            coordinator_token="ct",
         )
 
         with self.assertRaises(RuntimeError) as caught:
-            client.agents.list("z1")
-        self.assertEqual(str(caught.exception), "agents response missing items")
+            client.sessions.list("z1")
+        self.assertEqual(str(caught.exception), "sessions response missing items")
 
     def test_coordinator_errors_carry_target(self):
         client = make_client(
@@ -647,7 +670,7 @@ class AdminOperationsTests(unittest.TestCase):
         )
 
         with self.assertRaises(AdminApiError) as caught:
-            client.agents.get("z1", "a1")
+            client.sessions.get("z1", "a1")
         self.assertEqual(caught.exception.target, "coordinator")
         self.assertEqual(caught.exception.code, "agent_not_found")
 

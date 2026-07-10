@@ -18,20 +18,20 @@ class InMemoryRevocationStore:
         self._lock = threading.Lock()
         self._default_ttl_ms = default_ttl_ms
 
-    def is_revoked(self, sid: str) -> bool:
+    def is_revoked(self, anchor_id: str) -> bool:
         with self._lock:
-            expiry = self._entries.get(sid)
+            expiry = self._entries.get(anchor_id)
             if expiry is None:
                 return False
             if time.monotonic() * 1000 >= expiry:
-                del self._entries[sid]
+                del self._entries[anchor_id]
                 return False
             return True
 
-    def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+    def mark_revoked(self, anchor_id: str, ttl_ms: int | None = None) -> None:
         with self._lock:
             ttl = self._default_ttl_ms if ttl_ms is None else ttl_ms
-            self._entries[sid] = time.monotonic() * 1000 + ttl
+            self._entries[anchor_id] = time.monotonic() * 1000 + ttl
 
     def current_delegation_epoch(self, zone_id: str) -> int:
         with self._lock:

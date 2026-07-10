@@ -117,7 +117,7 @@ class ToEnvelopeTests(unittest.TestCase):
             session_id="agent-1",
             delegation_id="edge-1",
             parent_delegation_id="parent-1",
-            subject_session_id="sid-1",
+            subject_authority_record_id="sid-1",
             trace_id="a" * 32,
             hop=3,
         )
@@ -126,7 +126,7 @@ class ToEnvelopeTests(unittest.TestCase):
         self.assertEqual(env.session_id, "agent-1")
         self.assertEqual(env.delegation_id, "edge-1")
         self.assertEqual(env.parent_delegation_id, "parent-1")
-        self.assertEqual(env.subject_session_id, "sid-1")
+        self.assertEqual(env.subject_authority_record_id, "sid-1")
         self.assertEqual(env.trace_id, "a" * 32)
         self.assertEqual(env.hop, 3)
 
@@ -136,7 +136,7 @@ class FromEnvelopeTests(unittest.TestCase):
         env = Envelope(
             subject_token="tok",
             session_id="agent-1",
-            subject_session_id="sid-1",
+            subject_authority_record_id="sid-1",
             hop=2,
         )
         ctx = from_envelope(env, zone_id="z1", application_id="app-1")
@@ -144,7 +144,7 @@ class FromEnvelopeTests(unittest.TestCase):
         self.assertEqual(ctx.zone_id, "z1")
         self.assertEqual(ctx.application_id, "app-1")
         self.assertEqual(ctx.session_id, "agent-1")
-        self.assertEqual(ctx.subject_session_id, "sid-1")
+        self.assertEqual(ctx.subject_authority_record_id, "sid-1")
         self.assertEqual(ctx.hop, 2)
 
     def test_raises_when_envelope_has_no_subject_token(self) -> None:
@@ -159,7 +159,7 @@ class DescribeAuthorityTests(unittest.TestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            subject_session_id="sid-1",
+            subject_authority_record_id="sid-1",
             session_id="agent-1",
             delegation_id="edge-1",
             hop=2,
@@ -168,7 +168,7 @@ class DescribeAuthorityTests(unittest.TestCase):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.application_id, "app")
-        self.assertEqual(summary.subject_session_id, "sid-1")
+        self.assertEqual(summary.subject_authority_record_id, "sid-1")
         self.assertEqual(summary.session_id, "agent-1")
         self.assertEqual(
             summary.chain,

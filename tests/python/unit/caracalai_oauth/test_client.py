@@ -30,6 +30,44 @@ from caracalai_oauth.client import (
 
 
 class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_shot_exchange_bypasses_cache_and_inflight(self) -> None:
+        calls = 0
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": f"token-{calls}",
+                    "token_type": "Bearer",
+                    "expires_in": 900,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = OAuthClient("http://sts", "zone", "app", http_client=http)
+            tokens = await asyncio.gather(
+                client.exchange(
+                    "",
+                    "resource://pipernet",
+                    ExchangeOptions(
+                        client_secret="secret", scopes=["read"], cache=False
+                    ),
+                ),
+                client.exchange(
+                    "",
+                    "resource://pipernet",
+                    ExchangeOptions(
+                        client_secret="secret", scopes=["read"], cache=False
+                    ),
+                ),
+            )
+        self.assertEqual(
+            sorted(token.access_token for token in tokens), ["token-1", "token-2"]
+        )
+        self.assertEqual(calls, 2)
+
     async def test_aclose_only_closes_owned_http_clients(self) -> None:
         owned = OAuthClient("https://sts.example.com", "zone1", "app1")
         await owned.aclose()

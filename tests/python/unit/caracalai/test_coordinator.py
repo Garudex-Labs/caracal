@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Coordinator REST client unit tests: spawn, heartbeat, delegate, and terminate flows.
+Coordinator REST client unit tests: Session start, heartbeat, delegate, and terminate flows.
 """
 
 import unittest
@@ -14,10 +14,10 @@ from caracalai.coordinator import (
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
-    SpawnRequest,
+    StartSessionRequest,
     create_delegation,
     heartbeat_agent,
-    spawn_agent,
+    start_coordinator_session,
     terminate_agent,
 )
 from caracalai.errors import CoordinatorError
@@ -30,27 +30,27 @@ def _client(handler) -> CoordinatorClient:
     )
 
 
-class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_agent_session_id_from_response(self) -> None:
+class StartSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_session_id_from_response(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"agent_session_id": "agent-1"})
 
-        res = await spawn_agent(
+        res = await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(zone_id="z", application_id="app"),
+            StartSessionRequest(zone_id="z", application_id="app"),
         )
-        self.assertEqual(res.agent_session_id, "agent-1")
+        self.assertEqual(res.session_id, "agent-1")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500, json={"error": "internal"})
 
         with self.assertRaises(CoordinatorError) as caught:
-            await spawn_agent(
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
         self.assertEqual(caught.exception.status, 500)
         self.assertEqual(caught.exception.method, "POST")
@@ -64,10 +64,10 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with self.assertRaises(CoordinatorError) as caught:
-            await spawn_agent(
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
         self.assertEqual(caught.exception.retry_after_seconds, 3.0)
 
@@ -76,10 +76,10 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(400, text="x" * 5000)
 
         with self.assertRaises(CoordinatorError) as caught:
-            await spawn_agent(
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
         self.assertIn("\u2026 (truncated)", str(caught.exception))
         self.assertLess(len(str(caught.exception)), 2300)
@@ -89,10 +89,10 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"other": "field"})
 
         with self.assertRaises(ValueError):
-            await spawn_agent(
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
 
     async def test_parses_heartbeat_deadline_and_quotes_zone(self) -> None:
@@ -108,10 +108,10 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
-        res = await spawn_agent(
+        res = await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(zone_id="z/1", application_id="app"),
+            StartSessionRequest(zone_id="z/1", application_id="app"),
         )
         self.assertEqual(res.heartbeat_deadline_at, "2026-07-04T00:02:00+00:00")
         self.assertEqual(captured[0].url.raw_path.decode(), "/zones/z%2F1/agents")
@@ -127,7 +127,9 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             base_url="http://coordinator.test/",
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
-        await spawn_agent(c, "tok", SpawnRequest(zone_id="z", application_id="app"))
+        await start_coordinator_session(
+            c, "tok", StartSessionRequest(zone_id="z", application_id="app")
+        )
         self.assertEqual(str(captured[0].url), "http://coordinator.test/zones/z/agents")
 
     async def test_sends_optional_fields_when_set(self) -> None:
@@ -139,13 +141,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(json.loads(req.content))
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 parent_id="parent-1",
                 lifecycle=Lifecycle.SERVICE,
                 ttl_seconds=60,
@@ -168,13 +170,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(req)
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 parent_id="parent-1",
             ),
         )
@@ -187,13 +189,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(req)
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 idempotency_key="user-supplied-key",
             ),
         )
@@ -283,7 +285,7 @@ class TerminateAgentTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_delegation_edge_id(self) -> None:
+    async def test_returns_delegation_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
@@ -306,7 +308,7 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
                 scopes=["tool:call"],
             ),
         )
-        self.assertEqual(res.delegation_edge_id, "edge-1")
+        self.assertEqual(res.delegation_id, "edge-1")
         self.assertEqual(res.scopes, ["tool:call"])
         self.assertEqual(res.expires_at, "2026-07-04T12:00:00+00:00")
 
@@ -328,7 +330,7 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-    async def test_raises_when_response_has_no_delegation_edge_id(self) -> None:
+    async def test_raises_when_response_has_no_delegation_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"other": "field"})
 
@@ -445,19 +447,19 @@ class EventTests(unittest.IsolatedAsyncioTestCase):
 
         client = _client(handler)
         client.on_event = sink
-        await spawn_agent(
-            client, "tok", SpawnRequest(zone_id="z", application_id="app")
+        await start_coordinator_session(
+            client, "tok", StartSessionRequest(zone_id="z", application_id="app")
         )
         with self.assertRaises(CoordinatorError):
             await terminate_agent(client, "tok", "z", "agent-1")
 
         self.assertEqual(len(events), 2)
-        spawned, denied = events
-        self.assertEqual(spawned.type, "coordinator.call")
-        self.assertEqual(spawned.method, "POST")
-        self.assertEqual(spawned.path, "/zones/z/agents")
-        self.assertTrue(spawned.ok)
-        self.assertEqual(spawned.status, 200)
+        sessions, denied = events
+        self.assertEqual(sessions.type, "coordinator.call")
+        self.assertEqual(sessions.method, "POST")
+        self.assertEqual(sessions.path, "/zones/z/agents")
+        self.assertTrue(sessions.ok)
+        self.assertEqual(sessions.status, 200)
         self.assertFalse(denied.ok)
         self.assertEqual(denied.status, 403)
         self.assertEqual(denied.method, "DELETE")

@@ -94,7 +94,14 @@ class _Platform:
         ]
 
 
+_presented: set[str] = set()
+
+
 def _gateway_echo(req: httpx.Request) -> httpx.Response:
+    mandate = req.headers.get("authorization", "")
+    if mandate in _presented:
+        return httpx.Response(409, json={"error": "token_replayed"})
+    _presented.add(mandate)
     return httpx.Response(
         200,
         json={
@@ -106,6 +113,7 @@ def _gateway_echo(req: httpx.Request) -> httpx.Response:
 
 
 def _client(platform: _Platform, **overrides) -> Caracal:
+    _presented.clear()
     kwargs = dict(
         coordinator_url="http://coord",
         sts_url="http://sts",
@@ -121,6 +129,9 @@ def _client(platform: _Platform, **overrides) -> Caracal:
 
 
 class GovernedCycleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        _presented.clear()
+
     def test_runs_the_full_cycle_and_presents_the_delegated_mandate(self) -> None:
         platform = _Platform()
         c = _client(platform)
@@ -193,7 +204,7 @@ class GovernedCycleTests(unittest.TestCase):
             self.assertEqual(spawn_body["labels"], ["app"])
             self.assertEqual(spawn_body["ttl_seconds"], 1020)
 
-    def test_caches_the_mandate_across_requests(self) -> None:
+    def test_mints_a_fresh_mandate_across_requests(self) -> None:
         platform = _Platform()
         c = _client(platform)
         with c.sync_application_transport(
@@ -203,7 +214,7 @@ class GovernedCycleTests(unittest.TestCase):
         ) as client:
             client.get("http://gateway/one")
             client.get("http://gateway/two")
-        self.assertEqual(platform.mints, 1)
+        self.assertEqual(platform.mints, 2)
         self.assertEqual(platform.spawns, 2)
 
     def test_cache_separates_different_labels_and_ttls(self) -> None:
@@ -246,7 +257,7 @@ class GovernedCycleTests(unittest.TestCase):
                     pool.map(lambda i: client.get(f"http://gateway/{i}"), range(4))
                 )
         self.assertTrue(all(r.status_code == 200 for r in results))
-        self.assertEqual(platform.mints, 1)
+        self.assertEqual(platform.mints, 4)
         self.assertEqual(platform.spawns, 2)
 
     def test_async_transport_runs_the_cycle(self) -> None:
@@ -266,7 +277,7 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(body["presented"], "Bearer mandate-1")
         self.assertEqual(platform.spawns, 2)
 
-    def test_terminates_spawned_sessions_when_the_cycle_fails(self) -> None:
+    def test_terminates_sessions_sessions_when_the_cycle_fails(self) -> None:
         platform = _Platform()
         platform.delegation_status = 403
         c = _client(platform)

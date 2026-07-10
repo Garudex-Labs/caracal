@@ -192,10 +192,10 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.ok)
 
         class PlainStore:
-            def is_revoked(self, sid: str) -> bool:
+            def is_revoked(self, anchor_id: str) -> bool:
                 return False
 
-            def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+            def mark_revoked(self, anchor_id: str, ttl_ms: int | None = None) -> None:
                 return None
 
         epoch_token, epoch_jwk = mint_es256_token(
@@ -298,7 +298,7 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.error.code if result.error else None, "invalid_token")
 
-    async def test_rejects_agent_required(self) -> None:
+    async def test_rejects_session_required(self) -> None:
         token, jwk = mint_es256_token()
         self.cache.keys = [jwk]
 
@@ -309,10 +309,12 @@ class TransportMcpAuthenticateTests(unittest.IsolatedAsyncioTestCase):
             [],
             "zone1",
             InMemoryRevocationStore(),
-            require_agent=True,
+            require_session=True,
         )
 
-        self.assertEqual(result.error.code if result.error else None, "agent_required")
+        self.assertEqual(
+            result.error.code if result.error else None, "session_required"
+        )
 
     async def test_rejects_delegation_required(self) -> None:
         token, jwk = mint_es256_token()

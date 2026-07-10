@@ -18,6 +18,7 @@ class ErrorCode:
     POLICY_EVAL_FAILED = "policy_eval_failed"
     PROVIDER_RATE_LIMITED = "provider_rate_limited"
     INTERACTION_REQUIRED = "interaction_required"
+    APPROVAL_CONSUMED = "approval_consumed"
     STS_UNAVAILABLE = "sts_unavailable"
     CREDENTIAL_EXPIRED = "credential_expired_not_renewable"
     PAYLOAD_TOO_LARGE = "payload_too_large"

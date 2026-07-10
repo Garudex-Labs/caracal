@@ -179,7 +179,7 @@ class EncodeDecodeRoundtripTests(unittest.TestCase):
             session_id="agent-1",
             delegation_id="edge-1",
             parent_delegation_id="parent-1",
-            subject_session_id="sid-1",
+            subject_authority_record_id="sid-1",
             trace_id="a" * 32,
             trace_flags="00",
             trace_state="vendor=value",
@@ -196,7 +196,7 @@ class EncodeDecodeRoundtripTests(unittest.TestCase):
         self.assertEqual(recovered.session_id, "agent-1")
         self.assertEqual(recovered.delegation_id, "edge-1")
         self.assertEqual(recovered.parent_delegation_id, "parent-1")
-        self.assertEqual(recovered.subject_session_id, "sid-1")
+        self.assertEqual(recovered.subject_authority_record_id, "sid-1")
         self.assertEqual(recovered.trace_flags, "00")
         self.assertEqual(recovered.trace_state, "vendor=value")
         self.assertEqual(recovered.baggage, {"tenant": "hooli"})

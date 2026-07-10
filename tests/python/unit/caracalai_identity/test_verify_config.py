@@ -20,7 +20,7 @@ from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_identity.types import Claims, ChainHop, JwtConfig
 from caracalai_identity.verify import (
-    AgentIdentityRequiredError,
+    SessionRequiredError,
     ChainMismatchError,
     DelegationRequiredError,
     HopCountExceededError,
@@ -88,29 +88,31 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.sub, "user1")
         self.assertEqual(claims.zone_id, "zone1")
         self.assertEqual(claims.client_id, "app-1")
-        self.assertEqual(claims.sid, "sid-1")
-        self.assertEqual(claims.root_sid, "root1")
+        self.assertEqual(claims.authority_record_id, "sid-1")
+        self.assertEqual(claims.root_authority_record_id, "root1")
         self.assertEqual(claims.sub_type, "user")
         self.assertGreater(claims.expires_at, claims.issued_at)
         self.assertEqual(claims.target_resources, ["resource://api"])
 
-    async def test_raises_agent_required_when_absent(self) -> None:
-        with self.assertRaises(AgentIdentityRequiredError):
-            await self._verify({}, require_agent=True)
+    async def test_raises_session_required_when_absent(self) -> None:
+        with self.assertRaises(SessionRequiredError):
+            await self._verify({}, require_session=True)
 
-    async def test_accepts_when_agent_session_id_present(self) -> None:
-        claims = await self._verify({"agent_session_id": "agent-1"}, require_agent=True)
-        self.assertEqual(claims.agent_session_id, "agent-1")
+    async def test_accepts_when_session_id_present(self) -> None:
+        claims = await self._verify(
+            {"agent_session_id": "agent-1"}, require_session=True
+        )
+        self.assertEqual(claims.session_id, "agent-1")
 
     async def test_raises_delegation_required_when_absent(self) -> None:
         with self.assertRaises(DelegationRequiredError):
             await self._verify({}, require_delegation=True)
 
-    async def test_accepts_when_delegation_edge_id_present(self) -> None:
+    async def test_accepts_when_delegation_id_present(self) -> None:
         claims = await self._verify(
             {"delegation_edge_id": "edge-1"}, require_delegation=True
         )
-        self.assertEqual(claims.delegation_edge_id, "edge-1")
+        self.assertEqual(claims.delegation_id, "edge-1")
 
     async def test_raises_chain_mismatch_when_app_absent(self) -> None:
         chain = [{"application_id": "app-child"}]
@@ -134,8 +136,8 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
             require_chain_contains=["app-parent"],
         )
         self.assertEqual(claims.delegation_chain[0].application_id, "app-parent")
-        self.assertEqual(claims.delegation_chain[0].agent_session_id, "s1")
-        self.assertEqual(claims.delegation_chain[0].delegation_edge_id, "e1")
+        self.assertEqual(claims.delegation_chain[0].session_id, "s1")
+        self.assertEqual(claims.delegation_chain[0].delegation_id, "e1")
 
     async def test_rejects_compact_chain_keys(self) -> None:
         chain = [{"app": "app-child", "session": "s2", "edge": "e2"}]
@@ -173,7 +175,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_for_malformed_agent_claim(self) -> None:
         with self.assertRaises(TokenInvalidError):
-            await self._verify({"agent_session_id": ["agent-1"]}, require_agent=True)
+            await self._verify({"agent_session_id": ["agent-1"]}, require_session=True)
 
     async def test_raises_hop_count_exceeded(self) -> None:
         with self.assertRaises(HopCountExceededError):
@@ -235,8 +237,8 @@ class VerifyChainContainsTests(unittest.TestCase):
             sub="u",
             zone_id="z",
             client_id=client_id,
-            sid="s",
-            root_sid="r",
+            authority_record_id="s",
+            root_authority_record_id="r",
             use="resource",
             sub_type="user",
             jti="j",

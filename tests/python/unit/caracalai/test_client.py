@@ -353,7 +353,7 @@ class MintMandateTests(unittest.TestCase):
         )
         self.assertEqual(token.token, "mandate-token")
         body = captured[0].decode()
-        self.assertIn("agent_session_id=agent_9", body)
+        self.assertIn("session_id=agent_9", body)
         self.assertIn("delegation_edge_id=edge_9", body)
         self.assertIn("ttl_seconds=60", body)
 
@@ -376,7 +376,7 @@ class MintMandateTests(unittest.TestCase):
         client = self._client(handler)
         bind(ctx, lambda: client.mint_mandate("resource://payments", ["pay:read"]))
         body = captured[0].decode()
-        self.assertIn("agent_session_id=agent_3", body)
+        self.assertIn("session_id=agent_3", body)
         self.assertNotIn("delegation_edge_id", body)
 
     def test_appends_lifecycle_hint_for_delegationless_session_deny(self) -> None:
@@ -449,7 +449,7 @@ class FederateSubjectTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _build_caracal().federate_subject("id-token")
 
-    def test_returns_subject_session_id_from_minted_mandate(self) -> None:
+    def test_returns_subject_authority_record_id_from_minted_mandate(self) -> None:
         import time as time_module
 
         token = self._subject_mandate(
@@ -466,7 +466,7 @@ class FederateSubjectTests(unittest.TestCase):
             return httpx.Response(200, json={"access_token": token})
 
         federated = self._client(handler).federate_subject("id-token", ttl_seconds=600)
-        self.assertEqual(federated.subject_session_id, "sess-42")
+        self.assertEqual(federated.subject_authority_record_id, "sess-42")
         self.assertEqual(federated.token, token)
         self.assertGreater(federated.expires_in_seconds, 0)
         body = captured[0].decode()
@@ -490,7 +490,7 @@ class FederateSubjectTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as caught:
             self._client(handler).federate_subject("id-token")
-        self.assertIn("carries no session id", str(caught.exception))
+        self.assertIn("carries no authority record ID", str(caught.exception))
 
 
 class WithApprovalTests(unittest.IsolatedAsyncioTestCase):
@@ -836,7 +836,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             {"task": "Nightly PiperNet reconciliation"},
         )
 
-    async def test_caller_idempotency_key_reused_across_redelivery(self) -> None:
+    async def test_caller_operation_id_reused_across_separate_creation_calls(
+        self,
+    ) -> None:
         requests: list[httpx.Request] = []
 
         async def handler(request):
@@ -867,6 +869,31 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             if r.method == "POST" and str(r.url).endswith("/agents")
         ]
         self.assertEqual(keys, ["queue-msg-77", "queue-msg-77"])
+
+    async def test_unsafe_explicit_idempotency_keys_fail_before_network(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx.Response(500)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+        for key in ("", " key", "key ", "key\nvalue", "x" * 256):
+            with self.assertRaisesRegex(ValueError, "idempotency_key must be"):
+                async with c.session(idempotency_key=key):
+                    pass
+        await client.aclose()
+        self.assertEqual(requests, [])
 
     async def test_service_heartbeats_and_does_not_auto_terminate(self) -> None:
         requests: list[httpx.Request] = []
@@ -1475,7 +1502,7 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
         body = sts_calls[-1].decode()
         self.assertIn("scope=cal%3Aread", body)
         self.assertIn("resource=calendar", body)
-        self.assertIn("agent_session_id=agent_7", body)
+        self.assertIn("session_id=agent_7", body)
         self.assertIn("delegation_edge_id=edge_7", body)
 
     async def test_fetch_passes_ctx_and_scopes(self) -> None:
@@ -1498,7 +1525,7 @@ class ExplicitContextAndScopesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status_code, 204)
         self.assertEqual(seen["auth"], "Bearer mandate-tok")
         self.assertEqual(seen["resource"], "calendar")
-        self.assertIn("agent_session_id=agent_7", sts_calls[-1].decode())
+        self.assertIn("session_id=agent_7", sts_calls[-1].decode())
 
     async def test_sync_transport_explicit_ctx_and_scopes(self) -> None:
         sts_calls: list[bytes] = []
