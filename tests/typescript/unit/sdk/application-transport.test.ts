@@ -83,6 +83,20 @@ function client(fetchImpl: typeof fetch): Caracal {
 }
 
 describe('Caracal.applicationTransport', () => {
+  it('requires a configured gateway before minting authority', () => {
+    const { fetchImpl } = fakeFetch()
+    const caracal = Caracal.fromClientSecret({
+      coordinatorUrl: COORD,
+      stsUrl: STS,
+      zoneId: 'zone-1',
+      applicationId: 'app-1',
+      clientSecret: 'secret',
+      fetchImpl,
+    })
+
+    expect(() => caracal.applicationTransport(RESOURCE, { scopes: ['data:read'] })).toThrow(/requires gatewayUrl/)
+  })
+
   it('runs the delegated-mint cycle and presents the mandate with the resource header at the gateway', async () => {
     const { fetchImpl, calls } = fakeFetch()
     const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'] })

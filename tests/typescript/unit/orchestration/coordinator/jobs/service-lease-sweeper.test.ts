@@ -73,9 +73,7 @@ describe('runServiceLeaseSweep', () => {
 
     const outboxInserts = client.calls.filter(([sql]) => sql.includes('INSERT INTO caracal_outbox'))
     const allDedupes = outboxInserts.flatMap(([, params]) => (params ?? []) as unknown[])
-    expect(allDedupes).toEqual(
-      expect.arrayContaining(['suspend:agent-1', 'suspend:agent-2', 'agent_suspend:agent-1', 'agent_suspend:agent-2']),
-    )
+    expect(allDedupes).toEqual(expect.arrayContaining(['suspend:agent-1', 'suspend:agent-2']))
     const suspension = allDedupes.find(
       (value): value is Record<string, unknown> => typeof value === 'object' && value !== null && value.agent_session_id === 'agent-1',
     )

@@ -1241,7 +1241,11 @@ describe('Caracal.acceptDelegation validation', () => {
   function inboundClient(items: Array<{ id: string; status: string }>): Caracal {
     const fetchImpl = (async (url: string) => {
       if (new URL(url).pathname.startsWith('/zones/z/delegations/inbound/')) {
-        return new Response(JSON.stringify({ items }), { status: 200 })
+        const id = decodeURIComponent(new URL(url).pathname.split('/').at(-1) ?? '')
+        const item = items.find((candidate) => candidate.id === id)
+        return item
+          ? new Response(JSON.stringify(item), { status: 200 })
+          : new Response(JSON.stringify({ error: 'delegation_not_found' }), { status: 404 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch

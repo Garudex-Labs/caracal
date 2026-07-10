@@ -136,6 +136,27 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('never serves an approval-bearing exchange from cache', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: `token-${++calls}`, expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    await client.exchange('', 'resource://api', { clientSecret: 'secret', scopes: ['read'] })
+    const approved = await client.exchange('', 'resource://api', {
+      clientSecret: 'secret',
+      scopes: ['read'],
+      challengeId: 'approval-1',
+    })
+
+    expect(approved.accessToken).toBe('token-2')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('retries once on 401', async () => {
     let callCount = 0
     vi.stubGlobal(

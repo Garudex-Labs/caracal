@@ -73,8 +73,28 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('requires receiver consent for cross-application delegation', async () => {
+  it('allows an issuer to create a cross-application offer without receiver credentials', async () => {
     const { app, db } = buildApp(['coordinator.delegate_from:issuer-1'], 'issuer-1')
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 'src-1', application_id: 'issuer-1' },
+            { id: 'dst-1', application_id: 'receiver-1' },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'resource://pipernet', scopes: ['read'] }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ delegation_edge_id: 'edge-offer', status: 'active' }] })
+        .mockResolvedValueOnce({ rows: [{ epoch: '1' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
     await app.ready()
 
     const res = await app.inject({
@@ -83,9 +103,9 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
       payload: { ...delegationBody, resource_id: 'res-1' },
     })
 
-    expect(res.statusCode).toBe(403)
-    expect(res.json()).toEqual({ error: 'receiver_consent_required' })
-    expect(db.connect).not.toHaveBeenCalled()
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ delegation_edge_id: 'edge-offer' })
+    expect(db.connect).toHaveBeenCalledOnce()
   })
 
   it('rejects expired Delegations', async () => {
@@ -816,6 +836,15 @@ describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => 
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/outbound/sess-1?limit=bad' })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toEqual({ error: 'invalid_query' })
+  })
+
+  it('validates an exact opaque inbound edge for its receiver Session', async () => {
+    const { app, db } = buildApp()
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'edge-101', status: 'active' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ id: 'edge-101', status: 'active' })
   })
 
   it('rejects an unknown cursor', async () => {

@@ -354,9 +354,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(201)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [
-      expect.stringContaining('coordinator:session_start:z1'),
-    ])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [expect.stringContaining('delegation:z1')])
     const countCall = client.query.mock.calls.find((call) => String(call[0]).includes('COUNT(*) FILTER'))
     expect(String(countCall?.[0])).toContain("CASE WHEN lifecycle = 'service'")
     expect(String(countCall?.[0])).toContain("status = 'suspended' OR heartbeat_deadline_at > now()")
