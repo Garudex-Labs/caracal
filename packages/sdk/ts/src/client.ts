@@ -28,7 +28,7 @@ import {
   createDelegation,
   listInboundDelegations,
   startCoordinatorSession,
-  terminateAgent,
+  terminateSession,
   type CoordinatorCallEvent,
   type CoordinatorClient,
   type DelegationConstraints,
@@ -381,7 +381,7 @@ export class Caracal {
         const identity = await exchanger.identity()
         const bootstrap = (await exchanger.mintMandate(entries[0].resourceId, [LIFECYCLE_SCOPE])).token
         const sessions = entries.flatMap((entry) => entry.sessions)
-        await Promise.allSettled(sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
+        await Promise.allSettled(sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, identity.zoneId, id)))
       } catch (err) {
         this.warnLog('caracal: close could not retire application-transport sessions; the coordinator TTL sweeper will', err)
       }
@@ -1088,7 +1088,7 @@ export class Caracal {
         sessions,
       }
     } catch (err) {
-      await Promise.allSettled(sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
+      await Promise.allSettled(sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, identity.zoneId, id)))
       throw err
     }
   }
@@ -1098,7 +1098,7 @@ export class Caracal {
     try {
       const bootstrap = (await exchanger.mintMandate(entries[0].resourceId, [LIFECYCLE_SCOPE])).token
       await Promise.allSettled(
-        entries.flatMap((entry) => entry.sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, entry.zoneId, id))),
+        entries.flatMap((entry) => entry.sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, entry.zoneId, id))),
       )
     } catch (err) {
       this.warnLog('caracal: could not retire application-transport sessions; the coordinator TTL sweeper will', err)
@@ -1881,8 +1881,8 @@ function createClientSecretTokenSource(
       const token = await client.exchange('', resourceId, {
         clientSecret: creds.clientSecret,
         scopes: [...new Set(scopes)].sort(),
-        agentSessionId: opts.sessionId,
-        delegationEdgeId: opts.delegationId,
+        sessionId: opts.sessionId,
+        delegationId: opts.delegationId,
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
         signal: opts.signal,

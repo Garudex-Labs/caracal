@@ -236,7 +236,7 @@ export async function startCoordinatorSession(
   }
 }
 
-export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
+export async function terminateSession(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
   await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`, bearer)
 }
 

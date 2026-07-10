@@ -13,7 +13,7 @@ import {
   DelegationResponse,
   StartSessionResponse,
   startCoordinatorSession,
-  terminateAgent,
+  terminateSession,
   heartbeatAgent,
   createDelegation,
   Lifecycle,
@@ -286,7 +286,7 @@ async function retire(
   warn: WarnSink = defaultWarn,
 ): Promise<void> {
   try {
-    await terminateAgent(coordinator, await bearer(), zoneId, sessionId)
+    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
   } catch (e) {
     if (isGone(e)) return
     warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, e)
@@ -611,7 +611,7 @@ function leaseHandle(
           if (input.onSessionEnd) await input.onSessionEnd(ctx)
         } finally {
           try {
-            await terminateAgent(input.coordinator, await bearer(), input.zoneId, sessionId)
+            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId)
           } catch (e) {
             if (!isGone(e)) throw e
           }
