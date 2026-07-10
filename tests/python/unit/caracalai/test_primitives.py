@@ -6,6 +6,7 @@ SDK primitives unit tests: session, delegation, and service lease flows.
 """
 
 import unittest
+from inspect import isawaitable
 
 import httpx
 
@@ -22,9 +23,31 @@ from caracalai.primitives import (
 
 
 def _coord(handler) -> CoordinatorClient:
+    async def with_lease(req: httpx.Request) -> httpx.Response:
+        response = handler(req)
+        if isawaitable(response):
+            response = await response
+        if req.method != "POST" or response.status_code >= 300:
+            return response
+        body = response.json()
+        if not isinstance(body, dict):
+            return response
+        if str(req.url).endswith("/agents") and "agent_session_id" in body:
+            body.setdefault("lease_generation", 1)
+        if str(req.url).endswith("/heartbeat"):
+            agent = body.setdefault("agent", {})
+            agent.setdefault("lease_generation", 1)
+        if str(req.url).endswith("/lease"):
+            body.setdefault("lease_generation", 1)
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            json=body,
+        )
+
     return CoordinatorClient(
         base_url="http://coord.test",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(with_lease)),
     )
 
 
@@ -217,6 +240,7 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
+                ttl_seconds=60,
             )
 
     async def test_returns_edge_without_rebinding_issuer_context(self) -> None:
@@ -229,6 +253,7 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
+                ttl_seconds=60,
             )
             self.assertEqual(res.delegation_id, "edge-1")
             self.assertEqual(current().session_id, parent.session_id)
@@ -268,6 +293,7 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
+                ttl_seconds=60,
             )
         self.assertEqual(res.delegation_id, "edge-retry")
         self.assertEqual(len(keys), 2)
@@ -296,12 +322,16 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                     to_session_id="agent-2",
                     to_application_id="app-2",
                     scopes=["tool:call"],
+                    ttl_seconds=60,
                 )
         self.assertEqual(attempts, 1)
 
     async def test_narrow_accepts_single_scope_string(self) -> None:
-        self.assertEqual(Authority.narrow("read").scopes, ("read",))
-        self.assertEqual(Authority.narrow(["read", "write"]).scopes, ("read", "write"))
+        self.assertEqual(Authority.narrow("read", ttl_seconds=60).scopes, ("read",))
+        self.assertEqual(
+            Authority.narrow(["read", "write"], ttl_seconds=60).scopes,
+            ("read", "write"),
+        )
 
 
 class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -317,7 +347,10 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(401, json={"error": "invalid_token"})
             if request.method == "DELETE":
                 return httpx.Response(204)
-            return httpx.Response(200, json={"agent": {"status": "active"}})
+            return httpx.Response(
+                200,
+                json={"status": "active", "lease_generation": 1},
+            )
 
         def invalidate() -> None:
             nonlocal invalidations
@@ -350,10 +383,9 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
-                    "agent": {
-                        "status": "active",
-                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
-                    }
+                    "status": "active",
+                    "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    "lease_generation": 1,
                 },
             )
 
@@ -370,7 +402,7 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handle.context.session_id, "agent-persisted")
         self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
         self.assertTrue(
-            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/lease")
         )
         await handle.aclose()
         self.assertIn(
@@ -402,7 +434,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
             ):
                 pass  # pragma: no cover
 
@@ -429,7 +461,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app-child",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
             ) as child:
                 self.assertEqual(child.session_id, "child-1")
                 self.assertEqual(child.delegation_id, "edge-9")
@@ -465,7 +497,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    authority=Authority.narrow(["tool:call"]),
+                    authority=Authority.narrow(["tool:call"], ttl_seconds=60),
                 ):
                     pass  # pragma: no cover
 
@@ -509,7 +541,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    authority=Authority.narrow(["tool:call"]),
+                    authority=Authority.narrow(["tool:call"], ttl_seconds=60),
                     on_session_start=on_start,
                     on_session_end=on_end,
                 ):
@@ -587,7 +619,7 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             zone_id="z",
             application_id="child-app",
             subject_token="tok",
-            authority=Authority.narrow(["tool:call"]),
+            authority=Authority.narrow(["tool:call"], ttl_seconds=60),
             parent_ctx=parent,
         ) as ctx:
             self.assertEqual(ctx.hop, 2)
@@ -611,7 +643,7 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="child-app",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"]),
+                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
                 parent_ctx=bare,
             ):
                 pass
@@ -757,7 +789,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
             application_id="app",
             subject_token="tok",
             parent_ctx=parent,
-            authority=Authority.narrow(["tool:call"]),
+            authority=Authority.narrow(["tool:call"], ttl_seconds=60),
         ) as ctx:
             self.assertEqual(ctx.delegation_id, "edge-n")
         self.assertEqual(captured["body"].get("parent_authority"), "none")
@@ -963,7 +995,9 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                 application_id="app-worker",
                 subject_token="tok",
                 authority=Authority.narrow(
-                    ["ledger:read"], resource_id="resource://ledger"
+                    ["ledger:read"],
+                    ttl_seconds=60,
+                    resource_id="resource://ledger",
                 ),
             )
             self.assertEqual(agent.context.delegation_id, "edge-svc")
@@ -999,7 +1033,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app",
                     subject_token="tok",
-                    authority=Authority.narrow(["x:y"]),
+                    authority=Authority.narrow(["x:y"], ttl_seconds=60),
                 )
         deletes = [path for method, path in calls if method == "DELETE"]
         self.assertTrue(any("svc-1" in path for path in deletes))
@@ -1014,7 +1048,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                authority=Authority.narrow(["x:y"]),
+                authority=Authority.narrow(["x:y"], ttl_seconds=60),
             )
 
     async def test_inherit_grant_carries_parent_edge_forward(self) -> None:

@@ -11,14 +11,12 @@ import base64
 import binascii
 import hmac
 import json
-import random
 import secrets
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
-from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -33,10 +31,7 @@ from .types import APPROVAL_STATES, ApprovalState, MintedMandate
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 MAX_LEEWAY_SECONDS = 60.0
 DEFAULT_TIMEOUT_SECONDS = 30.0
-DEFAULT_RETRIES = 3
 MANDATE_CACHE_CAP = 10_000
-BACKOFF_BASE_SECONDS = 0.25
-BACKOFF_CAP_SECONDS = 5.0
 _CREDENTIAL_KEY = secrets.token_bytes(32)
 
 
@@ -97,31 +92,6 @@ def decode_jwt_exp(token: str) -> float | None:
     return None
 
 
-def _transient_status(status: int) -> bool:
-    return status in (408, 425, 429) or status >= 500
-
-
-def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
-    if response is not None:
-        header = response.headers.get("Retry-After")
-        if header:
-            try:
-                seconds = float(header)
-                if seconds >= 0:
-                    return seconds
-            except ValueError:
-                try:
-                    when = parsedate_to_datetime(header)
-                    delta = when.timestamp() - time.time()
-                    if delta > 0:
-                        return delta
-                except (TypeError, ValueError):
-                    pass
-    delay = min(BACKOFF_BASE_SECONDS * (2**attempt), BACKOFF_CAP_SECONDS)
-    half = delay / 2
-    return half + random.random() * half
-
-
 def _leeway(exp: float, minted_at: float) -> float:
     """Refresh margin for a token: capped at MAX_LEEWAY_SECONDS but never more
     than half the token's lifetime, so short-lived tokens are still served
@@ -132,12 +102,11 @@ def _leeway(exp: float, minted_at: float) -> float:
 class ClientSecretExchanger:
     """Exchanges an application client_secret for STS tokens via RFC 8693
     token exchange: a lifecycle access token for the application itself, and
-    per-agent resource mandates bound to an agent session and delegation edge.
+    scoped mandates bound to a Session and Delegation.
     Credentials come from a resolver invoked per exchange, so rotation and
     identity swaps take effect without rebuilding the client; every cached
     result is keyed to the identity that minted it. Results are refreshed on
-    demand as they approach their `exp` claim; transient STS failures are
-    retried with jittered backoff inside a per-exchange deadline.
+    demand as they approach their `exp` claim.
 
     Integrators never construct one: ``from_client_secret`` (and profile or
     environment detection) wires it into the client; the class is public so
@@ -151,7 +120,6 @@ class ClientSecretExchanger:
         resources: list[str],
         scope: str = "agent:lifecycle",
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-        retries: int = DEFAULT_RETRIES,
         http_client: httpx.Client | None = None,
     ) -> None:
         self._sts_url = sts_url.rstrip("/")
@@ -159,7 +127,6 @@ class ClientSecretExchanger:
         self._resources = list(resources)
         self._scope = scope
         self._timeout = timeout_seconds
-        self._retries = retries
         self._lock = threading.Lock()
         self._token_lock = threading.Lock()
         self._token: str | None = None
@@ -331,23 +298,24 @@ class ClientSecretExchanger:
         *,
         resource: str,
         scopes: list[str],
-        agent_session_id: str | None = None,
-        delegation_edge_id: str | None = None,
+        session_id: str | None = None,
+        delegation_id: str | None = None,
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
         cache: bool = True,
     ) -> MintedMandate:
-        """Exchange the application credential for a resource mandate audienced
-        to one resource and narrowed to the requested scopes. Pass the calling
-        agent's session and delegation edge so the STS evaluates policy against
-        that agent's authority and the mandate carries its identity. When a scope
-        is approval-gated the mint raises :class:`ApprovalRequired`; retry with
-        ``approval_id`` set to the returned challenge id once an approver has
-        satisfied it."""
+        """Exchange the application credential for a scoped mandate narrowed
+        to one resource and the requested scopes. Session and Delegation inputs
+        produce an uncached ``use=gateway`` mandate; application lifecycle
+        exchanges produce cacheable ``use=session`` mandates. When a scope is
+        approval-gated the mint raises :class:`ApprovalRequired`; retry with
+        ``approval_id`` once an approver has satisfied it."""
         if not resource:
             raise ValueError("mint_mandate requires a resource")
         if not scopes:
             raise ValueError("mint_mandate requires at least one scope")
+        if approval_id or (session_id and delegation_id):
+            cache = False
         creds = self._resolve()
         scope_set = frozenset(scopes)
         key = (
@@ -355,8 +323,8 @@ class ClientSecretExchanger:
             creds.application_id,
             resource,
             scope_set,
-            agent_session_id,
-            delegation_edge_id,
+            session_id,
+            delegation_id,
             ttl_seconds,
         )
         cached = self._cached_mandate(key) if cache else None
@@ -367,8 +335,8 @@ class ClientSecretExchanger:
                 creds,
                 resource,
                 scope_set,
-                agent_session_id,
-                delegation_edge_id,
+                session_id,
+                delegation_id,
                 ttl_seconds,
                 approval_id,
             )
@@ -384,8 +352,8 @@ class ClientSecretExchanger:
                 creds,
                 resource,
                 scope_set,
-                agent_session_id,
-                delegation_edge_id,
+                session_id,
+                delegation_id,
                 ttl_seconds,
                 approval_id,
             )
@@ -400,8 +368,8 @@ class ClientSecretExchanger:
         creds: ClientCredentials,
         resource: str,
         scopes: frozenset[str],
-        agent_session_id: str | None,
-        delegation_edge_id: str | None,
+        session_id: str | None,
+        delegation_id: str | None,
         ttl_seconds: int | None,
         approval_id: str | None,
     ) -> dict[str, str | list[str]]:
@@ -413,10 +381,10 @@ class ClientSecretExchanger:
             "scope": " ".join(sorted(scopes)),
             "resource": resource,
         }
-        if agent_session_id:
-            data["agent_session_id"] = agent_session_id
-        if delegation_edge_id:
-            data["delegation_edge_id"] = delegation_edge_id
+        if session_id:
+            data["agent_session_id"] = session_id
+        if delegation_id:
+            data["delegation_edge_id"] = delegation_id
         if ttl_seconds is not None:
             data["ttl_seconds"] = str(ttl_seconds)
         if approval_id:
@@ -563,43 +531,23 @@ class ClientSecretExchanger:
         resources = tuple(resource) if isinstance(resource, list) else (str(resource),)
         scopes = tuple(str(data.get("scope", "")).split())
         start = time.monotonic()
-        deadline = time.time() + self._timeout
-        attempt = 0
         try:
-            while True:
-                response: httpx.Response | None = None
-                try:
-                    response = self._http.post(url, data=data)
-                except httpx.TransportError:
-                    if attempt >= self._retries or time.time() >= deadline:
-                        raise
-                if response is not None:
-                    if response.is_success:
-                        token = self._parse_token(response)
-                        emit_event(
-                            self.on_event,
-                            CaracalEvent(
-                                type="token.exchange",
-                                ok=True,
-                                duration_ms=(time.monotonic() - start) * 1000.0,
-                                resources=resources,
-                                scopes=scopes,
-                                status=response.status_code,
-                            ),
-                        )
-                        return token
-                    if (
-                        not _transient_status(response.status_code)
-                        or attempt >= self._retries
-                    ):
-                        raise_for_caracal_error(response)
-                remaining = deadline - time.time()
-                if remaining <= 0:
-                    if response is not None:
-                        raise_for_caracal_error(response)
-                    raise TimeoutError("STS token exchange timed out")
-                time.sleep(min(_retry_delay(response, attempt), remaining))
-                attempt += 1
+            response = self._http.post(url, data=data, timeout=self._timeout)
+            if not response.is_success:
+                raise_for_caracal_error(response)
+            token = self._parse_token(response)
+            emit_event(
+                self.on_event,
+                CaracalEvent(
+                    type="token.exchange",
+                    ok=True,
+                    duration_ms=(time.monotonic() - start) * 1000.0,
+                    resources=resources,
+                    scopes=scopes,
+                    status=response.status_code,
+                ),
+            )
+            return token
         except Exception as exc:
             emit_event(
                 self.on_event,

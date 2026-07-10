@@ -1472,7 +1472,7 @@ class Caracal:
                 )
         if exchanger is not None:
             exchanger.invalidate()
-            await exchanger.aclose()
+            await asyncio.to_thread(exchanger.close)
         await self.config.coordinator.aclose()
 
     def context_middleware(
