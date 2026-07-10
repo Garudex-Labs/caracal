@@ -346,8 +346,8 @@ export interface AuthPluginOptions {
   lastUsedDebounceSec?: number
   verifyCacheTtlMs?: number
   // The deployment admin token, used only as the shared key that verifies the BFF's per-account
-  // assertion. Absent disables account binding entirely, so the API behaves exactly as before -
-  // a strict, backward-compatible default that never fails a request for want of this signal.
+  // assertion. When omitted, account binding is unavailable; deployments that issue derived
+  // Console credentials configure this key from the same deployment secret.
   accountAssertionKey?: string | null
 }
 

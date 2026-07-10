@@ -62,12 +62,11 @@ export class ControlClientError extends Error {
     this.name = 'ControlClientError'
   }
 
-  // Whether the failure provably applied nothing: any token-stage failure (no token was
-  // minted, so nothing was invoked) or an invoke the control plane rejected with a client
-  // error. An invoke-stage server error or lost response is not definitive - the command
-  // may already have applied - so a caller must never blindly retry it.
+  // Whether the server definitively rejected the request before accepting it. Lost
+  // responses and server failures are outcome-ambiguous at both stages: STS may have
+  // minted a token, or Control may have applied the command.
   get definitive(): boolean {
-    return this.stage === 'token' || (this.status >= 400 && this.status < 500)
+    return this.status >= 400 && this.status < 500
   }
 }
 

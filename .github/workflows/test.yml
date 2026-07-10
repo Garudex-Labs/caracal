@@ -520,6 +520,8 @@ jobs:
     if: github.event_name != 'pull_request' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.infra == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      CARACAL_SECRETS_DIR: ${{ github.workspace }}/.caracal/e2e-secrets
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -587,10 +589,8 @@ jobs:
           CARACAL_STS_URL: http://127.0.0.1:8080
           CARACAL_GATEWAY_URL: http://127.0.0.1:8081
           CARACAL_E2E_UPSTREAM_URL: http://caracal-protected-e2e-upstream:80
-          CARACAL_ADMIN_TOKEN_FILE: ${{ runner.temp }}/caracal-admin-token
-        run: |
-          cp "$HOME/.config/caracal/dev-secrets/caracalAdminToken" "$CARACAL_ADMIN_TOKEN_FILE"
-          node tests/typescript/e2e/protected-resource.mjs
+          CARACAL_ADMIN_TOKEN_FILE: ${{ github.workspace }}/.caracal/e2e-secrets/caracalAdminToken
+        run: node tests/typescript/e2e/protected-resource.mjs
 
       - name: Dump service logs on failure
         if: failure()

@@ -30,7 +30,9 @@ const SECRET_CACHE_KEY = randomBytes(32)
 
 function parseSTSErrorResponse(body: string): STSErrorResponse {
   if (body === '') return {}
-  return JSON.parse(body) as STSErrorResponse
+  const parsed: unknown = JSON.parse(body)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid error response')
+  return parsed as STSErrorResponse
 }
 
 function formatSTSError(status: number, err: STSErrorResponse): string {

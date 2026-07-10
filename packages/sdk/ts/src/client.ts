@@ -106,7 +106,7 @@ export class CredentialsUnavailableError extends Error {
   }
 }
 
-/** A minted resource mandate and the lifetime the STS granted it. */
+/** A minted scoped mandate and the lifetime the STS granted it. */
 export interface MintedMandate {
   token: string
   expiresInSeconds: number
@@ -883,12 +883,11 @@ export class Caracal {
   }
 
   /**
-   * Mints a resource mandate for the current session: a short-lived token
-   * audienced to `resourceId` and narrowed to `scopes`, carrying the session
-   * and delegation of the bound context. The STS evaluates policy against
-   * that session's authority, so a narrowed child can mint only what its
-   * delegation allows. Results are cached per resource, scope set, and
-   * session identity, and refreshed before expiry.
+   * Mints a scoped mandate narrowed to `resourceId` and `scopes`. A bound
+   * Session and Delegation produce an uncached, one-shot `use=gateway`
+   * mandate. Application-principal lifecycle calls produce a reusable
+   * `use=session` mandate that may be cached and refreshed before expiry.
+   * The STS evaluates policy against the bound authority.
    *
    * When a scope is approval-gated this throws ApprovalRequiredError; retry
    * with `approvalId` set to the returned approval id once an authenticated

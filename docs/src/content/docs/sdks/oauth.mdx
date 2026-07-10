@@ -3,7 +3,7 @@ title: OAuth Package
 description: RFC 8693 token exchange clients for Caracal STS.
 ---
 
-The OAuth packages exchange existing subject authority for resource mandates through the STS `/oauth/2/token` endpoint.
+The OAuth packages call the STS `/oauth/2/token` endpoint for RFC 8693 exchanges. The returned mandate class depends on the authenticated flow: lifecycle bootstrap returns `use=session`, a bound direct mint returns `use=gateway`, and Gateway's authenticated exchange returns `use=resource` privately to Gateway.
 
 ## Install
 
@@ -17,10 +17,9 @@ The OAuth packages exchange existing subject authority for resource mandates thr
 
 | Option                     | Meaning                                                                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Subject token              | Existing user, service, agent, or application authority.                                                                      |
-| Resource                   | Resource identifier or audience requested from STS.                                                                           |
-| Client secret or assertion | Application authentication for client-secret flows.                                                                           |
-| Actor token                | Optional actor authority for delegated exchanges.                                                                             |
+| Subject token              | Existing session mandate or registered external identity token; omit for application-principal exchanges.                    |
+| Resource                   | One or more resource identifiers. Clients trim, exact-deduplicate, and sort the set.                                           |
+| Client secret              | Application authentication. Public client assertions are not supported.                                                       |
 | Authority record ID        | Sent in the STS form field `session_id`. It is distinct from a governed Session ID.                                           |
 | Session ID                 | Sent in the STS form field `agent_session_id`.                                                                                |
 | Delegation ID              | Sent in the STS form field `delegation_edge_id`.                                                                              |
@@ -52,9 +51,9 @@ try {
 ## Behavior
 
 - Successful responses are validated for `access_token`, `token_type`, and `expires_in`.
-- Token responses are cached by identity, resource, scopes, TTL, and credential context.
-- Concurrent identical exchanges share in-flight work.
-- Transient HTTP statuses are retried with bounded backoff.
+- Public responses expose the granted `target_resources` subset; private Gateway upstream directives are not part of the SDK response type.
+- Cache-enabled responses are isolated by identity, canonical resources, scopes, TTL, and credential context. One-shot, approval-bearing, and cache-disabled exchanges bypass both cache and single-flight sharing.
+- Issuance uses one network attempt. A lost response may hide a successfully minted token, so the clients never retry STS exchange automatically.
 - STS `interaction_required` responses surface as `ApprovalRequiredError`.
 
 ## Subject Federation

@@ -13,9 +13,15 @@ export const DEFAULT_REVOCATION_TTL_MS = 24 * 60 * 60 * 1000
 export const DEFAULT_DEAD_LETTER_MAX_LENGTH = 10_000
 
 const MAX_EPOCH_SCRIPT = `
-local current = tonumber(redis.call('GET', KEYS[1]) or '0') or 0
-local candidate = tonumber(ARGV[1])
-if candidate > current then
+local function normalize(value)
+  if not string.match(value, '^%d+$') then return '0' end
+  value = string.gsub(value, '^0+', '')
+  if value == '' then return '0' end
+  return value
+end
+local current = normalize(redis.call('GET', KEYS[1]) or '0')
+local candidate = normalize(ARGV[1])
+if string.len(candidate) > string.len(current) or (string.len(candidate) == string.len(current) and candidate > current) then
   redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
   return 1
 end

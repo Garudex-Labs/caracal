@@ -336,6 +336,20 @@ describe('OAuthClient', () => {
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('invalid error response')
   })
 
+  it('rejects non-object STS error bodies', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => 'null',
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow('invalid error response')
+  })
+
   it('formats STS errors from json-only responses and request ids', async () => {
     vi.stubGlobal(
       'fetch',

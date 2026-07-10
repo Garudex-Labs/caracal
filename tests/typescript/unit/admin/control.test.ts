@@ -227,9 +227,10 @@ describe('ControlClient invoke', () => {
     expect(error.reason).toContain('socket hang up')
   })
 
-  it('classifies definitive failures: token always, invoke only on a client error', () => {
-    expect(new ControlClientError('token', 503, 'unavailable').definitive).toBe(true)
-    expect(new ControlClientError('token', 0, 'network').definitive).toBe(true)
+  it('classifies only explicit client rejections as definitive', () => {
+    expect(new ControlClientError('token', 403, 'denied').definitive).toBe(true)
+    expect(new ControlClientError('token', 503, 'unavailable').definitive).toBe(false)
+    expect(new ControlClientError('token', 0, 'network').definitive).toBe(false)
     expect(new ControlClientError('invoke', 403, 'denied').definitive).toBe(true)
     expect(new ControlClientError('invoke', 504, 'timeout').definitive).toBe(false)
     expect(new ControlClientError('invoke', 0, 'network').definitive).toBe(false)
