@@ -55,14 +55,13 @@ if err != nil {
 ```go
 constraints := &caracal.DelegationConstraints{
 	MaxHops:        1,
-	Budget:         5,
 	PolicyApproved: true,
 }
 ```
 
-Available fields are `Resources`, `MaxDepth`, `MaxHops`, `TTLSeconds`, `Budget`, `PolicyApproved`, `ExpiresAt`, and `BroadReason`.
+Available fields are `Resources`, `MaxDepth`, `MaxHops`, `TTLSeconds`, `PolicyApproved`, `ExpiresAt`, and `BroadReason`.
 
-`Budget` is the maximum distinct requested scopes in each token exchange; repeated exchanges do not consume it. `PolicyApproved` and `BroadReason` are audit/display metadata, not authorization decisions.
+`PolicyApproved` and `BroadReason` are audit/display metadata, not authorization decisions. Delegation constraints do not implement usage accounting; enforce consumable quotas in a durable domain transaction.
 
 ## Protect Inbound Requests
 

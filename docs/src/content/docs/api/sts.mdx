@@ -21,7 +21,7 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 
 ## Token Exchange Request
 
-`POST /oauth/2/token` accepts form-encoded parameters.
+`POST /oauth/2/token` accepts body-only `application/x-www-form-urlencoded` parameters. Query parameters, duplicate singleton fields, and other media types are rejected. Repeated `resource` fields are allowed; STS trims, exact-deduplicates, and sorts them before evaluation.
 
 | Parameter                                                    | Purpose                                                                                               |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
@@ -31,12 +31,12 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `scope`                                                      | Requested scopes.                                                                                     |
 | `zone_id`                                                    | Zone boundary.                                                                                        |
 | `application_id`                                             | Calling application.                                                                                  |
-| `client_secret`, `client_assertion`, `client_assertion_type` | Application authentication.                                                                           |
+| `client_secret`                                             | Application authentication.                                                                           |
 | `session_id`, `agent_session_id`, `delegation_edge_id`       | Protocol names for Authority record ID, Session ID, and Delegation ID. They are distinct identifiers. |
 | `ttl_seconds`                                                | Requested TTL.                                                                                        |
 | `challenge_id`                                               | Consumes an approved step-up hold during retry.                                                       |
 
-RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. The acting application authenticates with its own client credentials, and its identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
+RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. Public `client_assertion` and `client_assertion_type` fields are also rejected; application authentication uses `client_secret`. The acting application's identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
 
 ## Subject Identity
 

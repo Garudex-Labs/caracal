@@ -37,11 +37,11 @@ sequenceDiagram
 | `resource`                                             | Target resource identifiers.                                              |
 | `scope`                                                | Requested resource scopes.                                                |
 | `zone_id`                                              | Tenant boundary.                                                          |
-| `application_id` and client credential                 | Authenticates the calling application.                                    |
+| `application_id` and `client_secret`                   | Authenticates the calling application.                                    |
 | `session_id`, `agent_session_id`, `delegation_edge_id` | Protocol names for Authority record ID, Session ID, and Delegation ID.    |
 | `challenge_id`                                         | Consumes an approved step-up hold during retry.                           |
 
-RFC 8693 `actor_token` is not supported; the STS rejects requests that carry one. The calling application's authenticated identity is published to policy input as `input.context.actor_claims.caracal_client_id`.
+RFC 8693 `actor_token`, `client_assertion`, and `client_assertion_type` are not supported; STS rejects requests that carry them. The calling application's authenticated identity is published to policy input as `input.context.actor_claims.caracal_client_id`.
 
 ## TTL Contracts
 
@@ -55,7 +55,7 @@ Gateway performs a per-request exchange and rejects inbound tokens that are too 
 
 ## Gateway-Authenticated Exchange
 
-Gateway exchanges with STS using a request signature, timestamp, and nonce over the token exchange request. STS verifies the Gateway HMAC key and consumes the nonce before trusting the Gateway-authenticated path.
+Gateway exchanges with STS using a request signature, timestamp, and independent random nonce over the exact form body bytes STS consumes. Query parameters and duplicate singleton fields are rejected before the signed request is trusted. The request id, W3C trace id, mandate `jti`, and HMAC nonce remain separate correlation and replay domains.
 
 ## Next Step
 

@@ -11,13 +11,13 @@ A governed Session touches a handful of endpoints. Stub the ones your code path 
 
 | Call                             | Respond with                                                                                                            |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `POST /zones/{zone}/agents`      | Protocol Session-start response `{"agent_session_id": "agent-1"}`; add `heartbeat_deadline_at` for long-lived Sessions. |
+| `POST /zones/{zone}/agents`      | Protocol Session-start response `{"agent_session_id": "agent-1"}`; long-lived Sessions also require `heartbeat_deadline_at` and `lease_generation`. |
 | `POST /zones/{zone}/delegations` | Protocol Delegation response `{"delegation_edge_id": "edge-1"}`.                                                        |
-| `POST .../agents/{id}/heartbeat` | `{"agent": {"status": "active", "heartbeat_deadline_at": "..."}}`                                                       |
+| `POST .../agents/{id}/heartbeat` | `{"agent": {"status": "active", "heartbeat_deadline_at": "...", "lease_generation": 1}}`                                |
 | `DELETE .../agents/{id}`         | `204`                                                                                                                   |
 | `POST /oauth/2/token`            | `{"access_token": "tok", "token_type": "Bearer", "expires_in": 900}`                                                    |
 
-Return an error status to exercise failure paths: a `503` drives the idempotent Session-start retry, `429` with `Retry-After` drives hinted backoff, and a `401` from an `interaction_required` body raises the approval hold.
+Return an error status to exercise failure paths: a `503` drives the idempotent Session-start retry, a `429` from STS proves issuance is surfaced after one attempt, and a `401` from an `interaction_required` body raises the approval hold.
 
 Make scoped-transport Gateway fakes replay-sensitive: remember each presented bearer and reject a duplicate with `token_replayed`. Repeated and concurrent requests must carry distinct mandates, while an application transport must still create only one source/target Session pair and one delegation per authority-cache key.
 

@@ -55,19 +55,13 @@ Runtime credentials see only Delegations where their application is the issuer o
 | `GET`   | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a Session.                                                           |
 | `PATCH` | `/zones/:zoneId/delegations/:id/revoke`                | Revoke delegated authority.                                                                          |
 
-## SDK Lifecycle Protocol Endpoints
+## Language-Neutral Verification
 
-| Method | Path                             |
-| ------ | -------------------------------- |
-| `POST` | `/v1/begin`                      |
-| `POST` | `/v1/end`                        |
-| `POST` | `/v1/spawn-child`                |
-| `POST` | `/v1/exchange`                   |
-| `POST` | `/v1/delegate-to-existing-agent` |
-| `POST` | `/v1/revoke-delegation`          |
-| `POST` | `/v1/verify`                     |
+| Method | Path         | Purpose                                                                                       |
+| ------ | ------------ | --------------------------------------------------------------------------------------------- |
+| `POST` | `/v1/verify` | Verify a mandate through the configured identity verifier for language-neutral integrations. |
 
-SDKs usually call these protocol endpoints through a language-specific Caracal client rather than direct HTTP. `/v1/spawn-child` and `/v1/delegate-to-existing-agent` are stable wire names; product code starts child Sessions and delegates to peer Sessions.
+SDK lifecycle clients use the zone-scoped Session, lease, heartbeat, termination, and Delegation endpoints above. Coordinator exposes no parallel flat lifecycle or Delegation protocol.
 
 Delegation creation authenticates the issuer and records an offer. Receiver credentials are not distributed to the issuer. The receiver consents by presenting the opaque ID, while STS verifies its target Session and application binding. The Console intentionally has no creation form.
 

@@ -24,10 +24,10 @@ sequenceDiagram
   participant STS
   participant Upstream
   participant Audit
-  Client->>Gateway: bearer token + X-Caracal-Resource
+  Client->>Gateway: one-shot use=gateway mandate + X-Caracal-Resource
   Gateway->>Gateway: verify JWT, jti, revocation, binding, path, upstream safety
   Gateway->>STS: signed per-request exchange
-  STS-->>Gateway: resource mandate
+  STS-->>Gateway: use=resource mandate + private upstream directive
   Gateway->>Upstream: proxied request
   Gateway->>Audit: audit event or replay file
 ```

@@ -67,7 +67,7 @@ receives the root admin token; it uses a scoped control key.
 
    ```bash
    curl -s -X POST "$STS_URL/oauth/2/token" \
-     -d grant_type=client_credentials \
+    -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
      -d application_id="$CONTROL_CLIENT_ID" \
      -d client_secret="$CONTROL_CLIENT_SECRET" \
      -d resource=caracal-control \
@@ -83,10 +83,9 @@ receives the root admin token; it uses a scoped control key.
      -d '{"command":"resource","subcommand":"create","flags":{"name":"PiperNet","identifier":"resource://pipernet","scopes":["pipernet.read"]}}'
    ```
 
-STS resolves the bound zone from the authenticated control key; standard
-bootstrap workflows must not ask users to provide a separate zone id. Supplying
-`zone_id` on a Control key token exchange remains accepted for compatibility but
-is deprecated. Each token is short-lived, replay-protected, rate-limited, and audited, so
+STS resolves the bound zone from the authenticated control key; automation must
+not provide a separate zone id. Each token is short-lived, replay-protected,
+rate-limited, and audited, so
 least-privilege automation stays the easy path. The `controlBootstrap` example
 ships a reusable client plus an apply/verify/teardown pipeline that keeps an
 agent's environment in sync with a declared plan through this flow.
