@@ -27,6 +27,7 @@ class TokenExchangeResponse:
     token_type: str
     expires_in: int
     issued_at: int
+    target_resources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -41,14 +42,13 @@ class MintedMandate:
 @dataclass(frozen=True)
 class ExchangeOptions:
     client_secret: str | None = None
-    client_assertion: str | None = None
-    client_assertion_type: str | None = None
     authority_record_id: str | None = None
     session_id: str | None = None
     delegation_id: str | None = None
     challenge_id: str | None = None
     scopes: list[str] = field(default_factory=list)
     timeout_ms: int = 30_000
-    retries: int = 3
     ttl_seconds: int | None = None
     cache: bool = True
+    force_refresh: bool = False
+    one_shot: bool = False

@@ -64,7 +64,10 @@ class ControlInvokeTests(unittest.TestCase):
         self.assertEqual(result, [{"id": "z1"}])
         self.assertEqual(str(requests[0].url), "https://sts.example.com/oauth/2/token")
         token_form = form(requests[0])
-        self.assertEqual(token_form["grant_type"], "client_credentials")
+        self.assertEqual(
+            token_form["grant_type"],
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        )
         self.assertEqual(token_form["application_id"], "app-operator")
         self.assertEqual(token_form["resource"], "caracal-control")
         self.assertEqual(token_form["scope"], "control:zone:read")
@@ -174,36 +177,21 @@ class ControlInvokeTests(unittest.TestCase):
         with self.assertRaises(ControlClientError):
             client.invoke("zone", "list", {}, ["control:zone:read"])
 
-    def test_retries_transient_token_failure_once(self):
+    def test_does_not_retry_transient_token_failure(self):
         requests: list[httpx.Request] = []
-        client = make_client(
-            [
-                httpx.Response(502, text="upstream boom"),
-                token_response(),
-                invoke_response({"ok": True}),
-            ],
-            requests,
-        )
+        client = make_client([httpx.Response(502, text="upstream boom")], requests)
 
-        result = client.invoke("zone", "list", {}, ["control:zone:read"])
+        with self.assertRaises(ControlClientError):
+            client.invoke("zone", "list", {}, ["control:zone:read"])
+        self.assertEqual(len(requests), 1)
 
-        self.assertEqual(result, {"ok": True})
-        self.assertEqual(len(requests), 3)
-
-    def test_retries_thrown_token_network_failure_once(self):
+    def test_does_not_retry_thrown_token_network_failure(self):
         requests: list[httpx.Request] = []
-        client = make_client(
-            [
-                httpx.ConnectError("fetch failed"),
-                token_response(),
-                invoke_response({"ok": True}),
-            ],
-            requests,
-        )
+        client = make_client([httpx.ConnectError("fetch failed")], requests)
 
-        self.assertEqual(
-            client.invoke("zone", "list", {}, ["control:zone:read"]), {"ok": True}
-        )
+        with self.assertRaises(ControlClientError):
+            client.invoke("zone", "list", {}, ["control:zone:read"])
+        self.assertEqual(len(requests), 1)
 
     def test_does_not_retry_denied_token_exchange(self):
         requests: list[httpx.Request] = []

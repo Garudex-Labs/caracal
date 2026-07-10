@@ -10,23 +10,19 @@ from __future__ import annotations
 import asyncio
 import unittest
 from time import time
+from urllib.parse import parse_qs
 
 import httpx
 
 from caracalai_oauth import (
     ApprovalRequired,
+    CaracalError,
     ExchangeOptions,
     InMemoryTokenCache,
     OAuthClient,
     TokenExchangeResponse,
 )
-from caracalai_oauth.client import (
-    _backoff,
-    _json_response,
-    _read_error_response,
-    _retry_delay,
-    _sleep_within_deadline,
-)
+from caracalai_oauth.client import _json_response
 
 
 class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
@@ -173,6 +169,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
                     "error": "interaction_required",
                     "error_description": "step up",
                     "challenge_id": "challenge1",
+                    "challenge_type": "human_approval",
                     "acr_values": "urn:mfa",
                     "binding": "abc123",
                     "challenge_expires_at": "2026-01-01T00:05:00Z",
@@ -254,10 +251,8 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
 
-        with self.assertRaisesRegex(RuntimeError, "expired client credential"):
-            await client.exchange(
-                "subject", "resource://api", ExchangeOptions(retries=0)
-            )
+        with self.assertRaisesRegex(CaracalError, "expired client credential"):
+            await client.exchange("subject", "resource://api")
 
         self.assertEqual(requests, 1)
 
@@ -332,27 +327,41 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["agent_session_id"], "session")
         self.assertEqual(captured["delegation_edge_id"], "delegation")
         self.assertNotIn("actor_token", captured)
+        self.assertNotIn("client_assertion", captured)
 
-    async def test_exchange_retries_transient_http_errors_and_statuses(self) -> None:
+    async def test_exchange_does_not_retry_transport_errors(self) -> None:
         attempts = 0
 
         async def handler(_request: httpx.Request) -> httpx.Response:
             nonlocal attempts
             attempts += 1
-            if attempts == 1:
-                raise httpx.ConnectError("temporary")
-            if attempts == 2:
-                return httpx.Response(
-                    429,
-                    json={"error_description": "slow"},
-                    headers={"retry-after": "0"},
-                )
+            raise httpx.ConnectError("temporary")
+
+        client = OAuthClient(
+            "https://sts.example.com",
+            "zone1",
+            "app1",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+        with self.assertRaisesRegex(httpx.ConnectError, "temporary"):
+            await client.exchange("subject", "resource://api")
+        self.assertEqual(attempts, 1)
+
+    async def test_exchange_canonicalizes_resources_and_returns_granted_subset(
+        self,
+    ) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(parse_qs(request.content.decode()))
             return httpx.Response(
                 200,
                 json={
-                    "access_token": "fresh",
+                    "access_token": "token",
                     "token_type": "Bearer",
                     "expires_in": 3600,
+                    "target_resources": ["resource://a"],
                 },
                 headers={"content-type": "application/json"},
             )
@@ -363,13 +372,14 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
             "app1",
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
-
         token = await client.exchange(
-            "subject", "resource://api", ExchangeOptions(retries=2, timeout_ms=1_000)
+            "", [" resource://b ", "resource://a", "resource://b"]
         )
 
-        self.assertEqual(token.access_token, "fresh")
-        self.assertEqual(attempts, 3)
+        self.assertEqual(captured["resource"], ["resource://a", "resource://b"])
+        self.assertNotIn("subject_token", captured)
+        self.assertNotIn("subject_token_type", captured)
+        self.assertEqual(token.target_resources, ("resource://a",))
 
     async def test_exchange_surfaces_timeout_and_non_retryable_errors(self) -> None:
         timeout_client = OAuthClient(
@@ -448,10 +458,8 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
                 )
             ),
         )
-        with self.assertRaisesRegex(RuntimeError, "bad request"):
-            await error_client.exchange(
-                "subject", "resource://api", ExchangeOptions(retries=0)
-            )
+        with self.assertRaisesRegex(CaracalError, "bad request"):
+            await error_client.exchange("subject", "resource://api")
 
 
 class InMemoryTokenCacheTests(unittest.TestCase):
@@ -471,27 +479,11 @@ class InMemoryTokenCacheTests(unittest.TestCase):
         self.assertEqual(cache.get("subject", "resource://b"), fresh)
 
 
-class OAuthHelperTests(unittest.IsolatedAsyncioTestCase):
-    async def test_response_and_backoff_helpers_cover_boundaries(self) -> None:
+class OAuthHelperTests(unittest.TestCase):
+    def test_response_content_type_boundaries(self) -> None:
         self.assertTrue(_json_response(None))
         self.assertTrue(_json_response("APPLICATION/PROBLEM+JSON; charset=utf-8"))
         self.assertFalse(_json_response("text/plain"))
-
-        self.assertEqual(
-            _retry_delay(httpx.Response(503, headers={"retry-after": "0.5"}), 0), 0.5
-        )
-        self.assertEqual(
-            _retry_delay(httpx.Response(503, headers={"retry-after": "soon"}), 1),
-            _backoff(1),
-        )
-        self.assertEqual(_backoff(10), 5)
-
-        with self.assertRaisesRegex(TimeoutError, "timed out"):
-            await _sleep_within_deadline(1, time() - 1)
-
-        self.assertEqual(_read_error_response(httpx.Response(500, content=b"")), {})
-        with self.assertRaisesRegex(RuntimeError, "invalid error response"):
-            _read_error_response(httpx.Response(500, json=["bad"]))
 
 
 if __name__ == "__main__":
