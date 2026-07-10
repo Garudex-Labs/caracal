@@ -165,7 +165,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('returns 404 when the agent session is inactive in the zone', async () => {
+  it('returns 404 when the Session is inactive in the zone', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValue({ rows: [] }),

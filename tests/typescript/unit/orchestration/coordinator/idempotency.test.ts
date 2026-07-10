@@ -11,6 +11,7 @@ import {
   keyDigest,
   parseIdempotencyKey,
   requestDigest,
+  startIdempotency,
 } from '../../../../../apps/coordinator/src/idempotency.js'
 
 describe('idempotency key validation', () => {
@@ -59,5 +60,56 @@ describe('key storage digest', () => {
     expect(a.equals(keyDigest('delivery-42', one))).toBe(true)
     expect(a.equals(keyDigest('delivery-42', two))).toBe(false)
     expect(a.includes(Buffer.from('delivery-42'))).toBe(false)
+  })
+})
+
+describe('rotation serialization', () => {
+  it('uses one per-key lock across old, new, and overlap key configurations', async () => {
+    const locks: string[] = []
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('pg_advisory_xact_lock')) locks.push(String(params?.[0]))
+        if (sql.includes('SELECT COUNT')) return { rows: [{ n: '0' }] }
+        return { rows: [], rowCount: 0 }
+      },
+    }
+    const one = Buffer.alloc(32, 1)
+    const two = Buffer.alloc(32, 2)
+    for (const hmacKeys of [[one], [two, one], [two]]) {
+      await startIdempotency(db, {
+        operation: 'session.start.v2',
+        zoneId: 'z1',
+        scopeId: 'app1',
+        key: 'operation-1',
+        request: {},
+        hmacKeys,
+        maxReceiptsPerScope: 10,
+      })
+    }
+    expect(new Set(locks)).toHaveLength(1)
+    expect(locks[0]).toMatch(/^session\.start\.v2:z1:app1:[a-f0-9]{64}$/)
+  })
+
+  it('does not serialize unrelated idempotency keys in one scope', async () => {
+    const locks: string[] = []
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('pg_advisory_xact_lock')) locks.push(String(params?.[0]))
+        if (sql.includes('SELECT COUNT')) return { rows: [{ n: '0' }] }
+        return { rows: [], rowCount: 0 }
+      },
+    }
+    for (const key of ['operation-1', 'operation-2']) {
+      await startIdempotency(db, {
+        operation: 'session.start.v2',
+        zoneId: 'z1',
+        scopeId: 'app1',
+        key,
+        request: {},
+        hmacKeys: [Buffer.alloc(32, 1)],
+        maxReceiptsPerScope: 10,
+      })
+    }
+    expect(new Set(locks).size).toBe(2)
   })
 })

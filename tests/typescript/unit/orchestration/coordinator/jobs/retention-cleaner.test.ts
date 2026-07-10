@@ -60,6 +60,9 @@ describe('runRetentionCleanup', () => {
       deletedOutbox: 4,
       deletedIdempotencyReceipts: 5,
     })
+    const edgeDelete = client.query.mock.calls.find((call) => String(call[0]).includes('DELETE FROM delegation_edges'))
+    expect(String(edgeDelete?.[0])).toContain('child.parent_edge_id = delegation_edges.id')
+
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'expired'"), [500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('RETURNING epoch'), ['z1'])
     expect(client.query).toHaveBeenCalledWith(

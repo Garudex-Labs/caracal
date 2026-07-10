@@ -20,12 +20,12 @@ describe('makeIntervalJob', () => {
 
     await vi.advanceTimersByTimeAsync(100)
     const stopped = job.stop()
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(12_000)
     await stopped
 
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'background job did not stop within 5000ms',
+        message: 'background job did not stop within 12000ms',
       }),
     )
   })

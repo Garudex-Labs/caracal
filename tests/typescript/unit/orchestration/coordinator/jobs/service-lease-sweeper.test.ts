@@ -58,7 +58,7 @@ describe('runServiceLeaseSweep', () => {
     client.query = vi.fn(async (sql: string, params?: unknown[]) => {
       client.calls.push([sql, params])
       if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-      if (/FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) {
+      if (/FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*LIMIT/.test(sql)) {
         return { rows: expired }
       }
       if (/WITH RECURSIVE tree[\s\S]*FROM suspended/.test(sql)) {
@@ -76,13 +76,17 @@ describe('runServiceLeaseSweep', () => {
     expect(allDedupes).toEqual(
       expect.arrayContaining(['suspend:agent-1', 'suspend:agent-2', 'agent_suspend:agent-1', 'agent_suspend:agent-2']),
     )
+    const suspension = allDedupes.find(
+      (value): value is Record<string, unknown> => typeof value === 'object' && value !== null && value.agent_session_id === 'agent-1',
+    )
+    expect(suspension).not.toHaveProperty('session_id')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('commits without subtree work when no leases expired', async () => {
     const client = clientFromSteps([
       { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
-      { match: /FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/, rows: [] },
+      { match: /FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*LIMIT/, rows: [] },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
 

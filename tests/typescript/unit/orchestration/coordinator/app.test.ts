@@ -13,6 +13,20 @@ vi.mock('../../../../../apps/coordinator/src/auth.js', () => ({
 const { buildApp } = await import('../../../../../apps/coordinator/src/app.js')
 
 describe('buildApp operational endpoints', () => {
+  it('keeps health independent of Redis-backed global rate limiting', async () => {
+    const redis = { incr: vi.fn(() => Promise.reject(new Error('redis down'))) }
+    const app = await buildApp({
+      cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 10 },
+      db: {},
+      redis,
+    } as never)
+    const response = await app.inject({ method: 'GET', url: '/health' })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ ok: true })
+    expect(redis.incr).not.toHaveBeenCalled()
+    await app.close()
+  })
+
   it('reuses runtime aggregate stats across metrics and stats requests', async () => {
     const db = {
       query: vi

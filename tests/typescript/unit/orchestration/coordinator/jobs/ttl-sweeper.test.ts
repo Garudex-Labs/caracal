@@ -60,7 +60,7 @@ describe('runTTLSweep', () => {
     client.query = vi.fn(async (sql: string, params?: unknown[]) => {
       client.calls.push([sql, params])
       if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-      if (/FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) return { rows: expired }
+      if (/FROM sessions[\s\S]*LIMIT/.test(sql)) return { rows: expired }
       if (/WITH RECURSIVE tree[\s\S]*FROM terminated/.test(sql)) {
         subtreeCall += 1
         return { rows: subtreeCall === 1 ? terminatedZ1 : terminatedZ2 }
@@ -88,11 +88,22 @@ describe('runTTLSweep', () => {
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
+  it('takes zone locks before subtree row locks', async () => {
+    const client = clientFromSteps([
+      { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
+      { match: /FROM sessions/, rows: [{ id: 'agent-1', zone_id: 'z1' }] },
+    ])
+    await runTTLSweep({ connect: vi.fn().mockResolvedValueOnce(client) } as never)
+    const select = client.calls.find(([sql]) => /FROM sessions/.test(sql))?.[0] ?? ''
+    expect(select).not.toContain('FOR UPDATE')
+    expect(client.calls.some(([sql]) => /pg_advisory_xact_lock/.test(sql))).toBe(true)
+  })
+
   it('excludes service-lifecycle agents from TTL termination', async () => {
     const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await runTTLSweep(db as never)
-    const select = client.calls.find(([sql]) => /FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql))
+    const select = client.calls.find(([sql]) => /FROM sessions[\s\S]*LIMIT/.test(sql))
     expect(select).toBeDefined()
     expect(select?.[0]).toMatch(/lifecycle <> 'service'/)
   })
@@ -111,7 +122,7 @@ describe('runTTLSweep', () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-        if (/FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) throw err
+        if (/FROM sessions[\s\S]*LIMIT/.test(sql)) throw err
         return { rows: [] }
       }),
       release: vi.fn(),

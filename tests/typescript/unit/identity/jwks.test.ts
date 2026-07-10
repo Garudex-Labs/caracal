@@ -80,6 +80,14 @@ describe('getKeySet', () => {
     await expect(getKeySet('https://issuer-three.example', 'zone1')).rejects.toThrow('JWKS fetch failed: 503')
   })
 
+  it('rejects oversized JWKS documents before parsing', async () => {
+    const cache = createJwksCache({
+      fetchImpl: async () => new Response(JSON.stringify({ keys: [], padding: 'x'.repeat(256 * 1024) })),
+    })
+
+    await expect(cache.getKeySet('https://issuer-large.example', 'zone1')).rejects.toThrow('JWKS document too large')
+  })
+
   it('returns stale key set and triggers background revalidation after TTL', async () => {
     vi.useFakeTimers()
     const issuer = 'https://issuer-stale.example'
