@@ -39,7 +39,7 @@ const EVENT_TYPE_OPTIONS: { id: string; label: string; detail: string }[] = [
   {
     id: "step_up_issued",
     label: "Approval requested",
-    detail: "A hold was raised and an agent run is parked on it.",
+    detail: "A hold was raised and a Session is parked on it.",
   },
   {
     id: "step_up_decided",
@@ -127,7 +127,7 @@ function NotificationsPage() {
           <Skeleton className="h-24 w-full" />
         ) : rows.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            No sinks yet. Add one to be notified the moment an approval hold parks an agent run.
+            No sinks yet. Add one to be notified the moment an approval hold parks a Session.
           </p>
         ) : (
           <div className="divide-y divide-border rounded-lg border border-border">

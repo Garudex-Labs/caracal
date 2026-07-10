@@ -40,17 +40,13 @@ import { relativeTime } from "@/lib/time";
 import { appLink } from "@/platform/nav/appLink";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  useAgent,
-  useAgentInboundDelegations,
-  useAgentLifecycle,
-  useRevokeDelegation,
   useRevokeSubject,
-  useSessionRecord,
-  useSessionsFeed,
+  useAuthorityRecord,
+  useAuthorityRecordsFeed,
   useSubjectOverview,
   useSubjectsFeed,
 } from "@/platform/api/hooks";
-import type { Session, SubjectSummary } from "@/platform/api/types";
+import type { AuthorityRecord, SubjectSummary } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/subjects")({
   component: SubjectsRoute,
@@ -87,23 +83,23 @@ function errorMessage(error: unknown): string {
 
 type EffectiveStatus = "active" | "expired" | "revoked";
 
-// The control plane stores a session's status as active/revoked/expired, but the
-// reaper only flips orphaned (zone-deleted) sessions to expired, and a session whose
+// The control plane stores an authority record's status as active/revoked/expired, but the
+// reaper only flips orphaned records to expired, and a record whose
 // expires_at has passed keeps status='active' in the database until then. The STS
 // runtime, however, denies any exchange unless `status === 'active' && expires_at > now`
-// (exchange.go: "session inactive or expired"). So a stored-active session past its
+// (exchange.go: "session inactive or expired"). A stored-active record past its
 // expiry carries no usable authority. Derive the status the runtime actually enforces
 // so the console never shows lapsed authority as live.
-function effectiveStatus(session: Session, now: number): EffectiveStatus {
-  if (session.status === "revoked") return "revoked";
-  if (session.status === "expired") return "expired";
-  return Date.parse(session.expires_at) > now ? "active" : "expired";
+function authorityRecordStatus(record: AuthorityRecord, now: number): EffectiveStatus {
+  if (record.status === "revoked") return "revoked";
+  if (record.status === "expired") return "expired";
+  return Date.parse(record.expiresAt) > now ? "active" : "expired";
 }
 
 // True when the database still says active but the session has actually lapsed and is
 // awaiting reaping, worth flagging so operators understand the record/runtime drift.
-function isStaleActive(session: Session, now: number): boolean {
-  return session.status === "active" && Date.parse(session.expires_at) <= now;
+function isStaleAuthorityRecord(record: AuthorityRecord, now: number): boolean {
+  return record.status === "active" && Date.parse(record.expiresAt) <= now;
 }
 
 function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
@@ -112,7 +108,7 @@ function statusTone(status: EffectiveStatus): "success" | "muted" | "danger" {
   return "muted";
 }
 
-// Maps the reason recorded when a session is revoked to operator-facing wording. The
+// Maps the reason recorded when an authority record is revoked to operator-facing wording. The
 // backend stamps these at the originating action (grant delete, application archive) or
 // falls back to a generic marker when a revocation arrives only through the stream.
 const REVOCATION_REASON_LABELS: Record<string, string> = {
@@ -127,11 +123,10 @@ function revocationReasonLabel(reason: string | null): string {
   return REVOCATION_REASON_LABELS[reason] ?? reason.replace(/_/g, " ");
 }
 
-// One-line outcome for a session: why it ended, or that it is still live. Revoked
-// sessions surface the recorded cause so operators see intent, not just a status.
-function sessionOutcome(session: Session, effective: EffectiveStatus): string {
+// One-line outcome for an authority record. Revoked records surface the recorded cause.
+function authorityRecordOutcome(record: AuthorityRecord, effective: EffectiveStatus): string {
   if (effective === "active") return "Live";
-  if (effective === "revoked") return revocationReasonLabel(session.revoked_reason);
+  if (effective === "revoked") return revocationReasonLabel(record.revokedReason);
   return "Expired";
 }
 
@@ -164,8 +159,8 @@ function standingTone(standing: Standing): "success" | "danger" | "muted" {
 function standingCaption(s: SubjectSummary, standing: Standing, now: number): string {
   if (standing === "live") {
     return s.active_sessions === 1
-      ? "1 session can mint"
-      : `${s.active_sessions} sessions can mint`;
+      ? "1 authority record can mint"
+      : `${s.active_sessions} authority records can mint`;
   }
   if (standing === "revoked" && s.last_revoked_at) {
     return `Cut off ${relativeTime(s.last_revoked_at, now)}`;
@@ -207,9 +202,9 @@ function RecordResolver({
   recordId: string;
   onResolved: (subjectId: string) => void;
 }) {
-  const record = useSessionRecord(zoneId, recordId);
+  const record = useAuthorityRecord(zoneId, recordId);
   useEffect(() => {
-    if (record.data?.subject_id) onResolved(record.data.subject_id);
+    if (record.data?.subjectId) onResolved(record.data.subjectId);
   }, [record.data, onResolved]);
   return null;
 }
@@ -280,7 +275,7 @@ function SubjectsPage({
       header: "History",
       cell: (s) => (
         <div className="text-xs text-muted-foreground">
-          {s.total_sessions === 1 ? "1 session" : `${s.total_sessions} sessions`}
+          {s.total_sessions === 1 ? "1 authority record" : `${s.total_sessions} authority records`}
           {s.revoked_sessions > 0 ? (
             <span className="text-destructive"> · {s.revoked_sessions} revoked</span>
           ) : null}
@@ -439,8 +434,8 @@ function SubjectVerdict({ subject, now }: { subject: SubjectSummary; now: number
         <div className="font-medium">Holds live authority</div>
         <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">
           {subject.active_sessions === 1
-            ? "1 session can currently mint tokens for this subject."
-            : `${subject.active_sessions} sessions can currently mint tokens for this subject.`}
+            ? "1 authority record can currently mint tokens for this Subject."
+            : `${subject.active_sessions} authority records can currently mint tokens for this Subject.`}
         </p>
       </div>
     );
@@ -504,7 +499,7 @@ function SubjectKillSwitch({ zoneId, subject }: { zoneId: string; subject: Subje
             toast({
               tone: "info",
               title: "Authority cut off",
-              description: `${result.sessions} records revoked, ${result.agents} sessions terminated, ${result.delegations} delegations revoked, ${result.connections} connections revoked.`,
+              description: `${result.sessions} records revoked, ${result.governed_sessions} sessions terminated, ${result.delegations} delegations revoked, ${result.connections} connections revoked.`,
             });
           } catch (err) {
             toast({ tone: "error", title: "Cut off failed", description: errorMessage(err) });
@@ -541,7 +536,7 @@ function SubjectStory({ subject, zoneId }: { subject: SubjectSummary; zoneId: st
       <DetailGroup title="Identity">
         <DetailField
           label="Subject ID"
-          hint="The opaque identifier every session, approval, connection, and audit event keys to"
+          hint="The opaque Subject identifier used by authority records, approvals, connections, and audit events"
         >
           <CopyValue value={subject.subject_id} />
         </DetailField>
@@ -610,7 +605,7 @@ function GovernedSection({
       application_id: string;
       lifecycle: string;
       status: string;
-      spawned_at: string;
+      startedAt: string;
     }[];
   };
 }) {
@@ -652,7 +647,7 @@ function GovernedSection({
                 </div>
               </div>
               <span className="shrink-0 text-[10px] text-muted-foreground">
-                {relativeTime(run.spawned_at)}
+                {relativeTime(run.startedAt)}
               </span>
             </li>
           ))}
@@ -709,7 +704,7 @@ function ApprovalsSection({ approvals }: { approvals: { pending: number; total: 
 }
 
 // Upstream accounts consented for this subject. A dead connection is the usual cause of
-// "the agent suddenly cannot reach the provider", so status leads.
+// A failed provider connection is the usual cause of a Session suddenly losing access.
 function ConnectionsSection({
   connections,
 }: {
@@ -773,119 +768,16 @@ function ConnectionsSection({
   );
 }
 
-// Inline authority cutoff. A subject session's live authority is held by its session and
-// fed by inbound delegations, so both controls act right here: terminating the session
-// or revoking a delegation takes effect on the runtime immediately, no page change required.
-function AuthorityControls({ zoneId, session }: { zoneId: string; session: Session }) {
-  const toast = useToast();
-  const agent = useAgent(zoneId, session.id);
-  const inbound = useAgentInboundDelegations(zoneId, session.id);
-  const lifecycle = useAgentLifecycle(zoneId);
-  const revoke = useRevokeDelegation(zoneId);
-  const [confirmTerminate, setConfirmTerminate] = useState(false);
-
-  const holdingAgent =
-    agent.data && (agent.data.status === "active" || agent.data.status === "suspended")
-      ? agent.data
-      : null;
-  const edges = (inbound.data ?? []).filter((edge) => !edge.revoked_at);
-
-  if (!holdingAgent && edges.length === 0) {
-    return (
-      <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        This subject session ends by expiry or grant revocation. No live session or inbound
-        delegation holds authority for it right now.
-      </p>
-    );
-  }
-
-  return (
-    <section className="border-t border-border pt-4">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        Cut off authority
-      </h3>
-      <div className="mt-3 flex flex-col gap-2">
-        {holdingAgent ? (
-          <div className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2">
-            <div className="min-w-0">
-              <span className="text-xs font-medium text-foreground">
-                A session holds this authority
-              </span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {holdingAgent.lifecycle} · {holdingAgent.status} · depth {holdingAgent.depth}
-              </span>
-            </div>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={lifecycle.isPending}
-              onClick={() => setConfirmTerminate(true)}
-            >
-              Terminate session
-            </Button>
-          </div>
-        ) : null}
-        {edges.map((edge) => (
-          <div
-            key={edge.id}
-            className="flex items-center justify-between gap-3 border border-border bg-muted/10 px-3 py-2"
-          >
-            <div className="min-w-0">
-              <span className="text-xs font-medium text-foreground">Inbound delegation</span>
-              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                {edge.scopes.join(", ") || "no scopes"} · from{" "}
-                <span className="font-mono">{edge.source_session_id.slice(0, 8)}…</span>
-              </span>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={revoke.isPending}
-              onClick={async () => {
-                try {
-                  await revoke.mutateAsync(edge.id);
-                  toast({ tone: "success", title: "Delegation revoked" });
-                } catch (err) {
-                  toast({ tone: "error", title: "Revoke failed", description: errorMessage(err) });
-                }
-              }}
-            >
-              Revoke
-            </Button>
-          </div>
-        ))}
-      </div>
-
-      <ConfirmDialog
-        open={confirmTerminate}
-        onClose={() => setConfirmTerminate(false)}
-        title="Terminate session"
-        description="Terminating ends this session and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone."
-        confirmLabel="Terminate"
-        tone="danger"
-        onConfirm={async () => {
-          try {
-            await lifecycle.mutateAsync({ id: session.id, action: "terminate" });
-            toast({ tone: "info", title: "Session terminated" });
-          } catch (err) {
-            toast({ tone: "error", title: "Terminate failed", description: errorMessage(err) });
-          }
-        }}
-      />
-    </section>
-  );
-}
-
 // One authority record: stored status with the lapsed marker, outcome, mint time, and
-// the audit trail link. Live records carry the revocation controls.
-function RecordRow({ zoneId, record, now }: { zoneId: string; record: Session; now: number }) {
-  const eff = effectiveStatus(record, now);
+// the audit trail link.
+function RecordRow({ record, now }: { record: AuthorityRecord; now: number }) {
+  const eff = authorityRecordStatus(record, now);
   return (
     <li className="border border-border bg-muted/10 px-3 py-2">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Badge tone={statusTone(eff)}>{eff}</Badge>
-          {isStaleActive(record, now) ? (
+          {isStaleAuthorityRecord(record, now) ? (
             <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
               <span
                 tabIndex={0}
@@ -906,24 +798,23 @@ function RecordRow({ zoneId, record, now }: { zoneId: string; record: Session; n
               eff === "revoked" ? "text-destructive" : "text-muted-foreground",
             )}
           >
-            {sessionOutcome(record, eff)}
+            {authorityRecordOutcome(record, eff)}
           </span>
           <span
             className="text-[10px] text-muted-foreground"
-            title={new Date(record.authenticated_at).toLocaleString()}
+            title={new Date(record.authenticatedAt).toLocaleString()}
           >
-            {relativeTime(record.authenticated_at, now)}
+            {relativeTime(record.authenticatedAt, now)}
           </span>
           <Link
             to={appLink("/audit")}
-            search={{ session: record.id }}
+            search={{ authorityRecordId: record.id }}
             className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
           >
             Audit
           </Link>
         </div>
       </div>
-      {eff === "active" ? <AuthorityControls zoneId={zoneId} session={record} /> : null}
     </li>
   );
 }
@@ -936,7 +827,10 @@ const LEDGER_PREVIEW = 3;
 // never floods the investigation story.
 function RecordsLedger({ zoneId, subject }: { zoneId: string; subject: SubjectSummary }) {
   const [open, setOpen] = useState(false);
-  const feed = useSessionsFeed(zoneId, { subject_id: subject.subject_id, limit: LEDGER_PREVIEW });
+  const feed = useAuthorityRecordsFeed(zoneId, {
+    subject_id: subject.subject_id,
+    limit: LEDGER_PREVIEW,
+  });
   const records = (feed.data?.pages[0]?.rows ?? []).slice(0, LEDGER_PREVIEW);
   const now = Date.now();
 
@@ -955,7 +849,7 @@ function RecordsLedger({ zoneId, subject }: { zoneId: string; subject: SubjectSu
       ) : (
         <ul className="mt-3 space-y-2">
           {records.map((record) => (
-            <RecordRow key={record.id} zoneId={zoneId} record={record} now={now} />
+            <RecordRow key={record.id} record={record} now={now} />
           ))}
         </ul>
       )}
@@ -989,7 +883,7 @@ function RecordsModal({
   const [sort, setSort] = useState<SortState | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
-  const feed = useSessionsFeed(zoneId, {
+  const feed = useAuthorityRecordsFeed(zoneId, {
     subject_id: subject.subject_id,
     status: status === "all" ? undefined : status,
     limit: 50,
@@ -1009,11 +903,11 @@ function RecordsModal({
 
   const sorted = useMemo(() => {
     if (!sort) return filtered;
-    const accessor: ((record: Session) => string | number) | undefined =
+    const accessor: ((record: AuthorityRecord) => string | number) | undefined =
       sort.column === "minted"
-        ? (record) => Date.parse(record.authenticated_at)
+        ? (record) => Date.parse(record.authenticatedAt)
         : sort.column === "status"
-          ? (record) => effectiveStatus(record, now)
+          ? (record) => authorityRecordStatus(record, now)
           : undefined;
     if (!accessor) return filtered;
     const dir = sort.direction === "asc" ? 1 : -1;
@@ -1037,17 +931,17 @@ function RecordsModal({
     void feed.fetchNextPage();
   }, [feed, page, pageCount, sorted.length]);
 
-  const columns: Column<Session>[] = [
+  const columns: Column<AuthorityRecord>[] = [
     {
       id: "status",
       header: "Status",
       sortable: true,
       cell: (record) => {
-        const eff = effectiveStatus(record, now);
+        const eff = authorityRecordStatus(record, now);
         return (
           <span className="flex items-center gap-2">
             <Badge tone={statusTone(eff)}>{eff}</Badge>
-            {isStaleActive(record, now) ? (
+            {isStaleAuthorityRecord(record, now) ? (
               <Tooltip label="Expired by time - the runtime already rejects it and will reap it to 'expired'.">
                 <span
                   tabIndex={0}
@@ -1078,7 +972,7 @@ function RecordsModal({
       id: "outcome",
       header: "Outcome",
       cell: (record) => {
-        const eff = effectiveStatus(record, now);
+        const eff = authorityRecordStatus(record, now);
         return (
           <span
             className={cx(
@@ -1086,7 +980,7 @@ function RecordsModal({
               eff === "revoked" ? "text-destructive" : "text-muted-foreground",
             )}
           >
-            {sessionOutcome(record, eff)}
+            {authorityRecordOutcome(record, eff)}
           </span>
         );
       },
@@ -1099,9 +993,9 @@ function RecordsModal({
       cell: (record) => (
         <span
           className="text-xs text-muted-foreground"
-          title={new Date(record.authenticated_at).toLocaleString()}
+          title={new Date(record.authenticatedAt).toLocaleString()}
         >
-          {relativeTime(record.authenticated_at, now)}
+          {relativeTime(record.authenticatedAt, now)}
         </span>
       ),
     },
@@ -1112,7 +1006,7 @@ function RecordsModal({
       cell: (record) => (
         <Link
           to={appLink("/audit")}
-          search={{ session: record.id }}
+          search={{ authorityRecordId: record.id }}
           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
           onClick={(e) => e.stopPropagation()}
         >

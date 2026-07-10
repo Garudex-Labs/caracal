@@ -45,22 +45,22 @@ import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/aud
 import { relativeTime } from "@/lib/time";
 import { ConsoleApiError } from "@/platform/api/client";
 import {
-  useAgentActivity,
-  useAgentChildren,
-  useAgentEffectiveAuthority,
-  useAgentInboundDelegations,
-  useAgentInvocations,
-  useAgentLifecycle,
-  useAgentOutboundDelegations,
-  useAgentServices,
-  useAgentsFeed,
+  useSessionActivity,
+  useSessionChildren,
+  useSessionEffectiveAuthority,
+  useSessionInboundDelegations,
+  useSessionInvocations,
+  useSessionLifecycle,
+  useSessionOutboundDelegations,
+  useSessionServices,
+  useSessionsFeed,
   useApplications,
   useDelegationsFeed,
 } from "@/platform/api/hooks";
 import type {
-  Agent,
-  AgentStatus,
-  AgentQuery,
+  Session,
+  SessionStatus,
+  SessionQuery,
   Application,
   DelegationEdge,
   InvocationStatus,
@@ -164,7 +164,7 @@ function CoordinatorOffline({ code, onRetry }: { code: string; onRetry: () => vo
   );
 }
 
-function statusTone(status: AgentStatus): "success" | "warning" | "muted" {
+function statusTone(status: SessionStatus): "success" | "warning" | "muted" {
   if (status === "active") return "success";
   if (status === "suspended") return "warning";
   return "muted";
@@ -174,47 +174,47 @@ type Liveness = { tone: "success" | "warning" | "danger" | "muted"; label: strin
 
 // Derives a single runtime-health signal from lifecycle fields so operators can spot dying
 // sessions at a glance: task sessions are governed by TTL, service sessions by heartbeat lease.
-function liveness(agent: Agent, now = Date.now()): Liveness {
-  if (agent.status === "expired") {
+function liveness(session: Session, now = Date.now()): Liveness {
+  if (session.status === "expired") {
     return {
       tone: "muted",
       label: "Expired",
-      detail: agent.terminated_at
-        ? `TTL elapsed ${relativeTime(agent.terminated_at, now)}`
+      detail: session.terminatedAt
+        ? `TTL elapsed ${relativeTime(session.terminatedAt, now)}`
         : "TTL elapsed",
     };
   }
-  if (agent.status === "terminated") {
+  if (session.status === "terminated") {
     return {
       tone: "muted",
       label: "Terminated",
-      detail: agent.terminated_at ? `Ended ${relativeTime(agent.terminated_at, now)}` : "Ended",
+      detail: session.terminatedAt ? `Ended ${relativeTime(session.terminatedAt, now)}` : "Ended",
     };
   }
-  if (agent.status === "suspended") {
+  if (session.status === "suspended") {
     return { tone: "warning", label: "Suspended", detail: "Authority paused until resumed" };
   }
-  if (agent.lifecycle === "service") {
-    if (!agent.heartbeat_deadline_at) {
+  if (session.lifecycle === "service") {
+    if (!session.heartbeatDeadlineAt) {
       return {
         tone: "muted",
         label: "No lease",
         detail: "Service session has not reported a heartbeat",
       };
     }
-    const deadline = Date.parse(agent.heartbeat_deadline_at);
+    const deadline = Date.parse(session.heartbeatDeadlineAt);
     if (deadline < now) {
       return {
         tone: "danger",
         label: "Lease expired",
-        detail: `Heartbeat lost ${relativeTime(agent.heartbeat_deadline_at, now)}, pending auto-suspend`,
+        detail: `Heartbeat lost ${relativeTime(session.heartbeatDeadlineAt, now)}, pending auto-suspend`,
       };
     }
     if (deadline - now < 30_000) {
       return {
         tone: "warning",
         label: "Lease expiring",
-        detail: `Heartbeat lease ends ${relativeTime(agent.heartbeat_deadline_at, now)}`,
+        detail: `Heartbeat lease ends ${relativeTime(session.heartbeatDeadlineAt, now)}`,
       };
     }
     return {
@@ -223,9 +223,9 @@ function liveness(agent: Agent, now = Date.now()): Liveness {
       detail: `Heartbeat lease valid until ${new Date(deadline).toLocaleTimeString()}`,
     };
   }
-  // task agent: TTL from spawned_at
-  if (agent.ttl_seconds && agent.spawned_at) {
-    const expires = Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000;
+  // Task Sessions use their recorded start and TTL to derive runtime health.
+  if (session.ttlSeconds && session.startedAt) {
+    const expires = Date.parse(session.startedAt) + session.ttlSeconds * 1000;
     if (expires < now) {
       return { tone: "danger", label: "Expired", detail: "Past TTL, pending auto-terminate" };
     }
@@ -245,15 +245,15 @@ function liveness(agent: Agent, now = Date.now()): Liveness {
   return { tone: "success", label: "Active", detail: "Running" };
 }
 
-function agentExpiry(agent: Agent): string {
-  if (agent.status !== "active") return "-";
-  if (agent.lifecycle === "service") {
-    return agent.heartbeat_deadline_at
-      ? new Date(agent.heartbeat_deadline_at).toLocaleString()
+function sessionExpiry(session: Session): string {
+  if (session.status !== "active") return "-";
+  if (session.lifecycle === "service") {
+    return session.heartbeatDeadlineAt
+      ? new Date(session.heartbeatDeadlineAt).toLocaleString()
       : "no lease";
   }
-  if (agent.ttl_seconds && agent.spawned_at) {
-    return new Date(Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000).toLocaleString();
+  if (session.ttlSeconds && session.startedAt) {
+    return new Date(Date.parse(session.startedAt) + session.ttlSeconds * 1000).toLocaleString();
   }
   return "-";
 }
@@ -261,14 +261,14 @@ function agentExpiry(agent: Agent): string {
 // The most human-meaningful name for a session row. Operators tag sessions by role via labels,
 // so the first label reads as the session's name; the application's name is the fallback. The
 // raw session id stays available as a secondary, copyable identifier.
-function agentTitle(agent: Agent, appNames: Map<string, string>): string {
-  return agent.labels[0] ?? appNames.get(agent.application_id) ?? agent.application_id;
+function sessionTitle(session: Session, appNames: Map<string, string>): string {
+  return session.labels[0] ?? appNames.get(session.applicationId) ?? session.applicationId;
 }
 
 // How long the session has run: start to termination for ended sessions, start to now for live ones.
-function agentDuration(agent: Agent, now = Date.now()): string {
-  const start = Date.parse(agent.spawned_at);
-  const end = agent.terminated_at ? Date.parse(agent.terminated_at) : now;
+function sessionDuration(session: Session, now = Date.now()): string {
+  const start = Date.parse(session.startedAt);
+  const end = session.terminatedAt ? Date.parse(session.terminatedAt) : now;
   const secs = Math.max(Math.round((end - start) / 1000), 0);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -294,35 +294,35 @@ function terminationReasonLabel(reason: string): string {
 
 // The session's recorded lifecycle as ordered events: start, service heartbeats, and the
 // terminal or upcoming end of the run.
-function agentEvents(agent: Agent): TimelineEvent[] {
-  const events: TimelineEvent[] = [{ label: "Spawned", at: agent.spawned_at, tone: "neutral" }];
-  if (agent.lifecycle === "service" && agent.last_heartbeat_at) {
-    events.push({ label: "Last heartbeat", at: agent.last_heartbeat_at, tone: "neutral" });
+function sessionEvents(session: Session): TimelineEvent[] {
+  const events: TimelineEvent[] = [{ label: "Started", at: session.startedAt, tone: "neutral" }];
+  if (session.lifecycle === "service" && session.lastHeartbeatAt) {
+    events.push({ label: "Last heartbeat", at: session.lastHeartbeatAt, tone: "neutral" });
   }
-  if (agent.terminated_at) {
+  if (session.terminatedAt) {
     events.push({
-      label: agent.status === "expired" ? "Expired" : "Terminated",
-      at: agent.terminated_at,
+      label: session.status === "expired" ? "Expired" : "Terminated",
+      at: session.terminatedAt,
       tone: "muted",
-      detail: agent.termination_reason
-        ? terminationReasonLabel(agent.termination_reason)
+      detail: session.terminationReason
+        ? terminationReasonLabel(session.terminationReason)
         : undefined,
     });
     return events;
   }
-  if (agent.lifecycle === "service") {
-    if (agent.heartbeat_deadline_at) {
+  if (session.lifecycle === "service") {
+    if (session.heartbeatDeadlineAt) {
       events.push({
         label: "Lease ends",
-        at: agent.heartbeat_deadline_at,
+        at: session.heartbeatDeadlineAt,
         tone: "muted",
         future: true,
       });
     }
-  } else if (agent.ttl_seconds) {
+  } else if (session.ttlSeconds) {
     events.push({
       label: "Expires",
-      at: new Date(Date.parse(agent.spawned_at) + agent.ttl_seconds * 1000).toISOString(),
+      at: new Date(Date.parse(session.startedAt) + session.ttlSeconds * 1000).toISOString(),
       tone: "muted",
       future: true,
     });
@@ -332,7 +332,7 @@ function agentEvents(agent: Agent): TimelineEvent[] {
 
 function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const toast = useToast();
-  const lifecycle = useAgentLifecycle(zoneId);
+  const lifecycle = useSessionLifecycle(zoneId);
 
   const apps = useApplications(zoneId);
   const appNames = useMemo(() => {
@@ -346,12 +346,12 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
   const [application, setApplication] = useState("");
   const [label, setLabel] = useState("");
   const [confirm, setConfirm] = useState<{
-    agent: Agent;
+    session: Session;
     action: "suspend" | "terminate";
   } | null>(null);
 
-  const serverQuery = useMemo<AgentQuery>(() => {
-    const q: AgentQuery = {};
+  const serverQuery = useMemo<SessionQuery>(() => {
+    const q: SessionQuery = {};
     if (status !== "all") q.status = status;
     if (lifecycleFilter !== "all") q.lifecycle = lifecycleFilter;
     if (application.trim()) q.application_id = application.trim();
@@ -359,16 +359,16 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
     return q;
   }, [status, lifecycleFilter, application, label]);
 
-  const feed = useAgentsFeed(zoneId, serverQuery);
+  const feed = useSessionsFeed(zoneId, serverQuery);
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
 
   const coordError = feed.isError && feed.error instanceof ConsoleApiError ? feed.error.code : null;
   const coordinatorDown =
     coordError === "coordinator_not_configured" || coordError === "upstream_unreachable";
 
-  async function runLifecycle(agent: Agent, action: "suspend" | "resume" | "terminate") {
+  async function runLifecycle(session: Session, action: "suspend" | "resume" | "terminate") {
     try {
-      await lifecycle.mutateAsync({ id: agent.agent_session_id, action });
+      await lifecycle.mutateAsync({ id: session.id, action });
       const verb =
         action === "suspend" ? "suspended" : action === "resume" ? "resumed" : "terminated";
       toast({ tone: action === "terminate" ? "info" : "success", title: `Session ${verb}` });
@@ -389,18 +389,18 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
     );
   }
 
-  const columns: Column<Agent>[] = [
+  const columns: Column<Session>[] = [
     {
       id: "session",
       header: "Session",
       cell: (a) => (
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">
-            {agentTitle(a, appNames)}
+            {sessionTitle(a, appNames)}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="font-mono">{shortId(a.agent_session_id)}</span>
-            <span>· {appNames.get(a.application_id) ?? shortId(a.application_id)}</span>
+            <span className="font-mono">{shortId(a.id)}</span>
+            <span>· {appNames.get(a.applicationId) ?? shortId(a.applicationId)}</span>
             {a.labels.length > 1 ? (
               <span>
                 +{a.labels.length - 1} label{a.labels.length - 1 === 1 ? "" : "s"}
@@ -448,14 +448,14 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       id: "started",
       header: "Started",
       cell: (a) => (
-        <span className="text-xs text-muted-foreground">{relativeTime(a.spawned_at)}</span>
+        <span className="text-xs text-muted-foreground">{relativeTime(a.startedAt)}</span>
       ),
     },
     {
       id: "duration",
       header: "Duration",
       cell: (a) => (
-        <span className="font-mono text-xs text-muted-foreground">{agentDuration(a)}</span>
+        <span className="font-mono text-xs text-muted-foreground">{sessionDuration(a)}</span>
       ),
     },
     {
@@ -465,10 +465,10 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       cell: (a) =>
         a.status === "terminated" || a.status === "expired" ? (
           <span className="text-xs text-muted-foreground">
-            {a.termination_reason ? terminationReasonLabel(a.termination_reason) : "Ended"}
+            {a.terminationReason ? terminationReasonLabel(a.terminationReason) : "Ended"}
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground">{agentExpiry(a)}</span>
+          <span className="text-xs text-muted-foreground">{sessionExpiry(a)}</span>
         ),
     },
   ];
@@ -480,7 +480,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         description="Live sessions, their authority, and delegation lineage in this zone."
         breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Sessions" }]}
         toolbarExtra={
-          <AgentFilterBar
+          <SessionFilterBar
             tabs={tabs}
             status={status}
             lifecycle={lifecycleFilter}
@@ -495,7 +495,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             exportControl={
               <CsvExportButton
                 zoneId={zoneId}
-                path="agent-sessions"
+                path="session-sessions"
                 query={Object.fromEntries(
                   Object.entries(serverQuery).map(([k, v]) => [k, String(v)]),
                 )}
@@ -507,7 +507,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         rows={rows}
         loading={feed.isLoading}
         columns={columns}
-        rowKey={(a) => a.agent_session_id}
+        rowKey={(a) => a.id}
         pageSize={12}
         feed={{
           hasMore: Boolean(feed.hasNextPage),
@@ -517,9 +517,9 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         search={{
           placeholder: "Filter loaded sessions by id, app, or label…",
           match: (a, q) =>
-            a.agent_session_id.toLowerCase().includes(q) ||
-            a.application_id.toLowerCase().includes(q) ||
-            (appNames.get(a.application_id) ?? "").toLowerCase().includes(q) ||
+            a.id.toLowerCase().includes(q) ||
+            a.applicationId.toLowerCase().includes(q) ||
+            (appNames.get(a.applicationId) ?? "").toLowerCase().includes(q) ||
             a.lifecycle.toLowerCase().includes(q) ||
             a.labels.some((l) => l.toLowerCase().includes(q)),
         }}
@@ -530,29 +530,29 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
             : "Sessions appear here as the Coordinator starts them in this zone.",
         }}
         detail={{
-          title: (a) => agentTitle(a, appNames),
-          description: (a) => `Started ${relativeTime(a.spawned_at)}`,
+          title: (a) => sessionTitle(a, appNames),
+          description: (a) => `Started ${relativeTime(a.startedAt)}`,
           width: "max-w-2xl",
           render: (a) => (
-            <AgentInspector
+            <SessionInspector
               zoneId={zoneId}
-              agent={a}
-              appName={appNames.get(a.application_id) ?? null}
+              session={a}
+              appName={appNames.get(a.applicationId) ?? null}
               busy={lifecycle.isPending}
-              onSuspend={() => setConfirm({ agent: a, action: "suspend" })}
+              onSuspend={() => setConfirm({ session: a, action: "suspend" })}
               onResume={() => void runLifecycle(a, "resume")}
-              onTerminate={() => setConfirm({ agent: a, action: "terminate" })}
+              onTerminate={() => setConfirm({ session: a, action: "terminate" })}
             />
           ),
         }}
       />
 
-      <AgentLifecycleConfirm
+      <SessionLifecycleConfirm
         zoneId={zoneId}
         request={confirm}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
-          if (confirm) await runLifecycle(confirm.agent, confirm.action);
+          if (confirm) await runLifecycle(confirm.session, confirm.action);
         }}
       />
     </>
@@ -561,7 +561,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 
 // Server-side session filters + cursor pagination. Filters run against the Coordinator so
 // large zones stay searchable; "Load more" follows the keyset cursor.
-function AgentFilterBar({
+function SessionFilterBar({
   tabs,
   status,
   lifecycle,
@@ -767,21 +767,21 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
 }
 
 // Lifecycle confirmation that previews the cascade blast radius. Suspend and terminate
-// recurse the session subtree and revoke subject sessions held only by it, so the operator
+// recurse the Session subtree and revoke authority records held only by it, so the operator
 // sees the direct child sessions that will be affected before committing. Resume is the
 // undo action and runs directly without a confirmation.
-function AgentLifecycleConfirm({
+function SessionLifecycleConfirm({
   zoneId,
   request,
   onClose,
   onConfirm,
 }: {
   zoneId: string;
-  request: { agent: Agent; action: "suspend" | "terminate" } | null;
+  request: { session: Session; action: "suspend" | "terminate" } | null;
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
-  const children = useAgentChildren(zoneId, request ? request.agent.agent_session_id : null);
+  const children = useSessionChildren(zoneId, request ? request.session.id : null);
   const childCount = (children.data ?? []).length;
 
   if (!request) return null;
@@ -789,15 +789,15 @@ function AgentLifecycleConfirm({
   const title = action === "suspend" ? "Suspend session" : "Terminate session";
   const base =
     action === "suspend"
-      ? "Suspending pauses this session's authority and cascades to its descendant sessions. Subject sessions held only by the suspended subtree are revoked. In-flight work may fail until resumed."
-      : "Terminating ends this session and its entire descendant subtree immediately, revoking their authority and subject sessions. This cannot be undone.";
+      ? "Suspending pauses this Session's authority and cascades to its descendant Sessions. Subject authority records held only by the suspended subtree are revoked. In-flight work may fail until resumed."
+      : "Terminating ends this Session and its entire descendant subtree immediately, revoking their authority and subject authority records. This cannot be undone.";
 
   return (
     <Modal
       open
       onClose={onClose}
       title={title}
-      description={`${request.agent.lifecycle} session · depth ${request.agent.depth}`}
+      description={`${request.session.lifecycle} session · depth ${request.session.depth}`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -835,9 +835,9 @@ function AgentLifecycleConfirm({
               </span>
               <ul className="flex flex-col gap-1">
                 {(children.data ?? []).slice(0, 6).map((c) => (
-                  <li key={c.agent_session_id} className="flex items-center justify-between gap-2">
+                  <li key={c.id} className="flex items-center justify-between gap-2">
                     <span className="truncate font-mono text-[11px] text-muted-foreground">
-                      {c.agent_session_id}
+                      {c.id}
                     </span>
                     <Badge tone={statusTone(c.status)}>{c.status}</Badge>
                   </li>
@@ -854,9 +854,9 @@ function AgentLifecycleConfirm({
   );
 }
 
-function AgentInspector({
+function SessionInspector({
   zoneId,
-  agent,
+  session,
   appName,
   busy,
   onSuspend,
@@ -864,47 +864,47 @@ function AgentInspector({
   onTerminate,
 }: {
   zoneId: string;
-  agent: Agent;
+  session: Session;
   appName: string | null;
   busy: boolean;
   onSuspend: () => void;
   onResume: () => void;
   onTerminate: () => void;
 }) {
-  const authority = useAgentEffectiveAuthority(zoneId, agent.agent_session_id);
-  const children = useAgentChildren(zoneId, agent.agent_session_id);
-  const terminal = agent.status === "terminated" || agent.status === "expired";
-  const metadata = agent.metadata ?? {};
+  const authority = useSessionEffectiveAuthority(zoneId, session.id);
+  const children = useSessionChildren(zoneId, session.id);
+  const terminal = session.status === "terminated" || session.status === "expired";
+  const metadata = session.metadata ?? {};
   const task = typeof metadata.task === "string" ? metadata.task : null;
   const extraMeta = Object.entries(metadata).filter(([key]) => key !== "task");
-  const live = liveness(agent);
+  const live = liveness(session);
   const now = Date.now();
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={statusTone(agent.status)}>{agent.status}</Badge>
+        <Badge tone={statusTone(session.status)}>{session.status}</Badge>
         <Badge
           tone="neutral"
           title={
-            agent.lifecycle === "service"
+            session.lifecycle === "service"
               ? "Long-lived session, governed by heartbeat lease"
               : "Task session, governed by TTL"
           }
         >
-          {agent.lifecycle}
+          {session.lifecycle}
         </Badge>
         <Badge tone="muted" title="Distance from the root session in the delegation tree">
-          {agent.depth === 0 ? "root" : `depth ${agent.depth}`}
+          {session.depth === 0 ? "root" : `depth ${session.depth}`}
         </Badge>
-        {agent.labels.slice(1).map((l) => (
+        {session.labels.slice(1).map((l) => (
           <Badge key={l} tone="muted">
             {l}
           </Badge>
         ))}
         {!terminal ? (
           <div className="ml-auto flex items-center gap-2">
-            {agent.status === "suspended" ? (
+            {session.status === "suspended" ? (
               <Button variant="secondary" size="sm" loading={busy} onClick={onResume}>
                 Resume
               </Button>
@@ -936,7 +936,7 @@ function AgentInspector({
                 {appName}
               </Link>
             ) : (
-              <Mono>{agent.application_id}</Mono>
+              <Mono>{session.applicationId}</Mono>
             )}
           </BriefRow>
           {live.tone !== "success" ? (
@@ -958,19 +958,19 @@ function AgentInspector({
         </dl>
       </div>
 
-      <EventTimeline events={agentEvents(agent)} now={now} />
+      <EventTimeline events={sessionEvents(session)} now={now} />
 
-      <AgentActivity zoneId={zoneId} sessionId={agent.agent_session_id} />
+      <SessionActivity zoneId={zoneId} sessionId={session.id} />
 
       <AuthorityEnvelope authority={authority} />
 
-      <AgentDelegations zoneId={zoneId} sessionId={agent.agent_session_id} />
+      <SessionDelegations zoneId={zoneId} sessionId={session.id} />
 
-      <AgentExecution
+      <SessionExecution
         zoneId={zoneId}
-        sessionId={agent.agent_session_id}
-        applicationId={agent.application_id}
-        isService={agent.lifecycle === "service"}
+        sessionId={session.id}
+        applicationId={session.applicationId}
+        isService={session.lifecycle === "service"}
       />
 
       {(children.data ?? []).length > 0 ? (
@@ -980,11 +980,8 @@ function AgentInspector({
           </h3>
           <ul className="mt-3 divide-y divide-border border-y border-border">
             {(children.data ?? []).map((child) => (
-              <li
-                key={child.agent_session_id}
-                className="flex items-center justify-between gap-3 py-2.5"
-              >
-                <Mono>{child.agent_session_id}</Mono>
+              <li key={child.id} className="flex items-center justify-between gap-3 py-2.5">
+                <Mono>{child.id}</Mono>
                 <div className="flex items-center gap-1.5">
                   <Badge tone="muted">{child.lifecycle}</Badge>
                   <Badge tone={statusTone(child.status)}>{child.status}</Badge>
@@ -1007,33 +1004,33 @@ function AgentInspector({
             label="Session ID"
             hint="This session's id; delegations and holds reference it"
           >
-            <CopyValue value={agent.agent_session_id} />
+            <CopyValue value={session.id} />
           </DetailField>
           <DetailField label="Application" hint="The application identity this session runs under">
-            <CopyValue value={agent.application_id} />
+            <CopyValue value={session.applicationId} />
           </DetailField>
-          {agent.parent_id ? (
+          {session.parentId ? (
             <DetailField label="Parent session" hint="The session that started this one">
               <Link
                 to={appLink("/sessions")}
-                search={{ focus: agent.parent_id }}
+                search={{ focus: session.parentId }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >
-                {agent.parent_id}
+                {session.parentId}
               </Link>
             </DetailField>
           ) : null}
-          {agent.subject_session_id ? (
+          {session.subjectAuthorityRecordId ? (
             <DetailField
-              label="Subject session"
-              hint="The authenticated subject this session acts for"
+              label="Subject authority record"
+              hint="The Subject authority record this Session acts for"
             >
               <Link
                 to={appLink("/subjects")}
-                search={{ record: agent.subject_session_id }}
+                search={{ record: session.subjectAuthorityRecordId }}
                 className="break-all font-mono text-xs text-foreground hover:underline"
               >
-                {agent.subject_session_id}
+                {session.subjectAuthorityRecordId}
               </Link>
             </DetailField>
           ) : null}
@@ -1054,7 +1051,7 @@ function AgentInspector({
 function AuthorityEnvelope({
   authority,
 }: {
-  authority: ReturnType<typeof useAgentEffectiveAuthority>;
+  authority: ReturnType<typeof useSessionEffectiveAuthority>;
 }) {
   return (
     <section className="border-t border-border pt-4">
@@ -1068,18 +1065,15 @@ function AuthorityEnvelope({
       ) : authority.data ? (
         (() => {
           const a = authority.data;
-          const noAuthority = a.inbound_edges.length === 0;
+          const noAuthority = a.inboundDelegations.length === 0;
           return (
             <div className="mt-3 flex flex-col gap-3">
               <div className="grid grid-cols-3 gap-px border border-border bg-border [&>*]:bg-background">
-                <Metric label="Inbound delegations" value={a.inbound_edges.length} />
-                <Metric
-                  label="Max hops"
-                  text={a.effective_max_hops == null ? "∞" : String(a.effective_max_hops)}
-                />
+                <Metric label="Inbound delegations" value={a.inboundDelegations.length} />
+                <Metric label="Max hops" text={a.maxHops == null ? "∞" : String(a.maxHops)} />
                 <Metric
                   label="Authority ends"
-                  text={a.earliest_expires_at ? relativeTime(a.earliest_expires_at) : "-"}
+                  text={a.expiresAt ? relativeTime(a.expiresAt) : "-"}
                 />
               </div>
 
@@ -1092,11 +1086,11 @@ function AuthorityEnvelope({
                 <>
                   <div>
                     <span className="text-xs text-muted-foreground">
-                      Scopes ({a.effective_scopes.length})
+                      Scopes ({a.scopes.length})
                     </span>
-                    {a.effective_scopes.length > 0 ? (
+                    {a.scopes.length > 0 ? (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {a.effective_scopes.map((scope) => (
+                        {a.scopes.map((scope) => (
                           <span
                             key={scope}
                             className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
@@ -1115,15 +1109,15 @@ function AuthorityEnvelope({
                   <div>
                     <span className="text-xs text-muted-foreground">
                       Resources{" "}
-                      {a.effective_resource_constrained ? (
+                      {a.resourceConstrained ? (
                         <Badge tone="warning">constrained</Badge>
                       ) : (
                         <Badge tone="muted">unconstrained</Badge>
                       )}
                     </span>
-                    {a.effective_resources.length > 0 ? (
+                    {a.resources.length > 0 ? (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {a.effective_resources.map((r) => (
+                        {a.resources.map((r) => (
                           <span
                             key={r}
                             className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
@@ -1134,7 +1128,7 @@ function AuthorityEnvelope({
                       </div>
                     ) : (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {a.effective_resource_constrained
+                        {a.resourceConstrained
                           ? "Constrained by resource id only."
                           : "Authority is not resource-bound."}
                       </p>
@@ -1152,11 +1146,11 @@ function AuthorityEnvelope({
 
 // Inbound/outbound delegations for the session, keyed by its session id. Inbound =
 // authority the session received; outbound = authority it granted onward.
-function AgentDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+function SessionDelegations({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
   const [tab, setTab] = useState<"inbound" | "outbound">("inbound");
   const [inspect, setInspect] = useState<DelegationEdge | null>(null);
-  const inbound = useAgentInboundDelegations(zoneId, tab === "inbound" ? sessionId : null);
-  const outbound = useAgentOutboundDelegations(zoneId, tab === "outbound" ? sessionId : null);
+  const inbound = useSessionInboundDelegations(zoneId, tab === "inbound" ? sessionId : null);
+  const outbound = useSessionOutboundDelegations(zoneId, tab === "outbound" ? sessionId : null);
   const active = tab === "inbound" ? inbound : outbound;
   const edges = active.data ?? [];
 
@@ -1262,10 +1256,10 @@ function invocationTone(status: InvocationStatus): "success" | "warning" | "dang
 }
 
 // Authoritative record of what the session actually did: the durable audit events correlated
-// by agent_session_id (token issuance, resource calls, denials), newest first. This is the
+// by the wire `agent_session_id` field, newest first. This is the
 // core of the session audit - it answers "what happened" beyond the current lifecycle state.
-function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
-  const activity = useAgentActivity(zoneId, sessionId);
+function SessionActivity({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const activity = useSessionActivity(zoneId, sessionId);
   const events = activity.data?.rows ?? [];
 
   return (
@@ -1276,7 +1270,7 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
         </h3>
         <Link
           to={appLink("/audit")}
-          search={{ agent: sessionId }}
+          search={{ sessionId }}
           className="text-xs text-muted-foreground hover:text-foreground hover:underline"
         >
           Open in Audit
@@ -1330,7 +1324,7 @@ function AgentActivity({ zoneId, sessionId }: { zoneId: string; sessionId: strin
 // Read-only execution lens. Surfaces durable invocations involving this session and, for
 // service sessions, the registered service endpoint + health. Payloads are never exposed;
 // all mutation stays with the runtime identity.
-function AgentExecution({
+function SessionExecution({
   zoneId,
   sessionId,
   applicationId,
@@ -1341,13 +1335,13 @@ function AgentExecution({
   applicationId: string;
   isService: boolean;
 }) {
-  const invocations = useAgentInvocations(zoneId, sessionId);
-  const services = useAgentServices(zoneId, isService ? applicationId : null);
+  const invocations = useSessionInvocations(zoneId, sessionId);
+  const services = useSessionServices(zoneId, isService ? applicationId : null);
   const rows = invocations.data ?? [];
   const svc = services.data ?? [];
 
   // Execution only earns space when there is something to show: a registered service
-  // endpoint or at least one durable invocation involving this agent.
+  // endpoint or at least one durable invocation involving this session.
   if (!isService && !invocations.isLoading && rows.length === 0) return null;
 
   return (
@@ -1390,7 +1384,7 @@ function AgentExecution({
           </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">
-            No registered service endpoint for this agent&apos;s application.
+            No registered service endpoint for this session&apos;s application.
           </p>
         )
       ) : null}

@@ -928,8 +928,8 @@ function ConnectProviderModal({
         <div className="flex flex-col gap-4">
           <Field
             label="Subject"
-            info="The runtime identity that will use this connection. It must exactly match the subject of the sessions making calls: for an agent application, that is the application ID."
-            hint="For agent applications, use the application ID."
+            info="The runtime identity that will use this connection. It must exactly match the Subject of the Sessions making calls; for an Application acting as itself, use the Application ID."
+            hint="For an Application acting as itself, use the Application ID."
             placeholder="Select or paste an application ID"
             list="connect-subject-suggestions"
             value={subjectId}

@@ -309,7 +309,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Archive resource"
-        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so agents lose access to this upstream. The record stays visible under Archived for audit.`}
+        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so Applications lose access to this upstream. The record stays visible under Archived for audit.`}
         confirmLabel="Archive resource"
         tone="danger"
         onConfirm={async () => {
@@ -466,7 +466,7 @@ function ResourceDetail({
         </p>
       ) : (
         <DangerZone
-          description="Archive this resource and remove its Gateway route. Agents lose access to this upstream."
+          description="Archive this resource and remove its Gateway route. Applications lose access to this upstream."
           actionLabel="Archive"
           onAction={onDelete}
         />

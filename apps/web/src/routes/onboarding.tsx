@@ -293,7 +293,7 @@ function OnboardingPage() {
             editDisabled={submitting}
             rows={[
               ["Name", zoneName.trim()],
-              ["Dynamic Client Registration", zoneDcr ? "Enabled" : "Off"],
+              ["Dynamic Client Registration (DCR)", zoneDcr ? "Enabled" : "Off"],
             ]}
           />
           <div className="lg:col-span-2">
