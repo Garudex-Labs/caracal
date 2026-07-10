@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest'
 import type { AdminClient } from '@caracalai/admin'
 import type { Queryable } from '../../../../apps/api/src/db.js'
-import type { OperatorLlmTransport } from '../../../../apps/api/src/operator-llm-transport.js'
 import {
   createOperatorAiManager,
   buildStoreProviderConfigs,
@@ -16,6 +15,7 @@ import {
   OperatorAiNotFoundError,
 } from '../../../../apps/api/src/operator-ai-manager.js'
 import type { ProviderConfig } from '../../../../apps/api/src/operator-gateway.js'
+import type { OperatorControlIdentity } from '../../../../apps/api/src/config.js'
 
 interface StoreRow {
   slug: string
@@ -83,7 +83,6 @@ interface AdminState {
     upstream_url?: string | null
     scopes?: string[]
     credential_provider_id?: string | null
-    gateway_application_id?: string | null
     operation_enforcement?: string
   }[]
   policies: { id: string; name: string; versions: { id: string; version: number; content_sha256: string }[] }[]
@@ -161,27 +160,29 @@ function fakeAdmin(): { admin: AdminClient; state: AdminState } {
       activate: async (_z: string, sid: string, versionId: string) => {
         const set = state.policySets.find((s) => s.id === sid)!
         set.active_version_id = versionId
-        return { activated: true, version_id: versionId, shadow_version_id: null }
+        return { activated: true, version_id: versionId }
       },
     },
   }
   return { admin: admin as unknown as AdminClient, state }
 }
 
-// A transport double whose governedFetch records the resource it is bound to, so a test can
-// confirm the gateway entries route through the right minted-mandate fetch.
-function fakeTransport(): OperatorLlmTransport {
-  return {
-    governedFetch: (resourceIdentifier: string, _upstream?: string) => {
-      const fn = (async () => new Response('{}')) as unknown as typeof fetch
-      ;(fn as unknown as { resourceIdentifier: string }).resourceIdentifier = resourceIdentifier
-      return fn
-    },
-  }
+// A governedFetch double that records the resource it is bound to, so a test can confirm
+// the gateway entries route through the right minted-mandate fetch.
+function fakeGovernedFetch(resourceIdentifier: string): typeof fetch {
+  const fn = (async () => new Response('{}')) as unknown as typeof fetch
+  ;(fn as unknown as { resourceIdentifier: string }).resourceIdentifier = resourceIdentifier
+  return fn
 }
 
 const AUTH = { location: 'header' as const, headerName: 'Authorization', authScheme: 'Bearer' }
-const IDENTITY = { applicationId: 'op-app', clientSecret: 'secret', zoneId: 'sys-zone' }
+const IDENTITY: OperatorControlIdentity = {
+  zoneId: 'sys-zone',
+  llm: { applicationId: 'op-app', clientSecret: 'secret' },
+  researcher: { applicationId: 'op-researcher', clientSecret: 'secret' },
+  executor: { applicationId: 'op-executor', clientSecret: 'secret' },
+  expiresAt: new Date(Date.now() + 3600_000),
+}
 
 function buildManager(identity: typeof IDENTITY | null) {
   const { db } = fakeDb()
@@ -193,8 +194,7 @@ function buildManager(identity: typeof IDENTITY | null) {
     resolveIdentity: () => identity,
     envUpstreams: [],
     gatewayUrl: 'http://gateway',
-    proxyUrl: 'http://litellm:4000/v1',
-    transport: fakeTransport(),
+    governedFetch: fakeGovernedFetch,
     onRegistryChange: (configs) => {
       published = configs
     },
@@ -224,7 +224,7 @@ describe('operator ai manager helpers', () => {
       ],
       new Map([['openai', 'caracal-sys://operator-llm-openai']]),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(configs).toHaveLength(2)
     expect(configs.map((c) => c.id)).toEqual(['openai__a', 'openai__b'])
@@ -236,14 +236,14 @@ describe('operator ai manager helpers', () => {
       [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: false, sortOrder: 1, auth: AUTH }],
       new Map([['x', 'res']]),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(disabled).toHaveLength(0)
     const unresolved = buildStoreProviderConfigs(
       [{ slug: 'x', label: 'X', baseUrl: 'u', models: ['m'], contextWindow: 0, enabled: true, sortOrder: 1, auth: AUTH }],
       new Map(),
       'http://gateway',
-      fakeTransport(),
+      fakeGovernedFetch,
     )
     expect(unresolved).toHaveLength(0)
   })
@@ -263,12 +263,11 @@ describe('operator ai manager helpers', () => {
           auth: AUTH,
         },
       ],
-      'http://litellm:4000/v1',
       { slug: 'openai', apiKey: 'new-key' },
     )
     expect(merged).toHaveLength(1)
-    // The resource points at the proxy; the store endpoint travels separately as a per-call header.
-    expect(merged[0]).toEqual({ id: 'openai', baseUrl: 'http://litellm:4000/v1', apiKey: 'new-key', auth: AUTH })
+    // The resource points at the endpoint the operator entered; the gateway injects the sealed key.
+    expect(merged[0]).toEqual({ id: 'openai', baseUrl: 'https://store', apiKey: 'new-key', auth: AUTH })
   })
 
   it('reconciles a store upstream without a key when it is not the override', () => {
@@ -286,7 +285,6 @@ describe('operator ai manager helpers', () => {
           auth: AUTH,
         },
       ],
-      'http://litellm:4000/v1',
     )
     expect(merged[0].apiKey).toBeUndefined()
   })

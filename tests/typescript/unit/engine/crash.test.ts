@@ -4,11 +4,7 @@
 // Tests for the shared process-level crash handler and token scrubbing.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  disposeCrashHandlers,
-  installCrashHandlers,
-  scrubTokens,
-} from '../../../../packages/engine/src/crash.js'
+import { disposeCrashHandlers, installCrashHandlers, scrubTokens } from '../../../../packages/engine/src/crash.js'
 
 afterEach(() => {
   disposeCrashHandlers()
@@ -17,8 +13,7 @@ afterEach(() => {
 
 describe('scrubTokens', () => {
   it('redacts JWTs, caracal tokens, and bearer headers', () => {
-    const input =
-      'jwt eyJhbGciOiJF.payload.sig at caracal_at_abc123 rt caracal_rt_def456 hdr Bearer sometoken end'
+    const input = 'jwt eyJhbGciOiJF.payload.sig at caracal_at_abc123 rt caracal_rt_def456 hdr Bearer sometoken end'
     const out = scrubTokens(input)
     expect(out).not.toContain('eyJhbGciOiJF')
     expect(out).not.toContain('caracal_at_abc123')

@@ -25,6 +25,8 @@ pnpm install
 
 `pnpm install` is the standard dependency install command for the Node workspace. Run `pnpm run setup` when you need the full cross-platform developer environment: it runs `pnpm install`, downloads Go module dependencies, creates `.venv`, installs Python test and style tools, and installs local Python packages in editable mode.
 
+Read [CONTRIBUTING.md](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md) in the repository root for the contributor policy, review expectations, and testing requirements.
+
 ## Start the Local Stack
 
 ```bash
@@ -41,7 +43,7 @@ The local stack uses `infra/docker/docker-compose.yml`, builds local service ima
 pnpm caracal web
 ```
 
-Use the web console for zones, applications, providers, resources, policies, sessions, audit, agents, delegation, diagnostics, and Control. Do not expect top-level runtime CLI commands for product management.
+Use the web console for zones, applications, providers, resources, policies, Authority records, Sessions, audit, Delegation, diagnostics, and Control. Do not expect top-level runtime CLI commands for product management.
 
 ## Stop or Reset
 

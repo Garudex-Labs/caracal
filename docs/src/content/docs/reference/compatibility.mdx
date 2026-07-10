@@ -28,6 +28,10 @@ pageType: reference
 - Local OSS ports must remain distinct from any enterprise product ports.
 - Published modes are `rc` and `stable`; both enforce stricter service config.
 
+## Version Pinning
+
+Caracal packages release in lockstep: every `@caracalai/*` npm package, `caracalai*` Python distribution, and Go module tag carries the same version, and cross-package wire contracts are only validated within one release. Pin every Caracal package in a service to one exact version and upgrade them together - a mixed set (for example an older `@caracalai/oauth` under a newer `@caracalai/sdk`) is unsupported and can fail in ways that look like platform errors. Lockfiles make this the default; when bumping, change every Caracal entry in the same commit.
+
 ## Next Step
 
 Use [Release Map](/reference/release-package-runtime-map/) to map product versions to packages, images, and release surfaces.

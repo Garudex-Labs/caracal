@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,30 @@ import (
 
 	"github.com/rs/zerolog"
 )
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read([]byte) (int, error) {
+	return 0, errors.New("upstream body failed")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
+}
+
+func TestStreamResponseRecognizesSSEAndUnknownLengthBodies(t *testing.T) {
+	for _, response := range []*http.Response{
+		{Header: http.Header{"Content-Type": {"text/event-stream; charset=utf-8"}}, ContentLength: 12},
+		{Header: make(http.Header), ContentLength: -1},
+	} {
+		if !streamResponse(response) {
+			t.Fatal("expected streaming response")
+		}
+	}
+	if streamResponse(&http.Response{Header: http.Header{"Content-Type": {"application/json"}}, ContentLength: 12}) {
+		t.Fatal("fixed-length JSON must use the ordinary write deadline")
+	}
+}
 
 func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 	store := newRevocationStore(zerolog.Nop())
@@ -28,7 +53,7 @@ func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
 	}
 	rec := httptest.NewRecorder()
-	result := copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	result := copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	if result.Bytes == 0 || result.Revoked {
 		t.Fatalf("expected copied bytes without revocation, got %#v", result)
 	}
@@ -37,6 +62,14 @@ func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type lost in copy, got %q", got)
+	}
+}
+
+func TestCopyResponseReportsBodyReadError(t *testing.T) {
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: failingReadCloser{}}
+	result := copyResponse(httptest.NewRecorder(), resp, newRevocationStore(zerolog.Nop()), tokenRevocationAnchors{})
+	if result.Err == nil {
+		t.Fatal("upstream body read error must be reported")
 	}
 }
 
@@ -54,7 +87,7 @@ func TestCopyResponseStripsServerBanners(t *testing.T) {
 		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
 	}
 	rec := httptest.NewRecorder()
-	copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	for _, banner := range []string{"Server", "X-Powered-By", "X-Aspnet-Version", "X-Aspnetmvc-Version"} {
 		if got := rec.Header().Get(banner); got != "" {
 			t.Fatalf("%s banner must not surface to clients, got %q", banner, got)
@@ -88,7 +121,7 @@ func TestCopyResponseSanitizesRedirectLocation(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader("")),
 			}
 			rec := httptest.NewRecorder()
-			copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+			copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 			got := rec.Header().Get("Location")
 			if tc.wantKept && got != tc.location {
 				t.Fatalf("relative Location must be preserved, got %q", got)
@@ -108,7 +141,7 @@ func TestCopyResponseStripsRefreshHeader(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader("")),
 	}
 	rec := httptest.NewRecorder()
-	copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	if got := rec.Header().Get("Refresh"); got != "" {
 		t.Fatalf("Refresh directive must not surface to clients, got %q", got)
 	}
@@ -149,9 +182,9 @@ func TestCopyResponseEmitsRevocationTrailer(t *testing.T) {
 	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	go func() {
 		time.Sleep(15 * time.Millisecond)
-		store.markSession("sid-stream")
+		store.markAuthorityRecord("sid-stream")
 	}()
-	result := copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-stream"})
+	result := copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-stream"})
 	if !result.Revoked {
 		t.Fatalf("expected copy result to record revocation")
 	}

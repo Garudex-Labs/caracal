@@ -3,7 +3,7 @@ title: Go SDK
 description: Public API reference for the Go Caracal SDK.
 ---
 
-The Go SDK provides agent lifecycle, delegation, Gateway routing, and context propagation for Go services.
+The Go SDK provides Session lifecycle, Delegation, Gateway routing, and context propagation for Go services.
 
 ## Install
 
@@ -22,23 +22,32 @@ if err != nil {
 }
 ```
 
-`New()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables. `FromEnv()`, `FromConfig()`, and `FromClientSecret()` are available when you need explicit control.
+`New()` loads exactly `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It never searches home directories or default profile paths. Multiple credential modes fail at startup.
 
 ## Core methods
 
-| API | Purpose |
-| --- | --- |
-| `New()` | Auto-detect profile or environment configuration. |
-| `FromEnv()` | Load from environment variables. |
-| `FromConfig(path)` | Load a runtime profile. |
-| `FromClientSecret(options)` | Use STS client-secret exchange for root SDK operations. |
-| `client.Spawn(ctx, fn, opts...)` | Create an agent session and run `fn` with a bound `context.Context`; set `SpawnOptions.Grant` to bound the child's authority. |
-| `client.Delegate(ctx, opts, fn)` | Create a delegation edge from the current agent session. |
-| `client.Headers(ctx, opts...)` | Project the bound context to `http.Header`. |
-| `client.BindFromRequest(ctx, req, opts...)` | Bind inbound Caracal envelope headers. |
-| `client.Transport(base, opts...)` | Return an `*http.Client` that injects Caracal headers. |
-| `client.GatewayRequest(resourceID, path)` | Build explicit Gateway routing metadata. |
-| `client.Current(ctx)` | Inspect the current Caracal context. |
+| API                                                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `New()`                                                | Use normal deployment configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `FromClientSecret(options)`                            | Supply one complete static client-secret configuration directly.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `FromEnv()`, `FromConfig(path)`, `FromCredentials(...)` | Advanced explicit loading, profile, and dynamic credential paths.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `client.Session(ctx, fn, opts...)`                     | Run `fn` inside a governed Session with a bound `context.Context`; set `SessionOptions.Authority` to bound its authority and `Task` to record what the Session is for. Retry protection is automatic; ordinary code should leave `IdempotencyKey` empty. See [Safe Retries and Idempotency](/guides/idempotency/) for durable-source redelivery.                                                                                                                                                         |
+| `client.StartSession(ctx, opts...)`                    | Start a governed Session that outlives a block; auto-renews its lease and returns a `*SessionHandle` with `Heartbeat`, `DeadlineAt`, and `Close`. Retry protection is automatic.                                                                                                                                                                                                                                                                                                                         |
+| `client.AttachSession(ctx, sessionID, opts...)`        | Re-attach to a persisted long-lived Session after a restart: validates it with an immediate lease renewal and returns the same handle `StartSession` does.                                                                                                                                                                                                                                                                                                                                               |
+| `client.Delegate(ctx, opts)`                           | Delegate a slice of the current Session's authority to a peer Session; returns the Delegation for the receiver to accept. A transient Coordinator failure is retried once under an idempotency key, so no duplicate Delegation is issued.                                                                                                                                                                                                                                                                 |
+| `client.RevokeDelegation(ctx, delegationID)`           | Revoke a Delegation issued by this application.                                                                                                                                                                                                                                                                                                                                                                                           |
+| `client.AcceptDelegation(ctx, delegationID, opts...)`  | Present a received Delegation: derive a context carrying it. Pass `AcceptDelegationOptions{Validate: true}` to confirm with the Coordinator that the Delegation is live for the bound Session first.                                                                                                                                                                                                                                                                                                    |
+| `client.Headers(ctx, opts...)`                         | Project the bound context to `http.Header`.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `client.BindFromRequest(ctx, req, opts...)`            | Bind inbound Caracal envelope headers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `client.Transport(base, opts...)`                      | Return an `*http.Client` that injects Caracal headers. Set `CallOptions.Scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token, and `CallOptions.Propagation` to `PropagationGatewayOnly` to keep the context envelope off third-party hosts.                                                                                                                                                                                                                |
+| `client.ApplicationTransport(base, resourceID, opts)`  | Return an `*http.Client` pinned to one resource, calling as the application's own identity. Provisioning starts one source/target Session pair and one narrowed Delegation per cache key; every request performs an uncached final mint, so sequential and concurrent calls carry distinct replay-protected JTIs. Provisioning costs four control-plane calls roughly once per mandate TTL, then each request costs one STS mint. `Close()` retires cached and in-flight backing Sessions best-effort. |
+| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound Session and Delegation; returns an `oauth.MintedMandate` with `Token` and `ExpiresInSeconds`. Requires client-secret credentials.                                                                                                                                                                                                                                                                                                                     |
+| `client.FederateSubject(ctx, idToken, opts...)`        | Exchange an end user's identity token for an Authority record and return a `FederatedSubject` with `SubjectAuthorityRecordID`, `Token`, and `ExpiresInSeconds`. Setting `SubjectAuthorityRecordID` when starting a Session links attribution and lifecycle only; it does not by itself propagate the federated `sub` into later resource mandates. The returned mandate is the Subject's credential for supported approval and exchange paths.                                                                                                     |
+| `client.WaitForApproval(ctx, challengeID, timeout)`    | Long-poll an approval challenge raised by an approval-gated mint; returns the final `oauth.ApprovalState` (`ApprovalApproved`, `ApprovalRejected`, `ApprovalExpired`, `ApprovalConsumed`, or `ApprovalPending`).                                                                                                                                                                                                                                                                                         |
+| `sdk.WithApproval(ctx, client, timeout, fn)`           | Run an approval-gated operation end to end: on `*oauth.ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                             |
+| `client.GatewayRequest(resourceID, path)`              | Build explicit Gateway routing metadata.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `client.Identity(ctx)`                                 | The zone and application the client acts as, for logging and metric labels.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `client.Current(ctx)`                                  | Inspect the current Caracal context.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## Context Propagation
 
@@ -52,11 +61,59 @@ constraints := &caracal.DelegationConstraints{
 
 Available fields are `Resources`, `MaxDepth`, `MaxHops`, `TTLSeconds`, `Budget`, `PolicyApproved`, `ExpiresAt`, and `BroadReason`.
 
+`Budget` is the maximum distinct requested scopes in each token exchange; repeated exchanges do not consume it. `PolicyApproved` and `BroadReason` are audit/display metadata, not authorization decisions.
+
 ## Protect Inbound Requests
 
-Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway, connector, or transport verifier has accepted the inbound mandate. Use [Verification Layer Overview](/sdks/verification-layer/) when the Go service must enforce mandate signatures, scopes, targets, agent identity, delegation, or revocation at its own boundary.
+Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Set `CallOptions.Verify` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must return an error on failure. Return a `*VerifiedClaims` value from the callback to stamp token-proven attribution (zone, application, Session, Delegation, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the Go service must enforce mandate signatures, scopes, targets, Session identity, Delegation, or revocation at its own boundary.
 
-`Headers` and `Transport` require a bound Caracal context by default. Pass `caracal.RootOptions{AllowRoot: true}` only when the call should intentionally use the application subject token.
+`Headers` and `Transport` require a bound Caracal context by default. Pass `caracal.CallOptions{AsApplication: true}` only when the call should intentionally use the application subject token.
+
+## Errors and Observability
+
+STS denials return `*oauth.CaracalError` carrying `Code`, `HTTPStatus`, and `RequestID`, so callers branch with `errors.As` instead of matching message text. Approval-gated exchanges return `*oauth.ApprovalRequiredError` with the challenge fields, and coordinator failures return `*caracal.CoordinatorError` with `StatusCode`, `Method`, and `Path`.
+
+```go
+import oauth "github.com/garudex-labs/caracal/packages/oauth/go"
+
+_, err := client.MintMandate(ctx, "https://api.example.com/tickets", []string{"tickets:read"})
+var denied *oauth.CaracalError
+if errors.As(err, &denied) && denied.Code == "access_denied" {
+	log.Printf("denied by policy (request %s)", denied.RequestID)
+}
+
+client.OnEvent(func(event oauth.Event) {
+	metrics.Timing("caracal."+event.Type, event.Duration, event.Ok)
+})
+```
+
+`OnEvent(hook)` reports every control-plane operation: `token.exchange` (with `Resources`, `Scopes`, and `Cached` for cache hits), `approval.wait` (with `ChallengeID` and the final `State`), `coordinator.call` (with `Method`, `Path`, and `Status`), and `delegation.accept` (with `DelegationID` and `SessionID`, so delegation presentations are auditable client-side). Each event carries `Ok` and `Duration`, ready to bridge into any metrics or tracing system. A hook that panics is recovered and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `Retryable()`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```go
+operations := prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "caracal_operations_total",
+	Help: "Caracal control-plane operations",
+}, []string{"type", "ok"})
+latency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	Name: "caracal_operation_duration_ms",
+	Help: "Caracal control-plane operation latency",
+}, []string{"type"})
+
+client.OnEvent(func(event oauth.Event) {
+	operations.WithLabelValues(event.Type, strconv.FormatBool(event.Ok)).Inc()
+	latency.WithLabelValues(event.Type).Observe(float64(event.Duration.Milliseconds()))
+})
+```
+
+The Go module ships as a single flat package: the envelope codec, context plumbing, Coordinator functions (`StartCoordinatorSession`, `CreateDelegation`, `HeartbeatSession`, `ListInboundDelegations`, `TerminateSession`), and Session primitives (`Session`, `StartSession`, `AttachSession`, `Delegate`) sit beside the `Caracal` client rather than behind a separate advanced entrypoint.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom `*http.Client` - `HTTPClient` on `CoordinatorClient` and `ClientSecretOptions`, and the `base` argument of `Transport` - so deployments that require mutual TLS or a private CA toward the STS and coordinator inject a client with a `tls.Config` carrying certificates instead of patching defaults. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: Go strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the credentials resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
 ## Related pages
 
@@ -64,4 +121,4 @@ Use `BindFromRequest()` to propagate a Caracal context after an upstream Gateway
 - [Verification Layer Overview](/sdks/verification-layer/)
 - [Enforce, propagate, or attribute](/concepts/authority-model/#enforce-propagate-or-attribute)
 - [Protect a Go net/http Service](/guides/protect-nethttp/)
-- [Agent Delegation](/concepts/delegation/)
+- [Session Delegation](/concepts/delegation/)

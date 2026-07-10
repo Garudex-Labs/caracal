@@ -9,7 +9,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { ownsApplication, requireScope } from '../auth.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
-import { suspendSubtree } from './agents.js'
+import { sessionLockKey, suspendSubtree } from './agents.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -18,10 +18,12 @@ const ServiceBody = z.object({
   application_id: z.string().min(1),
   endpoint_url: z.string().url(),
   protocol_versions: z.array(z.string().min(1)).default([]),
-  framework: z.object({
-    name: z.string().min(1),
-    version: z.string().optional(),
-  }).optional(),
+  framework: z
+    .object({
+      name: z.string().min(1),
+      version: z.string().optional(),
+    })
+    .optional(),
   capabilities: z.array(z.string().min(1)).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
 })
@@ -44,8 +46,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId } = params
     const body = ServiceBody.parse(req.body)
-    if (!ownsApplication(req, body.application_id)
-      && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
+    if (!ownsApplication(req, body.application_id) && !requireScope(req, `coordinator.spawn_for:${body.application_id}`)) {
       return reply.code(403).send({ error: 'application_ownership_required' })
     }
     const id = uuidv7()
@@ -107,10 +108,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { limit, cursor } = query.data
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM agent_services WHERE id = $1 AND zone_id = $2`,
-        [cursor, zoneId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM agent_services WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
     }
     const queryParams: unknown[] = [zoneId, limit]
@@ -141,50 +139,68 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query('BEGIN')
       const { rows: own } = await client.query<{
         application_id: string
+        subject_authority_record_id: string
         status: string
         lifecycle: string
         heartbeat_deadline_at: Date | null
         lease_expired: boolean
       }>(
-        `SELECT application_id, status, lifecycle, heartbeat_deadline_at,
+        `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
+         SELECT application_id, subject_authority_record_id, status, lifecycle, heartbeat_deadline_at,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
-         FROM agent_sessions
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
-        [id, zoneId],
+         FROM sessions, locked
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+        [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
         await client.query('ROLLBACK')
-        return reply.code(404).send({ error: 'agent_not_found' })
+        return reply.code(404).send({ error: 'session_not_found' })
       }
-      if (!ownsApplication(req, own[0].application_id)
-        && !requireScope(req, 'coordinator.admin')
-        && !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)) {
+      if (
+        !ownsApplication(req, own[0].application_id) &&
+        !requireScope(req, 'coordinator.admin') &&
+        !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
+      ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
       if (own[0].status !== 'active' && own[0].status !== 'suspended') {
         await client.query('ROLLBACK')
-        return reply.code(409).send({ error: 'agent_not_live' })
+        return reply.code(409).send({ error: 'session_not_live' })
       }
-      if (own[0].status === 'active'
-        && own[0].lifecycle === 'service'
-        && own[0].lease_expired) {
+      if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
         await client.query('COMMIT')
-        return reply.code(409).send({ error: 'agent_lease_expired' })
+        return reply.code(409).send({ error: 'session_lease_expired' })
+      }
+      const authorityRecordId = req.caracalAuth?.authorityRecordId
+      if (!authorityRecordId) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'authority_record_required' })
+      }
+      const { rows: authority } = await client.query(
+        `SELECT 1 FROM authority_records
+         WHERE id = $1 AND zone_id = $2 AND session_type = 'application'
+           AND subject_id = $3 AND status = 'active' AND expires_at > now()`,
+        [authorityRecordId, zoneId, own[0].application_id],
+      )
+      if (!authority[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'identity_revoked' })
       }
       const { rows: agents } = await client.query(
-        `UPDATE agent_sessions
+        `UPDATE sessions
          SET last_active_at = now(),
              last_heartbeat_at = now(),
+           subject_authority_record_id = $4,
              heartbeat_deadline_at = CASE
                WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                ELSE heartbeat_deadline_at
              END,
              updated_at = now()
          WHERE id = $1 AND zone_id = $2
-          RETURNING id, zone_id, application_id, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, cfg.serviceAgentLeaseSeconds],
+          RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
+        [id, zoneId, cfg.serviceSessionLeaseSeconds, authorityRecordId],
       )
       let service = null
       if (body.service_id) {

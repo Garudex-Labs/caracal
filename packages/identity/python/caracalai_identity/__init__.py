@@ -15,11 +15,11 @@ from .types import (
     JwtConfig,
 )
 from .verify import (
-    AgentIdentityRequiredError,
     ChainMismatchError,
     DelegationRequiredError,
     HopCountExceededError,
     ScopeInsufficientError,
+    SessionRequiredError,
     TokenInvalidError,
     ZoneInvalidError,
     verify_chain_contains,
@@ -29,7 +29,6 @@ from .verify import (
 )
 
 __all__ = [
-    "AgentIdentityRequiredError",
     "ChainHop",
     "ChainMismatchError",
     "Claims",
@@ -42,6 +41,7 @@ __all__ = [
     "SUBJECT_TYPE_APPLICATION",
     "SUBJECT_TYPE_USER",
     "ScopeInsufficientError",
+    "SessionRequiredError",
     "TokenInvalidError",
     "ZoneInvalidError",
     "has_scope",

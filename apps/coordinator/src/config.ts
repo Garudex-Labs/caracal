@@ -3,9 +3,18 @@
 //
 // Coordinator configuration loaded strictly from environment.
 
-import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/core'
+import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets } from '@caracalai/server-core'
 
-resolveFileSecrets(['DATABASE_URL', 'REDIS_URL', 'STREAMS_HMAC_KEY', 'AUDIT_HMAC_KEY', 'CARACAL_COORDINATOR_TOKEN', 'METRICS_BEARER'])
+resolveFileSecrets([
+  'DATABASE_URL',
+  'REDIS_URL',
+  'STREAMS_HMAC_KEY',
+  'AUDIT_HMAC_KEY',
+  'IDEMPOTENCY_HMAC_KEY',
+  'IDEMPOTENCY_HMAC_KEY_PREVIOUS',
+  'CARACAL_COORDINATOR_TOKEN',
+  'METRICS_BEARER',
+])
 
 /**
  * Coordinator JWT audience. The STS issues ambient tokens with `aud=[ISSUER_URL]`
@@ -18,6 +27,21 @@ function buildCfg() {
   const auditHmacKey = process.env.AUDIT_HMAC_KEY ? Buffer.from(process.env.AUDIT_HMAC_KEY, 'hex') : null
   if (auditHmacKey && auditHmacKey.length < 32) {
     throw new Error('AUDIT_HMAC_KEY must be hex-encoded with at least 32 bytes')
+  }
+  const published = process.env.CARACAL_MODE === 'rc' || process.env.CARACAL_MODE === 'stable'
+  const idempotencyHmacKey = process.env.IDEMPOTENCY_HMAC_KEY
+    ? Buffer.from(process.env.IDEMPOTENCY_HMAC_KEY, 'hex')
+    : published
+      ? null
+      : Buffer.from('caracal-development-idempotency-key')
+  if (!idempotencyHmacKey || idempotencyHmacKey.length < 32) {
+    throw new Error('IDEMPOTENCY_HMAC_KEY must be hex-encoded with at least 32 bytes')
+  }
+  const previousIdempotencyHmacKey = process.env.IDEMPOTENCY_HMAC_KEY_PREVIOUS
+    ? Buffer.from(process.env.IDEMPOTENCY_HMAC_KEY_PREVIOUS, 'hex')
+    : null
+  if (previousIdempotencyHmacKey && previousIdempotencyHmacKey.length < 32) {
+    throw new Error('IDEMPOTENCY_HMAC_KEY_PREVIOUS must be hex-encoded with at least 32 bytes')
   }
   return {
     port: intEnv('PORT', 4000),
@@ -32,8 +56,8 @@ function buildCfg() {
     metricsBearer: getenv('METRICS_BEARER', ''),
     dbPoolMax: intEnv('DB_POOL_MAX', 20),
     dbStatementTimeoutMs: intEnv('DB_STATEMENT_TIMEOUT_MS', 10_000),
-    maxAgentsPerZone: intEnv('MAX_AGENTS_PER_ZONE', 50),
-    maxAgentsPerApp: intEnv('MAX_AGENTS_PER_APP', 200),
+    maxSessionsPerZone: intEnv('MAX_AGENTS_PER_ZONE', 50),
+    maxSessionsPerApp: intEnv('MAX_AGENTS_PER_APP', 200),
     dbConnectionTimeoutMs: intEnv('DB_CONNECTION_TIMEOUT_MS', 5_000),
     dbIdleTimeoutMs: intEnv('DB_IDLE_TIMEOUT_MS', 30_000),
     outboxIntervalMs: intEnv('OUTBOX_INTERVAL_MS', 1_000),
@@ -42,15 +66,19 @@ function buildCfg() {
     streamsMaxLen: intEnv('STREAMS_MAXLEN', 100_000),
     ttlSweepIntervalMs: intEnv('TTL_SWEEP_INTERVAL_MS', 60_000),
     serviceLeaseSweepIntervalMs: intEnv('SERVICE_LEASE_SWEEP_INTERVAL_MS', 30_000),
-    serviceAgentLeaseSeconds: intEnv('SERVICE_AGENT_LEASE_SECONDS', 120),
+    serviceSessionLeaseSeconds: intEnv('SERVICE_AGENT_LEASE_SECONDS', 120),
     deadlineSweepIntervalMs: intEnv('DEADLINE_SWEEP_INTERVAL_MS', 5_000),
     sweeperBatchSize: intEnv('SWEEPER_BATCH_SIZE', 500),
     retentionCleanupIntervalMs: intEnv('RETENTION_CLEANUP_INTERVAL_MS', 900_000),
     retentionCleanupBatchSize: intEnv('RETENTION_CLEANUP_BATCH_SIZE', 500),
     delegationRetentionDays: intEnv('DELEGATION_RETENTION_DAYS', 90),
     outboxRetentionDays: intEnv('OUTBOX_RETENTION_DAYS', 7),
+    idempotencyRetentionSeconds: intEnv('IDEMPOTENCY_RETENTION_SECONDS', 7 * 24 * 60 * 60, 3600),
+    generatedIdempotencyRetentionSeconds: intEnv('GENERATED_IDEMPOTENCY_RETENTION_SECONDS', 24 * 60 * 60, 3600),
+    idempotencyMaxReceiptsPerScope: intEnv('IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE', 10_000, 100),
     shutdownGraceMs: intEnv('SHUTDOWN_GRACE_MS', 15_000),
     requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', 30_000),
+    requestBodyLimitBytes: intEnv('COORDINATOR_BODY_LIMIT_BYTES', 256 * 1024, 1024),
     // Hold idle keep-alive sockets longer than the typical load-balancer idle window (≈60s) so
     // the LB never reuses a connection the server is simultaneously closing.
     keepAliveTimeoutMs: intEnv('KEEP_ALIVE_TIMEOUT_MS', 75_000, 1),
@@ -67,6 +95,7 @@ function buildCfg() {
     logLevel: getenv('LOG_LEVEL', 'info'),
     trustProxy: boolEnv('TRUST_PROXY', false),
     auditHmacKey,
+    idempotencyHmacKeys: previousIdempotencyHmacKey ? [idempotencyHmacKey, previousIdempotencyHmacKey] : [idempotencyHmacKey],
   }
 }
 

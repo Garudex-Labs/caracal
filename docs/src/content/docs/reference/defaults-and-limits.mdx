@@ -6,79 +6,99 @@ pageType: reference
 
 ## Ports
 
-| Component | Port |
-| --- | --- |
-| API | `3000` |
-| STS | `8080` |
-| Gateway | `8081` |
-| Audit | `9090` |
+| Component   | Port   |
+| ----------- | ------ |
+| API         | `3000` |
+| STS         | `8080` |
+| Gateway     | `8081` |
+| Audit       | `9090` |
 | Coordinator | `4000` |
-| Postgres | `5432` |
-| Redis | `6379` |
+| Postgres    | `5432` |
+| Redis       | `6379` |
 
 ## Token and Authority Lifetimes
 
-| Limit | Default |
-| --- | --- |
-| STS resource mandate cap | 15 minutes |
-| STS session mandate cap | 60 minutes |
-| STS `MAX_GRANT_TTL_SECONDS` | `3600` |
-| DCR application lifetime default and maximum | 3600 seconds |
-| `caracal run` injected credential TTL | 900 seconds |
-| Runtime step-up polling | every 2 seconds for up to 5 minutes |
-| Gateway expiring-token preflight window | 35 seconds |
+| Limit                                        | Default                                                     |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| STS resource mandate cap                     | 15 minutes                                                  |
+| STS session mandate cap                      | 60 minutes                                                  |
+| STS `MAX_GRANT_TTL_SECONDS`                  | `3600`                                                      |
+| DCR application lifetime default and maximum | 3600 seconds                                                |
+| `caracal run` injected credential TTL        | 900 seconds                                                 |
+| Runtime approval wait                        | long-polls the hold for up to 5 minutes                     |
+| Step-up hold TTL                             | 1800 seconds default, clamped between 60 seconds and 7 days |
+| Step-up decision reason                      | 500 characters maximum                                      |
+| Gateway expiring-token preflight window      | 35 seconds                                                  |
 
 ## Service Limits
 
-| Limit | Default |
-| --- | --- |
-| API body limit | `1_048_576` bytes |
-| API request timeout | `30_000` ms |
-| Gateway max request bytes | 10 MiB |
-| Gateway STS timeout | 5 seconds |
-| Gateway upstream timeout | 30 seconds |
-| Gateway STS circuit failure limit | 3 failures |
-| Gateway STS circuit open window | 10 seconds |
-| STS `OPA_POLL_SECONDS` | 60 seconds, max 300 |
-| Control body limit | 64 KiB |
-| Control rate capacity | 60 per window |
-| Control rate window | 60 seconds |
-| Control replay TTL | 3600 seconds |
+| Limit                             | Default             |
+| --------------------------------- | ------------------- |
+| API body limit                    | `1_048_576` bytes   |
+| API request timeout               | `30_000` ms         |
+| Gateway max request bytes         | 10 MiB              |
+| Gateway STS timeout               | 5 seconds           |
+| Gateway upstream timeout          | 30 seconds          |
+| Gateway non-stream write timeout  | 60 seconds          |
+| Gateway stream idle timeout       | 60 seconds per chunk |
+| Gateway STS circuit failure limit | 3 failures          |
+| Gateway STS circuit open window   | 10 seconds          |
+| STS `OPA_POLL_SECONDS`            | 60 seconds, max 300 |
+| Control body limit                | 64 KiB              |
+| Control rate capacity             | 60 per window       |
+| Control rate window               | 60 seconds          |
+| Control replay TTL                | 3600 seconds        |
+
+## SDK Timeouts and Retries
+
+The SDKs share one timeout philosophy: **control-plane calls are always bounded, data-plane calls are bounded by you.** Control-plane operations (coordinator, STS) carry defaults because a hung control plane must never hang your worker; provider traffic through `transport()` carries no default because only the caller knows whether a request is a 200 ms lookup or a 10-minute LLM stream - pass `timeoutMs`, an `AbortSignal`/`timeout=`, or your HTTP client's own budget.
+
+| Operation                 | Default                              | Notes                                                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Coordinator call          | 10 seconds                           | Per request, all SDKs.                                                                                                                                                                                                                          |
+| Session start             | up to 2 retries                      | 5xx/network only. The SDK generates one operation id before the first attempt; Coordinator durably replays the same creation response and rejects changed inputs. This protects Session creation, not callback execution or downstream effects. |
+| Delegation create         | 1 retry                              | Same durable creation-replay contract.                                                                                                                                                                                                          |
+| Retry backoff             | 250 ms escalating, jittered          | A server `Retry-After` wins, capped at 10 seconds.                                                                                                                                                                                              |
+| STS token exchange        | 30-second budget, up to 3 attempts   | Transient statuses only; policy denials never retry.                                                                                                                                                                                            |
+| TypeScript Control invoke | 30-second total budget               | Covers token mint, its one safe retry, and invoke; mutating invoke timeouts are outcome-ambiguous and never auto-retried.                                                                                                                       |
+| Approval wait             | 300-second default                   | Long-polls in chunks; `pending` on timeout means waiting again is safe.                                                                                                                                                                         |
+| Heartbeat renewal         | 10-second bound per tick             | Failures retry on the next tick; a session reported gone stops the timer and fires `onLeaseLost`.                                                                                                                                               |
+| `transport()` / `fetch()` | none (TS/Go), httpx default (Python) | Bound per call: `timeoutMs`, `AbortSignal`, `timeout=`, or the injected HTTP client.                                                                                                                                                            |
 
 ## Agent and Delegation Limits
 
-| Limit | Default |
-| --- | --- |
-| Concurrent agent sessions per zone | 50 |
-| Concurrent agent sessions per application | 200 |
-| Child agents per parent session | 10 |
-| Delegation depth | 10 |
-| Agent labels per session | 32 |
-| Agent label length | 64 characters |
+| Limit                                                       | Default         |
+| ----------------------------------------------------------- | --------------- |
+| Concurrent Sessions per zone                                | 50              |
+| Concurrent Sessions per application                         | 200             |
+| Child agents per parent session                             | 10              |
+| Delegation depth                                            | 10              |
+| Agent labels per session                                    | 32              |
+| Agent label length                                          | 64 characters   |
 | STS request rate per zone, resource, and acting application | 1000 per minute |
 
 ## Storage and Stream Defaults
 
-| Default | Value |
-| --- | --- |
-| Audit retention | 365 days |
-| Audit max deliveries before DLQ | 8 |
-| Audit claim idle | 30 seconds |
-| Audit tamper rolling window | 4 hours |
-| Redis audit stream intended max length | 1,000,000 |
-| Redis audit DLQ intended max length | 100,000 |
-| Redis policy/revocation/key stream intended max length | 10,000 |
+| Default                                                | Value      |
+| ------------------------------------------------------ | ---------- |
+| Audit retention                                        | 365 days   |
+| Audit max deliveries before DLQ                        | 8          |
+| Audit claim idle                                       | 30 seconds |
+| Audit tamper rolling window                            | 4 hours    |
+| Redis audit stream intended max length                 | 1,000,000  |
+| Redis audit DLQ intended max length                    | 100,000    |
+| Redis policy/revocation/key stream intended max length | 10,000     |
 
 ## Helm Defaults
 
-| Service | Replicas | Max HPA replicas |
-| --- | --- | --- |
-| API | 2 | 8 |
-| STS | 2 | 8 |
-| Gateway | 2 | 16 |
-| Audit | 2 | 8 |
-| Coordinator | 2 | 8 |
-| Control | disabled | 2 when enabled |
+| Service     | Replicas | Max HPA replicas |
+| ----------- | -------- | ---------------- |
+| API         | 2        | 8                |
+| STS         | 2        | 8                |
+| Gateway     | 2        | 16               |
+| Audit       | 2        | 8                |
+| Coordinator | 2        | 8                |
+| Control     | disabled | 2 when enabled   |
 
 ## Next Step
 

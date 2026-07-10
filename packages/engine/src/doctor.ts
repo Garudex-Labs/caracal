@@ -4,7 +4,7 @@
 // Shared doctor diagnostics for operator health checks.
 
 import type { Zone } from '@caracalai/admin'
-import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/core'
+import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/server-core'
 import { DEFAULT_API_URL, DEFAULT_COORDINATOR_URL, DEFAULT_GATEWAY_URL, DEFAULT_ZONE_URL, resolveServiceUrl } from './runtimeConfig.js'
 import { scrubTokens } from './crash.js'
 import { adminTokenProvisionCommand, buildAdminClient as buildAdminClientCore, type AdminContext } from './shared.js'
@@ -238,7 +238,8 @@ function evaluateCoordinator(value: unknown): MetricEvaluation {
     return {
       detail,
       status: 'warn',
-      advice: 'Coordinator outbox has dead rows; spawn or revocation events failed delivery. Inspect and requeue the dead outbox rows.',
+      advice:
+        'Coordinator outbox has dead rows; session lifecycle or revocation events failed delivery. Inspect and requeue the dead outbox rows.',
     }
   }
   if ((outboxPending ?? 0) > OUTBOX_PENDING_WARN) {
@@ -295,7 +296,7 @@ async function failureReason(res: Response): Promise<string> {
     const parsed = JSON.parse(value) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return ''
     const record = parsed as Record<string, unknown>
-    for (const key of ['reason', 'error', 'detail']) {
+    for (const key of ['reason', 'error', 'error_description']) {
       const field = record[key]
       if (typeof field === 'string' && field !== '') return ` ${sanitize(field)}`
     }

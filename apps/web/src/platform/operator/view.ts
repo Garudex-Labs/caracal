@@ -153,6 +153,8 @@ export function executeErrorMessage(err: unknown): string {
   switch (code) {
     case "governed_execution_unconfigured":
       return "Caracal can't apply changes in this zone - governed execution isn't configured here.";
+    case "zone_not_governed":
+      return "This zone hasn't granted the Operator administration, so changes can't be applied here. Grant it above or in Settings, then try again.";
     case "zone_forbidden":
       return "This zone is internal to Caracal, so the Operator can't apply changes here.";
     case "mode_forbidden":
@@ -165,6 +167,10 @@ export function executeErrorMessage(err: unknown): string {
       return "This plan was rejected, so it can't be applied.";
     case "plan_blocked":
       return "This plan can't be applied - a step depends on something an earlier step hasn't created yet.";
+    case "plan_already_satisfied":
+      return "Nothing to apply - what this plan would create already exists in this zone.";
+    case "plan_state_changed":
+      return "The zone changed since this plan was approved, so applying it now would do something the approval never covered. Ask again to compose a fresh plan.";
     case "conversation_archived":
       return "This conversation is archived, so it can't apply changes.";
     default:

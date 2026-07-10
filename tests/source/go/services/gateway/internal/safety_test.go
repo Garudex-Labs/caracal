@@ -34,8 +34,33 @@ func TestStripHopByHop(t *testing.T) {
 	}
 }
 
+func TestStripCaracalBaggage(t *testing.T) {
+	h := http.Header{}
+	h.Add("Baggage", "caracal.agent_session=sess,tenant=hooli")
+	h.Add("Baggage", "caracal.hop=2")
+
+	stripCaracalBaggage(h)
+
+	if got := h.Get("Baggage"); got != "tenant=hooli" {
+		t.Errorf("caracal.* entries must be stripped, tenant baggage kept, got %q", got)
+	}
+
+	all := http.Header{}
+	all.Set("Baggage", "caracal.agent_session=sess,caracal.hop=1")
+	stripCaracalBaggage(all)
+	if _, ok := all["Baggage"]; ok {
+		t.Errorf("header must be removed when only caracal.* entries remain, got %q", all.Get("Baggage"))
+	}
+
+	none := http.Header{}
+	stripCaracalBaggage(none)
+	if _, ok := none["Baggage"]; ok {
+		t.Error("no baggage header must stay absent")
+	}
+}
+
 func TestPathTraversalDetection(t *testing.T) {
-	traversals := []string{"/..", "/../etc", "/a/../b", "/./x", "/foo/../../bar", "/a/b/.."}
+	traversals := []string{"/..", "/../etc", "/a/../b", "/./x", "/foo/../../bar", "/a/b/..", `/a\..\secret`, "/a/%5c..%5csecret", "/a/%255c..%255csecret"}
 	for _, p := range traversals {
 		if !pathContainsTraversal(p) {
 			t.Errorf("missed traversal in %q", p)

@@ -3,8 +3,9 @@
 //
 // Internal-only assembly of the Operator's governed control client from its reserved identity and the deployment's control endpoints.
 
-import { createControlClient, type ControlClient } from './control-client.js'
+import { ControlClient } from '@caracalai/admin'
 import type { OperatorControlIdentity } from './config.js'
+import type { AgentRole } from './operator-agent-roles.js'
 
 // The deployment endpoints the Operator's control client talks to: the STS that mints its
 // scoped tokens and the control plane it invokes. controlUrl is the API's own base, since
@@ -22,31 +23,37 @@ export interface OperatorControlEndpoints {
   ttlSeconds?: number
 }
 
-// Builds the Operator's governed control client, or null when governed execution is not
-// fully configured. Governed execution is all-or-nothing: it requires both the Operator's
-// reserved control identity and an enabled control plane to invoke. A null result means
-// the Operator must refuse to execute rather than fall back to any other authority.
-export function buildOperatorControlClient(
-  identity: OperatorControlIdentity | null,
-  endpoints: OperatorControlEndpoints,
-  fetchImpl: typeof fetch = fetch,
-  zoneScope?: string,
-  authorizedBy?: string,
-  coAuthorOperator?: boolean,
-): ControlClient | null {
-  if (!identity || !endpoints.controlEnabled) return null
-  return createControlClient(
-    {
-      stsUrl: endpoints.stsUrl,
-      controlUrl: endpoints.controlUrl,
-      audience: endpoints.audience,
-      applicationId: identity.applicationId,
-      clientSecret: identity.clientSecret,
-      ttlSeconds: endpoints.ttlSeconds,
-      zoneScope,
-      authorizedBy,
-      coAuthorOperator,
-    },
-    fetchImpl,
-  )
+export interface OperatorControlClientInput {
+  identity: OperatorControlIdentity | null
+  role: AgentRole
+  endpoints: OperatorControlEndpoints
+  fetchImpl?: typeof fetch
+  zoneScope?: string
+  authorizedBy?: string
+  coAuthorOperator?: boolean
+  requestId?: string
+}
+
+// Builds the governed control client for one Operator role, or null when governed execution
+// is not fully configured. Governed execution is all-or-nothing: it requires the Operator's
+// resolved identities and an enabled control plane to invoke. Each role invokes as its own
+// reserved application, so the STS can only mint the scopes that role's traits grant. A null
+// result means the Operator must refuse to execute rather than fall back to any other
+// authority.
+export function buildOperatorControlClient(input: OperatorControlClientInput): ControlClient | null {
+  if (!input.identity || !input.endpoints.controlEnabled) return null
+  const credential = input.identity[input.role]
+  return new ControlClient({
+    stsUrl: input.endpoints.stsUrl,
+    controlUrl: input.endpoints.controlUrl,
+    audience: input.endpoints.audience,
+    applicationId: credential.applicationId,
+    clientSecret: credential.clientSecret,
+    ttlSeconds: input.endpoints.ttlSeconds,
+    zoneScope: input.zoneScope,
+    authorizedBy: input.authorizedBy,
+    coAuthorOperator: input.coAuthorOperator,
+    requestId: input.requestId,
+    fetchImpl: input.fetchImpl,
+  })
 }

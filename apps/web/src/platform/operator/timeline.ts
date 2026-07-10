@@ -184,6 +184,9 @@ export interface PlanItem {
   canExecute: boolean;
   // The advisory security review, present only for a composed plan that carried one.
   advisory?: PlanAdvisoryView;
+  // The reason the guardian's review did not complete, present only when the plan went
+  // unreviewed. Surfaced so an unreviewed plan is never mistaken for a clean one.
+  reviewFailure?: string;
   // The ordered deliberation stages the plan was reasoned through, recorded on the turn so the
   // path from triage to guard can be replayed after the live stream ends.
   deliberation?: OperatorProgressStage[];
@@ -312,6 +315,15 @@ function readPlanAdvisory(content: Record<string, unknown>): PlanAdvisoryView | 
     ...(alignment ? { alignment } : {}),
     ...(recommendation.length > 0 ? { recommendation } : {}),
   };
+}
+
+// Reads the guardian's recorded review failure from a plan turn's content, when present. A plan
+// persisted with review status review_failed went unreviewed; the reason is surfaced so the
+// human knows the check did not happen before deciding.
+function readReviewFailure(content: Record<string, unknown>): string | undefined {
+  const review = asRecord(content.review);
+  if (review.status !== "review_failed") return undefined;
+  return asString(review.reason) || "the review did not complete";
 }
 
 function asStringList(value: unknown): string[] {
@@ -512,6 +524,7 @@ export function buildTimeline(turns: OperatorTurn[]): {
         readPlanSteps(content),
         asString(content.summary),
         readPlanAdvisory(content),
+        readReviewFailure(content),
         readDeliberation(content.deliberation),
         ordered,
       );
@@ -528,6 +541,7 @@ function resolvePlan(
   steps: RawPlanStep[],
   summary: string,
   advisory: PlanAdvisoryView | undefined,
+  reviewFailure: string | undefined,
   deliberation: OperatorProgressStage[],
   ordered: OperatorTurn[],
 ): PlanItem {
@@ -588,6 +602,7 @@ function resolvePlan(
     canExecute: decision === "approved" && !executed,
     approvedByAutopilot,
     ...(advisory ? { advisory } : {}),
+    ...(reviewFailure ? { reviewFailure } : {}),
     ...(deliberation.length > 0 ? { deliberation } : {}),
   };
 }

@@ -1,0 +1,372 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Idempotent reconcilers that converge applications, providers, resources, and policy sets to a desired state.
+
+import type { AdminClient } from './client.js'
+import type {
+  APIKeyProviderConfig,
+  OAuth2ClientCredentialsProviderConfig,
+  ProviderIdentifier,
+  Resource,
+  ResourceInput,
+  ResourceOperationEnforcement,
+} from './types.js'
+
+function sameStringSet(live: readonly string[] | undefined, desired: readonly string[]): boolean {
+  const have = new Set(live ?? [])
+  return have.size === desired.length && desired.every((value) => have.has(value))
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export interface EnsureApplicationInput {
+  name: string
+  traits: string[]
+  clientSecret: string
+}
+
+// Converges a managed application to exactly the given trait set and seals the given
+// client secret, creating it when absent. The secret patch on every run is the rotation
+// itself: the previous secret stops working the moment the new one is sealed, which is
+// also how a compromised credential is revoked. An existing same-named identity must be a
+// usable managed credential; a DCR or app-expiring application cannot carry a rotating
+// secret, so binding to it would report the identity configured while every token mint
+// failed. Fail closed instead, so the misconfiguration surfaces rather than hiding.
+// Returns the application id.
+export async function ensureApplication(client: AdminClient, zoneId: string, input: EnsureApplicationInput): Promise<string> {
+  const apps = await client.applications.list(zoneId)
+  const existing = apps.find((app) => app.name === input.name)
+  if (!existing) {
+    const created = await client.applications.create(zoneId, { name: input.name, registration_method: 'managed', traits: input.traits })
+    // Seal the caller's secret so the one-time secret minted at creation is never the
+    // running credential.
+    await client.applications.patch(zoneId, created.id, { client_secret: input.clientSecret })
+    return created.id
+  }
+  if (existing.registration_method !== 'managed' || (existing.expires_at !== null && existing.expires_at !== undefined)) {
+    throw new Error(`application ${input.name} exists but is not a usable managed credential`)
+  }
+  if (!sameStringSet(existing.traits, input.traits)) {
+    await client.applications.patch(zoneId, existing.id, { traits: input.traits })
+  }
+  await client.applications.patch(zoneId, existing.id, { client_secret: input.clientSecret })
+  return existing.id
+}
+
+export interface EnsureApiKeyProviderInput {
+  name: string
+  identifier: ProviderIdentifier
+  publicConfig: APIKeyProviderConfig
+  apiKey?: string
+}
+
+// Seals an api key into an api_key provider the gateway injects at call time, so the
+// caller never holds the key. When a key is supplied it is reconciled together with the
+// public placement config (the sealed secret cannot be read back, so setting or rotating
+// re-seals). When no key is supplied but the placement may have changed, the existing
+// provider's public config is patched without resupplying the key, so an edit applies and
+// the sealed secret is preserved. A missing provider with no key returns null, marking the
+// credential unconfigured so no resource binds a dead credential.
+export async function ensureApiKeyProvider(client: AdminClient, zoneId: string, input: EnsureApiKeyProviderInput): Promise<string | null> {
+  const providers = await client.providers.list(zoneId)
+  const existing = providers.find((provider) => provider.identifier === input.identifier)
+  if (input.apiKey === undefined) {
+    if (!existing) return null
+    await client.providers.patch(zoneId, existing.id, { config_json: input.publicConfig })
+    return existing.id
+  }
+  const config = { ...input.publicConfig, api_key: input.apiKey }
+  if (!existing) {
+    const created = await client.providers.create(zoneId, {
+      name: input.name,
+      identifier: input.identifier,
+      kind: 'api_key',
+      config_json: config,
+    })
+    return created.id
+  }
+  await client.providers.patch(zoneId, existing.id, { kind: 'api_key', config_json: config })
+  return existing.id
+}
+
+export interface EnsureClientCredentialsProviderInput {
+  name: string
+  identifier: ProviderIdentifier
+  publicConfig: OAuth2ClientCredentialsProviderConfig
+  clientSecret?: string
+  privateKey?: string
+}
+
+// Seals the client credential into an oauth2_client_credentials provider so the caller
+// never holds it after the run. When a client secret or signing key is supplied it is
+// reconciled together with the public config (the sealed secret cannot be read back, so
+// setting or rotating re-seals). When no credential is supplied but the public config may
+// have changed, an existing provider is patched without resupplying the credential, so an
+// edit applies and the sealed secret is preserved. Whether a missing provider without a
+// credential is creatable follows the declared authentication: jwt_bearer grants and
+// every client_auth_method except none require a sealed credential, so absence returns
+// null and no resource binds a dead credential; a public client (none) is complete
+// without one and is created. Returns the provider id.
+export async function ensureClientCredentialsProvider(
+  client: AdminClient,
+  zoneId: string,
+  input: EnsureClientCredentialsProviderInput,
+): Promise<string | null> {
+  const providers = await client.providers.list(zoneId)
+  const existing = providers.find((provider) => provider.identifier === input.identifier)
+  const secrets: Record<string, string> = {}
+  if (input.clientSecret !== undefined) secrets.client_secret = input.clientSecret
+  if (input.privateKey !== undefined) secrets.private_key = input.privateKey
+  if (Object.keys(secrets).length === 0) {
+    const grantType = input.publicConfig.grant_type ?? 'client_credentials'
+    const authMethod = input.publicConfig.client_auth_method ?? (grantType === 'jwt_bearer' ? 'none' : 'client_secret_basic')
+    if (grantType === 'jwt_bearer' || authMethod !== 'none') {
+      if (!existing) return null
+      await client.providers.patch(zoneId, existing.id, { config_json: input.publicConfig })
+      return existing.id
+    }
+  }
+  const config = { ...input.publicConfig, ...secrets }
+  if (!existing) {
+    const created = await client.providers.create(zoneId, {
+      name: input.name,
+      identifier: input.identifier,
+      kind: 'oauth2_client_credentials',
+      config_json: config,
+    })
+    return created.id
+  }
+  await client.providers.patch(zoneId, existing.id, { kind: 'oauth2_client_credentials', config_json: config })
+  return existing.id
+}
+
+export interface EnsureResourceInput {
+  name: string
+  identifier: string
+  scopes: string[]
+  upstream_url?: string | null
+  credential_provider_id?: string | null
+  operation_enforcement?: ResourceOperationEnforcement
+}
+
+// Converges a resource to the given desired fields, creating it when absent and patching
+// it only on drift so a steady state never bumps caches keyed on the resource row. Fields
+// left undefined are not managed: they are excluded from both the drift comparison and the
+// patch, so a reconciler that owns only some fields never clobbers the rest. Declared
+// scopes are the resource's business vocabulary; the platform-reserved agent:lifecycle
+// bootstrap scope is derived by STS for gateway-routed resources and never stored on the
+// row. Returns the live resource.
+export async function ensureResource(client: AdminClient, zoneId: string, input: EnsureResourceInput): Promise<Resource> {
+  const desired: Partial<ResourceInput> = { scopes: input.scopes }
+  if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
+  if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
+  if (input.operation_enforcement !== undefined) desired.operation_enforcement = input.operation_enforcement
+  const resources = await client.resources.list(zoneId)
+  const existing = resources.find((resource) => resource.identifier === input.identifier)
+  if (!existing) {
+    return client.resources.create(zoneId, { name: input.name, identifier: input.identifier, ...desired, scopes: input.scopes })
+  }
+  const drifted =
+    !sameStringSet(existing.scopes, input.scopes) ||
+    (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
+    (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
+    (desired.operation_enforcement !== undefined && existing.operation_enforcement !== desired.operation_enforcement)
+  if (!drifted) return existing
+  return client.resources.patch(zoneId, existing.id, desired)
+}
+
+export interface EnsureActivePolicySetInput {
+  policyName: string
+  setName: string
+  content: string
+  // When false and no policy with policyName exists yet, nothing is created: an empty
+  // desired state materializes no artifacts. Defaults to true.
+  createWhenMissing?: boolean
+}
+
+// Converges one named policy and policy set to carry exactly the given content, active.
+// Policy versions are immutable, so a new version is added only when the content's digest
+// changes; the set is re-activated only when the content changed or no version is active,
+// which self-heals a deactivated set without churning a steady state.
+export async function ensureActivePolicySet(client: AdminClient, zoneId: string, input: EnsureActivePolicySetInput): Promise<void> {
+  const policies = await client.policies.list(zoneId)
+  const policy = policies.find((entry) => entry.name === input.policyName)
+  if (!policy && input.createWhenMissing === false) return
+
+  const desiredSha = await sha256Hex(input.content)
+  let policyVersionId: string
+  let policyChanged = false
+  if (!policy) {
+    const created = await client.policies.create(zoneId, { name: input.policyName, content: input.content })
+    policyVersionId = created.version_id
+    policyChanged = true
+  } else {
+    const detail = await client.policies.get(zoneId, policy.id)
+    const latest = detail.versions.reduce((best, version) => (version.version > best.version ? version : best))
+    if (latest.content_sha256 === desiredSha) {
+      policyVersionId = latest.id
+    } else {
+      const added = await client.policies.addVersion(zoneId, policy.id, input.content)
+      policyVersionId = added.version_id
+      policyChanged = true
+    }
+  }
+
+  const sets = await client.policySets.list(zoneId)
+  let set = sets.find((entry) => entry.name === input.setName)
+  if (!set) {
+    set = await client.policySets.create(zoneId, input.setName)
+  }
+  if (policyChanged || !set.active_version_id) {
+    const version = await client.policySets.addVersion(zoneId, set.id, [{ policy_version_id: policyVersionId }])
+    await client.policySets.activate(zoneId, set.id, version.version_id)
+  }
+}
+
+// One data-plane grant: the application may mint the given scopes on the resource. role is
+// the agent label the zone's decision contract matches at mint and use time; it defaults to
+// the application id, the same default label the SDK's governed transport spawns with, so a
+// grant and its transport align without either naming a role. The first grant for a
+// resource names its owning application - the identity whose governed transport may
+// bootstrap on it; later grants for the same resource add roles only.
+export interface ResourceGrant {
+  applicationId: string
+  resourceIdentifier: string
+  scopes: string[]
+  role?: string
+}
+
+export interface EnsureGrantsInput {
+  grants: ResourceGrant[]
+  // The named policy and policy set carrying the grant document. Defaults suit a zone whose
+  // grants are owned by one reconciler; name them explicitly to keep several documents apart.
+  policyName?: string
+  setName?: string
+}
+
+const GRANT_POLICY_NAME = 'application-grants'
+const GRANT_POLICY_SET_NAME = 'application-grant-policy'
+
+// Authors the zone's grant data document: the platform decision contract reads app_ids and
+// grants to authorize data-plane exchanges, and this renders them so no caller ever touches
+// the document format. Deterministic - roles, resources, and scopes are sorted and rendered
+// as canonical JSON - so an unchanged grant set produces an identical document and the
+// reconciler adds no new policy version.
+export function authorGrantsDocument(grants: ResourceGrant[]): string {
+  const appIds: Record<string, string> = {}
+  const byResource = new Map<string, { application: string; roles: Record<string, string[]> }>()
+  for (const grant of grants) {
+    const role = grant.role ?? grant.applicationId
+    if (appIds[role] !== undefined && appIds[role] !== grant.applicationId) {
+      throw new Error(`grant role '${role}' is claimed by two applications`)
+    }
+    appIds[role] = grant.applicationId
+    const entry = byResource.get(grant.resourceIdentifier) ?? { application: role, roles: {} }
+    entry.roles[role] = [...new Set([...(entry.roles[role] ?? []), ...grant.scopes])].sort()
+    byResource.set(grant.resourceIdentifier, entry)
+  }
+  const sortedAppIds = Object.fromEntries(
+    Object.keys(appIds)
+      .sort()
+      .map((role) => [role, appIds[role]]),
+  )
+  const sortedGrants: Record<string, unknown> = {}
+  for (const identifier of [...byResource.keys()].sort()) {
+    const entry = byResource.get(identifier)!
+    const roles = Object.fromEntries(
+      Object.keys(entry.roles)
+        .sort()
+        .map((role) => [role, entry.roles[role]]),
+    )
+    sortedGrants[identifier] = { application: entry.application, roles }
+  }
+  return [
+    '# caracal:data-document',
+    'package caracal.authz',
+    'import rego.v1',
+    `app_ids := ${JSON.stringify(sortedAppIds)}`,
+    `grants := ${JSON.stringify(sortedGrants)}`,
+    '',
+  ].join('\n')
+}
+
+// Converges the zone's grant policy so each application may mint exactly the given scopes
+// on its resources. This owns the decision-contract data-document format end to end: pair
+// it with ensureResource and a governed transport and an application's authority is fully
+// declared without authoring policy text. With an empty grant set and no existing policy it
+// creates nothing; with an existing policy it converges the document to the (possibly
+// empty) set, revoking what is no longer granted.
+export async function ensureGrants(client: AdminClient, zoneId: string, input: EnsureGrantsInput): Promise<void> {
+  return ensureActivePolicySet(client, zoneId, {
+    policyName: input.policyName ?? GRANT_POLICY_NAME,
+    setName: input.setName ?? GRANT_POLICY_SET_NAME,
+    content: authorGrantsDocument(input.grants),
+    createWhenMissing: input.grants.length > 0,
+  })
+}
+
+// One upstream in a governed set: the sealed credential the gateway injects, the
+// gateway-routed resource that proxies it, and the applications granted to mint on it.
+// The resource's credential provider binding is threaded by the reconciler, and the first
+// grant names the resource's owning application - the identity whose governed transport
+// may bootstrap on it.
+export interface GovernedUpstream {
+  provider: EnsureApiKeyProviderInput
+  resource: {
+    name: string
+    identifier: string
+    scopes: string[]
+    upstream_url: string
+    operation_enforcement?: ResourceOperationEnforcement
+  }
+  grants: Omit<ResourceGrant, 'resourceIdentifier'>[]
+}
+
+export interface EnsureGovernedUpstreamsInput {
+  upstreams: GovernedUpstream[]
+  // The named policy and policy set carrying the zone's grant document. Defaults match
+  // ensureGrants.
+  policyName?: string
+  setName?: string
+}
+
+export interface GovernedUpstreamResult {
+  providerId: string
+  resource: Resource
+}
+
+// Converges a set of governed upstreams - sealed credential provider, gateway-routed
+// resource, and the zone's grant document - in dependency order, so one call declares
+// everything the platform needs to govern the set. Rego permits one definition of the
+// grant document per zone, so the set converges as a whole: an upstream absent from it
+// loses its grants on the next run, which is the revocation. Every step is idempotent, so
+// a partial failure converges on rerun, and grants land last so nothing is authorized
+// before its resource exists. An upstream whose provider resolves to no sealed key fails
+// closed before any resource binds a dead credential.
+export async function ensureGovernedUpstreams(
+  client: AdminClient,
+  zoneId: string,
+  input: EnsureGovernedUpstreamsInput,
+): Promise<GovernedUpstreamResult[]> {
+  const results: GovernedUpstreamResult[] = []
+  const grants: ResourceGrant[] = []
+  for (const upstream of input.upstreams) {
+    const providerId = await ensureApiKeyProvider(client, zoneId, upstream.provider)
+    if (providerId === null) {
+      throw new Error(
+        `provider ${upstream.provider.identifier} has no sealed api key: supply apiKey before governing ${upstream.resource.identifier}`,
+      )
+    }
+    const resource = await ensureResource(client, zoneId, { ...upstream.resource, credential_provider_id: providerId })
+    results.push({ providerId, resource })
+    for (const grant of upstream.grants) {
+      grants.push({ ...grant, resourceIdentifier: upstream.resource.identifier })
+    }
+  }
+  await ensureGrants(client, zoneId, { grants, policyName: input.policyName, setName: input.setName })
+  return results
+}

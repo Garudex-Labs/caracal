@@ -1,66 +1,111 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// STS step-up challenge creation tests.
+// STS approval hold issuance and lifecycle state tests.
 
 package internal
 
 import (
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 )
 
-type challengeInsertDB struct {
+type approvalStoreDB struct {
 	stubDB
-	challenge *StepUpChallengePG
-	err       error
+	stored  *StepUpChallengePG
+	created bool
+	err     error
 }
 
-func (db *challengeInsertDB) InsertStepUpChallenge(_ context.Context, challenge *StepUpChallengePG) error {
+func (db *approvalStoreDB) GetOrCreateApprovalChallenge(_ context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
 	if db.err != nil {
-		return db.err
+		return nil, false, db.err
 	}
-	db.challenge = challenge
-	return nil
+	if db.stored != nil {
+		return db.stored, false, nil
+	}
+	db.stored = c
+	db.created = true
+	return c, true, nil
 }
 
-func TestCreateChallengePersistsBoundHashedSecret(t *testing.T) {
-	db := &challengeInsertDB{}
+func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
+	db := &approvalStoreDB{}
 	server := &Server{db: db}
+	approval := resolvedApproval{Tier: "money", Approver: ApproverClassSubject, TTL: 10 * time.Minute, Privacy: PrivacyAnonymous}
 	before := time.Now()
-	challenge, err := server.createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", []string{" Resource://B ", "resource://a"}, nil)
+	hold, created, err := server.ensureApproval(context.Background(), "zone-1", "session-1", "agent-session-1", "edge-1", "principal-1", "app-1", approval, []string{" Resource://B ", "resource://a"}, []string{"nucleus:pay"})
 	if err != nil {
-		t.Fatalf("create challenge: %v", err)
+		t.Fatalf("ensure approval: %v", err)
 	}
-	if challenge.ID == "" || challenge.ZoneID != "zone-1" || challenge.SessionID != "session-1" || challenge.ChallengeType != "webauthn" || challenge.Secret == "" {
-		t.Fatalf("unexpected challenge: %+v", challenge)
+	if !created || db.stored == nil {
+		t.Fatal("hold was not persisted")
 	}
-	if db.challenge == nil {
-		t.Fatal("challenge was not persisted")
+	if hold.ID == "" || hold.ZoneID != "zone-1" || hold.AuthorityRecordID != "session-1" || hold.PrincipalID != "principal-1" || hold.ApplicationID != "app-1" {
+		t.Fatalf("unexpected hold: %+v", hold)
 	}
-	if db.challenge.ID != challenge.ID || db.challenge.ZoneID != "zone-1" || db.challenge.SessionID != "session-1" || db.challenge.PrincipalID != "principal-1" {
-		t.Fatalf("unexpected persisted challenge: %+v", db.challenge)
+	if hold.ChallengeType != humanApprovalChallengeType || hold.Tier != "money" || hold.ApproverClass != ApproverClassSubject || hold.PrivacyMode != PrivacyAnonymous {
+		t.Fatalf("resolved declaration not carried: %+v", hold)
 	}
-	secretHash := sha256.Sum256([]byte(challenge.Secret))
-	if string(db.challenge.ChallengeSecretHash) != string(secretHash[:]) {
-		t.Fatal("persisted challenge should store only the secret hash")
+	want := hashApprovalBinding([]string{"resource://a", "resource://b"}, []string{"nucleus:pay"})
+	if string(hold.ResourceSetHash) != string(want) {
+		t.Fatal("hold must bind the canonical resource and scope set")
 	}
-	wantResourceHash := hashResourceSet([]string{"resource://a", "resource://b"})
-	if string(db.challenge.ResourceSetHash) != string(wantResourceHash) {
-		t.Fatal("persisted challenge should bind the canonical resource set")
+	if hold.ExpiresAt.Before(before.Add(10*time.Minute-time.Second)) || hold.ExpiresAt.After(time.Now().Add(10*time.Minute+time.Second)) {
+		t.Fatalf("unexpected hold expiry: %s", hold.ExpiresAt)
 	}
-	if db.challenge.ExpiresAt.Before(before.Add(challengeTTL-time.Second)) || db.challenge.ExpiresAt.After(time.Now().Add(challengeTTL+time.Second)) {
-		t.Fatalf("unexpected challenge expiry: %s", db.challenge.ExpiresAt)
+	var meta map[string]any
+	if err := json.Unmarshal(hold.MetadataJSON, &meta); err != nil {
+		t.Fatalf("hold metadata: %v", err)
+	}
+	if meta["agent_session_id"] != "agent-session-1" || meta["delegation_edge_id"] != "edge-1" {
+		t.Fatalf("agent lineage not carried in hold metadata: %v", meta)
 	}
 }
 
-func TestCreateChallengeReturnsStoreErrors(t *testing.T) {
+func TestEnsureApprovalConvergesOnLiveHold(t *testing.T) {
+	live := &StepUpChallengePG{ID: "existing", ZoneID: "zone-1", ChallengeType: humanApprovalChallengeType}
+	db := &approvalStoreDB{stored: live}
+	hold, created, err := (&Server{db: db}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, []string{"resource://a"}, nil)
+	if err != nil {
+		t.Fatalf("ensure approval: %v", err)
+	}
+	if created || hold.ID != "existing" {
+		t.Fatalf("duplicate mint must converge on the live hold, got created=%v hold=%+v", created, hold)
+	}
+}
+
+func TestEnsureApprovalReturnsStoreErrors(t *testing.T) {
 	want := errors.New("database unavailable")
-	_, err := (&Server{db: &challengeInsertDB{err: want}}).createChallenge(context.Background(), "zone-1", "session-1", "principal-1", "webauthn", nil, nil)
+	_, _, err := (&Server{db: &approvalStoreDB{err: want}}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, nil, nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("want store error, got %v", err)
+	}
+}
+
+func TestChallengeLifecycleState(t *testing.T) {
+	now := time.Now()
+	live := now.Add(time.Minute)
+	past := now.Add(-time.Minute)
+	cases := []struct {
+		name      string
+		challenge StepUpChallengePG
+		want      string
+	}{
+		{"pending", StepUpChallengePG{ExpiresAt: live}, ChallengeStatePending},
+		{"approved", StepUpChallengePG{ExpiresAt: live, SatisfiedAt: &now}, ChallengeStateApproved},
+		{"rejected", StepUpChallengePG{ExpiresAt: live, RejectedAt: &now}, ChallengeStateRejected},
+		{"expired", StepUpChallengePG{ExpiresAt: past}, ChallengeStateExpired},
+		{"expired approval reads expired", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now}, ChallengeStateExpired},
+		{"consumed outranks expiry", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now, ConsumedAt: &now}, ChallengeStateConsumed},
+		{"rejected outranks expiry", StepUpChallengePG{ExpiresAt: past, RejectedAt: &now}, ChallengeStateRejected},
+	}
+	for _, tc := range cases {
+		if got := challengeLifecycleState(&tc.challenge, now); got != tc.want {
+			t.Errorf("%s: want %q, got %q", tc.name, tc.want, got)
+		}
 	}
 }

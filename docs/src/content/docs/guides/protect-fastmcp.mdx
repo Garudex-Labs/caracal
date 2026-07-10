@@ -1,22 +1,26 @@
 ---
 title: Protect a FastMCP App
-description: Attach CaracalAuth to a FastMCP server so tool calls are mandate-verified before handlers run.
+description: Verify Caracal mandates in a FastMCP server so tool calls are checked before handlers run.
 ---
 
-Use `caracalai-mcp-fastmcp` when a Python FastMCP app should reject invalid, expired, insufficient, or revoked Caracal mandates.
+Use the FastMCP adapter when a FastMCP app should reject invalid, expired, insufficient, or revoked Caracal mandates. Python uses `caracalai-fastmcp`; TypeScript uses `@caracalai/fastmcp`.
 
 ## Install
 
 ```bash
-pip install "caracalai-mcp-fastmcp[fastmcp]" caracalai-revocation
+pip install "caracalai-fastmcp[fastmcp]" caracalai-revocation
 ```
 
-Use `caracalai-revocation-redis` for shared production revocation. The in-memory store is only for local development and tests.
+```bash
+npm install @caracalai/fastmcp @caracalai/verify @caracalai/revocation
+```
 
-## Create an authenticator
+Use `caracalai-revocation-redis` (Python) or the Redis store in `@caracalai/revocation` (TypeScript) for shared production revocation. The in-memory store is only for local development and tests.
+
+## Create an authenticator (Python)
 
 ```python
-from caracalai_mcp_fastmcp import CaracalAuth
+from caracalai_fastmcp import CaracalAuth
 from caracalai_revocation import InMemoryRevocationStore
 
 auth = CaracalAuth(
@@ -26,17 +30,17 @@ auth = CaracalAuth(
     required_scopes=["mcp:tool:call"],
     required_targets=["https://mcp.example.com"],
     revocations=InMemoryRevocationStore(),
-    require_agent=True,
+    require_session=True,
 )
 
 async def startup():
     await auth.warmup()
 ```
 
-## Verify before running a tool
+## Verify before running a tool (Python)
 
 ```python
-from caracalai_mcp_fastmcp import CaracalAuthError
+from caracalai_fastmcp import CaracalAuthError
 
 async def handle_tool_call(token: str, payload: dict):
     try:
@@ -52,14 +56,48 @@ async def handle_tool_call(token: str, payload: dict):
 
 Wire this check into the FastMCP auth or request hook used by your server. The important boundary is that the mandate is verified before the tool handler performs work.
 
+## Verify before running a tool (TypeScript)
+
+```ts
+import { extractBearer, verifyFastMcpToken, FastMcpAuthError } from '@caracalai/fastmcp'
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
+
+const verifier = createMandateVerifier({
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
+  revocations: new InMemoryRevocationStore(),
+})
+
+async function handleToolCall(authorization: string, payload: unknown) {
+  const token = extractBearer(authorization)
+  if (!token) return { error: 'missing_token' }
+
+  try {
+    const context = await verifyFastMcpToken(token, verifier, {
+      requiredScopes: ['mcp:tool:call'],
+      requiredTargets: ['https://mcp.example.com'],
+      requireSession: true,
+    })
+    return { subject: context.sub, result: await runTool(payload) }
+  } catch (err) {
+    if (err instanceof FastMcpAuthError) return { error: err.code }
+    throw err
+  }
+}
+```
+
+The boundary is the same in both languages: verify the mandate before the tool handler performs work.
+
 ## Validate
 
-| Test | Expected result |
-| --- | --- |
-| Missing bearer token | `missing_token` or framework 401. |
-| Wrong audience | `invalid_token`. |
-| Missing scope | `insufficient_scope`. |
-| Revoked session | `session_revoked`. |
-| Non-agent token with `require_agent=True` | `agent_required`. |
+| Test                                                             | Expected result                   |
+| ---------------------------------------------------------------- | --------------------------------- |
+| Missing bearer token                                             | `missing_token` or framework 401. |
+| Wrong audience                                                   | `invalid_token`.                  |
+| Missing scope                                                    | `insufficient_scope`.             |
+| Revoked session                                                  | `session_revoked`.                |
+| Mandate without a Session with `require_session=True` / `requireSession: true` | `session_required`.               |
 
-Related pages: [Protect an MCP Server](/guides/protect-mcp/) and [Step-Up Re-Authentication](/guides/step-up/).
+Related pages: [FastMCP Adapter](/sdks/adapters/fastmcp/), [Protect an MCP Server](/guides/protect-mcp/), and [Human Approval](/guides/step-up/).

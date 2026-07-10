@@ -46,7 +46,8 @@ describe('statusCommand', () => {
   })
 
   it('exits nonzero and marks down services when a probe fails', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({ ok: true, status: 200 })
       .mockRejectedValueOnce(new Error('connect refused'))
       .mockResolvedValue({ ok: true, status: 200 })
@@ -82,7 +83,8 @@ describe('statusCommand', () => {
   })
 
   it('includes readiness failure reasons in machine output', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({ ok: true, status: 200 })
       .mockResolvedValueOnce({
         ok: false,

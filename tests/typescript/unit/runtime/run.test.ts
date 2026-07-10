@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { RuntimeConfig } from '../../../../apps/runtime/src/config.js'
+import type { RuntimeIdentity } from '../../../../apps/runtime/src/config.js'
 
 const spawnMock = vi.hoisted(() => vi.fn())
 
@@ -17,12 +17,33 @@ vi.mock('node:child_process', () => ({
 
 import { runCommand } from '../../../../apps/runtime/src/commands/run.js'
 
-const cfg: RuntimeConfig = {
-  zone_url: 'https://sts.example.com',
-  zone_id: 'zone1',
-  application_id: 'app1',
-  app_client_secret: 'secret',
-  credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
+const cfg: RuntimeIdentity = {
+  sts_url: 'https://sts.example.com',
+  workload_id: 'wl1',
+  workload_secret: 'ws_secret',
+}
+
+function manifestResponse(bindings: unknown[]): Record<string, unknown> {
+  return { zone_id: 'zone1', workload_id: 'wl1', bindings }
+}
+
+function stubRunFetch(
+  manifest: Record<string, unknown>,
+  mint: { ok: boolean; status?: number; body: unknown } = { ok: true, body: {} },
+): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    if (String(url).includes('/v1/run/manifest')) {
+      return { ok: true, status: 200, json: async () => manifest }
+    }
+    return {
+      ok: mint.ok,
+      status: mint.status ?? 200,
+      json: async () => mint.body,
+      text: async () => JSON.stringify(mint.body),
+    }
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
 }
 
 describe('runCommand', () => {
@@ -79,22 +100,18 @@ describe('runCommand', () => {
           },
         }
       })
-      const fetchMock = vi.fn().mockResolvedValue({
+      const fetchMock = stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
         ok: true,
-        json: async () => ({
-          access_token: 'caracal-mandate',
-          expires_in: 900,
-          upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-        }),
+        body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
       })
-      vi.stubGlobal('fetch', fetchMock)
 
       await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
-      const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-      expect(body.get('ttl_seconds')).toBe('900')
-      expect(body.get('resource')).toBe('resource://api')
-      expect(body.get('runtime_credential_injection')).toBe('true')
+      const manifestBody = fetchMock.mock.calls[0][1].body as URLSearchParams
+      expect(manifestBody.get('workload_id')).toBe('wl1')
+      const body = fetchMock.mock.calls[1][1].body as URLSearchParams
+      expect(body.get('env')).toBe('RESOURCE_TOKEN')
+      expect(body.get('secret')).toBe('ws_secret')
       expect(spawnMock).toHaveBeenCalledWith('node', ['tool.js'], expect.objectContaining({ stdio: 'inherit' }))
       expect(childEnv.RESOURCE_TOKEN).toBe('resource-token')
       expect(childEnv.CARACAL_ADMIN_TOKEN).toBeUndefined()
@@ -111,14 +128,10 @@ describe('runCommand', () => {
   })
 
   it('strips the pnpm separator before spawning the child command', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
       ok: true,
-      json: async () => ({
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-      }),
-    }))
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
+    })
 
     await expect(runCommand(['--', 'node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
@@ -126,6 +139,10 @@ describe('runCommand', () => {
   })
 
   it('reports child process spawn errors before returning command-not-found', async () => {
+    stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
+      ok: true,
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
+    })
     spawnMock.mockImplementationOnce((_cmd: string, _args: string[], _opts: unknown) => ({
       on: (event: string, handler: (err?: Error) => void) => {
         if (event === 'error') {
@@ -136,60 +153,49 @@ describe('runCommand', () => {
       },
     }))
 
-    await expect(runCommand(['docker', 'compose', 'down'], { ...cfg, credentials: [] })).rejects.toThrow('exit:127')
+    await expect(runCommand(['docker', 'compose', 'down'], cfg)).rejects.toThrow('exit:127')
 
     expect(stderr).toContain('failed to start docker: spawn docker ENOENT (ENOENT)')
   })
 
   it('warns for optional credential failures and still runs child command', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    stubRunFetch(manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'warn' }]), {
       ok: false,
       status: 403,
-      text: async () => JSON.stringify({ error_description: 'optional denied' }),
-    }))
+      body: { error_description: 'optional denied' },
+    })
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [],
-      optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
-    })).rejects.toThrow('exit:0')
+    await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:0')
 
     expect(stdout).toContain('optional credential skipped resource=resource://optional reason=optional denied')
     expect(spawnMock).toHaveBeenCalledTimes(1)
   })
 
   it('fails when optional credential policy requires success', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    stubRunFetch(manifestResponse([{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', optional: true, on_failure: 'error' }]), {
       ok: false,
       status: 403,
-      text: async () => JSON.stringify({ error_description: 'optional denied' }),
-    }))
+      body: { error_description: 'optional denied' },
+    })
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [],
-      optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'error' }],
-    })).rejects.toThrow('exit:1')
+    await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
 
     expect(stderr).toContain('"resource":"resource://optional"')
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('rejects dangerous credential environment names before token exchange', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
+    const fetchMock = stubRunFetch(manifestResponse([{ env: 'NODE_OPTIONS', resource: 'resource://api' }]))
 
-    await expect(runCommand(['node', 'tool.js'], {
-      ...cfg,
-      credentials: [{ env: 'NODE_OPTIONS', resource: 'resource://api' }],
-    })).rejects.toThrow('exit:1')
+    await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
 
-    expect(stderr).toContain('blocked_credential_env:NODE_OPTIONS')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(stderr).toContain("blocked credential env 'NODE_OPTIONS'")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
-  it('blocks workloads when legacy workspace operator secrets are present', async () => {    const cwd = process.cwd()
+  it('blocks workloads when workspace operator secrets are present', async () => {
+    const cwd = process.cwd()
     const repo = mkdtempSync(join(tmpdir(), 'caracal-run-repo-'))
     try {
       delete process.env.CARACAL_RUN_ALLOW_WORKSPACE_SECRETS
@@ -202,7 +208,7 @@ describe('runCommand', () => {
 
       await expect(runCommand(['node', 'tool.js'], cfg)).rejects.toThrow('exit:1')
 
-      expect(stderr).toContain('refusing to run workload while legacy workspace operator secrets are present')
+      expect(stderr).toContain('refusing to run workload while workspace operator secrets are present')
       expect(spawnMock).not.toHaveBeenCalled()
     } finally {
       process.chdir(cwd)
@@ -228,23 +234,18 @@ describe('runCommand', () => {
 
   it('exits 1 with a clear message when config is missing for a real command', async () => {
     await expect(runCommand(['node', 'tool.js'], undefined)).rejects.toThrow('exit:1')
-    expect(stderr).toContain('runtime config is required to run a command')
+    expect(stderr).toContain('workload identity is required to run a command')
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('runs a literal command after the -- separator instead of treating it as help', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    stubRunFetch(manifestResponse([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]), {
       ok: true,
-      json: async () => ({
-        access_token: 'caracal-mandate',
-        expires_in: 900,
-        upstreams: { 'resource://api': { provider_token: 'resource-token' } },
-      }),
-    }))
+      body: { env: 'RESOURCE_TOKEN', credential: 'resource-token' },
+    })
 
     await expect(runCommand(['--', 'help'], cfg)).rejects.toThrow('exit:0')
 
     expect(spawnMock).toHaveBeenCalledWith('help', [], expect.objectContaining({ stdio: 'inherit' }))
   })
-
 })

@@ -5,7 +5,7 @@
 
 ## Architecture Design
 - The package implements RFC 8693 token exchange against STS `/oauth/2/token`.
-- It owns `TokenCache`, `InMemoryTokenCache`, exchange types, and `InteractionRequiredError`.
+- It owns `TokenCache`, `InMemoryTokenCache`, exchange types, and `ApprovalRequiredError`.
 
 ## Required
 - Must use TypeScript strict mode and keep exports through `src/index.ts`.

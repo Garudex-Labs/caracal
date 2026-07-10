@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
 
-const { LifecycleRelay, LIFECYCLE_STREAM, LIFECYCLE_GROUP } = await import(
-  '../../../../../../apps/coordinator/src/jobs/lifecycle-relay.js'
-)
+const { LifecycleRelay, LIFECYCLE_STREAM, LIFECYCLE_GROUP } = await import('../../../../../../apps/coordinator/src/jobs/lifecycle-relay.js')
 
 const HMAC_KEY = Buffer.alloc(32, 7)
 
 function sign(values: Record<string, string>): string {
-  const keys = Object.keys(values).filter((k) => k !== '_sig').sort()
+  const keys = Object.keys(values)
+    .filter((k) => k !== '_sig')
+    .sort()
   let canonical = `${LIFECYCLE_STREAM}\n`
   for (const k of keys) canonical += `${k}=${values[k]}\n`
   return createHmac('sha256', HMAC_KEY).update(canonical).digest('hex')
@@ -103,9 +103,7 @@ describe('LifecycleRelay', () => {
     const values = { outbox_id: 'ob-4', event: 'terminate', zone_id: 'zone-b' }
     const signed = { ...values, _sig: sign(values) }
     const redis = mockRedis({
-      xautoclaim: vi
-        .fn()
-        .mockResolvedValueOnce(['0-0', [['4-0', toFields(signed)]]]),
+      xautoclaim: vi.fn().mockResolvedValueOnce(['0-0', [['4-0', toFields(signed)]]]),
     })
     const relay = newRelay(redis)
     await relay.pollOnce()
@@ -137,5 +135,22 @@ describe('LifecycleRelay', () => {
     })
     await relay.pollOnce()
     expect(redis.xack).toHaveBeenCalledWith(LIFECYCLE_STREAM, LIFECYCLE_GROUP, '5-0')
+  })
+})
+
+describe('startLifecycleRelay', () => {
+  it('consumes on a dedicated duplicated connection and closes it on stop', async () => {
+    const { startLifecycleRelay } = await import('../../../../../../apps/coordinator/src/jobs/lifecycle-relay.js')
+    const consumer = { ...mockRedis(), quit: vi.fn().mockResolvedValue('OK'), disconnect: vi.fn() }
+    const base = { ...mockRedis(), duplicate: vi.fn(() => consumer) }
+
+    const job = startLifecycleRelay(base as never)
+    expect(base.duplicate).toHaveBeenCalledOnce()
+    await job.stop()
+
+    // Blocking reads must park only the duplicated connection: the shared client is never
+    // read from, and the duplicate is released with the job.
+    expect(base.xreadgroup).not.toHaveBeenCalled()
+    expect(consumer.quit).toHaveBeenCalledOnce()
   })
 })

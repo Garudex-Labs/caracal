@@ -8,7 +8,8 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { scrubTokens } from '@caracalai/engine/crash'
 import { printError, printInfo, printWarn, style } from '../style.ts'
-import { devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
+import { CARACAL_VERSION } from '../runtime/version.gen.ts'
+import { devAllowlistFile, devAuthDatabaseUrl, devAuthSecret } from './authStore.ts'
 import { killTree, resolvePnpm, spawnSyncTree, spawnTree } from '../processTree.ts'
 
 // The development launcher serves the console on the same host port as the packaged stack
@@ -52,6 +53,10 @@ function authStoreEnv(): NodeJS.ProcessEnv {
     if (url) env.CARACAL_AUTH_DATABASE_URL = url
   }
   if (!process.env.CARACAL_AUTH_SECRET) env.CARACAL_AUTH_SECRET = devAuthSecret()
+  if (!process.env.CARACAL_OPERATOR_ALLOWLIST_FILE) env.CARACAL_OPERATOR_ALLOWLIST_FILE = devAllowlistFile()
+  // The stamped runtime version identifies this launcher's binary; the BFF reports it to the
+  // console footer, mirroring what the packaged stack injects into the web container.
+  if (!process.env.CARACAL_VERSION) env.CARACAL_VERSION = CARACAL_VERSION
   return env
 }
 
@@ -270,7 +275,7 @@ function printWebUsage(): void {
     '  --web-port <port>    Port for the web UI (default 3001)',
     '  --auth-port <port>   Port for the backend-for-frontend (default 3002)',
     '  --build              Serve the production build instead of the dev server',
-    '  --allow-offline      Launch even if the stack is not running (UI/sign-in only)',
+    '  --allow-offline      Launch the sign-in UI without Console data when the stack is down',
     '  -h, --help           Show help',
     '',
     'The web console proxies the local control plane started by `caracal up`.',
@@ -307,12 +312,12 @@ export async function webCommand(argv: string[]): Promise<void> {
       printInfo('The web console proxies the local control plane, which is started by `caracal up`.')
       printInfo('Start the stack first:')
       printInfo(`  ${style.code('caracal up')}`)
-      printInfo('Or launch the UI without a backend (sign-in only):')
+      printInfo('Or launch only the sign-in UI without Console data:')
       printInfo(`  ${style.code('caracal web --allow-offline')}`)
       process.exit(1)
     }
     if (!(await serviceUp(coordinatorUrl()))) {
-      printWarn('Coordinator is not responding; Agents and Delegation will be unavailable until the stack is fully up.')
+      printWarn('Coordinator is not responding; Sessions and Delegation will be unavailable until the stack is fully up.')
     }
   }
 
@@ -507,7 +512,9 @@ export async function webCommand(argv: string[]): Promise<void> {
       if (stopContainer(running)) {
         stoppedPackagedWeb = true
       } else {
-        printWarn(`Could not stop the packaged web console; port ${parsed.webPort} may be in use. Stop it with \`caracal up\` controls or pass --web-port.`)
+        printWarn(
+          `Could not stop the packaged web console; port ${parsed.webPort} may be in use. Stop it with \`caracal up\` controls or pass --web-port.`,
+        )
       }
     }
   }
@@ -523,7 +530,9 @@ export async function webCommand(argv: string[]): Promise<void> {
       `  ${style.label('Backend')}   ${authUrl}  (session-guarded; proxies the admin API)`,
       `  ${style.label('Mode')}      ${parsed.build ? 'production build' : 'development'}`,
       ...(stoppedPackagedWeb
-        ? [`  ${style.label('Note')}      Packaged web console stopped to free port ${parsed.webPort}; run \`caracal up\` to restore it later.`]
+        ? [
+            `  ${style.label('Note')}      Packaged web console stopped to free port ${parsed.webPort}; run \`caracal up\` to restore it later.`,
+          ]
         : []),
       '',
       `  ${style.label('r')} restart both   ${style.label('f')} restart frontend   ${style.label('b')} restart backend`,

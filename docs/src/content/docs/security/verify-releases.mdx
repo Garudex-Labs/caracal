@@ -40,8 +40,8 @@ gh attestation verify caracal-runtime-*.zip --repo Garudex-Labs/caracal
 On Windows PowerShell, compute the hash, compare it with the matching `SHA256SUMS` entry, then verify provenance:
 
 ```powershell
-Get-FileHash .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -Algorithm SHA256
-gh attestation verify .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip --repo Garudex-Labs/caracal
+Get-FileHash .\caracal-runtime-windows-amd64-vX.Y.Z.zip -Algorithm SHA256
+gh attestation verify .\caracal-runtime-windows-amd64-vX.Y.Z.zip --repo Garudex-Labs/caracal
 ```
 
 `gh attestation verify` exits non-zero and prints the failing policy if the signature, identity, or transparency-log entry does not match.
@@ -51,14 +51,14 @@ gh attestation verify .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip --repo Gar
 Pull the image by digest, then verify its build provenance:
 
 ```sh
-gh attestation verify oci://ghcr.io/garudex-labs/caracal-go:vYYYY.MM.DD \
+gh attestation verify oci://ghcr.io/garudex-labs/caracal-go:vX.Y.Z \
   --repo Garudex-Labs/caracal
 ```
 
 Inspect the attached SBOM and provenance attestations with the registry tooling:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-go:vYYYY.MM.DD \
+docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-go:vX.Y.Z \
   --format '{{ json .Provenance }}'
 ```
 

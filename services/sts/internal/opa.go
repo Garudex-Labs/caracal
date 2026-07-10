@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -161,12 +162,8 @@ func (e *OPAEngine) Simulate(ctx context.Context, input OPAInput, policies []OPA
 	}
 	modules := make([]func(*rego.Rego), 0, len(policies)+3)
 	for _, policy := range policies {
-		defines, perr := moduleDefinesResult(policy.ID, policy.Content)
-		if perr != nil {
-			return nil, perr
-		}
-		if defines {
-			return nil, fmt.Errorf("simulation policy %s defines result; adopters supply data documents only", policy.ID)
+		if err := validateAdopterModule(policy.ID, policy.Content); err != nil {
+			return nil, err
 		}
 		modules = append(modules, rego.Module(policy.ID+".rego", policy.Content))
 	}
@@ -373,19 +370,27 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 		return err
 	}
 
-	e.mu.RLock()
-	if cur, ok := e.zones[zoneID]; ok && cur.manifestSHA == psv.ManifestSHA256 {
-		e.mu.RUnlock()
-		return nil
-	}
-	e.mu.RUnlock()
-
 	var manifest []struct {
 		PolicyVersionID string `json:"policy_version_id"`
 	}
 	if err := json.Unmarshal(psv.ManifestJSON, &manifest); err != nil {
 		return err
 	}
+	canonicalManifest, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("canonicalize policy manifest for zone %s: %w", zoneID, err)
+	}
+	manifestSHA := fmt.Sprintf("%x", sha256.Sum256(canonicalManifest))
+	if manifestSHA != psv.ManifestSHA256 {
+		return fmt.Errorf("policy manifest hash mismatch for zone %s", zoneID)
+	}
+
+	e.mu.RLock()
+	if cur, ok := e.zones[zoneID]; ok && cur.manifestSHA == manifestSHA {
+		e.mu.RUnlock()
+		return nil
+	}
+	e.mu.RUnlock()
 
 	ids := make([]string, len(manifest))
 	for i, m := range manifest {
@@ -401,14 +406,9 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 
 	modules := make([]func(*rego.Rego), 0, len(versions)+3)
 	for _, v := range versions {
-		defines, perr := moduleDefinesResult(v.ID, v.Content)
-		if perr != nil {
+		if err := validateAdopterModule(v.ID, v.Content); err != nil {
 			e.storeFallback(zoneID)
-			return fmt.Errorf("parse policy bundle for zone %s: %w", zoneID, perr)
-		}
-		if defines {
-			e.storeFallback(zoneID)
-			return fmt.Errorf("zone %s policy version %s defines result; adopters supply data documents only", zoneID, v.ID)
+			return fmt.Errorf("validate policy bundle for zone %s: %w", zoneID, err)
 		}
 		modules = append(modules, rego.Module(v.ID+".rego", v.Content))
 	}
@@ -426,7 +426,7 @@ func (e *OPAEngine) loadZone(ctx context.Context, zoneID string) error {
 	}
 
 	e.mu.Lock()
-	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: psv.ManifestSHA256, policySetVersionID: psv.ID, loadedAt: time.Now()}
+	e.zones[zoneID] = &opaZoneState{query: &pq, manifestSHA: manifestSHA, policySetVersionID: psv.ID, loadedAt: time.Now()}
 	e.mu.Unlock()
 	return nil
 }

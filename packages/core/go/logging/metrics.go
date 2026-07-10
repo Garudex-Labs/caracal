@@ -59,6 +59,7 @@ type asyncWriter struct {
 	queueCap uint64
 	emitted  atomic.Uint64
 	dropped  atomic.Uint64
+	pending  atomic.Int64
 	closed   atomic.Bool
 	done     chan struct{}
 }
@@ -69,10 +70,12 @@ func (w *asyncWriter) Write(p []byte) (int, error) {
 	}
 	buf := make([]byte, len(p))
 	copy(buf, p)
+	w.pending.Add(1)
 	select {
 	case w.ch <- buf:
 		w.emitted.Add(1)
 	default:
+		w.pending.Add(-1)
 		w.dropped.Add(1)
 	}
 	return len(p), nil
@@ -82,15 +85,16 @@ func (w *asyncWriter) run() {
 	defer close(w.done)
 	for buf := range w.ch {
 		_, _ = w.sink.Write(buf)
+		w.pending.Add(-1)
 	}
 }
 
-// Flush drains pending records, blocking until the writer queue is empty or
-// timeout elapses.
+// Flush drains pending records, blocking until every queued record has been
+// written to the sink or timeout elapses.
 func (w *asyncWriter) Flush(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if len(w.ch) == 0 {
+		if w.pending.Load() == 0 {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)

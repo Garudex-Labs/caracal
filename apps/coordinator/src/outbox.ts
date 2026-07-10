@@ -15,7 +15,7 @@ export const Topics = {
   DelegationsInvalidate: 'caracal.delegations.invalidate',
 } as const
 
-export type Topic = typeof Topics[keyof typeof Topics]
+export type Topic = (typeof Topics)[keyof typeof Topics]
 
 export interface OutboxItem {
   topic: Topic
@@ -23,12 +23,7 @@ export interface OutboxItem {
   payload: Record<string, unknown>
 }
 
-export async function enqueue(
-  db: Queryable,
-  topic: Topic,
-  dedupeKey: string,
-  payload: Record<string, unknown>,
-): Promise<void> {
+export async function enqueue(db: Queryable, topic: Topic, dedupeKey: string, payload: Record<string, unknown>): Promise<void> {
   await db.query(
     `INSERT INTO caracal_outbox (id, producer, topic, dedupe_key, payload_json)
      VALUES ($1, 'coordinator', $2, $3, $4)

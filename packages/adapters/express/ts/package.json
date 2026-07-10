@@ -1,0 +1,57 @@
+{
+  "name": "@caracalai/express",
+  "version": "0.2.0",
+  "description": "Caracal mandate verification adapter for Express.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Garudex-Labs/caracal",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Garudex-Labs/caracal.git",
+    "directory": "packages/adapters/express/ts"
+  },
+  "keywords": [
+    "caracal",
+    "express",
+    "adapter",
+    "verification"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../../../.. tests/typescript/unit/adapters/express",
+    "prepublishOnly": "tsc"
+  },
+  "peerDependencies": {
+    "express": "^5.0.0"
+  },
+  "dependencies": {
+    "@caracalai/identity": "0.2.0",
+    "@caracalai/sdk": "0.2.0",
+    "@caracalai/verify": "0.2.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

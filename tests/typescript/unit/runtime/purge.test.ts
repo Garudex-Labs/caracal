@@ -53,6 +53,17 @@ const engineMocks = vi.hoisted(() => ({
 
 const spawnSyncMock = vi.hoisted(() => vi.fn())
 
+const promptAnswers = vi.hoisted(() => ({ queue: [] as string[] }))
+
+vi.mock('node:readline', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:readline')>()),
+  createInterface: vi.fn(() => ({
+    question: (_q: string, cb: (answer: string) => void) => cb(promptAnswers.queue.shift() ?? ''),
+    close: vi.fn(),
+    once: vi.fn(),
+  })),
+}))
+
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
   spawnSync: spawnSyncMock,
@@ -69,11 +80,11 @@ vi.mock('../../../../packages/engine/dist/index.js', async (importOriginal) => {
 })
 
 vi.mock('@caracalai/engine/runtime-config', () => ({
-  resolveRuntimeConfigPath: vi.fn(() => undefined),
+  defaultCaracalConfigDir: vi.fn(() => '/nonexistent-caracal-config'),
 }))
 
 vi.mock('../../../../packages/engine/dist/runtimeConfig.js', () => ({
-  resolveRuntimeConfigPath: vi.fn(() => undefined),
+  defaultCaracalConfigDir: vi.fn(() => '/nonexistent-caracal-config'),
 }))
 
 import { purgeCommand } from '../../../../apps/runtime/src/commands/purge.ts'
@@ -98,6 +109,7 @@ describe('purgeCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    promptAnswers.queue.length = 0
     repoRoot = mkdtempSync(join(tmpdir(), 'caracal-purge-repo-'))
     runtimeHome = mkdtempSync(join(tmpdir(), 'caracal-purge-runtime-'))
     mkdirSync(join(repoRoot, 'infra', 'docker'), { recursive: true })
@@ -145,21 +157,24 @@ describe('purgeCommand', () => {
   it('refreshes selected runtime assets before compose cleanup', async () => {
     await purgeCommand(['all', '--yes'])
 
-    expect(engineMocks.installRuntimeAssets).toHaveBeenCalledWith({
-      home: runtimeHome,
-      composeFile: join(runtimeHome, 'compose.yml'),
-      secretsDir: join(runtimeHome, 'secrets'),
-      overrideEnvFile: join(runtimeHome, 'caracal.env'),
-    }, 'stable')
-    expect(engineMocks.installRuntimeAssets.mock.invocationCallOrder[0]).toBeLessThan(
-      engineMocks.composeRun.mock.invocationCallOrder[0],
-    )
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
+    expect(engineMocks.installRuntimeAssets).toHaveBeenCalledWith(
+      {
+        home: runtimeHome,
         composeFile: join(runtimeHome, 'compose.yml'),
-        cwd: runtimeHome,
+        secretsDir: join(runtimeHome, 'secrets'),
+        overrideEnvFile: join(runtimeHome, 'caracal.env'),
+      },
+      'stable',
+    )
+    expect(engineMocks.installRuntimeAssets.mock.invocationCallOrder[0]).toBeLessThan(engineMocks.composeRun.mock.invocationCallOrder[0])
+    expect(engineMocks.composeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paths: expect.objectContaining({
+          composeFile: join(runtimeHome, 'compose.yml'),
+          cwd: runtimeHome,
+        }),
       }),
-    }))
+    )
     expect(stdout.mock.calls.map((c) => c[0]).join('')).toContain('Purge complete.')
     expect(stderr).not.toHaveBeenCalled()
     expect(exit).not.toHaveBeenCalled()
@@ -185,64 +200,12 @@ describe('purgeCommand', () => {
     await purgeCommand(['all', '--yes'])
 
     const output = stdout.mock.calls.map((c) => c[0]).join('')
-    expect(output).toContain('Docker Compose unavailable; skipping stack, volumes, logs, and examples.')
+    expect(output).toContain('Docker Compose unavailable; skipping stack, volumes, and logs.')
     expect(output).not.toContain('Stop & remove containers')
     expect(engineMocks.installRuntimeAssets).not.toHaveBeenCalled()
     expect(engineMocks.composeRun).not.toHaveBeenCalled()
     expect(stderr).not.toHaveBeenCalled()
     expect(exit).not.toHaveBeenCalled()
-  })
-
-  it('removes example compose projects and example-built images', async () => {
-    mkdirSync(join(repoRoot, 'examples', 'echoUpstream'), { recursive: true })
-    mkdirSync(join(repoRoot, 'examples', 'lynxCapital', '_mock'), { recursive: true })
-    writeFileSync(join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'), 'services:\n  echo:\n    build:\n      context: .\n    image: caracal-echo-upstream:latest\n')
-    writeFileSync(join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'), 'services:\n  mock:\n    build:\n      context: ..\n    image: lynx-mock:latest\n')
-    writeFileSync(join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'), 'services:\n  lynx:\n    build:\n      context: .\n    image: lynx-app:latest\n  db:\n    image: postgres:17-alpine\n')
-    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
-      if (cmd === 'docker' && args[0] === 'compose') return { status: 0 }
-      if (cmd === 'docker' && args[0] === 'images') {
-        return {
-          status: 0,
-          stdout: [
-            'caracal-echo-upstream:latest',
-            'lynx-app:latest',
-            'lynx-mock:latest',
-            'postgres:17-alpine',
-          ].join('\n'),
-        }
-      }
-      if (cmd === 'pnpm') return { status: 0, stdout: '' }
-      return { status: 0, stdout: '' }
-    })
-
-    await purgeCommand(['examples', '--yes'])
-
-    expect(engineMocks.composeRun).toHaveBeenCalledTimes(3)
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['down', '-v', '--remove-orphans'],
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'echoUpstream', 'compose.yml'),
-        cwd: join(repoRoot, 'examples', 'echoUpstream'),
-      }),
-    }))
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'lynxCapital', '_mock', 'docker-compose.yml'),
-        cwd: join(repoRoot, 'examples', 'lynxCapital', '_mock'),
-      }),
-    }))
-    expect(engineMocks.composeRun).toHaveBeenCalledWith(expect.objectContaining({
-      paths: expect.objectContaining({
-        composeFile: join(repoRoot, 'examples', 'lynxCapital', 'compose.yaml'),
-        cwd: join(repoRoot, 'examples', 'lynxCapital'),
-      }),
-    }))
-    expect(engineMocks.removeImages).toHaveBeenCalledWith([
-      'caracal-echo-upstream:latest',
-      'lynx-app:latest',
-      'lynx-mock:latest',
-    ])
   })
 
   it('fails explicit compose targets when Docker Compose is unavailable', async () => {
@@ -316,5 +279,115 @@ describe('purgeCommand', () => {
 
     const drop = pgMock.queries.find((q) => q.sql.includes('DROP DATABASE'))
     expect(drop?.sql).toContain('"custom_auth"')
+  })
+
+  function output(): string {
+    return [...stdout.mock.calls, ...stderr.mock.calls].map((c) => String(c[0])).join('')
+  }
+
+  it('rejects unknown flags and unknown targets', async () => {
+    await expect(purgeCommand(['--frobnicate'])).rejects.toThrow('exit:1')
+    expect(output()).toContain('unknown flag --frobnicate')
+
+    stderr.mockClear()
+    await expect(purgeCommand(['everything', '--yes'])).rejects.toThrow('exit:1')
+    expect(output()).toContain('unknown target "everything"')
+  })
+
+  it('lists grouped targets interactively and honours a numeric selection', async () => {
+    promptAnswers.queue.push('1')
+    await purgeCommand(['--dry-run'])
+    const out = output()
+    expect(out).toContain('Select purge targets')
+    expect(out).toContain('Runtime services & data')
+    expect(out).toContain('Dry-run complete.')
+  })
+
+  it('selects a whole group by name and dedupes repeated tokens', async () => {
+    promptAnswers.queue.push('state, state')
+    await purgeCommand(['--dry-run'])
+    const out = output()
+    expect(out).toContain('Will purge:')
+    expect(out).toContain('Dry-run complete.')
+  })
+
+  it('returns quietly when the selector is quit', async () => {
+    promptAnswers.queue.push('q')
+    await purgeCommand([])
+    expect(output()).toContain('Nothing selected.')
+  })
+
+  it('selects everything with "all" and only non-destructive targets with "safe"', async () => {
+    promptAnswers.queue.push('all')
+    await purgeCommand(['--dry-run'])
+    expect(output()).toContain('Dry-run complete.')
+
+    stdout.mockClear()
+    promptAnswers.queue.push('safe')
+    await purgeCommand(['--dry-run'])
+    const out = output()
+    expect(out).toContain('Dry-run complete.')
+    const plan = out.slice(out.indexOf('Will purge:'))
+    expect(plan).not.toContain('DESTRUCTIVE')
+  })
+
+  it('rejects an out-of-range interactive selection', async () => {
+    promptAnswers.queue.push('99')
+    await expect(purgeCommand([])).rejects.toThrow('exit:1')
+    expect(output()).toContain('invalid selection: 99')
+  })
+
+  it('requires a typed "yes" before destructive targets run', async () => {
+    promptAnswers.queue.push('no')
+    await purgeCommand(['volumes'])
+    expect(output()).toContain('Aborted.')
+    expect(engineMocks.composeRun).not.toHaveBeenCalled()
+
+    stdout.mockClear()
+    promptAnswers.queue.push('yes')
+    await purgeCommand(['volumes'])
+    expect(output()).toContain('Purge complete.')
+  })
+
+  it('accepts a plain y for non-destructive targets', async () => {
+    promptAnswers.queue.push('y')
+    await purgeCommand(['stack'])
+    expect(output()).toContain('Purge complete.')
+  })
+
+  it('removes cached build outputs across workspace dist directories', async () => {
+    mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true })
+    mkdirSync(join(repoRoot, 'apps', 'api', 'dist'), { recursive: true })
+    mkdirSync(join(repoRoot, 'packages', 'engine', 'dist'), { recursive: true })
+    writeFileSync(join(repoRoot, 'apps', 'api', 'dist', 'index.js'), '')
+
+    await purgeCommand(['cache', '--yes'])
+
+    const removed = engineMocks.removeFsPath.mock.calls.map((call) => String(call[0]))
+    expect(removed.some((p) => p.endsWith(join('apps', 'api', 'dist')))).toBe(true)
+    expect(removed.some((p) => p.endsWith(join('packages', 'engine', 'dist')))).toBe(true)
+  })
+
+  it('removes cached Caracal images and surfaces a docker failure', async () => {
+    engineMocks.listCaracalImages.mockReturnValue(['caracal/api:1', 'caracal/sts:1'])
+    await purgeCommand(['images', '--yes'])
+    expect(engineMocks.removeImages).toHaveBeenCalledWith(['caracal/api:1', 'caracal/sts:1'])
+    expect(output()).toContain('Purge complete.')
+
+    stdout.mockClear()
+    engineMocks.removeImages.mockResolvedValueOnce(1)
+    await expect(purgeCommand(['images', '--yes'])).rejects.toThrow('exit:1')
+    expect(output()).toContain('images failed: docker image rm exited 1')
+  })
+
+  it('uninstalls discovered caracal binaries', async () => {
+    const binDir = join(runtimeHome, 'bin')
+    mkdirSync(binDir, { recursive: true })
+    const binPath = join(binDir, 'caracal')
+    writeFileSync(binPath, '#!/bin/sh\n')
+    engineMocks.caracalBinaries.mockReturnValue([binPath])
+    await purgeCommand(['binary', '--yes'])
+    const removed = engineMocks.removeFsPath.mock.calls.map((call) => String(call[0]))
+    expect(removed).toContain(binPath)
   })
 })

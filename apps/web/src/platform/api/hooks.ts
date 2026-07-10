@@ -11,6 +11,7 @@ import { getActiveZoneId, setActiveZoneId } from "@/platform/state/localInstall"
 import { isSystemZone } from "@/platform/state/zones";
 import { clearSystemZoneViewLatch, isSystemZoneViewTab } from "@/platform/state/systemZoneView";
 import { systemZoneViewPath } from "@/platform/nav/appLink";
+import { config } from "@/platform/config";
 
 export { systemZoneViewPath };
 
@@ -20,12 +21,14 @@ import type {
   ApplicationInput,
   ApplicationPatchInput,
   AdminAuditQuery,
-  AgentQuery,
+  SessionQuery,
+  ApprovalQuery,
   AuditQuery,
   ControlKeyCreateInput,
   ControlTokenInput,
   DiagnosticsReport,
   DiagnosticStatus,
+  NotificationSinkInput,
   OperatorConversationMode,
   OperatorAiProviderInput,
   OperatorAiProviderPatch,
@@ -36,14 +39,17 @@ import type {
   PolicyManifestEntry,
   PolicySet,
   Provider,
-  ProviderGrantAuthorizeInput,
-  ProviderGrantRevokeInput,
+  ProviderConnectionAuthorizeInput,
+  ProviderConnectionRevokeInput,
   ProviderInput,
   ProviderPatchInput,
   Resource,
   ResourceInput,
   ResourcePatchInput,
-  SessionQuery,
+  AuthorityRecordQuery,
+  SubjectQuery,
+  Workload,
+  WorkloadUpdateInput,
   Zone,
   ZoneInput,
   ZonePatchInput,
@@ -77,19 +83,27 @@ const keys = {
   zones: ["console", "zones"] as const,
   overview: (zoneId: string | null) => ["console", "overview", zoneId] as const,
   applications: (zoneId: string | null) => ["console", "applications", zoneId] as const,
+  workloads: (zoneId: string | null) => ["console", "workloads", zoneId] as const,
   resources: (zoneId: string | null) => ["console", "resources", zoneId] as const,
   providers: (zoneId: string | null) => ["console", "providers", zoneId] as const,
   policies: (zoneId: string | null) => ["console", "policies", zoneId] as const,
   policy: (zoneId: string | null, id: string | null) => ["console", "policy", zoneId, id] as const,
   policySets: (zoneId: string | null) => ["console", "policy-sets", zoneId] as const,
-  sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  authorityRecords: (zoneId: string | null) => ["console", "authority-records", zoneId] as const,
+  subjects: (zoneId: string | null) => ["console", "subjects", zoneId] as const,
+  approvals: (zoneId: string | null) => ["console", "approvals", zoneId] as const,
+  approvalCounts: (zoneId: string | null) => ["console", "approval-counts", zoneId] as const,
+  notificationSinks: (zoneId: string | null) => ["console", "notification-sinks", zoneId] as const,
+  sinkDeliveries: (zoneId: string | null, sinkId: string | null) =>
+    ["console", "sink-deliveries", zoneId, sinkId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
   auditRetention: ["console", "audit-retention"] as const,
   auditExplain: (zoneId: string | null, requestId: string | null) =>
     ["console", "audit-explain", zoneId, requestId] as const,
   adminAudit: (zoneId: string | null) => ["console", "admin-audit", zoneId] as const,
-  agents: (zoneId: string | null) => ["console", "agents", zoneId] as const,
-  agent: (zoneId: string | null, id: string | null) => ["console", "agent", zoneId, id] as const,
+  sessions: (zoneId: string | null) => ["console", "sessions", zoneId] as const,
+  session: (zoneId: string | null, id: string | null) =>
+    ["console", "session", zoneId, id] as const,
   delegationsActive: (zoneId: string | null) => ["console", "delegations-active", zoneId] as const,
   operatorCapabilities: ["console", "operator-capabilities"] as const,
   operatorStatus: ["console", "operator-status"] as const,
@@ -559,10 +573,10 @@ export function useDeleteZone() {
   });
 }
 
-export function useApplications(zoneId: string | null) {
+export function useApplications(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.applications(zoneId),
-    queryFn: ({ signal }) => consoleApi.applications.list(zoneId as string, signal),
+    queryKey: [...keys.applications(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.applications.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }
@@ -593,6 +607,74 @@ export function useRotateApplicationSecret(zoneId: string | null) {
   });
 }
 
+// A reveal is a mutation, not a query: every call is an audited credential access
+// that must reach the server, never a cached read.
+export function useRevealApplicationSecret(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.applications.revealSecret(zoneId as string, id),
+  });
+}
+
+export function useWorkloads(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.workloads(zoneId),
+    queryFn: ({ signal }) => consoleApi.workloads.list(zoneId as string, signal),
+    enabled: Boolean(zoneId),
+  });
+}
+
+export function useCreateWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string }) => consoleApi.workloads.create(zoneId as string, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+export function useUpdateWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: WorkloadUpdateInput }) =>
+      consoleApi.workloads.update(zoneId as string, id, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+export function useRotateWorkloadSecret(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.rotateSecret(zoneId as string, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
+// A reveal is a mutation, not a query: every call is an audited credential access
+// that must reach the server, never a cached read.
+export function useRevealWorkloadSecret(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.revealSecret(zoneId as string, id),
+  });
+}
+
+export function useDeleteWorkload(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.workloads.delete(zoneId as string, id),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: keys.workloads(zoneId) });
+      const previous = qc.getQueryData<Workload[]>(keys.workloads(zoneId));
+      qc.setQueryData<Workload[]>(keys.workloads(zoneId), (old) =>
+        old?.filter((workload) => workload.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) qc.setQueryData(keys.workloads(zoneId), context.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.workloads(zoneId) }),
+  });
+}
+
 export function useDeleteApplication(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -612,10 +694,10 @@ export function useDeleteApplication(zoneId: string | null) {
   });
 }
 
-export function useResources(zoneId: string | null) {
+export function useResources(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.resources(zoneId),
-    queryFn: ({ signal }) => consoleApi.resources.list(zoneId as string, signal),
+    queryKey: [...keys.resources(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.resources.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }
@@ -656,10 +738,10 @@ export function useDeleteResource(zoneId: string | null) {
   });
 }
 
-export function useProviders(zoneId: string | null) {
+export function useProviders(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
-    queryKey: keys.providers(zoneId),
-    queryFn: ({ signal }) => consoleApi.providers.list(zoneId as string, signal),
+    queryKey: [...keys.providers(zoneId), status],
+    queryFn: ({ signal }) => consoleApi.providers.list(zoneId as string, signal, status),
     enabled: Boolean(zoneId),
   });
 }
@@ -692,8 +774,20 @@ export function useUpdateProvider(zoneId: string | null) {
 }
 
 export function useTestProvider(zoneId: string | null) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => consoleApi.providers.test(zoneId as string, id),
+    // The check outcome is persisted on the provider row, so refresh it to keep the
+    // failed badge in step with the server.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.providers(zoneId) });
+    },
+  });
+}
+
+export function useDiscoverProvider(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (issuer: string) => consoleApi.providers.discover(zoneId as string, issuer),
   });
 }
 
@@ -829,15 +923,8 @@ export function useAddPolicySetVersion(zoneId: string | null) {
 export function useActivatePolicySet(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      versionId,
-      shadowVersionId,
-    }: {
-      id: string;
-      versionId: string;
-      shadowVersionId?: string;
-    }) => consoleApi.policySets.activate(zoneId as string, id, versionId, shadowVersionId),
+    mutationFn: ({ id, versionId }: { id: string; versionId: string }) =>
+      consoleApi.policySets.activate(zoneId as string, id, versionId),
     onSuccess: () => invalidatePolicySets(qc, zoneId),
   });
 }
@@ -874,15 +961,179 @@ export function useZoneOverview(zoneId: string | null) {
 
 // Filtered, cursor-paginated session feed for the Sessions workspace. Server-side
 // filters keep enterprise-scale zones searchable instead of scanning the first page.
-export function useSessionsFeed(zoneId: string | null, query: SessionQuery) {
+export function useAuthorityRecordsFeed(zoneId: string | null, query: AuthorityRecordQuery) {
   return useInfiniteQuery({
-    queryKey: [...keys.sessions(zoneId), "feed", query],
+    queryKey: [...keys.authorityRecords(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
-      consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+      consoleApi.authorityRecords.list(zoneId as string, {
+        ...query,
+        cursor: pageParam ?? undefined,
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId),
     refetchInterval: LIVE_MS,
+  });
+}
+
+// One aggregate row per subject: the identities work is done for, ranked by most
+// recent authority, with server-side kind and search filters.
+export function useSubjectsFeed(zoneId: string | null, query: SubjectQuery) {
+  return useInfiniteQuery({
+    queryKey: [...keys.subjects(zoneId), "feed", query],
+    queryFn: ({ pageParam }) =>
+      consoleApi.subjects.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// The investigation bundle for one subject: identity provenance, governed sessions,
+// approvals raised under it, and upstream connections, in one request.
+export function useSubjectOverview(zoneId: string | null, subjectId: string | null) {
+  return useQuery({
+    queryKey: [...keys.subjects(zoneId), "overview", subjectId],
+    queryFn: () => consoleApi.subjects.overview(zoneId as string, subjectId as string),
+    enabled: Boolean(zoneId && subjectId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// The subject kill switch: cuts every authority path the subject holds. The
+// cascade touches sessions, governed sessions, delegations, and connections,
+// so every subject- and session-scoped read refreshes on success.
+export function useRevokeSubject(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { subjectId: string; reason?: string }) =>
+      consoleApi.subjects.revoke(zoneId as string, input.subjectId, input.reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.subjects(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.authorityRecords(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.sessions(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) });
+    },
+  });
+}
+
+// Resolves one authority record to its subject so a link that only knows the record
+// id can land on the owning subject.
+export function useAuthorityRecord(zoneId: string | null, recordId: string | null) {
+  return useQuery({
+    queryKey: [...keys.authorityRecords(zoneId), "record", recordId],
+    queryFn: async () => {
+      const page = await consoleApi.authorityRecords.list(zoneId as string, {
+        id: recordId as string,
+        limit: 1,
+      });
+      return page.rows[0] ?? null;
+    },
+    enabled: Boolean(zoneId && recordId),
+  });
+}
+
+// Cursor-paginated feed of human-approval holds. Live polling keeps pending holds visible
+// the moment a Session parks on one, since approval latency is the whole user experience.
+// State filtering happens server-side so a filtered page is a true page, not a sieve over
+// whatever happened to be in the first hundred rows.
+export function useApprovalsFeed(zoneId: string | null, query: ApprovalQuery = {}) {
+  return useInfiniteQuery({
+    queryKey: [...keys.approvals(zoneId), "feed", query.state ?? "all"],
+    queryFn: ({ pageParam }) =>
+      consoleApi.approvals.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// One cheap aggregate that powers every pending-approval indicator: the sidebar badge,
+// the dashboard summary, and the workspace filter counts all read the same numbers.
+export function useApprovalCounts(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.approvalCounts(zoneId),
+    queryFn: ({ signal }) => consoleApi.approvals.counts(zoneId as string, signal),
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+// Decides one live hold on the operator plane. The control plane enforces every guard
+// (liveness, approver class, single decision), so this only carries the verdict across.
+export function useDecideApproval(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; decision: "approve" | "reject"; reason?: string }) =>
+      input.decision === "approve"
+        ? consoleApi.approvals.approve(zoneId as string, input.id, input.reason)
+        : consoleApi.approvals.reject(zoneId as string, input.id, input.reason),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.approvals(zoneId) });
+      qc.invalidateQueries({ queryKey: keys.approvalCounts(zoneId) });
+    },
+  });
+}
+
+export function useNotificationSinks(zoneId: string | null) {
+  return useQuery({
+    queryKey: keys.notificationSinks(zoneId),
+    queryFn: () => consoleApi.notificationSinks.list(zoneId as string),
+    enabled: Boolean(zoneId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useSinkDeliveries(zoneId: string | null, sinkId: string | null) {
+  return useQuery({
+    queryKey: keys.sinkDeliveries(zoneId, sinkId),
+    queryFn: () => consoleApi.notificationSinks.deliveries(zoneId as string, sinkId as string),
+    enabled: Boolean(zoneId) && Boolean(sinkId),
+    refetchInterval: LIVE_MS,
+  });
+}
+
+export function useCreateNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: NotificationSinkInput) =>
+      consoleApi.notificationSinks.create(zoneId as string, input),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useUpdateNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; patch: Partial<NotificationSinkInput> }) =>
+      consoleApi.notificationSinks.update(zoneId as string, input.id, input.patch),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useRotateSinkSecret(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.notificationSinks.rotateSecret(zoneId as string, id),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
+  });
+}
+
+export function useDeleteNotificationSink(zoneId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.notificationSinks.remove(zoneId as string, id),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: keys.notificationSinks(zoneId) });
+    },
   });
 }
 
@@ -941,13 +1192,12 @@ export function useDecisionTrace(zoneId: string | null, requestId: string | null
   });
 }
 
-// Cursor-paginated agent feed with server-side filters (status/lifecycle/application/label),
-// so enterprise zones with thousands of live agents stay searchable and bounded.
-export function useAgentsFeed(zoneId: string | null, query: AgentQuery, enabled = true) {
+// Cursor-paginated Session feed with server-side filters, so large zones stay searchable.
+export function useSessionsFeed(zoneId: string | null, query: SessionQuery, enabled = true) {
   return useInfiniteQuery({
-    queryKey: [...keys.agents(zoneId), "feed", query],
+    queryKey: [...keys.sessions(zoneId), "feed", query],
     queryFn: ({ pageParam }) =>
-      consoleApi.agents.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
+      consoleApi.sessions.list(zoneId as string, { ...query, cursor: pageParam ?? undefined }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(zoneId) && enabled,
@@ -955,33 +1205,33 @@ export function useAgentsFeed(zoneId: string | null, query: AgentQuery, enabled 
   });
 }
 
-export function useAgent(zoneId: string | null, id: string | null) {
+export function useSession(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: keys.agent(zoneId, id),
-    queryFn: () => consoleApi.agents.get(zoneId as string, id as string),
+    queryKey: keys.session(zoneId, id),
+    queryFn: () => consoleApi.sessions.get(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
-export function useAgentEffectiveAuthority(zoneId: string | null, id: string | null) {
+export function useSessionEffectiveAuthority(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: [...keys.agent(zoneId, id), "authority"],
-    queryFn: () => consoleApi.agents.effectiveAuthority(zoneId as string, id as string),
+    queryKey: [...keys.session(zoneId, id), "authority"],
+    queryFn: () => consoleApi.sessions.effectiveAuthority(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
-export function useAgentChildren(zoneId: string | null, id: string | null) {
+export function useSessionChildren(zoneId: string | null, id: string | null) {
   return useQuery({
-    queryKey: [...keys.agent(zoneId, id), "children"],
-    queryFn: () => consoleApi.agents.children(zoneId as string, id as string),
+    queryKey: [...keys.session(zoneId, id), "children"],
+    queryFn: () => consoleApi.sessions.children(zoneId as string, id as string),
     enabled: Boolean(zoneId && id),
   });
 }
 
-// Per-agent delegation edges. Delegation edges connect agent sessions, so inbound/outbound
+// Per-session delegations. Delegations connect sessions, so inbound/outbound
 // delegation views are keyed by agent_session_id.
-export function useAgentInboundDelegations(zoneId: string | null, sessionId: string | null) {
+export function useSessionInboundDelegations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "delegations-inbound", zoneId, sessionId],
     queryFn: () => consoleApi.delegations.inbound(zoneId as string, sessionId as string),
@@ -989,7 +1239,7 @@ export function useAgentInboundDelegations(zoneId: string | null, sessionId: str
   });
 }
 
-export function useAgentOutboundDelegations(zoneId: string | null, sessionId: string | null) {
+export function useSessionOutboundDelegations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "delegations-outbound", zoneId, sessionId],
     queryFn: () => consoleApi.delegations.outbound(zoneId as string, sessionId as string),
@@ -997,9 +1247,9 @@ export function useAgentOutboundDelegations(zoneId: string | null, sessionId: st
   });
 }
 
-// Read-only execution visibility: invocations targeting/originating from this agent, and
+// Read-only execution visibility: invocations targeting or originating from this Session, and
 // the registered services in the zone. Mutations remain runtime-identity gated.
-export function useAgentInvocations(zoneId: string | null, sessionId: string | null) {
+export function useSessionInvocations(zoneId: string | null, sessionId: string | null) {
   return useQuery({
     queryKey: ["console", "invocations", zoneId, sessionId],
     queryFn: () =>
@@ -1012,9 +1262,9 @@ export function useAgentInvocations(zoneId: string | null, sessionId: string | n
   });
 }
 
-export function useAgentServices(zoneId: string | null, application_id: string | null) {
+export function useSessionServices(zoneId: string | null, application_id: string | null) {
   return useQuery({
-    queryKey: ["console", "agent-services", zoneId, application_id],
+    queryKey: ["console", "session-services", zoneId, application_id],
     queryFn: async () => {
       const services = await consoleApi.execution.services(zoneId as string);
       return application_id
@@ -1025,12 +1275,12 @@ export function useAgentServices(zoneId: string | null, application_id: string |
   });
 }
 
-// Per-agent activity timeline: the durable audit events (token exchanges, resource calls,
-// denials) recorded for this agent session, newest first. This is the authoritative record
-// of what the agent actually did, correlated by agent_session_id.
-export function useAgentActivity(zoneId: string | null, sessionId: string | null) {
+// Per-Session activity timeline: the durable audit events (token exchanges, resource calls,
+// denials) recorded for this session, newest first. This is the authoritative record
+// of what the Session actually did, correlated by the wire `agent_session_id` field.
+export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
   return useQuery({
-    queryKey: ["console", "agent-activity", zoneId, sessionId],
+    queryKey: ["console", "session-activity", zoneId, sessionId],
     queryFn: () =>
       consoleApi.audit.list(zoneId as string, {
         agent_session_id: sessionId as string,
@@ -1041,20 +1291,20 @@ export function useAgentActivity(zoneId: string | null, sessionId: string | null
   });
 }
 
-export function useSessionActivity(zoneId: string | null, sessionId: string | null) {
+export function useAuthorityRecordActivity(zoneId: string | null, recordId: string | null) {
   return useQuery({
-    queryKey: ["console", "session-activity", zoneId, sessionId],
+    queryKey: ["console", "authority-record-activity", zoneId, recordId],
     queryFn: () =>
       consoleApi.audit.list(zoneId as string, {
-        session_id: sessionId as string,
+        session_id: recordId as string,
         limit: 50,
       }),
-    enabled: Boolean(zoneId && sessionId),
+    enabled: Boolean(zoneId && recordId),
     refetchInterval: LIVE_MS,
   });
 }
 
-export function useAgentLifecycle(zoneId: string | null) {
+export function useSessionLifecycle(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -1064,11 +1314,11 @@ export function useAgentLifecycle(zoneId: string | null) {
       id: string;
       action: "suspend" | "resume" | "terminate";
     }) => {
-      if (action === "suspend") await consoleApi.agents.suspend(zoneId as string, id);
-      else if (action === "resume") await consoleApi.agents.resume(zoneId as string, id);
-      else await consoleApi.agents.terminate(zoneId as string, id);
+      if (action === "suspend") await consoleApi.sessions.suspend(zoneId as string, id);
+      else if (action === "resume") await consoleApi.sessions.resume(zoneId as string, id);
+      else await consoleApi.sessions.terminate(zoneId as string, id);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.agents(zoneId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.sessions(zoneId) }),
   });
 }
 
@@ -1091,7 +1341,7 @@ export function useRevokeDelegation(zoneId: string | null) {
     mutationFn: (id: string) => consoleApi.delegations.revoke(zoneId as string, id),
     onSuccess: () => {
       // Revocation cascades downstream, so refresh the active feed plus every per-session
-      // inbound/outbound list and agent authority envelope that may now be stale.
+      // inbound/outbound list and Session authority envelope that may be stale.
       qc.invalidateQueries({ queryKey: keys.delegationsActive(zoneId) });
       qc.invalidateQueries({
         predicate: (q) => {
@@ -1100,8 +1350,8 @@ export function useRevokeDelegation(zoneId: string | null) {
           return (
             k[1] === "delegations-inbound" ||
             k[1] === "delegations-outbound" ||
-            k[1] === "agent" ||
-            k[1] === "agents"
+            k[1] === "session" ||
+            k[1] === "sessions"
           );
         },
       });
@@ -1109,31 +1359,33 @@ export function useRevokeDelegation(zoneId: string | null) {
   });
 }
 
-/* ------------------------------ Provider grants ----------------------------- */
+/* --------------------------- Provider connections --------------------------- */
 
-export function useProviderGrants(zoneId: string | null, providerId: string | null) {
+export function useProviderConnections(zoneId: string | null, providerId: string | null) {
   return useQuery({
-    queryKey: ["console", "provider-grants", zoneId, providerId],
+    queryKey: ["console", "provider-connections", zoneId, providerId],
     queryFn: () =>
-      consoleApi.providerGrants.list(zoneId as string, { provider_id: providerId as string }),
+      consoleApi.providerConnections.list(zoneId as string, { provider_id: providerId as string }),
     enabled: Boolean(zoneId && providerId),
   });
 }
 
-export function useAuthorizeProviderGrant(zoneId: string | null) {
+export function useAuthorizeProviderConnection(zoneId: string | null) {
   return useMutation({
-    mutationFn: (input: ProviderGrantAuthorizeInput) =>
-      consoleApi.providerGrants.authorize(zoneId as string, input),
+    mutationFn: (input: ProviderConnectionAuthorizeInput) =>
+      consoleApi.providerConnections.authorize(zoneId as string, input),
   });
 }
 
-export function useRevokeProviderGrant(zoneId: string | null) {
+export function useRevokeProviderConnection(zoneId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: ProviderGrantRevokeInput) =>
-      consoleApi.providerGrants.revoke(zoneId as string, input),
+    mutationFn: (input: ProviderConnectionRevokeInput) =>
+      consoleApi.providerConnections.revoke(zoneId as string, input),
     onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: ["console", "provider-grants", zoneId, vars.provider_id] }),
+      qc.invalidateQueries({
+        queryKey: ["console", "provider-connections", zoneId, vars.provider_id],
+      }),
   });
 }
 
@@ -1264,6 +1516,21 @@ function useSystemZone(enabled: boolean) {
       const id = await consoleApi.operator.systemZoneId(signal);
       if (!id) return null;
       return consoleApi.zones.get(id, signal);
+    },
+  });
+}
+
+// The release version of the web binary serving this console, reported by the
+// backend-for-frontend. Static per deployment, so it is held for the session.
+export function useConsoleVersion() {
+  return useQuery({
+    queryKey: ["console", "version"] as const,
+    staleTime: Infinity,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`${config.authBaseUrl}/version`, { signal });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { version?: unknown };
+      return typeof body.version === "string" ? body.version : null;
     },
   });
 }

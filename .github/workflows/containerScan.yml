@@ -33,13 +33,6 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       images: ${{ steps.images.outputs.images }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - id: images
-        run: echo "images=$(jq -c '[.product.containers[].name]' release.config.json)" >> "$GITHUB_OUTPUT"
-
       - id: tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -51,12 +44,42 @@ jobs:
           else
             tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName' 2>/dev/null || true)"
           fi
+          if [ -n "${tag}" ] && ! printf '%s' "${tag}" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-rc\.[0-9]+)?$'; then
+            echo "::error::Tag ${tag} is not a Caracal release tag."
+            exit 1
+          fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           if [ -z "${tag}" ]; then
             echo "::notice::No release tag resolved; image scan will be skipped."
           else
             echo "::notice::Scanning images at tag ${tag}."
           fi
+
+      # The image list must come from the resolved release's own record on its tag, not
+      # the default branch or the current release.config.json: main only keeps the
+      # current train's records, the container topology changes between releases, and
+      # images only exist in the registry under the tags their release actually published.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.tag.outputs.tag != ''
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          persist-credentials: false
+
+      - id: images
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG}" ]; then
+            echo "images=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          manifest="releases/${RELEASE_TAG}/manifest.json"
+          if [ ! -f "${manifest}" ]; then
+            echo "::error::No release record at ${manifest} on tag ${RELEASE_TAG}; cannot derive the image list."
+            exit 1
+          fi
+          echo "images=$(jq -c '[(.containers | keys[]), (if .runtimeImage then "runtime" else empty end)]' "${manifest}")" >> "$GITHUB_OUTPUT"
 
   scan:
     name: Scan ${{ matrix.image }}
@@ -79,7 +102,7 @@ jobs:
           persist-credentials: false
 
       - name: Log in to registry
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -97,7 +120,7 @@ jobs:
           exit-code: '0'
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
           sarif_file: trivy-${{ matrix.image }}.sarif
           category: trivy-${{ matrix.image }}

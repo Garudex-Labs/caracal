@@ -4,7 +4,7 @@ description: Diagnose a denied request, simulate a candidate policy-set version,
 pageType: workflow
 ---
 
-Policy Iterate is an audit-driven policy rollout loop under `examples/policyIterate`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input - and prove it does not change other decisions - before activation.
+Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input - and prove it does not change other decisions - before activation.
 
 ## Loop
 
@@ -17,7 +17,8 @@ Policy Iterate is an audit-driven policy rollout loop under `examples/policyIter
 ## Run the iteration
 
 ```bash
-cd examples/policyIterate
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/policyIterate
 CARACAL_API_URL=http://127.0.0.1:3000 \
 CARACAL_ADMIN_TOKEN=<admin-token> \
 CARACAL_ZONE_ID=<zone-id> \
@@ -39,7 +40,7 @@ Actor and subject claims are not written to audit, so reconstructed input does n
 ## Test
 
 ```bash
-cd examples/policyIterate
+cd caracal-examples/policyIterate
 npm test
 ```
 

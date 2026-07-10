@@ -8,30 +8,30 @@ Caracal uses Redis Streams for propagation. Published modes sign stream messages
 
 ## Topics
 
-| Topic | Producers | Consumers |
-| --- | --- | --- |
-| `caracal.audit.events` | API, STS, Gateway, Coordinator, Control | Audit `audit-ingestor`, SIEM exporters |
-| `caracal.audit.events.dlq` | Audit | DLQ observers |
-| `caracal.policy.invalidate` | API | STS policy loader |
-| `caracal.sessions.revoke` | API, Coordinator | STS, Gateway, resource-server revocation consumers |
-| `caracal.keys.invalidate` | API, STS | STS key caches |
-| `caracal.agents.lifecycle` | Coordinator | Coordinator lifecycle relay job |
-| `caracal.invocations.lifecycle` | Coordinator | Invocation observers |
-| `caracal.delegations.invalidate` | Coordinator | Delegation observers |
-| `caracal.providers.ratelimit` | Provisioner/provider coordination | Provider rate-limit coordination |
+| Topic                            | Producers                               | Consumers                                          |
+| -------------------------------- | --------------------------------------- | -------------------------------------------------- |
+| `caracal.audit.events`           | API, STS, Gateway, Coordinator, Control | Audit `audit-ingestor`, SIEM exporters             |
+| `caracal.audit.events.dlq`       | Audit                                   | DLQ observers                                      |
+| `caracal.policy.invalidate`      | API                                     | STS policy loader                                  |
+| `caracal.sessions.revoke`        | API, Coordinator                        | STS, Gateway, resource-server revocation consumers |
+| `caracal.keys.invalidate`        | API, STS                                | STS key caches                                     |
+| `caracal.agents.lifecycle`       | Coordinator                             | Coordinator lifecycle relay job                    |
+| `caracal.invocations.lifecycle`  | Coordinator                             | Invocation observers                               |
+| `caracal.delegations.invalidate` | Coordinator                             | Delegation observers                               |
+| `caracal.providers.ratelimit`    | Provisioner/provider coordination       | Provider rate-limit coordination                   |
 
 ## Consumer Groups
 
-| Topic | Groups |
-| --- | --- |
-| `caracal.audit.events` | `audit-ingestor`, `siem-export` |
-| `caracal.audit.events.dlq` | `audit-dlq-observer` |
-| `caracal.policy.invalidate` | `opa-engine` |
-| `caracal.sessions.revoke` | `sts-revocation` |
-| `caracal.keys.invalidate` | `sts-keys` |
-| `caracal.agents.lifecycle` | `coordinator-relay` |
-| `caracal.invocations.lifecycle` | `invocations-observer` |
-| `caracal.delegations.invalidate` | `delegations-observer` |
+| Topic                            | Groups                          |
+| -------------------------------- | ------------------------------- |
+| `caracal.audit.events`           | `audit-ingestor`, `siem-export` |
+| `caracal.audit.events.dlq`       | `audit-dlq-observer`            |
+| `caracal.policy.invalidate`      | `opa-engine`                    |
+| `caracal.sessions.revoke`        | `sts-revocation`, stable per-host `gateway-revocation:<host>`, deployment-specific resource groups |
+| `caracal.keys.invalidate`        | `sts-keys`                      |
+| `caracal.agents.lifecycle`       | `coordinator-relay`             |
+| `caracal.invocations.lifecycle`  | `invocations-observer`          |
+| `caracal.delegations.invalidate` | `delegations-observer`          |
 
 ## Message Integrity
 

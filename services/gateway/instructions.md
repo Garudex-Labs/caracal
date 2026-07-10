@@ -12,7 +12,7 @@
 - Must use Go 1.26, `net/http`, and `packages/core/go`.
 - Must require STS, database, Redis, and stream HMAC configuration needed by rc and stable.
 - Must perform a fresh STS exchange for every proxied request.
-- Must strip hop-by-hop and `X-Caracal-*` routing headers before forwarding.
+- Must strip hop-by-hop headers, `X-Caracal-*` routing headers, and `caracal.*` baggage entries before forwarding.
 - Must replace inbound Authorization with the STS-issued bearer token.
 - Must enforce request size limits, timeouts, replay checks, and safe upstream dialing.
 

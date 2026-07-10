@@ -40,6 +40,30 @@ networkPolicy:
   dnsEgress:
     - ipBlock:
         cidr: 10.0.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+  # Replace these selectors with the namespace and pod labels used by your ingress
+  # controller. Every chart-managed Ingress stays unreachable until this rule matches.
+  extraIngress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3002
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
   extraEgress:
     - to:
         - ipBlock:
@@ -65,6 +89,13 @@ alertRules:
   enabled: true
 
 ingress:
+  sts:
+    enabled: true
+    className: "" # e.g. alb / gce / azure-application-gateway / nginx
+    host: sts.caracal.example.com
+    tlsSecretName: caracal-sts-tls
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
   gateway:
     enabled: true
     className: "" # e.g. alb / gce / azure-application-gateway / nginx

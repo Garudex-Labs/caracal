@@ -1,14 +1,14 @@
 ---
 title: Protect a Go net/http Service
-description: Wrap Go HTTP handlers with the mcp-nethttp middleware to verify mandates and attach claims to context.Context.
+description: Wrap Go HTTP handlers with the nethttp adapter middleware to verify mandates and attach claims to context.Context.
 ---
 
-Use the Go net/http connector when a Go service should verify Caracal mandates at the handler boundary.
+Use the Go net/http adapter when a Go service should verify Caracal mandates at the handler boundary.
 
 ## Install
 
 ```bash
-go get github.com/garudex-labs/caracal/packages/connectors/nethttp/go
+go get github.com/garudex-labs/caracal/packages/adapters/nethttp/go
 go get github.com/garudex-labs/caracal/packages/revocation/go
 ```
 
@@ -22,26 +22,26 @@ import (
 	"net/http"
 	"time"
 
-	mcpnethttp "github.com/garudex-labs/caracal/packages/connectors/nethttp/go"
+	nethttp "github.com/garudex-labs/caracal/packages/adapters/nethttp/go"
 	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
-	transportmcp "github.com/garudex-labs/caracal/packages/transport/mcp/go"
+	verify "github.com/garudex-labs/caracal/packages/verify/go"
 )
 
 func main() {
 	revocations := revocation.NewInMemoryStore(24 * time.Hour)
 
-	verifier := transportmcp.NewVerifier(transportmcp.Options{
+	verifier := verify.NewVerifier(verify.Options{
 		Issuer:      "https://sts.example.com",
 		Audience:    "https://api.example.com",
 		ZoneID:      "zone_prod",
 		Revocations: revocations,
 	})
 
-	protected := mcpnethttp.VerifierMiddleware(verifier.Require(transportmcp.Options{
+	protected := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 		RequiredScopes:  []string{"tickets:read"},
 		RequiredTargets: []string{"https://api.example.com/tickets"},
 	}))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := mcpnethttp.ClaimsFromContext(r.Context())
+		claims, ok := nethttp.ClaimsFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
 			return
@@ -56,18 +56,18 @@ func main() {
 
 ## Enforce constraints
 
-| Option | Use it for |
-| --- | --- |
-| `RequiredScopes` | Route or operation permission. |
-| `RequiredTargets` | Resource target matching. |
-| `RequireAgent` | Agent-only endpoints. |
-| `RequireDelegation` | Delegated-only endpoints. |
+| Option                 | Use it for                     |
+| ---------------------- | ------------------------------ |
+| `RequiredScopes`       | Route or operation permission. |
+| `RequiredTargets`      | Resource target matching.      |
+| `RequireSession`       | Session-bound endpoints.       |
+| `RequireDelegation`    | Delegated-only endpoints.      |
 | `RequireChainContains` | Application path requirements. |
-| `MaxHopCount` | Delegation depth limit. |
+| `MaxHopCount`          | Delegation depth limit.        |
 
 ## Production revocation
 
-The in-memory store does not share revocations across instances. Use the Redis revocation connector and consume `caracal.sessions.revoke` for production resource servers.
+The in-memory store does not share revocations across instances. Use the Redis revocation backend and consume `caracal.sessions.revoke` for production resource servers.
 
 ## Validate
 

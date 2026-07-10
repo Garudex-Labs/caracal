@@ -59,7 +59,6 @@ function SecurityPage() {
   const [error, setError] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<SessionRow | null>(null);
 
   const email = session.data?.user?.email ?? "";
   const currentToken = (session.data?.session as { token?: string } | undefined)?.token;
@@ -347,7 +346,7 @@ function SecurityPage() {
                         </span>
                       ) : null}
                       {!isCurrent && row.token ? (
-                        <Button variant="ghost" size="sm" onClick={() => setRevokeTarget(row)}>
+                        <Button variant="ghost" size="sm" onClick={() => void revokeOne(row)}>
                           Revoke
                         </Button>
                       ) : null}
@@ -367,22 +366,6 @@ function SecurityPage() {
         confirmLabel="Sign out others"
         onClose={() => setConfirmAll(false)}
         onConfirm={revokeOthers}
-        danger
-      />
-
-      <ConfirmModal
-        open={revokeTarget !== null}
-        title="Revoke session"
-        description={
-          revokeTarget
-            ? `Sign out ${describeAgent(revokeTarget.userAgent)}? That device will need to sign in again.`
-            : ""
-        }
-        confirmLabel="Revoke"
-        onClose={() => setRevokeTarget(null)}
-        onConfirm={async () => {
-          if (revokeTarget) await revokeOne(revokeTarget);
-        }}
         danger
       />
     </div>

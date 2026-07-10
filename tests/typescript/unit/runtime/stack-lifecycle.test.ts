@@ -43,12 +43,7 @@ vi.mock('../../../../packages/engine/src/controlAccess.js', () => ({
   authorizeControlManagementAccess: vi.fn(),
 }))
 
-import {
-  applyControlLifecycleAction,
-  controlServiceStatus,
-  stackDown,
-  stackUp,
-} from '../../../../packages/engine/src/stack.ts'
+import { applyControlLifecycleAction, controlServiceStatus, stackDown, stackUp } from '../../../../packages/engine/src/stack.ts'
 
 let dir: string
 let calls: Array<{ argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown }>
@@ -67,7 +62,11 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'caracal-stack-'))
   calls = []
   runExecMock.mockImplementation((opts: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown }) => {
-    const call: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown } = { argv: opts.argv, env: opts.env, cwd: opts.cwd }
+    const call: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown } = {
+      argv: opts.argv,
+      env: opts.env,
+      cwd: opts.cwd,
+    }
     if (opts.onLine) call.onLine = opts.onLine
     calls.push(call)
     return { dispose: vi.fn(), exitCode: Promise.resolve(0) }
@@ -160,26 +159,23 @@ describe('stack lifecycle compose commands', () => {
         '--remove-orphans',
       ])
       expect(calls[0].argv).not.toContain('--build')
-      expect(calls[1].argv).toEqual([
-        'docker',
-        'compose',
-        '--env-file',
-        envFile,
-        '-f',
-        join(dir, `${mode}.yml`),
-        'rm',
-        '-f',
-      ])
+      expect(calls[1].argv).toEqual(['docker', 'compose', '--env-file', envFile, '-f', join(dir, `${mode}.yml`), 'rm', '-f'])
     }
   })
 
   it('does not remove one-shot containers when startup fails', async () => {
-    runExecMock.mockImplementationOnce((opts: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown }) => {
-      const call: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown } = { argv: opts.argv, env: opts.env, cwd: opts.cwd }
-      if (opts.onLine) call.onLine = opts.onLine
-      calls.push(call)
-      return { dispose: vi.fn(), exitCode: Promise.resolve(1) }
-    })
+    runExecMock.mockImplementationOnce(
+      (opts: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown }) => {
+        const call: { argv: string[]; env?: Record<string, string | undefined>; cwd?: string; onLine?: unknown } = {
+          argv: opts.argv,
+          env: opts.env,
+          cwd: opts.cwd,
+        }
+        if (opts.onLine) call.onLine = opts.onLine
+        calls.push(call)
+        return { dispose: vi.fn(), exitCode: Promise.resolve(1) }
+      },
+    )
 
     const handle = stackUp({ paths: paths('stable', []), args: [], env: { CARACAL_MODE: 'stable' } })
 
@@ -198,16 +194,7 @@ describe('stack lifecycle compose commands', () => {
     })
 
     expect(calls[0]).toEqual({
-      argv: [
-        'docker',
-        'compose',
-        '--env-file',
-        envFile,
-        '-f',
-        join(dir, 'stable.yml'),
-        'down',
-        '--volumes',
-      ],
+      argv: ['docker', 'compose', '--env-file', envFile, '-f', join(dir, 'stable.yml'), 'down', '--volumes'],
       env: { CARACAL_MODE: 'stable' },
       cwd: dir,
     })
@@ -220,15 +207,7 @@ describe('stack lifecycle compose commands', () => {
     stackDown({ paths: paths('dev', [join(dir, 'missing.env'), envFile]), args: [], env: {} })
 
     expect(existsSync(envFile)).toBe(true)
-    expect(calls[0].argv).toEqual([
-      'docker',
-      'compose',
-      '--env-file',
-      envFile,
-      '-f',
-      join(dir, 'dev.yml'),
-      'down',
-    ])
+    expect(calls[0].argv).toEqual(['docker', 'compose', '--env-file', envFile, '-f', join(dir, 'dev.yml'), 'down'])
   })
 })
 

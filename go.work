@@ -1,14 +1,15 @@
 go 1.26
 
 use (
-	./packages/connectors/nethttp/go
-	./packages/connectors/redis/go
+	./packages/admin/go
+	./packages/adapters/nethttp/go
+	./packages/backends/redis/go
 	./packages/core/go
 	./packages/identity/go
 	./packages/oauth/go
 	./packages/revocation/go
 	./packages/sdk/go
-	./packages/transport/mcp/go
+	./packages/verify/go
 	./services/audit
 	./services/gateway
 	./services/sts
@@ -20,12 +21,12 @@ use (
 // go.mod files require, so they coexist with the `use` directives above and
 // never ship to consumers (go.work is not published). Consumers resolve the
 // same modules from the git tags `packages/<module>/go/vX.Y.Z`.
-replace github.com/garudex-labs/caracal/packages/oauth/go v0.1.6-rc.2 => ./packages/oauth/go
+replace github.com/garudex-labs/caracal/packages/oauth/go v0.2.0 => ./packages/oauth/go
 
-replace github.com/garudex-labs/caracal/packages/core/go v0.1.6-rc.2 => ./packages/core/go
+replace github.com/garudex-labs/caracal/packages/core/go v0.2.0 => ./packages/core/go
 
-replace github.com/garudex-labs/caracal/packages/identity/go v0.1.6-rc.2 => ./packages/identity/go
+replace github.com/garudex-labs/caracal/packages/identity/go v0.2.0 => ./packages/identity/go
 
-replace github.com/garudex-labs/caracal/packages/revocation/go v0.1.6-rc.2 => ./packages/revocation/go
+replace github.com/garudex-labs/caracal/packages/revocation/go v0.2.0 => ./packages/revocation/go
 
-replace github.com/garudex-labs/caracal/packages/transport/mcp/go v0.1.6-rc.2 => ./packages/transport/mcp/go
+replace github.com/garudex-labs/caracal/packages/verify/go v0.2.0 => ./packages/verify/go

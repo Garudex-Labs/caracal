@@ -9,11 +9,13 @@ import { v7 as uuidv7 } from 'uuid'
 import { withTransaction, TxAbort, type TxClient, type DB } from '../db.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { resolveCreatedBy } from '../attribution.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { parseTurnContent, deriveConversationState, type TurnKind, type TurnRecord } from '../operator-state.js'
 import {
   CAPABILITIES,
   ProposedPlan,
+  collectStepReferences,
   listCapabilities,
   validateProposedPlan,
   type CapabilityDomain,
@@ -23,7 +25,6 @@ import { previewPlan, type StepPreview } from '../operator-preview.js'
 import { buildOperatorAuthority, isZoneIsolated, authorizePlanSteps, type OperatorAuthority } from '../operator-authority.js'
 import { buildOperatorControlClient, type OperatorControlEndpoints } from '../operator-control-client.js'
 import { executeViaControlPlane, type GovernedPlanStep } from '../operator-governed-execute.js'
-import { createRoleScopedClient, roleScopes } from '../operator-agent-roles.js'
 import { isControlExecutable } from '../operator-control-map.js'
 import { SYSTEM_ZONE_SLUG } from '../system-zone.js'
 import { mayAutoApprove, autopilotAvailable, buildAutopilotPolicy, type AutopilotPolicy } from '../operator-autopilot.js'
@@ -35,7 +36,7 @@ import {
   openPlanStepSecrets,
   storePlanStepSecrets,
 } from '../operator-plan-secrets.js'
-import type { ControlClient } from '../control-client.js'
+import type { ControlClient } from '@caracalai/admin'
 import type { OperatorControlIdentity } from '../config.js'
 import {
   createGateway,
@@ -48,9 +49,9 @@ import {
   type ProviderConfig,
 } from '../operator-gateway.js'
 import { type GovernanceLimits } from '../operator-ai-governance.js'
-import { runVerifier, type AgentContext, type OperatorMode, type SecurityAdvisory, type PolicyDraft } from '../operator-agents.js'
-import { recallZoneMemory, rememberAppliedChange } from '../operator-zone-memory.js'
-import { createOrchestrator, type OnProgress, type ProgressEvent } from '../operator-orchestrator.js'
+import { runVerifier, type AgentContext, type OperatorMode, type PolicyDraft } from '../operator-agents.js'
+import { recallConversationMemory, rememberAppliedChange } from '../operator-conversation-memory.js'
+import { createOrchestrator, type OnProgress, type PlanReview, type ProgressEvent } from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
 import type { Evidence } from '../operator-research.js'
 import { retrieveDocs } from '../operator-docs.js'
@@ -140,11 +141,13 @@ const PlanSecretsBody = z
 // dedup (an execution turn already exists) prevents re-running a completed plan.
 const EXECUTE_LOCK_TTL_SEC = 120
 
-// The outcome of the read-only execute pre-flight: the validated steps to apply, or a
-// business response to return unchanged. Pre-flight writes nothing, so the governed
-// control calls run outside any transaction.
+// The outcome of the read-only execute pre-flight: the validated steps to apply plus the
+// referencable outputs a prior partial run persisted, or a business response to return
+// unchanged. Pre-flight writes nothing, so the governed control calls run outside any
+// transaction.
 type PreflightResult =
-  { ok: true; summary: string; steps: GovernedPlanStep[] } | { ok: false; status: number; body: Record<string, unknown> }
+  | { ok: true; summary: string; steps: GovernedPlanStep[]; priorOutputs: Record<string, Record<string, unknown>> }
+  | { ok: false; status: number; body: Record<string, unknown> }
 
 const MESSAGE_MAX_LENGTH = 4000
 const MESSAGE_RUN_DEADLINE_MS = 120_000
@@ -193,7 +196,7 @@ function writeSseEvent(reply: FastifyReply, event: 'stage' | 'reasoning' | 'toke
 
 interface PlanTurnContent {
   summary: string
-  steps: { id: string; capability: string; args?: Record<string, unknown> }[]
+  steps: { id: string; capability: string; args?: Record<string, unknown>; depends_on?: string[]; mutating?: boolean; effect?: string }[]
 }
 
 const ContextQuery = z.object({
@@ -523,7 +526,7 @@ function renderPolicyDraftText(draft: PolicyDraft): string {
 function buildPlanContentJson(
   summary: string,
   validation: PlanValidation,
-  advisory?: SecurityAdvisory,
+  review?: PlanReview,
   deliberation?: ProgressEvent['stage'][],
   preview?: StepPreview[],
 ): string {
@@ -555,10 +558,15 @@ function buildPlanContentJson(
       }
     }),
   }
-  // A composed plan may carry an advisory security review. It is persisted with the plan so the
-  // human sees it when deciding and it stays in the audit record; it is informational only and
-  // never read as authority - execution re-derives the plan from summary and steps alone.
-  if (advisory) content.advisory = advisory
+  // A composed plan carries the guardian's review state. A completed review persists its advisory
+  // with the plan so the human sees it when deciding and it stays in the audit record; a failed
+  // review persists the precise failure reason, so an unreviewed plan is never mistaken for a
+  // clean one. Both are informational only and never read as authority - execution re-derives the
+  // plan from summary and steps alone.
+  if (review) {
+    content.review = review.status === 'reviewed' ? { status: review.status } : { status: review.status, reason: review.reason }
+    if (review.status === 'reviewed') content.advisory = review.advisory
+  }
   // The deliberation stages the request passed through, recorded so the human can replay how the
   // plan was reasoned. Informational only - execution re-derives the plan from summary and steps.
   if (deliberation && deliberation.length > 0) content.deliberation = deliberation
@@ -571,6 +579,27 @@ const PLAN_WINDOW_LIMIT = 200
 
 interface ContextQueryable {
   query: <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>
+}
+
+// Counts the mutating steps of every plan autopilot already auto-approved in this conversation:
+// the cumulative write ledger the conversation-level write budget is judged against. Counted from
+// the persisted plan turn content, whose per-step mutating flag is catalog-derived at persist
+// time, so the ledger can never be inflated or shrunk by anything the model wrote.
+async function autopilotApprovedWrites(db: ContextQueryable, conversationId: string, zoneId: string): Promise<number> {
+  const { rows } = await db.query<{ writes: number }>(
+    `SELECT COALESCE(SUM((
+       SELECT COUNT(*) FROM jsonb_array_elements(p.content->'steps') AS step
+       WHERE (step->>'mutating')::boolean
+     )), 0)::int AS writes
+     FROM operator_turns a
+     JOIN operator_turns p
+       ON p.conversation_id = a.conversation_id AND p.zone_id = a.zone_id
+      AND p.kind = 'plan' AND p.seq = (a.content->>'plan_seq')::bigint
+     WHERE a.conversation_id = $1 AND a.zone_id = $2
+       AND a.kind = 'approval' AND a.content->>'autopilot' = 'true'`,
+    [conversationId, zoneId],
+  )
+  return rows[0]?.writes ?? 0
 }
 
 // Assembles the working-memory snapshot from bounded reads: the latest plan and the
@@ -742,43 +771,73 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // Built once for the plugin; it holds no per-request state.
   const orchestrator = createOrchestrator()
 
-  // Builds the Operator's governed control client for the currently resolved identity scoped to
-  // the zone the conversation acts in, or null when governed execution is not fully configured -
-  // no identity, or the control plane is disabled. The Operator governs every zone it operates in:
-  // for its own (system) zone it acts directly; for any tenant zone the client carries a zone-scope
-  // header the in-process control handler honors for the reserved Operator subject, so the
-  // approval-gated mutation is applied in the conversation's zone without provisioning an identity
-  // there. Resolved per request because the identity is populated after the system zone is
-  // provisioned at startup; constructing the client is cheap. A null result means execution refuses
-  // rather than falling back to any other authority.
+  // Builds the Operator's governed control client for the executor role identity scoped to the
+  // zone the conversation acts in, or null when governed execution is not fully configured - no
+  // live identity, or the control plane is disabled. Each role is a separate Caracal application
+  // whose STS traits bound what it can mint, so the executor's write authority exists in its
+  // credential, not in any in-process wrapper. For the Operator's own (system) zone the client
+  // acts directly; for any other zone it carries a zone-scope header the in-process control
+  // handler authorizes against that zone's explicit administration grant. Resolved per request
+  // because the identity rotates and is populated after the server is listening; constructing the
+  // client is cheap. A null result means execution refuses rather than falling back to any other
+  // authority.
   const resolveControlClient = (
     zoneId: string,
     authorizedBy?: string,
     coAuthorOperator?: boolean,
+    requestId?: string,
   ): { client: ControlClient; identity: OperatorControlIdentity } | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl, zoneScope, authorizedBy, coAuthorOperator)
+    const client = buildOperatorControlClient({
+      identity,
+      role: 'executor',
+      endpoints: opts.controlEndpoints,
+      fetchImpl: opts.fetchImpl,
+      zoneScope,
+      authorizedBy,
+      coAuthorOperator,
+      requestId,
+    })
     return client ? { client, identity } : null
   }
 
   // Builds a read-only researcher that grounds an answer in the conversation zone's live state
-  // through a governed mandate. The Operator acts as its single reserved system-zone identity in
-  // every zone: for caracal.sys it reads directly; for any tenant zone the control client carries a
-  // zone-scope header the in-process control handler honors for the reserved Operator subject, so
-  // live state is read without provisioning any identity in the tenant zone. The worker is narrowed
-  // to the read role, so it can never mint a write token regardless of what the zone-scope header
-  // permits; every change still flows through the approval-gated execution path. Null when
-  // self-governance is not configured, in which case the read agents say live state could not be
-  // read rather than guess.
-  const resolveZoneResearcher = (zoneId: string): ReturnType<typeof createStateResearcher> | null => {
+  // through a governed mandate. The researcher role is a separate Caracal application whose STS
+  // traits carry only read scopes, so it can never mint a write token regardless of what the
+  // zone-scope header permits; every change still flows through the approval-gated execution
+  // path. For any zone other than the Operator's own, the control client carries a zone-scope
+  // header the in-process control handler authorizes against that zone's explicit administration
+  // grant. Null when self-governance is not configured, in which case the read agents say live
+  // state could not be read rather than guess.
+  const resolveZoneResearcher = (zoneId: string, requestId?: string): ReturnType<typeof createStateResearcher> | null => {
     const identity = opts.resolveControlIdentity?.() ?? null
     if (!identity || !opts.controlEndpoints) return null
     const zoneScope = identity.zoneId === zoneId ? undefined : zoneId
-    const client = buildOperatorControlClient(identity, opts.controlEndpoints, opts.fetchImpl, zoneScope)
+    const client = buildOperatorControlClient({
+      identity,
+      role: 'researcher',
+      endpoints: opts.controlEndpoints,
+      fetchImpl: opts.fetchImpl,
+      zoneScope,
+      requestId,
+    })
     if (!client) return null
-    return createStateResearcher(createRoleScopedClient(client, 'researcher', roleScopes('researcher', authority)))
+    return createStateResearcher(client)
+  }
+
+  // The explicit per-zone administration grant, read from the same authoritative zone record the
+  // control handler enforces, so a route refuses upfront with a precise error instead of failing
+  // at dispatch. The Operator's own system zone needs no grant: it acts there under its token's
+  // own zone rather than through the zone-scope boundary.
+  const zoneGoverned = async (zoneId: string, identity: OperatorControlIdentity): Promise<boolean> => {
+    if (zoneId === identity.zoneId) return true
+    const { rows } = await fastify.db.query<{ operator_governed: boolean }>(
+      'SELECT operator_governed FROM zones WHERE id = $1 AND archived_at IS NULL LIMIT 1',
+      [zoneId],
+    )
+    return rows[0]?.operator_governed === true
   }
 
   // Always cheap and always present so the console can render a precise enabled/disabled
@@ -809,7 +868,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // Whether Caracal-governed autopilot is available in this deployment: the master switch is
       // on. When available, an engaged conversation has its plan approvals auto-satisfied; the
       // switch is read-only here and set in Caracal, never through the console.
-      autopilot: { available: autopilotAvailable(autopilotPolicy) },
+      autopilot: { available: autopilotAvailable(autopilotPolicy), write_budget: autopilotPolicy.conversationWriteBudget },
     }
   })
 
@@ -826,6 +885,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // Verifies AI connectivity by sending a minimal completion through the failover
   // chain. This is the one place a real provider call is made on an explicit operator
   // action, so an operator can confirm their bring-your-own-key configuration works.
+  // The probe budget leaves room for a reasoning model to think before it answers;
+  // a tighter cap would starve one into an empty completion and a false failure.
   fastify.post('/operator/ai/check', async (_req, reply) => {
     const started = Date.now()
     try {
@@ -834,7 +895,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           { role: 'system', content: 'You are a connectivity probe. Reply with the single word OK.' },
           { role: 'user', content: 'OK' },
         ],
-        { maxTokens: 5, temperature: 0 },
+        { maxTokens: 256, temperature: 0 },
       )
       return {
         ok: true,
@@ -1045,7 +1106,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        INSERT INTO operator_conversations (id, zone_id, number, title, mode, autopilot, created_by)
        VALUES ($1, $2, (SELECT next_number FROM allocated), $3, $4, $5, $6)
        RETURNING ${CONVERSATION_SELECT}`,
-      [id, params.zoneId, parsed.data.title, parsed.data.mode ?? 'agent', parsed.data.autopilot ?? false, req.actor.id],
+      [id, params.zoneId, parsed.data.title, parsed.data.mode ?? 'agent', parsed.data.autopilot ?? false, resolveCreatedBy(req)],
     )
     return reply.code(201).send(rows[0])
   })
@@ -1077,8 +1138,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/operator-conversations/:id', async (req, reply) => {
@@ -1196,14 +1256,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
        ORDER BY seq ASC LIMIT $4`,
       [params.id, params.zoneId, afterSeq, limit],
     )
-    if (rows.length === limit) {
-      const last = rows[rows.length - 1]
-      const url = new URL(req.url, 'http://internal')
-      url.searchParams.set('after_seq', String(last.seq))
-      url.searchParams.set('limit', String(limit))
-      reply.header('link', `<${url.pathname}${url.search}>; rel="next"`)
-    }
-    return rows
+    const lastTurn = rows[rows.length - 1]
+    return { items: rows, next_cursor: rows.length === limit && lastTurn ? String(lastTurn.seq) : null }
   })
 
   fastify.get('/zones/:zoneId/operator-conversations/:id/context', async (req, reply) => {
@@ -1483,7 +1537,20 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     if (stored.allSatisfied && stored.mode === 'agent' && stored.autopilot && autopilotAvailable(autopilotPolicy)) {
       const steps = stored.content.steps.map((step) => ({ id: step.id, capability: step.capability, args: step.args ?? {} }))
       const preview = await previewPlan(fastify.db, params.zoneId, { summary: stored.content.summary, steps })
-      const decision = mayAutoApprove({ engaged: true, applicable: preview.ok, credentialsSatisfied: true, steps }, autopilotPolicy)
+      // The same deterministic applicability gate the message path and the execute route use: the
+      // zone must hold governed execution - identity, control plane, and its explicit
+      // administration grant - and no step may already be satisfied, because execute refuses a
+      // plan whose create now targets something that exists rather than duplicating it.
+      const governedIdentity = opts.resolveControlIdentity?.() ?? null
+      const canApply = !!governedIdentity && !!opts.controlEndpoints && (await zoneGoverned(params.zoneId, governedIdentity))
+      const applicable = preview.ok && canApply && preview.steps.every((step) => step.effect !== 'exists')
+      const mutatingSteps = stored.content.steps.filter((step) => step.mutating === true).length
+      const budget = autopilotPolicy.conversationWriteBudget
+      const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
+      const decision = mayAutoApprove(
+        { engaged: true, applicable, credentialsSatisfied: true, steps, mutatingSteps, priorApprovedWrites },
+        autopilotPolicy,
+      )
       if (decision.autoApprove) {
         // The completion re-checks the decided gate under the conversation lock so a racing
         // human decision and this autopilot completion can never both enter the ledger.
@@ -1507,7 +1574,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             seq: conv[0].next_seq,
             role: 'system',
             kind: 'approval',
-            contentJson: JSON.stringify({ plan_seq: params.planSeq, autopilot: true }),
+            contentJson: JSON.stringify({
+              plan_seq: params.planSeq,
+              autopilot: true,
+              ...(budget !== null
+                ? { writes: mutatingSteps, writes_total: priorApprovedWrites + mutatingSteps, write_budget: budget }
+                : {}),
+            }),
             actorId: req.actor.id,
           })
         })
@@ -1515,6 +1588,22 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           autoApproved = true
           approvalTurn = approval
         }
+      } else if (decision.reason === 'write_budget_exceeded' && budget !== null) {
+        await appendTurnTx(
+          fastify.db,
+          params.id,
+          params.zoneId,
+          'system',
+          'note',
+          JSON.stringify({
+            text:
+              `Autopilot paused: this conversation's write budget of ${budget} is spent ` +
+              `(${priorApprovedWrites} auto-approved so far; this plan adds ${mutatingSteps}). ` +
+              'Review and approve this plan manually to continue.',
+            autopilot: { reason: decision.reason, writes: mutatingSteps, writes_total: priorApprovedWrites, write_budget: budget },
+          }),
+          req.actor.id,
+        )
       }
     }
 
@@ -1545,11 +1634,17 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     // handler executes each command in that zone for the reserved Operator subject. A deployment
     // without a governed identity or control plane has no execution path, so it refuses rather
     // than applying changes as any other authority. There is no admin-actor fallback. The
-    // executing actor rides as the audit attribution so every governed mutation in the
-    // tamper-evident control audit names the human who applied the plan.
-    const governed = resolveControlClient(params.zoneId, req.account?.name ?? req.account?.email ?? req.actor.id, true)
+    // executing actor's stable identity rides as the audit attribution so every governed mutation
+    // in the tamper-evident control audit carries the profile id of the human who applied the plan.
+    const governed = resolveControlClient(params.zoneId, req.account?.id ?? `admin:${req.actor.id}`, true, req.id)
     if (!governed) {
       return reply.code(409).send({ error: 'governed_execution_unconfigured' })
+    }
+    // The target zone must have explicitly granted Operator administration; the control handler
+    // enforces the same grant at dispatch, so this refusal is a precise error before any lock or
+    // preflight work rather than the boundary itself.
+    if (!(await zoneGoverned(params.zoneId, governed.identity))) {
+      return reply.code(403).send({ error: 'zone_not_governed' })
     }
     const controlClient = governed.client
 
@@ -1559,6 +1654,27 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     const lockOwner = uuidv7()
     const locked = await fastify.redis.set(lockKey, lockOwner, 'EX', EXECUTE_LOCK_TTL_SEC, 'NX')
     if (locked !== 'OK') return reply.code(409).send({ error: 'plan_already_executed' })
+
+    // The lock renews while this request still owns it, so an apply that legitimately runs
+    // longer than one TTL never loses its lock mid-flight, while an abandoned lock (a crashed
+    // holder stops renewing) still expires within one TTL.
+    const renewLock = setInterval(
+      () => {
+        fastify.redis
+          .eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+            1,
+            lockKey,
+            lockOwner,
+            EXECUTE_LOCK_TTL_SEC,
+          )
+          .then((renewed) => {
+            if (renewed !== 1) req.log.warn({ lockKey }, 'execute lock renewal skipped: lock no longer owned')
+          })
+          .catch((err) => req.log.warn({ err, lockKey }, 'execute lock renewal failed'))
+      },
+      (EXECUTE_LOCK_TTL_SEC * 1000) / 3,
+    )
 
     try {
       // Pre-flight: read-only validation in one short transaction. Resolves the approved,
@@ -1599,8 +1715,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // whole plan is never retriable. Otherwise every recorded step succeeded, and a plan
         // that stopped on a definitive, nothing-applied failure can be resumed from its first
         // unapplied step rather than refused outright.
-        const { rows: priorSteps } = await client.query<{ step_id: string; status: string }>(
-          `SELECT content->>'step_id' AS step_id, content->>'status' AS status
+        const { rows: priorSteps } = await client.query<{ step_id: string; status: string; outputs: Record<string, unknown> | null }>(
+          `SELECT content->>'step_id' AS step_id, content->>'status' AS status, content->'outputs' AS outputs
            FROM operator_turns
            WHERE conversation_id = $1 AND zone_id = $2 AND kind = 'execution'
              AND (content->>'plan_seq')::bigint = $3`,
@@ -1610,21 +1726,50 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
         }
         const appliedStepIds = new Set(priorSteps.filter((row) => row.status === 'succeeded').map((row) => row.step_id))
+        // The referencable outputs each applied step persisted, seeding reference resolution so
+        // a resumed step can still bind to an identifier a prior run produced.
+        const priorOutputs: Record<string, Record<string, unknown>> = {}
+        for (const row of priorSteps) {
+          if (row.status === 'succeeded' && row.outputs && typeof row.outputs === 'object') {
+            priorOutputs[row.step_id] = row.outputs
+          }
+        }
 
-        const steps: GovernedPlanStep[] = planRows[0].content.steps.map((step) => ({
+        const steps = planRows[0].content.steps.map((step) => ({
           id: step.id,
           capability: step.capability,
           args: step.args ?? {},
+          ...(step.depends_on ? { depends_on: step.depends_on } : {}),
         }))
 
-        // Re-validate the whole persisted plan against the live catalog before applying anything.
+        // Re-validate the whole persisted plan against the live catalog before applying anything;
+        // validation also resolves every step-output reference and folds it into the step's
+        // dependency set alongside the declared dependencies.
         const revalidation = validateProposedPlan({ summary: planRows[0].content.summary, steps })
         if (!revalidation.ok) return { ok: false, status: 409, body: { error: 'plan_invalid', validation: revalidation } }
 
-        // Resume applies only the steps not already applied. A plan whose every step already
-        // succeeded is fully executed and is refused as such.
-        const remaining = steps.filter((step) => !appliedStepIds.has(step.id))
+        // Resume applies only the steps not already applied, keeping the validator's dependency
+        // set so the executor honors the plan's graph. A plan whose every step already succeeded
+        // is fully executed and is refused as such.
+        const remaining: GovernedPlanStep[] = revalidation.steps
+          .filter((step) => !appliedStepIds.has(step.id))
+          .map((step) => ({ id: step.id, capability: step.capability, args: step.args, depends_on: step.depends_on }))
         if (remaining.length === 0) return { ok: false, status: 409, body: { error: 'plan_already_executed' } }
+
+        // A remaining step may reference an output only a prior run could have produced; when
+        // that output was never persisted, the reference can never resolve, so the plan is
+        // refused as non-resumable rather than half-applied and then stopped.
+        for (const step of remaining) {
+          for (const ref of collectStepReferences(step.args)) {
+            if (appliedStepIds.has(ref.stepId) && priorOutputs[ref.stepId]?.[ref.output] === undefined) {
+              return {
+                ok: false,
+                status: 409,
+                body: { error: 'plan_not_resumable', step_id: step.id, reference: `steps.${ref.stepId}.outputs.${ref.output}` },
+              }
+            }
+          }
+        }
 
         // Authority is the primary boundary: a mutating step outside the Operator's
         // least-privilege grant is forbidden before executability is even considered.
@@ -1644,13 +1789,19 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           }
         }
 
-        // Re-preview against current state; a now-blocked step stops the plan before any call.
-        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps: remaining })
-        if (!preview.ok) return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
+        // Re-preview the whole plan against current state and judge only the remaining steps: an
+        // applied step legitimately resolves as already existing, while a now-blocked remaining
+        // step stops the plan before any call.
+        const preview = await previewPlan(client, params.zoneId, { summary: planRows[0].content.summary, steps })
+        const remainingIds = new Set(remaining.map((step) => step.id))
+        const remainingPreview = preview.steps.filter((step) => remainingIds.has(step.id))
+        if (remainingPreview.length === 0 || remainingPreview.some((step) => step.effect === 'blocked')) {
+          return { ok: false, status: 409, body: { error: 'plan_blocked', preview } }
+        }
 
         // A create step whose target now already exists would duplicate it, so the plan is
         // refused rather than applied - re-running must never silently create a second one.
-        const existing = preview.steps.filter((step) => step.effect === 'exists')
+        const existing = remainingPreview.filter((step) => step.effect === 'exists')
         if (existing.length > 0) {
           return {
             ok: false,
@@ -1658,6 +1809,33 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             body: {
               error: 'plan_already_satisfied',
               steps: existing.map((step) => ({ step_id: step.id, capability: step.capability, detail: step.detail })),
+            },
+          }
+        }
+
+        // An approval covers the consequences the plan was previewed to have when it was reviewed,
+        // recorded per step in the plan turn. A remaining step whose live consequence now differs
+        // from the reviewed one - a "no change" step that would now create because the object was
+        // deleted in the meantime - would apply against a world the approver never saw, so the
+        // plan is refused and a fresh request composes a new plan against current state.
+        const reviewedEffects = new Map(planRows[0].content.steps.map((step) => [step.id, step.effect]))
+        const drifted = remainingPreview.filter((step) => {
+          const reviewed = reviewedEffects.get(step.id)
+          return typeof reviewed === 'string' && reviewed !== step.effect
+        })
+        if (drifted.length > 0) {
+          return {
+            ok: false,
+            status: 409,
+            body: {
+              error: 'plan_state_changed',
+              steps: drifted.map((step) => ({
+                step_id: step.id,
+                capability: step.capability,
+                reviewed: reviewedEffects.get(step.id),
+                current: step.effect,
+                detail: step.detail,
+              })),
             },
           }
         }
@@ -1681,18 +1859,18 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           return { ok: false, status: 409, body: { error: 'plan_credentials_required', steps: missingCredentials } }
         }
 
-        return { ok: true, summary: planRows[0].content.summary, steps: remaining }
+        return { ok: true, summary: planRows[0].content.summary, steps: remaining, priorOutputs }
       })
 
       if (!pre.ok) return reply.code(pre.status).send(pre.body)
-      // Apply the plan through the control plane as the Operator's scoped identity, spawned under
-      // the executor role: the control client is bounded to exactly the scopes the Operator's
-      // authority grants, so a write scope it was never granted can never be minted even if a step
-      // slipped past the authority check. Each step mints a least-privilege token and invokes its
-      // governed control command; the control plane authorizes, executes, and audits it natively. A
-      // denial or failure stops the plan, so it never silently half-applies.
-      const executor = createRoleScopedClient(controlClient, 'executor', roleScopes('executor', authority))
-      const result = await executeViaControlPlane(executor, pre.steps)
+      // Apply the plan through the control plane as the executor role identity: a separate
+      // Caracal application whose STS traits carry exactly the scopes the Operator's authority
+      // grants, so a write scope it was never granted can never be minted even if a step slipped
+      // past the authority check. The plan applies as a dependency-ordered graph: each step mints
+      // a least-privilege token, resolves any references to earlier outputs, and invokes its
+      // governed control command; the control plane authorizes, executes, and audits it natively.
+      // A denial or failure stops the plan, so it never silently half-applies.
+      const result = await executeViaControlPlane(controlClient, pre.steps, pre.priorOutputs)
 
       // Record the applied steps and any failure in the ledger. The control plane already
       // wrote the tamper-evident admin audit for each mutation, so no manual audit record
@@ -1715,6 +1893,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         if (!conv[0]) return { turns, outputs }
         let seq = conv[0].next_seq
         for (const step of result.applied) {
+          const referencable = CAPABILITIES[step.capability]?.outputs ?? []
+          const persistedOutputs = Object.fromEntries(Object.entries(step.output ?? {}).filter(([key]) => referencable.includes(key)))
           const turn = await writeTurnLocked(client, {
             conversationId: params.id,
             zoneId: params.zoneId,
@@ -1726,6 +1906,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
               step_id: step.id,
               status: 'succeeded',
               detail: step.detail,
+              // The step's referencable outputs - durable identifiers only, never one-time
+              // material such as a client secret - persist with the turn so a resumed run can
+              // still resolve later steps' references against them.
+              ...(Object.keys(persistedOutputs).length > 0 ? { outputs: persistedOutputs } : {}),
               executed_by: authority.principal,
             }),
             actorId: req.actor.id,
@@ -1808,7 +1992,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // gateway is enabled and a governed reader is available for the zone, and any failure is
       // swallowed so the apply's success is never affected by an unverifiable turn.
       const verifyGateway = buildGateway()
-      const verifier = resolveZoneResearcher(params.zoneId)
+      const verifier = resolveZoneResearcher(params.zoneId, req.id)
       if (verifyGateway.status().enabled && verifier) {
         void (async () => {
           try {
@@ -1834,6 +2018,23 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
                 }),
                 req.actor.id,
               )
+            } else {
+              // A verifier that produced no usable verdict is recorded as explicitly unverified,
+              // with the reason, so a missing verification note never reads as a clean apply that
+              // was checked - the human sees the check did not happen and can inspect manually.
+              const summary = `The post-execution check did not complete: ${verdict.error}. Inspect the applied result manually.`
+              await appendTurnTx(
+                fastify.db,
+                params.id,
+                params.zoneId,
+                'operator',
+                'note',
+                JSON.stringify({
+                  text: `Verification (unverified): ${summary}`,
+                  verification: { status: 'unverified', summary },
+                }),
+                req.actor.id,
+              )
             }
           } catch {
             // Verification is best-effort: the apply already succeeded and is recorded, so an
@@ -1844,11 +2045,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
       return reply
     } finally {
+      clearInterval(renewLock)
       // Release the lock only if this request still owns it: a compare-and-delete so an
-      // expired-then-reacquired lock held by another request is never deleted here.
+      // expired-then-reacquired lock held by another request is never deleted here. A failed
+      // release is logged - the lock still expires on its TTL, but the delay is visible.
       await fastify.redis
         .eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", 1, lockKey, lockOwner)
-        .catch(() => {})
+        .catch((err) => req.log.error({ err, lockKey }, 'execute lock release failed'))
     }
   })
 
@@ -1909,21 +2112,24 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
     }
     messageRun = await transitionMessageRun(fastify.db, messageRun, 'waiting_for_model', { reason: 'model_requested' })
 
-    const [state, facts, zoneMemory, zoneRow] = await Promise.all([
+    const [state, facts, conversationMemory, zoneRow] = await Promise.all([
       loadConversationState(fastify.db, params.id, params.zoneId, MESSAGE_CONTEXT_WINDOW),
       loadConversationFacts(fastify.db, params.id, params.zoneId),
-      recallZoneMemory(fastify.db, params.zoneId),
-      fastify.db.query<{ name: string | null; slug: string | null }>('SELECT name, slug FROM zones WHERE id = $1 LIMIT 1', [params.zoneId]),
+      recallConversationMemory(fastify.db, params.zoneId, params.id),
+      fastify.db.query<{ name: string | null; slug: string | null; operator_governed: boolean }>(
+        'SELECT name, slug, operator_governed FROM zones WHERE id = $1 LIMIT 1',
+        [params.zoneId],
+      ),
     ])
     // Ground the agents in their one operating zone. canApply mirrors the execute handler's gate:
-    // the Operator governs every zone it operates in, so a conversation can apply changes whenever
-    // its governed identity and control plane are configured. The zone-isolation refusal above
-    // already excludes the reserved system zones, so any zone that reaches here is governable.
-    // Surfacing it lets the Operator say so upfront instead of only confirming at apply time.
+    // governed identity and control plane configured, and the zone has explicitly granted
+    // Operator administration (the Operator's own system zone needs no grant). Surfacing it lets
+    // the Operator say so upfront instead of only confirming at apply time.
     const governedIdentity = opts.resolveControlIdentity?.() ?? null
-    const canApply = !!governedIdentity && !!opts.controlEndpoints
+    const zoneGrant = params.zoneId === governedIdentity?.zoneId || zoneRow.rows[0]?.operator_governed === true
+    const canApply = !!governedIdentity && !!opts.controlEndpoints && zoneGrant
     const zoneName = zoneRow.rows[0]?.name ?? zoneRow.rows[0]?.slug ?? 'this zone'
-    const context: AgentContext = { facts, state, zoneMemory, zone: { name: zoneName, canApply } }
+    const context: AgentContext = { facts, state, conversationMemory, zone: { name: zoneName, canApply } }
 
     // Track the real token usage of every completion made while answering this one
     // message, and report it alongside the model that answered and its context window so
@@ -2008,14 +2214,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
     try {
       // For a read tier the orchestrator first gathers live state through governed reads, so the
-      // answer is grounded in current state rather than the model's guess. The researcher is bound
-      // to the conversation's zone: the Operator's system-zone identity is reused for caracal.sys,
-      // and for any other zone a least-privilege, read-only reader identity is provisioned in that
-      // zone. The worker is further narrowed to the read role, so it can never mint a write token -
-      // every change still flows through the approval-gated execution path below. When
-      // self-governance is not configured the researcher is null and the answer falls back to
-      // conversation context, and the read agents say live state could not be read for this zone.
-      const researcher = resolveZoneResearcher(params.zoneId)
+      // answer is grounded in current state rather than the model's guess. The researcher is the
+      // Operator's read-only role application bound to the conversation's zone; its STS traits
+      // carry only read scopes, so it can never mint a write token - every change still flows
+      // through the approval-gated execution path below. A zone that has not granted Operator
+      // administration gets no researcher: the control handler would deny every read, so the
+      // answer falls back to conversation context and the read agents say live state could not
+      // be read for this zone. The same happens when self-governance is not configured.
+      const researcher = zoneGrant ? resolveZoneResearcher(params.zoneId, req.id) : null
 
       // The conversation's operation mode, read under the lock that recorded the message. In ask
       // mode the orchestrator never produces a plan, so the message path cannot persist one.
@@ -2120,14 +2326,41 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         }
 
         const preview = await previewPlan(fastify.db, params.zoneId, planned.value)
-        // A composed plan carries an advisory security review; the route persists it with the
-        // plan and surfaces it to the human. It is informational only - the plan is still
-        // governed by validation, preview, and approval, never by this advisory. When the guardian
-        // judged the plan misaligned with how Caracal is meant to be used, the orchestrator also
-        // produced guidance: the Caracal-correct path the human should take instead. It is surfaced
-        // first so the turn teaches the right approach; the plan stays approvable behind the human
-        // gate as the deliberate secondary option.
-        const advisory = outcome.advisory
+        // A plan that would change nothing is a category error the same way an all-read plan is:
+        // when every step resolves against live state as already satisfied or read-only, there is
+        // nothing to approve and the execute path would refuse it as already satisfied. The
+        // deterministic preview details already say what exists, so the turn answers plainly with
+        // them instead of surfacing an approvable card that can only dead-end.
+        const satisfied =
+          preview.ok && preview.steps.length > 0 && preview.steps.every((step) => step.effect === 'exists' || step.effect === 'read_only')
+        if (satisfied && preview.steps.some((step) => step.effect === 'exists')) {
+          const details = preview.steps.filter((step) => step.effect === 'exists').map((step) => step.detail)
+          const text = `Nothing to change - this is already in place. ${details.join(' ')}`
+          const noteContent: Record<string, unknown> = { text }
+          if (deliberation.length > 0) noteContent.deliberation = deliberation
+          const turn = await appendTurnTx(
+            fastify.db,
+            params.id,
+            params.zoneId,
+            'operator',
+            'note',
+            JSON.stringify(noteContent),
+            req.actor.id,
+          )
+          return finish(
+            201,
+            { intent: 'explain', tier, ok: true, text, turn: turn.ok ? turn.turn : null, ...meta() },
+            { state: 'completed', reason: 'plan_already_satisfied' },
+          )
+        }
+        // A composed plan carries the guardian's review state; the route persists it with the plan
+        // and surfaces it to whoever decides. The advisory and its guidance - the guardian's
+        // concrete recommendation when it judged the plan risky or misaligned - are informational
+        // only: the plan is governed by validation, preview, and the approval gate, and when
+        // autopilot is engaged the approval decision follows the deployment's configured autopilot
+        // policy alone, never this review.
+        const review = outcome.review
+        const advisory = review?.status === 'reviewed' ? review.advisory : undefined
         const guidance = outcome.guidance
         const turn = await appendTurnTx(
           fastify.db,
@@ -2135,7 +2368,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           params.zoneId,
           'operator',
           'plan',
-          buildPlanContentJson(planned.value.summary, validation, advisory, deliberation, preview.steps),
+          buildPlanContentJson(planned.value.summary, validation, review, deliberation, preview.steps),
           req.actor.id,
         )
         if (!turn.ok) {
@@ -2155,11 +2388,14 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // Caracal-governed autopilot: in agent mode, when the deployment has enabled autopilot and
         // the conversation has engaged it, Caracal - not the model - auto-satisfies this plan's
         // human approval. An engaged conversation has opted into acting without a human in the loop,
-        // so every non-empty plan is approved. If it approves, an approval turn is recorded
-        // attributed to autopilot and the operator who is acting; the plan is then ready to apply
-        // through the unchanged governed execute path. Autopilot never widens authority - it only
-        // fills the approval step, and the execute path still enforces the capability allowlist,
-        // least-privilege token, and zone isolation on apply.
+        // so every non-empty plan is approved, bounded only by the deployment's configured policy:
+        // when a conversation-level write budget is set and this plan's mutating steps would spend
+        // past it, the plan stops for explicit human approval and the stop is recorded as a note
+        // the operator sees. If it approves, an approval turn is recorded attributed to autopilot
+        // and the operator who is acting, carrying the write-ledger accounting for audit; the plan
+        // is then ready to apply through the unchanged governed execute path. Autopilot never
+        // widens authority - it only fills the approval step, and the execute path still enforces
+        // the capability allowlist, least-privilege token, and zone isolation on apply.
         let autoApproved = false
         let approvalTurn: Record<string, unknown> | null = null
         if (turn.mode === 'agent' && turn.autopilot && autopilotAvailable(autopilotPolicy)) {
@@ -2168,8 +2404,24 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           // the operator pastes them, so autopilot defers; the paste flow completes the approval
           // once the vault satisfies the plan.
           const credentialsSatisfied = validation.steps.every((step) => credentialFieldsFor(step.capability, step.args).length === 0)
+          const mutatingSteps = validation.steps.filter((step) => step.mutating).length
+          const budget = autopilotPolicy.conversationWriteBudget
+          const priorApprovedWrites = budget !== null ? await autopilotApprovedWrites(fastify.db, params.id, params.zoneId) : 0
+          // Applicability is the same deterministic gate the execute route enforces: the preview
+          // must say every step can apply, the zone must be able to apply at all - governed
+          // identity configured and the zone's explicit administration grant in place - and no
+          // step may already be satisfied, because execute refuses a plan whose create now
+          // targets something that exists. A plan that would only dead-end at execute stops for
+          // a human who can see why instead.
           const decision = mayAutoApprove(
-            { engaged: true, applicable: preview.ok, credentialsSatisfied, steps: planned.value.steps },
+            {
+              engaged: true,
+              applicable: preview.ok && canApply && preview.steps.every((step) => step.effect !== 'exists'),
+              credentialsSatisfied,
+              steps: planned.value.steps,
+              mutatingSteps,
+              priorApprovedWrites,
+            },
             autopilotPolicy,
           )
           if (decision.autoApprove) {
@@ -2179,13 +2431,35 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
               params.zoneId,
               'system',
               'approval',
-              JSON.stringify({ plan_seq: planSeq, autopilot: true }),
+              JSON.stringify({
+                plan_seq: planSeq,
+                autopilot: true,
+                ...(budget !== null
+                  ? { writes: mutatingSteps, writes_total: priorApprovedWrites + mutatingSteps, write_budget: budget }
+                  : {}),
+              }),
               req.actor.id,
             )
             if (approval.ok) {
               autoApproved = true
               approvalTurn = approval.turn
             }
+          } else if (decision.reason === 'write_budget_exceeded' && budget !== null) {
+            await appendTurnTx(
+              fastify.db,
+              params.id,
+              params.zoneId,
+              'system',
+              'note',
+              JSON.stringify({
+                text:
+                  `Autopilot paused: this conversation's write budget of ${budget} is spent ` +
+                  `(${priorApprovedWrites} auto-approved so far; this plan adds ${mutatingSteps}). ` +
+                  'Review and approve this plan manually to continue.',
+                autopilot: { reason: decision.reason, writes: mutatingSteps, writes_total: priorApprovedWrites, write_budget: budget },
+              }),
+              req.actor.id,
+            )
           }
         }
 
@@ -2198,6 +2472,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
             turn: turn.turn,
             validation,
             preview,
+            review: review
+              ? review.status === 'reviewed'
+                ? { status: review.status }
+                : { status: review.status, reason: review.reason }
+              : undefined,
             advisory,
             guidance,
             auto_approved: autoApproved,

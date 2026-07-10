@@ -25,6 +25,10 @@ const SGR = {
   dim: '\x1b[2m',
   kbd: '\x1b[7m',
   selected: '\x1b[1;7;35m',
+  brand: '\x1b[1;36m',
+  section: '\x1b[94m',
+  command: '\x1b[32m',
+  flag: '\x1b[33m',
 } as const
 
 type Tone = keyof typeof SGR
@@ -41,9 +45,10 @@ function colorEnabled(stream: NodeJS.WriteStream): boolean {
   return Boolean(stream.isTTY)
 }
 
-const utf8 = (process.env.LANG ?? process.env.LC_ALL ?? '').toLowerCase().includes('utf')
-  || process.platform === 'darwin'
-  || process.platform === 'linux'
+const utf8 =
+  (process.env.LANG ?? process.env.LC_ALL ?? '').toLowerCase().includes('utf') ||
+  process.platform === 'darwin' ||
+  process.platform === 'linux'
 
 export const SYMBOL = {
   ok: utf8 ? '✓' : '+',
@@ -78,6 +83,10 @@ export const style = {
   dim: (s: string) => paint(process.stdout, 'dim', s),
   kbd: (s: string) => paint(process.stdout, 'kbd', s),
   selected: (s: string) => paint(process.stdout, 'selected', s),
+  brand: (s: string) => paint(process.stdout, 'brand', s),
+  section: (s: string) => paint(process.stdout, 'section', s),
+  command: (s: string) => paint(process.stdout, 'command', s),
+  flag: (s: string) => paint(process.stdout, 'flag', s),
 }
 
 export function colorOn(stream: NodeJS.WriteStream = process.stdout): boolean {

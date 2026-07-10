@@ -8,6 +8,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { ResourceFormModal } from "@/components/console/ResourceForm";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   CopyValue,
   DangerZone,
@@ -30,7 +31,6 @@ import {
 } from "@/components/ui";
 import { errorMessage } from "@/platform/api/errors";
 import {
-  useApplications,
   useCreateResource,
   useDeleteResource,
   useProviders,
@@ -39,7 +39,7 @@ import {
 } from "@/platform/api/hooks";
 import { appLink } from "@/platform/nav/appLink";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import type { Application, Provider, Resource, ResourceInput } from "@/platform/api/types";
+import type { Provider, Resource, ResourceInput } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/resources")({
   component: ResourcesRoute,
@@ -65,8 +65,8 @@ type EnforcementFilter = "all" | "enforced" | "transport_uniform";
 
 function ResourcesPage({ zoneId }: { zoneId: string }) {
   const toast = useToast();
-  const query = useResources(zoneId);
-  const appsQuery = useApplications(zoneId);
+  const [view, setView] = useState<"active" | "archived">("active");
+  const query = useResources(zoneId, view);
   const providersQuery = useProviders(zoneId);
   const createResource = useCreateResource(zoneId);
   const updateResource = useUpdateResource(zoneId);
@@ -83,10 +83,8 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
   const [filter, setFilter] = useState<EnforcementFilter>("all");
 
   const allRows = useMemo(() => query.data ?? [], [query.data]);
-  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data]);
   const providers = useMemo(() => providersQuery.data ?? [], [providersQuery.data]);
 
-  const appById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const providerById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
 
   const rows = useMemo(
@@ -106,14 +104,24 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
 
   const filters: FilterGroup[] = [
     {
+      id: "lifecycle",
+      label: "Lifecycle",
+      value: view,
+      onChange: (v) => setView(v as "active" | "archived"),
+      options: [
+        { id: "active", label: "Active" },
+        { id: "archived", label: "Archived" },
+      ],
+    },
+    {
       id: "enforcement",
-      label: "Authority",
+      label: "Enforcement",
       value: filter,
       onChange: (v) => setFilter(v as EnforcementFilter),
       options: [
         { id: "all", label: "All resources", count: allRows.length },
-        { id: "enforced", label: "Operation enforced", count: counts.enforced },
-        { id: "transport_uniform", label: "Transport uniform", count: counts.uniform },
+        { id: "enforced", label: "Listed operations only", count: counts.enforced },
+        { id: "transport_uniform", label: "Any operation", count: counts.uniform },
       ],
     },
   ];
@@ -142,34 +150,27 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       ),
     },
     {
-      id: "binding",
-      header: "Binding",
+      id: "provider",
+      header: "Provider",
       truncate: true,
-      cell: (r) => (
-        <div className="flex min-w-0 flex-col gap-0.5 text-xs">
-          <RelationCell
-            label="app"
-            value={r.gateway_application_id ? appById.get(r.gateway_application_id)?.name : null}
-            unresolved={Boolean(r.gateway_application_id)}
-          />
-          <RelationCell
-            label="cred"
-            value={
-              r.credential_provider_id ? providerById.get(r.credential_provider_id)?.name : null
-            }
-            unresolved={Boolean(r.credential_provider_id)}
-          />
-        </div>
-      ),
+      cell: (r) => {
+        const name = r.credential_provider_id
+          ? providerById.get(r.credential_provider_id)?.name
+          : null;
+        if (name) return <span className="block truncate text-xs text-foreground">{name}</span>;
+        if (r.credential_provider_id)
+          return <span className="block truncate text-xs text-muted-foreground">Unavailable</span>;
+        return <span className="text-xs text-muted-foreground/50">-</span>;
+      },
     },
     {
       id: "enforcement",
-      header: "Authority",
+      header: "Enforcement",
       cell: (r) =>
         r.operation_enforcement === "enforced" ? (
           <Badge tone="success">{(r.operations ?? []).length} ops enforced</Badge>
         ) : (
-          <Badge tone="muted">Transport</Badge>
+          <Badge tone="muted">Any operation</Badge>
         ),
     },
     {
@@ -181,6 +182,21 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         <span className="font-mono text-xs text-muted-foreground">{(r.scopes ?? []).length}</span>
       ),
     },
+    ...(view === "archived"
+      ? [
+          {
+            id: "archived",
+            header: "Archived",
+            sortable: true,
+            align: "right",
+            cell: (r) => (
+              <span className="text-xs text-muted-foreground">
+                {r.archived_at ? new Date(r.archived_at).toLocaleDateString() : "-"}
+              </span>
+            ),
+          } satisfies Column<Resource>,
+        ]
+      : []),
   ];
 
   return (
@@ -194,12 +210,13 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         loading={query.isLoading}
         columns={columns}
         rowKey={(r) => r.id}
-        filters={allRows.length > 0 ? filters : undefined}
+        filters={allRows.length > 0 || view === "archived" ? filters : undefined}
         search={{
           placeholder: "Search resources, scopes, upstreams…",
           match: (r, q) =>
             r.name.toLowerCase().includes(q) ||
             r.identifier.toLowerCase().includes(q) ||
+            r.id.toLowerCase().includes(q) ||
             (r.upstream_url ?? "").toLowerCase().includes(q) ||
             (r.scopes ?? []).some((s) => s.toLowerCase().includes(q)),
         }}
@@ -207,12 +224,19 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         sortValues={{
           name: (r) => r.name.toLowerCase(),
           scopes: (r) => (r.scopes ?? []).length,
+          archived: (r) => (r.archived_at ? Date.parse(r.archived_at) : 0),
         }}
         empty={{
-          title: query.isError ? "Could not load resources" : "No resources yet",
+          title: query.isError
+            ? "Could not load resources"
+            : view === "archived"
+              ? "No archived resources"
+              : "No resources yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Register a protected upstream so the Gateway can authorize requests to it.",
+            : view === "archived"
+              ? "Resources you archive keep their record here for audit."
+              : "Register a protected upstream so the Gateway can authorize requests to it.",
         }}
         detail={{
           title: (r) => r.name,
@@ -222,9 +246,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           render: (r) => (
             <ResourceDetail
               resource={r}
-              gatewayApp={
-                r.gateway_application_id ? appById.get(r.gateway_application_id) : undefined
-              }
               provider={
                 r.credential_provider_id ? providerById.get(r.credential_provider_id) : undefined
               }
@@ -238,7 +259,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       <ResourceFormModal
         open={createOpen}
         mode="create"
-        applications={apps}
         providers={providers}
         busy={createResource.isPending}
         onClose={() => setCreateOpen(false)}
@@ -257,7 +277,6 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         open={editTarget !== null}
         mode="edit"
         resource={editTarget ?? undefined}
-        applications={apps}
         providers={providers}
         busy={updateResource.isPending}
         onClose={() => setEditTarget(null)}
@@ -280,17 +299,17 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete resource"
-        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so agents lose access to this upstream. The record is retained for audit.`}
-        confirmLabel="Delete resource"
+        title="Archive resource"
+        description={`Archiving "${deleteTarget?.name ?? ""}" removes its Gateway route and authorization, so Applications lose access to this upstream. The record stays visible under Archived for audit.`}
+        confirmLabel="Archive resource"
         tone="danger"
         onConfirm={async () => {
           if (!deleteTarget) return;
           try {
             await deleteResource.mutateAsync(deleteTarget.id);
-            toast({ tone: "info", title: "Resource deleted", description: deleteTarget.name });
+            toast({ tone: "info", title: "Resource archived", description: deleteTarget.name });
           } catch (err) {
-            toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
+            toast({ tone: "error", title: "Archive failed", description: errorMessage(err) });
           }
         }}
       />
@@ -306,84 +325,64 @@ function hostOf(url: string): string {
   }
 }
 
-function RelationCell({
-  label,
-  value,
-  unresolved,
-}: {
-  label: string;
-  value: string | null | undefined;
-  unresolved: boolean;
-}) {
-  if (value) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </span>
-        <span className="truncate text-foreground">{value}</span>
-      </span>
-    );
-  }
-  if (unresolved) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </span>
-        <span className="truncate text-muted-foreground">linked</span>
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/70">
-        {label}
-      </span>
-      <span className="text-muted-foreground/50">-</span>
-    </span>
-  );
-}
-
 function ResourceDetail({
   resource,
-  gatewayApp,
   provider,
   onEdit,
   onDelete,
 }: {
   resource: Resource;
-  gatewayApp?: Application;
   provider?: Provider;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const scopes = resource.scopes ?? [];
   const operations = resource.operations ?? [];
+  const archived = Boolean(resource.archived_at);
   return (
     <div className="flex flex-col gap-6">
       <DetailHeader
         action={
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
+          archived ? undefined : (
+            <Button variant="secondary" size="sm" onClick={onEdit}>
+              Edit
+            </Button>
+          )
         }
       >
         {resource.operation_enforcement === "enforced" ? (
-          <Badge tone="success">Operation enforced</Badge>
+          <Badge tone="success">Listed operations only</Badge>
         ) : (
-          <Badge tone="muted">Transport uniform</Badge>
+          <Badge tone="muted">Any operation</Badge>
         )}
+        {archived && resource.archived_at ? (
+          <span className="text-xs text-muted-foreground">
+            Archived {new Date(resource.archived_at).toLocaleString()}
+          </span>
+        ) : null}
       </DetailHeader>
 
       <DetailGroup title="Routing">
+        <DetailField label="Resource ID">
+          <CopyValue value={resource.id} />
+        </DetailField>
         <DetailField label="Identifier">
           <CopyValue value={resource.identifier} />
         </DetailField>
         <DetailField label="Upstream URL">
           {resource.upstream_url ? <CopyValue value={resource.upstream_url} /> : <Mono>-</Mono>}
         </DetailField>
+        {resource.created_by ? (
+          <DetailField label="Created by">
+            <CreatedBy id={resource.created_by} coAuthored={resource.created_via_operator} />
+          </DetailField>
+        ) : null}
         <DetailField label="Created">{new Date(resource.created_at).toLocaleString()}</DetailField>
+        {resource.updated_by ? (
+          <DetailField label="Updated by">
+            <CreatedBy id={resource.updated_by} coAuthored={resource.updated_via_operator} />
+          </DetailField>
+        ) : null}
         {resource.updated_at && resource.updated_at !== resource.created_at ? (
           <DetailField label="Updated">
             {new Date(resource.updated_at).toLocaleString()}
@@ -392,13 +391,7 @@ function ResourceDetail({
       </DetailGroup>
 
       <DetailSection title="Bindings">
-        <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 [&>*]:bg-card">
-          <BindingCell
-            label="Gateway application"
-            value={gatewayApp?.name}
-            id={resource.gateway_application_id}
-            to={appLink("/applications")}
-          />
+        <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border [&>*]:bg-card">
           <BindingCell
             label="Credential provider"
             value={provider?.name}
@@ -428,7 +421,7 @@ function ResourceDetail({
       <DetailSection title="Operations">
         {resource.operation_enforcement === "transport_uniform" ? (
           <p className="text-sm text-muted-foreground">
-            Authorization is uniform across the transport. Individual operations are not listed.
+            Any operation: one decision covers every call, so no operation list applies.
           </p>
         ) : operations.length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-border">
@@ -457,11 +450,18 @@ function ResourceDetail({
         )}
       </DetailSection>
 
-      <DangerZone
-        description="Remove this resource and its Gateway route."
-        actionLabel="Delete"
-        onAction={onDelete}
-      />
+      {archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          This resource is archived: its Gateway route and authorization are removed and the record
+          is retained for audit.
+        </p>
+      ) : (
+        <DangerZone
+          description="Archive this resource and remove its Gateway route. Applications lose access to this upstream."
+          actionLabel="Archive"
+          onAction={onDelete}
+        />
+      )}
     </div>
   );
 }
@@ -483,13 +483,17 @@ function BindingCell({
         {label}
       </div>
       {id ? (
-        <Link
-          to={to}
-          search={{ focus: id }}
-          className="mt-1 block truncate text-sm text-foreground hover:underline"
-        >
-          {value ?? "Linked"}
-        </Link>
+        value ? (
+          <Link
+            to={to}
+            search={{ focus: id }}
+            className="mt-1 block truncate text-sm text-foreground hover:underline"
+          >
+            {value}
+          </Link>
+        ) : (
+          <div className="mt-1 text-sm text-muted-foreground">Unavailable</div>
+        )
       ) : (
         <div className="mt-1 text-sm text-muted-foreground">Not bound</div>
       )}

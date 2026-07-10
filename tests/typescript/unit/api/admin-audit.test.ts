@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the admin audit onResponse hook recording mutations.
+// Unit tests for the admin audit hook recording mutations before success is reported.
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
@@ -59,6 +59,106 @@ describe('admin audit hook', () => {
     expect(params[17]).toBe(1)
   })
 
+  it('records a zone create against the created zone id from the response body', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones', async (_req, reply) => reply.code(201).send({ id: 'zone-new', name: 'Meridian Production' }))
+    await app.inject({ method: 'POST', url: '/v1/zones', payload: { name: 'Meridian Production' } })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('zone-new')
+    expect(ins!.params![9]).toBe('zones')
+    expect(ins!.params![10]).toBe('zone-new')
+  })
+
+  it('records a nested create against the created entity, not its parent zone', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/applications', async (_req, reply) => reply.code(201).send({ id: 'app-new', name: 'Atlas Research Agent' }))
+    await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/applications',
+      payload: { name: 'Atlas Research Agent' },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('z1')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-new')
+    expect(ins!.params![12]).toMatchObject({ change_kind: 'create' })
+  })
+
+  it('classifies a nested create carrying a secret as a create with the rotation flag', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/providers', async (_req, reply) => reply.code(201).send({ id: 'prov-new', name: 'Azure OpenAI' }))
+    await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/providers',
+      payload: { name: 'Azure OpenAI', kind: 'bearer_token', config_json: { bearer_token: 'sk-x' } },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('create')
+    expect(payload.secret_rotated).toBe(true)
+    expect(payload.changed_fields).not.toContain('config_json.bearer_token')
+  })
+
+  it('keeps the action route entity when a POST is a sub-resource verb, not a create', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/applications/:id/rotate-secret', async (_req, reply) =>
+      reply.code(201).send({ id: 'ignored-secret-envelope-id' }),
+    )
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/applications/app-1/rotate-secret', payload: {} })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![8]).toBe('z1')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-1')
+  })
+
+  it('records the verified console profile id alongside the credential actor', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.addHook('preHandler', async (req) => {
+      ;(req as unknown as { account: unknown }).account = { id: 'acct-1' }
+    })
+    app.put('/v1/zones/:zoneId/applications/:id/run-manifest', async () => ({ ok: true }))
+    await app.inject({
+      method: 'PUT',
+      url: '/v1/zones/z1/applications/app-1/run-manifest',
+      payload: { credentials: [] },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.operator).toBe('acct-1')
+    expect(ins!.params![9]).toBe('applications')
+    expect(ins!.params![10]).toBe('app-1')
+  })
+
+  it('omits the operator field when the request carries no verified account', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    expect(ins!.params![12]).not.toHaveProperty('operator')
+  })
+
   it('records a secret-free change summary distinguishing field edits from secret rotation', async () => {
     const captured: Captured[] = []
     const app = buildApp(captured)
@@ -71,10 +171,93 @@ describe('admin audit hook', () => {
     const ins = insertCall(captured)
     expect(ins).toBeDefined()
     const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('create')
     expect(payload.changed_fields).toEqual(['name'])
     expect(payload.secret_rotated).toBe(true)
     // the secret value is never persisted to the audit record.
     expect(JSON.stringify(payload)).not.toContain('should-not-be-stored')
+  })
+
+  it('classifies a config patch carrying a nested provider secret as a secret rotation', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.patch('/v1/zones/:zoneId/providers/:id', async () => ({ ok: true }))
+    await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/providers/prov-1',
+      payload: {
+        config_json: {
+          header_name: 'X-API-Key',
+          api_key: 'sk-should-not-be-stored',
+          token_params: { audience: 'https://api.pipernet.example' },
+        },
+      },
+    })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('secret_rotation')
+    expect(payload.secret_rotated).toBe(true)
+    expect(payload.changed_fields).toEqual(['config_json.header_name', 'config_json.token_params.audience'])
+    expect(JSON.stringify(payload)).not.toContain('sk-should-not-be-stored')
+  })
+
+  it('classifies a plain nested config patch as an update with dotted field paths', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.patch('/v1/zones/:zoneId/providers/:id', async () => ({ ok: true }))
+    await app.inject({
+      method: 'PATCH',
+      url: '/v1/zones/z1/providers/prov-1',
+      payload: { name: 'Hooli API', config_json: { client_auth_method: 'private_key_jwt' } },
+    })
+    await app.close()
+    const payload = insertCall(captured)!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('update')
+    expect(payload.changed_fields).toEqual(['config_json.client_auth_method', 'name'])
+    expect(payload).not.toHaveProperty('secret_rotated')
+  })
+
+  it('classifies an empty-body rotate-secret action as a secret rotation', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/workloads/:id/rotate-secret', async () => ({ ok: true }))
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads/w1/rotate-secret', payload: {} })
+    await app.close()
+    const payload = insertCall(captured)!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('secret_rotation')
+    expect(payload.secret_rotated).toBe(true)
+    expect(payload.changed_fields).toEqual([])
+  })
+
+  it('classifies other sub-resource verbs as actions and deletes as deletes', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.post('/v1/zones/:zoneId/providers/:id/test', async () => ({ ok: true }))
+    app.delete('/v1/zones/:zoneId/providers/:id', async () => ({ ok: true }))
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/providers/prov-1/test', payload: {} })
+    await app.inject({ method: 'DELETE', url: '/v1/zones/z1/providers/prov-1' })
+    await app.close()
+    const inserts = captured.filter((c) => c.sql.includes('INSERT INTO admin_audit_events'))
+    expect((inserts[0]!.params![12] as Record<string, unknown>).change_kind).toBe('action')
+    expect((inserts[1]!.params![12] as Record<string, unknown>).change_kind).toBe('delete')
+  })
+
+  it('surfaces an emptied nested object as its own changed field', async () => {
+    const captured: Captured[] = []
+    const app = Fastify({ logger: false })
+    registerAdminAuditHook(app, { db: makeDb(captured) })
+    app.patch('/v1/zones/:zoneId/providers/:id', async () => ({ ok: true }))
+    await app.inject({ method: 'PATCH', url: '/v1/zones/z1/providers/prov-1', payload: { config_json: {} } })
+    await app.close()
+    const payload = insertCall(captured)!.params![12] as Record<string, unknown>
+    expect(payload.change_kind).toBe('update')
+    expect(payload.changed_fields).toEqual(['config_json'])
   })
 
   it('does not record GET requests', async () => {
@@ -106,15 +289,15 @@ describe('admin audit hook', () => {
   it('records the provider oauth callback and strips the query string', async () => {
     const captured: Captured[] = []
     const app = buildApp(captured)
-    app.get('/v1/zones/:zoneId/provider-grants/oauth/callback', async () => ({ ok: true }))
-    await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-grants/oauth/callback?code=abc&state=secrettoken' })
+    app.get('/v1/zones/:zoneId/provider-connections/oauth/callback', async () => ({ ok: true }))
+    await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-connections/oauth/callback?code=abc&state=secrettoken' })
     await app.close()
     const ins = insertCall(captured)
     expect(ins).toBeDefined()
     const params = ins!.params!
     expect(params[8]).toBe('z1')
-    expect(params[5]).toBe('GET /v1/zones/z1/provider-grants/oauth/callback')
-    expect(params[7]).toBe('/v1/zones/z1/provider-grants/oauth/callback')
+    expect(params[5]).toBe('GET /v1/zones/z1/provider-connections/oauth/callback')
+    expect(params[7]).toBe('/v1/zones/z1/provider-connections/oauth/callback')
     expect(JSON.stringify(params)).not.toContain('secrettoken')
   })
 
@@ -131,13 +314,53 @@ describe('admin audit hook', () => {
     expect(ins!.params![16]).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('swallows insert failures without breaking the response', async () => {
+  it('strips NUL bytes from the record before persistence', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: { 'na\u0000me': 'x' } })
+    await app.close()
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    const payload = ins!.params![12] as { changed_fields: string[] }
+    expect(payload.changed_fields).toEqual(['name'])
+    expect(JSON.stringify(ins!.params)).not.toContain('\\u0000')
+  })
+
+  it('audits global-scope mutations without sending NUL bytes in any query parameter', async () => {
+    const captured: Captured[] = []
+    const app = buildApp(captured)
+    app.post('/v1/zones', async () => ({ ok: true }))
+    const res = await app.inject({ method: 'POST', url: '/v1/zones', payload: { name: 'Pied Piper Production' } })
+    await app.close()
+    expect(res.statusCode).toBe(200)
+    const ins = insertCall(captured)
+    expect(ins).toBeDefined()
+    // zone_id is null for global-scope mutations; the chain lock key must stay NUL-free.
+    expect(ins!.params![8]).toBeNull()
+    for (const call of captured) {
+      expect(JSON.stringify(call.params ?? [])).not.toContain('\\u0000')
+    }
+  })
+
+  it('refuses to report success when the audit insert fails for a successful mutation', async () => {
     const app = Fastify({ logger: false })
     const db = { connect: vi.fn().mockRejectedValue(new Error('db down')) } as unknown as DB
     registerAdminAuditHook(app, { db })
     app.post('/v1/zones/:zoneId/policies/:id', async () => ({ ok: true }))
     const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
     await app.close()
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toMatchObject({ error: 'audit_unavailable' })
+  })
+
+  it('keeps the failure response when the audit insert fails for a failed request', async () => {
+    const app = Fastify({ logger: false })
+    const db = { connect: vi.fn().mockRejectedValue(new Error('db down')) } as unknown as DB
+    registerAdminAuditHook(app, { db })
+    app.post('/v1/zones/:zoneId/policies/:id', async (_req, reply) => reply.code(403).send({ error: 'denied' }))
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/policies/p1', payload: {} })
+    await app.close()
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'denied' })
   })
 })

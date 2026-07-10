@@ -1,33 +1,32 @@
 ---
 title: Run an Agent with caracal run
-description: Use a runtime profile to inject scoped Caracal access into a subprocess.
+description: Launch a workload with console-managed credential bindings injected as environment variables.
 ---
 
-`caracal run` starts a local subprocess with Caracal runtime environment variables and profile-backed credentials. Use it for development, demos, and controlled local runs.
+`caracal run` starts a local subprocess with scoped, short-lived credentials injected as environment variables. The workload carries only its workload ID and secret; the credential bindings live in the web console. Use it for development, demos, and controlled local runs.
 
-## Prepare a profile
+## Prepare the workload
 
 1. Run `caracal up`.
-2. Sign in to the web console and use **Guided setup** to create the zone, application, resource, and policy.
-3. Copy the application's one-time client secret.
-4. Author a `caracal.toml` profile with the zone, application, secret file, and a `[[credentials]]` entry for each resource. See [Configure Workloads](/runtime-console/config-file/).
-
-The profile is the source for SDK client constructors and `caracal run`.
+2. Sign in to the web console and use **Guided setup** to create the zone, provider, resource, and policy.
+3. On the console's **Launcher** page, create a workload. Store its secret in the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, or export `CARACAL_WORKLOAD_SECRET`; the secret stays retrievable from the Launcher page, with every reveal audited.
+4. On the same page, bind an environment variable to each resource the workload needs and select the scopes each credential should carry. The page then shows the exact launch commands. See [Configure Workloads](/runtime-console/config-file/).
 
 ## Run a command
 
 ```bash
+export CARACAL_WORKLOAD_ID=<workload_id>
 caracal run -- npm start
 ```
 
-The child process receives the Caracal variables needed to locate the profile, exchange credentials, and route configured resources through the Gateway.
+The launcher fetches the workload's launch bindings from STS, mints a short-lived credential for each binding under only its selected scopes, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. Credentials are minted once at launch and never renewed; long-running workloads should use an SDK. If policy requires step-up approval for a binding, the launch pauses and emits an `approval_required` line on stderr until the challenge is decided. See [Run Workloads](/runtime-console/runtime/) for the full contract.
 
 ## Validate the run
 
 | Check | Command or surface |
 | --- | --- |
 | Runtime is ready | `caracal status --ready` |
-| Profile is readable | `caracal run -- env | grep CARACAL` |
+| Credential is injected | `caracal run -- printenv OPENAI_API_KEY` (use your configured `env` name) |
 | First request succeeds | Send a request to a configured resource path. |
 | Audit captured the request | web console **Audit**. |
 
@@ -35,9 +34,11 @@ The child process receives the Caracal variables needed to locate the profile, e
 
 | Symptom | Fix |
 | --- | --- |
-| SDK cannot find config | Confirm `CARACAL_CONFIG` points to your profile. |
+| `workload identity not found` | Set `CARACAL_WORKLOAD_ID` and a workload secret source. |
+| `invalid workload credentials` | The workload ID or secret is wrong or was rotated; copy the current values from the **Launcher** page. |
+| `no credential bindings configured` | Define launch bindings for this workload on the console's **Launcher** page. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
-| Gateway routing misses the resource | Confirm resource bindings and upstream prefixes in the profile. |
+| Launch pauses on `approval_required` | Approve the step-up challenge in the web console, or adjust the policy tier. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
 
 Related pages: [First Protected Call](/get-started/first-protected-call/), [Add SDK to Your App](/get-started/add-sdk-to-your-app/), and [Audit and Request Traces](/concepts/audit-ledger/).

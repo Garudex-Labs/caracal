@@ -5,25 +5,23 @@ Caracal, a product of Garudex Labs
 This file mirrors control-plane field constraints so the web surfaces validation before submit.
 */
 const ZONE_SLUG_PATTERN = /^[a-z0-9-]+$/;
+const RESOURCE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const RESOURCE_IDENTIFIER_PREFIX = "resource://";
 
-// Mirrors apps/api/src/routes/resources.ts validateResourceIdentifier: an absolute audience
-// URI that is not in the provider:// namespace and carries no credentials.
+// Validates the slug typed after the locked resource:// prefix; the form owns the prefix,
+// so the value here never carries it.
 export function validateResourceIdentifier(value: string): string | undefined {
   const text = value.trim();
-  if (!text) return undefined;
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return "Identifier must be an absolute URI (e.g. resource://pipernet).";
-  }
-  if (url.protocol === "provider:") {
-    return "Resource identifiers cannot use the provider:// namespace.";
-  }
-  if (url.username || url.password) {
-    return "Identifier must not embed credentials.";
-  }
-  return undefined;
+  if (!text || RESOURCE_SLUG_PATTERN.test(text)) return undefined;
+  return "Use lowercase letters, numbers, and hyphens (e.g. pipernet).";
+}
+
+// Accepts pasted full identifiers gracefully: the locked prefix is removed so the slug field
+// never displays a doubled namespace.
+export function stripResourceIdentifierPrefix(value: string): string {
+  return value.startsWith(RESOURCE_IDENTIFIER_PREFIX)
+    ? value.slice(RESOURCE_IDENTIFIER_PREFIX.length)
+    : value;
 }
 
 export function validateZoneSlug(value: string): string | undefined {

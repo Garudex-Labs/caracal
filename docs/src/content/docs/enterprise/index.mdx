@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-Caracal ships under a dual-license model. Everything in this documentation describes the **Community Edition**, licensed under Apache 2.0 and free to self-host. The **Enterprise Edition** is a commercial product from Garudex Labs that adds managed multi-tenant operation, a hosted control plane, single sign-on, and a fully managed data plane on top of the same authority model.
+The open-source **Community Edition** gives you the complete authority model - mandates, delegation, policy, and audit - free to self-host under Apache 2.0. The commercial **Enterprise Edition** from Garudex Labs runs it for you: managed multi-tenant operation, a hosted control plane, single sign-on, and a fully managed data plane on top of the same authority model. Everything in this documentation describes the Community Edition unless marked otherwise.
 
 The two editions share one model, one mandate format, and one set of SDKs. Enterprise does not fork the concepts - it removes the operational work of running and scaling them yourself.
 
@@ -19,18 +19,18 @@ For pricing, a demo, or a deployment fit assessment, [book an enterprise call](h
 
 ## Edition Comparison
 
-| Capability | Community Edition (Apache 2.0) | Enterprise Edition (commercial) |
-| --- | --- | --- |
-| Authority model, mandates, delegation, policy, audit | Included | Included |
-| SDKs and connectors (TypeScript, Python, Go) | Included | Included |
-| Zones as a manual isolation primitive | Included | Included |
-| Managed multi-tenancy | Self-modeled with zones and the Admin API | Native tenant, organization, and workspace lifecycle |
-| Single sign-on (SSO) | Not included | SAML and OIDC SSO with SCIM provisioning |
-| Teams and role-based access control | Not included | Org, team, and role management across tenants |
-| Control surface | Local Console and self-hosted Admin API | Hosted management UI for all tenants |
-| Gateway and services | You deploy and operate every service | Fully managed Gateway, STS, Coordinator, and audit plane |
-| Integration effort | Run the full stack, then integrate the SDK | Integrate the SDK against managed endpoints; no services to run |
-| Support | Community and issues | Commercial SLA, priority support, and onboarding |
+| Capability                                           | Community Edition (Apache 2.0)             | Enterprise Edition (commercial)                                 |
+| ---------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------- |
+| Authority model, mandates, delegation, policy, audit | Included                                   | Included                                                        |
+| SDKs and adapters (TypeScript, Python, Go)           | Included                                   | Included                                                        |
+| Zones as a manual isolation primitive                | Included                                   | Included                                                        |
+| Managed multi-tenancy                                | Self-modeled with zones and the Admin API  | Native tenant, organization, and workspace lifecycle            |
+| Single sign-on (SSO)                                 | Not included                               | SAML and OIDC SSO with SCIM provisioning                        |
+| Teams and role-based access control                  | Not included                               | Org, team, and role management across tenants                   |
+| Control surface                                      | Local Console and self-hosted Admin API    | Hosted management UI for all tenants                            |
+| Gateway and services                                 | You deploy and operate every service       | Fully managed Gateway, STS, Coordinator, and audit plane        |
+| Integration effort                                   | Run the full stack, then integrate the SDK | Integrate the SDK against managed endpoints; no services to run |
+| Support                                              | Community and issues                       | Commercial SLA, priority support, and onboarding                |
 
 ## Enterprise Additions
 
@@ -61,8 +61,8 @@ The Community Edition is governed by the Apache 2.0 license and is free to use, 
 ## Get Enterprise
 
 - [Book an enterprise call](https://cal.com/rawx18/caracal-enterprise-sales) for pricing, a demo, or a deployment fit assessment.
-- Email `support@garudexlabs.com` for licensing and procurement questions.
-- Visit [garudexlabs.com](https://www.garudexlabs.com) for company and product details.
+- Email `support@caracal.run` for licensing and procurement questions.
+- Visit [garudexlabs.com](https://www.caracal.run) for company and product details.
 
 ## Related Pages
 

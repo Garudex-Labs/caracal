@@ -12,7 +12,10 @@ import (
 	"testing/quick"
 
 	"github.com/garudex-labs/caracal/packages/core/go/crypto"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 )
+
+const propertyAAD = "caracal/tests/property"
 
 func newKey(t *testing.T) []byte {
 	t.Helper()
@@ -26,11 +29,11 @@ func newKey(t *testing.T) []byte {
 func TestSealOpenRoundTrip(t *testing.T) {
 	key := newKey(t)
 	roundTrip := func(plaintext []byte) bool {
-		ct, nonce, err := crypto.Seal(key, plaintext)
+		envelope, err := secretstore.Seal(key, plaintext, propertyAAD)
 		if err != nil {
 			return false
 		}
-		got, err := crypto.Open(key, nonce, ct)
+		got, err := secretstore.Open(key, envelope, propertyAAD)
 		if err != nil {
 			return false
 		}
@@ -46,20 +49,17 @@ func TestSealOpenRoundTrip(t *testing.T) {
 
 func TestOpenRejectsTamperedCiphertext(t *testing.T) {
 	key := newKey(t)
-	tamperFails := func(plaintext []byte) bool {
-		if len(plaintext) == 0 {
-			return true
-		}
-		ct, nonce, err := crypto.Seal(key, plaintext)
+	tamperFails := func(plaintext []byte, index uint16) bool {
+		envelope, err := secretstore.Seal(key, plaintext, propertyAAD)
 		if err != nil {
 			return false
 		}
-		ct[0] ^= 0xFF
-		_, err = crypto.Open(key, nonce, ct)
+		envelope[int(index)%len(envelope)] ^= 0xFF
+		_, err = secretstore.Open(key, envelope, propertyAAD)
 		return err != nil
 	}
 	if err := quick.Check(tamperFails, &quick.Config{MaxCount: 500}); err != nil {
-		t.Errorf("tampered ciphertext was accepted: %v", err)
+		t.Errorf("tampered envelope was accepted: %v", err)
 	}
 }
 
@@ -67,15 +67,30 @@ func TestOpenRejectsWrongKey(t *testing.T) {
 	key := newKey(t)
 	other := newKey(t)
 	wrongKeyFails := func(plaintext []byte) bool {
-		ct, nonce, err := crypto.Seal(key, plaintext)
+		envelope, err := secretstore.Seal(key, plaintext, propertyAAD)
 		if err != nil {
 			return false
 		}
-		_, err = crypto.Open(other, nonce, ct)
+		_, err = secretstore.Open(other, envelope, propertyAAD)
 		return err != nil
 	}
 	if err := quick.Check(wrongKeyFails, &quick.Config{MaxCount: 300}); err != nil {
-		t.Errorf("wrong key decrypted ciphertext: %v", err)
+		t.Errorf("wrong key decrypted envelope: %v", err)
+	}
+}
+
+func TestOpenRejectsWrongAAD(t *testing.T) {
+	key := newKey(t)
+	wrongAADFails := func(plaintext []byte) bool {
+		envelope, err := secretstore.Seal(key, plaintext, propertyAAD)
+		if err != nil {
+			return false
+		}
+		_, err = secretstore.Open(key, envelope, propertyAAD+"/other")
+		return err != nil
+	}
+	if err := quick.Check(wrongAADFails, &quick.Config{MaxCount: 300}); err != nil {
+		t.Errorf("wrong AAD decrypted envelope: %v", err)
 	}
 }
 

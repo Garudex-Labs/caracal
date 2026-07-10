@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createStateResearcher, governedReadCapabilities } from '../../../../apps/api/src/operator-research.js'
-import { ControlClientError, type ControlClient } from '../../../../apps/api/src/control-client.js'
+import { ControlClientError, type ControlClient } from '../../../../packages/admin/ts/src/control.js'
 
 // A control client double whose invoke is scripted by the list subcommand, so the researcher's
 // governed reads are exercised without a live control plane.
@@ -27,15 +27,22 @@ describe('governedReadCapabilities', () => {
   it('derives exactly the non-mutating, control-mapped capabilities', () => {
     const reads = governedReadCapabilities()
     expect(reads.sort()).toEqual([
-      'listAgents',
+      'explainRequest',
+      'listAdminActivity',
       'listApplications',
+      'listApprovals',
       'listAuditEvents',
+      'listAuthorityRecords',
       'listDelegations',
       'listGrants',
       'listPolicies',
+      'listPolicySets',
       'listProviders',
       'listResources',
       'listSessions',
+      'listWorkloads',
+      'simulatePolicySet',
+      'validatePolicy',
     ])
   })
 
@@ -63,7 +70,9 @@ describe('createStateResearcher', () => {
     expect(byDomain.application).toMatchObject({ ok: true, count: 2, names: ['Billing', 'Finance'] })
     expect(byDomain.provider).toMatchObject({ ok: true, count: 1, names: ['GitHub'] })
     expect(byDomain.resource).toMatchObject({ ok: true, count: 0, names: [] })
-    expect(byDomain.policy).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    // Policies and policy sets share the policy domain, each grounded by its own read.
+    expect(evidence.find((e) => e.capability === 'listPolicies')).toMatchObject({ ok: true, count: 1, names: ['default'] })
+    expect(evidence.find((e) => e.capability === 'listPolicySets')).toMatchObject({ ok: true, count: 0, names: [] })
     // The live id is carried alongside the name so a change can target an object by its real id.
     expect(byDomain.application.items).toEqual([
       { id: 'a1', name: 'Billing' },
@@ -71,7 +80,7 @@ describe('createStateResearcher', () => {
     ])
     expect(byDomain.resource.items).toEqual([])
     // Every invoke is a read verb - a researcher can never reach a mutating command.
-    for (const call of invoke.mock.calls) expect(['list', 'active', 'tail']).toContain(call[1])
+    for (const call of invoke.mock.calls) expect(['list', 'active', 'tail', 'admin']).toContain(call[1])
   })
 
   it('caps the names it surfaces while keeping the full live count', async () => {
@@ -194,14 +203,16 @@ describe('createStateResearcher', () => {
   it('reads everything when no domains are named', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
     await createStateResearcher(client).gather([])
-    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+    // The fan-out is every governed read that needs no arguments: explainRequest,
+    // validatePolicy, and simulatePolicySet answer specific questions, not state sweeps.
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length - 3)
   })
 
   it('falls back to the full read set when the named domains map to no governed read', async () => {
     const { client, invoke } = clientFor({ app: [], 'identity-provider': [], resource: [], policy: [] })
     // 'zone' has no governed read behind it, so the gather must not end up empty.
     await createStateResearcher(client).gather(['zone'])
-    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length)
+    expect(invoke).toHaveBeenCalledTimes(governedReadCapabilities().length - 3)
   })
 
   it('builds display rows from the allowlisted descriptor fields only', async () => {
@@ -214,21 +225,21 @@ describe('createStateResearcher', () => {
     expect(JSON.stringify(apps)).not.toContain('sk_leak')
   })
 
-  it('unwraps an items envelope and keys agent rows by their session id', async () => {
+  it('unwraps an items envelope and keys Session rows by their Session ID', async () => {
     const { client } = clientFor({
       delegation: {
         items: [{ id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' }],
         next_cursor: null,
       },
-      agent: [{ agent_session_id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
+      session: [{ session_id: 'session-1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
     })
-    const { evidence } = await createStateResearcher(client).gather(['delegation', 'agent'])
+    const { evidence } = await createStateResearcher(client).gather(['delegation', 'session'])
     const byDomain = Object.fromEntries(evidence.map((e) => [e.domain, e]))
     expect(byDomain.delegation).toMatchObject({ ok: true, count: 1 })
     expect(byDomain.delegation.rows).toEqual([
       { id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' },
     ])
-    expect(byDomain.agent.rows).toEqual([{ id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: '1' }])
+    expect(byDomain.session.rows).toEqual([{ id: 'session-1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: '1' }])
   })
 
   it('excludes structured payload fields from audit display rows', async () => {

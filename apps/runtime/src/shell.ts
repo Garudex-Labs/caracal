@@ -3,15 +3,15 @@
 //
 // `caracal`: thin top-level runtime CLI that owns stack lifecycle commands and optional interface launchers.
 //
-// Surface invariant: SHELL_COMMANDS in @caracalai/core/commands is the single source of truth for runtime commands and optional interface launchers. buildRegistry enforces a 1:1 mapping with the executors below after unavailable interfaces are filtered out.
+// Surface invariant: SHELL_COMMANDS in @caracalai/engine/commands is the single source of truth for runtime commands and optional interface launchers. buildRegistry enforces a 1:1 mapping with the executors below after unavailable interfaces are filtered out.
 
 import '@caracalai/engine/scrubCwdEnv'
 import { installCrashHandlers } from './crash.ts'
 import { runCommand } from './commands/run.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
+import { allowlistCommand } from './commands/allowlist.ts'
 import { webCommand, webInterfaceAvailable } from './commands/web.ts'
-import { checkMcpGovernance } from './mcp.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { SHELL_COMMANDS } from '@caracalai/engine/commands'
 import { buildRegistry, type Executor } from './registry.ts'
@@ -25,11 +25,8 @@ const executors: Record<string, Executor> = {
   status: (argv) => statusCommand([...argv]),
   upgrade: (argv) => upgradeCommand([...argv]),
   purge: (argv) => purgeCommand([...argv]),
-  run: (argv, cfg) => {
-    const cmdArgs = argv[0] === '--' ? argv.slice(1) : argv
-    if (cmdArgs.length > 0 && cfg) checkMcpGovernance(cmdArgs, cfg)
-    return runCommand([...argv], cfg)
-  },
+  allowlist: (argv) => allowlistCommand([...argv]),
+  run: (argv, cfg) => runCommand([...argv], cfg),
   web: (argv) => {
     void webCommand([...argv])
   },
@@ -39,7 +36,7 @@ const executors: Record<string, Executor> = {
 // exists in the canonical surface and the workspace packages are present, so the
 // registry's descriptor/executor symmetry holds in every build.
 const webAvailable = webInterfaceAvailable() && SHELL_COMMANDS.some((command) => command.name === 'web')
-const availableCommands = new Set(['up', 'down', 'status', 'upgrade', 'purge', 'run', ...(webAvailable ? ['web'] : [])])
+const availableCommands = new Set(['up', 'down', 'status', 'upgrade', 'purge', 'allowlist', 'run', ...(webAvailable ? ['web'] : [])])
 const shellCommands = SHELL_COMMANDS.filter((command) => availableCommands.has(command.name))
 const shellExecutors = Object.fromEntries(Object.entries(executors).filter(([name]) => availableCommands.has(name)))
 const registry = buildRegistry(shellCommands, shellExecutors)

@@ -4,7 +4,7 @@ description: Run a plain CLI agent with Google and OpenAI provider credentials i
 pageType: workflow
 ---
 
-Research Agent is a `caracal run` example under `examples/ResearchAgent`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
+Research Agent is a `caracal run` example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `ResearchAgent/`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
 
 ## What it demonstrates
 
@@ -22,40 +22,35 @@ Use Console to create or select:
 
 | Object | Purpose |
 | --- | --- |
-| Zone | Owns the application, providers, resources, and policies. |
-| Application | Workload identity used by `caracal run` to call STS. |
+| Zone | Owns the workload, providers, resources, and policies. |
+| Workload | Identity used by `caracal run` to call STS; created on the **Launcher** page. |
 | Google Drive provider | Returns a Drive read token. |
 | Google Calendar provider | Returns a Calendar read token. |
 | OpenAI provider | Returns an OpenAI-compatible credential. |
 | Resources | Map `resource://google-drive`, `resource://google-calendar`, and `resource://openai` to providers. |
-| Policy | Allows the run application to request all three resources. |
+| Policy | Allows the workload to request all three resources. |
 
-Enable runtime injection on each provider and map each run credential with `credential_type = "provider_token"`.
+Enable runtime injection on each provider.
 
-## Write the runtime profile
+Then open the console's **Launcher** page, create a workload named `research agent`, and add three launch bindings:
 
-Use Console-generated values for the zone id and application id. Store the one-time application secret in the local runtime secret path and write a `caracal.toml` profile:
+| Environment variable | Resource |
+| --- | --- |
+| `GOOGLE_DRIVE_ACCESS_TOKEN` | `resource://google-drive` |
+| `GOOGLE_CALENDAR_ACCESS_TOKEN` | `resource://google-calendar` |
+| `OPENAI_API_KEY` | `resource://openai` |
 
-```toml
-zone_id = "zone_prod"
-application_id = "app_support_research_agent"
-ttl_seconds = 900
-continue_on_failure = false
+Select the read-only scopes on the Drive and Calendar bindings so each injected credential carries only what the agent needs. The Launcher page then shows the exact launch commands.
 
-[[credentials]]
-env = "GOOGLE_DRIVE_ACCESS_TOKEN"
-resource = "resource://google-drive"
-credential_type = "provider_token"
+## Store the workload secret
 
-[[credentials]]
-env = "GOOGLE_CALENDAR_ACCESS_TOKEN"
-resource = "resource://google-calendar"
-credential_type = "provider_token"
+The launcher needs one local file: the workload's secret at the runtime secret path. Copy it from the Launcher page - it stays retrievable there, with every reveal audited.
 
-[[credentials]]
-env = "OPENAI_API_KEY"
-resource = "resource://openai"
-credential_type = "provider_token"
+```bash
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
+mkdir -p ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID
+printf '%s' '<workload secret>' > ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
+chmod 600 ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
 ```
 
 Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `OPENAI_API_KEY` yourself. Caracal injects them into the child process after STS authorization.
@@ -63,8 +58,9 @@ Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `O
 ## Launch the agent
 
 ```bash
-cd examples/ResearchAgent
-export CARACAL_CONFIG="$HOME/.config/caracal/research-agent/caracal.toml"
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/ResearchAgent
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
 caracal run -- node agent.mjs
 ```
 
@@ -84,7 +80,7 @@ Started directly with `node agent.mjs`, the preflight fails with exit code 2 bef
 ## Test
 
 ```bash
-cd examples/ResearchAgent
+cd caracal-examples/ResearchAgent
 pnpm test
 ```
 

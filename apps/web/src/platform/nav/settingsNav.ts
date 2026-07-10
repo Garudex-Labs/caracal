@@ -62,6 +62,11 @@ export const SETTINGS_GROUPS: SettingsGroupModel[] = [
         label: "AI Operator",
         description: "Model providers and governed routing for the Caracal Operator.",
       },
+      {
+        id: "notifications",
+        label: "Notifications",
+        description: "Webhook sinks that push approval activity to the systems your team watches.",
+      },
       ...featuresByHome("settings").map(lockedItem),
     ],
   },

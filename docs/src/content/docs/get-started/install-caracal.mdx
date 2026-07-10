@@ -21,12 +21,12 @@ To verify a download yourself, or to verify archives and container images fetche
 ### Linux and macOS
 
 ```sh
-gh release download vYYYY.MM.DD \
+gh release download vX.Y.Z \
   --repo Garudex-Labs/caracal \
   --pattern 'caracal-runtime-linux-amd64-*.tar.gz' \
   --pattern SHA256SUMS
 sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
-tar -xzf caracal-runtime-linux-amd64-vYYYY.MM.DD.tar.gz
+tar -xzf caracal-runtime-linux-amd64-vX.Y.Z.tar.gz
 install -m 0755 caracal ~/.local/bin/caracal
 ```
 
@@ -35,12 +35,12 @@ Choose the `linux-arm64`, `darwin-amd64`, or `darwin-arm64` archive when that ma
 ### Windows
 
 ```powershell
-gh release download vYYYY.MM.DD `
+gh release download vX.Y.Z `
   --repo Garudex-Labs/caracal `
   --pattern 'caracal-runtime-windows-amd64-*.zip' `
   --pattern SHA256SUMS
-Get-FileHash .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -Algorithm SHA256
-Expand-Archive .\caracal-runtime-windows-amd64-vYYYY.MM.DD.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
+Get-FileHash .\caracal-runtime-windows-amd64-vX.Y.Z.zip -Algorithm SHA256
+Expand-Archive .\caracal-runtime-windows-amd64-vX.Y.Z.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
 ```
 
 Compare the PowerShell hash with the matching entry in `SHA256SUMS`, then add `%LOCALAPPDATA%\Programs\caracal` to the user `Path` and open a new shell.
@@ -63,7 +63,7 @@ Use `caracal` for local lifecycle, workload execution, and upgrades. Use the pac
 
 ## Verify Docker
 
-Running the open-source stack locally requires Docker 24+ with the Compose v2 plugin:
+Running the open-source stack locally requires Docker 25+ with the Compose v2 plugin:
 
 ```sh
 docker compose version
@@ -91,15 +91,15 @@ caracal up
 caracal status --ready
 ```
 
-After readiness succeeds, open [http://localhost:3001](http://localhost:3001). Compose maps the host address `127.0.0.1:3001` to the web BFF container on port `3002`. Before your first sign-in, configure a console sign-in method as described in [First Protected Call](/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+After readiness succeeds, open [http://localhost:3001](http://localhost:3001). Compose maps the host address `127.0.0.1:3001` to the web BFF container on port `3002`. Before your first sign-in, run `caracal allowlist add <email>` on the host to permit your email, and configure a console sign-in method as described in [First Protected Call](/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
 
 ## Platform Notes
 
 | Platform | Architectures | Notes |
 | --- | --- | --- |
-| Linux | `amd64`, `arm64` | Requires `curl` or `wget`, `tar`, `sha256sum` or `shasum`, and GitHub CLI `gh` for provenance verification. |
-| macOS | `amd64`, `arm64` | Requires GitHub CLI `gh`; if Gatekeeper quarantines the binary, remove quarantine from the installed file. |
-| Windows | `amd64` | Requires GitHub CLI `gh`; open a new shell after updating the user `Path`. |
+| Linux | `amd64`, `arm64` | Requires `curl` or `wget`, `tar`, and `sha256sum` or `shasum`. Archive checksums are always verified; installing GitHub CLI `gh` additionally verifies provenance attestations. |
+| macOS | `amd64`, `arm64` | GitHub CLI `gh` enables provenance verification; if Gatekeeper quarantines the binary, remove quarantine from the installed file. |
+| Windows | `amd64` | GitHub CLI `gh` enables provenance verification; open a new shell after updating the user `Path`. |
 
 ## Next Step
 

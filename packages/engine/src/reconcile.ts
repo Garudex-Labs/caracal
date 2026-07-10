@@ -60,10 +60,6 @@ export type Authorize = (command: string, verb: ScopeVerb) => void
 export interface ReconcileDeps {
   readonly admin: AdminClient
   readonly authorize: Authorize
-  // Whether the caller may declare traits in the privileged platform namespaces. Only a local
-  // (in-process) principal holds this authority; a remote control key must never mint or widen
-  // control-plane traits through the declarative surface, so absence means denied.
-  readonly allowPrivilegedTraits?: boolean
 }
 
 const SECRET_CONFIG_KEYS = new Set(['client_secret', 'private_key', 'api_key', 'bearer_token'])
@@ -122,7 +118,9 @@ function operationKeys(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.map((entry) => {
     const op = entry as { method?: unknown; path?: unknown; scope?: unknown }
-    const method = String(op.method ?? '').trim().toUpperCase()
+    const method = String(op.method ?? '')
+      .trim()
+      .toUpperCase()
     const path = String(op.path ?? '').trim()
     const scope = String(op.scope ?? '')
     return `${method} ${path} ${scope}`
@@ -189,10 +187,18 @@ const APPLICATION_ADAPTER: Adapter = {
       registration_method: 'managed',
       traits: Array.isArray(spec.traits) ? (spec.traits as string[]) : undefined,
     }) as unknown as Promise<LiveObject>,
-  update: (admin, zone, live, spec) =>
-    admin.applications.patch(zone, live.id, {
+  update: (admin, zone, live, spec) => {
+    if (Array.isArray(live.traits) && (live.traits as string[]).includes(CONTROL_INVOKE_TRAIT)) {
+      throw new DispatchError(
+        'denied',
+        `application "${String(live.name)}" is a control key`,
+        'Manage control keys through the Console; declarative specs cannot modify them.',
+      )
+    }
+    return admin.applications.patch(zone, live.id, {
       traits: Array.isArray(spec.traits) ? (spec.traits as string[]) : undefined,
-    }) as unknown as Promise<LiveObject>,
+    }) as unknown as Promise<LiveObject>
+  },
   protectedFromPrune: (live) => Array.isArray(live.traits) && (live.traits as string[]).includes(CONTROL_INVOKE_TRAIT),
 }
 
@@ -240,13 +246,10 @@ const RESOURCE_ADAPTER: Adapter = {
     if (typeof spec.name === 'string' && live.name !== spec.name) drift.push('name')
     if (Array.isArray(spec.scopes) && !sameSet(live.scopes, spec.scopes)) drift.push('scopes')
     if ('upstream_url' in spec && live.upstream_url !== (spec.upstream_url ?? null)) drift.push('upstream_url')
-    if ('gateway_application_id' in spec && live.gateway_application_id !== (spec.gateway_application_id ?? null))
-      drift.push('gateway_application_id')
     if ('credential_provider_id' in spec && live.credential_provider_id !== (spec.credential_provider_id ?? null))
       drift.push('credential_provider_id')
     if ('operations' in spec && !sameOperations(live.operations, spec.operations)) drift.push('operations')
-    if ('operation_enforcement' in spec && live.operation_enforcement !== spec.operation_enforcement)
-      drift.push('operation_enforcement')
+    if ('operation_enforcement' in spec && live.operation_enforcement !== spec.operation_enforcement) drift.push('operation_enforcement')
     return drift
   },
   create: (admin, zone, spec) =>
@@ -255,7 +258,6 @@ const RESOURCE_ADAPTER: Adapter = {
       identifier: reqStr(spec, 'identifier', 'resource'),
       scopes: Array.isArray(spec.scopes) ? (spec.scopes as string[]) : [],
       upstream_url: 'upstream_url' in spec ? (spec.upstream_url as string | null) : undefined,
-      gateway_application_id: 'gateway_application_id' in spec ? (spec.gateway_application_id as string | null) : undefined,
       credential_provider_id: 'credential_provider_id' in spec ? (spec.credential_provider_id as string | null) : undefined,
       operations: 'operations' in spec ? (spec.operations as never) : undefined,
       operation_enforcement: 'operation_enforcement' in spec ? (spec.operation_enforcement as never) : undefined,
@@ -265,7 +267,6 @@ const RESOURCE_ADAPTER: Adapter = {
       name: optStr(spec, 'name'),
       scopes: Array.isArray(spec.scopes) ? (spec.scopes as string[]) : undefined,
       upstream_url: 'upstream_url' in spec ? (spec.upstream_url as string | null) : undefined,
-      gateway_application_id: 'gateway_application_id' in spec ? (spec.gateway_application_id as string | null) : undefined,
       credential_provider_id: 'credential_provider_id' in spec ? (spec.credential_provider_id as string | null) : undefined,
       operations: 'operations' in spec ? (spec.operations as never) : undefined,
       operation_enforcement: 'operation_enforcement' in spec ? (spec.operation_enforcement as never) : undefined,
@@ -290,16 +291,9 @@ const POLICY_ADAPTER: Adapter = {
       name: reqStr(spec, 'name', 'policy'),
       description: optStr(spec, 'description'),
       content: reqStr(spec, 'content', 'policy'),
-      schema_version: optStr(spec, 'schema_version'),
-      owner_type: optStr(spec, 'owner_type'),
-    } as never) as unknown as Promise<LiveObject>,
+    }) as unknown as Promise<LiveObject>,
   update: (admin, zone, live, spec) =>
-    admin.policies.addVersion(
-      zone,
-      live.id,
-      reqStr(spec, 'content', 'policy'),
-      optStr(spec, 'schema_version'),
-    ) as unknown as Promise<LiveObject>,
+    admin.policies.addVersion(zone, live.id, reqStr(spec, 'content', 'policy')) as unknown as Promise<LiveObject>,
   protectedFromPrune: () => false,
 }
 
@@ -380,9 +374,8 @@ function assertZoneAlignment(doc: DesiredState, zoneId: string): void {
   }
 }
 
-/** Refuse privileged trait namespaces unless the caller holds platform trait authority. */
-function assertTraitAuthority(doc: DesiredState, deps: ReconcileDeps): void {
-  if (deps.allowPrivilegedTraits === true) return
+/** Refuse privileged trait namespaces: no declarative caller holds platform trait authority. */
+function assertTraitAuthority(doc: DesiredState): void {
   for (const object of doc.objects) {
     if (object.kind !== 'application' || !Array.isArray(object.spec.traits)) continue
     for (const trait of object.spec.traits) {
@@ -426,7 +419,7 @@ export async function reconcile(
   const dryRun = opts.dryRun === true
   const prune = opts.prune === true
   assertZoneAlignment(doc, zoneId)
-  assertTraitAuthority(doc, deps)
+  assertTraitAuthority(doc)
   authorizeAll(doc, deps, opts)
 
   // List each declared kind once and index it by identity. Listings are independent reads, so

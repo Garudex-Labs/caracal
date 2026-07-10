@@ -63,7 +63,9 @@ function checkErrorMessage(err: unknown): string {
     if (err.code === "ai_unreachable") {
       // Surface the upstream's own status so a rejected key (401/403) reads differently from a
       // wrong endpoint (404) or an unreachable host, rather than one ambiguous message.
-      const attempts = (err.detail as { attempts?: { reason?: string }[] } | undefined)?.attempts;
+      const attempts = (
+        err.detail as { details?: { attempts?: { reason?: string }[] } } | undefined
+      )?.details?.attempts;
       const reason = attempts?.[0]?.reason ?? "";
       const status = reason.match(/status (\d{3})/)?.[1];
       if (status === "401" || status === "403")
@@ -247,6 +249,8 @@ function OperatorPage() {
         </div>
       </SettingsGroup>
 
+      <AdministrationGroup />
+
       <AttributionGroup />
 
       <ProviderFormModal
@@ -296,6 +300,57 @@ function OperatorPage() {
   );
 }
 
+// The zone's explicit administration grant to the Operator: the deterministic gate governed reads
+// and the execute path both enforce. Without it the Operator can chat and draft plans here but
+// cannot read live state or apply anything, so the switch lives with the Operator configuration.
+function AdministrationGroup() {
+  const { activeZone } = useActiveZone();
+  const updateZone = useUpdateZone();
+  const toast = useToast();
+  const governed = activeZone?.operator_governed ?? false;
+
+  async function toggleGoverned(next: boolean) {
+    if (!activeZone) return;
+    try {
+      await updateZone.mutateAsync({
+        id: activeZone.id,
+        input: { operator_governed: next },
+      });
+    } catch {
+      toast({ title: "Could not update the administration grant.", tone: "error" });
+    }
+  }
+
+  return (
+    <SettingsGroup
+      title="Zone administration"
+      description="Allow the Operator to read live state and apply approved plans in this zone. Until granted, it can only chat and draft plans that cannot be applied."
+      action={
+        <button
+          type="button"
+          role="switch"
+          aria-checked={governed}
+          aria-label="Operator zone administration"
+          disabled={!activeZone || updateZone.isPending}
+          onClick={() => toggleGoverned(!governed)}
+          className={[
+            "relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors",
+            governed ? "bg-foreground" : "bg-muted",
+            !activeZone || updateZone.isPending ? "opacity-60" : "",
+          ].join(" ")}
+        >
+          <span
+            className={[
+              "inline-block h-4 w-4 transform rounded-full bg-background shadow transition-transform",
+              governed ? "translate-x-4" : "translate-x-0.5",
+            ].join(" ")}
+          />
+        </button>
+      }
+    />
+  );
+}
+
 // The co-author badge is a per-zone property of the Operator's output, so it lives with the rest
 // of the Operator configuration rather than in personal preferences.
 function AttributionGroup() {
@@ -319,7 +374,7 @@ function AttributionGroup() {
   return (
     <SettingsGroup
       title="Attribution"
-      description="Show a co-author badge on items the Caracal Operator creates in this zone."
+      description="Show a co-author badge on items the Caracal Operator creates or updates in this zone."
       action={
         <button
           type="button"
@@ -412,7 +467,7 @@ function EndpointField({ value, onChange }: { value: string; onChange: (value: s
 // OpenAI-compatible endpoint, a key, and the model ids the endpoint serves. The slug defaults
 // from the label. Editing locks the slug and omits the key, which is changed through rotate. The
 // provider and resource details Caracal sets automatically (api-key auth, an Authorization Bearer
-// header, the llm:invoke and agent:lifecycle scopes, and the gateway binding) are explained
+// header, and the llm:invoke and agent:lifecycle scopes) are explained
 // rather than asked for.
 function ProviderFormModal({
   open,
@@ -723,7 +778,7 @@ function ProviderFormModal({
           The endpoint must speak the OpenAI <span className="font-mono">/chat/completions</span>{" "}
           format - OpenAI and Azure work directly; for Claude, Gemini, or others, point this at an
           OpenAI-compatible proxy such as LiteLLM or OpenRouter. Caracal seals the key into the
-          caracal.sys system zone, sets the scopes and gateway binding, and routes the Operator only
+          caracal.sys system zone, grants the Operator its scopes, and routes the Operator only
           through the governed gateway.
         </div>
 

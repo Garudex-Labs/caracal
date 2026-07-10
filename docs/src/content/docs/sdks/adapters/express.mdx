@@ -1,0 +1,66 @@
+---
+title: Express Adapter
+description: Express 5 middleware for Caracal mandate verification.
+---
+
+`@caracalai/express` protects Express routes by parsing the bearer token, verifying the mandate through `@caracalai/verify`, and attaching Caracal claims to the request.
+
+## Install
+
+```bash
+npm install @caracalai/express @caracalai/verify @caracalai/revocation-redis
+```
+
+The adapter has an Express `^5.0.0` peer dependency and targets Node `>=22`.
+
+## Middleware
+
+```ts
+import express from 'express'
+import { caracalAuth } from '@caracalai/express'
+import { createMandateVerifier } from '@caracalai/verify'
+import { RedisRevocationStore } from '@caracalai/revocation-redis'
+
+const app = express()
+
+const verifier = createMandateVerifier({
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
+  revocations: new RedisRevocationStore(redis),
+})
+
+app.use(
+  '/mcp',
+  caracalAuth(
+    { verifier },
+    {
+      requiredScopes: ['mcp:tool:call'],
+      requiredTargets: ['https://mcp.example.com'],
+      requireSession: true,
+    },
+  ),
+)
+```
+
+## Request shape
+
+The middleware attaches Caracal claims to `req.caracal` and `req.caracalClaims` when verification succeeds. Use the exported `CaracalRequest` type when a handler needs typed access.
+
+```ts
+import type { CaracalRequest } from '@caracalai/express'
+
+app.post('/mcp/tools/search', (req: CaracalRequest, res) => {
+  res.json({ subject: req.caracal?.sub })
+})
+```
+
+## Failure behavior
+
+Failed verification returns a verify-engine error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`, plus a safe `error_hint` field. Pair the adapter with a shared revocation store when multiple resource-server instances serve the same resource.
+
+## Related pages
+
+- [Protect an Express App](/guides/protect-express/)
+- [Verify Package](/sdks/verify/)
+- [Redis Revocation Store](/sdks/backends/redis/)

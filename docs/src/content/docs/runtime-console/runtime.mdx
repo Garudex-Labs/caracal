@@ -1,10 +1,10 @@
 ---
 title: Run Workloads
-description: Use caracal run to inject scoped resource tokens into subprocesses.
+description: Use caracal run to launch a workload with scoped, short-lived Caracal credentials injected as environment variables.
 pageType: reference
 ---
 
-`caracal run` is the runtime execution command. It starts a subprocess with scoped Caracal resource tokens in environment variables and returns the subprocess exit code.
+`caracal run` is the data-plane launcher. It authenticates its workload identity, mints scoped, short-lived credentials, injects them into environment variables, spawns the workload command, and returns the workload's exit code. That is its entire job.
 
 ```bash
 caracal run -- python3 agent.py
@@ -12,66 +12,98 @@ caracal run -- python3 agent.py
 
 Use `--` when the child command accepts flags.
 
+## Scope and Boundaries
+
+`caracal run` complements the web console and the control plane; it does not duplicate them.
+
+| Concern                                                                              | Owner                                               |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Launching a workload with injected credentials                                       | `caracal run`                                       |
+| Creating and managing zones, workloads, applications, resources, policies, providers | Web console (`caracal web`), Control API, Admin SDK |
+| Credential renewal during execution                                                  | Caracal SDKs, which re-exchange on demand           |
+| Request-level governance, routing, and audit                                         | Gateway and control-plane services                  |
+| Process supervision, restarts, scheduling                                            | Your process manager or orchestrator                |
+
+The launcher performs one credential mint per configured binding at startup and never renews. Injected credentials are short-lived and expire on the schedule of the minted mandate or provider token. Workloads that run longer than their credentials must use a Caracal SDK instead of relying on injected environment variables.
+
+`caracal run` never requires operator or admin credentials. It authenticates only as the configured workload, and the credentials it can obtain are bounded by its bindings and the policies active in the zone.
+
 ## Execution Flow
 
 ```text
-runtime config -> MCP governance check -> STS token exchange -> env injection -> child process
+workload identity -> binding fetch -> credential mint -> env injection -> child process -> exit code
 ```
 
-1. Load runtime config from environment, `CARACAL_CONFIG`, or the default XDG profile.
-2. Validate config keys, URL safety, secret-file permissions, and credential environment names.
-3. Check `[mcp_governance]` rules before spawning likely MCP server commands.
-4. Exchange each required `credentials[]` entry for a resource token.
-5. Exchange each `optional_credentials[]` entry and apply its `on_failure` behavior.
-6. Spawn the child process without `shell: true`.
-7. Forward stdin, stdout, stderr, and the child exit code.
+1. Load the workload identity: `CARACAL_WORKLOAD_ID` plus a workload secret from the environment or the default secret file.
+2. Fetch the workload's launch bindings from STS; each binding carries the environment name, resource, scopes, and failure behavior authored in the web console.
+3. Validate secret-file permissions and credential environment names.
+4. Mint a credential for each required binding under only its selected scopes. Binding scopes narrow the policy decision that authorizes the mint; for static provider credentials such as API keys and bearer tokens, the injected value itself carries the upstream's full authority regardless of the scopes selected.
+5. Mint each optional binding and apply its unavailable behavior.
+6. Spawn the child process without `shell: true`, attached to your terminal's stdin, stdout, and stderr.
+7. Wait for the child and exit with its exit code.
 
-Injected tokens have a 15-minute TTL from the runtime exchange.
-
-## Required Runtime Identity
+## Required Workload Identity
 
 `caracal run` needs:
 
-| Input | Source |
-| --- | --- |
-| STS/zone URL | Automatic for local dev/stable; explicit only for cloud/custom deployments. |
-| Zone ID | `CARACAL_ZONE_ID` or `zone_id`. |
-| Application ID | `CARACAL_APPLICATION_ID` or `application_id`. |
-| Client secret | Auto-detected local client-secret file or explicit cloud/custom secret-file config. |
-| Credential manifest | Auto-detected local credential manifest or `credentials[]` / `optional_credentials[]` in a profile. |
+| Input           | Source                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| STS URL         | Automatic for local dev/stable; `CARACAL_STS_URL` only for cloud/custom deployments.                                                      |
+| Workload ID     | `CARACAL_WORKLOAD_ID`.                                                                                                                    |
+| Workload secret | `CARACAL_WORKLOAD_SECRET`, `CARACAL_WORKLOAD_SECRET_FILE`, or the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. |
+| Launch bindings | Authored on the console's **Launcher** page and served by STS.                                                                            |
 
-Web console **Guided setup** is the recommended way to create the first zone, application, resource, and policy; the application's one-time client secret is shown once at creation.
-Local dev and stable launches auto-detect credential files under the OS Caracal
-config directory after the zone and application IDs are known. Service URLs use
-local defaults automatically unless cloud/custom deployment docs configure
-explicit overrides.
+Web console **Guided setup** is the recommended way to create the first zone, provider, resource, and policy; the **Launcher** page then creates the workload and its bindings. The workload's secret is held sealed in the Secret Store and stays retrievable from the Launcher page with every reveal audited; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
+
+## Credential Lifecycle
+
+| Stage        | Behavior                                                                                                                                                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its secret into an owner-only file at the runtime path.                                                                                                                      |
+| Consumption  | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. The binding fetch and every mint are recorded in the zone's audit ledger, correlated by a per-launch id. |
+| TTL          | Injected credentials carry the expiry of the minted mandate or provider token; when the provider reports one, it is also injected as `<ENV>_EXPIRES_AT` in epoch seconds.                                                                                         |
+| Renewal      | None. The launcher never re-mints after spawn; long-running workloads use a Caracal SDK.                                                                                                                                                                          |
+| Rotation     | Rotate the workload secret on the **Launcher** page, then update the local secret file.                                                                                                                                                                           |
+| Revocation   | Revoke through the web console; Gateway-routed requests are rejected immediately, and injected tokens expire at TTL.                                                                                                                                              |
 
 ## Step-Up Challenges
 
-When STS returns `interaction_required`, the runtime writes the challenge notice, polls the step-up endpoint every two seconds, and retries exchange for up to five minutes. If the challenge is not satisfied in time, the subprocess is not spawned.
+When STS returns `interaction_required`, the runtime writes an `approval_required` notice with the challenge id and binding, long-polls the hold for up to five minutes, and retries the mint once it is approved. If the hold is rejected, expires, or the wait times out, the subprocess is not spawned.
 
-## Environment Safety
+## Child Environment Contract
 
-The runtime injects only configured credential environment variables and a small inherited allowlist such as path, home, shell, temporary directory, locale, color, CI, XDG, and Docker-related variables. Credential names that can alter process loading, such as `NODE_OPTIONS`, `LD_PRELOAD`, or dynamic-library path variables, are blocked.
+The child process receives only:
 
-## MCP governance
+- The configured credential environment variables, each with a companion `<ENV>_EXPIRES_AT` (epoch seconds) when the provider reports an expiry.
+- An inherited allowlist: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, temporary-directory variables, locale (`LANG`, `LC_*`), terminal and color variables, `CI`, `NODE_ENV`, `CARACAL_ENV`, `XDG_*` directories, and standard Windows system variables.
 
-```toml
-[mcp_governance]
-mode = "block"
-```
+Everything else is dropped, including `CARACAL_*` configuration variables: they configure the launcher and do not propagate to the child. `CARACAL_ENV` is the one exception because it names the deployment environment rather than configuring the launcher. Credential entries may not use environment names that alter process loading, such as `NODE_OPTIONS`, `BUN_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*` variables.
 
-`block` stops likely MCP server subprocesses before launch. `log` records the governance event and continues; outside development it requires an explicit platform override.
+SDK-based children need their own explicit SDK configuration. Because launcher `CARACAL_*` variables are intentionally dropped, set `CARACAL_CONFIG` or the required SDK environment variables in the child deployment rather than relying on an inherited profile path.
+
+## Signals and Exit Codes
+
+`caracal run` forwards `SIGINT`, `SIGTERM`, `SIGHUP`, and `SIGQUIT` to the child, waits for the child to exit, and never leaves it running. Terminating the launcher terminates the workload.
+
+| Exit code    | Meaning                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| Child's code | The child spawned and exited; its exit code is returned unchanged. |
+| `1`          | Config, credential exchange, or step-up failed before spawn.       |
+| `127`        | The command could not be spawned (not found or not executable).    |
+| `128 + N`    | The child was terminated by signal number N.                       |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `runtime config not found` | Run Web console **Guided setup**, set platform env vars, or point `CARACAL_CONFIG` at a profile. |
-| Secret-file validation fails | Store the secret value in the file and ensure it is not group- or world-writable. |
-| Token exchange fails | Confirm `caracal status --ready`, zone ID, application ID, client secret, resource ID, and policy coverage. |
-| Child command never starts | Required credential exchange, step-up, config validation, or MCP governance failed before spawn. |
-| Child command exits non-zero | The runtime returns the child process exit code after successful token injection. |
+| Symptom                                 | Check                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `workload identity not found`           | Create a workload on the console's **Launcher** page, then set `CARACAL_WORKLOAD_ID` and a workload secret source.        |
+| `no credential bindings configured`     | Define launch bindings for this workload on the **Launcher** page in the web console.                                     |
+| Secret-file validation fails            | Store the secret value in the file and ensure it is not group- or world-writable.                                         |
+| Credential mint fails                   | Confirm `caracal status --ready`, workload ID, workload secret, resource ID, and policy coverage.                         |
+| Child command never starts              | Required credential mint, step-up, or binding validation failed before spawn.                                             |
+| Child cannot see a `CARACAL_*` variable | Expected: launcher configuration never propagates. Verify injected credentials with `caracal run -- printenv <ENV_NAME>`. |
+| Credentials expire mid-run              | Expected once the minted credential's TTL passes. Use a Caracal SDK for workloads that outlive their credentials.         |
+| Child command exits non-zero            | The runtime returns the child process exit code after successful credential injection.                                    |
 
 ## Next Step
 

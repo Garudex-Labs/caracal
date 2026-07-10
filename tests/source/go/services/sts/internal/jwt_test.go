@@ -28,15 +28,15 @@ func (s *signingKeyDB) GetZoneSigningKeySecret(_ context.Context, _ string) (*Se
 	return s.secret, nil
 }
 
-func (s *signingKeyDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, ciphertext, nonce []byte) (*SecretRow, error) {
+func (s *signingKeyDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, envelope []byte) (*SecretRow, error) {
 	s.ensureCalls++
-	s.secret = &SecretRow{ID: "generated-key", Ciphertext: ciphertext, Nonce: nonce, DEKID: "zoneKek"}
+	s.secret = &SecretRow{ID: "generated-key", Envelope: envelope}
 	return s.secret, nil
 }
 
 func TestKeyCacheGeneratesMissingZoneSigningKey(t *testing.T) {
 	db := &signingKeyDB{}
-	cache := newKeyCache(db, bytes.Repeat([]byte{7}, 32))
+	cache := newKeyCache(db, testKeyring(bytes.Repeat([]byte{7}, 32)))
 
 	key, kid, err := cache.getKeyAndKid(context.Background(), "zone-1")
 	if err != nil {
@@ -52,7 +52,7 @@ func TestKeyCacheGeneratesMissingZoneSigningKey(t *testing.T) {
 	if _, _, err := cache.getKeyAndKid(context.Background(), "zone-1"); err != nil {
 		t.Fatal(err)
 	}
-	if db.getCalls != 1 || db.ensureCalls != 1 {
-		t.Fatalf("expected cached key reuse, got loads=%d ensures=%d", db.getCalls, db.ensureCalls)
+	if db.getCalls != 2 || db.ensureCalls != 1 {
+		t.Fatalf("expected active-key version check with cached key reuse, got loads=%d ensures=%d", db.getCalls, db.ensureCalls)
 	}
 }

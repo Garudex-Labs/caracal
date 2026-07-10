@@ -12,11 +12,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,6 +26,7 @@ import (
 const (
 	jwksTTL          = 5 * time.Minute
 	jwksFetchTimeout = 10 * time.Second
+	jwksMaxBytes     = 256 * 1024
 )
 
 type jwksEntry struct {
@@ -31,11 +34,27 @@ type jwksEntry struct {
 	fetchedAt time.Time
 }
 
-var (
-	jwksMu     sync.RWMutex
-	jwksCache  = map[string]*jwksEntry{}
-	jwksClient = &http.Client{Timeout: jwksFetchTimeout}
-)
+// JWKSCache fetches and caches one signing keyset per issuer and zone.
+type JWKSCache struct {
+	mu     sync.RWMutex
+	cache  map[string]*jwksEntry
+	client *http.Client
+	ttl    time.Duration
+}
+
+// NewJWKSCache creates a cache using the supplied HTTP client. A nil client uses
+// a bounded default client; caller-owned clients are never closed by the cache.
+func NewJWKSCache(client *http.Client, ttl time.Duration) *JWKSCache {
+	if client == nil {
+		client = &http.Client{Timeout: jwksFetchTimeout}
+	}
+	if ttl <= 0 {
+		ttl = jwksTTL
+	}
+	return &JWKSCache{cache: map[string]*jwksEntry{}, client: client, ttl: ttl}
+}
+
+var defaultJWKSCache = NewJWKSCache(nil, jwksTTL)
 
 // GetJWKS returns the cached key set for one zone of the issuer, fetching if
 // missing or stale. STS serves one signing keyset per zone, so zoneID is
@@ -46,27 +65,38 @@ func GetJWKS(issuer, zoneID string) (map[string]*ecdsa.PublicKey, error) {
 
 // GetJWKSContext is GetJWKS with caller-supplied cancellation.
 func GetJWKSContext(ctx context.Context, issuer, zoneID string) (map[string]*ecdsa.PublicKey, error) {
+	return defaultJWKSCache.Get(ctx, issuer, zoneID)
+}
+
+// Get returns the cached keyset for one issuer and zone, fetching when stale.
+func (c *JWKSCache) Get(ctx context.Context, issuer, zoneID string) (map[string]*ecdsa.PublicKey, error) {
 	if err := assertSecureIssuer(issuer); err != nil {
 		return nil, err
 	}
 	if zoneID == "" {
 		return nil, fmt.Errorf("zone_id required: STS serves one signing keyset per zone")
 	}
+	issuer = strings.TrimRight(issuer, "/")
 	fetchURL := issuer + "/.well-known/jwks.json?" + url.Values{"zone_id": {zoneID}}.Encode()
 	cacheKey := issuer + "\x00" + zoneID
 
-	jwksMu.RLock()
-	entry, ok := jwksCache[cacheKey]
-	jwksMu.RUnlock()
-	if ok && time.Since(entry.fetchedAt) < jwksTTL {
+	c.mu.RLock()
+	entry, ok := c.cache[cacheKey]
+	c.mu.RUnlock()
+	if ok && time.Since(entry.fetchedAt) < c.ttl {
 		return entry.keys, nil
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if entry, ok := c.cache[cacheKey]; ok && time.Since(entry.fetchedAt) < c.ttl {
+		return entry.keys, nil
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := jwksClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -75,10 +105,20 @@ func GetJWKSContext(ctx context.Context, issuer, zoneID string) (map[string]*ecd
 		return nil, fmt.Errorf("jwks fetch %d", resp.StatusCode)
 	}
 
+	if resp.ContentLength > jwksMaxBytes {
+		return nil, fmt.Errorf("jwks document too large")
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, jwksMaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > jwksMaxBytes {
+		return nil, fmt.Errorf("jwks document too large")
+	}
 	var body struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, err
 	}
 
@@ -91,17 +131,15 @@ func GetJWKSContext(ctx context.Context, issuer, zoneID string) (map[string]*ecd
 		keys[kid] = key
 	}
 
-	jwksMu.Lock()
-	jwksCache[cacheKey] = &jwksEntry{keys: keys, fetchedAt: time.Now()}
-	jwksMu.Unlock()
+	c.cache[cacheKey] = &jwksEntry{keys: keys, fetchedAt: time.Now()}
 	return keys, nil
 }
 
 // ResetJWKSCache clears the in-memory JWKS cache. Intended for tests.
 func ResetJWKSCache() {
-	jwksMu.Lock()
-	jwksCache = map[string]*jwksEntry{}
-	jwksMu.Unlock()
+	defaultJWKSCache.mu.Lock()
+	defaultJWKSCache.cache = map[string]*jwksEntry{}
+	defaultJWKSCache.mu.Unlock()
 }
 
 // assertSecureIssuer requires the issuer to use https. http is permitted only for

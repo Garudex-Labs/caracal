@@ -1,50 +1,50 @@
 ---
 title: Protect an MCP Server
-description: Gate MCP tool calls with Caracal mandate verification using framework-neutral transport packages.
+description: Gate MCP tool calls with Caracal mandate verification using the framework-neutral verify packages.
 ---
 
-Use the MCP transport packages when your MCP framework does not have a dedicated Caracal connector or when you want to build your own boundary.
+Use the verify packages when your MCP framework does not have a dedicated Caracal adapter or when you want to build your own boundary.
 
 ## TypeScript verifier
 
 ```bash
-npm install @caracalai/transport-mcp @caracalai/revocation
+npm install @caracalai/verify @caracalai/revocation
 ```
 
 ```ts
-import { createMandateVerifier } from "@caracalai/transport-mcp";
-import { InMemoryRevocationStore } from "@caracalai/revocation";
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: "https://sts.example.com",
-  audience: "https://mcp.example.com",
-  zoneId: "zone_prod",
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
   revocations: new InMemoryRevocationStore(),
-});
+})
 
 export async function verifyToolRequest(authorization: string | undefined) {
   const result = await verifier.authorization(authorization, {
-    requiredScopes: ["mcp:tool:call"],
-    requiredTargets: ["https://mcp.example.com"],
-    requireAgent: true,
-  });
+    requiredScopes: ['mcp:tool:call'],
+    requiredTargets: ['https://mcp.example.com'],
+    requireSession: true,
+  })
 
   if (!result.ok) {
-    throw new Error(`${result.error.code}: ${result.error.description}`);
+    throw new Error(`${result.error.code}: ${result.error.description}`)
   }
 
-  return result.principal;
+  return result.principal
 }
 ```
 
 ## Python verifier
 
 ```bash
-pip install caracalai-transport-mcp caracalai-revocation
+pip install caracalai-verify caracalai-revocation
 ```
 
 ```python
-from caracalai_transport_mcp import authenticate, extract_bearer
+from caracalai_verify import authenticate, extract_bearer
 from caracalai_revocation import InMemoryRevocationStore
 
 revocations = InMemoryRevocationStore()
@@ -58,7 +58,7 @@ async def verify_tool_request(authorization: str | None):
         required_scopes=["mcp:tool:call"],
         expected_zone_id="zone_prod",
         revocations=revocations,
-        require_agent=True,
+        require_session=True,
         required_targets=["https://mcp.example.com"],
     )
     if result.error is not None:
@@ -68,13 +68,13 @@ async def verify_tool_request(authorization: str | None):
 
 ## Verification checklist
 
-| Check | Why it matters |
-| --- | --- |
-| Issuer and audience | Prevents accepting mandates from the wrong zone or target. |
-| Required scopes | Enforces tool-level authority. |
-| Required targets | Prevents cross-resource token reuse. |
-| Agent or delegation requirements | Keeps user-root and delegated calls separate. |
-| Revocation store | Rejects revoked sessions and delegation edges. |
+| Check                            | Why it matters                                             |
+| -------------------------------- | ---------------------------------------------------------- |
+| Issuer and audience              | Prevents accepting mandates from the wrong zone or target. |
+| Required scopes                  | Enforces tool-level authority.                             |
+| Required targets                 | Prevents cross-resource token reuse.                       |
+| Session or Delegation requirements | Keeps application-root and delegated calls separate.       |
+| Revocation store                 | Rejects revoked sessions and Delegations.                  |
 
 ## Production revocation
 
@@ -82,7 +82,7 @@ Use Redis-backed revocation packages for multi-instance MCP servers:
 
 - TypeScript: `@caracalai/revocation-redis`
 - Python: `caracalai-revocation-redis`
-- Go: `github.com/garudex-labs/caracal/packages/connectors/redis/go`
+- Go: `github.com/garudex-labs/caracal/packages/backends/redis/go`
 
 Run a consumer for the `caracal.sessions.revoke` stream so every resource server instance learns about revoked anchors.
 

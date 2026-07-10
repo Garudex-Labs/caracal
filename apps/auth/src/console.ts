@@ -9,10 +9,10 @@ import {
   discoverCoordinatorToken,
   deriveConsoleReadToken,
   deriveConsoleWriteToken,
+  deriveConsoleApproveToken,
   pathOnly,
   signAccountAssertion,
-  signOperatorAssertion,
-} from '@caracalai/core'
+} from '@caracalai/server-core'
 import {
   applyControlLifecycleAction,
   controlKeyRecord,
@@ -27,6 +27,9 @@ import { resolveStsUrl } from '@caracalai/engine/runtime-config'
 import { downstreamHeaders, safeTarget } from './security.ts'
 import { selectProxyCredential, shouldRetryWithFallback } from './proxyCredential.ts'
 import { coordZoneId, resolveZoneAccess, type ZoneProbeResult } from './zoneAccess.ts'
+import { enforceDenial, resolveAccess } from './allowlist.ts'
+import { parseProfileIds, resolveProfiles, adminTokenProfiles, type Profile } from './profiles.ts'
+import { loadConfig } from './config.ts'
 import { logger } from './logger.ts'
 
 export interface ConsoleContext {
@@ -34,6 +37,8 @@ export interface ConsoleContext {
 }
 
 import { auth } from './auth.ts'
+
+const cfg = loadConfig()
 
 const API_PREFIX = '/api/console'
 const COORD_PREFIX = '/api/console/coord'
@@ -83,39 +88,35 @@ function consoleWriteToken(): string | undefined {
   return admin ? deriveConsoleWriteToken(admin) : undefined
 }
 
+// The approve admin token the BFF presents on step-up decision traffic, derived from the
+// deployment admin token so it matches the approve-capability row the API provisions. The API
+// denies the write token the decision endpoints, so this dedicated credential is what lets a
+// console operator decide a hold while the everyday write path stays free of approval authority.
+function consoleApproveToken(): string | undefined {
+  const admin = adminToken()
+  return admin ? deriveConsoleApproveToken(admin) : undefined
+}
+
 function coordinatorToken(): string | undefined {
   return discoverCoordinatorToken(undefined, { preferGenerated: isLocalUrl(coordinatorUrl()) })
 }
 
 // The header the per-account assertion is carried in, matching the API's verifier.
 const ACCOUNT_ASSERTION_HEADER = 'x-caracal-account'
-// The header the operator-identity assertion is carried in, matching the API's verifier. It carries
-// the authenticated operator's display name and email so the API can attribute created objects to
-// the human behind the shared Console credential rather than to the credential's own name.
-const OPERATOR_ASSERTION_HEADER = 'x-caracal-operator'
 // The assertion's lifetime: long enough to cover a proxied request with clock skew, short enough
 // that a captured assertion is only briefly replayable. Replay on the internal hop grants strictly
 // less than the admin bearer already present there, so this is a tight bound on an already-low risk.
 const ACCOUNT_ASSERTION_TTL_SEC = 60
 
-// Signs the per-account assertion that carries the authenticated operator's account id to the API,
-// keyed by the deployment admin token both sides hold. Absent when no admin token is discoverable
-// (the proxy already reports unconfigured) or no account id is present, so the API simply binds no
-// account and behaves exactly as before.
+// Signs the per-account assertion that carries the authenticated profile's account id to the API,
+// keyed by the deployment admin token both sides hold. The id is the only identity the API ever
+// persists for attribution; display names are resolved live through the profiles surface below.
+// Absent when no admin token is discoverable (the proxy already reports unconfigured) or no
+// account id is present, so the API simply binds no account and behaves exactly as before.
 function accountAssertion(accountId: string | undefined): string | undefined {
   const admin = adminToken()
   if (!admin || !accountId) return undefined
   return signAccountAssertion(admin, accountId, Math.floor(Date.now() / 1000) + ACCOUNT_ASSERTION_TTL_SEC)
-}
-
-// Signs the operator-identity assertion that carries the authenticated operator's display name and
-// email to the API, keyed by the deployment admin token both sides hold. Absent when no admin token
-// is discoverable, so the API simply attributes to the admin credential's own name as before.
-function operatorAssertion(user: { id: string; name?: string | null; email?: string | null } | undefined): string | undefined {
-  const admin = adminToken()
-  if (!admin || !user) return undefined
-  const identity = { id: user.id, name: user.name ?? '', email: user.email ?? '' }
-  return signOperatorAssertion(admin, identity, Math.floor(Date.now() / 1000) + ACCOUNT_ASSERTION_TTL_SEC)
 }
 
 function toWebHeaders(req: IncomingMessage): Headers {
@@ -373,12 +374,10 @@ async function forwardProxy(
   id: string,
   fallbackToken?: string,
   account?: string,
-  operator?: string,
 ): Promise<void> {
   const method = req.method ?? 'GET'
   const baseHeaders: Record<string, string> = downstreamHeaders(id)
   if (account) baseHeaders[ACCOUNT_ASSERTION_HEADER] = account
-  if (operator) baseHeaders[OPERATOR_ASSERTION_HEADER] = operator
 
   // Let the engine compress its response and pass the encoded bytes through untouched, so large
   // admin lists travel compressed across the real network between the browser and the BFF.
@@ -457,11 +456,6 @@ async function forwardProxy(
       res.setHeader('Content-Encoding', encoding)
       res.setHeader('Vary', 'Accept-Encoding')
     }
-    // Surface keyset pagination to the browser. The control plane advertises the next
-    // page through a same-origin Link header; without forwarding it the web client
-    // silently truncates large lists at the server default page size.
-    const link = upstream.headers.get('link')
-    if (link) res.setHeader('Link', link)
     res.end(payload)
   } catch (err) {
     if (res.writableEnded) return
@@ -491,14 +485,7 @@ function targetPath(target: string): string {
 // Validates that a proxied path stays within an allowed prefix after URL normalization, closing
 // a prefix-check bypass (e.g. `/v1/../metrics`). Defined in security.ts as a path-confinement
 // primitive and reused here for both the API and coordinator proxy surfaces.
-async function handleProxy(
-  req: IncomingMessage,
-  res: ServerResponse,
-  rest: string,
-  id: string,
-  account?: string,
-  operator?: string,
-): Promise<void> {
+async function handleProxy(req: IncomingMessage, res: ServerResponse, rest: string, id: string, account?: string): Promise<void> {
   const token = adminToken()
   if (!token) {
     sendJson(res, 503, { error: 'control_plane_not_configured' })
@@ -509,13 +496,21 @@ async function handleProxy(
     sendJson(res, 404, { error: 'not_found' })
     return
   }
-  // Reads present the read-only token and writes present the write token; either falls back to
-  // the deployment admin token only if its own token is unrecognized. This keeps the bootstrap
-  // admin token off the BFF's normal path entirely - reserved as a break-glass fallback - while
-  // a request can never fail closed for want of a credential.
+  // Reads present the read-only token, step-up decisions the approve token, and other writes
+  // the write token; each falls back to the deployment admin token only if its own token is
+  // unrecognized. This keeps the bootstrap admin token off the BFF's normal path entirely -
+  // reserved as a break-glass fallback - while a request can never fail closed for want of a
+  // credential.
   const method = (req.method ?? 'GET').toUpperCase()
-  const credential = selectProxyCredential(method, token, consoleReadToken(), consoleWriteToken())
-  await forwardProxy(req, res, target, credential.token, id, credential.fallbackToken, account, operator)
+  const credential = selectProxyCredential(
+    method,
+    new URL(target).pathname,
+    token,
+    consoleReadToken(),
+    consoleWriteToken(),
+    consoleApproveToken(),
+  )
+  await forwardProxy(req, res, target, credential.token, id, credential.fallbackToken, account)
   // A successful write to the control plane can change what diagnostics reports (zone
   // inventory, resources, policy enforcement, …); drop cached reports so the next read
   // recomputes against the new state instead of surfacing a stale warning.
@@ -612,7 +607,14 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
     // credential policy the proxy uses, so this read never carries the god token on its normal
     // path.
     const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}/applications/${encodeURIComponent(keyId)}`
-    const credential = selectProxyCredential('GET', token, consoleReadToken(), consoleWriteToken())
+    const credential = selectProxyCredential(
+      'GET',
+      new URL(url).pathname,
+      token,
+      consoleReadToken(),
+      consoleWriteToken(),
+      consoleApproveToken(),
+    )
     const readHeaders: Record<string, string> = downstreamHeaders(id)
     if (account) readHeaders[ACCOUNT_ASSERTION_HEADER] = account
     const readWith = (bearer: string): Promise<Response> => fetch(url, { headers: { Authorization: `Bearer ${bearer}`, ...readHeaders } })
@@ -648,12 +650,12 @@ async function handleControlToken(req: IncomingMessage, res: ServerResponse, id:
   const allowed = new Set(record.allowed_scopes)
   for (const scope of scopes) {
     if (!allowed.has(scope)) {
-      sendJson(res, 400, { error: 'scope_not_granted', detail: scope })
+      sendJson(res, 400, { error: 'scope_not_granted', error_description: scope })
       return
     }
   }
   if (record.max_ttl_seconds !== undefined && ttlSeconds > record.max_ttl_seconds) {
-    sendJson(res, 400, { error: 'ttl_exceeds_key_maximum', detail: String(record.max_ttl_seconds) })
+    sendJson(res, 400, { error: 'ttl_exceeds_key_maximum', error_description: String(record.max_ttl_seconds) })
     return
   }
 
@@ -725,7 +727,14 @@ async function probeZone(zoneId: string, account: string | undefined, id: string
   const url = `${apiUrl()}/v1/zones/${encodeURIComponent(zoneId)}`
   const headers: Record<string, string> = downstreamHeaders(id)
   if (account) headers[ACCOUNT_ASSERTION_HEADER] = account
-  const credential = selectProxyCredential('GET', admin, consoleReadToken(), consoleWriteToken())
+  const credential = selectProxyCredential(
+    'GET',
+    new URL(url).pathname,
+    admin,
+    consoleReadToken(),
+    consoleWriteToken(),
+    consoleApproveToken(),
+  )
   try {
     const readWith = (bearer: string): Promise<Response> =>
       fetch(url, { headers: { ...headers, Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
@@ -793,6 +802,23 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     return true
   }
 
+  // The allowlist is re-checked on every proxied request, not just at sign-in, so a lock or
+  // removal on the host cuts a live session off within one request instead of waiting out the
+  // session's lifetime: the session is revoked (and a removed account erased) before the
+  // response, and the browser receives one uniform code that reveals nothing about which
+  // denial applied.
+  const access = resolveAccess(session.user.email, cfg)
+  if (access !== 'allowed') {
+    logger.warn('console access denied by allowlist', { id: ctx.id, userId: session.user.id, access })
+    try {
+      await enforceDenial(await auth.$context, access, { id: session.user.id, email: session.user.email })
+    } catch (err) {
+      logger.error('allowlist enforcement failed', { id: ctx.id, userId: session.user.id, err })
+    }
+    sendJson(res, 403, { error: 'access_denied' })
+    return true
+  }
+
   // Attribute every state-changing proxied action to the authenticated operator. The proxy
   // forwards this request id downstream as `x-request-id`, which the control plane records as
   // the admin-audit `request_id`, so this line is the join that maps a tamper-evident audit row
@@ -808,14 +834,11 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     })
   }
 
-  // The signed account assertion carries the authenticated operator's account id to the API so it
+  // The signed account assertion carries the authenticated profile's account id to the API so it
   // can attribute and, in later phases, scope by ownership. It is bound to the verified session, so
-  // the API can trust it as the human behind the shared Console credential.
+  // the API can trust it as the human behind the shared Console credential. The id is the only
+  // identity that ever persists; the profiles surface below resolves it to a current display name.
   const account = accountAssertion(session.user.id)
-
-  // The signed operator assertion carries the authenticated operator's display name and email so the
-  // API can stamp created objects with the human behind the shared Console credential.
-  const operator = operatorAssertion(session.user)
 
   if (url.startsWith(`${COORD_PREFIX}/`)) {
     await handleCoordProxy(req, res, url.slice(COORD_PREFIX.length), ctx.id, account, session.user.id)
@@ -825,6 +848,10 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
   const path = url.slice(API_PREFIX.length)
   if (path === '/status' || path.startsWith('/status?')) {
     await handleStatus(res)
+    return true
+  }
+  if (path === '/profiles' || path.startsWith('/profiles?')) {
+    await handleProfiles(res, url, ctx.id)
     return true
   }
   if (path === '/diagnostics') {
@@ -837,10 +864,50 @@ export async function handleConsole(req: IncomingMessage, res: ServerResponse, c
     return true
   }
   if (path.startsWith('/v1/')) {
-    await handleProxy(req, res, path, ctx.id, account, operator)
+    await handleProxy(req, res, path, ctx.id, account)
     return true
   }
 
   sendJson(res, 404, { error: 'not_found' })
   return true
+}
+
+// Resolves profile ids to current display names for attribution rendering. Session-guarded and
+// allowlist-gated like every console route; profile ids answer from the auth store directly, so
+// a rename is visible on the next render, while `admin:<id>` identities resolve to their admin
+// token's name through the control plane.
+async function handleProfiles(res: ServerResponse, url: string, id: string): Promise<void> {
+  const ids = parseProfileIds(url)
+  const profiles: Profile[] = []
+  try {
+    const ctx = await auth.$context
+    profiles.push(...(await resolveProfiles(ctx.adapter, ids.profiles)))
+  } catch (err) {
+    logger.warn('profile resolution failed', { err })
+  }
+  profiles.push(...(await resolveAdminIdentities(ids.admins, id)))
+  sendJson(res, 200, { profiles })
+}
+
+// Looks up admin token names for `admin:<id>` attribution identities. A failed or unconfigured
+// lookup resolves nothing: the console then renders the stored identity verbatim.
+async function resolveAdminIdentities(ids: string[], reqId: string): Promise<Profile[]> {
+  if (ids.length === 0) return []
+  const admin = adminToken()
+  if (!admin) return []
+  try {
+    const upstream = await fetch(`${apiUrl()}/v1/admin-tokens`, {
+      headers: { ...downstreamHeaders(reqId), Authorization: `Bearer ${admin}` },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    if (!upstream.ok) {
+      await upstream.body?.cancel().catch(() => {})
+      return []
+    }
+    const body = (await upstream.json()) as { items?: unknown[] }
+    return adminTokenProfiles(body.items ?? [], ids)
+  } catch (err) {
+    logger.warn('admin identity resolution failed', { err })
+    return []
+  }
 }

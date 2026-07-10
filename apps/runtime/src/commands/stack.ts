@@ -6,15 +6,20 @@
 
 import { spawnSync } from 'node:child_process'
 import {
+  acquireStackLock,
+  appendUpgradeRecord,
   composeRun,
   defaultServiceProbes,
+  readRuntimeVersion,
   resolveStackPaths,
+  runtimePaths,
   stackDown,
   stackStatus,
   stackUp,
   type ProbeKind,
   type StackMode,
   type StackPaths,
+  type UpgradeOutcome,
 } from '@caracalai/engine'
 import { flagBool, parseArgs, printJSON, showHelp } from './shared.ts'
 import { CARACAL_MODE, CARACAL_REGISTRY, CARACAL_SHA, CARACAL_VERSION } from '../runtime/version.gen.ts'
@@ -31,9 +36,27 @@ function resolveMode(): StackMode {
   return CARACAL_MODE
 }
 
-export function resolvePaths(quiet = false): StackPaths {
+export function resolvePaths(quiet = false, provision = true): StackPaths {
   try {
-    return resolveStackPaths({ mode: resolveMode(), onInfo: quiet ? undefined : printInfo })
+    return resolveStackPaths({
+      mode: resolveMode(),
+      version: CARACAL_VERSION,
+      provision,
+      onInfo: quiet ? undefined : printInfo,
+    })
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+}
+
+// Serializes mutating stack commands on installed hosts. The lock releases on
+// normal exit; a crash leaves a stale lock the next acquisition takes over.
+function lockStack(paths: StackPaths): void {
+  if (paths.mode === 'dev') return
+  try {
+    const release = acquireStackLock(paths.cwd)
+    process.once('exit', release)
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err))
     process.exit(1)
@@ -78,9 +101,9 @@ function printBanner(paths: StackPaths): void {
 }
 
 export function composeEnv(paths: StackPaths): Record<string, string | undefined> {
-  // Build-time pins are authoritative in rc/stable. They are forwarded so compose
-  // substitution sees the same values the loader enforces; the schema's pinned
-  // check then rejects any conflicting override file or process.env entry.
+  // Build-time pins are authoritative in rc/stable. Forwarding them in the spawned
+  // process environment makes compose substitution prefer them over any conflicting
+  // caracal.env entry, since compose resolves OS env before --env-file values.
   const env: Record<string, string | undefined> = {
     CARACAL_MODE: paths.mode,
     CARACAL_SECRETS_DIR: paths.secretsDir,
@@ -102,6 +125,7 @@ export async function upCommand(argv: string[]): Promise<void> {
   requireDockerCompose()
   if (paths.mode === 'dev') requireBuildKit()
   printBanner(paths)
+  lockStack(paths)
   const handle = stackUp({ paths, args: argv, env: composeEnv(paths) })
   const code = await handle.exitCode
   if (code === 0 && argv.length === 0) {
@@ -116,9 +140,10 @@ export async function upCommand(argv: string[]): Promise<void> {
 }
 
 export async function downCommand(argv: string[]): Promise<void> {
-  const paths = resolvePaths()
+  const paths = resolvePaths(false, false)
   requireDockerCompose()
   printBanner(paths)
+  lockStack(paths)
   const handle = stackDown({ paths, args: argv, env: composeEnv(paths) })
   const code = await handle.exitCode
   process.exit(code)
@@ -132,11 +157,16 @@ async function composeStep(paths: StackPaths, args: string[], env: Record<string
 export async function upgradeCommand(argv: string[]): Promise<void> {
   if (argv[0] === 'help' || argv[0] === '--help' || argv[0] === '-h') return upgradeHelp()
   const { flags } = parseArgs(argv)
+  const previous = resolveMode() === 'dev' ? undefined : readRuntimeVersion(runtimePaths().home)
   const paths = resolvePaths()
   requireDockerCompose()
   if (paths.mode === 'dev') requireBuildKit()
   printBanner(paths)
+  lockStack(paths)
   const env = composeEnv(paths)
+  const record = (outcome: UpgradeOutcome): void => {
+    if (paths.mode !== 'dev') appendUpgradeRecord(paths.cwd, { from: previous, to: CARACAL_VERSION, outcome })
+  }
 
   // Stage the new images before touching the running stack. dev rebuilds from
   // source; rc/stable fetch the release pinned into this binary.
@@ -144,7 +174,10 @@ export async function upgradeCommand(argv: string[]): Promise<void> {
     if (!(await composeStep(paths, ['build'], env))) process.exit(1)
   } else if (!flagBool(flags, 'no-pull')) {
     printInfo(`fetching ${CARACAL_VERSION} images`)
-    if (!(await composeStep(paths, ['pull'], env))) process.exit(1)
+    if (!(await composeStep(paths, ['pull'], env))) {
+      record('stageFailed')
+      process.exit(1)
+    }
   }
 
   // Apply migrations while the previous version keeps serving. Releases ship
@@ -153,22 +186,29 @@ export async function upgradeCommand(argv: string[]): Promise<void> {
   printInfo('applying database migrations (expand phase)')
   if (!(await composeStep(paths, ['run', '--rm', 'dbMigrate'], env))) {
     printError('migration failed; the stack still runs the previous version')
+    record('migrationFailed')
     process.exit(1)
   }
 
   // Roll services onto the new images. Compose recreates only the containers
-  // whose image changed; expand/contract keeps both versions readable.
+  // whose image changed; expand/contract keeps both versions readable. Images
+  // were staged above, so the roll itself skips the build step.
   printInfo('rolling services onto the new version')
-  const handle = stackUp({ paths, args: [], env })
+  const handle = stackUp({ paths, args: [], env, build: false })
   const code = await handle.exitCode
-  if (code !== 0) process.exit(code)
+  if (code !== 0) {
+    record('rollFailed')
+    process.exit(code)
+  }
 
   try {
     await completeRuntimeOnboarding()
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err))
+    record('readinessFailed')
     process.exit(1)
   }
+  record('success')
   process.exit(0)
 }
 
@@ -192,7 +232,7 @@ export async function statusCommand(argv: string[] = []): Promise<void> {
   const { flags } = parseArgs(argv)
   const kind: ProbeKind = flagBool(flags, 'ready') ? 'ready' : 'health'
   const json = flagBool(flags, 'json')
-  const paths = resolvePaths(json)
+  const paths = resolvePaths(json, false)
   const probes = defaultServiceProbes(kind)
   const results = await stackStatus({ probes })
   if (json) {

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -38,11 +39,15 @@ func (allowTracker) Check(context.Context, string, time.Time, string, string, st
 
 type allowRevocations struct{}
 
+func (allowRevocations) SnapshotFresh(time.Time) bool {
+	return true
+}
+
 func (allowRevocations) IsRevoked(string) bool {
 	return false
 }
 
-func (allowRevocations) IsAgentRevoked(string) bool {
+func (allowRevocations) IsSessionRevoked(string) bool {
 	return false
 }
 
@@ -139,9 +144,10 @@ func makeJWT(t *testing.T, offset time.Duration) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp    int64  `json:"exp"`
-		ZoneID string `json:"zone_id"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z"})
+		Exp      int64  `json:"exp"`
+		ZoneID   string `json:"zone_id"`
+		ClientID string `json:"client_id"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a"})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -152,20 +158,22 @@ func makeJWTWithDelegation(t *testing.T, offset time.Duration, edgeID string) st
 	payload, _ := json.Marshal(struct {
 		Exp              int64  `json:"exp"`
 		ZoneID           string `json:"zone_id"`
+		ClientID         string `json:"client_id"`
 		DelegationEdgeID string `json:"delegation_edge_id"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", DelegationEdgeID: edgeID})
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", DelegationEdgeID: edgeID})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
 
-func makeJWTWithRoot(t *testing.T, offset time.Duration, rootSID string) string {
+func makeJWTWithRoot(t *testing.T, offset time.Duration, rootAuthorityRecordID string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp     int64  `json:"exp"`
-		ZoneID  string `json:"zone_id"`
-		RootSID string `json:"root_sid"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", RootSID: rootSID})
+		Exp                   int64  `json:"exp"`
+		ZoneID                string `json:"zone_id"`
+		ClientID              string `json:"client_id"`
+		RootAuthorityRecordID string `json:"root_sid"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", RootAuthorityRecordID: rootAuthorityRecordID})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -196,25 +204,13 @@ func newFakeSTS(t *testing.T, upstream string, calls *int32) *httptest.Server {
 func newProxyForTest(_ *testing.T, sts *httptest.Server) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 }
 
 func newProxyForTestWithRevocations(_ *testing.T, sts *httptest.Server, revocations revocationChecker) *proxy {
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, revocations, &GatewayMetrics{}, nil)
-}
-
-// testBindings returns a bindingStore preloaded with the resource identifiers used
-// across proxy tests. The empty pool is safe because tests never trigger Reload.
-func testBindings() *bindingStore {
-	s := &bindingStore{log: zerolog.Nop(), pollInterval: defaultBindingPollInterval}
-	m := map[string]binding{
-		bindingKey("z", "r"):  {ZoneID: "z", ApplicationID: "a"},
-		bindingKey("z", "r1"): {ZoneID: "z", ApplicationID: "a"},
-	}
-	s.cache.Store(&m)
-	return s
+	return newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, revocations, &GatewayMetrics{}, nil)
 }
 
 func doProxiedRequest(t *testing.T, p *proxy, method, target string, body io.Reader, hdr http.Header) *http.Response {
@@ -369,10 +365,10 @@ func TestProxyRejectsRevokedRootSession(t *testing.T) {
 		"X-Caracal-Resource": {"r1"},
 	})
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected revoked root session to return 401, got %d", resp.StatusCode)
+		t.Fatalf("expected revoked Root authority record to return 401, got %d", resp.StatusCode)
 	}
 	if atomic.LoadInt32(&calls) != 0 {
-		t.Fatalf("revoked root session must not reach STS")
+		t.Fatalf("revoked Root authority record must not reach STS")
 	}
 }
 
@@ -414,6 +410,9 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 		"Authorization":       {"Bearer " + tok},
 		"X-Caracal-Resource":  {"r1"},
 		"X-Caracal-Upstream":  {"shouldnt-leak"},
+		"X-Caracal-Internal":  {"shouldnt-leak"},
+		"Forwarded":           {"for=198.51.100.1"},
+		"X-Real-Ip":           {"198.51.100.1"},
 		"Connection":          {"X-Hop-Custom"},
 		"X-Hop-Custom":        {"drop"},
 		"Proxy-Authorization": {"Bearer leak"},
@@ -430,7 +429,7 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	if got := seen.Header.Get("Authorization"); got != "Bearer sts-issued-token" {
 		t.Errorf("Authorization not replaced; got %q", got)
 	}
-	for _, drop := range []string{"X-Caracal-Client-ID", "X-Caracal-Resource", "X-Caracal-Upstream", "Connection", "X-Hop-Custom", "Proxy-Authorization"} {
+	for _, drop := range []string{"X-Caracal-Client-ID", "X-Caracal-Resource", "X-Caracal-Upstream", "X-Caracal-Internal", "Forwarded", "X-Real-Ip", "Connection", "X-Hop-Custom", "Proxy-Authorization"} {
 		if seen.Header.Get(drop) != "" {
 			t.Errorf("%s should be stripped, got %q", drop, seen.Header.Get(drop))
 		}
@@ -450,6 +449,21 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "ok" {
 		t.Errorf("body = %q", body)
+	}
+}
+
+func TestTrustedProxyPreservesSanitizedClientAndScheme(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.2:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	upstream, _ := url.Parse("https://upstream.example")
+	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{}, nil, "request-1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Header.Get("X-Forwarded-For") != "203.0.113.10" || req.Header.Get("X-Forwarded-Proto") != "https" {
+		t.Fatalf("unexpected forwarding metadata: %#v", req.Header)
 	}
 }
 
@@ -933,7 +947,7 @@ func TestProxySignedExchangeBrokersProviderCredentialWithoutIdentityLeak(t *test
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second, key)
 	guard := newUpstreamGuard(nil)
-	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 1<<20, 5*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 	resp := doProxiedRequest(t, p, "GET", "/x", nil, http.Header{
 		"Authorization":      {"Bearer " + makeJWT(t, time.Hour)},
 		"X-Api-Key":          {"caller-supplied"},
@@ -1106,7 +1120,7 @@ func TestProxyBodySizeLimitEnforced(t *testing.T) {
 
 	stsClient := newSTSClient(sts.URL, 2*time.Second, nil)
 	guard := newUpstreamGuard(nil)
-	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 16, 2*time.Second, testBindings(), allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
+	p := newProxy(stsClient, allowVerifier{}, guard, zerolog.New(io.Discard), 16, 2*time.Second, allowTracker{}, allowRevocations{}, &GatewayMetrics{}, nil)
 
 	tok := makeJWT(t, time.Hour)
 	hdr := http.Header{
@@ -1170,7 +1184,7 @@ func TestProxyEmitsCredentialFreeActionAudit(t *testing.T) {
 				AuthScheme:    "ApiKey",
 				ProviderToken: "provider-secret",
 				ProviderID:    "provider-1",
-				GrantID:       "grant-1",
+				ConnectionID:  "grant-1",
 			}},
 		})
 	}))
@@ -1204,12 +1218,12 @@ func TestProxyEmitsCredentialFreeActionAudit(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"application_id", "resource", "subject_fingerprint", "method", "upstream_host", "auth_mode", "provider_id", "grant_id", "gateway_status", "upstream_status", "latency_ms"} {
+	for _, want := range []string{"application_id", "resource", "subject_fingerprint", "method", "upstream_host", "auth_mode", "provider_id", "connection_id", "gateway_status", "upstream_status", "latency_ms"} {
 		if _, ok := meta[want]; !ok {
 			t.Fatalf("missing audit metadata %q in %#v", want, meta)
 		}
 	}
-	if meta["provider_id"] != "provider-1" || meta["grant_id"] != "grant-1" {
+	if meta["provider_id"] != "provider-1" || meta["connection_id"] != "grant-1" {
 		t.Fatalf("provider trace metadata = %#v", meta)
 	}
 	rawMeta := string(event.MetadataJSON)
@@ -1327,7 +1341,7 @@ func TestStreamCopyStopsOnRootRevocationDuringExecution(t *testing.T) {
 		revoked: revoked,
 	}
 	var out strings.Builder
-	n, hit := streamCopy(&out, src, testFlusher{}, streamingRootRevoked{revoked: revoked}, tokenRevocationIDs{RootSID: "root-stream"})
+	n, hit := streamCopy(&out, src, testFlusher{}, streamingRootRevoked{revoked: revoked}, tokenRevocationAnchors{RootAuthorityRecordID: "root-stream"})
 	if !hit {
 		t.Fatal("expected stream to stop after root revocation")
 	}
@@ -1375,7 +1389,7 @@ func TestSTSClientTransportFailureSanitised(t *testing.T) {
 	c := newSTSClient("http://127.0.0.1:1", 100*time.Millisecond, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	outcome := c.Exchange(ctx, "tok", binding{}, "r", "GET", "/x", "rid")
+	outcome := c.Exchange(ctx, "tok", "z", "a", "r", "GET", "/x", "rid")
 	if outcome.InternalErr == nil {
 		t.Fatal("expected transport error")
 	}

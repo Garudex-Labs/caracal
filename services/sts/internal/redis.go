@@ -138,6 +138,17 @@ return 0`
 	return r.c.Eval(ctx, script, []string{key}, value).Err()
 }
 
+// ExpireIfValue extends key's TTL only while it still holds value, so a lease is
+// renewed only by its owner. Returns false when the key is absent or owned elsewhere.
+func (r *RedisClient) ExpireIfValue(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
+	script := `if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return 0`
+	n, err := r.c.Eval(ctx, script, []string{key}, value, int(ttl.Seconds())).Int64()
+	return n == 1, err
+}
+
 func (r *RedisClient) Exists(ctx context.Context, key string) (bool, error) {
 	n, err := r.c.Exists(ctx, key).Result()
 	return n > 0, err

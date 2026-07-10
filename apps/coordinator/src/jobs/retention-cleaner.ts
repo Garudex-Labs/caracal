@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Retention cleaner: expires stale delegation edges and prunes Console coordinator rows.
+// Retention cleaner: expires stale Delegations and prunes Console Coordinator rows.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
@@ -15,6 +15,7 @@ interface RetentionCleanupResult {
   expiredEdges: number
   deletedEdges: number
   deletedOutbox: number
+  deletedIdempotencyReceipts: number
 }
 
 interface ExpiredEdge {
@@ -30,35 +31,48 @@ export const retentionCleanerStats = {
   expired_edges: 0,
   deleted_edges: 0,
   deleted_outbox: 0,
+  deleted_idempotency_receipts: 0,
 }
 
 const emptyResult = (): RetentionCleanupResult => ({
   expiredEdges: 0,
   deletedEdges: 0,
   deletedOutbox: 0,
+  deletedIdempotencyReceipts: 0,
 })
 
 export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupResult> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows: lock } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
-      [CLEANUP_LOCK],
-    )
+    const { rows: lock } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`, [
+      CLEANUP_LOCK,
+    ])
     if (!lock[0]?.acquired) {
       await client.query('ROLLBACK')
       return emptyResult()
     }
 
     const { rows: expiredRows } = await client.query<ExpiredEdge>(
-      `WITH expired AS (
-         SELECT id
+      `WITH candidates AS MATERIALIZED (
+         SELECT id, zone_id
          FROM delegation_edges
          WHERE status = 'active' AND expires_at < now()
-         ORDER BY expires_at
+         ORDER BY expires_at, id
          LIMIT $1
-         FOR UPDATE SKIP LOCKED
+       ),
+       locked_zones AS MATERIALIZED (
+         SELECT pg_advisory_xact_lock(hashtext('delegation:' || zone_id))
+         FROM (SELECT DISTINCT zone_id FROM candidates) zones
+         ORDER BY zone_id
+       ),
+       expired AS (
+         SELECT edge.id
+         FROM candidates candidate
+         JOIN delegation_edges edge ON edge.id = candidate.id
+         CROSS JOIN (SELECT COUNT(*) FROM locked_zones) locks
+         WHERE edge.status = 'active' AND edge.expires_at < now()
+         FOR UPDATE OF edge SKIP LOCKED
        )
        UPDATE delegation_edges d
        SET status = 'expired', updated_at = now()
@@ -99,6 +113,12 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
          WHERE status IN ('revoked', 'expired')
            AND COALESCE(revoked_at, expires_at, updated_at, created_at)
                < now() - ($1::int * interval '1 day')
+           AND NOT EXISTS (
+             SELECT 1 FROM delegation_edges child
+             WHERE child.parent_edge_id = delegation_edges.id
+               AND child.status = 'active'
+               AND child.expires_at > now()
+           )
          ORDER BY COALESCE(revoked_at, expires_at, updated_at, created_at)
          LIMIT $2
          FOR UPDATE SKIP LOCKED
@@ -124,11 +144,26 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
        WHERE o.id = old_rows.id`,
       [cfg.outboxRetentionDays, cfg.retentionCleanupBatchSize],
     )
+    const { rowCount: deletedIdempotencyReceipts } = await client.query(
+      `WITH expired_receipts AS (
+         SELECT id
+         FROM coordinator_idempotency_receipts
+         WHERE expires_at <= now()
+         ORDER BY expires_at, id
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       DELETE FROM coordinator_idempotency_receipts r
+       USING expired_receipts
+       WHERE r.id = expired_receipts.id`,
+      [cfg.retentionCleanupBatchSize],
+    )
     await client.query('COMMIT')
     return {
       expiredEdges: expiredRows.length,
       deletedEdges: deletedEdges ?? 0,
       deletedOutbox: deletedOutbox ?? 0,
+      deletedIdempotencyReceipts: deletedIdempotencyReceipts ?? 0,
     }
   } catch (err) {
     await client.query('ROLLBACK')
@@ -138,10 +173,7 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
   }
 }
 
-export function startRetentionCleaner(
-  db: Pool,
-  options: { intervalMs?: number; log?: JobLogger } = {},
-): JobHandle {
+export function startRetentionCleaner(db: Pool, options: { intervalMs?: number; log?: JobLogger } = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.retentionCleanupIntervalMs
   return makeIntervalJob(
     () => {
@@ -150,6 +182,7 @@ export function startRetentionCleaner(
         retentionCleanerStats.expired_edges += result.expiredEdges
         retentionCleanerStats.deleted_edges += result.deletedEdges
         retentionCleanerStats.deleted_outbox += result.deletedOutbox
+        retentionCleanerStats.deleted_idempotency_receipts += result.deletedIdempotencyReceipts
       })
     },
     intervalMs,

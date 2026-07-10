@@ -71,13 +71,19 @@ func TestSTSClientSignsGatewayExchange(t *testing.T) {
 		if got := r.Form.Get("request_path"); got != "/api/initiate_payment" {
 			t.Fatalf("request_path not forwarded: got %q", got)
 		}
+		if got := r.Form.Get("gateway_request_id"); got != "req-123" {
+			t.Fatalf("gateway_request_id not forwarded: got %q", got)
+		}
+		if got := r.Header.Get(corests.GatewayRequestHeader); got == "req-123" {
+			t.Fatal("gateway nonce must be independent of caller request id")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":60,"issued_token_type":"urn:ietf:params:oauth:token-type:access_token","upstreams":{"` + resource + `":{"url":"https://upstream.example","auth_mode":"caracal_jwt"}}}`))
 	}))
 	defer srv.Close()
 
 	client := newSTSClient(srv.URL, time.Second, key)
-	out := client.Exchange(context.Background(), "subject", binding{ZoneID: "zone", ApplicationID: "app"}, "resource://api", "POST", "/api/initiate_payment", "req-123")
+	out := client.Exchange(context.Background(), "subject", "zone", "app", "resource://api", "POST", "/api/initiate_payment", "req-123")
 	if out.ClientErr != nil || out.Result == nil {
 		t.Fatalf("expected signed exchange success, got %#v", out)
 	}

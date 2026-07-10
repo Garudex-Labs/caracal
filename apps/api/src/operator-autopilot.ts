@@ -3,21 +3,31 @@
 //
 // The Caracal-governed autopilot evaluator: decides deterministically whether a plan's human approval step may be auto-satisfied, never by the model.
 
-// The Caracal-side autopilot policy: the deployment master switch for auto-approval. enabled is the
-// kill switch - false disables all auto-approval regardless of any conversation's engage flag, and
-// defaults off so a deployment opts in explicitly before autopilot can ever act.
+// The Caracal-side autopilot policy. enabled is the deployment master switch - false disables all
+// auto-approval regardless of any conversation's engage flag, and defaults off so a deployment
+// opts in explicitly before autopilot can ever act. conversationWriteBudget bounds how many write
+// operations autopilot may auto-approve across one conversation: null places no bound, a positive
+// number is the cumulative cap on mutating steps, after which further plans stop for explicit
+// human approval.
 export interface AutopilotPolicy {
   enabled: boolean
+  conversationWriteBudget: number | null
 }
 
 export interface AutopilotPolicyInput {
   enabled?: boolean
+  conversationWriteBudget?: number
 }
 
 // Builds the autopilot policy from configuration. The master switch defaults off so autopilot is
-// unavailable until a deployment turns it on.
+// unavailable until a deployment turns it on, and the write budget is unbounded unless the
+// deployment configures a positive cap - zero or absent means no budget is enforced.
 export function buildAutopilotPolicy(input: AutopilotPolicyInput = {}): AutopilotPolicy {
-  return { enabled: input.enabled ?? false }
+  const budget = input.conversationWriteBudget ?? 0
+  return {
+    enabled: input.enabled ?? false,
+    conversationWriteBudget: Number.isInteger(budget) && budget > 0 ? budget : null,
+  }
 }
 
 // Whether autopilot is available at all for this deployment: the master switch is on. Used to
@@ -28,13 +38,16 @@ export function autopilotAvailable(policy: AutopilotPolicy): boolean {
 
 // The evidence the evaluator judges: the conversation's engage flag, whether the plan's own
 // deterministic preview says it can apply, whether every step that collects credentials through
-// the console's secure prompt has them stored, and the plan's steps. The plan was proposed by the
-// model but the decision is Caracal's alone.
+// the console's secure prompt has them stored, the plan's steps, and the write ledger - how many
+// mutating steps this plan carries and how many autopilot already auto-approved earlier in the
+// conversation. The plan was proposed by the model but the decision is Caracal's alone.
 export interface AutopilotEvaluation {
   engaged: boolean
   applicable: boolean
   credentialsSatisfied: boolean
   steps: { id: string; capability: string }[]
+  mutatingSteps: number
+  priorApprovedWrites: number
 }
 
 // The decision: either the approval step may be auto-satisfied, or it must stop for a human with a
@@ -46,6 +59,8 @@ export type AutopilotDecision = { autoApprove: true } | { autoApprove: false; re
 // engaged conversation has opted into acting without a human in the loop. A plan the deterministic
 // preview already marks unapplicable - a blocked step whose target cannot exist when the plan runs -
 // is never auto-approved: it would only fail on apply, so it stops for a human who can see why.
+// When the deployment bounds the conversation's write budget, a plan whose mutating steps would
+// push the cumulative auto-approved writes past the cap stops for explicit human approval instead.
 // Authority is never widened - the governed execute path still enforces the capability allowlist,
 // least-privilege executor token, and zone isolation when the plan is applied, so autopilot removes
 // the approval step, never the deterministic controls.
@@ -58,5 +73,11 @@ export function mayAutoApprove(evaluation: AutopilotEvaluation, policy: Autopilo
   // operator pastes them, so autopilot waits; once the vault holds them the paste flow re-evaluates
   // and auto-approves without a human step.
   if (!evaluation.credentialsSatisfied) return { autoApprove: false, reason: 'credentials_required' }
+  if (
+    policy.conversationWriteBudget !== null &&
+    evaluation.priorApprovedWrites + evaluation.mutatingSteps > policy.conversationWriteBudget
+  ) {
+    return { autoApprove: false, reason: 'write_budget_exceeded' }
+  }
   return { autoApprove: true }
 }

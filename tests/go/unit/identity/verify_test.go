@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garudex-labs/caracal/packages/identity/go"
+	identity "github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -98,17 +98,17 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 	})
 	defer closeServer()
 
-	claims, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	claims, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if claims.Sub != "user-1" || claims.ZoneID != "zone-1" || claims.ClientID != "app-1" || claims.Sid != "sid-1" {
+	if claims.Sub != "user-1" || claims.ZoneID != "zone-1" || claims.ClientID != "app-1" || claims.AuthorityRecordID != "sid-1" {
 		t.Fatalf("wrong basic claims: %+v", claims)
 	}
-	if claims.RootSid != "root-1" || claims.SubType != "user" || claims.IssuedAt == 0 || claims.ExpiresAt <= claims.IssuedAt {
+	if claims.RootAuthorityRecordID != "root-1" || claims.SubType != "user" || claims.IssuedAt == 0 || claims.ExpiresAt <= claims.IssuedAt {
 		t.Fatalf("wrong authority timing claims: %+v", claims)
 	}
-	if claims.AgentSessionID != "agent-1" || claims.DelegationEdgeID != "edge-1" {
+	if claims.SessionID != "agent-1" || claims.DelegationID != "edge-1" {
 		t.Fatalf("wrong identity claims: %+v", claims)
 	}
 	if claims.SourceSessionID != "src-1" || claims.TargetSessionID != "tgt-1" {
@@ -124,14 +124,14 @@ func TestVerifyAcceptsValidTokenAndExtractsClaims(t *testing.T) {
 		t.Fatalf("wrong path length: %v", claims.DelegationPath)
 	}
 	if len(claims.DelegationChain) != 1 || claims.DelegationChain[0].ApplicationID != "app-parent" ||
-		claims.DelegationChain[0].AgentSessionID != "s1" || claims.DelegationChain[0].DelegationEdgeID != "e1" {
+		claims.DelegationChain[0].SessionID != "s1" || claims.DelegationChain[0].DelegationID != "e1" {
 		t.Fatalf("wrong chain: %+v", claims.DelegationChain)
 	}
 }
 
 func TestVerifyRejectsInvalidToken(t *testing.T) {
 	identity.ResetJWKSCache()
-	_, err := identity.Verify("not.a.jwt", identity.Config{Issuer: "https://issuer.example.com", Audience: "resource://api"})
+	_, err := identity.Verify("not.a.jwt", identity.Config{Issuer: "https://issuer.example.com", Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -150,7 +150,7 @@ func TestVerifyContextHonorsCallerDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := identity.VerifyContext(ctx, token, identity.Config{Issuer: slow.URL, Audience: "resource://api"})
+	_, err := identity.VerifyContext(ctx, token, identity.Config{Issuer: slow.URL, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -163,7 +163,7 @@ func TestVerifyRejectsMissingZone(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"zone_id": ""})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrZoneInvalid {
 		t.Fatalf("expected ErrZoneInvalid, got %v", err)
 	}
@@ -173,7 +173,7 @@ func TestVerifyRejectsMissingExpiration(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"exp": nil})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -183,7 +183,7 @@ func TestVerifyRejectsMissingSessionID(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"sid": ""})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -193,9 +193,30 @@ func TestVerifyRejectsMissingRootSessionID(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"root_sid": ""})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
+func TestVerifyRejectsMalformedDelegationChains(t *testing.T) {
+	cases := map[string]any{
+		"non-array chain":    "not-a-chain",
+		"non-object hop":     []any{"not-a-hop"},
+		"missing app id":     []map[string]any{{"agent_session_id": "s1"}},
+		"empty app id":       []map[string]any{{"application_id": ""}},
+		"non-string session": []map[string]any{{"application_id": "app-parent", "agent_session_id": 7}},
+	}
+	for name, chain := range cases {
+		t.Run(name, func(t *testing.T) {
+			token, issuer, closeServer := mintToken(t, jwt.MapClaims{"delegation_chain": chain})
+			defer closeServer()
+
+			_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
+			if err != identity.ErrTokenInvalid {
+				t.Fatalf("expected ErrTokenInvalid, got %v", err)
+			}
+		})
 	}
 }
 
@@ -203,7 +224,7 @@ func TestVerifyRejectsMissingSubjectType(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"sub_type": ""})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -213,7 +234,7 @@ func TestVerifyRejectsWrongTokenUse(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"use": "session"})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequiredUse: "resource"})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequiredUse: "resource"})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -233,7 +254,7 @@ func TestVerifyRejectsMissingRequiredScope(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"scope": "read"})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequiredScopes: []string{"admin"}})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequiredScopes: []string{"admin"}})
 	scopeErr, ok := err.(*identity.ScopeMissingError)
 	if !ok {
 		t.Fatalf("expected *ScopeMissingError, got %T: %v", err, err)
@@ -247,19 +268,19 @@ func TestVerifyRejectsMissingRequiredTarget(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"target": []string{"resource://tools/files"}})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequiredTargets: []string{"resource://tools/calendar"}})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequiredTargets: []string{"resource://tools/calendar"}})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
 }
 
-func TestVerifyRejectsAgentRequired(t *testing.T) {
+func TestVerifyRejectsSessionRequired(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, nil)
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequireAgent: true})
-	if err != identity.ErrAgentIdentityRequired {
-		t.Fatalf("expected ErrAgentIdentityRequired, got %v", err)
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireSession: true})
+	if err != identity.ErrSessionRequired {
+		t.Fatalf("expected ErrSessionRequired, got %v", err)
 	}
 }
 
@@ -267,7 +288,7 @@ func TestVerifyRejectsDelegationRequired(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, nil)
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequireDelegation: true})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireDelegation: true})
 	if err != identity.ErrDelegationRequired {
 		t.Fatalf("expected ErrDelegationRequired, got %v", err)
 	}
@@ -277,7 +298,7 @@ func TestVerifyRejectsMalformedAgentClaim(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"agent_session_id": []string{"agent-1"}})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", RequireAgent: true})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireSession: true})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}
@@ -287,7 +308,7 @@ func TestVerifyRejectsHopCountExceeded(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"hop_count": float64(5)})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", MaxHopCount: 3})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", MaxHopCount: 3})
 	if err != identity.ErrHopCountExceeded {
 		t.Fatalf("expected ErrHopCountExceeded, got %v", err)
 	}
@@ -302,6 +323,7 @@ func TestVerifyRejectsChainMismatch(t *testing.T) {
 	_, err := identity.Verify(token, identity.Config{
 		Issuer:               issuer,
 		Audience:             "resource://api",
+		ZoneID:               "zone-1",
 		RequireChainContains: []string{"app-parent"},
 	})
 	chainErr, ok := err.(*identity.ChainMismatchError)
@@ -324,13 +346,14 @@ func TestVerifyChainHopNames(t *testing.T) {
 	claims, err := identity.Verify(token, identity.Config{
 		Issuer:               issuer,
 		Audience:             "resource://api",
+		ZoneID:               "zone-1",
 		RequireChainContains: []string{"app-parent"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	hop := claims.DelegationChain[0]
-	if hop.ApplicationID != "app-parent" || hop.AgentSessionID != "s1" || hop.DelegationEdgeID != "e1" {
+	if hop.ApplicationID != "app-parent" || hop.SessionID != "s1" || hop.DelegationID != "e1" {
 		t.Fatalf("wrong chain hop: %+v", hop)
 	}
 }
@@ -346,13 +369,11 @@ func TestVerifyRejectsCompactChainKeys(t *testing.T) {
 	_, err := identity.Verify(token, identity.Config{
 		Issuer:               issuer,
 		Audience:             "resource://api",
+		ZoneID:               "zone-1",
 		RequireChainContains: []string{"app-parent"},
 	})
-	if err == nil {
-		t.Fatal("expected ChainMismatchError: only full-form chain hop keys are supported")
-	}
-	if _, ok := err.(*identity.ChainMismatchError); !ok {
-		t.Fatalf("expected *ChainMismatchError, got %T: %v", err, err)
+	if err != identity.ErrTokenInvalid {
+		t.Fatalf("expected ErrTokenInvalid: only full-form chain hop keys are supported, got %v", err)
 	}
 }
 
@@ -388,7 +409,7 @@ func TestVerifyIgnoresLegacyGraphEpochClaim(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"graph_epoch": float64(99)})
 	defer closeServer()
 
-	claims, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api"})
+	claims, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

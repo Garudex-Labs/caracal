@@ -18,12 +18,13 @@ class ErrorCode:
     POLICY_EVAL_FAILED = "policy_eval_failed"
     PROVIDER_RATE_LIMITED = "provider_rate_limited"
     INTERACTION_REQUIRED = "interaction_required"
+    APPROVAL_CONSUMED = "approval_consumed"
     STS_UNAVAILABLE = "sts_unavailable"
     CREDENTIAL_EXPIRED = "credential_expired_not_renewable"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     ZONE_INVALID = "zone_invalid"
     SCOPE_INSUFFICIENT = "scope_insufficient"
-    AGENT_IDENTITY_REQUIRED = "agent_identity_required"
+    SESSION_REQUIRED = "session_required"
     DELEGATION_REQUIRED = "delegation_required"
     CHAIN_MISMATCH = "chain_mismatch"
     HOP_COUNT_EXCEEDED = "hop_count_exceeded"
@@ -53,7 +54,10 @@ class CaracalError(Exception):
         return f"{self.code}: {self.description}"
 
     def to_json(self) -> dict[str, JsonValue]:
-        out: dict[str, JsonValue] = {"error": self.code, "error_description": self.description}
+        out: dict[str, JsonValue] = {
+            "error": self.code,
+            "error_description": self.description,
+        }
         if self.request_id:
             out["requestId"] = self.request_id
         if self.details:

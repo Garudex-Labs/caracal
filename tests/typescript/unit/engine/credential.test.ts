@@ -30,12 +30,14 @@ describe('credentialRead', () => {
       app_client_secret: 'secret',
     } as RuntimeConfig
 
-    await expect(credentialRead({
-      cfg,
-      resource: 'resource://calendar',
-      scopes: ['calendar.read'],
-      ttlSeconds: 60,
-    })).resolves.toBe('resource-token')
+    await expect(
+      credentialRead({
+        cfg,
+        resource: 'resource://calendar',
+        scopes: ['calendar.read'],
+        ttlSeconds: 60,
+      }),
+    ).resolves.toBe('resource-token')
     expect(exchange).toHaveBeenCalledWith('', 'resource://calendar', {
       clientSecret: 'secret',
       scopes: ['calendar.read'],

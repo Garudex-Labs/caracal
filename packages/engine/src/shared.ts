@@ -5,7 +5,7 @@
 
 import { readFileSync } from 'node:fs'
 import { AdminClient } from '@caracalai/admin'
-import { discoverAdminToken, discoverCoordinatorToken } from '@caracalai/core'
+import { discoverAdminToken, discoverCoordinatorToken } from '@caracalai/server-core'
 import { DEFAULT_API_URL, DEFAULT_COORDINATOR_URL, resolveServiceUrl } from './runtimeConfig.js'
 
 export interface AdminContext {

@@ -41,6 +41,7 @@ type Config struct {
 	ReadHeaderTimeout     time.Duration
 	ReadTimeout           time.Duration
 	WriteTimeout          time.Duration
+	StreamIdleTimeout     time.Duration
 	IdleTimeout           time.Duration
 	MaxRequestBytes       int64
 	TLSCertFile           string
@@ -54,6 +55,7 @@ type Config struct {
 	JTIFailOpen           bool
 	AdminToken            string
 	MetricsBearer         string
+	TrustProxy            bool
 }
 
 // loadConfig reads configuration from environment variables and returns an
@@ -78,6 +80,7 @@ func loadConfig() (Config, error) {
 		ReadHeaderTimeout:     config.DurationEnv("READ_HEADER_TIMEOUT", defaultReadHeader),
 		ReadTimeout:           config.DurationEnv("READ_TIMEOUT", defaultReadTimeout),
 		WriteTimeout:          config.DurationEnv("WRITE_TIMEOUT", defaultWriteTimeout),
+		StreamIdleTimeout:     config.DurationEnv("STREAM_IDLE_TIMEOUT", defaultWriteTimeout),
 		IdleTimeout:           config.DurationEnv("IDLE_TIMEOUT", defaultIdleTimeout),
 		MaxRequestBytes:       config.Int64Env("MAX_REQUEST_BYTES", defaultMaxRequestSize),
 		TLSCertFile:           config.Getenv("TLS_CERT_FILE", ""),
@@ -90,6 +93,7 @@ func loadConfig() (Config, error) {
 		JTIFailOpen:           config.BoolEnv("JTI_FAIL_OPEN", false),
 		AdminToken:            os.Getenv("CARACAL_ADMIN_TOKEN"),
 		MetricsBearer:         os.Getenv("METRICS_BEARER"),
+		TrustProxy:            config.BoolEnv("TRUST_PROXY", false),
 	}
 	if raw := os.Getenv("AUDIT_HMAC_KEY"); raw != "" {
 		key, err := hex.DecodeString(raw)
@@ -146,6 +150,9 @@ func (c Config) validate() error {
 	}
 	if c.MaxRequestBytes <= 0 {
 		return fmt.Errorf("MAX_REQUEST_BYTES must be positive")
+	}
+	if c.StreamIdleTimeout < 0 {
+		return fmt.Errorf("STREAM_IDLE_TIMEOUT must not be negative")
 	}
 	if c.ReadTimeout > 0 && c.STSTimeout > 0 && c.UpstreamTimeout > 0 && c.ReadTimeout <= c.STSTimeout+c.UpstreamTimeout {
 		return fmt.Errorf("READ_TIMEOUT must be greater than STS_TIMEOUT plus UPSTREAM_TIMEOUT")

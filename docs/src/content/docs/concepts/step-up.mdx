@@ -1,65 +1,85 @@
 ---
-title: Step-Up Challenges
-description: How policies require fresh proof of authority for sensitive resources.
+title: Approvals
+description: How policies hold sensitive requests for a human decision.
 sidebar:
-  order: 11
+  order: 12
 ---
 
-Step-up is Caracal's way to pause a token exchange and require fresh proof before issuing a mandate for a sensitive resource.
+An approval is Caracal's way to pause a token exchange until a human decides it. Policy data classifies scopes into risk tiers; when a mint requests a gated scope, the STS creates a durable hold and returns `interaction_required` with a challenge id instead of a mandate. The mandate is released only after an authorized approver decides the hold.
 
-Policy triggers step-up by returning a diagnostic such as `{"step_up_required": "mfa"}`. The STS converts that diagnostic into an `interaction_required` error with a challenge ID.
+Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one.
 
-## Step-Up Flow
+## Approval Flow
 
 ```mermaid
 sequenceDiagram
   participant App as App or agent
   participant STS as STS
   participant Policy as Active policy set
-  participant Control as Console or Admin API
+  participant Approver as Console, Admin API, or end user
 
-  App->>STS: Exchange for sensitive resource
+  App->>STS: Exchange for gated scope
   STS->>Policy: Evaluate request
-  Policy-->>STS: deny with step_up_required diagnostic
-  STS-->>App: interaction_required with challenge_id
-  Control->>Control: Complete external proof
-  Control->>STS: Mark challenge satisfied
-  App->>STS: Retry exchange with challenge proof
-  STS-->>App: Mandate
+  Policy-->>STS: allow, gated by matched approval tiers
+  STS-->>App: interaction_required with challenge_id + binding
+  App->>STS: GET /step-up/{id} (long-poll)
+  Approver->>STS: approve or reject the hold
+  STS-->>App: state: approved
+  App->>STS: Retry exchange with challenge_id
+  STS-->>App: Mandate (approval consumed)
 ```
+
+## Two Decision Planes
+
+| Plane    | Approver                                                  | Surface                                                                                                 |
+| -------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/step-up-challenges/{id}/approve` / `/reject`.          |
+| Subject  | The requesting application's own authenticated end user.  | `POST /step-up/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
+
+The tier's `approver` declaration picks the plane: `operator`, `subject`, or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
+
+A subject-only hold is the application's promise that only its own end user decides: the operator plane refuses it with `subject_approval_required`. Deciding it requires a user session minted through [subject federation](/api/sts/#subject-identity) - the application registers its identity system as a zone subject issuer, exchanges the end user's identity token for a user session mandate, and posts that user's decision to the STS. Declare `subject` tiers only for applications that federate their end users; without a registered subject issuer, a subject-reserved hold can only expire.
 
 ## Components
 
-| Component | Responsibility |
-| --- | --- |
-| Policy | Decides when step-up is required. |
-| STS | Creates the challenge, throttles failed attempts, and verifies challenge proof during retry. |
-| Console or Admin API | Lists, inspects, and satisfies challenges after an external proof step. |
-| SDK or OAuth client | Surfaces `interaction_required` so the application can guide the user or operator. |
+| Component            | Responsibility                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Policy data          | Declares `risk` tiers per scope and `approval_tiers` gates; the platform fixes no tier taxonomy.                                       |
+| STS                  | Creates the hold, serves its state to long-polling agents, records decisions, verifies the binding, and consumes the approval at mint. |
+| Console or Admin API | Lists, inspects, and decides operator-plane holds.                                                                                     |
+| Application          | Relays subject-plane holds to its own federated end user and posts the decision with the user's session mandate.                       |
+| SDK or OAuth client  | Surfaces `interaction_required` and waits on the hold (`waitForApproval`); `caracal run` parks and retries automatically.              |
 
 ## Challenge Lifecycle
 
-| State | Meaning |
-| --- | --- |
-| Created | STS issued a challenge for a specific zone, session, resource set, and challenge type. |
-| Satisfied | A different approver or external proof completed the requirement. |
-| Consumed | STS accepted the proof during retry and issued the mandate. |
-| Expired or invalid | The challenge can no longer be used. |
+| State      | Meaning                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `pending`  | The hold is live and awaiting a decision.                                                |
+| `approved` | An approver granted the hold; the next matching exchange mints.                          |
+| `rejected` | An approver refused the hold; terminal.                                                  |
+| `expired`  | The approval window closed without a decision, or an approval lapsed before consumption. |
+| `consumed` | The approval released its one mandate; terminal.                                         |
+
+An approval releases exactly one token for exactly the held resource and scope set. Consumed and rejected are terminal and outrank expiry, so both planes always report the same state for the same hold.
+
+## Privacy Modes
+
+The tier's `privacy` declaration controls what the decision record retains of a Subject-plane approver: `identified` stores the Subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, and `anonymous` a redaction marker. The approver's Authority record ID is always kept as the forensic and revocation anchor. Operator-plane decisions always record the deciding admin identity. Caracal stores authorization facts, never business context.
 
 ## Design Guidance
 
-- Use step-up for high-risk resources, sensitive scopes, or unusual context.
-- Keep the proof step outside policy; policy should decide that proof is needed, not perform the proof.
-- Prevent self-approval for sensitive challenges.
-- Include enough diagnostics for the Console and audit views to explain the requirement.
-- Retry token exchange only after the challenge is satisfied.
+- Gate high-risk scopes, not everything: approval latency is a person, so reserve it for authority worth a pause.
+- Keep the decision outside policy; policy declares that a decision is needed, never performs it.
+- Use `subject` tiers when the risk belongs to the application's end user and the application federates its users through a zone subject issuer; use `operator` tiers when the risk belongs to the zone.
+- Give automation credentials `write` without `approve`, so no pipeline can silently settle a hold.
+- Cross-check the binding: the agent prints it beside the challenge id, and the Console shows it on the hold.
 
 ## Next Step
 
-Read [Mandates](/concepts/mandate/) to understand what the STS issues after an exchange is allowed or satisfied.
+Read [Mandates](/concepts/mandate/) to understand what the STS issues once an exchange is allowed or approved.
 
 ## Related Pages
 
-- [Step-Up Re-Authentication](/guides/step-up/)
+- [Human Approval](/guides/step-up/)
 - [Policies and Policy Sets](/concepts/policy/)
 - [Audit and Request Traces](/concepts/audit-ledger/)

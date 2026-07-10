@@ -4,14 +4,20 @@
 // The Operator agent layer: purpose-built agents that turn intent into typed artifacts the deterministic engine governs.
 
 import { z } from 'zod'
-import { describeCapabilitiesForPrompt, ProposedPlan, type CapabilityDomain, type ProposedPlanInput } from './operator-capabilities.js'
+import {
+  CAPABILITIES,
+  describeCapabilitiesForPrompt,
+  ProposedPlan,
+  type CapabilityDomain,
+  type ProposedPlanInput,
+} from './operator-capabilities.js'
 import { PROVIDER_CONFIG_FIELDS, PROVIDER_KINDS, type ProviderConfigField } from './provider-config.js'
 import type { ConversationState, RecentMessage } from './operator-state.js'
 import { describeFacts, type ConversationFacts } from './operator-memory.js'
-import { describeZoneMemory, type ZoneMemoryEntry } from './operator-zone-memory.js'
+import { describeConversationMemory, type ConversationMemoryEntry } from './operator-conversation-memory.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
-import { GatewayBudgetError, type Gateway, type GatewayMessage } from './operator-gateway.js'
+import { GatewayBudgetError, GatewayError, GatewayUnavailableError, type Gateway, type GatewayMessage } from './operator-gateway.js'
 import { validateAuthzPolicy, previewAuthzPolicy, OPA_INPUT_SCHEMA_VERSION, type AuthzPolicyPreview } from './rego.js'
 
 // The agents never hold authority. Each one produces a typed artifact - an intent,
@@ -57,15 +63,6 @@ export function tierPlans(tier: OperatorTier): boolean {
 // and capability questions that need no state read, so it pays nothing.
 export function tierReadsState(tier: OperatorTier): boolean {
   return tier === 'read'
-}
-
-// Whether a tier composes multiple specialists rather than running a single skill. compound is a
-// request that combines several changes or needs investigation first, so it gathers live state
-// evidence to plan against and runs an advisory security review over the proposed plan. change is
-// a single-domain request and stays the cheap single-skill path; both still require human
-// approval before anything is applied.
-export function tierComposes(tier: OperatorTier): boolean {
-  return tier === 'compound'
 }
 
 // Whether a tier authors an authorization-policy draft rather than answering or planning a control
@@ -124,20 +121,21 @@ const CARACAL_PLATFORM = [
   '',
   'MANDATE. The token Caracal issues after the STS approves an exchange: a short-lived JWT signed with',
   'the zone key. It proves which zone issued it, which application and principal act, which session',
-  'anchors are live, which resource and scopes were approved, whether authority came from an agent',
-  'session or a delegation edge, and when it expires. The Gateway/connector verifies signature,',
+  'anchors are live, which resource and scopes were approved, whether authority came from a Session',
+  'or Delegation, and when it expires. The Gateway/connector verifies signature,',
   'claims, audience, scopes, expiry, and revocation before allowing the request.',
   '',
   'APPLICATIONS VS AGENTS, SESSIONS, REVOCATION. Authority follows the application; ordinary agent',
-  'fan-out under one application needs no delegation. A subject session (the authority session) anchors',
-  'a user/service; agent sessions are spawned runtime contexts. Mandates carry session anchors, and a',
-  'guard rejects a mandate the moment any anchor - session, root session, agent session, or delegation',
-  'edge - is revoked (session_revoked), which is how authority stays temporary and instantly killable.',
+  'fan-out under one application needs no delegation. A Subject authority record anchors a user or service;',
+  'Sessions are governed runtime contexts. Mandates carry authority anchors, and a guard rejects a mandate',
+  'the moment any anchor - Authority record, Root authority record, Session, or Delegation -',
+  'is revoked (session_revoked), which is how authority stays temporary and instantly killable.',
   '',
-  'DELEGATION, CONSTRAINTS, STEP-UP. A delegation edge passes a narrower, typed slice of authority from',
-  'one session to another - used to narrow to least privilege or to cross application boundaries.',
-  'Typed constraints bound an edge: resource, scopes, TTL, hop count, budget, approval, and chain',
-  'membership. Step-up lets policy demand fresh proof (e.g. MFA) for a sensitive exchange: the STS',
+  'DELEGATION, CONSTRAINTS, APPROVAL. A Delegation passes a narrower, typed slice of authority from',
+  'one Session to another - used to narrow to least privilege or to cross application boundaries.',
+  'Typed constraints bound a Delegation: resource, scopes, TTL, hop count, and maximum distinct scopes',
+  'per exchange. Approval and broad-reason fields are audit metadata; verifier chain requirements are separate.',
+  'Step-up lets policy demand fresh proof (e.g. MFA) for a sensitive exchange: the STS',
   'returns interaction_required with a challenge, which is satisfied and the exchange retried.',
   '',
   'AUDIT, SERVICES, SDKS. Every decision and result is audited - exchanges (allow/deny/step-up with',
@@ -163,9 +161,12 @@ const CARACAL_PLATFORM = [
   'delete, or switch zones - zone lifecycle is a platform action outside your authority. If asked to',
   'create or move to another zone, say plainly that you operate within this zone and cannot create',
   'zones, then refocus on what can be done inside it.',
-  "Your work is this zone's product configuration, carried out here in the console: register",
-  'applications, connect providers, define resources, author and activate its policy set, and grant',
-  'scoped access. When someone asks how to make this zone "complete and ready", that means creating',
+  "Your work is this zone's product configuration and runtime oversight, carried out here in the",
+  'console: register applications, connect providers, define resources, author and activate its',
+  'policy set, grant scoped access, manage workload launcher identities, and intervene in the running',
+  'system - suspend, resume, or terminate Sessions and revoke Delegations. You can read',
+  'step-up approval requests but never decide them: approving or rejecting an approval stays with a',
+  'human. When someone asks how to make this zone "complete and ready", that means creating',
   'and wiring those objects in this zone - never stack setup and never a new zone.',
   'You can carry out only what this console can. Some platform capabilities exist only in a',
   'programmatic SDK or runtime flow - dynamic client registration is the canonical case: registering',
@@ -204,10 +205,10 @@ const REASONING_PRINCIPLES = [
 ].join('\n')
 
 // The documentation discipline. The Operator already carries the platform model above, so it reasons
-// first and reaches for docs only for specifics it should verify rather than guess. When it does, it
-// points to the single most relevant canonical page and summarizes the point in context - it never
-// dumps documentation or treats this as a keyword search. The map lists real, stable doc paths so a
-// pointer is always correct.
+// first and reaches for docs only for specifics it should verify rather than guess. Citation is
+// retrieval-only: the corpus retrieval attaches the relevant pages to the context each turn, and the
+// agent cites exclusively from that block - so every citation is backed by content the agent actually
+// saw, and the prompt never carries a hand-maintained page list that drifts from the real site.
 const DOCS_DISCIPLINE = [
   "USING DOCUMENTATION. You already hold Caracal's core model; reason from it first and answer",
   'directly whenever you can. For anything that turns on an exact detail - a package name, an',
@@ -215,29 +216,15 @@ const DOCS_DISCIPLINE = [
   'When the context includes a "Reference documentation (retrieved just now)" block, treat it as the',
   'authoritative source: take exact names, endpoints, and fields verbatim from it, summarize the',
   "relevant point in your own words, tie it to the user's situation, and cite the page as a Markdown",
-  'link the reader can click - write the page title as the link text and its full canonical address as',
-  'the target, e.g. [Zones](https://docs.caracal.run/concepts/zone/). When a retrieved block already',
-  'shows the page as a [title](url) heading, reuse that exact URL verbatim. Never write a bare path',
-  'like /concepts/zone and never leave a raw URL as plain text. Put the link inline where you make the',
-  'point, or as a short "For more details" source at the end. Never paste documentation wholesale and',
-  'never list several links - one precise source beats many.',
-  'If the retrieved passages do not cover the exact detail asked, say what you are confident about,',
-  'link the single most relevant page to confirm it, and do not invent the specific. When no',
-  'documentation was retrieved, reason from the core model and still avoid guessing precise',
-  'identifiers you are unsure of. Each page below is a path under https://docs.caracal.run - always',
-  'cite it as the full URL https://docs.caracal.run<path>/. Canonical pages you can cite:',
-  '- Concepts: /concepts/model-overview, /concepts/authority-model, /concepts/zone,',
-  '  /concepts/resource-grant, /concepts/policy, /concepts/mandate, /concepts/delegation,',
-  '  /concepts/constraint, /concepts/principal, /concepts/sessions-revocation, /concepts/audit-ledger,',
-  '  /concepts/step-up.',
-  '- Get started: /get-started, /get-started/install-caracal, /get-started/first-protected-call,',
-  '  /get-started/first-run-troubleshooting.',
-  '- Guides: /guides/modeling-recipes, /guides/serve-customers, /guides/resources-providers,',
-  '  /guides/provider-recipes, /guides/author-policy, /guides/activate-policy-set,',
-  '  /guides/authorize-access, /guides/delegation, /guides/step-up, /guides/audit-stream,',
-  '  /guides/sdk-typescript, /guides/sdk-python, /guides/sdk-go, /guides/runtime-run,',
-  '  /guides/protect-gateway-http, /guides/protect-express, /guides/protect-fastmcp,',
-  '  /guides/protect-nethttp, /guides/protect-mcp.',
+  'link the reader can click - write the page title as the link text and reuse the exact URL from the',
+  "page's [title](url) heading verbatim, e.g. [Zones](https://docs.caracal.run/concepts/zone/). Never",
+  'write a bare path like /concepts/zone and never leave a raw URL as plain text. Put the link inline',
+  'where you make the point, or as a short "For more details" source at the end. Never paste',
+  'documentation wholesale and never list several links - the single most relevant page beats many.',
+  'Cite ONLY pages present in the retrieved block: never cite from memory, and never invent or guess',
+  'a documentation URL. If the retrieved passages do not cover the exact detail asked, say what you',
+  'are confident about and do not invent the specific. When no documentation was retrieved, reason',
+  'from the core model, name no page, and still avoid guessing precise identifiers you are unsure of.',
 ].join('\n')
 
 // The input-integrity discipline every user-facing agent shares. The Operator regularly receives
@@ -315,6 +302,8 @@ const OBJECT_DOMAINS = [
   'agent',
   'delegation',
   'audit',
+  'workload',
+  'approval',
 ] as const
 
 const TriageOutput = z
@@ -476,10 +465,10 @@ export interface AgentContext {
   // whether governed execution is configured for this zone: when false the Operator can plan and
   // explain here but cannot apply changes, and says so rather than implying an apply will work.
   zone?: { name: string; canApply: boolean }
-  // Durable, zone-scoped knowledge of governed changes already applied in this zone, carried
-  // across conversations. Grounds an agent in the zone's established shape so it does not
-  // re-propose what already exists or ignore conventions set in earlier conversations.
-  zoneMemory?: ZoneMemoryEntry[]
+  // Durable memory of this one conversation: the governed changes it applied earlier, isolated
+  // from every other chat so no cross-conversation history colors this turn's reasoning. The
+  // zone's current shape reaches an agent only through the live state evidence below.
+  conversationMemory?: ConversationMemoryEntry[]
   evidence?: Evidence[]
   // True when this turn needed live state but no governed read mandate is active for the
   // conversation's zone, so nothing could be read. The read agents must then say so plainly
@@ -495,15 +484,24 @@ export interface AgentContext {
 // live count, a bounded list of objects each shown as its name and live id, and the
 // decision-relevant attributes its domain exposes - the provider auth modes and resource scopes
 // the planner and guardian must reason against - or the typed reason a read could not be gathered.
-// The id is surfaced so a change can target an existing object by its real identifier rather than
-// its name. Only names, ids, and allowlisted descriptor fields reach the prompt, never whole rows,
-// so a read never leaks an arbitrary field.
+// Each line is labeled with the read's own plural noun rather than its domain, because a domain
+// can carry several reads - policies and policy sets both live in the policy domain - and two
+// lines under one label would contradict each other. The id is surfaced so a change can target
+// an existing object by its real identifier rather than its name. Only names, ids, and
+// allowlisted descriptor fields reach the prompt, never whole rows, so a read never leaks an
+// arbitrary field.
+function evidenceLabel(item: Evidence): string {
+  const title = CAPABILITIES[item.capability]?.title
+  return title?.startsWith('List ') ? title.slice(5) : item.domain
+}
+
 function describeEvidence(evidence: Evidence[] | undefined): string | null {
   if (!evidence || evidence.length === 0) return null
   const lines = evidence.map((item) => {
-    if (!item.ok) return `- ${item.domain}: could not read (${item.error ?? 'read failed'})`
+    const label = evidenceLabel(item)
+    if (!item.ok) return `- ${label}: could not read (${item.error ?? 'read failed'})`
     const count = item.count ?? 0
-    if (count === 0) return `- ${item.domain}: none`
+    if (count === 0) return `- ${label}: none`
     const entries = item.items ?? []
     const names = item.names ?? []
     let listed = ''
@@ -518,7 +516,7 @@ function describeEvidence(evidence: Evidence[] | undefined): string | null {
           .map(([label, values]) => ` [${label}: ${values.join(', ')}]`)
           .join('')
       : ''
-    return `- ${item.domain} (${count})${listed}${attributes}`
+    return `- ${label} (${count})${listed}${attributes}`
   })
   return `Live state (read just now):\n${lines.join('\n')}`
 }
@@ -556,8 +554,8 @@ function describeContext(context: AgentContext): string {
     sections.push(lines.join(' '))
   }
 
-  const zoneMemory = describeZoneMemory(context.zoneMemory)
-  if (zoneMemory) sections.push(zoneMemory)
+  const conversationMemory = describeConversationMemory(context.conversationMemory)
+  if (conversationMemory) sections.push(conversationMemory)
 
   const facts = describeFacts(context.facts)
   if (facts) sections.push(`Session facts:\n${facts}`)
@@ -568,6 +566,20 @@ function describeContext(context: AgentContext): string {
     sections.push(
       'Live state: could not be read for this zone - no governed read mandate is active here, ' +
         'so nothing about this zone was inspected this turn.',
+    )
+  }
+
+  // Memory is history, never proof of existence: an object a memory section mentions may have
+  // been deleted or renamed outside this conversation since it was written. The ranking is stated
+  // whenever any history section is present so an agent can never mistake recall for a read.
+  if (conversationMemory || facts || context.state) {
+    sections.push(
+      'SOURCE OF TRUTH FOR EXISTENCE: only the live state read just now proves what exists in this ' +
+        "zone. This chat's durable memory, session facts, and earlier messages are history - an object they " +
+        'mention may have since been deleted or renamed, so never claim it exists, cite its id, or ' +
+        'target it in a plan from those alone; confirm it in the live state first. When no live read ' +
+        'covers the domain in question, say plainly that you have not read it (a planner requests it ' +
+        'via "needs") - never assume.',
     )
   }
 
@@ -611,7 +623,6 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         REASONING_PRINCIPLES,
-        DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
         PROVIDER_FIELDS_GUIDE,
         [
@@ -646,15 +657,26 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           'one already serves the same upstream, reuse it and never propose a duplicate. A request to add a',
           'resource "using this provider" or an existing provider plans ONLY the defineResource step, with',
           'that provider\u2019s id as credential_provider_id - a resource step never collects credentials.',
-          'DEFINING A RESOURCE. defineResource carries the resource\u2019s full Gateway binding in one step:',
-          'upstream_url (the upstream API base URL the Gateway forwards to), gateway_application_id (an',
-          'existing managed application in the live state), and credential_provider_id (an existing',
-          'provider in the live state). All three are required - the control plane rejects a resource',
-          'without them. Use ids exactly as the live state shows them; a step cannot reference an id an',
-          'earlier step of the same plan will create, so the provider and application must already exist',
-          'before the resource step is possible - when one is missing, plan its create first and tell the',
-          'user the resource comes next. When the upstream URL is not in the request or the live state, ask',
-          'for it via "clarification" (it is not sensitive).',
+          'NEVER RE-CREATE WHAT EXISTS. Before proposing any create or register step, check the live',
+          'state: when an object with that name already exists, do not plan its creation again - Caracal',
+          'refuses a create whose target exists rather than duplicating it. Return an empty steps array',
+          'and a "clarification" that says it already exists and asks what should change about it, unless',
+          'the request also asks for other work, in which case plan only the steps that remain to be done.',
+          'DEFINING A RESOURCE. defineResource carries the resource\u2019s full Gateway routing in one step:',
+          'upstream_url (the upstream API base URL the Gateway forwards to) and credential_provider_id (an',
+          'existing provider in the live state). Both are required - the control plane rejects a resource',
+          'without them. Use ids exactly as the live state shows them. When the objects a step binds do',
+          'not exist yet, plan their creates in the same plan and bind them with step-output references',
+          '(below) - for example connectProvider as s1, then defineResource with credential_provider_id',
+          '"{{steps.s1.outputs.provider_id}}". When the upstream URL is not in the request or the live',
+          'state, ask for it via "clarification" (it is not sensitive).',
+          'STEP-OUTPUT REFERENCES. When a step needs an identifier an earlier step of the same plan will',
+          'create, set that argument to exactly the string "{{steps.<stepId>.outputs.<key>}}" - nothing',
+          'more, never embedded inside a longer string. Caracal resolves it at apply time from the value',
+          'the earlier step actually produced. Each capability\u2019s referencable keys are listed as',
+          '"outputs" in the catalog below; reference only those keys, and never reference a secret - an',
+          'issued client secret is one-time material and is not referencable. A reference implies the',
+          'dependency, so you may omit it from "depends_on".',
           'Use exactly the capability ids and argument names listed, with no invented capabilities or',
           'arguments. If the request maps to no listed capability, return an empty steps array rather than',
           'forcing an ill-fitting one.',
@@ -683,9 +705,11 @@ export function buildPlannerMessages(message: string, context: AgentContext, fee
           '"clarification" when only the operator can supply the missing decision.',
           'TARGET EXISTING OBJECTS BY THEIR LIVE ID. When a capability argument is an id -',
           'application_id, resource_id, provider_id, policy_id, grant_id, user_id - its value MUST be',
-          'the exact id shown for that object in the live state above, copied verbatim. The live state',
+          'the exact id shown for that object in the live state above, copied verbatim, or a step-output',
+          'reference to a step of this plan that creates it. The live state',
           'lists each object as "name (id …)"; use the id, never the name, for an id argument. If the',
-          'object the request names is not present in the live state, do NOT invent or guess its id:',
+          'object the request names is not present in the live state and no step of this plan creates',
+          'it, do NOT invent or guess its id:',
           'return "needs" to read that domain, or "clarification" if it genuinely does not exist.',
           'Reply with ONLY a JSON object {"summary": string, "steps": [{"id": string, "capability":',
           'string, "args": object, "depends_on"?: string[], "risk"?: "low"|"medium"|"high"}],',
@@ -835,7 +859,7 @@ export function buildTroubleshooterMessages(message: string, context: AgentConte
           'binding the application, user, resource, and scopes; a scope requested that the grant or',
           'resource does not include; an application, resource, or provider that does not exist yet or is',
           'mislabeled; a policy set that was authored but never activated for the zone; a revoked or',
-          'expired session, mandate, or delegation edge; a step-up the exchange has not satisfied; or a',
+          'expired Session, mandate, or Delegation; an approval awaiting a human decision; or a',
           'request aimed at the wrong zone or a resource identifier that does not match. Name the cause',
           'you judge most likely, say how to confirm it (the explain trace or audit event for that',
           'request is the fastest check), and give one concrete next action.',
@@ -1022,8 +1046,10 @@ export function buildSecurityAnalystMessages(plan: ProposedPlanInput, context: A
 
 // Reviews a proposed plan and returns advisory findings. The answer is generated as a
 // schema-validated object, so a malformed or off-schema review fails closed as an error rather
-// than a guessed verdict; the orchestrator then simply attaches no advisory. The review never
-// gates the plan - it only informs the human - so a failed review never blocks a change.
+// than a guessed verdict. The failure reason names its cause - a governance budget stop, a
+// provider outage, or an unusable model reply - so the orchestrator records exactly why the plan
+// went unreviewed instead of silently attaching nothing. The review never gates the plan - it
+// only informs the human - so a failed review never blocks a change.
 export async function runSecurityAnalyst(
   gateway: Gateway,
   plan: ProposedPlanInput,
@@ -1035,8 +1061,11 @@ export async function runSecurityAnalyst(
       temperature: 0,
     })
     return { ok: true, value: completion.value }
-  } catch {
-    return { ok: false, error: 'security review did not produce a usable advisory' }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError || err instanceof GatewayError || err instanceof GatewayUnavailableError) {
+      return { ok: false, error: err.message }
+    }
+    return { ok: false, error: 'the guardian returned an unusable review' }
   }
 }
 
@@ -1242,6 +1271,9 @@ function describePolicyError(code: string): string {
     case 'data_document_must_define_data':
       return 'the document must define at least one data rule (app_ids, grants, confinement, restrict, risk, or approval_tiers)'
     default:
+      if (code.startsWith('data_document_rule_not_allowed:')) {
+        return `the data document must not define "${code.slice('data_document_rule_not_allowed:'.length)}" - only app_ids, grants, confinement, restrict, risk, and approval_tiers are adopter-owned`
+      }
       return code
   }
 }
@@ -1291,7 +1323,6 @@ export function buildPolicyAuthorMessages(message: string, context: AgentContext
         OPERATOR_PERSONA,
         CARACAL_PLATFORM,
         REASONING_PRINCIPLES,
-        DOCS_DISCIPLINE,
         INPUT_INTEGRITY,
         POLICY_AUTHORING,
         [
@@ -1460,9 +1491,11 @@ export function buildVerifierMessages(plan: ProposedPlanInput, context: AgentCon
 
 // Verifies an applied plan against live state read just now and returns a verdict. The answer is a
 // schema-validated object, so a malformed or off-schema verdict fails closed as an error rather than
-// a guessed claim of success; the caller then records no verification note. The verdict never gates
-// or reverses the apply - the mutations are already durable - so a failed verification only means
-// the turn went unverified, never that anything is rolled back.
+// a guessed claim of success. The failure reason names its cause - a governance budget stop, a
+// provider outage, or an unusable model reply - so the caller records an explicit unverified note
+// instead of silence. The verdict never gates or reverses the apply - the mutations are already
+// durable - so a failed verification only means the turn went unverified, never that anything is
+// rolled back.
 export async function runVerifier(
   gateway: Gateway,
   plan: ProposedPlanInput,
@@ -1474,8 +1507,11 @@ export async function runVerifier(
       temperature: 0,
     })
     return { ok: true, value: completion.value }
-  } catch {
-    return { ok: false, error: 'verification did not produce a usable verdict' }
+  } catch (err) {
+    if (err instanceof GatewayBudgetError || err instanceof GatewayError || err instanceof GatewayUnavailableError) {
+      return { ok: false, error: err.message }
+    }
+    return { ok: false, error: 'the verifier returned an unusable verdict' }
   }
 }
 
@@ -1593,14 +1629,14 @@ export function buildAnswerCheckMessages(message: string, answer: string, contex
     {
       role: 'system',
       content: systemPrompt(
-        OPERATOR_PERSONA,
-        CARACAL_PLATFORM,
         [
-          'THIS TURN: ANSWER GROUNDING CHECK. Another Operator agent has drafted a read-only answer to the',
-          "user. Your one job is to confirm it is grounded in reality: every claim it makes about this zone's",
-          'state - which applications, providers, resources, or policies exist, their counts, their auth modes',
-          'or scopes - must be supported by the live state read just now in the context. You judge grounding',
-          'only; you do not rewrite the answer, change its advice, or second-guess a correct judgement call.',
+          'THIS TURN: ANSWER GROUNDING CHECK. You are a verification step of Caracal Operator, the',
+          'assistant that manages a Caracal zone: its applications, providers, resources, policies, and',
+          'grants. Another Operator agent has drafted a read-only answer to the user. Your one job is to',
+          "confirm it is grounded in reality: every claim it makes about this zone's state - which",
+          'applications, providers, resources, or policies exist, their counts, their auth modes or scopes',
+          '- must be supported by the live state read just now in the context. You judge grounding only;',
+          'you do not rewrite the answer, change its advice, or second-guess a correct judgement call.',
           'Set "grounded" to true when every factual claim about current state matches the evidence, or when',
           'the answer makes no state claim at all (a general explanation, a how-to, a recommendation). Set it',
           'to false only when the answer asserts a concrete state fact the evidence contradicts or does not',

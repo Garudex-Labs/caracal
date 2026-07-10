@@ -1,52 +1,34 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Shared runtime helpers: runtime config loading, validation, and service URL resolution.
+// Shared runtime helpers: workload identity loading, credential validation, and service URL resolution.
 
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { CaracalError } from '@caracalai/core'
-import { parse } from 'smol-toml'
 
 export const DEFAULT_API_URL = 'http://localhost:3000'
 export const DEFAULT_COORDINATOR_URL = 'http://localhost:4000'
 export const DEFAULT_STS_URL = 'http://localhost:8080'
 export const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 export const DEFAULT_ZONE_URL = DEFAULT_STS_URL
-export const DEFAULT_RUN_TTL_SECONDS = 900
-export const MAX_RUN_TTL_SECONDS = 900
 
-export type RunCredentialType = 'provider_token' | 'caracal_mandate'
-
-export interface Credential {
-  env: string
-  resource: string
-  upstream_prefix?: string
-  credential_type?: RunCredentialType
+// RuntimeIdentity is everything a workload carries locally: who it is and where STS lives.
+// The credential bindings themselves are authored in the web console and served by STS.
+export interface RuntimeIdentity {
+  sts_url: string
+  workload_id: string
+  workload_secret: string
 }
 
-export interface OptionalCredential extends Credential {
-  on_failure: 'warn' | 'error'
-}
-
-export interface McpGovernance {
-  mode: 'block' | 'log'
-}
-
+// RuntimeConfig is the application credential profile the Console BFF exchanges Control
+// tokens with.
 export interface RuntimeConfig {
   zone_url: string
-  sts_url?: string
-  coordinator_url?: string
-  gateway_url?: string
   zone_id: string
   application_id: string
   app_client_secret: string
-  ttl_seconds?: number
-  continue_on_failure?: boolean
-  credentials?: Credential[]
-  optional_credentials?: OptionalCredential[]
-  mcp_governance?: McpGovernance
 }
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -60,42 +42,7 @@ const BLOCKED_CREDENTIAL_ENV = new Set([
 ])
 
 const CONFIG_MISSING_MESSAGE =
-  'runtime config not found; caracal run needs workload identity from env/secret files. Create or select a zone, application, resource, and policy in the Caracal web console; store local credentials under the OS Caracal config directory, set CARACAL_ZONE_ID and CARACAL_APPLICATION_ID, and set CARACAL_STS_URL only when STS is not the local default. Use deployment docs for explicit custom or cloud paths.'
-
-const RUNTIME_CONFIG_KEYS = new Set([
-  'zone_url',
-  'sts_url',
-  'coordinator_url',
-  'gateway_url',
-  'zone_id',
-  'application_id',
-  'app_client_secret',
-  'app_client_secret_file',
-  'ttl_seconds',
-  'continue_on_failure',
-  'credentials',
-  'optional_credentials',
-  'mcp_governance',
-])
-
-const CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type'])
-const OPTIONAL_CREDENTIAL_KEYS = new Set(['env', 'resource', 'upstream_prefix', 'credential_type', 'on_failure'])
-const CREDENTIAL_MANIFEST_KEYS = new Set(['credentials', 'optional_credentials', 'continue_on_failure', 'mcp_governance'])
-
-type UnknownRecord = Record<string, unknown>
-
-export class RuntimeConfigPermissionError extends CaracalError {
-  readonly path: string
-  readonly mode: number
-  constructor(path: string, mode: number, advice: string) {
-    super('config_permissions', `caracal.toml permissions are too broad: ${path} is ${formatMode(mode)}; ${advice}`, {
-      details: { path, mode: formatMode(mode) },
-    })
-    this.name = 'RuntimeConfigPermissionError'
-    this.path = path
-    this.mode = mode
-  }
-}
+  'workload identity not found; caracal run authenticates with a workload id and secret. Create a launcher workload in the Caracal web console, define its credential bindings, then set CARACAL_WORKLOAD_ID and provide the secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the owner-only default file under the OS Caracal config directory. Set CARACAL_STS_URL only when STS is not the local default.'
 
 export class RuntimeConfigValidationError extends CaracalError {
   readonly source: string
@@ -114,10 +61,6 @@ export class RuntimeConfigMissingError extends CaracalError {
   }
 }
 
-export function defaultRuntimeConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultCaracalConfigDir(env), 'caracal.toml')
-}
-
 export function defaultCaracalConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   if (env.CARACAL_CONFIG_HOME && env.CARACAL_CONFIG_HOME.length > 0) return env.CARACAL_CONFIG_HOME
   const xdg = env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.length > 0 ? env.XDG_CONFIG_HOME : undefined
@@ -130,16 +73,12 @@ export function defaultCaracalConfigDir(env: NodeJS.ProcessEnv = process.env): s
   return join(homedir(), '.config', 'caracal')
 }
 
-export function defaultRuntimeCredentialDir(zoneId: string, applicationId: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultCaracalConfigDir(env), 'runtime', safePathSegment(zoneId), safePathSegment(applicationId))
+export function defaultRuntimeCredentialDir(workloadId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(defaultCaracalConfigDir(env), 'runtime', safePathSegment(workloadId))
 }
 
-export function defaultAppClientSecretFilePath(zoneId: string, applicationId: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultRuntimeCredentialDir(zoneId, applicationId, env), 'client-secret')
-}
-
-export function defaultRunCredentialsFilePath(zoneId: string, applicationId: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultRuntimeCredentialDir(zoneId, applicationId, env), 'credentials.json')
+export function defaultWorkloadSecretFilePath(workloadId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(defaultRuntimeCredentialDir(workloadId, env), 'secret')
 }
 
 function safePathSegment(value: string): string {
@@ -151,118 +90,52 @@ function safePathSegment(value: string): string {
   return segment.slice(start, end) || 'default'
 }
 
-// Resolves the path to caracal.toml using the documented precedence:
-//   $CARACAL_CONFIG → $XDG_CONFIG_HOME/caracal/caracal.toml
-// Returns undefined when no candidate exists on disk.
-export function resolveRuntimeConfigPath(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (env.CARACAL_CONFIG) return existsSync(env.CARACAL_CONFIG) ? env.CARACAL_CONFIG : undefined
-  const path = defaultRuntimeConfigPath(env)
-  return existsSync(path) ? path : undefined
-}
-
-export function assertRuntimeConfigFileSecure(path: string, env: NodeJS.ProcessEnv = process.env): void {
-  if (process.platform === 'win32') return
-  const mode = statSync(path).mode & 0o777
-  if (env.CARACAL_CONFIG === path) {
-    if ((mode & 0o022) !== 0) {
-      throw new RuntimeConfigPermissionError(path, mode, `remove group/world write bits from ${path}`)
-    }
-    return
-  }
-  if ((mode & 0o077) !== 0) {
-    throw new RuntimeConfigPermissionError(path, mode, `run chmod 600 ${path}`)
-  }
-}
-
 export function assertCredentialEnvName(name: string): void {
   if (!ENV_NAME.test(name)) throw new RuntimeConfigValidationError('runtime config', `invalid credential env '${name}'`)
-  if (BLOCKED_CREDENTIAL_ENV.has(name)) throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
+  // Case-insensitive: Windows environments fold case, so 'ld_preload' must be as blocked as 'LD_PRELOAD'.
+  if (BLOCKED_CREDENTIAL_ENV.has(name.toUpperCase()))
+    throw new RuntimeConfigValidationError('runtime config', `blocked credential env '${name}'`)
 }
 
-export function loadRuntimeConfig(required = false, env: NodeJS.ProcessEnv = process.env): RuntimeConfig | undefined {
-  const path = resolveRuntimeConfigPath(env)
-  if (env.CARACAL_CONFIG && path) {
-    assertRuntimeConfigFileSecure(path, env)
-    return normalizeRuntimeConfig(parseRuntimeConfigFile(path), path, env)
-  }
-  if (env.CARACAL_CONFIG) {
+// Resolves the workload identity from the environment. The workload id names the
+// launcher; the secret comes from CARACAL_WORKLOAD_SECRET, an explicit secret-file
+// path, or the owner-only default file in non-production environments.
+export function loadRuntimeIdentity(required = false, env: NodeJS.ProcessEnv = process.env): RuntimeIdentity | undefined {
+  const workloadId = env.CARACAL_WORKLOAD_ID
+  if (!workloadId) {
     if (required) throw new RuntimeConfigMissingError()
     return undefined
   }
-  const cfg = runtimeConfigFromEnv(env)
-  if (cfg) return normalizeRuntimeConfig(cfg, 'environment', env)
-  if (path) {
-    assertRuntimeConfigFileSecure(path, env)
-    return normalizeRuntimeConfig(parseRuntimeConfigFile(path), path, env)
+  return {
+    sts_url: validateEndpointUrl(resolveStsUrl(env), 'sts_url', 'environment', env),
+    workload_id: workloadId,
+    workload_secret: resolveWorkloadSecret(workloadId, env),
   }
-  if (required) throw new RuntimeConfigMissingError()
-  return undefined
+}
+
+function resolveWorkloadSecret(workloadId: string, env: NodeJS.ProcessEnv): string {
+  const value = env.CARACAL_WORKLOAD_SECRET
+  const file = env.CARACAL_WORKLOAD_SECRET_FILE
+  if (value && file) failConfig('environment', 'set only one of CARACAL_WORKLOAD_SECRET or CARACAL_WORKLOAD_SECRET_FILE')
+  if (file) return readSecretFile(file, 'environment')
+  if (value) return value
+  const localFile = existingLocalFile(defaultWorkloadSecretFilePath(workloadId, env), env)
+  if (localFile) return readSecretFile(localFile, 'environment')
+  failConfig(
+    'environment',
+    `workload secret is required; set CARACAL_WORKLOAD_SECRET, point CARACAL_WORKLOAD_SECRET_FILE at an owner-only file, or store the secret at ${defaultWorkloadSecretFilePath(workloadId, env)}`,
+  )
 }
 
 function formatMode(mode: number): string {
   return '0o' + mode.toString(8).padStart(3, '0')
 }
 
-function parseRuntimeConfigFile(path: string): unknown {
-  try {
-    return parse(readFileSync(path, 'utf8'))
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new RuntimeConfigValidationError(path, `failed to parse TOML: ${reason}`)
-  }
-}
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function failConfig(source: string, message: string): never {
   throw new RuntimeConfigValidationError(source, message)
 }
 
-function assertNoUnknownKeys(record: UnknownRecord, allowed: Set<string>, source: string, label: string): void {
-  for (const key of Object.keys(record)) {
-    if (!allowed.has(key)) failConfig(source, `unknown ${label} field '${key}'`)
-  }
-}
-
-function stringField(record: UnknownRecord, key: string, source: string): string | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'string' || value.length === 0) failConfig(source, `${key} must be a non-empty string`)
-  return value
-}
-
-function requiredStringField(record: UnknownRecord, key: string, source: string): string {
-  const value = stringField(record, key, source)
-  if (!value) failConfig(source, `${key} is required`)
-  return value
-}
-
-function booleanField(record: UnknownRecord, key: string, source: string): boolean | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'boolean') failConfig(source, `${key} must be a boolean`)
-  return value
-}
-
-function integerField(record: UnknownRecord, key: string, source: string): number | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'number' || !Number.isInteger(value)) failConfig(source, `${key} must be an integer`)
-  return value
-}
-
-function ttlSecondsField(record: UnknownRecord, source: string): number | undefined {
-  const value = integerField(record, 'ttl_seconds', source)
-  if (value === undefined) return undefined
-  if (value < 1 || value > MAX_RUN_TTL_SECONDS) {
-    failConfig(source, `ttl_seconds must be between 1 and ${MAX_RUN_TTL_SECONDS}`)
-  }
-  return value
-}
-
-function validateEndpointUrl(value: string, key: string, source: string, env: NodeJS.ProcessEnv): string {
+export function validateEndpointUrl(value: string, key: string, source: string, env: NodeJS.ProcessEnv): string {
   let url: URL
   try {
     url = new URL(value)
@@ -272,13 +145,11 @@ function validateEndpointUrl(value: string, key: string, source: string, env: No
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     failConfig(source, `${key} must use http or https`)
   }
-  if (
-    url.protocol === 'http:' &&
-    !isLocalHostname(url.hostname) &&
-    (env.NODE_ENV ?? 'development') !== 'development' &&
-    env.CARACAL_ALLOW_INSECURE_CONFIG_URLS !== 'true'
-  ) {
-    failConfig(source, `${key} must use https outside local development`)
+  if (url.protocol === 'http:' && !isLocalHostname(url.hostname) && env.CARACAL_ALLOW_INSECURE_CONFIG_URLS !== 'true') {
+    failConfig(
+      source,
+      `${key} must use https for non-local hosts; set CARACAL_ALLOW_INSECURE_CONFIG_URLS=true only on a trusted private network`,
+    )
   }
   return value
 }
@@ -288,10 +159,10 @@ function isLocalHostname(hostname: string): boolean {
 }
 
 function readSecretFile(path: string, source: string): string {
-  if (path.startsWith('cs_')) {
+  if (path.startsWith('ws_')) {
     failConfig(
       source,
-      `secret file path looks like a client secret; write the secret to the local auto-detected owner-only file or configure an explicit secret-file path for cloud/custom deployments`,
+      `secret file path looks like a workload secret; write the secret to the local auto-detected owner-only file or configure an explicit secret-file path for cloud/custom deployments`,
     )
   }
   if (!existsSync(path)) failConfig(source, `secret file does not exist: ${path}`)
@@ -304,261 +175,45 @@ function readSecretFile(path: string, source: string): string {
 function assertSecretFileSecure(path: string, source: string): void {
   if (process.platform === 'win32') return
   const mode = statSync(path).mode & 0o777
-  if ((mode & 0o022) !== 0) {
-    failConfig(source, `secret file permissions are too broad: ${path} is ${formatMode(mode)}; remove group/world write bits`)
+  if ((mode & 0o077) !== 0) {
+    failConfig(source, `secret file permissions are too broad: ${path} is ${formatMode(mode)}; make it owner-only (chmod 600)`)
   }
 }
 
+// CARACAL_ENV names the deployment environment explicitly and wins over NODE_ENV,
+// matching the SDK's gate so one convention covers every Caracal surface.
 function isProductionRuntime(env: NodeJS.ProcessEnv): boolean {
+  if (env.CARACAL_ENV) return env.CARACAL_ENV === 'production'
   return env.NODE_ENV === 'production'
 }
 
-function existingLocalFile(path: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
-  if (!path || isProductionRuntime(env)) return undefined
+function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undefined {
+  if (isProductionRuntime(env)) return undefined
   return existsSync(path) ? path : undefined
-}
-
-function clientSecret(record: UnknownRecord, source: string, env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
-  const value = stringField(record, 'app_client_secret', source)
-  const file = stringField(record, 'app_client_secret_file', source)
-  if (value && file) failConfig(source, 'set only one of app_client_secret or app_client_secret_file')
-  if (file) return readSecretFile(file, source)
-  if (value) return value
-  const localFile = existingLocalFile(defaultAppClientSecretFilePath(zoneId, applicationId, env), env)
-  if (localFile) return readSecretFile(localFile, source)
-  failConfig(
-    source,
-    `client secret is required; local dev/stable auto-detects ${defaultAppClientSecretFilePath(zoneId, applicationId, env)} when it exists, while cloud/custom deployments must configure an explicit secret-file path`,
-  )
-}
-
-function normalizeCredential(value: unknown, source: string, index: number, optional: false): Credential
-function normalizeCredential(value: unknown, source: string, index: number, optional: true): OptionalCredential
-function normalizeCredential(value: unknown, source: string, index: number, optional: boolean): Credential | OptionalCredential {
-  if (!isRecord(value)) failConfig(source, `${optional ? 'optional_credentials' : 'credentials'}[${index}] must be a table`)
-  assertNoUnknownKeys(
-    value,
-    optional ? OPTIONAL_CREDENTIAL_KEYS : CREDENTIAL_KEYS,
-    source,
-    `${optional ? 'optional credential' : 'credential'}[${index}]`,
-  )
-  const env = requiredStringField(value, 'env', source)
-  try {
-    assertCredentialEnvName(env)
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    failConfig(source, reason.replace(/^runtime config: /, ''))
-  }
-  const resource = requiredStringField(value, 'resource', source)
-  const upstreamPrefix = stringField(value, 'upstream_prefix', source)
-  if (upstreamPrefix)
-    validateEndpointUrl(upstreamPrefix, `credentials[${index}].upstream_prefix`, source, { ...process.env, NODE_ENV: 'development' })
-  const credentialType = stringField(value, 'credential_type', source)
-  if (credentialType !== undefined && credentialType !== 'provider_token' && credentialType !== 'caracal_mandate') {
-    failConfig(
-      source,
-      `${optional ? 'optional_credentials' : 'credentials'}[${index}].credential_type must be provider_token or caracal_mandate`,
-    )
-  }
-  const base = {
-    env,
-    resource,
-    ...(upstreamPrefix ? { upstream_prefix: upstreamPrefix } : {}),
-    ...(credentialType ? { credential_type: credentialType as RunCredentialType } : {}),
-  }
-  if (!optional) return base
-  const onFailure = stringField(value, 'on_failure', source) ?? 'warn'
-  if (onFailure !== 'warn' && onFailure !== 'error')
-    failConfig(source, `optional_credentials[${index}].on_failure must be 'warn' or 'error'`)
-  return { ...base, on_failure: onFailure }
-}
-
-function normalizeCredentials(record: UnknownRecord, key: 'credentials', source: string): Credential[] | undefined
-function normalizeCredentials(record: UnknownRecord, key: 'optional_credentials', source: string): OptionalCredential[] | undefined
-function normalizeCredentials(
-  record: UnknownRecord,
-  key: 'credentials' | 'optional_credentials',
-  source: string,
-): Credential[] | OptionalCredential[] | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (!Array.isArray(value)) failConfig(source, `${key} must be an array`)
-  const used = new Set<string>()
-  return value.map((entry, index) => {
-    const cred =
-      key === 'optional_credentials' ? normalizeCredential(entry, source, index, true) : normalizeCredential(entry, source, index, false)
-    if (used.has(cred.env)) failConfig(source, `duplicate credential env '${cred.env}'`)
-    used.add(cred.env)
-    return cred
-  })
-}
-
-function normalizeMcpGovernance(record: UnknownRecord, source: string, env: NodeJS.ProcessEnv): McpGovernance | undefined {
-  const override = env.CARACAL_MCP_GOVERNANCE_MODE
-  if (override !== undefined) {
-    if (override !== 'block' && override !== 'log') failConfig(source, 'CARACAL_MCP_GOVERNANCE_MODE must be block or log')
-    assertMcpGovernanceModeAllowed(override, source, env)
-    return { mode: override }
-  }
-  const value = record.mcp_governance
-  if (value === undefined) return undefined
-  if (!isRecord(value)) failConfig(source, 'mcp_governance must be a table')
-  assertNoUnknownKeys(value, new Set(['mode']), source, 'mcp_governance')
-  const mode = requiredStringField(value, 'mode', source)
-  if (mode !== 'block' && mode !== 'log') failConfig(source, 'mcp_governance.mode must be block or log')
-  assertMcpGovernanceModeAllowed(mode, source, env)
-  return { mode }
-}
-
-function normalizeRuntimeConfig(value: unknown, source: string, env: NodeJS.ProcessEnv): RuntimeConfig {
-  if (!isRecord(value)) failConfig(source, 'runtime config must be a table')
-  assertNoUnknownKeys(value, RUNTIME_CONFIG_KEYS, source, 'runtime config')
-  const zoneUrl = stringField(value, 'zone_url', source) ?? stringField(value, 'sts_url', source) ?? resolveStsUrl(env)
-  const zoneId = requiredStringField(value, 'zone_id', source)
-  const applicationId = requiredStringField(value, 'application_id', source)
-  const cfg: RuntimeConfig = {
-    zone_url: validateEndpointUrl(zoneUrl, 'zone_url', source, env),
-    zone_id: zoneId,
-    application_id: applicationId,
-    app_client_secret: clientSecret(value, source, env, zoneId, applicationId),
-  }
-  const ttlSeconds = ttlSecondsField(value, source)
-  if (ttlSeconds !== undefined) cfg.ttl_seconds = ttlSeconds
-  const stsUrl = stringField(value, 'sts_url', source)
-  if (stsUrl) cfg.sts_url = validateEndpointUrl(stsUrl, 'sts_url', source, env)
-  const coordinatorUrl = stringField(value, 'coordinator_url', source)
-  if (coordinatorUrl) cfg.coordinator_url = validateEndpointUrl(coordinatorUrl, 'coordinator_url', source, env)
-  const gatewayUrl = stringField(value, 'gateway_url', source)
-  if (gatewayUrl) cfg.gateway_url = validateEndpointUrl(gatewayUrl, 'gateway_url', source, env)
-  const continueOnFailure = booleanField(value, 'continue_on_failure', source)
-  if (
-    continueOnFailure === true &&
-    (env.NODE_ENV ?? 'development') !== 'development' &&
-    env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE !== 'true'
-  ) {
-    failConfig(source, 'continue_on_failure=true is not allowed outside development')
-  }
-  if (continueOnFailure !== undefined) cfg.continue_on_failure = continueOnFailure
-  const credentials = normalizeCredentials(value, 'credentials', source)
-  if (credentials) cfg.credentials = credentials
-  const optionalCredentials = normalizeCredentials(value, 'optional_credentials', source)
-  if (optionalCredentials) cfg.optional_credentials = optionalCredentials
-  assertUniqueCredentialEnv(cfg.credentials, cfg.optional_credentials, source)
-  const governance = normalizeMcpGovernance(value, source, env)
-  if (governance) cfg.mcp_governance = governance
-  return cfg
-}
-
-function assertMcpGovernanceModeAllowed(mode: 'block' | 'log', source: string, env: NodeJS.ProcessEnv): void {
-  if (mode === 'log' && (env.NODE_ENV ?? 'development') !== 'development' && env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG !== 'true') {
-    failConfig(source, 'mcp_governance.mode=log is not allowed outside development')
-  }
-}
-
-function assertUniqueCredentialEnv(
-  credentials: readonly Credential[] | undefined,
-  optionalCredentials: readonly OptionalCredential[] | undefined,
-  source: string,
-): void {
-  const used = new Set<string>()
-  for (const cred of [...(credentials ?? []), ...(optionalCredentials ?? [])]) {
-    if (used.has(cred.env)) failConfig(source, `duplicate credential env '${cred.env}'`)
-    used.add(cred.env)
-  }
-}
-
-function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): UnknownRecord | undefined {
-  if (!hasEnvRuntimeConfig(env)) return undefined
-  const zoneId = env.CARACAL_ZONE_ID
-  const applicationId = env.CARACAL_APPLICATION_ID
-  const manifest = credentialManifestFromEnv(env, zoneId, applicationId)
-  const cfg: UnknownRecord = {
-    ...manifest,
-    zone_url: env.CARACAL_STS_URL ?? env.CARACAL_ZONE_URL,
-    coordinator_url: env.CARACAL_COORDINATOR_URL,
-    gateway_url: env.CARACAL_GATEWAY_URL,
-    zone_id: env.CARACAL_ZONE_ID,
-    application_id: env.CARACAL_APPLICATION_ID,
-    app_client_secret: env.CARACAL_APP_CLIENT_SECRET,
-    app_client_secret_file:
-      env.CARACAL_APP_CLIENT_SECRET_FILE ||
-      (zoneId && applicationId && !env.CARACAL_APP_CLIENT_SECRET
-        ? existingLocalFile(defaultAppClientSecretFilePath(zoneId, applicationId, env), env)
-        : undefined),
-  }
-  const continueOnFailure = parseBooleanEnv(env.CARACAL_RUN_CONTINUE_ON_FAILURE, 'CARACAL_RUN_CONTINUE_ON_FAILURE')
-  if (continueOnFailure !== undefined) cfg.continue_on_failure = continueOnFailure
-  if (env.CARACAL_RUN_TTL_SECONDS !== undefined && env.CARACAL_RUN_TTL_SECONDS !== '') {
-    const ttlSeconds = Number.parseInt(env.CARACAL_RUN_TTL_SECONDS, 10)
-    if (!/^[1-9]\d*$/.test(env.CARACAL_RUN_TTL_SECONDS) || ttlSeconds > MAX_RUN_TTL_SECONDS) {
-      failConfig('environment', `CARACAL_RUN_TTL_SECONDS must be between 1 and ${MAX_RUN_TTL_SECONDS}`)
-    }
-    cfg.ttl_seconds = ttlSeconds
-  }
-  return cfg
-}
-
-function hasEnvRuntimeConfig(env: NodeJS.ProcessEnv): boolean {
-  return [
-    'CARACAL_APPLICATION_ID',
-    'CARACAL_APP_CLIENT_SECRET',
-    'CARACAL_APP_CLIENT_SECRET_FILE',
-    'CARACAL_RUN_CREDENTIALS',
-    'CARACAL_RUN_CREDENTIALS_FILE',
-  ].some((key) => env[key] !== undefined && env[key] !== '')
-}
-
-function parseBooleanEnv(value: string | undefined, key: string): boolean | undefined {
-  if (value === undefined || value === '') return undefined
-  if (value === 'true') return true
-  if (value === 'false') return false
-  failConfig('environment', `${key} must be true or false`)
-}
-
-function credentialManifestFromEnv(env: NodeJS.ProcessEnv, zoneId: string | undefined, applicationId: string | undefined): UnknownRecord {
-  const file = env.CARACAL_RUN_CREDENTIALS_FILE
-  const inline = env.CARACAL_RUN_CREDENTIALS
-  if (file && inline) failConfig('environment', 'set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE')
-  const localFile =
-    !file && !inline && zoneId && applicationId
-      ? existingLocalFile(defaultRunCredentialsFilePath(zoneId, applicationId, env), env)
-      : undefined
-  const raw = file || localFile ? readSecretFile(file ?? localFile!, 'environment') : inline
-  if (!raw) return {}
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    failConfig('environment', `failed to parse credential manifest JSON: ${reason}`)
-  }
-  const manifest = Array.isArray(parsed) ? { credentials: parsed } : parsed
-  if (!isRecord(manifest)) failConfig('environment', 'credential manifest must be an array or object')
-  assertNoUnknownKeys(manifest, CREDENTIAL_MANIFEST_KEYS, 'environment', 'credential manifest')
-  return manifest
 }
 
 export class ServiceUrlMissingError extends CaracalError {
   readonly envKey: string
-  readonly nodeEnv: string
-  constructor(envKey: string, nodeEnv: string) {
-    super('config_missing', `${envKey} is required when NODE_ENV=${nodeEnv}`, {
-      details: { envKey, nodeEnv },
+  readonly runtimeEnv: string
+  constructor(envKey: string, runtimeEnv: string) {
+    super('config_missing', `${envKey} is required when the runtime environment is ${runtimeEnv}`, {
+      details: { envKey, runtimeEnv },
     })
     this.name = 'ServiceUrlMissingError'
     this.envKey = envKey
-    this.nodeEnv = nodeEnv
+    this.runtimeEnv = runtimeEnv
   }
 }
 
 // Returns the env-var override or the dev default. Throws ServiceUrlMissingError
-// in non-development so misconfigured production management never silently hits localhost.
+// outside development so misconfigured production management never silently hits
+// localhost. CARACAL_ENV wins over NODE_ENV, matching isProductionRuntime.
 export function resolveServiceUrl(envKey: string, devDefault: string, env: NodeJS.ProcessEnv = process.env): string {
   const v = env[envKey]
   if (v) return v
-  const nodeEnv = env.NODE_ENV ?? 'development'
-  if (nodeEnv !== 'development') {
-    throw new ServiceUrlMissingError(envKey, nodeEnv)
+  const runtimeEnv = env.CARACAL_ENV ?? env.NODE_ENV ?? 'development'
+  if (runtimeEnv !== 'development') {
+    throw new ServiceUrlMissingError(envKey, runtimeEnv)
   }
   return devDefault
 }

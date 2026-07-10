@@ -36,8 +36,34 @@ grants := {
 This is the canonical "application A may call resource B with scopes C" pattern,
 expressed as data. The platform contract allows a mint only when the acting
 application owns the view, the agent's role label grants the scope, and the
-delegation edge narrows to it. You declare the grant; the contract enforces the
+Delegation narrows to it. You declare the grant; the contract enforces the
 narrowing.
+
+## Gate scopes on human approval
+
+Two further documents add an optional human gate on top of a grant. `risk` names a
+tier for each sensitive scope, and `approval_tiers` declares which tiers hold the
+mint until a person decides it:
+
+```text
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+risk := [
+  {"scope": "pipernet:refund", "tier": "high"},
+]
+
+approval_tiers := [
+  {"tier": "high", "approver": "operator", "ttl_seconds": 1800, "privacy": "identified"},
+]
+```
+
+Like `restrict` and `confinement`, an approval declaration can only add a gate,
+never widen authority, and a malformed declaration fails the gated mint closed.
+[Human Approval](/guides/step-up/) covers the tier fields, both decision planes,
+and the agent-side wait-and-retry flow.
 
 ## Start from a template
 
@@ -45,23 +71,23 @@ You do not have to write each document by hand. Caracal ships a built-in catalog
 data-document starters, served at `/v1/policy-templates` and through the Admin SDK:
 
 ```ts
-import { AdminClient } from "@caracalai/admin";
+import { AdminClient } from '@caracalai/admin'
 
 const admin = new AdminClient({
   apiUrl: process.env.CARACAL_API_URL!,
   adminToken: process.env.CARACAL_ADMIN_TOKEN!,
-});
+})
 
-const templates = await admin.policyTemplates.list();
-const starter = await admin.policyTemplates.get("resource-grants");
+const templates = await admin.policyTemplates.list()
+const starter = await admin.policyTemplates.get('resource-grants')
 ```
 
-| Template | Use it for |
-| --- | --- |
+| Template               | Use it for                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------ |
 | `application-bindings` | Map each application key used in `grants` to its control-plane application id. |
-| `resource-grants` | Declare the owning application and per-role scope sets for a resource view. |
-| `label-confinement` | Cap every session carrying a label prefix to a fixed scope set. |
-| `zone-restriction` | A deny overlay that freezes the zone while an entry is present. |
+| `resource-grants`      | Declare the owning application and per-role scope sets for a resource view.    |
+| `label-confinement`    | Cap every session carrying a label prefix to a fixed scope set.                |
+| `zone-restriction`     | A deny overlay that freezes the zone while an entry is present.                |
 
 For assisted authoring, describe the outcome to the [Caracal Operator](/concepts/operator/#authoring-policy). Its policy author models the use case as grant, binding, and confinement data, validates and previews each document against the platform contract, and proposes a governed create you review and approve - so the policy that lands is already contract-valid.
 
@@ -72,29 +98,29 @@ data. The acting application is the principal - there is no `input.application` 
 `input.grant` object. See the full [Policy Input Contract](/concepts/policy/#policy-input-contract)
 for every field.
 
-| Input the contract reads | Resolved against |
-| --- | --- |
-| `input.principal.id` | `app_ids` - to find the application key used in `grants`. |
-| `input.principal.labels` | `grants[...].roles` and `confinement` label prefixes. |
-| `input.resource.identifier` | the top-level key in `grants`. |
-| `input.context.requested_scopes` | the role's scope set and any matching `confinement` rule. |
-| `input.delegation_edge.scopes` | the narrowing floor every requested scope must sit inside. |
+| Input the contract reads         | Resolved against                                           |
+| -------------------------------- | ---------------------------------------------------------- |
+| `input.principal.id`             | `app_ids` - to find the application key used in `grants`.  |
+| `input.principal.labels`         | `grants[...].roles` and `confinement` label prefixes.      |
+| `input.resource.identifier`      | the top-level key in `grants`.                             |
+| `input.context.requested_scopes` | the role's scope set and any matching `confinement` rule.  |
+| `input.delegation_edge.scopes`   | the narrowing floor every requested scope must sit inside. |
 
 ## Validate before versioning
 
 Use the Console policy workflow to paste the document and run validation. For automation, validate through the Admin API or `@caracalai/admin`:
 
 ```ts
-import { AdminClient } from "@caracalai/admin";
+import { AdminClient } from '@caracalai/admin'
 
 const admin = new AdminClient({
   apiUrl: process.env.CARACAL_API_URL!,
   adminToken: process.env.CARACAL_ADMIN_TOKEN!,
-});
+})
 
-const validation = await admin.policies.validate(policySource);
+const validation = await admin.policies.validate(policySource)
 if (!validation.valid) {
-  throw new Error("policy failed validation");
+  throw new Error('policy failed validation')
 }
 ```
 
@@ -137,7 +163,7 @@ parsed, so you can confirm the backend reads your data the way you intend before
 activating it:
 
 ```ts
-const { preview } = await admin.policies.validate(policySource);
+const { preview } = await admin.policies.validate(policySource)
 // preview = {
 //   package: "caracal.authz",
 //   rules: ["app_ids", "grants"],   // the data documents you defined
@@ -160,8 +186,8 @@ explain endpoint reconstructs a redaction-safe policy input for every denied
 decision:
 
 ```ts
-const trace = await admin.audit.explain(zoneId, requestId);
-const input = trace.denied[0]?.policy_input;
+const trace = await admin.audit.explain(zoneId, requestId)
+const input = trace.denied[0]?.policy_input
 ```
 
 Feed that `input` straight into [simulation](/guides/activate-policy-set/) against
@@ -173,7 +199,6 @@ fields to the input before simulating.
 ## Keep policies reviewable
 
 - Default to deny.
-- Return diagnostics for denies and step-up triggers.
 - Keep resource identifiers stable and scopes action-oriented.
 - Keep decision logic in policy rather than duplicating allow tables across rules.
 - Split policies by ownership only when separate review or activation is useful.

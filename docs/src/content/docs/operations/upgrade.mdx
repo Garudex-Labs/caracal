@@ -8,24 +8,52 @@ Caracal upgrades are forward-only at the database layer. Every release ships **e
 
 Contract-phase changes (dropping, renaming, retyping, or tightening a column to `NOT NULL`) are split into a later release and must be tagged `-- caracal:phase contract`. CI (`validateMigrations.sh`) rejects untagged contract changes so the no-window guarantee cannot silently regress.
 
-## One-Command Upgrade (Runtime)
+## Supported Upgrade Path
 
-For the Compose-based runtime, `caracal upgrade` performs the full expand-then-roll sequence in order:
+`caracal upgrade` moves the stack to the release pinned inside the installed binary - it does not update the binary itself. Upgrading a Compose-based runtime is always two steps:
+
+1. Install the new release binary (re-run the install script from the release page).
+2. Run `caracal upgrade`.
+
+Upgrade one stable release at a time. Each release's migrations are validated against the immediately previous release; jumping across releases applies every pending migration in one pass, which is outside the validated path. A lock file (`$CARACAL_HOME/.lock`) serializes `caracal up`, `caracal down`, and `caracal upgrade` on a host; a concurrent invocation exits with an error instead of interleaving. A lock left by a crashed process is taken over automatically.
+
+## One-Command Upgrade (Runtime)
 
 ```bash
 caracal upgrade
 ```
 
-It stages the new images (`pull`, or `build` in dev), applies the expand-phase migrations against the running database, then rolls the services and waits for readiness. If the migration step fails it aborts before touching services, leaving the previous version running. Pass `--no-pull` to roll already-staged images without fetching.
+The command performs the expand-then-roll sequence in order:
+
+1. **Refresh runtime assets.** `$CARACAL_HOME/compose.yml` is rewritten to the release topology. `caracal.env` and existing secrets are left untouched; any secret the release newly requires is generated.
+2. **Stage images.** Pull the pinned release images (`build` in dev). Nothing running is touched; a pull failure leaves the previous version serving. Pass `--no-pull` to roll already-staged images without fetching.
+3. **Apply migrations.** Run the one-shot `dbMigrate` against the running database. Migrations apply one file per transaction under an advisory lock and are idempotent. On failure the upgrade aborts before touching services.
+4. **Roll services.** `up -d` recreates only containers whose image or configuration changed. Each service restarts briefly as it rolls; removed services are cleaned up.
+5. **Gate readiness.** Poll the core services' `/ready` endpoints (API, STS, Gateway, Audit, Coordinator) for up to two minutes, exiting non-zero if any fails.
+
+Every phase is idempotent. If the process is interrupted at any point - including power loss mid-roll - run `caracal upgrade` again; staged images, applied migrations, and rolled services all converge. Each attempt appends its outcome to `$CARACAL_HOME/upgrade.log` (JSON lines with timestamp, versions, and the phase reached), which records the upgrade history for the host.
+
+## What Is Preserved
+
+| State | During upgrade |
+| --- | --- |
+| Postgres data (`postgresData` volume) | Preserved. Expand-only migrations add schema; nothing is dropped or rewritten. |
+| Console operator accounts (`caracal_auth` database) | Preserved. Its schema migrates automatically when the web service starts. |
+| Redis streams and queues (`redisData` volume) | Preserved. |
+| Replay state (`stsReplay`, `gatewayReplay` volumes) | Preserved. |
+| Secrets (`$CARACAL_HOME/secrets`) | Preserved. Existing values are never regenerated; newly required secrets are generated on first use. |
+| Operator configuration (`caracal.env`) | Preserved. Never overwritten; add configuration keys a release introduces manually, per its release notes. |
+| `compose.yml` under `$CARACAL_HOME` | **Replaced** with the release topology. Local edits are discarded - customize through `caracal.env` and environment variables instead. |
+
+New volumes a release introduces are created empty on the first roll.
 
 ## Pre-Upgrade
 
 1. Read release notes and changed chart values.
-2. Render the new Helm/Compose configuration.
+2. Back up Postgres and Redis (`infra/scripts/backup.sh`) **and the secrets directory**. Data backups deliberately exclude secrets, and sealed state - zone signing keys, grants, provider credentials - is unrecoverable without the zone KEK.
 3. Confirm secrets and required env vars still match service config.
-4. Back up Postgres and runtime secrets.
-5. Confirm Redis streams/groups and audit health.
-6. Prepare canary token exchange and Gateway request.
+4. Confirm Redis streams/groups and audit health.
+5. Prepare canary token exchange and Gateway request.
 
 ## Helm Upgrade
 
@@ -65,13 +93,22 @@ On Windows PowerShell, set the version with `$env:CARACAL_VERSION = "<new-versio
 
 ## Rollback
 
-Prefer roll-forward fixes after migrations. If rolling back app images, verify the previous version understands the current schema and config values.
+Prefer roll-forward fixes after migrations. Applied migrations are never rolled back automatically. An older binary refuses to touch a home directory whose stack was installed by a newer release (`$CARACAL_HOME/runtime.json` records the installed version). To roll back deliberately: verify the previous version understands the current schema and config values, remove `$CARACAL_HOME/runtime.json`, then run the older binary's `caracal upgrade`. Never remove the secrets directory - sealed data is unrecoverable without it.
+
+## Limitations
+
+- The runtime binary is not self-updating: install the new release before running `caracal upgrade`.
+- Postgres and Redis **major** version bumps are not automated. A release that moves either major version documents the required data migration in its release notes; do not upgrade past it without following them.
+- Backups are not taken automatically - run them as part of pre-upgrade.
 
 ## Troubleshooting
 
 | Symptom | Action |
 | --- | --- |
-| Migration hook fails | Stop rollout, inspect Job logs, restore only if no migration committed; otherwise roll forward. |
+| Image pull fails | Nothing changed; the previous version keeps serving. Check registry access and re-run. |
+| Migration step fails | The upgrade aborts before rolling; the previous version keeps serving. Inspect the migration output, fix, and re-run. |
+| Readiness gate fails after the roll | Services run the new version but one is unhealthy. Inspect `caracal status` and service logs; fix forward. |
+| Migration hook fails (Helm) | Stop rollout, inspect Job logs, restore only if no migration committed; otherwise roll forward. |
 | New pods fail config validation | Compare env vars and mounted secret keys with current service config. |
 | Readiness fails after app rollback | Schema or Redis stream expectations may no longer match the old app. |
 

@@ -27,17 +27,15 @@ export interface JwksCache {
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000
 const DEFAULT_MAX_STALE_MS = 10 * 60 * 1000
 const DEFAULT_FETCH_TIMEOUT_MS = 5_000
+const MAX_JWKS_BYTES = 256 * 1024
 
 function assertSecureIssuer(issuer: string): void {
   const parsed = new URL(issuer)
   if (parsed.protocol === 'https:') return
   if (parsed.protocol === 'http:') {
-    const insecureAllowed =
-      isLoopbackHost(parsed.hostname) ||
-      (process.env.NODE_ENV ?? 'development') === 'development' ||
-      process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true'
+    const insecureAllowed = isLoopbackHost(parsed.hostname) || process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true'
     if (insecureAllowed) return
-    throw new Error('insecure issuer scheme: http requires a loopback host or development mode')
+    throw new Error('insecure issuer scheme: http requires a loopback host or CARACAL_ALLOW_INSECURE_CONFIG_URLS=true')
   }
   throw new Error(`unsupported issuer scheme: ${parsed.protocol}`)
 }
@@ -85,7 +83,34 @@ export function createJwksCache(opts: JwksCacheOptions = {}): JwksCache {
     try {
       const res = await (fetchImpl ?? fetch)(url, { signal: controller.signal })
       if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`)
-      const body = (await res.json()) as { keys: object[] }
+      const length = Number(res.headers?.get('content-length'))
+      if (Number.isFinite(length) && length > MAX_JWKS_BYTES) throw new Error('JWKS document too large')
+      const reader = res.body?.getReader()
+      const chunks: Uint8Array[] = []
+      let size = 0
+      if (reader) {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          size += value.byteLength
+          if (size > MAX_JWKS_BYTES) {
+            await reader.cancel()
+            throw new Error('JWKS document too large')
+          }
+          chunks.push(value)
+        }
+      }
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      const body = reader
+        ? (JSON.parse(new TextDecoder().decode(bytes)) as { keys: object[] })
+        : 'text' in res && typeof res.text === 'function'
+          ? (JSON.parse(await res.text()) as { keys: object[] })
+          : ((await res.json()) as { keys: object[] })
       const keySet = createLocalJWKSet({ keys: body.keys } as Parameters<typeof createLocalJWKSet>[0])
       cache.set(cacheKey(issuer, zoneId), { keySet, fetchedAtMonoMs: performance.now() })
       return keySet

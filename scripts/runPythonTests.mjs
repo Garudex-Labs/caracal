@@ -13,13 +13,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const PACKAGES = [
   { path: 'packages/core/python', module: 'caracalai_core' },
+  { path: 'packages/admin/python', module: 'caracalai_admin' },
   { path: 'packages/identity/python', module: 'caracalai_identity' },
   { path: 'packages/oauth/python', module: 'caracalai_oauth' },
   { path: 'packages/revocation/python', module: 'caracalai_revocation' },
-  { path: 'packages/transport/mcp/python', module: 'caracalai_transport_mcp' },
-  { path: 'packages/connectors/fastmcp/python', module: 'caracalai_mcp_fastmcp' },
-  { path: 'packages/connectors/asgi/python', module: 'caracalai_asgi' },
-  { path: 'packages/connectors/redis/python', module: 'caracalai_revocation_redis' },
+  { path: 'packages/verify/python', module: 'caracalai_verify' },
+  { path: 'packages/adapters/fastmcp/python', module: 'caracalai_fastmcp' },
+  { path: 'packages/adapters/asgi/python', module: 'caracalai_asgi' },
+  { path: 'packages/backends/redis/python', module: 'caracalai_revocation_redis' },
   { path: 'packages/sdk/python', module: 'caracalai' },
   { path: 'tests/shared/test-utils/python', module: null },
 ]

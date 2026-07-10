@@ -2,29 +2,25 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file provides the shared delegation edge inspector with chain, impact, and revocation.
+This file provides the shared delegation inspector with chain, impact, and revocation.
 */
 import { useMemo, useState } from "react";
 
-import {
-  delegationErrorMessage,
-  edgeStatusLabel,
-  edgeStatusTone,
-  shortId,
-} from "@/components/console/delegationFormat";
+import { edgeStatusLabel, edgeStatusTone, shortId } from "@/components/console/delegationFormat";
 import { DetailField, DetailGroup, Mono } from "@/components/console/ResourceWorkspace";
 import { Badge, Button, ConfirmDialog, Skeleton, useToast } from "@/components/ui";
 import { consoleApi } from "@/platform/api/client";
+import { coordinatorErrorMessage } from "@/platform/api/errors";
 import { useApplications, useResources, useRevokeDelegation } from "@/platform/api/hooks";
-import type { DelegationEdge, DelegationHop, DelegationImpactRow } from "@/platform/api/types";
+import type { DelegationEdge, DelegationHop, DelegationImpact } from "@/platform/api/types";
 
 interface DecodedConstraint {
   label: string;
   value: string;
 }
 
-// constraints_json carries the typed limits the control plane enforces (max hops, scope
-// budget, TTL, resource set, policy approval, hard expiry). Surfacing them lets an operator
+// constraints_json carries typed limits and audit metadata (max hops, distinct-scope
+// limit, TTL, resource set, approval annotation, hard expiry). Surfacing them lets an operator
 // understand WHY an edge's authority is bounded rather than treating the edge as opaque.
 function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstraint[] {
   if (!raw) return [];
@@ -35,7 +31,7 @@ function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstrai
   };
   num("max_hops", "Max hops");
   num("max_depth", "Max depth");
-  num("budget", "Scope budget");
+  num("budget", "Max distinct scopes per exchange");
   num("ttl_seconds", "Max TTL", "s");
   if (typeof raw.expires_at === "string") {
     out.push({ label: "Hard expiry", value: new Date(raw.expires_at).toLocaleString() });
@@ -44,10 +40,10 @@ function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstrai
     out.push({ label: "Resource set", value: raw.resources.join(", ") });
   }
   if (typeof raw.policy_approved === "boolean") {
-    out.push({ label: "Policy approved", value: raw.policy_approved ? "yes" : "no" });
+    out.push({ label: "Policy approval metadata", value: raw.policy_approved ? "yes" : "no" });
   }
   if (typeof raw.broad_reason === "string" && raw.broad_reason.trim() !== "") {
-    out.push({ label: "Broad reason", value: raw.broad_reason });
+    out.push({ label: "Broad-delegation note", value: raw.broad_reason });
   }
   return out;
 }
@@ -68,7 +64,7 @@ export function DelegationInspector({
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [tab, setTab] = useState<"chain" | "impact">("chain");
   const [chain, setChain] = useState<DelegationHop[] | null>(null);
-  const [impact, setImpact] = useState<DelegationImpactRow[] | null>(null);
+  const [impact, setImpact] = useState<DelegationImpact | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seed, setSeed] = useState("");
@@ -83,11 +79,11 @@ export function DelegationInspector({
       consoleApi.delegations.traverse(zoneId, edge.id),
       consoleApi.delegations.impact(zoneId, edge.id),
     ])
-      .then(([traverseRows, impactRows]) => {
+      .then(([traverseRows, impactRes]) => {
         setChain(traverseRows);
-        setImpact(impactRows);
+        setImpact(impactRes);
       })
-      .catch((err) => setError(delegationErrorMessage(err)))
+      .catch((err) => setError(coordinatorErrorMessage(err)))
       .finally(() => setLoading(false));
   }
 
@@ -139,8 +135,8 @@ export function DelegationInspector({
         </div>
       </div>
 
-      <DetailGroup title="Edge">
-        <DetailField label="Edge ID">
+      <DetailGroup title="Delegation">
+        <DetailField label="Delegation ID">
           <Mono>{edge.id}</Mono>
         </DetailField>
         <DetailField label="Source session">
@@ -168,11 +164,11 @@ export function DelegationInspector({
           ? applicationField("Receiver application", edge.receiver_application_id)
           : null}
         {edge.parent_edge_id ? (
-          <DetailField label="Parent edge">
+          <DetailField label="Parent delegation">
             <Mono>{edge.parent_edge_id}</Mono>
           </DetailField>
         ) : null}
-        <DetailField label="Edge version">{edge.edge_version}</DetailField>
+        <DetailField label="Version">{edge.edge_version}</DetailField>
         <DetailField label="Created">{new Date(edge.created_at).toLocaleString()}</DetailField>
         {edge.expires_at ? (
           <DetailField label="Expires">{new Date(edge.expires_at).toLocaleString()}</DetailField>
@@ -218,7 +214,7 @@ export function DelegationInspector({
             Authority chain {chain ? `(${chain.length})` : ""}
           </TabButton>
           <TabButton active={tab === "impact"} onClick={() => setTab("impact")}>
-            Revocation impact {impact ? `(${impact.length})` : ""}
+            Revocation impact {impact ? `(${impact.affectedDelegations.length})` : ""}
           </TabButton>
         </div>
 
@@ -229,7 +225,7 @@ export function DelegationInspector({
         ) : tab === "chain" ? (
           <ChainView hops={chain ?? []} />
         ) : (
-          <ImpactView rows={impact ?? []} />
+          <ImpactView impact={impact} />
         )}
       </section>
 
@@ -249,7 +245,7 @@ export function DelegationInspector({
             toast({
               tone: "error",
               title: "Revoke failed",
-              description: delegationErrorMessage(err),
+              description: coordinatorErrorMessage(err),
             });
           }
         }}
@@ -312,7 +308,8 @@ function ChainView({ hops }: { hops: DelegationHop[] }) {
   );
 }
 
-function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
+function ImpactView({ impact }: { impact: DelegationImpact | null }) {
+  const rows = impact?.affectedDelegations ?? [];
   if (rows.length === 0) {
     return (
       <p className="mt-3 text-sm text-muted-foreground">
@@ -320,22 +317,19 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
       </p>
     );
   }
+  const authorityRecords = impact?.affectedAuthorityRecords ?? [];
   return (
     <div className="mt-4">
       <p className="mb-3 text-xs text-muted-foreground">
-        Revoking this delegation cascades to {rows.length} downstream session
-        {rows.length === 1 ? "" : "s"}. Each row shows the agent session that loses authority and
-        the subject session whose access is revoked.
+        Revoking this Delegation cascades to {rows.length} downstream Delegation
+        {rows.length === 1 ? "" : "s"}. Each row shows the Session that loses authority.
       </p>
       <div className="overflow-hidden border border-border">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-left">
               <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Agent session
-              </th>
-              <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Subject session
+                Session
               </th>
               <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Depth
@@ -348,9 +342,6 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
                 <td className="px-3 py-2 font-mono text-xs text-foreground">
                   {shortId(row.target_session_id)}
                 </td>
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                  {row.subject_session_id ? shortId(row.subject_session_id) : "-"}
-                </td>
                 <td className="px-3 py-2 text-right font-mono text-[11px] text-muted-foreground">
                   depth {row.depth}
                 </td>
@@ -359,6 +350,12 @@ function ImpactView({ rows }: { rows: DelegationImpactRow[] }) {
           </tbody>
         </table>
       </div>
+      {authorityRecords.length > 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Authority records losing access:{" "}
+          <span className="font-mono">{authorityRecords.map((id) => shortId(id)).join(", ")}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -10,9 +10,12 @@ import { newRedis } from './redis.js'
 import { startDCRGC } from './jobs/dcr-gc.js'
 import { startSessionsReaper } from './jobs/sessions-reaper.js'
 import { startMessageRunsReaper } from './jobs/message-runs-reaper.js'
+import { startPlanSecretsReaper } from './jobs/plan-secrets-reaper.js'
+import { startNotificationDispatcher } from './jobs/notification-dispatcher.js'
 import { OutboxDispatcher } from './outbox.js'
-import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken } from './auth.js'
-import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
+import { seedBootstrapAdminToken, seedConsoleReadToken, seedConsoleWriteToken, seedConsoleApproveToken } from './auth.js'
+import { createLogger } from '@caracalai/core'
+import { assertPublishedSafe, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/server-core'
 
 assertPublishedSafe()
 
@@ -71,6 +74,10 @@ try {
     envToken: cfg.bootstrapAdminToken,
     log: (msg) => log('info', msg),
   })
+  await seedConsoleApproveToken(db, {
+    envToken: cfg.bootstrapAdminToken,
+    log: (msg) => log('info', msg),
+  })
 
   const app = await buildApp({ cfg, db, redis, isDraining: () => shutdown.draining })
 
@@ -89,6 +96,8 @@ try {
   const dcrTimer = startDCRGC(db, app.log)
   const sessionsReaperTimer = startSessionsReaper(db, app.log)
   const messageRunsReaperTimer = startMessageRunsReaper(db, app.log)
+  const planSecretsReaperTimer = startPlanSecretsReaper(db, app.log)
+  const notificationDispatcherTimer = startNotificationDispatcher(db, app.log)
 
   shutdown.register('dcr-gc-timer', () => {
     clearInterval(dcrTimer)
@@ -98,6 +107,12 @@ try {
   })
   shutdown.register('message-runs-reaper', () => {
     clearInterval(messageRunsReaperTimer)
+  })
+  shutdown.register('plan-secrets-reaper', () => {
+    clearInterval(planSecretsReaperTimer)
+  })
+  shutdown.register('notification-dispatcher', () => {
+    clearInterval(notificationDispatcherTimer)
   })
   shutdown.register('outbox-dispatcher', () => dispatcher.stop())
   shutdown.register('fastify', () => app.close())

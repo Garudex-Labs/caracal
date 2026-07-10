@@ -3,12 +3,13 @@
 //
 // Runtime configuration for the Community Edition authentication service.
 
-import { resolveFileSecrets } from '@caracalai/core'
+import { resolveFileSecrets } from '@caracalai/server-core'
 
 // Postgres TLS posture. "disable" relies on the connection string (default for the local
 // stack), "require" enforces a verified certificate, and "no-verify" enables TLS without
 // certificate verification for managed providers that present self-signed chains.
 export type PostgresSsl = 'disable' | 'require' | 'no-verify'
+export type CookieSameSite = 'lax' | 'none'
 
 export interface AuthConfig {
   port: number
@@ -24,11 +25,22 @@ export interface AuthConfig {
   databaseUrl: string
   ssl: PostgresSsl
   production: boolean
+  // The release version of the binary serving this deployment, surfaced to the console UI.
+  // Injected by the stack as CARACAL_VERSION (the image tag); local source runs report "dev".
+  version: string
   secureCookies: boolean
+  cookieSameSite: CookieSameSite
   autoProvisionDatabase: boolean
-  operatorAllowlist: string[]
+  // Whether the immediate reverse proxy's x-forwarded-for is trusted when resolving the client
+  // address for auth rate limiting. Off by default: a directly exposed BFF must key on the TCP
+  // peer, or any caller could rotate spoofed addresses past the per-IP ceilings.
+  trustProxy: boolean
   openRegistration: boolean
   passwordSignup: boolean
+  // Path to the Console sign-in allowlist managed by `caracal allowlist`; the file's entries
+  // are re-read per request. Empty means no file-based admission policy, so access follows the
+  // open-registration default.
+  operatorAllowlistFile: string
   requireEmailVerification: boolean
   smtpUrl: string | null
   smtpFrom: string | null
@@ -107,21 +119,6 @@ function resolveWebAppOrigin(baseURL: string, webOrigins: string[]): string {
   return webOrigins.find((origin) => origin !== self) ?? self ?? baseURL
 }
 
-// The operators permitted to register and sign in. A signed-in operator is proxied with the
-// shared global admin token, so registration is an authority boundary: only listed identities
-// may create an account. Entries are exact emails (case-insensitive) or domain suffixes written
-// as `@example.com`. An empty list means no explicit allowlist is configured.
-function resolveOperatorAllowlist(): string[] {
-  resolveFileSecrets(['CARACAL_OPERATOR_EMAILS'])
-  const configured = process.env.CARACAL_OPERATOR_EMAILS ?? ''
-  const entries = new Set<string>()
-  for (const raw of configured.split(',')) {
-    const value = raw.trim().toLowerCase()
-    if (value) entries.add(value)
-  }
-  return [...entries]
-}
-
 // The SMTP relay that delivers password reset and email verification messages. The URL carries
 // host, port, and credentials (smtp:// or smtps://) and honours the `_FILE` secret convention;
 // the From address is required alongside it so mail is never sent with a relay-invented sender.
@@ -149,6 +146,13 @@ export function loadConfig(): AuthConfig {
     process.env.CARACAL_AUTH_SECURE_COOKIES !== undefined
       ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_SECURE_COOKIES)
       : production || baseURL.startsWith('https://')
+  const sameSite = (process.env.CARACAL_AUTH_COOKIE_SAME_SITE ?? 'lax').trim().toLowerCase()
+  if (sameSite !== 'lax' && sameSite !== 'none') {
+    throw new Error('CARACAL_AUTH_COOKIE_SAME_SITE must be lax or none')
+  }
+  if (sameSite === 'none' && !secureCookies) {
+    throw new Error('CARACAL_AUTH_COOKIE_SAME_SITE=none requires secure cookies')
+  }
   const webRoot = process.env.CARACAL_WEB_ROOT?.trim() || undefined
   // Per-replica DDL (CREATE DATABASE + Better Auth migrations) races under horizontal scaling
   // and needs an elevated role production deliberately withholds. Default it on for local
@@ -156,16 +160,13 @@ export function loadConfig(): AuthConfig {
   // An explicit CARACAL_AUTH_AUTO_MIGRATE wins either way, so a single-node self-host can opt in.
   const autoProvisionDatabase =
     process.env.CARACAL_AUTH_AUTO_MIGRATE !== undefined ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_AUTO_MIGRATE) : !production
-  const operatorAllowlist = resolveOperatorAllowlist()
+  const trustProxy = /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_TRUST_PROXY ?? '')
   // A signed-in operator wields the shared global admin token, so registration is fail-closed in
-  // production: without an explicit allowlist no one may register. Local development stays open so
-  // a fresh stack is usable without configuration. An explicit allowlist always takes precedence.
+  // production: without allowlist entries no one may register. Local development stays open so a
+  // fresh stack is usable without configuration. Entries in the allowlist file are authoritative
+  // at decision time and override this default whenever any exist.
   const openRegistration =
-    operatorAllowlist.length > 0
-      ? false
-      : process.env.CARACAL_OPEN_REGISTRATION !== undefined
-        ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_OPEN_REGISTRATION)
-        : !production
+    process.env.CARACAL_OPEN_REGISTRATION !== undefined ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_OPEN_REGISTRATION) : !production
   // Email/password sign-up grants admin on a self-asserted email that no one has proven the
   // registrant owns. With a domain-suffix allowlist that is an open admin door, and even an
   // exact-email allowlist is beatable by registering the address before its owner does. So
@@ -197,32 +198,17 @@ export function loadConfig(): AuthConfig {
     databaseUrl: resolveDatabaseUrl(),
     ssl: resolveSsl(production),
     production,
+    version: process.env.CARACAL_VERSION?.trim() || 'dev',
     secureCookies,
+    cookieSameSite: sameSite,
     autoProvisionDatabase,
-    operatorAllowlist,
+    trustProxy,
     openRegistration,
     passwordSignup,
+    operatorAllowlistFile: process.env.CARACAL_OPERATOR_ALLOWLIST_FILE?.trim() ?? '',
     requireEmailVerification,
     smtpUrl: smtp.url,
     smtpFrom: smtp.from,
     secret: resolveSecret(),
   }
-}
-
-// Decides whether an email may register or sign in. An explicit allowlist is authoritative:
-// the email must match an exact entry or an `@domain` suffix. With no allowlist, registration
-// follows the open-registration default (open in dev, closed in production).
-export function isOperatorAllowed(email: string, cfg: Pick<AuthConfig, 'operatorAllowlist' | 'openRegistration'>): boolean {
-  const normalized = email.trim().toLowerCase()
-  if (!normalized) return false
-  if (cfg.operatorAllowlist.length === 0) return cfg.openRegistration
-  const domain = normalized.slice(normalized.indexOf('@'))
-  for (const entry of cfg.operatorAllowlist) {
-    if (entry.startsWith('@')) {
-      if (domain === entry) return true
-    } else if (normalized === entry) {
-      return true
-    }
-  }
-  return false
 }

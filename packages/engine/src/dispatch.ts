@@ -16,9 +16,8 @@ export interface DispatchRequest {
   readonly flags?: FlagMap
 }
 
-/** A caller of dispatch. Local principals bypass scope checks; remote principals must carry per-resource scopes. */
+/** A caller of dispatch: a Control principal carrying per-resource scopes bound to one zone. */
 export interface Principal {
-  readonly kind: 'local' | 'remote'
   readonly subject: string
   readonly zoneId?: string
   readonly clientId?: string
@@ -43,7 +42,7 @@ export class DispatchError extends Error {
 
 const MAX_FLAGS = 32
 const MAX_FLAG_KEY_LEN = 64
-const MAX_FLAG_STR_LEN = 32768
+const MAX_FLAG_STR_LEN = 131072
 const MAX_FLAG_ARRAY_LEN = 64
 
 function denied(msg: string): never {
@@ -86,15 +85,13 @@ export function validateFlags(flags: FlagMap | undefined): void {
 }
 
 function assertScope(principal: Principal, desc: CommandDescriptor, sub: string): void {
-  if (principal.kind === 'local') return
   if (desc.delegatesScope) return
   const required = scopeName(desc, sub)
   if (principal.scopes.includes(required)) return
   denied(`missing scope ${required}`)
 }
 
-function assertRemoteZoneBound(principal: Principal, desc: CommandDescriptor): void {
-  if (principal.kind === 'local') return
+function assertZoneBound(principal: Principal, desc: CommandDescriptor): void {
   if (desc.requiresZone) {
     requireZone(principal)
     return
@@ -148,13 +145,6 @@ function getBool(flags: FlagMap | undefined, key: string): boolean | undefined {
   if (v === 'true') return true
   if (v === 'false') return false
   return undefined
-}
-
-function getDcrShutdown(flags: FlagMap | undefined): 'keep_live' | 'revoke_live' | undefined {
-  const value = getStr(flags, 'dcr-shutdown')
-  if (value === undefined) return undefined
-  if (value === 'keep_live' || value === 'revoke_live') return value
-  invalid('flag "dcr-shutdown" must be keep_live or revoke_live')
 }
 
 function getOperations(flags: FlagMap | undefined, key: string): { method: string; path: string; scope: string }[] | undefined {
@@ -215,24 +205,19 @@ function bySubcommand(handlers: Record<string, Handler>): SubcommandHandler {
   return Object.assign(route, { handledSubcommands: Object.freeze(Object.keys(handlers)) })
 }
 
-const zoneHandler = bySubcommand({
-  list: ({ ctx }) => ctx.admin.zones.list(),
-  get: ({ flags, ctx }) => ctx.admin.zones.get(mustStr(flags, 'id')),
-  create: ({ flags, ctx }) =>
-    ctx.admin.zones.create({
-      name: mustStr(flags, 'name'),
-      slug: getStr(flags, 'slug'),
-      dcr_enabled: getBool(flags, 'dcr'),
-    }),
-  patch: ({ flags, ctx }) =>
-    ctx.admin.zones.patch(mustStr(flags, 'id'), {
-      name: getStr(flags, 'name'),
-      slug: getStr(flags, 'slug'),
-      dcr_enabled: getBool(flags, 'dcr'),
-      dcr_shutdown: getDcrShutdown(flags),
-    }),
-  delete: ({ flags, ctx }) => ctx.admin.zones.delete(mustStr(flags, 'id')),
-})
+const CONTROL_INVOKE_TRAIT = 'control:invoke'
+
+/**
+ * Refuse mutation of a control key through the generic application surface. A control key
+ * holding control:app:write could otherwise rotate a sibling key's secret or delete it,
+ * seizing that key's wider scopes - lateral privilege escalation between control keys.
+ */
+async function assertNotControlKey(ctx: DispatchContext, zoneId: string, id: string): Promise<void> {
+  const app = (await ctx.admin.applications.get(zoneId, id)) as { traits?: string[] }
+  if (Array.isArray(app.traits) && app.traits.includes(CONTROL_INVOKE_TRAIT)) {
+    throw new DispatchError('denied', `application ${id} is a control key`, 'Manage control keys through the Console control panel.')
+  }
+}
 
 const appHandler = bySubcommand({
   list: ({ principal, ctx }) => ctx.admin.applications.list(requireZone(principal)),
@@ -242,12 +227,24 @@ const appHandler = bySubcommand({
       name: mustStr(flags, 'name'),
       registration_method: 'managed',
     }),
-  patch: ({ principal, flags, ctx }) =>
-    ctx.admin.applications.patch(requireZone(principal), mustStr(flags, 'id'), {
-      name: getStr(flags, 'name'),
-      client_secret: getStr(flags, 'client-secret'),
-    }),
-  delete: ({ principal, flags, ctx }) => ctx.admin.applications.delete(requireZone(principal), mustStr(flags, 'id')),
+  patch: async ({ principal, flags, ctx }) => {
+    const zoneId = requireZone(principal)
+    const id = mustStr(flags, 'id')
+    await assertNotControlKey(ctx, zoneId, id)
+    return ctx.admin.applications.patch(zoneId, id, { name: getStr(flags, 'name') })
+  },
+  'rotate-secret': async ({ principal, flags, ctx }) => {
+    const zoneId = requireZone(principal)
+    const id = mustStr(flags, 'id')
+    await assertNotControlKey(ctx, zoneId, id)
+    return ctx.admin.applications.rotateSecret(zoneId, id)
+  },
+  delete: async ({ principal, flags, ctx }) => {
+    const zoneId = requireZone(principal)
+    const id = mustStr(flags, 'id')
+    await assertNotControlKey(ctx, zoneId, id)
+    return ctx.admin.applications.delete(zoneId, id)
+  },
   dcr: ({ principal, flags, ctx }) =>
     ctx.admin.applications.dcr(requireZone(principal), {
       name: mustStr(flags, 'name'),
@@ -264,7 +261,6 @@ const resourceHandler = bySubcommand({
       identifier: getStr(flags, 'identifier'),
       scopes: getList(flags, 'scopes') ?? [],
       upstream_url: getStr(flags, 'upstream-url'),
-      gateway_application_id: getStr(flags, 'gateway-application-id'),
       credential_provider_id: getStr(flags, 'credential-provider-id'),
       operations: getOperations(flags, 'operations'),
       operation_enforcement: getStr(flags, 'operation-enforcement'),
@@ -275,7 +271,6 @@ const resourceHandler = bySubcommand({
       name: getStr(flags, 'name'),
       scopes: getList(flags, 'scopes'),
       upstream_url: getNullableStr(flags, 'upstream-url'),
-      gateway_application_id: getNullableStr(flags, 'gateway-application-id'),
       credential_provider_id: getNullableStr(flags, 'credential-provider-id'),
       operations: getOperations(flags, 'operations'),
       operation_enforcement: getStr(flags, 'operation-enforcement'),
@@ -311,13 +306,10 @@ const policyHandler = bySubcommand({
       name: mustStr(flags, 'name'),
       description: getStr(flags, 'description'),
       content: mustStr(flags, 'content'),
-      schema_version: getStr(flags, 'schema-version'),
-      owner_type: getStr(flags, 'owner-type'),
-      shadow: getBool(flags, 'shadow'),
-    } as never),
-  validate: ({ flags, ctx }) => ctx.admin.policies.validate(mustStr(flags, 'content'), getStr(flags, 'schema-version')),
+    }),
+  validate: ({ flags, ctx }) => ctx.admin.policies.validate(mustStr(flags, 'content')),
   version: ({ principal, flags, ctx }) =>
-    ctx.admin.policies.addVersion(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'content'), getStr(flags, 'schema-version')),
+    ctx.admin.policies.addVersion(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'content')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policies.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
@@ -336,15 +328,39 @@ const policySetHandler = bySubcommand({
     )
   },
   activate: ({ principal, flags, ctx }) =>
-    ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getStr(flags, 'shadow')),
+    ctx.admin.policySets.activate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version')),
   simulate: ({ principal, flags, ctx }) =>
     ctx.admin.policySets.simulate(requireZone(principal), mustStr(flags, 'id'), mustStr(flags, 'version'), getJsonObject(flags, 'input')),
   delete: ({ principal, flags, ctx }) => ctx.admin.policySets.delete(requireZone(principal), mustStr(flags, 'id')),
 })
 
-const sessionHandler = bySubcommand({
+const workloadHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.workloads.list(requireZone(principal)),
+  get: ({ principal, flags, ctx }) => ctx.admin.workloads.get(requireZone(principal), mustStr(flags, 'id')),
+  create: ({ principal, flags, ctx }) => ctx.admin.workloads.create(requireZone(principal), { name: mustStr(flags, 'name') }),
+  patch: ({ principal, flags, ctx }) => {
+    const raw = flags?.bindings
+    let bindings: unknown = raw
+    if (typeof raw === 'string') {
+      try {
+        bindings = JSON.parse(raw)
+      } catch {
+        invalid('flag "bindings" must be valid JSON')
+      }
+    }
+    if (bindings !== undefined && !Array.isArray(bindings)) invalid('flag "bindings" must be a JSON array')
+    return ctx.admin.workloads.update(requireZone(principal), mustStr(flags, 'id'), {
+      name: getStr(flags, 'name'),
+      bindings,
+    } as never)
+  },
+  'rotate-secret': ({ principal, flags, ctx }) => ctx.admin.workloads.rotateSecret(requireZone(principal), mustStr(flags, 'id')),
+  delete: ({ principal, flags, ctx }) => ctx.admin.workloads.delete(requireZone(principal), mustStr(flags, 'id')),
+})
+
+const authorityRecordHandler = bySubcommand({
   list: ({ principal, flags, ctx }) =>
-    ctx.admin.sessions.list(requireZone(principal), {
+    ctx.admin.authorityRecords.list(requireZone(principal), {
       subject: getStr(flags, 'subject'),
       status: getStr(flags, 'status'),
       limit: getNum(flags, 'limit'),
@@ -361,22 +377,23 @@ const auditHandler = bySubcommand({
       request_id: getStr(flags, 'request-id'),
       limit: getNum(flags, 'limit'),
     } as never),
+  admin: ({ principal, flags, ctx }) => ctx.admin.adminAudit.list(requireZone(principal), { limit: getNum(flags, 'limit') } as never),
+})
+
+const approvalHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.stepUpChallenges.list(requireZone(principal)),
 })
 
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
   ctx.admin.audit.explain(requireZone(principal), mustStr(flags, 'request-id'))
 
-const debugHandler = bySubcommand({
-  request: ({ principal, flags, ctx }) => ctx.admin.audit.explain(requireZone(principal), mustStr(flags, 'request-id')),
-})
-
-const agentHandler = bySubcommand({
-  list: ({ principal, ctx }) => ctx.admin.agents.list(requireZone(principal)),
-  get: ({ principal, flags, ctx }) => ctx.admin.agents.get(requireZone(principal), mustStr(flags, 'id')),
-  tree: ({ principal, flags, ctx }) => ctx.admin.agents.children(requireZone(principal), mustStr(flags, 'id')),
-  suspend: ({ principal, flags, ctx }) => ctx.admin.agents.suspend(requireZone(principal), mustStr(flags, 'id')),
-  resume: ({ principal, flags, ctx }) => ctx.admin.agents.resume(requireZone(principal), mustStr(flags, 'id')),
-  terminate: ({ principal, flags, ctx }) => ctx.admin.agents.terminate(requireZone(principal), mustStr(flags, 'id')),
+const sessionHandler = bySubcommand({
+  list: ({ principal, ctx }) => ctx.admin.sessions.list(requireZone(principal)),
+  get: ({ principal, flags, ctx }) => ctx.admin.sessions.get(requireZone(principal), mustStr(flags, 'id')),
+  tree: ({ principal, flags, ctx }) => ctx.admin.sessions.children(requireZone(principal), mustStr(flags, 'id')),
+  suspend: ({ principal, flags, ctx }) => ctx.admin.sessions.suspend(requireZone(principal), mustStr(flags, 'id')),
+  resume: ({ principal, flags, ctx }) => ctx.admin.sessions.resume(requireZone(principal), mustStr(flags, 'id')),
+  terminate: ({ principal, flags, ctx }) => ctx.admin.sessions.terminate(requireZone(principal), mustStr(flags, 'id')),
 })
 
 const delegationHandler = bySubcommand({
@@ -408,7 +425,6 @@ const grantHandler = bySubcommand({
 /** Build the per-noun authorizer the declarative surface uses for least-privilege scope checks. */
 function authorizeFor(principal: Principal): ReconcileDeps['authorize'] {
   return (command: string, verb: ScopeVerb) => {
-    if (principal.kind === 'local') return
     const required = `control:${command}:${verb}`
     if (!principal.scopes.includes(required)) denied(`missing scope ${required}`)
   }
@@ -425,7 +441,7 @@ function parseJsonObjectFlag(flags: FlagMap, key: string): Record<string, unknow
 }
 
 function reconcileDeps(ctx: DispatchContext, principal: Principal): ReconcileDeps {
-  return { admin: ctx.admin, authorize: authorizeFor(principal), allowPrivilegedTraits: principal.kind === 'local' }
+  return { admin: ctx.admin, authorize: authorizeFor(principal) }
 }
 
 const stateHandler = bySubcommand({
@@ -457,8 +473,6 @@ const catalogHandler = bySubcommand({
 
 function commandHandler(command: string): Handler | undefined {
   switch (command) {
-    case 'zone':
-      return zoneHandler
     case 'app':
       return appHandler
     case 'resource':
@@ -475,16 +489,18 @@ function commandHandler(command: string): Handler | undefined {
       return ensureHandler
     case 'catalog':
       return catalogHandler
-    case 'session':
-      return sessionHandler
+    case 'authority-record':
+      return authorityRecordHandler
+    case 'workload':
+      return workloadHandler
+    case 'approval':
+      return approvalHandler
     case 'audit':
       return auditHandler
     case 'explain':
       return explainHandler
-    case 'debug':
-      return debugHandler
-    case 'agent':
-      return agentHandler
+    case 'session':
+      return sessionHandler
     case 'delegation':
       return delegationHandler
     case 'grant':
@@ -495,44 +511,28 @@ function commandHandler(command: string): Handler | undefined {
 }
 
 /**
- * Catalog commands the engine intentionally does not route to Control. They are served by the
- * local runtime surface (operator diagnostics, the in-process control-plane lifecycle, manifest
- * validation, shell completion) and carry no dispatcher arm by design.
- */
-export const LOCAL_ONLY_COMMANDS: readonly string[] = Object.freeze(['doctor', 'manifest', 'control', 'completion'])
-
-/**
- * Subcommands of engine-routed commands that run locally rather than through Control. `zone use`
- * selects the active local zone for subsequent commands and never reaches the Control API.
- */
-export const LOCAL_ONLY_SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  zone: Object.freeze(['use']),
-})
-
-/**
  * What the dispatcher implements for a catalog command, so handler coverage can be verified:
- *  - `'local-only'` when no dispatcher arm exists (the command runs on the local runtime surface),
+ *  - `undefined` when no dispatcher arm exists (a catalog bug the parity test catches),
  *  - `'all'` when a single handler accepts every declared subcommand,
  *  - the explicit list of implemented subcommands for a subcommand router.
  */
-export function engineHandlerCoverage(command: string): 'local-only' | 'all' | readonly string[] {
+export function engineHandlerCoverage(command: string): 'all' | readonly string[] | undefined {
   const handler = commandHandler(command)
-  if (!handler) return 'local-only'
+  if (!handler) return undefined
   const subs = (handler as Partial<SubcommandHandler>).handledSubcommands
   return subs ?? 'all'
 }
 
 /**
- * Validate and execute a dispatch request against the canonical catalog. Throws DispatchError on rejection.
- * Local principals skip scope checks. Remote principals (Control) must carry the per-resource scope
- * derived from `scopeName(descriptor, subcommand)`.
+ * Validate and execute a dispatch request against the canonical catalog. Throws DispatchError on
+ * rejection. Every principal is a Control caller and must carry the per-resource scope derived
+ * from `scopeName(descriptor, subcommand)`.
  */
 export async function dispatch(req: DispatchRequest, principal: Principal, ctx: DispatchContext): Promise<unknown> {
   const desc = findCommand(MANAGEMENT_COMMANDS, req.command)
   if (!desc) denied(`unknown command "${req.command}"`)
-  if (desc.hidden && principal.kind === 'remote') denied(`command "${req.command}" not exposed`)
-  if (desc.localOnly && principal.kind === 'remote') denied(`command "${req.command}" is available only on the local control plane`)
-  assertRemoteZoneBound(principal, desc)
+  if (desc.hidden) denied(`command "${req.command}" not exposed`)
+  assertZoneBound(principal, desc)
   if (desc.subcommands && desc.subcommands.length > 0) {
     if (!desc.subcommands.includes(req.subcommand)) {
       denied(`subcommand "${req.subcommand}" not allowed for "${req.command}"`)
@@ -557,14 +557,14 @@ export async function dispatch(req: DispatchRequest, principal: Principal, ctx: 
   }
 }
 
-// The control-plane detail carried on an AdminApiError body, such as the Rego compile error a
-// policy create is rejected with. It is a validation message, never a secret, so it is safe to
+// The control-plane description carried on an AdminApiError body, such as the Rego compile error
+// a policy create is rejected with. It is a validation message, never a secret, so it is safe to
 // surface to the caller who authored the rejected input.
-function adminErrorDetail(err: AdminApiError): string | undefined {
+function adminErrorDescription(err: AdminApiError): string | undefined {
   const body = err.body
   if (body && typeof body === 'object' && !Array.isArray(body)) {
-    const detail = (body as { detail?: unknown }).detail
-    if (typeof detail === 'string' && detail.length > 0) return detail
+    const description = (body as { error_description?: unknown }).error_description
+    if (typeof description === 'string' && description.length > 0) return description
   }
   return undefined
 }
@@ -575,8 +575,8 @@ function adminErrorDetail(err: AdminApiError): string | undefined {
 // generic upstream error. A 5xx or unknown status stays 'upstream' because the mutation may have
 // applied, so the plan must not be retried.
 function fromAdminError(err: AdminApiError): DispatchError {
-  const detail = adminErrorDetail(err)
-  const message = detail ? `${err.code}: ${detail}` : err.code
+  const description = adminErrorDescription(err)
+  const message = description ? `${err.code}: ${description}` : err.code
   switch (err.status) {
     case 400:
     case 422:
@@ -597,10 +597,8 @@ export function describeRemoteSurface(): readonly { command: string; subcommand:
   const out: { command: string; subcommand: string; scope: string }[] = []
   for (const desc of MANAGEMENT_COMMANDS) {
     if (desc.hidden) continue
-    if (desc.localOnly) continue
     if (desc.delegatesScope) continue
     if (!desc.requiresZone) continue
-    if (!commandHandler(desc.name)) continue
     const subs = desc.subcommands && desc.subcommands.length > 0 ? desc.subcommands : ['']
     for (const sub of subs) {
       out.push({ command: desc.name, subcommand: sub, scope: scopeName(desc, sub) })
@@ -637,9 +635,7 @@ export function describeControlSurface(): ControlSurface {
   const commands: ControlSurfaceCommand[] = []
   for (const desc of MANAGEMENT_COMMANDS) {
     if (desc.hidden) continue
-    if (desc.localOnly) continue
     if (!desc.requiresZone) continue
-    if (!commandHandler(desc.name)) continue
     const subs = desc.subcommands && desc.subcommands.length > 0 ? desc.subcommands : ['']
     commands.push({
       command: desc.name,

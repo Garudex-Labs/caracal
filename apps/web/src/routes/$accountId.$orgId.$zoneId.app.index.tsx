@@ -13,7 +13,7 @@ import { ModulePage } from "@/components/console/ModulePage";
 import { Badge, Button, EmptyState, Skeleton } from "@/components/ui";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { cx } from "@/lib/cx";
-import { useActiveZone, useZoneOverview, useZones } from "@/platform/api/hooks";
+import { useActiveZone, useApprovalCounts, useZoneOverview, useZones } from "@/platform/api/hooks";
 import type { OverviewEvent, Zone, ZoneOverview } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/")({
@@ -60,6 +60,7 @@ function DashboardPage() {
 
 function ConnectedDashboard({ zone }: { zone: Zone }) {
   const overview = useZoneOverview(zone.id);
+  const approvals = useApprovalCounts(zone.id);
 
   const frame = (body: ReactNode) => (
     <ModulePage
@@ -98,7 +99,7 @@ function ConnectedDashboard({ zone }: { zone: Zone }) {
       <div className="grid border border-border lg:grid-cols-[minmax(0,1fr)_360px]">
         <ActivityFeed events={data.recent_events} />
         <div className="border-t border-border lg:border-l lg:border-t-0">
-          <AttentionPanel items={buildAttention(data)} />
+          <AttentionPanel items={buildAttention(data, approvals.data?.pending ?? 0)} />
           <InventoryPanel data={data} />
         </div>
       </div>
@@ -147,8 +148,8 @@ function PostureStrip({ data }: { data: ZoneOverview }) {
           }
         />
         <PostureCell
-          to={appLink("/sessions")}
-          label="Active sessions"
+          to={appLink("/subjects")}
+          label="Active Subject authority records"
           value={String(activeSessions)}
           tone={activeSessions > 0 ? "ok" : "muted"}
           sub={activeSessions > 0 ? "Currently authenticated" : "None authenticated"}
@@ -272,13 +273,25 @@ interface AttentionItem {
   to: string;
 }
 
-function buildAttention(data: ZoneOverview): AttentionItem[] {
+function buildAttention(data: ZoneOverview, pendingApprovals: number): AttentionItem[] {
   const items: AttentionItem[] = [];
   const enforcing = data.policy_sets.enforcing > 0;
   const hasProtectables = data.applications.total > 0 || data.resources.total > 0;
   const { expired, expiring_soon: expiring } = data.applications;
   const denied = data.decisions_24h.denied;
   const unenforced = data.resources.unenforced;
+
+  // Pending holds lead the list: a Session is parked on each one, so every
+  // minute unnoticed is a minute of a human-visible stall.
+  if (pendingApprovals > 0) {
+    items.push({
+      id: "approvals",
+      tone: "warn",
+      title: `${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} awaiting a decision`,
+      detail: "Sessions are parked on these holds until someone with authority decides.",
+      to: appLink("/approvals"),
+    });
+  }
 
   // Default-deny with no active policy set is the secure baseline, not a failure. Only flag it
   // once the zone actually has applications or resources that requests cannot reach yet, and

@@ -1,53 +1,53 @@
 ---
-title: Coordinate Agents
-description: How agent sessions, delegation edges, and invocation lifecycle move through Coordinator.
+title: Coordinate Sessions
+description: How Sessions, Delegations, and invocation lifecycle move through Coordinator.
 pageType: architecture
 ---
 
-Coordinator owns agent runtime state. It records agent sessions, service leases, invocation lifecycle, and delegation edges that STS later uses to validate delegated exchanges.
+Coordinator owns governed execution state. It records Sessions, long-lived Session leases, invocation lifecycle, and Delegations that STS later uses to validate delegated exchanges.
 
 ## Flow
 
 ```mermaid
 sequenceDiagram
-  participant SDK as Agent SDK
+  participant SDK as SDK
   participant Coord as Coordinator
   participant PG as Postgres
   participant Redis as Redis Streams
   participant STS
-  SDK->>Coord: create or update agent session
-  Coord->>PG: persist session and leases
+  SDK->>Coord: start or update Session
+  Coord->>PG: persist Session and leases
   Coord->>Redis: publish caracal.agents.lifecycle
-  SDK->>Coord: create delegation edge
-  Coord->>PG: persist edge and graph epoch
+  SDK->>Coord: create Delegation
+  Coord->>PG: persist Delegation and graph epoch
   Coord->>Redis: publish delegation invalidation
-  SDK->>STS: exchange with agent_session_id/delegation_edge_id
-  STS->>PG: validate session, edge, constraints, and graph state
+  SDK->>STS: exchange with Session ID and Delegation ID
+  STS->>PG: validate Session, Delegation, constraints, and graph state
 ```
 
 ## Coordinator State
 
-| State | Purpose |
-| --- | --- |
-| `agent_sessions` | Agent session tree, parent-child relationships, status, leases, and root subject session. |
-| `agent_services` | Service agents and heartbeat health. |
-| `delegation_edges` | Source/target sessions, resource/scope bounds, expiry, constraints, and status. |
-| `agent_invocations` | Invocation lifecycle and deadline tracking. |
-| `delegation_graph_epochs` | Graph invalidation and traversal consistency. |
-| `caracal_outbox` | Durable event publication for Coordinator-produced topics. |
+| State                     | Purpose                                                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `sessions`                | Session tree, parent-child relationships, status, leases, and Subject authority record ID.                        |
+| `agent_services`          | Retained internal table for long-lived Session heartbeat health.                                                  |
+| `delegation_edges`        | Retained internal table for Delegation endpoints, resource and scope bounds, expiry, constraints, and status.     |
+| `agent_invocations`       | Retained internal table for invocation lifecycle and deadline tracking.                                           |
+| `delegation_graph_epochs` | Graph invalidation and traversal consistency.                                                                     |
+| `caracal_outbox`          | Durable event publication for Coordinator-produced topics.                                                        |
 
 ## Event Topics
 
-| Topic | Meaning |
-| --- | --- |
-| `caracal.agents.lifecycle` | Agent session lifecycle. |
-| `caracal.invocations.lifecycle` | Invocation lifecycle. |
-| `caracal.delegations.invalidate` | Delegation graph invalidation. |
-| `caracal.sessions.revoke` | Session, agent, and delegation revocation propagation. |
+| Topic                            | Meaning                                                |
+| -------------------------------- | ------------------------------------------------------ |
+| `caracal.agents.lifecycle`       | Protocol topic for Session lifecycle.                  |
+| `caracal.invocations.lifecycle`  | Invocation lifecycle.                                  |
+| `caracal.delegations.invalidate` | Delegation graph invalidation.                         |
+| `caracal.sessions.revoke`        | Authority record, Session, and Delegation revocation propagation. |
 
 ## Operator Boundaries
 
-Human operators use Console `agent session` and `delegation` views. Automation uses Coordinator API/Admin SDK surfaces. Top-level `caracal` runtime commands do not manage agent sessions or delegation.
+Human operators use the Console **Sessions** and **Delegation** views. Automation uses the Coordinator API or Admin SDK. Top-level `caracal` runtime commands do not manage Sessions or Delegations.
 
 ## Next Step
 
@@ -55,6 +55,6 @@ Use [Propagate Events](/architecture/event-streams/) to understand how lifecycle
 
 ## Related Pages
 
-- [Coordinate Agent State](/services/coordinator/)
-- [Agent Delegation](/concepts/delegation/)
-- [Manage Agents and Delegation](/runtime-console/agents/)
+- [Coordinate Session State](/services/coordinator/)
+- [Session Delegation](/concepts/delegation/)
+- [Manage Sessions and Delegation](/runtime-console/agents/)

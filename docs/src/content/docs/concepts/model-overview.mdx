@@ -25,39 +25,39 @@ flowchart TD
 
 ## Six Core Nouns
 
-| Noun | What it means |
-| --- | --- |
-| Zone | The tenant boundary for configuration, signing keys, policy, sessions, and audit. |
-| Application | A registered client, service, or agent workload. |
-| Principal | The acting identity, such as a user, service, or agent. |
-| Resource | The protected target: API, MCP server, tool group, or upstream service. |
-| Policy | Rego logic that evaluates the requested exchange. |
-| Mandate | The short-lived JWT that proves authority to a Gateway or connector. |
+| Noun        | What it means                                                                     |
+| ----------- | --------------------------------------------------------------------------------- |
+| Zone        | The tenant boundary for configuration, signing keys, policy, sessions, and audit. |
+| Application | A registered client, service, or agent workload.                                  |
+| Principal   | The acting identity, such as a user, service, or agent.                           |
+| Resource    | The protected target: API, MCP server, tool group, or upstream service.           |
+| Policy      | Rego logic that evaluates the requested exchange.                                 |
+| Mandate     | The short-lived JWT that proves authority to a Gateway or adapter.                |
 
-Most of these are configured directly. A *grant* is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
+Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
-## One Application, Many Agents
+## One Application, Many Sessions
 
-An application and an agent are different layers, and they scale differently:
+An application and a Session are different layers, and they scale differently:
 
 - An **application** is the credentialed security boundary - operator-provisioned or dynamically registered, holding the secret Caracal authenticates. It is created deliberately.
-- An **agent session** is the runtime unit - created the moment a workload acts, with no secret and no registration step.
+- A **Session** is the governed execution unit - started the moment a workload acts, with no secret and no registration step.
 
-One application backs many agent sessions. A durable workload registers **one managed application**, then spawns, delegates, and fans out as many agent sessions as it needs under that single credential. You do not create an application per agent; per-agent attribution comes from the agent session, not a new application. See [Should I create one application per agent?](/reference/faq/#faq-006).
+One application backs many Sessions. A durable workload registers **one managed application**, then starts, delegates, and fans out as many Sessions as it needs under that single credential. You do not create an application per AI agent; per-execution attribution comes from the Session, not a new application. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 ## Three Runtime Verbs
 
-| Verb | Meaning |
-| --- | --- |
-| Exchange | Ask the STS to convert existing identity into a resource mandate. |
-| Spawn | Open an agent session derived from a subject session. |
-| Delegate | Pass constrained authority from one agent session to another. |
+| Verb     | Meaning                                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------------------- |
+| Exchange | Ask the STS to convert existing identity into a resource mandate.                                          |
+| Start    | Open a governed Session, optionally attaching a Subject authority record ID for attribution and lifecycle. |
+| Delegate | Pass constrained authority from one Session to another.                                                    |
 
 ## One Decision Point
 
-The STS is the decision point. It evaluates the active policy set with the principal, session, resource, scopes, grant, delegation edge, and step-up context. If policy allows the request, the STS signs a mandate. If policy denies the request, no mandate is issued.
+The STS is the decision point. It evaluates the active policy set with the principal, Authority record, Session, resource, scopes, grant, delegation, and approval context. If policy allows the request, the STS signs a mandate. If policy denies the request, no mandate is issued.
 
-Resource servers still verify mandates locally through the Gateway or connectors. That keeps every request protected even after token exchange succeeds.
+Resource servers still verify mandates locally through the Gateway or adapters. That keeps every request protected even after token exchange succeeds.
 
 ## Why This Model Matters
 

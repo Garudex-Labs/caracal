@@ -9,7 +9,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ConfirmDialog } from "@/components/ui";
 import { cx } from "@/lib/cx";
 import { useActiveZone, useSystemZoneView, exitSystemZoneView } from "@/platform/api/hooks";
 import { isHideLockedPath } from "@/platform/nav/hideLock";
@@ -51,7 +50,6 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
   const systemView = useSystemZoneView();
   const [open, setOpen] = useState(false);
   const [zoneSearch, setZoneSearch] = useState("");
-  const [signOutOpen, setSignOutOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const profile = useProfile();
@@ -331,10 +329,7 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
 
           <div className="border-t border-border p-1.5">
             <button
-              onClick={() => {
-                setOpen(false);
-                setSignOutOpen(true);
-              }}
+              onClick={() => void confirmSignOut()}
               className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
             >
               <svg
@@ -355,16 +350,6 @@ export function ProfileMenu({ collapsed = false }: { collapsed?: boolean }) {
           </div>
         </div>
       ) : null}
-
-      <ConfirmDialog
-        open={signOutOpen}
-        onClose={() => setSignOutOpen(false)}
-        title="Sign out"
-        description="Are you sure you want to sign out of Caracal? You will need to sign in again to continue."
-        confirmLabel="Sign out"
-        tone="danger"
-        onConfirm={confirmSignOut}
-      />
     </div>
   );
 }

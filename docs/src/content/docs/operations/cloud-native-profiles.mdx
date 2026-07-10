@@ -10,21 +10,21 @@ For a concrete, copy-paste version of this profile - including External Secrets 
 
 ## Profile Map
 
-| Profile | Values to adjust |
-| --- | --- |
-| Evaluation | `global.mode=rc`, short retention, limited replicas, temporary secrets, no public ingress unless required. |
-| Production | `global.mode=stable`, managed Postgres/Redis, HTTPS web ingress, NetworkPolicy, PDB/HPA, ServiceMonitor, PrometheusRule. |
-| Private cluster | Keep API/Gateway private; expose the web console through an internal load balancer, private ingress, or service mesh when operators need browser access. |
-| Regulated workload | Enforce external secret manager, immutable backups, audit export, restricted egress, and incident evidence retention. |
+| Profile            | Values to adjust                                                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Evaluation         | `global.mode=rc`, short retention, limited replicas, temporary secrets, no public ingress unless required.                                               |
+| Production         | `global.mode=stable`, managed Postgres/Redis, HTTPS web ingress, NetworkPolicy, PDB/HPA, ServiceMonitor, PrometheusRule.                                 |
+| Private cluster    | Keep API/Gateway private; expose the web console through an internal load balancer, private ingress, or service mesh when operators need browser access. |
+| Regulated workload | Enforce external secret manager, immutable backups, audit export, restricted egress, and incident evidence retention.                                    |
 
 ## Managed Dependency Contract
 
-| Dependency | Requirements |
-| --- | --- |
-| Postgres | TLS-capable connection, migration role, durable backups, point-in-time recovery, sufficient connection capacity, and a dedicated `caracal_auth` database for web sessions. |
-| Redis | Streams support, authentication, memory policy sized for audit/revocation/outbox traffic, persistence according to recovery goals. |
-| Secrets | Runtime Secret with database, auth database, Redis, admin, Coordinator, Better Auth signing, zone KEK, audit HMAC, stream HMAC, and Gateway-STS HMAC keys. |
-| Observability | Metrics scraping for all services and alerts equivalent to the chart PrometheusRule. |
+| Dependency    | Requirements                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres      | TLS-capable connection, migration role, durable backups, point-in-time recovery, sufficient connection capacity, and a dedicated `caracal_auth` database for web sessions. |
+| Redis         | Streams support, authentication, memory policy sized for audit/revocation/outbox traffic, persistence according to recovery goals.                                         |
+| Secrets       | Runtime Secret with database, auth database, Redis, admin, Coordinator, Better Auth signing, zone KEK, audit HMAC, stream HMAC, and Gateway-STS HMAC keys.                 |
+| Observability | Metrics scraping for all services and alerts equivalent to the chart PrometheusRule.                                                                                       |
 
 ## Network Stance
 
@@ -44,15 +44,15 @@ networkPolicy:
 
 Expose only the endpoints required by your environment:
 
-| Endpoint | When to expose |
-| --- | --- |
-| Web Console | Default public entrypoint for browser operators. Set `services.web.publicUrl`, enable HTTPS, and allow the ingress controller through `networkPolicy.extraIngress`. |
-| Gateway | Expose only when protected resource traffic reaches Caracal Gateway from outside the private network. |
-| API | Prefer private access; expose only for Admin SDK or automation clients that cannot reach it privately. |
-| STS | Expose only when token exchange clients cannot reach it privately. |
-| Audit/Coordinator/Control | Keep private. |
+| Endpoint                  | When to expose                                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web Console               | Default public entrypoint for browser operators. Set `services.web.publicUrl`, enable HTTPS, and allow the ingress controller through `networkPolicy.extraIngress`. |
+| Gateway                   | Expose only when protected resource traffic reaches Caracal Gateway from outside the private network.                                                               |
+| API                       | Prefer private access; expose only for Admin SDK or automation clients that cannot reach it privately.                                                              |
+| STS                       | Expose only when token exchange clients cannot reach it privately.                                                                                                  |
+| Audit/Coordinator/Control | Keep private.                                                                                                                                                       |
 
-The chart renders Ingress for the web console by default. API and Gateway Ingress templates exist but remain disabled until a deployment opts in.
+The chart renders optional Ingress resources for Web, API, Gateway, and STS. Set `services.sts.issuerUrl` to the public HTTPS STS origin. Leave `services.sts.internalUrl` empty for release-local ClusterIP routing, or set it to an internal cross-cluster endpoint. The issuer and routing URL are separate so tokens retain one stable identity while services use a private route. Production values leave every Ingress disabled until a deployment opts in.
 
 ## Validation
 

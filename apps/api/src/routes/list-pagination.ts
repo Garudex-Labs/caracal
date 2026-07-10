@@ -72,23 +72,20 @@ export function appendKeysetCondition(
   return { conds, values, limitPlaceholder: `$${values.length}` }
 }
 
-interface RowWithKey { id: string; created_at: string | Date }
+interface RowWithKey {
+  id: string
+  created_at: string | Date
+}
 
-export function setNextLink(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  rows: RowWithKey[],
-  limit: number,
-  cursorField: keyof RowWithKey = 'created_at',
-): void {
-  if (rows.length < limit) return
+export interface ListPage<T> {
+  items: T[]
+  next_cursor: string | null
+}
+
+export function listPage<T extends RowWithKey>(rows: T[], limit: number, cursorField: keyof RowWithKey = 'created_at'): ListPage<T> {
   const last = rows[rows.length - 1]
-  if (!last) return
+  if (rows.length < limit || !last) return { items: rows, next_cursor: null }
   const tsRaw = last[cursorField] as string | Date
   const ts = tsRaw instanceof Date ? tsRaw.toISOString() : new Date(tsRaw).toISOString()
-  const cursor = encodeCursor(ts, last.id)
-  const url = new URL(req.url, 'http://internal')
-  url.searchParams.set('cursor', cursor)
-  url.searchParams.set('limit', String(limit))
-  reply.header('link', `<${url.pathname}${url.search}>; rel="next"`)
+  return { items: rows, next_cursor: encodeCursor(ts, last.id) }
 }

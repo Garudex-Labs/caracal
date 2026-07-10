@@ -8,16 +8,16 @@ Caracal’s trust model depends on clear boundaries. Do not blur runtime lifecyc
 
 ## Boundary Map
 
-| Boundary | Trusted side | Untrusted or constrained side |
-| --- | --- | --- |
-| Runtime CLI | Local lifecycle and `caracal run` config | Product-management state and admin actions. |
-| Console/Admin API | Authenticated operators and Control/Admin clients | Anonymous clients and expired/insufficient tokens. |
-| STS | Valid application credentials, policy/grant/session state | Malformed subject tokens, invalid client secrets, unsatisfied step-up. |
-| Gateway | Verified inbound mandate, configured binding, revocation-fresh state | Arbitrary upstream URLs, path traversal, replayed/expiring tokens. |
-| Audit | HMAC-verified stream events and append-only database role | Tampered stream payloads or mutable evidence. |
-| Redis | Signed operational messages | Unsigned or mismatched stream messages in published modes. |
-| Postgres | Service roles and fail-closed RLS | Cross-zone reads without zone context. |
-| Control | Enabled gate, verified JWT, replay-safe JTI, rate limit | Disabled gate, replayed tokens, unsupported commands. |
+| Boundary              | Trusted side                                                         | Untrusted or constrained side                                              |
+| --------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Runtime CLI           | Local lifecycle and `caracal run` config                             | Product-management state and admin actions.                                |
+| Console and Admin API | Authenticated operators and Admin SDK clients                        | Anonymous clients and expired or insufficient tokens.                      |
+| STS                   | Valid application credentials, policy/grant/session state            | Malformed subject tokens, invalid client secrets, undecided step-up holds. |
+| Gateway               | Verified inbound mandate, configured binding, revocation-fresh state | Arbitrary upstream URLs, path traversal, replayed/expiring tokens.         |
+| Audit                 | HMAC-verified stream events and append-only database role            | Tampered stream payloads or mutable evidence.                              |
+| Redis                 | Signed operational messages                                          | Unsigned or mismatched stream messages in published modes.                 |
+| Postgres              | Service roles and fail-closed RLS                                    | Cross-zone reads without zone context.                                     |
+| Control               | Enabled gate, verified JWT, replay-safe JTI, rate limit              | Disabled gate, replayed tokens, unsupported commands.                      |
 
 ## Gateway Fail-Closed Checks
 

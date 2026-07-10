@@ -188,15 +188,33 @@ describe('reconcile', () => {
     expect(store.apps[0].traits).toEqual(['agent', 'reviewer'])
   })
 
-  it('refuses privileged trait namespaces without platform trait authority', async () => {
+  it('refuses privileged trait namespaces for every declarative caller', async () => {
     const deps: ReconcileDeps = { admin: fakeAdmin(newStore()), authorize: allowAll() }
     const doc = parseDesiredState({
       objects: [{ kind: 'application', spec: { name: 'Fiona', traits: ['agent', 'control:invoke'] } }],
     })
     await expect(reconcile(ZONE, doc, deps)).rejects.toThrow(DispatchError)
-    await expect(reconcile(ZONE, doc, { ...deps, allowPrivilegedTraits: true })).resolves.toMatchObject({
-      summary: { created: 1 },
+  })
+
+  it('refuses to update an application that is a control key', async () => {
+    const store = newStore()
+    store.apps.push({
+      id: 'app-ck',
+      zone_id: ZONE,
+      name: 'Fiona',
+      traits: ['control:invoke'],
+      created_at: '2026-01-01T00:00:00.000Z',
     })
+    const admin = fakeAdmin(store)
+    const deps: ReconcileDeps = { admin, authorize: allowAll() }
+    const doc = parseDesiredState({
+      objects: [{ kind: 'application', spec: { name: 'Fiona', traits: ['agent'] } }],
+    })
+    const report = await reconcile(ZONE, doc, deps)
+    expect(report.ok).toBe(false)
+    expect(report.outcomes[0].error).toMatchObject({ code: 'denied', reason: expect.stringContaining('control key') })
+    expect(admin.applications.patch).not.toHaveBeenCalled()
+    expect(store.apps[0].traits).toEqual(['control:invoke'])
   })
 
   it('dry-run computes a plan without writing', async () => {

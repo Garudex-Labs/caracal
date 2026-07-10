@@ -16,9 +16,6 @@ cd "$(dirname "$0")/.."
 ecosystem="all"
 repo="pypi"
 host="pypi.org"
-mode="changed"
-base_ref=""
-head_ref="HEAD"
 select=0
 npmrc=""
 venv=""
@@ -37,10 +34,7 @@ Usage: scripts/publishPackages.sh [options]
 
   --ecosystem npm|pypi|all  Target ecosystem. Default: all.
   --testpypi                Use TestPyPI.
-  --all                     Publish all configured packages.
   --select                  Pick from the plan.
-  --base REF                Diff base. Alias: --since.
-  --head REF                Diff head. Default: HEAD.
 EOF
 }
 
@@ -53,10 +47,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --testpypi) repo="testpypi"; host="test.pypi.org"; shift ;;
-        --all) mode="all"; shift ;;
         --select) select=1; shift ;;
-        --base|--since) [[ $# -ge 2 ]] || { say_error "$1 needs a ref"; exit 2; }; base_ref="$2"; shift 2 ;;
-        --head) [[ $# -ge 2 ]] || { say_error "--head needs a ref"; exit 2; }; head_ref="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) say_error "unknown arg: $1"; usage; exit 2 ;;
     esac
@@ -67,14 +58,7 @@ if [[ "$repo" == "testpypi" && "$ecosystem" == "npm" ]]; then
     exit 2
 fi
 
-plan_args=(--ecosystem "$ecosystem" --format json --head "$head_ref")
-if [[ "$mode" == "all" ]]; then
-    plan_args+=(--all-packages)
-elif [[ -n "$base_ref" ]]; then
-    plan_args+=(--since "$base_ref")
-fi
-
-plan="$(node scripts/releasePlan.mjs "${plan_args[@]}")"
+plan="$(node scripts/releasePlan.mjs --ecosystem "$ecosystem" --format json)"
 npm_packages=()
 while IFS= read -r dir; do
     [[ -n "$dir" ]] && npm_packages+=("$dir")

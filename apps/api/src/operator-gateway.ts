@@ -19,10 +19,9 @@ import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-
 
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
-// Gateways (LiteLLM), so one client reaches all of them. In
-// production the recommended backend is a LiteLLM proxy, which owns per-provider
-// integration, BYOK, and key budgets so Caracal never maintains provider SDKs. A
-// missing apiKey is valid for local backends that need no credential.
+// (Ollama, vLLM), and aggregators (OpenRouter), so one client reaches all of them
+// with no per-vendor SDK. A missing apiKey is valid for local backends that need
+// no credential.
 export interface ProviderConfig {
   id: string
   baseUrl: string
@@ -187,17 +186,84 @@ function providerAvailable(provider: ProviderConfig): boolean {
   return provider.baseUrl.length > 0 && provider.model.length > 0
 }
 
+// Reasoning-family models reject certain OpenAI-compatible request parameters outright with a 400
+// naming the offender (code unsupported_parameter or unsupported_value) instead of ignoring them:
+// max_tokens must be max_completion_tokens for those models, and pinned sampling values such as
+// temperature are refused. Which models do this is a moving target, so rather than a per-model
+// matrix the gateway adapts at the wire: when the provider names the parameter, the request is
+// retried with max_tokens renamed to its accepted form - preserving the governance output
+// ceiling - and any other named parameter dropped. A 400 that names no parameter returns as-is.
+// Learned rewrites are memoized per endpoint and model so only the first call pays the
+// discovery round trip.
+const WIRE_PARAM_RENAMES: Record<string, string> = { max_tokens: 'max_completion_tokens' }
+const WIRE_PARAM_RETRIES = 3
+const wireParamMemo = new Map<string, Record<string, string | null>>()
+
+function unsupportedParam(payload: string): string | null {
+  try {
+    const { error } = JSON.parse(payload) as { error?: { code?: string; param?: string; message?: string } }
+    if (!error) return null
+    if ((error.code === 'unsupported_parameter' || error.code === 'unsupported_value') && error.param) return error.param
+    const named = (error.message ?? '').match(/[Uu]nsupported (?:parameter|value):? '([A-Za-z_]+)'/)
+    return named ? named[1] : null
+  } catch {
+    return null
+  }
+}
+
+// Applies rename-or-drop actions to a JSON request body. Returns null when the body is not a
+// JSON object or none of the named parameters are present, so the caller knows a retry would
+// send an identical request.
+function rewriteParams(body: string, actions: Record<string, string | null>): string | null {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(body) as Record<string, unknown>
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  let touched = false
+  for (const [param, rename] of Object.entries(actions)) {
+    if (!(param in parsed)) continue
+    if (rename !== null && !(rename in parsed)) parsed[rename] = parsed[param]
+    delete parsed[param]
+    touched = true
+  }
+  return touched ? JSON.stringify(parsed) : null
+}
+
+function adaptWireParams(fetchImpl: FetchImpl, dialect: string): FetchImpl {
+  return async (input, init) => {
+    let body = typeof init?.body === 'string' ? init.body : null
+    if (body === null) return fetchImpl(input, init)
+    const learned = wireParamMemo.get(dialect)
+    if (learned) body = rewriteParams(body, learned) ?? body
+    let res = await fetchImpl(input, { ...init, body })
+    for (let attempt = 0; res.status === 400 && attempt < WIRE_PARAM_RETRIES; attempt++) {
+      const param = unsupportedParam(await res.clone().text())
+      if (param === null) return res
+      const action = WIRE_PARAM_RENAMES[param] ?? null
+      const rewritten = rewriteParams(body, { [param]: action })
+      if (rewritten === null) return res
+      wireParamMemo.set(dialect, { ...wireParamMemo.get(dialect), [param]: action })
+      body = rewritten
+      res = await fetchImpl(input, { ...init, body })
+    }
+    return res
+  }
+}
+
 // Builds the OpenAI-compatible backend for one provider. A governed provider carries its own
 // transport that routes through the Caracal gateway with a minted mandate; an ungoverned one
-// uses the shared fetch. fetchImpl is injectable so the transport can be exercised without a
-// live backend. In production the recommended backend is a LiteLLM proxy that fronts every
-// provider behind this one wire format.
+// uses the shared fetch. Either way the wire-parameter adapter wraps it so a model that rejects
+// a standard parameter is retried in its accepted dialect. fetchImpl is injectable so the
+// transport can be exercised without a live backend.
 function buildBackend(fetchImpl: FetchImpl, provider: ProviderConfig) {
   return createOpenAICompatible({
     name: provider.id,
     baseURL: provider.baseUrl,
     apiKey: provider.apiKey,
-    fetch: provider.transport ?? fetchImpl,
+    fetch: adaptWireParams(provider.transport ?? fetchImpl, `${provider.baseUrl}|${provider.model}`),
   })
 }
 

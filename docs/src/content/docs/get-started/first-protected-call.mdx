@@ -50,14 +50,24 @@ Use `http://caracalDemoUpstream:80` as the resource upstream URL in guided setup
 
 Open the packaged web console at [http://localhost:3001](http://localhost:3001). The Compose stack maps that localhost port to the web BFF container and serves the SPA same-origin with the console API.
 
-The packaged console runs the fail-closed production posture: operator registration is closed until you configure a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
+The packaged console runs the fail-closed production posture: operator registration is closed by default. Admission is controlled from the runtime host. Allow your email:
+
+```sh
+caracal allowlist add <your email>
+```
+
+The allowlist is read live by the console, so the change applies immediately. Entries are exact emails or `@domain` suffixes, and the same command manages access later: `lock`/`unlock` suspend and restore sign-in with the account kept intact, `remove` ends access and erases the account's sign-in records, and `list` shows every entry. See [Control Console Access](/runtime-console/console-access/) for the full lifecycle and the uniform access-denied page.
+
+An allowlisted email still needs a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
 
 | Sign-in method | Required variables |
 | --- | --- |
-| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`, plus `CARACAL_OPERATOR_EMAILS=<your email>`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
-| Email and password | `CARACAL_OPEN_REGISTRATION=true` and `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
+| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
+| Email and password | `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
 
-See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign up (or sign in), then complete the short onboarding flow:
+For OAuth, create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. With email/password sign-up, registration sends a verification link over SMTP and the account signs in after the link is confirmed.
+
+See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign in, then complete the short onboarding flow:
 
 1. **Profile** - your operator name and avatar.
 2. **Zone** - create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
@@ -71,7 +81,7 @@ The console opens **Guided setup**, a short walkthrough that explains each build
 
 | Step | What you create |
 | --- | --- |
-| Application | A confidential agent app for the workload. The create form shows the client secret **once** - copy it now; it cannot be retrieved later, only rotated. |
+| Application | A confidential agent app for the workload. The client secret is held sealed in the Secret Store - copy it now or reveal it later from the application's detail panel; every reveal is recorded in the zone audit timeline. |
 | Provider | The upstream credential source. Skip this step for an internal HTTP API that needs no upstream credential. |
 | Resource | A stable resource identifier, its scopes, and the upstream URL you chose (for example `http://caracalDemoUpstream:80`), bound to a Gateway application. |
 | Policy | A starter policy. Activate it - the zone denies every request until a policy is active. |
@@ -80,50 +90,38 @@ Guided setup ticks each step off from live zone data and opens the same Applicat
 
 ## Configure Runtime Access
 
-The console does not write configuration to your machine. After creating the objects above, configure `caracal run` and the SDKs with the zone, application, and client secret you just created. Use either environment variables or a `caracal.toml` runtime profile.
+The console does not write configuration to your machine, and `caracal run` needs no local config file. The workload carries only its identity; everything else lives in the console:
 
-**Environment variables** - the quickest path for a single workload:
+1. Open the **Launcher** page and create a workload. The workload secret is held sealed in the Secret Store - copy it now or reveal it later from the workload's detail panel; every reveal is recorded in the zone audit timeline.
+2. Add a launch binding to the workload: an environment variable name (for example `EXAMPLE_API_TOKEN`) bound to the resource you created, with the scopes the credential should carry. The page then shows the exact launch commands.
+3. Give the workload its identity:
 
 ```sh
-export CARACAL_ZONE_ID=<zone ID>
-export CARACAL_APPLICATION_ID=<application ID>
-export CARACAL_APP_CLIENT_SECRET=<client secret shown once>
+export CARACAL_WORKLOAD_ID=<workload ID>
+export CARACAL_WORKLOAD_SECRET=<workload secret>
 ```
 
-**Runtime profile** - a `caracal.toml` you author once and reuse. `caracal run` and the SDKs resolve it from `$CARACAL_CONFIG`, then `$XDG_CONFIG_HOME/caracal/caracal.toml`, then the OS Caracal config directory:
-
-```toml
-zone_url = "http://localhost:8080"
-gateway_url = "http://localhost:8081"
-zone_id = "<zone ID>"
-application_id = "<application ID>"
-app_client_secret_file = "/path/to/secret"
-
-[[credentials]]
-env = "EXAMPLE_API_TOKEN"
-resource = "resource://example-api"
-```
-
-Each `[[credentials]]` entry names an environment variable and the resource whose scoped token `caracal run` injects into it. Store the client secret in an owner-only file (`app_client_secret_file`) or a secret manager rather than inline. Local dev and stable stacks can also auto-detect credential files under the OS Caracal config directory.
+These configure the launcher itself; they are not passed through to the child process. Instead of the inline secret, local dev and stable launches can read the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, and cloud deployments can point `CARACAL_WORKLOAD_SECRET_FILE` at a mounted secret; see [Configure Workloads](/runtime-console/config-file/).
 
 ## Run Your Workload
 
-Run your workload through `caracal run`. With `CARACAL_CONFIG` set (or the environment variables above exported):
+Run your workload through `caracal run`. With the identity variables above exported:
 
 ```sh
-CARACAL_CONFIG=/path/to/caracal.toml caracal run -- ./start-agent.sh
+caracal run -- ./start-agent.sh
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+$env:CARACAL_WORKLOAD_ID = "<workload ID>"
+$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
 caracal run -- .\start-agent.ps1
 ```
 
-`caracal run` exchanges the configured application secret for resource-specific Caracal access tokens and injects them into the environment variables named in the profile. The workload reads those variables and presents the token to the Gateway or protected service.
+`caracal run` authenticates as the workload, fetches its launch bindings from STS, mints a scoped credential for each binding, and injects the results into the environment variables named by the bindings. The child environment is otherwise scrubbed: `CARACAL_*` variables configure the launcher and do not reach the workload. The workload reads the injected variables and presents the token to the Gateway or protected service.
 
-For SDK-based workloads, the same runtime profile or environment variables are read by the SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`).
+SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`) resolve their own configuration from a `caracal.toml` profile or `CARACAL_*` environment variables when the workload runs directly (not under `caracal run`); see [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
 
 ## Call the Gateway
 
@@ -134,7 +132,23 @@ For a Gateway-routed HTTP resource, send the request to the Gateway URL (`http:/
 | `Authorization` | `Bearer <Caracal access token>` |
 | `X-Caracal-Resource` | The resource identifier you created in guided setup. |
 
-`caracal run` injects the scoped token into the environment variable named by your `[[credentials]]` entry, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
+`caracal run` injects the scoped token into the environment variable named by your launch binding, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
+
+With a binding named `EXAMPLE_API_TOKEN`, you can prove the whole chain from the shell:
+
+```sh
+caracal run -- sh -c 'curl -sS http://localhost:8081/ \
+  -H "Authorization: Bearer $EXAMPLE_API_TOKEN" \
+  -H "X-Caracal-Resource: <resource identifier>"'
+```
+
+On Windows PowerShell:
+
+```powershell
+caracal run -- powershell -Command "curl.exe -sS http://localhost:8081/ -H ('Authorization: Bearer ' + `$env:EXAMPLE_API_TOKEN) -H 'X-Caracal-Resource: <resource identifier>'"
+```
+
+A `200` response from the demo upstream confirms workload identity, policy decision, token injection, Gateway enforcement, and upstream forwarding all work.
 
 ## Inspect Audit
 
@@ -160,7 +174,7 @@ docker rm -f caracalDemoUpstream
 caracal down
 ```
 
-Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, examples, and caches.
+Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, and caches.
 
 ## Next Step
 

@@ -27,7 +27,10 @@ import (
 )
 
 // shutdownGrace bounds in-flight requests during graceful shutdown.
-const shutdownGrace = 25 * time.Second
+const (
+	shutdownGrace   = 14 * time.Second
+	auditFlushGrace = 4 * time.Second
+)
 
 // requestIDKey is the context key under which the per-request ID is stored.
 type requestIDKey struct{}
@@ -40,7 +43,6 @@ type Server struct {
 	jwks        *jwksCache
 	guard       *upstreamGuard
 	tracker     *jtiTracker
-	bindings    *bindingStore
 	redis       gatewayRedis
 	audit       *audit.Client
 	revocations *revocationStore
@@ -50,6 +52,7 @@ type Server struct {
 
 type gatewayRedis interface {
 	Ping(context.Context) error
+	Close() error
 	EvictionPolicy(context.Context) (string, error)
 	EnsureGroup(context.Context, string, string) error
 	XReadGroup(context.Context, string, string, string, int64) ([]redis.XMessage, error)
@@ -77,22 +80,6 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, fmt.Errorf("streams hmac key: %w", err)
 	}
 	rdb.SetStreamSigning(streamKey, cfg.Mode != "dev")
-	tracker, err := newJTITracker(rdb, log, cfg.JTIFailOpen, cfg.AuditHMACKey)
-	if err != nil {
-		return nil, err
-	}
-	pool, err := newPool(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return nil, err
-	}
-	bindings := newBindingStore(pool, log)
-	if err := bindings.Reload(ctx); err != nil {
-		return nil, err
-	}
-	revocations := newRevocationStore(log)
-	if err := reloadRevocationSnapshot(ctx, pool, revocations); err != nil {
-		return nil, fmt.Errorf("revocation snapshot: %w", err)
-	}
 	auditClient, err := audit.NewClient(rdb, audit.ClientConfig{
 		AuditHMACKey: cfg.AuditHMACKey,
 		ReplayDir:    cfg.AuditReplayDir,
@@ -102,6 +89,18 @@ func New(ctx context.Context) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	tracker, err := newJTITracker(rdb, log, cfg.JTIFailOpen, auditClient)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := newPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	revocations := newRevocationStore(log)
+	if err := reloadRevocationSnapshot(ctx, pool, revocations); err != nil {
+		return nil, fmt.Errorf("revocation snapshot: %w", err)
+	}
 	return &Server{
 		cfg:         cfg,
 		log:         log,
@@ -109,7 +108,6 @@ func New(ctx context.Context) (*Server, error) {
 		jwks:        newJWKSCache(cfg.STSURL, cfg.STSTimeout, log),
 		guard:       newUpstreamGuard(cfg.UpstreamHostAllowlist),
 		tracker:     tracker,
-		bindings:    bindings,
 		redis:       rdb,
 		audit:       auditClient,
 		revocations: revocations,
@@ -120,7 +118,7 @@ func New(ctx context.Context) (*Server, error) {
 
 // Run starts the HTTP(S) listener and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
-	go s.bindings.StartPolling(ctx)
+	defer s.closeDependencies()
 	s.audit.ReplayPending(ctx)
 	auditCtx, stopAudit := context.WithCancel(context.Background())
 	defer stopAudit()
@@ -129,7 +127,14 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	startRevocationSnapshotPolling(ctx, s.pool, s.revocations, s.metrics, s.log)
-	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.bindings, s.tracker, s.revocations, s.metrics, s.audit)
+	p := newProxy(s.sts, s.jwks, s.guard, s.log, s.cfg.MaxRequestBytes, s.cfg.UpstreamTimeout, s.tracker, s.revocations, s.metrics, s.audit)
+	if s.cfg.WriteTimeout > 0 {
+		p.writeTimeout = s.cfg.WriteTimeout
+	}
+	if s.cfg.StreamIdleTimeout > 0 {
+		p.streamIdle = s.cfg.StreamIdleTimeout
+	}
+	p.trustProxy = s.cfg.TrustProxy
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -146,7 +151,7 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler:           handler,
 		ReadHeaderTimeout: s.cfg.ReadHeaderTimeout,
 		ReadTimeout:       s.cfg.ReadTimeout,
-		WriteTimeout:      s.cfg.WriteTimeout,
+		WriteTimeout:      0,
 		IdleTimeout:       s.cfg.IdleTimeout,
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          nil,
@@ -184,7 +189,7 @@ func (s *Server) Run(ctx context.Context) error {
 			return err
 		}
 		stopAudit()
-		auditFlushCtx, cancelAuditFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		auditFlushCtx, cancelAuditFlush := context.WithTimeout(context.Background(), auditFlushGrace)
 		defer cancelAuditFlush()
 		if err := s.audit.Close(auditFlushCtx); err != nil {
 			s.log.Error().Err(err).Msg("audit client flush failed")
@@ -199,19 +204,26 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+func (s *Server) closeDependencies() {
+	if s.sts != nil && s.sts.client != nil {
+		s.sts.client.CloseIdleConnections()
+	}
+	if s.jwks != nil && s.jwks.client != nil {
+		s.jwks.client.CloseIdleConnections()
+	}
+	if s.redis != nil {
+		if err := s.redis.Close(); err != nil {
+			s.log.Warn().Err(err).Msg("redis close failed")
+		}
+	}
+	if s.pool != nil {
+		s.pool.Close()
+	}
+}
+
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if s.bindings == nil {
-		s.log.Warn().Msg("ready: bindings unavailable")
-		writeReadyFailure(w, "bindings_unavailable")
-		return
-	}
-	if err := s.bindings.ReloadIfChanged(ctx); err != nil {
-		s.log.Warn().Err(err).Msg("ready: postgres unreachable")
-		writeReadyFailure(w, "postgres_unreachable")
-		return
-	}
 	if err := s.redis.Ping(ctx); err != nil {
 		s.log.Warn().Err(err).Msg("ready: redis unreachable")
 		writeReadyFailure(w, "redis_unreachable")
@@ -281,8 +293,8 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_gateway_denials_path_traversal_total", Help: "Gateway denials caused by unsafe upstream paths", Type: coremetrics.Counter, Value: float64(snap.DenialsPathTrav)},
 		{Name: "caracal_gateway_denials_signature_total", Help: "Gateway denials caused by invalid JWT signatures", Type: coremetrics.Counter, Value: float64(snap.DenialsSignature)},
 		{Name: "caracal_gateway_denials_jti_replay_total", Help: "Gateway denials caused by replayed token identifiers", Type: coremetrics.Counter, Value: float64(snap.DenialsJTIReplay)},
-		{Name: "caracal_gateway_denials_revoked_total", Help: "Gateway denials caused by revoked sessions or delegations", Type: coremetrics.Counter, Value: float64(snap.DenialsRevoked)},
-		{Name: "caracal_gateway_denials_binding_total", Help: "Gateway denials caused by missing Gateway bindings", Type: coremetrics.Counter, Value: float64(snap.DenialsBinding)},
+		{Name: "caracal_gateway_denials_revoked_total", Help: "Gateway denials caused by revoked authority records, Sessions, or Delegations", Type: coremetrics.Counter, Value: float64(snap.DenialsRevoked)},
+		{Name: "caracal_gateway_denials_revocation_stale_total", Help: "Gateway denials caused by stale revocation state", Type: coremetrics.Counter, Value: float64(snap.DenialsRevocationStale)},
 		{Name: "caracal_gateway_sts_exchange_errors_total", Help: "Gateway STS token exchange failures", Type: coremetrics.Counter, Value: float64(snap.STSExchangeErrors)},
 		{Name: "caracal_gateway_sts_exchange_latency_ms", Help: "Latency of the most recent Gateway STS token exchange", Type: coremetrics.Gauge, Value: float64(snap.STSExchangeLatencyMs)},
 		{Name: "caracal_gateway_sts_circuit_open", Help: "Whether Gateway is currently fast-failing STS exchange calls", Type: coremetrics.Gauge, Value: float64(snap.STSCircuitOpen)},
@@ -292,7 +304,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_gateway_audit_replay_files", Help: "Gateway audit replay files waiting on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayFiles)},
 		{Name: "caracal_gateway_audit_replay_bytes", Help: "Gateway audit replay bytes waiting on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayBytes)},
 		{Name: "caracal_gateway_audit_replay_oldest_age_seconds", Help: "Age of the oldest Gateway audit replay file on disk", Type: coremetrics.Gauge, Value: float64(snap.AuditReplayOldestAge)},
-		{Name: "caracal_gateway_bindings_loaded", Help: "Gateway resource bindings loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.BindingsLoaded)},
+		{Name: "caracal_gateway_audit_dropped_total", Help: "Gateway audit events irrecoverably lost", Type: coremetrics.Counter, Value: float64(snap.AuditDropped)},
+		{Name: "caracal_gateway_audit_sink_errors_total", Help: "Gateway audit stream delivery errors", Type: coremetrics.Counter, Value: float64(snap.AuditSinkErrors)},
+		{Name: "caracal_gateway_audit_queue_depth", Help: "Gateway audit events waiting in memory", Type: coremetrics.Gauge, Value: float64(snap.AuditQueueDepth)},
+		{Name: "caracal_gateway_audit_queue_capacity", Help: "Gateway audit in-memory queue capacity", Type: coremetrics.Gauge, Value: float64(snap.AuditQueueCap)},
+		{Name: "caracal_gateway_audit_persisted_total", Help: "Gateway audit events persisted for replay", Type: coremetrics.Counter, Value: float64(snap.AuditPersisted)},
+		{Name: "caracal_gateway_audit_drained_total", Help: "Gateway audit events drained from replay files", Type: coremetrics.Counter, Value: float64(snap.AuditDrained)},
 		{Name: "caracal_gateway_revocations_active", Help: "Gateway revocation anchors loaded in memory", Type: coremetrics.Gauge, Value: float64(snap.RevocationsActive)},
 		{Name: "caracal_gateway_revocation_snapshot_age_seconds", Help: "Seconds since the last successful Gateway revocation snapshot reload", Type: coremetrics.Gauge, Value: float64(snap.RevocationSnapshotAgeSeconds)},
 		{Name: "caracal_gateway_revocation_snapshot_fresh", Help: "Whether the Gateway revocation snapshot is fresh enough for readiness", Type: coremetrics.Gauge, Value: float64(snap.RevocationSnapshotFresh)},
@@ -332,9 +349,6 @@ func (s *Server) handleMetricsJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refreshMetricGauges() {
-	if s.bindings != nil {
-		s.metrics.BindingsLoaded.Store(uint64(s.bindings.Size()))
-	}
 	if s.revocations != nil {
 		s.metrics.RevocationsActive.Store(uint64(s.revocations.Size()))
 		if age, ok := s.revocations.SnapshotAge(time.Now()); ok {
@@ -354,6 +368,12 @@ func (s *Server) refreshMetricGauges() {
 		s.metrics.AuditReplayFiles.Store(audit.ReplayFiles)
 		s.metrics.AuditReplayBytes.Store(audit.ReplayBytes)
 		s.metrics.AuditReplayOldestAge.Store(audit.ReplayOldestAgeSeconds)
+		s.metrics.AuditDropped.Store(audit.Dropped)
+		s.metrics.AuditSinkErrors.Store(audit.SinkErrors)
+		s.metrics.AuditQueueDepth.Store(audit.QueueDepth)
+		s.metrics.AuditQueueCap.Store(audit.QueueCap)
+		s.metrics.AuditPersisted.Store(audit.Persisted)
+		s.metrics.AuditDrained.Store(audit.Drained)
 	}
 }
 

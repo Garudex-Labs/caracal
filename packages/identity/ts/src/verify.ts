@@ -3,7 +3,7 @@
 //
 // Verifies a Caracal JWT against an issuer JWKS and enforces zone and scope claims.
 
-import { decodeJwt, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 import { CaracalError, hasScope } from '@caracalai/core'
 import { getKeySet, type JwksCache } from './jwks.js'
 import { DEFAULT_MAX_HOP_COUNT, MANDATE_USE_RESOURCE, MANDATE_USE_SESSION, type ChainHop, type Claims, type JwtConfig } from './types.js'
@@ -34,10 +34,10 @@ export class ScopeInsufficientError extends CaracalError {
   }
 }
 
-export class AgentIdentityRequiredError extends CaracalError {
-  constructor(message = 'Agent identity required') {
-    super('agent_identity_required', message)
-    this.name = 'AgentIdentityRequiredError'
+export class SessionRequiredError extends CaracalError {
+  constructor(message = 'Session required') {
+    super('session_required', message)
+    this.name = 'SessionRequiredError'
   }
 }
 
@@ -117,31 +117,19 @@ function readChain(raw: unknown): ChainHop[] | undefined {
     }
     const r = item as Record<string, unknown>
     const applicationId = requiredString(r, 'application_id')
-    const agentSessionId = optionalString(r, 'agent_session_id')
-    const delegationEdgeId = optionalString(r, 'delegation_edge_id')
-    out.push({ applicationId, agentSessionId, delegationEdgeId })
+    const sessionId = optionalString(r, 'agent_session_id')
+    const delegationId = optionalString(r, 'delegation_edge_id')
+    out.push({ applicationId, sessionId, delegationId })
   }
   return out.length === 0 ? undefined : out
 }
 
-// STS serves one signing keyset per zone, so the JWKS fetch needs a zone. The
-// configured zone wins; otherwise the unverified zone_id claim selects the
-// keyset, which is safe because it only routes the key lookup - the signature
-// check against that zone's keys then proves the claim.
-function fetchZone(token: string, config: JwtConfig): string {
-  if (config.zoneId) return config.zoneId
-  let claimedZone: unknown
-  try {
-    claimedZone = decodeJwt(token)['zone_id']
-  } catch (err) {
-    throw new TokenInvalidError('Token validation failed', err)
-  }
-  if (typeof claimedZone !== 'string' || claimedZone === '') throw new ZoneInvalidError()
-  return claimedZone
-}
-
 export async function verify(token: string, config: JwtConfig & { jwksCache?: JwksCache }): Promise<Claims> {
-  const zone = fetchZone(token, config)
+  // The configured zone is the only trust anchor: it selects the signing keyset
+  // and must equal the zone_id claim. Verification never reads the zone from the
+  // unverified token, so key selection cannot be influenced by attacker input.
+  const zone = config.zoneId
+  if (typeof zone !== 'string' || zone === '') throw new ZoneInvalidError()
   let payload
   try {
     const keySet = config.jwksCache ? await config.jwksCache.getKeySet(config.issuer, zone) : await getKeySet(config.issuer, zone)
@@ -159,8 +147,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   const jti = requiredString(payload, 'jti')
   const sub = requiredString(payload, 'sub')
   const clientId = requiredString(payload, 'client_id')
-  const sid = requiredString(payload, 'sid')
-  const rootSid = requiredString(payload, 'root_sid')
+  const authorityRecordId = requiredString(payload, 'sid')
+  const rootAuthorityRecordId = requiredString(payload, 'root_sid')
   const use = requiredString(payload, 'use')
   if (use !== MANDATE_USE_SESSION && use !== MANDATE_USE_RESOURCE) throw new TokenInvalidError('Token use validation failed')
   const subType = requiredString(payload, 'sub_type')
@@ -171,7 +159,7 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   if (typeof scope !== 'string') throw new TokenInvalidError('Token claim scope must be a string')
   const targetResources = readStringList(payload['target'], 'target')
   const rawZoneId = payload['zone_id']
-  if (typeof rawZoneId !== 'string' || rawZoneId === '' || rawZoneId !== zone || (config.zoneId && rawZoneId !== config.zoneId)) {
+  if (typeof rawZoneId !== 'string' || rawZoneId === '' || rawZoneId !== zone) {
     throw new ZoneInvalidError()
   }
   const zoneId = rawZoneId
@@ -187,8 +175,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     }
   }
 
-  const agentSessionId = optionalString(payload, 'agent_session_id')
-  const delegationEdgeId = optionalString(payload, 'delegation_edge_id')
+  const sessionId = optionalString(payload, 'agent_session_id')
+  const delegationId = optionalString(payload, 'delegation_edge_id')
   const sourceSessionId = optionalString(payload, 'source_session_id')
   const targetSessionId = optionalString(payload, 'target_session_id')
   const delegationPath = readStringList(payload['delegation_path'], 'delegation_path')
@@ -196,10 +184,10 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
   const graphEpoch = optionalInteger(payload, 'delegation_graph_epoch')
   const hopCount = optionalInteger(payload, 'hop_count')
 
-  if (config.requireAgent && !agentSessionId) {
-    throw new AgentIdentityRequiredError()
+  if (config.requireSession && !sessionId) {
+    throw new SessionRequiredError()
   }
-  if (config.requireDelegation && !delegationEdgeId) {
+  if (config.requireDelegation && !delegationId) {
     throw new DelegationRequiredError()
   }
   const maxHops = config.maxHopCount !== undefined && config.maxHopCount > 0 ? config.maxHopCount : DEFAULT_MAX_HOP_COUNT
@@ -215,8 +203,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     sub,
     zoneId,
     clientId,
-    sid,
-    rootSid,
+    authorityRecordId,
+    rootAuthorityRecordId,
     use,
     subType,
     jti,
@@ -224,8 +212,8 @@ export async function verify(token: string, config: JwtConfig & { jwksCache?: Jw
     expiresAt,
     scope,
     targetResources,
-    agentSessionId,
-    delegationEdgeId,
+    sessionId,
+    delegationId,
     sourceSessionId,
     targetSessionId,
     delegationPath,

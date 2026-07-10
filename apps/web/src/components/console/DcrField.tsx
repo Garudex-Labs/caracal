@@ -38,11 +38,13 @@ export function DcrField({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium text-foreground">Dynamic Client Registration</span>
-            <Tooltip label="Self-registered clients auto-expire and are managed programmatically, not from the console.">
+            <span className="text-sm font-medium text-foreground">
+              Dynamic Client Registration (DCR)
+            </span>
+            <Tooltip label="DCR lets software register short-lived Application identities at runtime. These identities expire automatically and are managed programmatically.">
               <span
                 tabIndex={0}
-                aria-label="About Dynamic Client Registration"
+                aria-label="About Dynamic Client Registration (DCR)"
                 className="inline-flex cursor-help rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <InfoIcon />
@@ -57,7 +59,7 @@ export function DcrField({
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label="Dynamic Client Registration"
+          aria-label="Dynamic Client Registration (DCR)"
           onClick={() => onChange(!enabled)}
           className={cx(
             "relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full outline-none transition-colors",

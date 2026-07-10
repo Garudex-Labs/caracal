@@ -139,7 +139,7 @@ func TestTokenResponseAndUpstreamDirectiveJSONShape(t *testing.T) {
 				AllowedTokenHosts:      []string{"auth.example.test"},
 				ProviderToken:          "provider-token",
 				ProviderID:             "provider-a",
-				GrantID:                "grant-a",
+				ConnectionID:           "grant-a",
 				ForwardCaracalIdentity: true,
 				ExpiresAt:              1_700_000_300,
 			},

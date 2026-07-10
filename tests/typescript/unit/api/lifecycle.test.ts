@@ -4,7 +4,7 @@
 // Unit tests for the shared ordered ShutdownRegistry teardown.
 
 import { describe, it, expect, vi } from 'vitest'
-import { ShutdownRegistry } from '../../../../packages/core/ts/src/lifecycle.js'
+import { ShutdownRegistry } from '../../../../packages/serverCore/ts/src/lifecycle.js'
 
 function makeRegistry(timeoutMs = 1000) {
   const exit = vi.fn()
@@ -17,9 +17,15 @@ describe('ShutdownRegistry', () => {
   it('runs registered steps in reverse order', async () => {
     const { r, exit } = makeRegistry()
     const calls: string[] = []
-    r.register('a', () => { calls.push('a') })
-    r.register('b', () => { calls.push('b') })
-    r.register('c', () => { calls.push('c') })
+    r.register('a', () => {
+      calls.push('a')
+    })
+    r.register('b', () => {
+      calls.push('b')
+    })
+    r.register('c', () => {
+      calls.push('c')
+    })
     await r.fire('test')
     expect(calls).toEqual(['c', 'b', 'a'])
     expect(exit).toHaveBeenCalledWith(0)
@@ -28,9 +34,15 @@ describe('ShutdownRegistry', () => {
   it('continues past failing steps but exits non-zero', async () => {
     const { r, exit } = makeRegistry()
     const calls: string[] = []
-    r.register('a', () => { calls.push('a') })
-    r.register('b', () => { throw new Error('fail') })
-    r.register('c', () => { calls.push('c') })
+    r.register('a', () => {
+      calls.push('a')
+    })
+    r.register('b', () => {
+      throw new Error('fail')
+    })
+    r.register('c', () => {
+      calls.push('c')
+    })
     await r.fire('test')
     expect(calls).toEqual(['c', 'a'])
     expect(exit).toHaveBeenCalledWith(1)
@@ -56,7 +68,9 @@ describe('ShutdownRegistry', () => {
   it('flips draining true once fire begins', async () => {
     const { r } = makeRegistry()
     expect(r.draining).toBe(false)
-    r.register('a', () => { expect(r.draining).toBe(true) })
+    r.register('a', () => {
+      expect(r.draining).toBe(true)
+    })
     await r.fire('test')
     expect(r.draining).toBe(true)
   })

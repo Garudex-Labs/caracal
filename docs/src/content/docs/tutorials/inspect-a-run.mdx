@@ -14,11 +14,11 @@ Open the web console at [http://localhost:3001](http://localhost:3001).
 
 Use these web console sections:
 
-| Entry | Use it for |
-| --- | --- |
-| **Audit** | Find recent events, then open the decision trace for one request ID. |
-| **agent session** | Find the tracked agent session for the selected zone. |
-| **authority session** | Inspect underlying authority sessions and parent relationships. |
+| Entry                | Use it for                                                           |
+| -------------------- | -------------------------------------------------------------------- |
+| **Audit**            | Find recent events, then open the decision trace for one request ID. |
+| **Session**          | Find the tracked Session for the selected zone.                      |
+| **Authority record** | Inspect underlying Authority records and parent relationships.       |
 
 Record the request ID from the SDK, Gateway, STS error, audit event, or web console trace.
 
@@ -28,12 +28,12 @@ Open **Audit**. The live audit view opens recent events immediately and supports
 
 A Gateway-routed protected call usually produces:
 
-| Event class | What it proves |
-| --- | --- |
-| Authorization event | STS evaluated policy for the app, resource, scopes, agent session state, and delegation context. |
-| Action-result event | Gateway verified and routed the request, then recorded the upstream result. |
+| Event class         | What it proves                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| Authorization event | STS evaluated policy for the app, resource, scopes, Session state, and delegation context. |
+| Action-result event | Gateway verified and routed the request, then recorded the upstream result.                |
 
-If you see authorization events without matching action-result events, check whether the call reached the Gateway. For connector-verified services, confirm the service writes its own result audit after mandate verification.
+If you see authorization events without matching action-result events, check whether the call reached the Gateway. For adapter-verified services, confirm the service writes its own result audit after mandate verification.
 
 ## 3. Trace the Decision
 
@@ -46,7 +46,7 @@ The request trace should show:
 - policy set version and policy rules involved;
 - allow, deny, or partial decision;
 - diagnostics from policy evaluation;
-- delegation edge constraints when present.
+- Delegation constraints when present.
 
 Use the request trace as the source of truth for why a request got its result. If an app behaves differently than expected, compare the trace against the active policy set, resource configuration, and runtime profile.
 
@@ -54,19 +54,19 @@ Use the request trace as the source of truth for why a request got its result. I
 
 If the request used delegated authority, open **Delegation** and inspect the edge:
 
-| Field | Why it matters |
-| --- | --- |
-| Source session | The session that granted authority. |
-| Target session | The session allowed to use the delegated permission. |
-| Scopes | The narrowed actions. |
-| TTL and hop limits | The lifetime and graph depth of the permission. |
-| Resource constraints | The targets the delegated permission can affect. |
+| Field                | Why it matters                                       |
+| -------------------- | ---------------------------------------------------- |
+| Source session       | The session that granted authority.                  |
+| Target session       | The session allowed to use the delegated permission. |
+| Scopes               | The narrowed actions.                                |
+| TTL and hop limits   | The lifetime and graph depth of the permission.      |
+| Resource constraints | The targets the delegated permission can affect.     |
 
 Use [Implement Multi-Agent Delegation](/guides/delegation/) when you need to design or debug delegation flows.
 
 ## 5. Check Revocation Behavior
 
-Revoking a session, grant, delegation edge, or zone/application emergency state invalidates authority anchored to it. Gateway-routed calls check revocation before accepting a request and while streaming responses. Audit records revocation events and marks interrupted action results.
+Revoking a session, grant, Delegation, or zone/application emergency state invalidates authority anchored to it. Gateway-routed calls check revocation before accepting a request and while streaming responses. Audit records revocation events and marks interrupted action results.
 
 ## Wrap Up
 

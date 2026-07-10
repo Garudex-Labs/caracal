@@ -21,8 +21,8 @@ var ErrTokenInvalid = errors.New("token validation failed")
 // ErrZoneInvalid signals the zone_id claim is missing or did not match Config.ZoneID.
 var ErrZoneInvalid = errors.New("token zone validation failed")
 
-// ErrAgentIdentityRequired signals the token has no agent_session_id.
-var ErrAgentIdentityRequired = errors.New("agent identity required")
+// ErrSessionRequired signals the token has no governed Session identity.
+var ErrSessionRequired = errors.New("session required")
 
 // ErrDelegationRequired signals the token has no delegation_edge_id.
 var ErrDelegationRequired = errors.New("delegation required")
@@ -48,29 +48,35 @@ func (e *ChainMismatchError) Error() string {
 	return fmt.Sprintf("delegation chain missing application: %s", e.ApplicationID)
 }
 
-func readChain(raw any) []ChainHop {
+func readChain(raw any) ([]ChainHop, bool) {
 	if raw == nil {
-		return nil
+		return nil, true
 	}
 	list, ok := raw.([]any)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	out := make([]ChainHop, 0, len(list))
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
-			continue
+			return nil, false
 		}
-		appID, _ := m["application_id"].(string)
-		if appID == "" {
-			continue
+		appID, ok := m["application_id"].(string)
+		if !ok || appID == "" {
+			return nil, false
 		}
-		session, _ := m["agent_session_id"].(string)
-		edge, _ := m["delegation_edge_id"].(string)
-		out = append(out, ChainHop{ApplicationID: appID, AgentSessionID: session, DelegationEdgeID: edge})
+		sessionID, ok := optionalString(m, "agent_session_id")
+		if !ok {
+			return nil, false
+		}
+		delegationID, ok := optionalString(m, "delegation_edge_id")
+		if !ok {
+			return nil, false
+		}
+		out = append(out, ChainHop{ApplicationID: appID, SessionID: sessionID, DelegationID: delegationID})
 	}
-	return out
+	return out, true
 }
 
 func readStringSlice(raw any) []string {
@@ -159,23 +165,15 @@ func requiredInt64(claims jwt.MapClaims, name string) (int64, bool) {
 	return int64(value), true
 }
 
-// fetchZone resolves the zone whose JWKS keyset can verify the token: the
-// configured zone wins; otherwise the unverified zone_id claim routes the key
-// lookup, which is safe because the signature check against that zone's keys
-// then proves the claim.
-func fetchZone(tokenStr string, cfg Config) (string, error) {
-	if cfg.ZoneID != "" {
-		return cfg.ZoneID, nil
-	}
-	unverified := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser().ParseUnverified(tokenStr, unverified); err != nil {
-		return "", ErrTokenInvalid
-	}
-	zoneID, _ := unverified["zone_id"].(string)
-	if zoneID == "" {
+// requireZone returns the configured zone that anchors keyset selection and the
+// zone_id claim check. The zone is mandatory: verification never derives its
+// trust anchor from the unverified token, so key selection cannot be steered by
+// attacker-controlled input.
+func requireZone(cfg Config) (string, error) {
+	if cfg.ZoneID == "" {
 		return "", ErrZoneInvalid
 	}
-	return zoneID, nil
+	return cfg.ZoneID, nil
 }
 
 // Verify parses and validates a JWT, returning typed Claims on success.
@@ -186,14 +184,18 @@ func Verify(tokenStr string, cfg Config) (Claims, error) {
 // VerifyContext is Verify with caller-supplied cancellation, propagated to the
 // JWKS fetch so verification honors the caller's deadline.
 func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, error) {
-	zone, err := fetchZone(tokenStr, cfg)
+	zone, err := requireZone(cfg)
 	if err != nil {
 		return Claims{}, err
 	}
 	mapClaims := jwt.MapClaims{}
 	_, err = jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
-		keys, err := GetJWKSContext(ctx, cfg.Issuer, zone)
+		cache := cfg.JWKSCache
+		if cache == nil {
+			cache = defaultJWKSCache
+		}
+		keys, err := cache.Get(ctx, cfg.Issuer, zone)
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +216,7 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		return Claims{}, ErrTokenInvalid
 	}
 	zoneID, _ := mapClaims["zone_id"].(string)
-	if zoneID == "" || zoneID != zone || (cfg.ZoneID != "" && zoneID != cfg.ZoneID) {
+	if zoneID == "" || zoneID != zone {
 		return Claims{}, ErrZoneInvalid
 	}
 	jti, ok := requiredString(mapClaims, "jti")
@@ -225,11 +227,11 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	sid, ok := requiredString(mapClaims, "sid")
+	authorityRecordID, ok := requiredString(mapClaims, "sid")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	rootSid, ok := requiredString(mapClaims, "root_sid")
+	rootAuthorityRecordID, ok := requiredString(mapClaims, "root_sid")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
@@ -272,11 +274,11 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		}
 	}
 
-	agentSessionID, ok := optionalString(mapClaims, "agent_session_id")
+	sessionID, ok := optionalString(mapClaims, "agent_session_id")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	delegationEdgeID, ok := optionalString(mapClaims, "delegation_edge_id")
+	delegationID, ok := optionalString(mapClaims, "delegation_edge_id")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
@@ -288,7 +290,10 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	chain := readChain(mapClaims["delegation_chain"])
+	chain, ok := readChain(mapClaims["delegation_chain"])
+	if !ok {
+		return Claims{}, ErrTokenInvalid
+	}
 	path := readStringSlice(mapClaims["delegation_path"])
 
 	graphEpochValue, ok := optionalInt(mapClaims, "delegation_graph_epoch")
@@ -301,10 +306,10 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		return Claims{}, ErrTokenInvalid
 	}
 
-	if cfg.RequireAgent && agentSessionID == "" {
-		return Claims{}, ErrAgentIdentityRequired
+	if cfg.RequireSession && sessionID == "" {
+		return Claims{}, ErrSessionRequired
 	}
-	if cfg.RequireDelegation && delegationEdgeID == "" {
+	if cfg.RequireDelegation && delegationID == "" {
 		return Claims{}, ErrDelegationRequired
 	}
 	maxHops := cfg.MaxHopCount
@@ -328,26 +333,26 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	}
 
 	return Claims{
-		Sub:              sub,
-		ZoneID:           zoneID,
-		ClientID:         clientID,
-		Sid:              sid,
-		RootSid:          rootSid,
-		Use:              use,
-		SubType:          subType,
-		JTI:              jti,
-		IssuedAt:         issuedAt,
-		ExpiresAt:        expiresAt,
-		Scope:            scope,
-		TargetResources:  targetResources,
-		AgentSessionID:   agentSessionID,
-		DelegationEdgeID: delegationEdgeID,
-		SourceSessionID:  sourceSessionID,
-		TargetSessionID:  targetSessionID,
-		DelegationPath:   path,
-		DelegationChain:  chain,
-		GraphEpoch:       graphEpoch,
-		HopCount:         hopCount,
+		Sub:                   sub,
+		ZoneID:                zoneID,
+		ClientID:              clientID,
+		AuthorityRecordID:     authorityRecordID,
+		RootAuthorityRecordID: rootAuthorityRecordID,
+		Use:                   use,
+		SubType:               subType,
+		JTI:                   jti,
+		IssuedAt:              issuedAt,
+		ExpiresAt:             expiresAt,
+		Scope:                 scope,
+		TargetResources:       targetResources,
+		SessionID:             sessionID,
+		DelegationID:          delegationID,
+		SourceSessionID:       sourceSessionID,
+		TargetSessionID:       targetSessionID,
+		DelegationPath:        path,
+		DelegationChain:       chain,
+		GraphEpoch:            graphEpoch,
+		HopCount:              hopCount,
 	}, nil
 }
 

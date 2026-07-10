@@ -19,7 +19,10 @@ from caracalai_core.logging import (
 
 def test_parse_traceparent_valid() -> None:
     tc = parse_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
-    assert tc == {"trace_id": "0af7651916cd43dd8448eb211c80319c", "span_id": "b7ad6b7169203331"}
+    assert tc == {
+        "trace_id": "0af7651916cd43dd8448eb211c80319c",
+        "span_id": "b7ad6b7169203331",
+    }
 
 
 def test_parse_traceparent_invalid() -> None:
@@ -67,14 +70,16 @@ def test_audit_snapshot(tmp_path) -> None:
     s = _FakeStreamer()
     c = AuditClient(streamer=s, replay_dir=str(tmp_path), buffer_cap=4)
     for i in range(10):
-        c.emit(AuditEvent(
-            id=str(i),
-            zone_id="z",
-            event_type="t",
-            request_id="r",
-            decision="allow",
-            evaluation_status="ok",
-        ))
+        c.emit(
+            AuditEvent(
+                id=str(i),
+                zone_id="z",
+                event_type="t",
+                request_id="r",
+                decision="allow",
+                evaluation_status="ok",
+            )
+        )
     snap = c.snapshot()
     assert snap["queue_cap"] == 4
     assert snap["emitted"] + snap["dropped"] == 10

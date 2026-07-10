@@ -3,15 +3,15 @@
 //
 // `caracal purge`: centralized cleanup for selectable targets across dev and runtime installs.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { dirname, join, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import pg from 'pg'
-import { devSecretsHome } from '@caracalai/core'
+import { devSecretsHome } from '@caracalai/server-core'
 import { authMaintenanceUrl, configuredAuthDatabaseName } from './authStore.ts'
-import { resolveRuntimeConfigPath } from '@caracalai/engine/runtime-config'
+import { defaultCaracalConfigDir } from '@caracalai/engine/runtime-config'
 import {
   caracalBinaries as caracalBinariesCore,
   composeRun,
@@ -26,7 +26,7 @@ import { composeUnavailableReason, dockerComposeAvailable, resolvePaths } from '
 import { showHelp } from './shared.ts'
 import { style, SYMBOL, printError, printWarn, printStep, printSuccess, printHeader } from '../style.ts'
 
-type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'web' | 'cache' | 'examples' | 'images' | 'binary'
+type TargetId = 'stack' | 'volumes' | 'logs' | 'config' | 'runtime' | 'secrets' | 'web' | 'cache' | 'images' | 'binary'
 
 type GroupId = 'services' | 'state' | 'dev' | 'artifacts'
 
@@ -46,7 +46,6 @@ const TARGET_GROUP: Record<TargetId, GroupId> = {
   secrets: 'state',
   web: 'state',
   cache: 'dev',
-  examples: 'dev',
   images: 'artifacts',
   binary: 'artifacts',
 }
@@ -74,6 +73,7 @@ interface PurgeContext {
   cwd: string
   stacks: ComposeStack[]
   configPath: string | undefined
+  credentialDir: string | undefined
   runtimeHome: string
   repoRoot: string | undefined
   composeAvailable: boolean
@@ -84,9 +84,6 @@ interface SecretCleanupTarget {
   label: string
   path: string
 }
-
-const EXAMPLE_COMPOSE_FILES = new Set(['compose.yml', 'compose.yaml', 'docker-compose.yml', 'docker-compose.yaml'])
-const EXAMPLE_COMPOSE_IGNORED_DIRS = new Set(['node_modules', '.venv', 'dist', 'coverage'])
 
 function uniqueSecretTargets(ctx: PurgeContext): SecretCleanupTarget[] {
   const targets: SecretCleanupTarget[] = []
@@ -155,21 +152,20 @@ function purgeHelp(): never {
     '  logs        Truncate container log files via `compose down` + recreate',
     '',
     'Local install & operator state (state):',
-    '  config      Remove caracal.toml (zone client secret and config)',
-    '  runtime     Remove runtime assets at $CARACAL_HOME (.env, compose.yml)',
+    '  config      Remove local SDK profile (caracal.toml) and stored workload client secrets',
+    '  runtime     Remove runtime assets at $CARACAL_HOME (compose.yml, caracal.env, version marker)',
     '  secrets     Remove operator overrides and generated secret files',
     '  web         Drop the web console operator database (PostgreSQL caracal_auth)',
     '',
     'Developer artifacts (dev) - dev only:',
     '  cache       Remove build artifacts: apps/*/dist, coverage/, node_modules/.cache',
-    '  examples    Remove example containers, volumes, networks, and example-built images',
     '',
     'Cached images & binaries (artifacts):',
     '  images      Remove cached Caracal docker images (caracal/*, ghcr.io/garudex-labs/caracal-*)',
     '  binary      Uninstall Caracal runtime and web console binaries from $CARACAL_INSTALL_DIR (default ~/.local/bin)',
     '',
     'Aggregate:',
-    '  all         Purge every applicable target (destructive: wipes volumes, runtime, config, web, examples, images, binary)',
+    '  all         Purge every applicable target (destructive: wipes volumes, runtime, config, web, images, binary)',
     '',
     'Options:',
     '  --yes, -y                Skip confirmation prompt',
@@ -181,9 +177,13 @@ function purgeHelp(): never {
 }
 
 function buildContext(dryRun: boolean): PurgeContext {
-  const paths = resolvePaths()
+  const paths = resolvePaths(false, false)
   const runtime = runtimePaths()
-  const configPath = resolveRuntimeConfigPath()
+  const configDir = defaultCaracalConfigDir()
+  const tomlPath = process.env.CARACAL_CONFIG ?? join(configDir, 'caracal.toml')
+  const configPath = existsSync(tomlPath) ? tomlPath : undefined
+  const storedSecretsDir = join(configDir, 'runtime')
+  const credentialDir = existsSync(storedSecretsDir) ? storedSecretsDir : undefined
   const repoRoot = paths.mode === 'dev' ? paths.cwd : undefined
   const stacks: ComposeStack[] = [
     { label: paths.mode, composeFile: paths.composeFile, envFiles: paths.envFiles, cwd: paths.cwd, secretsDir: paths.secretsDir },
@@ -204,74 +204,12 @@ function buildContext(dryRun: boolean): PurgeContext {
     cwd: paths.cwd,
     stacks,
     configPath,
+    credentialDir,
     runtimeHome: runtime.home,
     repoRoot,
     composeAvailable: dryRun || dockerComposeAvailable(),
     dryRun,
   }
-}
-
-function collectExampleComposeFiles(dir: string): string[] {
-  const found: string[] = []
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory() && !EXAMPLE_COMPOSE_IGNORED_DIRS.has(entry.name)) {
-      found.push(...collectExampleComposeFiles(path))
-    } else if (entry.isFile() && EXAMPLE_COMPOSE_FILES.has(entry.name)) {
-      found.push(path)
-    }
-  }
-  return found
-}
-
-function exampleComposeStacks(ctx: PurgeContext): ComposeStack[] {
-  if (!ctx.repoRoot) return []
-  const repoRoot = ctx.repoRoot
-  const root = join(ctx.repoRoot, 'examples')
-  if (!existsSync(root)) return []
-  return collectExampleComposeFiles(root).map((composeFile) => ({
-    label: relative(repoRoot, composeFile),
-    composeFile,
-    envFiles: [],
-    cwd: dirname(composeFile),
-    secretsDir: ctx.cwd,
-  }))
-}
-
-function exampleBuiltImagesFromCompose(composeFile: string): string[] {
-  const images: string[] = []
-  let image: string | undefined
-  let build = false
-  const flush = () => {
-    if (build && image) images.push(image)
-    image = undefined
-    build = false
-  }
-  for (const line of readFileSync(composeFile, 'utf8').split(/\r?\n/)) {
-    if (/^  [A-Za-z0-9_.-]+:\s*(?:#.*)?$/.test(line)) {
-      flush()
-      continue
-    }
-    const imageMatch = line.match(/^\s{4}image:\s*['"]?([^'"\s#]+)['"]?/)
-    if (imageMatch) image = imageMatch[1]
-    if (/^\s{4}build:\s*/.test(line)) build = true
-  }
-  flush()
-  return images
-}
-
-function exampleImageNames(ctx: PurgeContext): string[] {
-  return Array.from(new Set(exampleComposeStacks(ctx).flatMap((stack) => exampleBuiltImagesFromCompose(stack.composeFile))))
-}
-
-function listDockerImagesByName(names: readonly string[]): string[] {
-  const wanted = new Set(names)
-  const out = spawnSync('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}'], { encoding: 'utf8' })
-  if (out.status !== 0 || typeof out.stdout !== 'string') return []
-  return out.stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => wanted.has(s))
 }
 
 async function runCompose(args: string[], ctx: PurgeContext, stack?: ComposeStack): Promise<number> {
@@ -301,9 +239,9 @@ async function removeImagesStep(images: string[], ctx: PurgeContext): Promise<nu
   return removeImages(images)
 }
 
-async function runComposeAll(args: string[], ctx: PurgeContext, stacks = ctx.stacks): Promise<void> {
-  for (const stack of stacks) {
-    if (stacks.length > 1) {
+async function runComposeAll(args: string[], ctx: PurgeContext): Promise<void> {
+  for (const stack of ctx.stacks) {
+    if (ctx.stacks.length > 1) {
       process.stdout.write(`  ${style.label(`[${stack.label}]`)} ${stack.composeFile}\n`)
     }
     const code = await runCompose(args, ctx, stack)
@@ -374,17 +312,18 @@ const TARGETS: Target[] = [
   },
   {
     id: 'config',
-    label: 'Remove caracal.toml',
-    describe: (ctx) => ctx.configPath ?? '(no caracal.toml found)',
-    available: (ctx) => ctx.configPath !== undefined,
+    label: 'Remove local config and workload client secrets',
+    describe: (ctx) => [ctx.configPath, ctx.credentialDir].filter(Boolean).join(', ') || '(no local config found)',
+    available: (ctx) => ctx.configPath !== undefined || ctx.credentialDir !== undefined,
     run: async (ctx) => {
       if (ctx.configPath) removePath(ctx.configPath, ctx, 'config')
+      if (ctx.credentialDir) removePath(ctx.credentialDir, ctx, 'config')
     },
   },
   {
     id: 'runtime',
     label: 'Remove runtime assets (DESTRUCTIVE)',
-    describe: (ctx) => `${ctx.runtimeHome}: bundled compose.yml, .env, provision script`,
+    describe: (ctx) => `${ctx.runtimeHome}: bundled compose.yml, caracal.env, version marker, upgrade journal`,
     available: (ctx) => existsSync(ctx.runtimeHome),
     run: async (ctx) => {
       removePath(ctx.runtimeHome, ctx, 'runtime')
@@ -424,7 +363,7 @@ const TARGETS: Target[] = [
   {
     id: 'cache',
     label: 'Remove build artifacts (dev only)',
-    describe: (ctx) => (ctx.repoRoot ? `apps/*/dist, packages/*/dist, coverage/, node_modules/.cache` : '(dev mode only)'),
+    describe: (ctx) => (ctx.repoRoot ? `all dist/ under apps/ and packages/, coverage/, node_modules/.cache` : '(dev mode only)'),
     available: (ctx) => ctx.repoRoot !== undefined,
     run: async (ctx) => {
       if (!ctx.repoRoot) return
@@ -432,43 +371,28 @@ const TARGETS: Target[] = [
       for (const sub of ['coverage', 'node_modules/.cache', '.turbo']) {
         removePath(join(root, sub), ctx, sub)
       }
+      const findDist = (dir: string, depth: number): string[] => {
+        let entries
+        try {
+          entries = readdirSync(dir, { withFileTypes: true })
+        } catch {
+          return []
+        }
+        const found: string[] = []
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name === 'node_modules') continue
+          const child = join(dir, entry.name)
+          if (entry.name === 'dist') found.push(child)
+          else if (depth > 1) found.push(...findDist(child, depth - 1))
+        }
+        return found
+      }
       for (const group of ['apps', 'packages']) {
         const base = join(root, group)
-        if (!existsSync(base)) continue
-        for (const name of readdirSync(base)) {
-          const child = join(base, name)
-          try {
-            if (!statSync(child).isDirectory()) continue
-          } catch {
-            continue
-          }
-          removePath(join(child, 'dist'), ctx, `${group}/${name}/dist`)
+        for (const dist of findDist(base, 4)) {
+          removePath(dist, ctx, relative(root, dist))
         }
       }
-    },
-  },
-  {
-    id: 'examples',
-    label: 'Remove example containers, volumes, and images (DESTRUCTIVE)',
-    describe: (ctx) => {
-      const stacks = exampleComposeStacks(ctx)
-      const imgs = listDockerImagesByName(exampleImageNames(ctx))
-      const imageSummary = imgs.length > 0 ? `; ${imgs.length} example image(s)` : ''
-      return stacks.length > 0
-        ? `${stacks.length} compose project(s) under examples/${imageSummary}`
-        : '(dev mode only; no example compose projects found)'
-    },
-    available: (ctx) => ctx.composeAvailable && exampleComposeStacks(ctx).length > 0,
-    run: async (ctx) => {
-      const stacks = exampleComposeStacks(ctx)
-      await runComposeAll(['down', '-v', '--remove-orphans'], ctx, stacks)
-      const imgs = listDockerImagesByName(exampleImageNames(ctx))
-      if (imgs.length === 0) {
-        process.stdout.write(`  ${style.label('(skip) example images: none cached')}\n`)
-        return
-      }
-      const code = await removeImagesStep(imgs, ctx)
-      if (code !== 0) throw new Error(`docker image rm exited ${code}`)
     },
   },
   {
@@ -512,7 +436,7 @@ function targetById(id: string): Target | undefined {
 }
 
 function requiresCompose(t: Target): boolean {
-  return t.id === 'stack' || t.id === 'volumes' || t.id === 'logs' || t.id === 'examples'
+  return t.id === 'stack' || t.id === 'volumes' || t.id === 'logs'
 }
 
 function prompt(question: string): Promise<string> {
@@ -534,7 +458,7 @@ async function selectInteractively(ctx: PurgeContext): Promise<Target[]> {
   const usable = TARGETS.filter((t) => t.available(ctx))
   printHeader('Select purge targets')
   if (!ctx.composeAvailable) {
-    printWarn(`Docker Compose unavailable; stack, volumes, logs, and examples are hidden. ${composeUnavailableReason()}.`)
+    printWarn(`Docker Compose unavailable; stack, volumes, and logs are hidden. ${composeUnavailableReason()}.`)
   }
   process.stdout.write(
     style.label(
@@ -595,7 +519,6 @@ function isDestructive(t: Target): boolean {
     t.id === 'secrets' ||
     t.id === 'web' ||
     t.id === 'config' ||
-    t.id === 'examples' ||
     t.id === 'images' ||
     t.id === 'binary'
   )
@@ -637,7 +560,7 @@ export async function purgeCommand(argv: string[]): Promise<void> {
   } else if (requested.includes('all')) {
     targets = expandAll(safe).filter((t) => t.available(ctx))
     if (!ctx.composeAvailable) {
-      printWarn(`Docker Compose unavailable; skipping stack, volumes, logs, and examples. ${composeUnavailableReason()}.`)
+      printWarn(`Docker Compose unavailable; skipping stack, volumes, and logs. ${composeUnavailableReason()}.`)
     }
   } else {
     targets = []

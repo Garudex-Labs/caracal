@@ -4,20 +4,21 @@ description: Exit behavior for top-level caracal runtime CLI commands and web co
 pageType: reference
 ---
 
-Top-level `caracal` commands are limited to local runtime lifecycle, status, upgrade, purge, `run`, and web console launch.
+Top-level `caracal` commands are limited to local runtime lifecycle, status, upgrade, purge, Console sign-in admission (`allowlist`), `run`, and web console launch.
 
 ## Exit Behavior
 
-| Command | Success | Failure |
-| --- | --- | --- |
-| `caracal up` | `0` after stack start succeeds. | Non-zero when Compose/build/start fails. |
-| `caracal down` | `0` after stack stop succeeds. | Non-zero when Compose stop fails. |
-| `caracal status` | `0` when health probes pass. | `1` when service health fails. |
-| `caracal status --ready` | `0` when readiness probes pass. | `1` when dependency readiness fails. |
-| `caracal upgrade` | `0` after runtime assets upgrade successfully. | Non-zero when download, verification, or replacement fails. |
-| `caracal purge` | `0` after selected state is removed. | Non-zero when cleanup fails. |
-| `caracal run -- <command>` | Child process exit code after credentials are acquired. | Non-zero before spawn when config, credential exchange, step-up, or governance fails. |
-| `caracal web` | `0` after the web console exits cleanly. | Non-zero when launcher, port binding, build, session backend, or required stack checks fail. |
+| Command                                                       | Success                                                                                              | Failure                                                                                                               |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `caracal up`                                                  | `0` after stack start succeeds.                                                                      | Non-zero when Compose/build/start fails.                                                                              |
+| `caracal down`                                                | `0` after stack stop succeeds.                                                                       | Non-zero when Compose stop fails.                                                                                     |
+| `caracal status`                                              | `0` when health probes pass.                                                                         | `1` when service health fails.                                                                                        |
+| `caracal status --ready`                                      | `0` when readiness probes pass.                                                                      | `1` when dependency readiness fails.                                                                                  |
+| `caracal upgrade`                                             | `0` after images stage, migrations apply, services roll, and readiness passes.                       | Non-zero when image staging, migration, the roll, or the readiness gate fails.                                        |
+| `caracal purge`                                               | `0` after selected state is removed.                                                                 | Non-zero when cleanup fails.                                                                                          |
+| `caracal allowlist <add\|remove\|lock\|unlock\|list> [email]` | `0` after the entry change or listing succeeds, including no-op repeats.                             | `1` on an unknown subcommand, malformed entry, missing entry, locked entry on `add`, or an unreadable allowlist file. |
+| `caracal run -- <command>`                                    | Child process exit code after credentials are acquired; `128 + N` when the child dies from signal N. | `1` before spawn when config, credential exchange, or step-up fails; `127` when the command cannot be spawned.        |
+| `caracal web`                                                 | `0` after the web console exits cleanly.                                                             | Non-zero when launcher, port binding, build, session backend, or required stack checks fail.                          |
 
 ## Structured Output
 

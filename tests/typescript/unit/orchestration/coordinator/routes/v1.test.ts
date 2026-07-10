@@ -18,8 +18,11 @@ function buildApp() {
   } as never)
   app.addHook('preHandler', async (req) => {
     ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
-      zoneId: 'z1', scopes: ['coordinator.admin'],
-      subject: 'test', clientId: 'app-1', sessionId: 'sid-test',
+      zoneId: 'z1',
+      scopes: ['coordinator.admin'],
+      subject: 'test',
+      clientId: 'app-1',
+      sessionId: 'sid-test',
     }
   })
 
@@ -50,8 +53,11 @@ function buildFacadeWithRoutes(routes: {
   } as never)
   app.addHook('preHandler', async (req) => {
     ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
-      zoneId: 'z1', scopes: ['coordinator.admin'],
-      subject: 'test', clientId: 'app-1', sessionId: 'sid-test',
+      zoneId: 'z1',
+      scopes: ['coordinator.admin'],
+      subject: 'test',
+      clientId: 'app-1',
+      sessionId: 'sid-test',
     }
   })
   app.delete('/zones/:zoneId/agents/:id', routes.deleteAgent ?? (async (_req, reply) => reply.code(204).send()))
@@ -65,7 +71,8 @@ describe('POST /v1/begin', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/begin',
+      method: 'POST',
+      url: '/v1/begin',
       payload: { zone_id: 'z1', application_id: 'app-1', subject_session_id: 'sess-1' },
     })
     expect(res.statusCode).toBe(201)
@@ -78,7 +85,8 @@ describe('POST /v1/end', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/end',
+      method: 'POST',
+      url: '/v1/end',
       payload: { zone_id: 'z1', agent_session_id: 'sess-1' },
     })
     expect(res.statusCode).toBe(204)
@@ -86,15 +94,16 @@ describe('POST /v1/end', () => {
 
   it('forwards non-empty errors from the underlying terminate route', async () => {
     const app = buildFacadeWithRoutes({
-      deleteAgent: async (_req, reply) => reply.code(404).send({ error: 'agent_not_found' }),
+      deleteAgent: async (_req, reply) => reply.code(404).send({ error: 'session_not_found' }),
     })
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/end',
+      method: 'POST',
+      url: '/v1/end',
       payload: { zone_id: 'z1', agent_session_id: 'missing', reason: 'operator requested' },
     })
     expect(res.statusCode).toBe(404)
-    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(res.json()).toEqual({ error: 'session_not_found' })
   })
 })
 
@@ -103,11 +112,14 @@ describe('POST /v1/exchange', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/exchange',
+      method: 'POST',
+      url: '/v1/exchange',
       payload: {
         zone_id: 'z1',
-        source_session_id: 's1', target_session_id: 's2',
-        issuer_application_id: 'app-1', receiver_application_id: 'app-2',
+        source_session_id: 's1',
+        target_session_id: 's2',
+        issuer_application_id: 'app-1',
+        receiver_application_id: 'app-2',
         scopes: ['read'],
         expires_at: new Date(Date.now() + 60_000).toISOString(),
       },
@@ -125,7 +137,8 @@ describe('POST /v1/spawn-child', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/spawn-child',
+      method: 'POST',
+      url: '/v1/spawn-child',
       payload: {
         zone_id: 'z1',
         application_id: 'app-1',
@@ -143,7 +156,8 @@ describe('POST /v1/delegate-to-existing-agent', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/delegate-to-existing-agent',
+      method: 'POST',
+      url: '/v1/delegate-to-existing-agent',
       payload: {
         zone_id: 'z1',
         from_agent_session_id: 'source-1',
@@ -166,7 +180,8 @@ describe('POST /v1/revoke-delegation', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/revoke-delegation',
+      method: 'POST',
+      url: '/v1/revoke-delegation',
       payload: { zone_id: 'z1', delegation_edge_id: 'edge-1' },
     })
     expect(res.statusCode).toBe(200)
@@ -179,7 +194,8 @@ describe('POST /v1/revoke-delegation', () => {
     })
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/revoke-delegation',
+      method: 'POST',
+      url: '/v1/revoke-delegation',
       payload: { zone_id: 'z1', delegation_edge_id: 'edge-1' },
     })
     expect(res.statusCode).toBe(204)
@@ -188,6 +204,28 @@ describe('POST /v1/revoke-delegation', () => {
 })
 
 describe('POST /v1/verify', () => {
+  it('accepts the canonical require_session verifier option', async () => {
+    const app = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/verify',
+      payload: { token: 'not-a-jwt', zone_id: 'z1', require_session: true },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('rejects the removed require_agent verifier option', async () => {
+    const app = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/verify',
+      payload: { token: 'not-a-jwt', zone_id: 'z1', require_agent: true },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('rate-limits verification separately from the v1 façade limit', async () => {
     const app = Fastify({ logger: false })
     app.decorate('db', {} as never)
@@ -197,14 +235,18 @@ describe('POST /v1/verify', () => {
     } as never)
     app.addHook('preHandler', async (req) => {
       ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
-        zoneId: 'z1', scopes: ['coordinator.admin'],
-        subject: 'test', clientId: 'app-1', sessionId: 'sid-test',
+        zoneId: 'z1',
+        scopes: ['coordinator.admin'],
+        subject: 'test',
+        clientId: 'app-1',
+        sessionId: 'sid-test',
       }
     })
     app.register(v1Routes)
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/verify',
+      method: 'POST',
+      url: '/v1/verify',
       payload: { token: 'not-a-jwt' },
     })
     expect(res.statusCode).toBe(429)
@@ -214,7 +256,7 @@ describe('POST /v1/verify', () => {
   it('rejects when no token provided', async () => {
     const app = buildApp()
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/verify', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/verify', payload: { zone_id: 'z1' } })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toMatchObject({ valid: false, error: 'missing_token' })
   })
@@ -223,8 +265,9 @@ describe('POST /v1/verify', () => {
     const app = buildApp()
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/verify',
-      payload: { token: 'not-a-jwt' },
+      method: 'POST',
+      url: '/v1/verify',
+      payload: { token: 'not-a-jwt', zone_id: 'z1' },
     })
     expect(res.statusCode).toBe(401)
     const body = res.json()
@@ -243,14 +286,18 @@ describe('rate limiting', () => {
     } as never)
     app.addHook('preHandler', async (req) => {
       ;(req as unknown as { caracalAuth: unknown }).caracalAuth = {
-        zoneId: 'z1', scopes: ['coordinator.admin'],
-        subject: 'test', clientId: 'app-1', sessionId: 'sid-test',
+        zoneId: 'z1',
+        scopes: ['coordinator.admin'],
+        subject: 'test',
+        clientId: 'app-1',
+        sessionId: 'sid-test',
       }
     })
     app.register(v1Routes)
     await app.ready()
     const res = await app.inject({
-      method: 'POST', url: '/v1/begin',
+      method: 'POST',
+      url: '/v1/begin',
       payload: { zone_id: 'z1', application_id: 'app-1', subject_session_id: 'sess-1' },
     })
     expect(res.statusCode).toBe(429)

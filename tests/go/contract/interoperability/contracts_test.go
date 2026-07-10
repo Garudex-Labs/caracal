@@ -18,18 +18,22 @@ import (
 )
 
 type jwtClaims struct {
-	Iss        string   `json:"iss"`
-	Sub        string   `json:"sub"`
-	Aud        string   `json:"aud"`
-	ZoneID     string   `json:"zone_id"`
-	ClientID   string   `json:"client_id"`
-	Sid        string   `json:"sid"`
-	RootSid    string   `json:"root_sid"`
-	Use        string   `json:"use"`
-	SubType    string   `json:"sub_type"`
-	Target     []string `json:"target"`
-	HopCount   int      `json:"hop_count"`
-	GraphEpoch int64    `json:"delegation_graph_epoch"`
+	Iss             string   `json:"iss"`
+	Sub             string   `json:"sub"`
+	Aud             string   `json:"aud"`
+	ZoneID          string   `json:"zone_id"`
+	ClientID        string   `json:"client_id"`
+	Sid             string   `json:"sid"`
+	RootSid         string   `json:"root_sid"`
+	Use             string   `json:"use"`
+	SubType         string   `json:"sub_type"`
+	Target          []string `json:"target"`
+	SessionID       string   `json:"agent_session_id"`
+	DelegationID    string   `json:"delegation_edge_id"`
+	SourceSessionID string   `json:"source_session_id"`
+	TargetSessionID string   `json:"target_session_id"`
+	HopCount        int      `json:"hop_count"`
+	GraphEpoch      int64    `json:"delegation_graph_epoch"`
 }
 
 func fixturePath(t *testing.T, name string) string {
@@ -63,6 +67,15 @@ func TestJWTClaimsFixturePreservesVerifierContract(t *testing.T) {
 	if claims.ZoneID == "" || claims.ClientID == "" || claims.Sid == "" || claims.RootSid == "" {
 		t.Fatalf("missing authority anchors: %#v", claims)
 	}
+	if claims.Sid != "authority-record-1" || claims.RootSid != "authority-record-root" {
+		t.Fatalf("unexpected Authority record anchors: sid=%q root_sid=%q", claims.Sid, claims.RootSid)
+	}
+	if claims.SessionID != "session-child" || claims.DelegationID != "delegation-1" {
+		t.Fatalf("unexpected governed anchors: session=%q delegation=%q", claims.SessionID, claims.DelegationID)
+	}
+	if claims.SourceSessionID != "session-parent" || claims.TargetSessionID != "session-child" {
+		t.Fatalf("unexpected governed Session endpoints: source=%q target=%q", claims.SourceSessionID, claims.TargetSessionID)
+	}
 	if claims.Use != "resource" || claims.SubType != "user" {
 		t.Fatalf("unexpected token class: use=%q sub_type=%q", claims.Use, claims.SubType)
 	}
@@ -80,7 +93,7 @@ func TestTraceContextFixtureUsesW3CHeaders(t *testing.T) {
 	if !strings.HasPrefix(headers["traceparent"], "00-") || len(headers["traceparent"]) != 55 {
 		t.Fatalf("invalid traceparent fixture: %q", headers["traceparent"])
 	}
-	if !strings.Contains(headers["baggage"], "caracal.agent_session=") || !strings.Contains(headers["baggage"], "caracal.hop=1") {
+	if !strings.Contains(headers["baggage"], "caracal.agent_session=session-child") || !strings.Contains(headers["baggage"], "caracal.hop=1") {
 		t.Fatalf("missing registered Caracal baggage keys: %q", headers["baggage"])
 	}
 	if headers["tracestate"] == "" {
@@ -111,7 +124,7 @@ func TestProviderPluginManifestKeepsCredentialsGatewayOnly(t *testing.T) {
 	}
 }
 
-func TestAgentConnectorManifestLabelsEnforcement(t *testing.T) {
+func TestAgentFrameworkConnectorManifestLabelsEnforcement(t *testing.T) {
 	manifest := readFixture[map[string]any](t, "agent-connector-manifest.valid.json")
 	audit, ok := manifest["audit"].(map[string]any)
 	if !ok || audit["labels_enforcement_mode"] != true {
@@ -149,4 +162,3 @@ func TestStreamSigCanonicalizeVectors(t *testing.T) {
 		})
 	}
 }
-

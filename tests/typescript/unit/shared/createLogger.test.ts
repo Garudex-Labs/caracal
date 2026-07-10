@@ -32,7 +32,16 @@ describe('createLogger', () => {
     const log = createLogger('svc', { level: 'info', stream, hostname: 'h1', pid: 7, version: '1.2.3', env: 'test' })
     log.info('hello', { a: 1 })
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({ level: 'info', service: 'svc', hostname: 'h1', pid: 7, version: '1.2.3', env: 'test', msg: 'hello', a: 1 })
+    expect(lines[0]).toMatchObject({
+      level: 'info',
+      service: 'svc',
+      hostname: 'h1',
+      pid: 7,
+      version: '1.2.3',
+      env: 'test',
+      msg: 'hello',
+      a: 1,
+    })
   })
 
   it('drops records below the configured level', () => {

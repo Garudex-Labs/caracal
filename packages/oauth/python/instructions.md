@@ -4,7 +4,7 @@
 - Covers the `caracalai-oauth` Python package under `packages/oauth/python/`.
 
 ## Architecture Design
-- The package provides an httpx-backed RFC 8693 token-exchange client, exchange types, interaction-required errors, and in-memory cache behavior.
+- The package provides an httpx-backed RFC 8693 token-exchange client, a client-secret exchanger with mandate caching and approval polling, exchange types, typed token-exchange errors, exchange events, and in-memory cache behavior.
 
 ## Required
 - Must require Python 3.14+ through `pyproject.toml`.

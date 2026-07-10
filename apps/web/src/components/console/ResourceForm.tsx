@@ -2,14 +2,18 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file builds the create and edit dialog for Gateway-routed resources, covering routing, binding, scopes, and operation authority.
+This file builds the create and edit dialog for Gateway-routed resources, covering routing, scopes, and operation authority.
 */
 import { useMemo, useState } from "react";
 
-import { Button, Disclosure, Field, Modal, Select } from "@/components/ui";
-import { validateResourceIdentifier } from "@/platform/api/validation";
+import { Button, Disclosure, Field, InfoHint, Modal, Select } from "@/components/ui";
+import {
+  RESOURCE_IDENTIFIER_PREFIX,
+  stripResourceIdentifierPrefix,
+  validateResourceIdentifier,
+} from "@/platform/api/validation";
+import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 import type {
-  Application,
   Provider,
   Resource,
   ResourceInput,
@@ -32,13 +36,7 @@ interface OperationRow {
 
 type FieldErrors = Partial<
   Record<
-    | "name"
-    | "scopes"
-    | "upstreamUrl"
-    | "gatewayApp"
-    | "credentialProvider"
-    | "identifier"
-    | "operations",
+    "name" | "scopes" | "upstreamUrl" | "credentialProvider" | "identifier" | "operations",
     string
   >
 >;
@@ -57,7 +55,6 @@ interface ResourceFormProps {
   open: boolean;
   mode: "create" | "edit";
   resource?: Resource;
-  applications: Application[];
   providers: Provider[];
   busy: boolean;
   onClose: () => void;
@@ -74,7 +71,6 @@ export function ResourceFormModal(props: ResourceFormProps) {
 function ResourceFormBody({
   mode,
   resource,
-  applications,
   providers,
   busy,
   onClose,
@@ -82,20 +78,23 @@ function ResourceFormBody({
 }: ResourceFormProps) {
   const isEdit = mode === "edit";
 
-  const managedApps = useMemo(
-    () => applications.filter((app) => app.registration_method === "managed"),
-    [applications],
-  );
-
   const [name, setName] = useState(resource?.name ?? "");
-  const [identifier, setIdentifier] = useState(resource?.identifier ?? "");
+  const [identifier, setIdentifier] = useState(
+    stripResourceIdentifierPrefix(resource?.identifier ?? ""),
+  );
   const [upstreamUrl, setUpstreamUrl] = useState(resource?.upstream_url ?? "");
-  const [scopesText, setScopesText] = useState((resource?.scopes ?? []).join(", "));
+  // Operation rows carry their own scopes, so under operation enforcement the text
+  // field seeds with only the extras that no operation references.
+  const [scopesText, setScopesText] = useState(() => {
+    const declared = resource?.scopes ?? [];
+    if ((resource?.operation_enforcement ?? "enforced") !== "enforced") {
+      return declared.join(", ");
+    }
+    const referenced = new Set((resource?.operations ?? []).map((op) => op.scope));
+    return declared.filter((scope) => !referenced.has(scope)).join(", ");
+  });
   // When the zone has exactly one candidate the choice is unambiguous, so the dialog
   // preselects it; anything less certain stays a deliberate operator decision.
-  const [gatewayApp, setGatewayApp] = useState(
-    resource?.gateway_application_id ?? (managedApps.length === 1 ? managedApps[0].id : ""),
-  );
   const [credentialProvider, setCredentialProvider] = useState(
     resource?.credential_provider_id ?? (providers.length === 1 ? providers[0].id : ""),
   );
@@ -107,7 +106,7 @@ function ResourceFormBody({
   );
   const [touched, setTouched] = useState(false);
 
-  const scopes = useMemo(
+  const declaredScopes = useMemo(
     () =>
       scopesText
         .split(",")
@@ -116,15 +115,36 @@ function ResourceFormBody({
     [scopesText],
   );
 
+  // The grantable set unions operation-row scopes with the extras field, so every
+  // operation scope is declared by construction as the control plane requires.
+  const grantable = useMemo(() => {
+    if (enforcement !== "enforced") return declaredScopes;
+    const set = new Set<string>();
+    for (const op of operations) {
+      const scope = op.scope.trim();
+      if (scope) set.add(scope);
+    }
+    for (const scope of declaredScopes) set.add(scope);
+    return [...set];
+  }, [enforcement, operations, declaredScopes]);
+
   const slug = slugOf(name);
-  const previewIdentifier = identifier.trim() || (slug ? `resource://${slug}` : "");
+  const overrideSlug = identifier.trim();
+  const previewSlug =
+    overrideSlug && !validateResourceIdentifier(overrideSlug) ? overrideSlug : slug;
+  const previewIdentifier = previewSlug ? `${RESOURCE_IDENTIFIER_PREFIX}${previewSlug}` : "";
 
   const errors = useMemo<FieldErrors>(() => {
     const next: FieldErrors = {};
     if (!name.trim()) next.name = "Name is required.";
-    if (scopes.length === 0) next.scopes = "Declare at least one scope.";
+    if (grantable.length === 0) {
+      next.scopes =
+        enforcement === "enforced"
+          ? "Declare at least one operation or scope."
+          : "Declare at least one scope.";
+    }
     const upstream = upstreamUrl.trim();
-    // The control plane requires the full Gateway binding for every resource.
+    // The control plane requires upstream routing for every resource.
     if (!upstream) {
       next.upstreamUrl = "Upstream URL is required.";
     } else {
@@ -137,9 +157,27 @@ function ResourceFormBody({
         next.upstreamUrl = "Enter a valid http(s) URL.";
       }
     }
-    if (!gatewayApp) next.gatewayApp = "Select the managed application that fronts this resource.";
     if (!credentialProvider) {
       next.credentialProvider = "Select the provider that supplies upstream credentials.";
+    }
+    // A static credential's host guardrail is enforced by the Gateway per request, so a
+    // mismatch configured here would only surface as a 502 at call time. Checking it in
+    // the form turns that runtime failure into an immediate, fixable field error.
+    if (upstream && !next.upstreamUrl && credentialProvider) {
+      const provider = providers.find((p) => p.id === credentialProvider);
+      const guardrailed =
+        provider?.kind === "bearer_token" ||
+        provider?.kind === "api_key" ||
+        provider?.kind === "http_basic";
+      const hosts = Array.isArray(provider?.config_json?.allowed_token_hosts)
+        ? (provider.config_json.allowed_token_hosts as string[])
+        : [];
+      if (guardrailed && hosts.length > 0) {
+        const host = new URL(upstream).hostname.toLowerCase();
+        if (!hosts.some((allowed) => allowed.trim().toLowerCase() === host)) {
+          next.upstreamUrl = `${provider.name} only forwards its credential to ${hosts.join(", ")}. Add ${host} to that provider's allowed upstream hosts, or change the URL.`;
+        }
+      }
     }
     const identifierError = validateResourceIdentifier(identifier);
     if (identifierError) next.identifier = identifierError;
@@ -148,16 +186,12 @@ function ResourceFormBody({
       for (const op of operations) {
         const method = op.method.trim();
         const path = op.path.trim();
-        if (!method || !path) {
+        if (!method || !path || !op.scope.trim()) {
           next.operations = "Complete or remove unfinished operation rows.";
           break;
         }
         if (!path.startsWith("/")) {
           next.operations = `Path "${op.path}" must start with /.`;
-          break;
-        }
-        if (!scopes.includes(op.scope)) {
-          next.operations = `Scope "${op.scope}" is not a declared scope.`;
           break;
         }
         const key = `${method.toUpperCase()} ${path}`;
@@ -171,10 +205,10 @@ function ResourceFormBody({
     return next;
   }, [
     name,
-    scopes,
+    grantable,
     upstreamUrl,
-    gatewayApp,
     credentialProvider,
+    providers,
     identifier,
     enforcement,
     operations,
@@ -187,26 +221,30 @@ function ResourceFormBody({
     if (Object.keys(errors).length > 0) return;
     const input: ResourceInput = {
       name: name.trim(),
-      scopes,
+      scopes: grantable,
       operation_enforcement: enforcement,
       operations:
         enforcement === "enforced"
           ? operations.map((op) => ({
               method: op.method.trim().toUpperCase(),
               path: op.path.trim(),
-              scope: op.scope,
+              scope: op.scope.trim(),
             }))
           : [],
       upstream_url: upstreamUrl.trim(),
-      gateway_application_id: gatewayApp,
       credential_provider_id: credentialProvider,
-      ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
+      ...(identifier.trim()
+        ? { identifier: `${RESOURCE_IDENTIFIER_PREFIX}${identifier.trim()}` }
+        : {}),
     };
     onSubmit(input);
   }
 
   function addOperation() {
-    setOperations((prev) => [...prev, { method: "GET", path: "", scope: scopes[0] ?? "" }]);
+    setOperations((prev) => [
+      ...prev,
+      { method: "GET", path: "", scope: prev.at(-1)?.scope ?? "" },
+    ]);
   }
 
   function updateOperation(index: number, patch: Partial<OperationRow>) {
@@ -217,7 +255,7 @@ function ResourceFormBody({
     setOperations((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const missingPrereqs = !isEdit && (managedApps.length === 0 || providers.length === 0);
+  const missingPrereqs = !isEdit && providers.length === 0;
 
   return (
     <Modal
@@ -226,8 +264,8 @@ function ResourceFormBody({
       title={isEdit ? "Edit resource" : "New resource"}
       description={
         isEdit
-          ? "Update routing, binding, and operation authority for this upstream."
-          : "Register a protected upstream for the Gateway to authorize in this zone."
+          ? "Update routing and authorization for this upstream."
+          : "Register a protected upstream in this zone."
       }
       footer={
         <>
@@ -243,11 +281,7 @@ function ResourceFormBody({
       <div className="flex flex-col gap-5">
         {missingPrereqs ? (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {managedApps.length === 0 && providers.length === 0
-              ? "This zone has no managed application or credential provider yet. Create both before binding a resource."
-              : managedApps.length === 0
-                ? "This zone has no managed application yet. Create one so the Gateway can front this resource."
-                : "This zone has no credential provider yet. Create one so the Gateway can call the upstream."}
+            This zone has no provider yet.
           </div>
         ) : null}
 
@@ -283,28 +317,6 @@ function ResourceFormBody({
             />
             <div>
               <Select
-                label="Gateway application"
-                info="Managed application identity the Gateway authorizes requests as before they reach the upstream."
-                value={gatewayApp}
-                onChange={(e) => setGatewayApp(e.target.value)}
-              >
-                <option value="">
-                  {managedApps.length === 0
-                    ? "No managed applications in this zone"
-                    : "Select a managed application…"}
-                </option>
-                {managedApps.map((app) => (
-                  <option key={app.id} value={app.id}>
-                    {app.name}
-                  </option>
-                ))}
-              </Select>
-              {show("gatewayApp") ? (
-                <p className="mt-1 text-xs text-destructive">{show("gatewayApp")}</p>
-              ) : null}
-            </div>
-            <div>
-              <Select
                 label="Credential provider"
                 info="Provider that supplies upstream credentials at runtime when the Gateway calls this resource."
                 value={credentialProvider}
@@ -315,7 +327,7 @@ function ResourceFormBody({
                 </option>
                 {providers.map((provider) => (
                   <option key={provider.id} value={provider.id}>
-                    {provider.name}
+                    {provider.name} · {PROVIDER_KIND_LABEL[provider.kind]}
                   </option>
                 ))}
               </Select>
@@ -331,61 +343,37 @@ function ResourceFormBody({
             Authorization
           </h3>
           <div className="mt-3 flex flex-col gap-4">
-            <div>
-              <Field
-                label="Scopes"
-                info="Grantable permissions this resource exposes. Policies grant these to applications; operations below map to them."
-                placeholder={slug ? `${slug}:read, ${slug}:write` : "pipernet:read, pipernet:write"}
-                hint="Comma-separated. At least one is required."
-                value={scopesText}
-                error={show("scopes")}
-                onChange={(e) => setScopesText(e.target.value)}
-              />
-              {scopes.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {scopes.map((scope) => (
-                    <span
-                      key={scope}
-                      className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
-                    >
-                      {scope}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
             <Select
               label="Enforcement"
-              info="Enforced authorizes only the listed operations. Transport uniform makes one decision for the whole upstream surface (MCP-style)."
+              info="Listed operations only: each call must match a declared method, path, and scope; fits REST-style APIs. Any operation: granted scopes are the only boundary with no operation list; fits MCP servers, streaming transports, and upstreams that enforce their own authorization."
               value={enforcement}
-              onChange={(e) => setEnforcement(e.target.value as ResourceOperationEnforcement)}
+              onChange={(e) => {
+                const next = e.target.value as ResourceOperationEnforcement;
+                // Switching to uniform folds operation scopes into the text field so
+                // the grantable set survives the mode change.
+                if (next === "transport_uniform") setScopesText(grantable.join(", "));
+                setEnforcement(next);
+              }}
             >
-              <option value="enforced">Enforced — only listed operations are allowed</option>
-              <option value="transport_uniform">
-                Transport uniform — one decision covers the whole surface
-              </option>
+              <option value="enforced">Listed operations only</option>
+              <option value="transport_uniform">Any operation</option>
             </Select>
 
             {enforcement === "enforced" ? (
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Authorized operations</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={addOperation}
-                    disabled={scopes.length === 0}
-                  >
-                    Add operation
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-sm font-medium text-foreground">Operations</span>
+                    <InfoHint label="Calls must match a listed method, path, and scope. Anything else is denied." />
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={addOperation}>
+                    Add
                   </Button>
                 </div>
-                {scopes.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Declare scopes first.</p>
-                ) : operations.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    The Gateway denies every request until an operation is listed.
-                  </p>
+                {operations.length === 0 ? (
+                  <div className="grid h-9 place-items-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+                    No operations
+                  </div>
                 ) : (
                   <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-[6rem_1fr_8rem_2.25rem] gap-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -416,18 +404,14 @@ function ResourceFormBody({
                           aria-label="Path"
                           className={`${opFieldClass} min-w-0`}
                         />
-                        <select
+                        <input
                           value={op.scope}
                           onChange={(e) => updateOperation(index, { scope: e.target.value })}
+                          list="resource-operation-scopes"
+                          placeholder={slug ? `${slug}:read` : "pipernet:read"}
                           aria-label="Scope"
-                          className={opFieldClass}
-                        >
-                          {scopes.map((scope) => (
-                            <option key={scope} value={scope}>
-                              {scope}
-                            </option>
-                          ))}
-                        </select>
+                          className={`${opFieldClass} min-w-0`}
+                        />
                         <button
                           type="button"
                           onClick={() => removeOperation(index)}
@@ -452,18 +436,54 @@ function ResourceFormBody({
                         <option key={method} value={method} />
                       ))}
                     </datalist>
+                    <datalist id="resource-operation-scopes">
+                      {grantable.map((scope) => (
+                        <option key={scope} value={scope} />
+                      ))}
+                    </datalist>
                   </div>
                 )}
                 {show("operations") ? (
                   <p className="text-xs text-destructive">{show("operations")}</p>
                 ) : null}
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                One authorization decision covers the transport. Individual operations are not
-                listed.
-              </p>
-            )}
+            ) : null}
+
+            <div>
+              <Field
+                label={enforcement === "enforced" ? "Additional scopes" : "Scopes"}
+                info={
+                  enforcement === "enforced"
+                    ? "Extra grantable scopes beyond the ones operations declare. Comma-separated."
+                    : "Grantable permissions this resource exposes. Policies grant these to applications. Comma-separated."
+                }
+                placeholder={
+                  enforcement === "enforced"
+                    ? slug
+                      ? `${slug}:admin`
+                      : "pipernet:admin"
+                    : slug
+                      ? `${slug}:read, ${slug}:write`
+                      : "pipernet:read, pipernet:write"
+                }
+                hint={enforcement === "enforced" ? "Optional" : undefined}
+                value={scopesText}
+                error={show("scopes")}
+                onChange={(e) => setScopesText(e.target.value)}
+              />
+              {grantable.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {grantable.map((scope) => (
+                    <span
+                      key={scope}
+                      className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                    >
+                      {scope}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </section>
 
@@ -471,22 +491,19 @@ function ResourceFormBody({
           title="Advanced"
           description={
             isEdit
-              ? "Identifier changes rewrite the Gateway binding."
+              ? "Identifier changes rewrite the audience that grants, policies, and tokens reference."
               : "Override the generated identifier."
           }
         >
           <Field
             label="Identifier"
-            info="Stable audience URI used in tokens, grants, and policy references."
-            placeholder="resource://pipernet"
-            hint={
-              isEdit
-                ? "Grants and policies reference this URI; changing it breaks them until they are updated."
-                : "Blank uses the value generated from the name."
-            }
+            info="Stable audience URI used in tokens, grants, and policy references. The resource:// namespace is fixed, so only the slug varies. Blank uses the slug generated from the name."
+            prefix="resource://"
+            placeholder={slug || "pipernet"}
+            hint={isEdit ? "Grants and policies reference this URI." : undefined}
             value={identifier}
             error={show("identifier")}
-            onChange={(e) => setIdentifier(e.target.value)}
+            onChange={(e) => setIdentifier(stripResourceIdentifierPrefix(e.target.value))}
           />
         </Disclosure>
       </div>

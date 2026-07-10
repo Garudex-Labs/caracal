@@ -1,526 +1,239 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for runtime config path precedence and production service URL strictness.
+// Unit tests for workload identity loading, secret file handling, and production service URL strictness.
 
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_API_URL,
   DEFAULT_STS_URL,
-  RuntimeConfigPermissionError,
+  RuntimeConfigMissingError,
   RuntimeConfigValidationError,
-  assertRuntimeConfigFileSecure,
-  defaultAppClientSecretFilePath,
-  defaultRunCredentialsFilePath,
-  defaultRuntimeConfigPath,
-  loadRuntimeConfig,
   ServiceUrlMissingError,
-  resolveRuntimeConfigPath,
+  assertCredentialEnvName,
+  defaultWorkloadSecretFilePath,
+  loadRuntimeIdentity,
   resolveServiceUrl,
 } from '../../../../packages/engine/src/runtimeConfig.ts'
 
 let root: string
-let cwdBefore: string
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'caracal-rtcfg-'))
-  cwdBefore = process.cwd()
   process.env.XDG_CONFIG_HOME = join(root, 'xdg-default')
 })
 
 afterEach(() => {
-  process.chdir(cwdBefore)
   rmSync(root, { recursive: true, force: true })
-  delete process.env.CARACAL_CONFIG
   delete process.env.CARACAL_STS_URL
   delete process.env.CARACAL_ZONE_URL
-  delete process.env.CARACAL_ZONE_ID
-  delete process.env.CARACAL_APPLICATION_ID
-  delete process.env.CARACAL_APP_CLIENT_SECRET
-  delete process.env.CARACAL_APP_CLIENT_SECRET_FILE
-  delete process.env.CARACAL_RUN_CREDENTIALS
-  delete process.env.CARACAL_RUN_CREDENTIALS_FILE
-  delete process.env.CARACAL_RUN_CONTINUE_ON_FAILURE
-  delete process.env.CARACAL_RUN_TTL_SECONDS
-  delete process.env.CARACAL_MCP_GOVERNANCE_MODE
+  delete process.env.CARACAL_WORKLOAD_ID
+  delete process.env.CARACAL_WORKLOAD_SECRET
+  delete process.env.CARACAL_WORKLOAD_SECRET_FILE
   delete process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS
-  delete process.env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG
-  delete process.env.CARACAL_ALLOW_REQUIRED_CREDENTIAL_FAILURE
-  delete process.env.PWD
-  delete process.env.INIT_CWD
   delete process.env.XDG_CONFIG_HOME
   delete process.env.CARACAL_API_URL
   delete process.env.NODE_ENV
+  delete process.env.CARACAL_ENV
 })
 
-describe('resolveRuntimeConfigPath', () => {
-  it('uses CARACAL_CONFIG first when present', () => {
-    const explicit = join(root, 'explicit.toml')
-    writeFileSync(explicit, 'zone_id = "z1"\n')
-    process.env.CARACAL_CONFIG = explicit
+function writeSecretFile(path: string, value: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, value)
+  chmodSync(path, 0o600)
+}
 
-    expect(resolveRuntimeConfigPath()).toBe(explicit)
+describe('loadRuntimeIdentity', () => {
+  it('returns undefined when no workload id is set and identity is optional', () => {
+    expect(loadRuntimeIdentity(false)).toBeUndefined()
   })
 
-  it('does not load project-local config from cwd, PWD, or INIT_CWD', () => {
-    const cwdDir = join(root, 'cwd')
-    const pwdDir = join(root, 'pwd')
-    const initDir = join(root, 'init')
-    mkdirSync(cwdDir, { recursive: true })
-    mkdirSync(pwdDir, { recursive: true })
-    mkdirSync(initDir, { recursive: true })
-    process.chdir(cwdDir)
-    process.env.PWD = pwdDir
-    process.env.INIT_CWD = initDir
-
-    writeFileSync(join(cwdDir, 'caracal.toml'), 'zone_id = "cwd"\n')
-    writeFileSync(join(pwdDir, 'caracal.toml'), 'zone_id = "pwd"\n')
-    writeFileSync(join(initDir, 'caracal.toml'), 'zone_id = "init"\n')
-
-    expect(resolveRuntimeConfigPath()).toBeUndefined()
+  it('throws RuntimeConfigMissingError when identity is required but absent', () => {
+    expect(() => loadRuntimeIdentity(true)).toThrow(RuntimeConfigMissingError)
+    expect(() => loadRuntimeIdentity(true)).toThrow(/CARACAL_WORKLOAD_ID/)
   })
 
-  it('falls back to XDG config path when explicit config is absent', () => {
-    const cwdDir = join(root, 'cwd')
-    const xdg = join(root, 'xdg')
-    const xdgConfig = join(xdg, 'caracal', 'caracal.toml')
-    mkdirSync(cwdDir, { recursive: true })
-    mkdirSync(join(xdg, 'caracal'), { recursive: true })
-    process.chdir(cwdDir)
-    process.env.XDG_CONFIG_HOME = xdg
-    writeFileSync(xdgConfig, 'zone_id = "xdg"\n')
-
-    expect(resolveRuntimeConfigPath()).toBe(xdgConfig)
-  })
-
-  it('exposes the XDG config path for generators', () => {
-    const xdg = join(root, 'xdg')
-    process.env.XDG_CONFIG_HOME = xdg
-
-    expect(defaultRuntimeConfigPath()).toBe(join(xdg, 'caracal', 'caracal.toml'))
-  })
-
-  it('returns undefined when no candidates exist', () => {
-    const cwdDir = join(root, 'cwd')
-    mkdirSync(cwdDir, { recursive: true })
-    process.chdir(cwdDir)
-
-    expect(resolveRuntimeConfigPath()).toBeUndefined()
-  })
-
-  it('explains missing runtime config without recommending local TOML generation', () => {
-    let message = ''
-    try {
-      loadRuntimeConfig(true)
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
-    }
-    expect(message).toContain('workload identity from env/secret files')
-    expect(message).not.toMatch(/create .*caracal\.toml/)
-  })
-
-  it('does not fall back when explicit config is missing', () => {
-    const cwdDir = join(root, 'cwd')
-    const xdg = join(root, 'xdg')
-    mkdirSync(cwdDir, { recursive: true })
-    mkdirSync(join(xdg, 'caracal'), { recursive: true })
-    process.chdir(cwdDir)
-    process.env.CARACAL_CONFIG = join(root, 'missing.toml')
-    process.env.XDG_CONFIG_HOME = xdg
-    const cwdConfig = join(cwdDir, 'caracal.toml')
-    const xdgConfig = join(xdg, 'caracal', 'caracal.toml')
-    writeFileSync(cwdConfig, 'zone_id = "cwd"\n')
-    writeFileSync(xdgConfig, 'zone_id = "xdg"\n')
-
-    expect(resolveRuntimeConfigPath()).toBeUndefined()
-  })
-
-  it('rejects group-readable runtime config files on POSIX platforms', () => {
-    if (process.platform === 'win32') return
-    const path = join(root, 'caracal.toml')
-    writeFileSync(path, 'zone_id = "z1"\n')
-    chmodSync(path, 0o640)
-
-    expect(() => assertRuntimeConfigFileSecure(path)).toThrow(RuntimeConfigPermissionError)
-  })
-
-  it('accepts explicit read-only runtime config files for secret mounts', () => {
-    if (process.platform === 'win32') return
-    const path = join(root, 'caracal.toml')
-    writeFileSync(path, 'zone_id = "z1"\n')
-    chmodSync(path, 0o444)
-
-    expect(() => assertRuntimeConfigFileSecure(path, { CARACAL_CONFIG: path })).not.toThrow()
-  })
-
-  it('rejects explicit runtime config files with group or world write bits', () => {
-    if (process.platform === 'win32') return
-    const path = join(root, 'caracal.toml')
-    writeFileSync(path, 'zone_id = "z1"\n')
-    chmodSync(path, 0o666)
-
-    expect(() => assertRuntimeConfigFileSecure(path, { CARACAL_CONFIG: path })).toThrow(RuntimeConfigPermissionError)
-  })
-
-  it('accepts owner-only runtime config files', () => {
-    const path = join(root, 'caracal.toml')
-    writeFileSync(path, 'zone_id = "z1"\n')
-    if (process.platform !== 'win32') chmodSync(path, 0o600)
-
-    expect(() => assertRuntimeConfigFileSecure(path)).not.toThrow()
-  })
-
-  it('loads and validates config files with secret-file references', () => {
-    const secret = join(root, 'client-secret')
-    const cfg = join(root, 'caracal.toml')
-    writeFileSync(secret, 'secret-value\n')
-    writeFileSync(
-      cfg,
-      [
-        'zone_url = "https://sts.example.com"',
-        'zone_id = "zone1"',
-        'application_id = "app1"',
-        `app_client_secret_file = ${JSON.stringify(secret)}`,
-        '[[credentials]]',
-        'env = "RESOURCE_TOKEN"',
-        'resource = "resource://api"',
-        'credential_type = "caracal_mandate"',
-        '',
-      ].join('\n'),
-    )
-    if (process.platform !== 'win32') {
-      chmodSync(secret, 0o444)
-      chmodSync(cfg, 0o600)
-    }
-    process.env.CARACAL_CONFIG = cfg
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: 'https://sts.example.com',
-      zone_id: 'zone1',
-      application_id: 'app1',
-      app_client_secret: 'secret-value',
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api', credential_type: 'caracal_mandate' }],
+  it('loads the identity from environment variables', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    expect(loadRuntimeIdentity(true)).toEqual({
+      sts_url: DEFAULT_STS_URL,
+      workload_id: 'wl1',
+      workload_secret: 'ws_secret',
     })
   })
 
-  it('loads runtime config from env and JSON credential manifests', () => {
-    const secret = join(root, 'client-secret')
-    const credentials = join(root, 'credentials.json')
-    writeFileSync(secret, 'secret-value\n')
-    writeFileSync(
-      credentials,
-      JSON.stringify({
-        credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-        optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional' }],
-        mcp_governance: { mode: 'log' },
-      }),
-    )
-    if (process.platform !== 'win32') {
-      chmodSync(secret, 0o444)
-      chmodSync(credentials, 0o444)
-    }
-    process.env.CARACAL_STS_URL = 'https://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = secret
-    process.env.CARACAL_RUN_CREDENTIALS_FILE = credentials
-    process.env.CARACAL_RUN_CONTINUE_ON_FAILURE = 'true'
-    process.env.CARACAL_RUN_TTL_SECONDS = '600'
-    process.env.CARACAL_MCP_GOVERNANCE_MODE = 'block'
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: 'https://sts.example.com',
-      zone_id: 'zone1',
-      application_id: 'app1',
-      app_client_secret: 'secret-value',
-      continue_on_failure: true,
-      ttl_seconds: 600,
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-      optional_credentials: [{ env: 'OPTIONAL_TOKEN', resource: 'resource://optional', on_failure: 'warn' }],
-      mcp_governance: { mode: 'block' },
-    })
+  it('reads the secret from an explicit secret file', () => {
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file\n')
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_from_file' })
   })
 
-  it('uses local service defaults when runtime URL fields are omitted', () => {
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: DEFAULT_STS_URL,
-      zone_id: 'zone1',
-      application_id: 'app1',
-      app_client_secret: 'secret-value',
-    })
+  it('auto-detects the owner-only default secret file outside production', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
   })
 
-  it('auto-detects local secret and credential files from zone and application', () => {
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    const secret = defaultAppClientSecretFilePath('zone1', 'app1')
-    const credentials = defaultRunCredentialsFilePath('zone1', 'app1')
-    mkdirSync(join(root, 'xdg-default', 'caracal', 'runtime', 'zone1', 'app1'), { recursive: true })
-    writeFileSync(secret, 'secret-value\n')
-    writeFileSync(credentials, JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]))
-    if (process.platform !== 'win32') {
-      chmodSync(secret, 0o600)
-      chmodSync(credentials, 0o600)
-    }
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: DEFAULT_STS_URL,
-      zone_id: 'zone1',
-      application_id: 'app1',
-      app_client_secret: 'secret-value',
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-    })
+  it('sanitizes the workload id into the default secret path', () => {
+    process.env.CARACAL_WORKLOAD_ID = '  wl/value  '
+    const secretPath = defaultWorkloadSecretFilePath('  wl/value  ')
+    expect(secretPath).not.toContain('/value')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
   })
 
-  it('auto-detects local secret and credential files from sanitized generated paths', () => {
-    process.env.CARACAL_ZONE_ID = '__zone id__'
-    process.env.CARACAL_APPLICATION_ID = '  app/value  '
-    const secret = defaultAppClientSecretFilePath('__zone id__', '  app/value  ')
-    const credentials = defaultRunCredentialsFilePath('__zone id__', '  app/value  ')
-    mkdirSync(join(root, 'xdg-default', 'caracal', 'runtime', 'zone_id', 'app_value'), { recursive: true })
-    writeFileSync(secret, 'secret-value\n')
-    writeFileSync(credentials, JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }]))
-    if (process.platform !== 'win32') {
-      chmodSync(secret, 0o600)
-      chmodSync(credentials, 0o600)
-    }
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: DEFAULT_STS_URL,
-      zone_id: '__zone id__',
-      application_id: '  app/value  ',
-      app_client_secret: 'secret-value',
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-    })
-  })
-
-  it('rejects zone and application identity without a client secret', () => {
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-
-    expect(() => loadRuntimeConfig(true)).toThrow(/client secret is required/)
-  })
-
-  it('does not auto-detect local client secrets in production', () => {
+  it('ignores the default secret file in production', () => {
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_STS_URL = 'https://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-    const secret = defaultAppClientSecretFilePath('zone1', 'app1')
-    mkdirSync(join(root, 'xdg-default', 'caracal', 'runtime', 'zone1', 'app1'), { recursive: true })
-    writeFileSync(secret, 'secret-value\n')
-    if (process.platform !== 'win32') chmodSync(secret, 0o600)
-
-    expect(() => loadRuntimeConfig(true)).toThrow(/client secret is required/)
+    process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
   })
 
-  it('auto-detects local secret files for generated profiles', () => {
-    const cfg = join(root, 'caracal.toml')
-    const secret = defaultAppClientSecretFilePath('zone1', 'app1')
-    mkdirSync(join(root, 'xdg-default', 'caracal', 'runtime', 'zone1', 'app1'), { recursive: true })
-    writeFileSync(secret, 'secret-value\n')
-    writeFileSync(
-      cfg,
-      ['zone_id = "zone1"', 'application_id = "app1"', '[[credentials]]', 'env = "RESOURCE_TOKEN"', 'resource = "resource://api"', ''].join(
-        '\n',
-      ),
-    )
-    if (process.platform !== 'win32') {
-      chmodSync(secret, 0o600)
-      chmodSync(cfg, 0o600)
-    }
-    process.env.CARACAL_CONFIG = cfg
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: DEFAULT_STS_URL,
-      app_client_secret: 'secret-value',
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-    })
+  it('honors CARACAL_ENV=production for the default secret file gate', () => {
+    process.env.CARACAL_ENV = 'production'
+    process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
   })
 
-  it('requires explicit runtime service URLs in production', () => {
+  it('lets CARACAL_ENV override a production NODE_ENV', () => {
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-
-    expect(() => loadRuntimeConfig(true)).toThrow(ServiceUrlMissingError)
+    process.env.CARACAL_ENV = 'development'
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    const secretPath = defaultWorkloadSecretFilePath('wl1')
+    writeSecretFile(secretPath, 'ws_local')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ workload_secret: 'ws_local' })
   })
 
-  it('prefers platform env config over a default XDG runtime profile', () => {
-    const xdg = join(root, 'xdg')
-    const configDir = join(xdg, 'caracal')
-    const profileSecret = join(configDir, 'profile-secret')
-    const profileConfig = join(configDir, 'caracal.toml')
-    const envSecret = join(root, 'env-secret')
-    mkdirSync(configDir, { recursive: true })
-    writeFileSync(profileSecret, 'profile-secret\n')
-    writeFileSync(
-      profileConfig,
-      [
-        'zone_url = "https://profile-sts.example.com"',
-        'zone_id = "profile-zone"',
-        'application_id = "profile-app"',
-        `app_client_secret_file = ${JSON.stringify(profileSecret)}`,
-        '[[credentials]]',
-        'env = "PROFILE_TOKEN"',
-        'resource = "resource://profile"',
-        '',
-      ].join('\n'),
-    )
-    writeFileSync(envSecret, 'env-secret\n')
-    if (process.platform !== 'win32') {
-      chmodSync(profileSecret, 0o600)
-      chmodSync(profileConfig, 0o600)
-      chmodSync(envSecret, 0o600)
-    }
-    process.env.XDG_CONFIG_HOME = xdg
-    process.env.CARACAL_STS_URL = 'https://env-sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'env-zone'
-    process.env.CARACAL_APPLICATION_ID = 'env-app'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = envSecret
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'ENV_TOKEN', resource: 'resource://env' }])
-
-    expect(loadRuntimeConfig(true)).toMatchObject({
-      zone_url: 'https://env-sts.example.com',
-      zone_id: 'env-zone',
-      application_id: 'env-app',
-      app_client_secret: 'env-secret',
-      credentials: [{ env: 'ENV_TOKEN', resource: 'resource://env' }],
-    })
+  it('fails when the workload id is set but no secret source exists', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/workload secret is required/)
+    expect(() => loadRuntimeIdentity(true)).toThrow(RuntimeConfigValidationError)
   })
 
-  it('does not treat a web-console-only zone env var as runtime config', () => {
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_ZONE_URL = 'https://sts.example.com'
-
-    expect(loadRuntimeConfig(false)).toBeUndefined()
+  it('rejects setting both the inline secret and the secret file', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = join(root, 'secret')
+    expect(() => loadRuntimeIdentity(true)).toThrow(/set only one of/)
   })
 
-  it('explains when the secret value is put in the secret file path variable', () => {
-    process.env.CARACAL_STS_URL = 'https://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET_FILE = 'cs_secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-
-    expect(() => loadRuntimeConfig(true)).toThrow(/secret file path looks like a client secret/)
+  it('rejects a secret file path that looks like a workload secret', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = 'ws_pasted_secret_value'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/looks like a workload secret/)
   })
 
-  it('rejects run TTL values above the resource mandate cap', () => {
-    process.env.CARACAL_STS_URL = 'https://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
-    process.env.CARACAL_RUN_TTL_SECONDS = '901'
-
-    expect(() => loadRuntimeConfig(true)).toThrow(/CARACAL_RUN_TTL_SECONDS must be between 1 and 900/)
+  // Mode-bit enforcement is POSIX-only; the runtime skips the check on Windows.
+  it.runIf(process.platform !== 'win32')('rejects a group-writable secret file', () => {
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file')
+    chmodSync(secretPath, 0o660)
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
   })
 
-  it('rejects unknown runtime config fields', () => {
-    const cfg = join(root, 'caracal.toml')
-    writeFileSync(
-      cfg,
-      [
-        'zone_url = "https://sts.example.com"',
-        'zone_id = "zone1"',
-        'application_id = "app1"',
-        'app_client_secret = "secret-value"',
-        'surprise = "nope"',
-        '',
-      ].join('\n'),
-    )
-    if (process.platform !== 'win32') chmodSync(cfg, 0o600)
-    process.env.CARACAL_CONFIG = cfg
-
-    expect(() => loadRuntimeConfig(true)).toThrow(RuntimeConfigValidationError)
-    expect(() => loadRuntimeConfig(true)).toThrow(/unknown runtime config field 'surprise'/)
+  it.runIf(process.platform !== 'win32')('rejects a group- or world-readable secret file', () => {
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, 'ws_from_file')
+    chmodSync(secretPath, 0o640)
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(() => loadRuntimeIdentity(true)).toThrow(/owner-only/)
+    chmodSync(secretPath, 0o604)
+    expect(() => loadRuntimeIdentity(true)).toThrow(/permissions are too broad/)
   })
 
-  it('rejects non-local http endpoints outside development unless explicitly allowed', () => {
+  it('rejects an empty secret file', () => {
+    const secretPath = join(root, 'secret')
+    writeSecretFile(secretPath, '   \n')
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET_FILE = secretPath
+    expect(() => loadRuntimeIdentity(true)).toThrow(/secret file is empty/)
+  })
+
+  it('honors CARACAL_STS_URL for the STS endpoint', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_STS_URL = 'https://sts.pipernet.example'
+    expect(loadRuntimeIdentity(true)).toMatchObject({ sts_url: 'https://sts.pipernet.example' })
+  })
+
+  it('rejects a plain-http STS URL for non-local hosts in every environment', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_STS_URL = 'http://sts.pipernet.example'
+    expect(() => loadRuntimeIdentity(true)).toThrow(/must use https for non-local hosts/)
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_STS_URL = 'http://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify([{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }])
+    expect(() => loadRuntimeIdentity(true)).toThrow(/must use https for non-local hosts/)
+  })
 
-    expect(() => loadRuntimeConfig(true)).toThrow(/zone_url must use https outside local development/)
-
+  it('allows plain-http for non-local hosts only with the explicit insecure override', () => {
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    process.env.CARACAL_STS_URL = 'http://sts.pipernet.example'
     process.env.CARACAL_ALLOW_INSECURE_CONFIG_URLS = 'true'
-    expect(loadRuntimeConfig(true)?.zone_url).toBe('http://sts.example.com')
+    expect(loadRuntimeIdentity(true)).toMatchObject({ sts_url: 'http://sts.pipernet.example' })
   })
 
-  it('rejects weakened runtime policy outside development unless explicitly allowed', () => {
+  it('requires an explicit STS URL outside development', () => {
     process.env.NODE_ENV = 'production'
-    process.env.CARACAL_STS_URL = 'https://sts.example.com'
-    process.env.CARACAL_ZONE_ID = 'zone1'
-    process.env.CARACAL_APPLICATION_ID = 'app1'
-    process.env.CARACAL_APP_CLIENT_SECRET = 'secret-value'
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify({
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-      continue_on_failure: true,
-    })
+    process.env.CARACAL_WORKLOAD_ID = 'wl1'
+    process.env.CARACAL_WORKLOAD_SECRET = 'ws_secret'
+    expect(() => loadRuntimeIdentity(true)).toThrow(ServiceUrlMissingError)
+  })
+})
 
-    expect(() => loadRuntimeConfig(true)).toThrow(/continue_on_failure=true is not allowed outside development/)
+describe('assertCredentialEnvName', () => {
+  it('accepts a well-formed env name', () => {
+    expect(() => assertCredentialEnvName('CARACAL_RESOURCE_PIPERNET_TOKEN')).not.toThrow()
+  })
 
-    process.env.CARACAL_RUN_CREDENTIALS = JSON.stringify({
-      credentials: [{ env: 'RESOURCE_TOKEN', resource: 'resource://api' }],
-      mcp_governance: { mode: 'log' },
-    })
-    expect(() => loadRuntimeConfig(true)).toThrow(/mcp_governance\.mode=log is not allowed outside development/)
+  it('rejects malformed env names', () => {
+    expect(() => assertCredentialEnvName('9BAD')).toThrow(RuntimeConfigValidationError)
+    expect(() => assertCredentialEnvName('BAD-NAME')).toThrow(/invalid credential env/)
+  })
 
-    process.env.CARACAL_ALLOW_MCP_GOVERNANCE_LOG = 'true'
-    expect(loadRuntimeConfig(true)?.mcp_governance).toEqual({ mode: 'log' })
+  it('rejects loader-hijack env names', () => {
+    expect(() => assertCredentialEnvName('LD_PRELOAD')).toThrow(/blocked credential env/)
+    expect(() => assertCredentialEnvName('NODE_OPTIONS')).toThrow(/blocked credential env/)
+    expect(() => assertCredentialEnvName('ld_preload')).toThrow(/blocked credential env/)
+    expect(() => assertCredentialEnvName('Node_Options')).toThrow(/blocked credential env/)
   })
 })
 
 describe('resolveServiceUrl', () => {
-  it('returns explicit env override in all environments', () => {
-    process.env.CARACAL_API_URL = 'https://api.example.test'
-    process.env.NODE_ENV = 'production'
-
-    expect(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toBe('https://api.example.test')
-  })
-
-  it('returns development default when unset in development mode', () => {
-    process.env.NODE_ENV = 'development'
-
+  it('returns the dev default in development', () => {
     expect(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toBe(DEFAULT_API_URL)
   })
 
-  it('treats unset NODE_ENV as development for local runtime and web console runs', () => {
+  it('prefers the environment override', () => {
+    process.env.CARACAL_API_URL = 'https://api.pipernet.example'
+    expect(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toBe('https://api.pipernet.example')
+  })
+
+  it('throws outside development when the env var is missing', () => {
+    process.env.NODE_ENV = 'production'
+    expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
+  })
+
+  it('honors CARACAL_ENV over NODE_ENV', () => {
+    process.env.CARACAL_ENV = 'production'
+    expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
+    process.env.CARACAL_ENV = 'development'
+    process.env.NODE_ENV = 'production'
     expect(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toBe(DEFAULT_API_URL)
-  })
-
-  it('throws ServiceUrlMissingError when unset in non-development mode', () => {
-    process.env.NODE_ENV = 'production'
-
-    expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
-    try {
-      resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)
-    } catch (err) {
-      expect((err as ServiceUrlMissingError).envKey).toBe('CARACAL_API_URL')
-      expect((err as ServiceUrlMissingError).nodeEnv).toBe('production')
-    }
-  })
-
-  it('treats empty production overrides as missing service URLs', () => {
-    process.env.NODE_ENV = 'production'
-    process.env.CARACAL_API_URL = ''
-
-    expect(() => resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL)).toThrow(ServiceUrlMissingError)
   })
 })

@@ -6,7 +6,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { getMigrations } from 'better-auth/db/migration'
 import { toNodeHandler } from 'better-auth/node'
-import { ShutdownRegistry, bindTrace, pathOnly } from '@caracalai/core'
+import { bindTrace } from '@caracalai/core'
+import { ShutdownRegistry, pathOnly } from '@caracalai/server-core'
 
 import { auth } from './auth.ts'
 import { handleAccount } from './account.ts'
@@ -16,7 +17,16 @@ import { handleConsole } from './console.ts'
 import { enabledProviders } from './providers.ts'
 import { logger } from './logger.ts'
 import { serveStatic } from './static.ts'
-import { applySecurityHeaders, downstreamHeaders, isCrossSiteWrite, method, requestId, traceFromRequest } from './security.ts'
+import {
+  applySecurityHeaders,
+  CLIENT_IP_HEADER,
+  clientIp,
+  downstreamHeaders,
+  isCrossSiteWrite,
+  method,
+  requestId,
+  traceFromRequest,
+} from './security.ts'
 
 const cfg = loadConfig()
 
@@ -105,6 +115,14 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
     return
   }
 
+  // The release version of the web binary, shown in the console footer.
+  if (url === '/version') {
+    res.statusCode = 200
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ version: cfg.version }))
+    return
+  }
+
   if (url.startsWith('/api/console')) {
     // CORS gates response reads, not the sending of credentialed requests. Cookie-authenticated
     // mutations must independently verify the browser Origin against the trusted allowlist, so a
@@ -134,6 +152,15 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
   }
 
   if (url.startsWith('/api/auth')) {
+    // Password sign-up is a deployment capability, not a per-request decision: when it is off,
+    // the endpoint is closed outright and allowlisted identities register through a configured
+    // OAuth provider instead.
+    if (!cfg.passwordSignup && method(req) === 'POST' && pathOnly(url) === '/api/auth/sign-up/email') {
+      res.statusCode = 403
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'registration_not_permitted' }))
+      return
+    }
     await handler(req, res)
     return
   }
@@ -151,6 +178,11 @@ async function route(req: IncomingMessage, res: ServerResponse, id: string): Pro
 
 const server = createServer((req, res) => {
   const id = requestId(req)
+  // Stamp the resolved client address before any handling, always overwriting whatever arrived
+  // on the wire, so Better Auth's per-IP rate limiting keys on an address the caller cannot
+  // choose in every topology: the TCP peer when directly exposed, the trusted proxy's
+  // x-forwarded-for entry when CARACAL_AUTH_TRUST_PROXY is set.
+  req.headers[CLIENT_IP_HEADER] = clientIp(req, cfg.trustProxy)
   bindTrace(traceFromRequest(req))
   const startedAt = Date.now()
 

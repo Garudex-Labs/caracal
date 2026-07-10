@@ -5,7 +5,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { OAuthClient } from '../../../../../packages/oauth/ts/src/client.js'
-import { InteractionRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
+import {
+  CaracalError,
+  ApprovalRequiredError,
+  type OAuthEvent,
+  type TokenExchangeEvent,
+} from '../../../../../packages/oauth/ts/src/types.js'
 
 describe('OAuthClient', () => {
   beforeEach(() => {
@@ -25,10 +30,29 @@ describe('OAuthClient', () => {
     expect(res.expiresIn).toBe(900)
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_secret')).toBe('secret-1')
-    expect(body.get('runtime_credential_injection')).toBeNull()
   })
 
-  it('sends runtime credential injection requests and returns upstream directives', async () => {
+  it('mints distinct one-shot tokens without cache or single-flight sharing', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ access_token: `token-${++calls}`, token_type: 'Bearer', expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const tokens = await Promise.all([
+      client.exchange('', 'resource://pipernet', { clientSecret: 'secret', scopes: ['read'], cache: false }),
+      client.exchange('', 'resource://pipernet', { clientSecret: 'secret', scopes: ['read'], cache: false }),
+    ])
+
+    expect(tokens.map((token) => token.accessToken).sort()).toEqual(['token-1', 'token-2'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns upstream directives from gateway-authenticated exchanges', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -47,13 +71,8 @@ describe('OAuthClient', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    const res = await client.exchange('', 'resource://openai', {
-      clientSecret: 'secret-1',
-      runtimeCredentialInjection: true,
-    })
+    const res = await client.exchange('', 'resource://openai', { clientSecret: 'secret-1' })
 
-    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('runtime_credential_injection')).toBe('true')
     expect(res.upstreams?.['resource://openai']?.providerToken).toBe('provider-token')
   })
 
@@ -101,7 +120,44 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('retries once on 401', async () => {
+  it('drops cached tokens on invalidate', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: `token-${++calls}`, expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    expect((await client.exchange('subject', 'resource://api')).accessToken).toBe('token-1')
+    client.invalidate()
+    expect((await client.exchange('subject', 'resource://api')).accessToken).toBe('token-2')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('never serves an approval-bearing exchange from cache', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: `token-${++calls}`, expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    await client.exchange('', 'resource://api', { clientSecret: 'secret', scopes: ['read'] })
+    const approved = await client.exchange('', 'resource://api', {
+      clientSecret: 'secret',
+      scopes: ['read'],
+      challengeId: 'approval-1',
+    })
+
+    expect(approved.accessToken).toBe('token-2')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry unchanged credentials on 401', async () => {
     let callCount = 0
     vi.stubGlobal(
       'fetch',
@@ -114,12 +170,11 @@ describe('OAuthClient', () => {
       }),
     )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    const res = await client.exchange('subject-tok', 'resource://api')
-    expect(res.accessToken).toBe('tok-retry')
-    expect(callCount).toBe(2)
+    await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow()
+    expect(callCount).toBe(1)
   })
 
-  it('throws InteractionRequiredError on interaction_required', async () => {
+  it('throws ApprovalRequiredError on interaction_required', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -134,8 +189,8 @@ describe('OAuthClient', () => {
     )
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
     const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
-    expect(err).toBeInstanceOf(InteractionRequiredError)
-    expect(err.challengeId).toBe('chal-1')
+    expect(err).toBeInstanceOf(ApprovalRequiredError)
+    expect(err.approvalId).toBe('chal-1')
     expect(err.resource).toBe('resource://api')
   })
 
@@ -165,7 +220,7 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('sends assertion, actor, session, agent session, and delegation edge fields', async () => {
+  it('sends assertion, Authority record, Session, and Delegation fields', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -176,21 +231,20 @@ describe('OAuthClient', () => {
     await client.exchange('subject-a', 'resource://api', {
       clientAssertion: 'assertion-1',
       clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-      actorToken: 'actor-1',
+      authorityRecordId: 'record-1',
       sessionId: 'session-1',
-      agentSessionId: 'agent-session-1',
-      delegationEdgeId: 'edge-1',
+      delegationId: 'delegation-1',
     })
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
     expect(body.get('client_assertion')).toBe('assertion-1')
     expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer')
-    expect(body.get('actor_token')).toBe('actor-1')
-    expect(body.get('session_id')).toBe('session-1')
-    expect(body.get('agent_session_id')).toBe('agent-session-1')
-    expect(body.get('delegation_edge_id')).toBe('edge-1')
+    expect(body.get('actor_token')).toBeNull()
+    expect(body.get('session_id')).toBe('record-1')
+    expect(body.get('agent_session_id')).toBe('session-1')
+    expect(body.get('delegation_edge_id')).toBe('delegation-1')
   })
 
-  it('does not share cache across delegation edges', async () => {
+  it('does not share cache across Delegations', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -198,8 +252,8 @@ describe('OAuthClient', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-a' })
-    await client.exchange('subject-a', 'resource://api', { delegationEdgeId: 'edge-b' })
+    await client.exchange('subject-a', 'resource://api', { delegationId: 'delegation-a' })
+    await client.exchange('subject-a', 'resource://api', { delegationId: 'delegation-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -226,16 +280,16 @@ describe('OAuthClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('does not share cache across agent graph sessions', async () => {
+  it('does not share cache across Sessions', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ access_token: 'tok-agent-session', expires_in: 900 }),
+      json: async () => ({ access_token: 'tok-session', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
-    await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-a' })
-    await client.exchange('subject-a', 'resource://api', { agentSessionId: 'agent-b' })
+    await client.exchange('subject-a', 'resource://api', { sessionId: 'session-a' })
+    await client.exchange('subject-a', 'resource://api', { sessionId: 'session-b' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -256,7 +310,7 @@ describe('OAuthClient', () => {
     expect(body.get('scope')).toBe('read write')
   })
 
-  it('refreshes cached tokens inside the timeout preflight window', async () => {
+  it('caps the preflight window at half the token lifetime', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -266,6 +320,11 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
+    await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 11_000)
     const res = await client.exchange('subject-a', 'resource://api', { timeoutMs: 5_000 })
 
     expect(res.accessToken).toBe('tok-fresh')
@@ -390,5 +449,187 @@ describe('OAuthClient', () => {
     const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
 
     await expect(client.exchange('subject-tok', 'resource://api')).rejects.toThrow(message)
+  })
+
+  it('carries typed error fields on STS denials', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'access_denied', error_description: 'Denied', requestId: 'req-2' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
+    expect(err).toBeInstanceOf(CaracalError)
+    expect((err as CaracalError).code).toBe('access_denied')
+    expect((err as CaracalError).requestId).toBe('req-2')
+    expect((err as CaracalError).httpStatus).toBe(403)
+  })
+
+  it('carries request id and status on ApprovalRequiredError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: 'interaction_required',
+          error_description: 'Approval required',
+          challenge_id: 'chal-9',
+          requestId: 'req-9',
+        }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const err = await client.exchange('subject-tok', 'resource://api').catch((error: unknown) => error)
+    expect(err).toBeInstanceOf(ApprovalRequiredError)
+    expect((err as ApprovalRequiredError).requestId).toBe('req-9')
+    expect((err as ApprovalRequiredError).httpStatus).toBe(401)
+  })
+
+  it('emits token.exchange events for fresh, cached, and failed exchanges', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'tok-events', expires_in: 900 }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'access_denied', error_description: 'Denied' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const events: OAuthEvent[] = []
+    client.onEvent = (event) => events.push(event)
+
+    await client.exchange('subject-a', 'resource://api', { scopes: ['write', 'read'] })
+    await client.exchange('subject-a', 'resource://api', { scopes: ['read', 'write'] })
+    await client.exchange('subject-b', 'resource://api').catch(() => undefined)
+
+    expect(events).toHaveLength(3)
+    expect(events[0]).toMatchObject({
+      type: 'token.exchange',
+      ok: true,
+      cached: false,
+      resources: ['resource://api'],
+      scopes: ['read', 'write'],
+    })
+    expect(events[1]).toMatchObject({ type: 'token.exchange', ok: true, cached: true })
+    expect(events[2]).toMatchObject({ type: 'token.exchange', ok: false, cached: false, status: 403, code: 'access_denied' })
+    expect((events[0] as TokenExchangeEvent).durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('emits approval.wait events and survives a throwing sink', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ state: 'approved' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const events: OAuthEvent[] = []
+    client.onEvent = (event) => {
+      events.push(event)
+      throw new Error('sink failure')
+    }
+
+    await expect(client.waitForApproval('chal-1', { timeoutSeconds: 5 })).resolves.toBe('approved')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'approval.wait', ok: true, approvalId: 'chal-1', state: 'approved' })
+  })
+
+  it('rejects an unknown challenge state instead of returning it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ state: 'vaporized' }),
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.waitForApproval('chal-1')).rejects.toThrow(/unknown challenge state: vaporized/)
+  })
+
+  it('aborts the wait when the signal fires', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: { signal?: AbortSignal }) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true })
+        })
+      }),
+    )
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const controller = new AbortController()
+    const pending = client.waitForApproval('chal-1', { signal: controller.signal })
+    controller.abort(new Error('caller gave up'))
+    await expect(pending).rejects.toThrow('caller gave up')
+  })
+})
+
+describe('federateSubject', () => {
+  it('posts the id_token subject type with no resources and returns the user session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'user-session-token', token_type: 'Bearer', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    const res = await client.federateSubject('external-id-token', { clientSecret: 'secret-1' })
+    expect(res.accessToken).toBe('user-session-token')
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('subject_token')).toBe('external-id-token')
+    expect(body.get('subject_token_type')).toBe('urn:ietf:params:oauth:token-type:id_token')
+    expect(body.get('resource')).toBeNull()
+    expect(body.get('client_secret')).toBe('secret-1')
+  })
+
+  it('rejects an empty id token and surfaces STS denials as CaracalError', async () => {
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.federateSubject('')).rejects.toThrow('identity token')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ error: 'invalid_token', error_description: 'issuer not trusted' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(client.federateSubject('bad-token')).rejects.toMatchObject({ code: 'invalid_token' })
+  })
+})
+
+describe('decideApproval', () => {
+  it('posts the bearer decision with the exact binding', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await client.decideApproval({
+      subjectToken: 'user-session-token',
+      approvalId: 'ch-1',
+      binding: 'abcd',
+      decision: 'approved',
+      reason: 'refund reviewed',
+    })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://sts:8080/step-up/ch-1/decision')
+    expect(init.headers.Authorization).toBe('Bearer user-session-token')
+    expect(JSON.parse(init.body as string)).toEqual({ decision: 'approved', binding: 'abcd', reason: 'refund reviewed' })
+  })
+
+  it('requires subjectToken, approvalId, and binding', async () => {
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+    await expect(client.decideApproval({ subjectToken: '', approvalId: 'ch-1', binding: 'x', decision: 'approved' })).rejects.toThrow(
+      'requires',
+    )
   })
 })

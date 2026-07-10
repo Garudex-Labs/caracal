@@ -9,11 +9,14 @@ import type { DB } from '../../../../../apps/api/src/db.js'
 import type { RedisClient } from '../../../../../apps/api/src/redis.js'
 import '../../../../../apps/api/src/fastify-augmentation.js'
 import { operatorRoutes } from '../../../../../apps/api/src/routes/operator.js'
+import { CAPABILITIES } from '../../../../../apps/api/src/operator-capabilities.js'
+import { isControlExecutable } from '../../../../../apps/api/src/operator-control-map.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
 import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
+import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 
 // Test-only deterministic KEK fixture (32-byte hex) so the plan credential vault can seal. Never use in production.
-process.env.ZONE_KEK = '2222222222222222222222222222222222222222222222222222222222222222'
+process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
 
 function buildApp(
   enabled = true,
@@ -22,7 +25,7 @@ function buildApp(
     systemZones?: string[]
     aiProviders?: { id: string; baseUrl: string; model: string; apiKey?: string; timeoutMs: number; contextWindow: number }[]
     aiManager?: OperatorAiManager | null
-    controlIdentity?: { applicationId: string; clientSecret: string; zoneId: string }
+    controlIdentity?: OperatorControlIdentity
     controlEndpoints?: { stsUrl: string; audience: string; controlUrl: string; controlEnabled: boolean }
     fetchImpl?: typeof fetch
     autopilotPolicy?: ReturnType<typeof buildAutopilotPolicy>
@@ -89,10 +92,22 @@ function controlFetch(invokeResults: unknown[], invokeError?: { status: number; 
   })
 }
 
+// A short-lived provisioned Operator identity bound to the given system zone, with the three
+// reserved role applications sharing a sealed test secret.
+function sysIdentity(zoneId: string): OperatorControlIdentity {
+  return {
+    zoneId,
+    llm: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed' },
+    researcher: { applicationId: 'caracal-sys-operator-researcher', clientSecret: 'cs_sealed' },
+    executor: { applicationId: 'caracal-sys-operator-executor', clientSecret: 'cs_sealed' },
+    expiresAt: new Date(Date.now() + 3600_000),
+  }
+}
+
 // The internal control identity and endpoints that make governed execution available for
 // zone z1: the identity is bound to z1, so the control token executes in z1.
 const governedControl = {
-  controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'z1' },
+  controlIdentity: sysIdentity('z1'),
   controlEndpoints: { stsUrl: 'http://sts.test', audience: 'caracal-control', controlUrl: 'http://api.test', controlEnabled: true },
 }
 
@@ -103,7 +118,7 @@ const conversationRow = {
   status: 'active',
   mode: 'agent',
   autopilot: false,
-  created_by: 'actor-1',
+  created_by: 'admin:actor-1',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
   last_activity_at: '2026-01-01T00:00:00Z',
@@ -124,15 +139,27 @@ describe('operator enablement gating', () => {
       'connectProvider',
       'createPolicy',
       'createPolicySet',
+      'createWorkload',
       'defineResource',
       'deleteApplication',
       'deletePolicy',
+      'deletePolicySet',
       'deleteProvider',
       'deleteResource',
+      'deleteWorkload',
       'grantAccess',
       'registerApplication',
+      'resumeSession',
+      'revokeDelegation',
       'revokeGrant',
       'rotateApplicationSecret',
+      'rotateWorkloadSecret',
+      'suspendSession',
+      'terminateSession',
+      'updateApplication',
+      'updateProvider',
+      'updateResource',
+      'updateWorkload',
       'versionPolicy',
       'versionPolicySet',
     ])
@@ -159,7 +186,7 @@ describe('operator enablement gating', () => {
 
   it('reports governed execution configured with its zone, never the secret, when a control identity is supplied', async () => {
     const { app } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+      controlIdentity: sysIdentity('zone-sys'),
     })
     await app.ready()
     const status = await app.inject({ method: 'GET', url: '/v1/operator/status' })
@@ -209,12 +236,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
       payload: { title: 'Connect GitHub' },
     })
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'actor-1' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'conv-1', status: 'active', created_by: 'admin:actor-1' })
     const insert = db.query.mock.calls[1]
     expect(insert[0]).toContain('INSERT INTO operator_conversations')
     // The number is drawn from the durable per-zone counter so it is never reused after a delete.
     expect(insert[0]).toContain('operator_conversation_counters')
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Connect GitHub', 'agent', false, 'admin:actor-1'])
   })
 
   it('creates a conversation in ask mode when requested', async () => {
@@ -230,7 +257,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ mode: 'ask' })
     const insert = db.query.mock.calls[1]
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', false, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Audit access', 'ask', false, 'admin:actor-1'])
   })
 
   it('creates a conversation with autopilot engaged when requested', async () => {
@@ -246,7 +273,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations', () => {
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ autopilot: true })
     const insert = db.query.mock.calls[1]
-    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Automate', 'agent', true, 'actor-1'])
+    expect(insert[1]).toEqual([expect.any(String), 'z1', 'Automate', 'agent', true, 'admin:actor-1'])
   })
 
   it('rejects an unknown mode', async () => {
@@ -283,7 +310,9 @@ describe('GET /v1/zones/:zoneId/operator-conversations', () => {
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/operator-conversations' })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(1)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.next_cursor).toBeNull()
     expect(db.query.mock.calls[0][0]).toContain('archived_at IS NULL')
   })
 
@@ -595,7 +624,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/validate', () =
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-x/plan/validate',
-      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listZones', args: {} }] },
+      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listApplications', args: {} }] },
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'conversation_not_found' })
@@ -645,7 +674,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/preview', () =>
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/operator-conversations/conv-x/plan/preview',
-      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listZones', args: {} }] },
+      payload: { summary: 'x', steps: [{ id: 's1', capability: 'listApplications', args: {} }] },
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'conversation_not_found' })
@@ -992,7 +1021,6 @@ describe('plan credential vault endpoints', () => {
           name: 'PiperNet',
           scopes: ['mesh.read'],
           upstream_url: 'https://api.pipernet.example',
-          gateway_application_id: 'app-1',
           credential_provider_id: 'provider-1',
         },
       },
@@ -1049,11 +1077,11 @@ describe('plan credential vault endpoints', () => {
     const insert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO operator_plan_secrets'))
     expect(insert).toBeDefined()
     expect(JSON.stringify(insert![1])).not.toContain('cs_live_value')
-    expect(insert![1][6]).toEqual(['client_id', 'client_secret'])
+    expect(insert![1][5]).toEqual(['client_id', 'client_secret'])
   })
 
   it('completes the deferred autopilot approval once the vault satisfies the plan', async () => {
-    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }) })
+    const { app, db, clientQuery } = buildApp(true, { autopilotPolicy: buildAutopilotPolicy({ enabled: true }), ...governedControl })
     db.query.mockImplementation(async (sql: string) => (String(sql).includes('WHERE id = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
     const approvalRow = {
       id: 'turn-3',
@@ -1201,15 +1229,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
 
   it('governs a tenant zone its control identity is not bound to via the zone-scope header', async () => {
     // The Operator governs every zone it operates in. Its control identity is provisioned in the
-    // reserved system zone, so a conversation in a tenant zone executes through a control client
-    // that stamps the zone-scope header naming that zone, and the control plane applies the
-    // mutation there.
+    // reserved system zone, so a conversation in a tenant zone that has granted Operator
+    // administration executes through a control client that stamps the zone-scope header naming
+    // that zone, and the control plane applies the mutation there.
     const fetchMock = controlFetch([{ id: 'grant-xyz' }])
-    const { app, clientQuery } = buildApp(true, {
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'zone-sys' },
+    const { app, db, clientQuery } = buildApp(true, {
+      controlIdentity: sysIdentity('zone-sys'),
       controlEndpoints: governedControl.controlEndpoints,
       fetchImpl: fetchMock as unknown as typeof fetch,
     })
+    // The tenant zone carries the explicit per-zone administration grant.
+    db.query.mockResolvedValueOnce({ rows: [{ operator_governed: true }] })
     const executionTurn = {
       id: 'turn-x',
       conversation_id: 'conv-1',
@@ -1381,6 +1411,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       .mockResolvedValueOnce({ rows: [{ content: resumePlan }] }) // plan content
       .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
       .mockResolvedValueOnce({ rows: [{ step_id: 's1', status: 'succeeded' }] }) // s1 already applied
+      .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application name taken (s1, already applied)
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: application lives (s2)
       .mockResolvedValueOnce({ rows: [{ one: 1 }] }) // preview: resource lives (s2)
       .mockResolvedValueOnce(undefined) // COMMIT
@@ -1411,10 +1442,17 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
   })
 
   it('refuses an approved plan the Operator is not authorized to execute', async () => {
-    const { app, clientQuery } = buildApp(true, governedControl)
+    const { app, clientQuery } = buildApp(true, { ...governedControl, allowedCapabilities: ['registerApplication'] })
     const forbiddenPlan = {
-      summary: 'Create a zone',
-      steps: [{ id: 's1', capability: 'createZone', mutating: true, args: { name: 'Hooli Staging' } }],
+      summary: 'Grant access',
+      steps: [
+        {
+          id: 's1',
+          capability: 'grantAccess',
+          mutating: true,
+          args: { application_id: 'app-1', user_id: 'user-1', resource_id: 'res-1', scopes: ['invoices:read'] },
+        },
+      ],
     }
     clientQuery
       .mockResolvedValueOnce(undefined) // BEGIN
@@ -1429,37 +1467,22 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
       url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
       payload: { plan_seq: 2 },
     })
-    // Authority is the primary boundary: createZone is a platform operation outside the
+    // Authority is the primary boundary: grantAccess sits outside this deployment's narrowed
     // least-privilege grant, so it is forbidden before executability is even considered.
     expect(res.statusCode).toBe(403)
     const body = JSON.parse(res.body)
     expect(body.error).toBe('capability_forbidden')
     expect(body.principal).toBe('system:caracal-operator')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'createZone', code: 'capability_forbidden' })
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'grantAccess', code: 'capability_forbidden' })
   })
 
-  it('refuses an authorized step that maps to no governed control command', async () => {
-    const { app, clientQuery } = buildApp(true, governedControl)
-    // explainAccess is read-only (always authorized) but has no governed control command,
-    // so it is refused as not executable rather than applied by any other means.
-    const explainPlan = { summary: 'Explain', steps: [{ id: 's1', capability: 'explainAccess', mutating: false, args: {} }] }
-    clientQuery
-      .mockResolvedValueOnce(undefined) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
-      .mockResolvedValueOnce({ rows: [{ content: explainPlan }] }) // plan
-      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
-      .mockResolvedValueOnce({ rows: [] }) // not executed
-      .mockResolvedValueOnce(undefined) // COMMIT
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
-      payload: { plan_seq: 2 },
-    })
-    expect(res.statusCode).toBe(422)
-    const body = JSON.parse(res.body)
-    expect(body.error).toBe('capability_not_executable')
-    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'explainAccess' })
+  it('maps every catalog capability to a governed control command, so the executability guard is a pure fail-closed backstop', () => {
+    // The execute route refuses any step that is not governed-executable (422
+    // capability_not_executable). With the whole catalog mapped, that state is unreachable
+    // from a validated plan; this invariant is what keeps it that way.
+    for (const id of Object.keys(CAPABILITIES)) {
+      expect(isControlExecutable(id), `${id} must map to a governed control command`).toBe(true)
+    }
   })
 
   it('executes an approved grant plan through the control plane and records an execution turn', async () => {
@@ -1529,7 +1552,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     expect(redis.eval).toHaveBeenCalled()
   })
 
-  it('records durable zone memory of a plan it actually applied', async () => {
+  it('records durable conversation memory of a plan it actually applied', async () => {
     const fetchMock = controlFetch([{ id: 'grant-xyz' }])
     const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
     const executionTurn = {
@@ -1679,6 +1702,39 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/plan/execute', () =>
     const body = JSON.parse(res.body)
     expect(body.error).toBe('plan_already_satisfied')
     expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'registerApplication' })
+    // Nothing was applied: the control plane was never called.
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses to execute when a step\u2019s live consequence differs from the reviewed one', async () => {
+    // The plan was reviewed and approved when its create step resolved as already existing - no
+    // change. The object was then deleted, so the same step would now create. Applying it would do
+    // something the approval never covered, so it is refused with no control call; a fresh request
+    // composes a new plan against current state.
+    const fetchMock = controlFetch([])
+    const { app, clientQuery } = buildApp(true, { ...governedControl, fetchImpl: fetchMock as unknown as typeof fetch })
+    const reviewedPlan = {
+      summary: 'Register',
+      steps: [{ id: 's1', capability: 'registerApplication', mutating: true, effect: 'exists', args: { name: 'Billing' } }],
+    }
+    clientQuery
+      .mockResolvedValueOnce(undefined) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ status: 'active' }] }) // conv status
+      .mockResolvedValueOnce({ rows: [{ content: reviewedPlan }] }) // plan
+      .mockResolvedValueOnce({ rows: [{ kind: 'approval' }] }) // approved
+      .mockResolvedValueOnce({ rows: [] }) // not executed
+      .mockResolvedValueOnce({ rows: [] }) // preview: name now FREE -> create
+      .mockResolvedValueOnce(undefined) // COMMIT
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/plan/execute',
+      payload: { plan_seq: 2 },
+    })
+    expect(res.statusCode).toBe(409)
+    const body = JSON.parse(res.body)
+    expect(body.error).toBe('plan_state_changed')
+    expect(body.steps[0]).toMatchObject({ step_id: 's1', capability: 'registerApplication', reviewed: 'exists', current: 'create' })
     // Nothing was applied: the control plane was never called.
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -2022,10 +2078,10 @@ describe('operator authority and zone isolation', () => {
   })
 
   it('exposes a widened grant when configured', async () => {
-    const { app } = buildApp(true, { allowedCapabilities: ['createZone'] })
+    const { app } = buildApp(true, { allowedCapabilities: ['registerApplication'] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
-    expect(JSON.parse(res.body).allowed_capabilities).toEqual(['createZone'])
+    expect(JSON.parse(res.body).allowed_capabilities).toEqual(['registerApplication'])
   })
 })
 
@@ -2118,6 +2174,22 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       )
     }
     return fn as unknown as typeof fetch
+  }
+
+  // A fetch that also answers the governed control plane by URL - the STS mint and empty
+  // invoke results - while serving the given assistant contents to the model calls in
+  // sequence, so a governed change turn is scripted end to end without a live backend.
+  function governedFetchReturning(...contents: string[]) {
+    let next = 0
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/2/token')) return jsonResponse({ access_token: 'control-token' })
+      if (url.endsWith('/v1/control/invoke')) return jsonResponse({ result: [] })
+      return new Response(JSON.stringify({ choices: [{ message: { content: contents[next++] } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
   }
 
   // Parses a Server-Sent Events payload into its frames, so a streaming response can be asserted
@@ -2449,7 +2521,6 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       'triaging',
       'gathering',
       'planning',
-      'critiquing',
       'guarding',
     ])
     const terminal = frames.at(-1)!
@@ -2471,7 +2542,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       }
     })
     expect(planInsert).toBeDefined()
-    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'critiquing', 'guarding'])
+    expect(JSON.parse(planInsert![1][6]).deliberation).toEqual(['triaging', 'gathering', 'planning', 'guarding'])
     // The effect each step was previewed to have against live state is recorded per step, so the
     // console can show the consequence the human reviewed rather than only the step's claim.
     expect(JSON.parse(planInsert![1][6]).steps[0].effect).toBe('create')
@@ -2513,17 +2584,18 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
   })
 
   it('auto-approves a low-risk plan in agent mode when autopilot is engaged and the master switch is on', async () => {
-    // With the master switch on and the conversation engaged, Caracal auto-satisfies the approval
-    // for any non-empty plan. The conversation row reports agent mode with autopilot engaged.
+    // With the master switch on, the conversation engaged, and the zone able to apply - governed
+    // identity plus the zone grant - Caracal auto-satisfies the approval for any non-empty plan.
     const plan = {
       summary: 'Register the billing app',
       steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
     })
     // user message turn
     clientQuery
@@ -2537,7 +2609,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rows: [] }) // error rows
       .mockResolvedValueOnce({ rows: [] }) // messages
       .mockResolvedValueOnce({ rows: [] }) // facts
-      .mockResolvedValueOnce({ rows: [] }) // zone memory recall
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
       .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
       .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
     // plan turn persist
@@ -2580,6 +2652,134 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(JSON.parse(String(planInsert![1][6])).deliberation).toContain('triaging')
   })
 
+  it('records the write ledger on an autopilot approval when a write budget is configured', async () => {
+    // With a conversation write budget in force, the approval turn carries the accounting the
+    // decision was made on: this plan's writes, the running total, and the configured budget.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }),
+      ...governedControl,
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] }) // latest plan seq
+      .mockResolvedValueOnce({ rows: [] }) // error rows
+      .mockResolvedValueOnce({ rows: [] }) // messages
+      .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
+      .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
+      .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes
+    // plan turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    // autopilot approval turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'approval' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: true })
+    const approvalInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval',
+    )
+    expect(approvalInsert).toBeDefined()
+    expect(JSON.parse(String(approvalInsert![1][6]))).toMatchObject({
+      plan_seq: 2,
+      autopilot: true,
+      writes: 1,
+      writes_total: 3,
+      write_budget: 5,
+    })
+  })
+
+  it('pauses autopilot and records a note when the plan would spend past the write budget', async () => {
+    // Once the budget is spent, autopilot stops filling approvals: the plan persists undecided,
+    // a note explains the pause in the conversation ledger, and a human must approve manually.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 2 }),
+      ...governedControl,
+    })
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    db.query
+      .mockResolvedValueOnce({ rows: [] }) // latest plan seq
+      .mockResolvedValueOnce({ rows: [] }) // error rows
+      .mockResolvedValueOnce({ rows: [] }) // messages
+      .mockResolvedValueOnce({ rows: [] }) // facts
+      .mockResolvedValueOnce({ rows: [] }) // conversation memory recall
+      .mockResolvedValueOnce({ rows: [{ name: 'Pied Piper Production', slug: 'z1' }] }) // operating zone
+      .mockResolvedValueOnce({ rows: [] }) // previewPlan: application name free
+      .mockResolvedValueOnce({ rows: [{ writes: 2 }] }) // prior autopilot-approved writes exhaust the budget
+    // plan turn persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    // budget pause note persist
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-3', seq: 3, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: false })
+    const approvalInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval',
+    )
+    expect(approvalInsert).toBeUndefined()
+    const noteInsert = clientQuery.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'note',
+    )
+    expect(noteInsert).toBeDefined()
+    const note = JSON.parse(String(noteInsert![1][6]))
+    expect(note.text).toContain('write budget of 2')
+    expect(note.autopilot).toEqual({ reason: 'write_budget_exceeded', writes: 1, writes_total: 2, write_budget: 2 })
+  })
+
   it('defers autopilot for a credential-bearing provider plan until the secure prompt satisfies it', async () => {
     // An api_key provider collects its key through the console's secure prompt, so even an engaged
     // pass-all conversation cannot auto-approve at plan time: the plan persists undecided and the
@@ -2588,11 +2788,12 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       summary: 'Connect GitHub',
       steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
     }
-    const fetchImpl = fetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
       autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
     })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2631,6 +2832,102 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     )
     expect(planInsert).toBeDefined()
     expect(JSON.parse(String(planInsert![1][6])).steps[0].secret_fields).toEqual(['api_key'])
+  })
+
+  it('defers autopilot when the zone has not granted Operator administration', async () => {
+    // The zone gate is the same one the execute route enforces: with the identity bound elsewhere
+    // and no explicit administration grant on this zone, the plan could only dead-end at apply, so
+    // autopilot stops for a human instead of approving into a guaranteed refusal.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      controlIdentity: sysIdentity('other-zone'),
+      controlEndpoints: governedControl.controlEndpoints,
+    })
+    // The zone record answers the administration-grant read as ungoverned; every other read is
+    // empty, which also leaves the preview clean so the deferral is attributable to the zone gate.
+    db.query.mockImplementation(async (sql: unknown) =>
+      String(sql).includes('operator_governed') ? { rows: [{ name: 'Zone One', slug: 'z1', operator_governed: false }] } : { rows: [] },
+    )
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'plan' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ intent: 'plan', ok: true, auto_approved: false, approval_turn: null })
+    // No approval turn was written: the plan waits for a human who can see the zone is ungoverned.
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
+    ).toBe(false)
+  })
+
+  it('answers instead of surfacing a plan when every step is already satisfied', async () => {
+    // A create whose target already exists previews as 'exists': the plan would change nothing and
+    // execute would refuse it as already satisfied, so the turn answers plainly with the preview
+    // detail - no approvable card, no autopilot approval, no apply attempt.
+    const plan = {
+      summary: 'Register the billing app',
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Billing' } }],
+    }
+    const fetchImpl = governedFetchReturning('{"tier":"change"}', JSON.stringify(plan))
+    const { app, clientQuery, db } = buildApp(true, {
+      aiProviders: [provider],
+      fetchImpl,
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true }),
+      ...governedControl,
+    })
+    // The preview's name-taken read finds an application named Billing; every other read is empty.
+    db.query.mockImplementation(async (sql: unknown) => (String(sql).includes('WHERE name = $1') ? { rows: [{ one: 1 }] } : { rows: [] }))
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1, kind: 'message' }] })
+      .mockResolvedValueOnce(undefined)
+    clientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: 'active', mode: 'agent', autopilot: true, next_seq: 2 }] })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'turn-2', seq: 2, kind: 'note' }] })
+      .mockResolvedValueOnce(undefined)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: { message: 'register the billing app' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = JSON.parse(res.body)
+    expect(body).toMatchObject({ intent: 'explain', tier: 'change', ok: true })
+    expect(body.text).toContain('already in place')
+    expect(body.text).toContain('Billing')
+    // No plan turn and no approval turn were written: the ledger records a plain note answer.
+    expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'plan')).toBe(
+      false,
+    )
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO operator_turns') && String(c[1]?.[5]) === 'approval'),
+    ).toBe(false)
   })
 
   it('does not auto-approve when autopilot is not engaged on the conversation', async () => {
@@ -2687,14 +2984,24 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.autopilot).toEqual({ available: true })
+    expect(body.autopilot).toEqual({ available: true, write_budget: null })
+  })
+
+  it('surfaces a configured autopilot write budget on the status endpoint', async () => {
+    const { app } = buildApp(true, {
+      aiProviders: [provider],
+      autopilotPolicy: buildAutopilotPolicy({ enabled: true, conversationWriteBudget: 5 }),
+    })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
+    expect(JSON.parse(res.body).autopilot).toEqual({ available: true, write_budget: 5 })
   })
 
   it('reports autopilot unavailable by default', async () => {
     const { app } = buildApp(true, { aiProviders: [provider] })
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/operator/status' })
-    expect(JSON.parse(res.body).autopilot).toEqual({ available: false })
+    expect(JSON.parse(res.body).autopilot).toEqual({ available: false, write_budget: null })
   })
 
   it('refuses to plan in ask mode and answers with a switch-to-agent note', async () => {
@@ -2778,14 +3085,9 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       findings: [{ severity: 'caution', concern: 'Confirm the OAuth app is restricted to the finance org.' }],
     }
     // No control identity, so the researcher is absent and the compound path degrades to no
-    // evidence - but it still plans and still runs the correctness critic and the advisory review.
-    // Four model calls in order: triage (compound), planner, correctness critic, security analyst.
-    const fetchImpl = fetchReturning(
-      '{"tier":"compound"}',
-      JSON.stringify(plan),
-      JSON.stringify({ verdict: 'sound', summary: 'Plan achieves the goal.', deficiencies: [] }),
-      JSON.stringify(advisory),
-    )
+    // evidence - but it still plans and still runs the advisory review. Three model calls in
+    // order: triage (compound), planner, security analyst; the single-step plan skips the critic.
+    const fetchImpl = fetchReturning('{"tier":"compound"}', JSON.stringify(plan), JSON.stringify(advisory))
     const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
     clientQuery
       .mockResolvedValueOnce(undefined)
@@ -2825,11 +3127,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // previewed, and awaiting approval.
     expect(body.advisory).toEqual(advisory)
     expect(body.validation.ok).toBe(true)
-    // The advisory is persisted in the plan turn content for durable, audited human review.
+    // The advisory is persisted in the plan turn content for durable, audited human review,
+    // alongside the explicit review state proving the guardian completed.
     expect(persistedContent).toBeDefined()
     expect(JSON.parse(persistedContent!).advisory).toEqual(advisory)
-    // Four model calls: triage + planner + correctness critic + security analyst.
-    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(4)
+    expect(JSON.parse(persistedContent!).review).toEqual({ status: 'reviewed' })
+    // Three model calls: triage + planner + security analyst.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(3)
   })
 
   it('records an error turn when the model cannot produce a usable plan', async () => {
@@ -3027,12 +3331,13 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     // the console renders the real objects the reads surfaced rather than only the prose.
     const providerEvidence = (body.evidence as Record<string, unknown>[]).find((e) => e.domain === 'provider')
     expect(providerEvidence).toMatchObject({ capability: 'listProviders', count: 1, rows: [{ id: 'p1', name: 'GitHub' }] })
-    // The governed reads ran: one control invoke per governed read capability, each a read
-    // verb, so a read answer is grounded in live state and never reaches a mutating command.
+    // The governed reads ran: one control invoke per argument-free governed read capability,
+    // each a read verb, so a read answer is grounded in live state and never reaches a
+    // mutating command.
     const invokeCalls = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/v1/control/invoke'))
-    expect(invokeCalls).toHaveLength(9)
+    expect(invokeCalls).toHaveLength(13)
     for (const call of invokeCalls) {
-      expect(['list', 'active', 'tail']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
+      expect(['list', 'active', 'tail', 'admin']).toContain(JSON.parse(String((call[1] as RequestInit).body)).subcommand)
     }
   })
 
@@ -3092,7 +3397,7 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     const { app, clientQuery, db } = buildApp(true, {
       aiProviders: [provider],
       fetchImpl,
-      controlIdentity: { applicationId: 'caracal-sys-operator', clientSecret: 'cs_sealed', zoneId: 'other-zone' },
+      controlIdentity: sysIdentity('other-zone'),
       controlEndpoints: governedControl.controlEndpoints,
     })
     clientQuery
@@ -3101,11 +3406,11 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ id: 'turn-1', seq: 1 }] })
       .mockResolvedValueOnce(undefined)
-    db.query
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
+    // The zone record answers with the explicit per-zone administration grant; every other
+    // read (state, facts, memory) is empty.
+    db.query.mockImplementation(async (sql: unknown) =>
+      String(sql).includes('operator_governed') ? { rows: [{ name: 'Zone One', slug: 'z1', operator_governed: true }] } : { rows: [] },
+    )
     clientQuery
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ status: 'active', next_seq: 2 }] })

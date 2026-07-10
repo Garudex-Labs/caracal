@@ -76,7 +76,6 @@ export interface Resource {
   name: string
   identifier: string
   upstream_url: string | null
-  gateway_application_id: string | null
   scopes: string[]
   credential_provider_id: string | null
   operations: ResourceOperation[]
@@ -92,15 +91,15 @@ export interface ResourceInput {
   name?: string
   identifier?: ResourceIdentifier
   upstream_url?: string | null
-  gateway_application_id?: string | null
   scopes: string[]
   credential_provider_id?: string | null
   operations?: ResourceOperation[]
   operation_enforcement?: ResourceOperationEnforcement
 }
 
-export type ProviderKind = 'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token'
-export type ProviderSecretConfigKey = 'client_secret' | 'private_key' | 'api_key' | 'bearer_token'
+export type ProviderKind =
+  'none' | 'caracal_mandate' | 'oauth2_authorization_code' | 'oauth2_client_credentials' | 'api_key' | 'bearer_token' | 'http_basic'
+export type ProviderSecretConfigKey = 'client_secret' | 'private_key' | 'api_key' | 'bearer_token' | 'password'
 export type OAuthClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'private_key_jwt' | 'none'
 export type APIKeyAuthLocation = 'header' | 'query'
 
@@ -116,6 +115,7 @@ export type EmptyProviderConfig = Record<string, never>
 export interface OAuth2AuthorizationCodeProviderConfig extends ProviderConfigBase {
   authorization_endpoint: string
   token_endpoint: string
+  revocation_endpoint?: string
   redirect_uri: string
   client_id: string
   client_auth_method?: Exclude<OAuthClientAuthMethod, 'private_key_jwt'>
@@ -130,9 +130,13 @@ export interface OAuth2ClientCredentialsProviderConfig extends ProviderConfigBas
   token_endpoint: string
   client_id: string
   client_auth_method?: OAuthClientAuthMethod
+  grant_type?: 'client_credentials' | 'jwt_bearer'
   client_secret?: string
   private_key?: string
   key_id?: string
+  certificate?: string
+  assertion_subject?: string
+  assertion_audience?: string
   scopes?: string[]
   audience?: string
   resource?: string
@@ -140,23 +144,30 @@ export interface OAuth2ClientCredentialsProviderConfig extends ProviderConfigBas
   token_params?: Record<string, string>
 }
 
-export type APIKeyProviderConfig = ProviderConfigBase & (
-  | {
-      auth_location?: 'header'
-      header_name: string
-      api_key?: string
-    }
-  | {
-      auth_location: 'query'
-      query_param_name: string
-      api_key?: string
-      auth_scheme?: never
-    }
-)
+export type APIKeyProviderConfig = ProviderConfigBase &
+  (
+    | {
+        auth_location?: 'header'
+        header_name: string
+        api_key?: string
+      }
+    | {
+        auth_location: 'query'
+        query_param_name: string
+        api_key?: string
+        auth_scheme?: never
+      }
+  )
 
 export interface BearerTokenProviderConfig extends ProviderConfigBase {
   bearer_token?: string
   allowed_token_hosts?: string[]
+}
+
+export interface HTTPBasicProviderConfig {
+  username: string
+  password?: string
+  forward_caracal_identity?: boolean
 }
 
 export type ProviderConfig =
@@ -165,6 +176,7 @@ export type ProviderConfig =
   | OAuth2ClientCredentialsProviderConfig
   | APIKeyProviderConfig
   | BearerTokenProviderConfig
+  | HTTPBasicProviderConfig
 
 interface ProviderInputBase {
   name?: string
@@ -178,6 +190,7 @@ export type ProviderInput =
   | (ProviderInputBase & { kind: 'oauth2_client_credentials'; config_json: OAuth2ClientCredentialsProviderConfig })
   | (ProviderInputBase & { kind: 'api_key'; config_json: APIKeyProviderConfig })
   | (ProviderInputBase & { kind: 'bearer_token'; config_json: BearerTokenProviderConfig })
+  | (ProviderInputBase & { kind: 'http_basic'; config_json: HTTPBasicProviderConfig })
 
 export interface ProviderPatchInput extends ProviderInputBase {
   kind?: ProviderKind
@@ -192,6 +205,7 @@ export interface Provider {
   kind: ProviderKind
   config_json: ProviderConfig
   secret_config_keys: ProviderSecretConfigKey[]
+  connectivity_failed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -201,7 +215,6 @@ export interface Policy {
   zone_id: string
   name: string
   description: string | null
-  owner_type: string
   created_by: string
   created_at: string
 }
@@ -218,9 +231,7 @@ export interface PolicyVersion {
 export interface PolicyInput {
   name: string
   description?: string
-  owner_type?: string
   content: string
-  schema_version?: string
 }
 
 export interface PolicyTemplate {
@@ -268,6 +279,32 @@ export interface PolicySetVersion {
   manifest_sha256: string
   schema_version: string
   created_at: string
+}
+
+export interface PolicySetActivationStatus {
+  zone_id: string
+  policy_set_id: string
+  version_id: string
+  active: boolean
+  active_version_id: string | null
+  manifest_sha256: string | null
+  propagation_status: 'loaded' | 'waiting_for_activation' | 'waiting_for_outbox' | 'waiting_for_sts' | 'failed'
+  outbox: {
+    id: string | null
+    state: 'dispatched' | 'pending' | 'dead' | 'missing' | 'mismatch'
+    attempts: number
+    last_error: string | null
+    dispatched_at: string | null
+  }
+  sts: {
+    state: 'loaded' | 'not_loaded' | 'not_configured' | 'unreachable' | 'failed'
+    loaded?: boolean
+    policy_set_version_id?: string
+    manifest_sha256?: string
+    loaded_at?: string
+    age_seconds?: number
+    detail?: string
+  }
 }
 
 export interface PolicySetSimulation {
@@ -318,6 +355,31 @@ export interface GrantInput {
   scopes: string[]
 }
 
+export interface SubjectIssuer {
+  id: string
+  zone_id: string
+  issuer: string
+  jwks_url: string
+  audience: string
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  created_via_operator?: boolean
+  updated_by?: string | null
+  updated_via_operator?: boolean
+}
+
+export interface SubjectIssuerInput {
+  issuer: string
+  jwks_url: string
+  audience: string
+}
+
+export interface SubjectIssuerPatch {
+  jwks_url?: string
+  audience?: string
+}
+
 export interface GrantQuery {
   application_id?: string
   user_id?: string
@@ -330,54 +392,87 @@ export interface GrantQuery {
   limit?: number
 }
 
-export interface ProviderGrantInput {
-  user_id: string
-  resource_id: string
+export interface WorkloadBinding {
+  env: string
+  resource: string
+  scopes?: string[]
+  optional?: boolean
+  on_failure?: 'warn' | 'error'
+}
+
+export interface Workload {
+  id: string
+  zone_id: string
+  name: string
+  bindings: WorkloadBinding[]
+  created_by: string | null
+  created_via_operator: boolean
+  created_at: string
+  updated_by: string | null
+  updated_via_operator: boolean
+  updated_at: string
+}
+
+export interface WorkloadUpdateInput {
+  name?: string
+  bindings?: WorkloadBinding[]
+}
+
+export interface ProviderConnectionInput {
+  subject_id: string
   provider_id: string
-  scopes: string[]
   access_token: string
   refresh_token?: string
   expires_at?: string
 }
 
-export interface ProviderGrantOAuthAuthorizeInput {
-  user_id: string
-  resource_id: string
+export interface ProviderConnectionAuthorizeInput {
+  subject_id: string
   provider_id: string
-  scopes: string[]
 }
 
-export interface ProviderGrantOAuthAuthorize {
+export interface ProviderConnectionAuthorize {
   authorization_url: string
   state: string
   expires_at: string
 }
 
-export interface ProviderGrantRevokeInput {
-  user_id: string
-  resource_id: string
+export interface ProviderConnectionRevokeInput {
+  subject_id: string
   provider_id: string
 }
 
-export interface ProviderGrant {
+export interface SubjectRevokeInput {
+  subject_id: string
+  reason?: string
+}
+
+export interface SubjectRevokeResult {
+  subject_id: string
+  authority_records: number
+  sessions: number
+  delegations: number
+  connections: number
+}
+
+export interface ProviderConnection {
   id: string
   zone_id: string
-  user_id: string
-  resource_id: string
+  subject_id: string
   provider_id: string
-  scopes: string[]
   status: string
   expires_at: string | null
+  upstream_revocation?: 'revoked' | 'unsupported' | 'failed'
   created_at: string
   updated_at: string
 }
 
-export interface Session {
-  id: string
+export interface AuthorityRecord {
+  authority_record_id: string
   zone_id: string
-  session_type: string
+  authority_record_type: string
   subject_id: string
-  parent_id: string | null
+  parent_authority_record_id: string | null
   status: string
   expires_at: string
   authenticated_at: string
@@ -428,7 +523,8 @@ export interface AuditQuery {
   request_id?: string
   decision?: 'allow' | 'deny' | 'partial'
   event_type?: string
-  agent_session_id?: string
+  session_id?: string
+  authority_record_id?: string
   label?: string
   cursor?: string
   limit?: number
@@ -463,41 +559,39 @@ export interface AdminAuditQuery {
   limit?: number
 }
 
-export interface SessionQuery {
+export interface AuthorityRecordQuery {
+  authority_record_id?: string
   status?: 'active' | 'revoked' | 'expired'
   subject_id?: string
+  cursor?: string
   limit?: number
 }
 
-export interface AgentSessionRow {
-  id: string
+export interface Session {
+  session_id: string
+  zone_id?: string
   application_id: string
-  parent_id: string | null
+  parent_session_id: string | null
   status: string
   lifecycle: string
   labels: string[]
   depth: number
   child_count: number
-  spawned_at: string
+  started_at: string
   last_active_at: string
   terminated_at: string | null
   ttl_seconds: number | null
+  authority_record_id?: string
+  metadata?: Record<string, unknown> | null
+  last_heartbeat_at?: string | null
+  heartbeat_deadline_at?: string | null
 }
 
-export interface AgentSessionQuery {
+export interface SessionQuery {
   status?: 'active' | 'suspended' | 'terminated' | 'expired'
   lifecycle?: 'task' | 'service'
   application_id?: string
-  parent_id?: string
-  label?: string
-  cursor?: string
-  limit?: number
-}
-
-export interface AgentListQuery {
-  status?: 'active' | 'suspended' | 'terminated'
-  lifecycle?: 'task' | 'service'
-  application_id?: string
+  parent_session_id?: string
   label?: string
   cursor?: string
   limit?: number
@@ -507,46 +601,40 @@ export interface StepUpChallenge {
   id: string
   zone_id: string
   session_id: string
+  principal_id: string
+  application_id: string | null
   challenge_type: string
+  tier: string | null
+  approver_class: string
+  privacy_mode: string
+  binding: string
+  state: string
   metadata_json: JsonObject
+  decision_reason: string | null
   created_at: string
   expires_at: string
   satisfied_at: string | null
+  rejected_at: string | null
+  consumed_at: string | null
   approver_subject_id: string | null
 }
 
-export interface StepUpChallengeSatisfaction {
+export interface StepUpDecision {
   id: string
-  satisfied_at: string
+  state: string
+  satisfied_at: string | null
+  rejected_at: string | null
   approver_subject_id: string
 }
 
-export interface AgentSession {
-  agent_session_id: string
-  zone_id: string
-  application_id: string
-  parent_id: string | null
-  subject_session_id: string
-  lifecycle: string
-  labels: string[]
-  status: string
-  depth: number
-  ttl_seconds: number | null
-  metadata: Record<string, unknown> | null
-  spawned_at: string
-  terminated_at?: string | null
-  last_heartbeat_at?: string | null
-  heartbeat_deadline_at?: string | null
-}
-
-export interface DelegationEdge {
-  id: string
+export interface Delegation {
+  delegation_id: string
   zone_id: string
   source_session_id: string
   target_session_id: string
   issuer_application_id: string
   receiver_application_id: string
-  parent_edge_id: string | null
+  parent_delegation_id: string | null
   resource_id: string | null
   scopes: string[]
   constraints_json: JsonObject
@@ -557,23 +645,23 @@ export interface DelegationEdge {
   created_at: string
 }
 
-export interface TraverseNode {
-  id: string
+export interface DelegationTraversal {
+  delegation_id: string
   source_session_id: string
   target_session_id: string
   depth: number
 }
 
 export interface DelegationImpact {
-  edge_id: string
-  affected_edges: TraverseNode[]
-  affected_agents: string[]
-  affected_subject_sessions: string[]
+  delegation_id: string
+  affected_delegations: DelegationTraversal[]
+  affected_sessions: string[]
+  affected_authority_records: string[]
 }
 
 export interface EffectiveAuthority {
-  agent_session_id: string
-  inbound_edges: string[]
+  session_id: string
+  inbound_delegations: string[]
   effective_scopes: string[]
   effective_resource_ids?: string[]
   effective_resources: string[]

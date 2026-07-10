@@ -8,16 +8,17 @@ Caracal uses secret material for zone encryption, mandate signing, audit integri
 
 ## Key Inventory
 
-| Material | Purpose |
-| --- | --- |
-| `ZONE_KEK` | Encrypts zone secrets and signing material. |
-| Zone signing keys | Sign mandates exposed through STS JWKS. |
-| `AUDIT_HMAC_KEY` | Signs/verifies audit evidence. |
-| `STREAMS_HMAC_KEY` | Signs Redis stream messages. |
-| `GATEWAY_STS_HMAC_KEY` | Authenticates Gateway exchanges to STS. |
-| `CARACAL_ADMIN_TOKEN` | Bootstrap/operator API access. |
-| `CARACAL_COORDINATOR_TOKEN` | Coordinator agent/delegation management. |
-| Postgres and Redis passwords | Storage access. |
+| Material                     | Purpose                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `SECRET_STORE_KEK`           | Root key for Secret Store envelopes: provider credentials, zone signing material, connection tokens, sink secrets. |
+| Zone signing keys            | Sign mandates exposed through STS JWKS.                                                                            |
+| `AUDIT_HMAC_KEY`             | Signs/verifies audit evidence.                                                                                     |
+| `STREAMS_HMAC_KEY`           | Signs Redis stream messages.                                                                                       |
+| `IDEMPOTENCY_HMAC_KEY`       | Digests Coordinator idempotency identifiers before storage.                                                        |
+| `GATEWAY_STS_HMAC_KEY`       | Authenticates Gateway exchanges to STS.                                                                            |
+| `CARACAL_ADMIN_TOKEN`        | Bootstrap/operator API access.                                                                                     |
+| `CARACAL_COORDINATOR_TOKEN`  | Coordinator Session and Delegation management.                                                                     |
+| Postgres and Redis passwords | Storage access.                                                                                                    |
 
 ## Storage Boundary
 
@@ -44,24 +45,25 @@ flowchart LR
 
 ## Rotation Checklist
 
-| Key | Services to roll | Verify |
-| --- | --- | --- |
-| `ZONE_KEK` | API and STS after coordinated key plan. | Zone secrets decrypt and STS can read active signing material. |
-| Zone signing key | STS, then verifiers after JWKS cache windows. | JWKS exposes expected key IDs and old mandates expire or verify during overlap. |
-| `AUDIT_HMAC_KEY` | Producers and Audit verifier: API, STS, Gateway, Audit, Control. | Audit ingestion accepts new events and rejects mismatched signatures. |
-| `STREAMS_HMAC_KEY` | Producers and consumers: API, STS, Gateway, Coordinator, Audit. | Consumers accept new stream messages and pending entries drain. |
-| `GATEWAY_STS_HMAC_KEY` | API, STS, and Gateway. | Gateway exchange succeeds and failed HMAC attempts are denied. |
-| `CARACAL_ADMIN_TOKEN` | API, Console/Control clients, Control plugin. | Old token fails; Console and automation authenticate with the replacement. |
-| `CARACAL_COORDINATOR_TOKEN` | Coordinator and Console/operator clients. | Agent/delegation views load and old token fails. |
+| Key                         | Services to roll                                                                                                                                                                                                                      | Verify                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `SECRET_STORE_KEK`          | API and STS with `SECRET_STORE_KEK_PREVIOUS` carrying the retiring key, then the re-seal sweep, then both services again without the previous key. [Configure Secret Backends](/operations/secret-backends/) documents the procedure. | Provider credentials decrypt, STS reads active signing material, and the sweep reports zero failures.                                  |
+| Zone signing key            | STS, then verifiers after JWKS cache windows.                                                                                                                                                                                         | JWKS exposes expected key IDs and old mandates expire or verify during overlap.                                                        |
+| `AUDIT_HMAC_KEY`            | Producers and Audit verifier: API, STS, Gateway, Audit, Control.                                                                                                                                                                      | Audit ingestion accepts new events and rejects mismatched signatures.                                                                  |
+| `STREAMS_HMAC_KEY`          | Producers and consumers: API, STS, Gateway, Coordinator, Audit.                                                                                                                                                                       | Consumers accept new stream messages and pending entries drain.                                                                        |
+| `IDEMPOTENCY_HMAC_KEY`      | Coordinator. Set the replacement as `IDEMPOTENCY_HMAC_KEY` and the retiring key as `IDEMPOTENCY_HMAC_KEY_PREVIOUS`; keep both for at least `IDEMPOTENCY_RETENTION_SECONDS`, then remove the previous key.                             | Existing receipts replay through the overlap; new receipt digests use only the replacement; conflict and replay metrics remain stable. |
+| `GATEWAY_STS_HMAC_KEY`      | API, STS, and Gateway.                                                                                                                                                                                                                | Gateway exchange succeeds and failed HMAC attempts are denied.                                                                         |
+| `CARACAL_ADMIN_TOKEN`       | API, Console/Control clients, Control plugin.                                                                                                                                                                                         | Old token fails; Console and automation authenticate with the replacement.                                                             |
+| `CARACAL_COORDINATOR_TOKEN` | Coordinator and Console/operator clients.                                                                                                                                                                                             | Session/Delegation views load and old token fails.                                                                                     |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
+| Symptom                                     | Check                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------- |
 | JWKS clients reject mandates after rotation | Issuer URL, JWKS cache age, key overlap window, and STS JWKS health. |
-| Audit DLQ grows | Producer and Audit `AUDIT_HMAC_KEY` mismatch. |
-| Stream consumers reject messages | Producer and consumer `STREAMS_HMAC_KEY` mismatch. |
-| Gateway exchange fails | `GATEWAY_STS_HMAC_KEY` mismatch between Gateway and STS. |
+| Audit DLQ grows                             | Producer and Audit `AUDIT_HMAC_KEY` mismatch.                        |
+| Stream consumers reject messages            | Producer and consumer `STREAMS_HMAC_KEY` mismatch.                   |
+| Gateway exchange fails                      | `GATEWAY_STS_HMAC_KEY` mismatch between Gateway and STS.             |
 
 ## Next Step
 

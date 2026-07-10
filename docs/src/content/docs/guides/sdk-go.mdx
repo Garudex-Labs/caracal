@@ -1,9 +1,9 @@
 ---
 title: Integrate the Go SDK
-description: Install the Go SDK, load a runtime profile, spawn agents with context.Context, delegate authority, and inject Caracal headers.
+description: Install the Go SDK, load a runtime profile, run governed sessions with context.Context, delegate authority, and inject Caracal headers.
 ---
 
-Use the Go SDK in services and agents that need Caracal context propagation, agent sessions, delegation, and Gateway-aware HTTP clients.
+Use the Go SDK in services and agents that need Caracal context propagation, Sessions, delegation, and Gateway-aware HTTP clients.
 
 ## Install
 
@@ -29,7 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := client.Spawn(context.Background(), func(ctx context.Context) error {
+	if err := client.Session(context.Background(), func(ctx context.Context) error {
 		headers, err := client.Headers(ctx)
 		if err != nil {
 			return err
@@ -42,14 +42,14 @@ func main() {
 }
 ```
 
-`New()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables.
+`New()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths.
 
 ## Use an HTTP client
 
 ```go
 httpClient := client.Transport(nil)
 
-err := client.Spawn(context.Background(), func(ctx context.Context) error {
+err := client.Session(context.Background(), func(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/tickets", nil)
 	if err != nil {
 		return err
@@ -61,12 +61,12 @@ err := client.Spawn(context.Background(), func(ctx context.Context) error {
 
 The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
 
-## Long-lived service agents
+## Long-lived long-lived Sessions
 
-Daemons and workers that outlive a single request use `Service` instead of `Spawn`. It returns a handle you own: keep the session alive by calling `Heartbeat` on a timer and retire it with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. A long-lived Session is reaped if it stops heartbeating before its lease expires; its stored protocol lifecycle is `service`.
 
 ```go
-svc, err := client.SpawnService(context.Background(), caracal.ServiceOptions{
+svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
 	Labels: []string{"billing-worker"},
 })
 if err != nil {
@@ -75,41 +75,49 @@ if err != nil {
 defer svc.Close(context.Background())
 
 for running {
-	if err := svc.Heartbeat(context.Background()); err != nil {
-		return err
-	}
-	doWork(svc.Context)
-	time.Sleep(30 * time.Second)
+	doWork(svc.Context) // lease renews in the background
 }
 ```
 
-## Spawn a narrowed child
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
+
+`Status()` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `OnStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `AttachSession` to restart lease renewal. `OnLeaseLost` remains reserved for terminal loss.
+
+A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `*CoordinatorError`, telling the worker to start a new one - and returns the same handle `StartSession` does:
 
 ```go
-err := client.Spawn(context.Background(), func(ctx context.Context) error {
-	return client.Spawn(ctx, func(child context.Context) error {
+svc, err := client.AttachSession(ctx, persistedSessionID, caracal.AttachSessionOptions{
+	OnLeaseLost: func(error) { shutdown() },
+})
+```
+
+The rebuilt context carries the Session identity only; Delegations bound by the previous holder are re-presented with `AcceptDelegation`.
+
+## Start a narrowed child
+
+```go
+err := client.Session(context.Background(), func(ctx context.Context) error {
+	return client.Session(ctx, func(child context.Context) error {
 		_, _ = client.Current(child)
 		return nil
-	}, caracal.SpawnOptions{
-		Grant: caracal.Grant{
-			Mode:        caracal.GrantModeNarrow,
-			Scopes:      []string{"tickets:read"},
+	}, caracal.SessionOptions{
+		Authority: caracal.AuthorityNarrow([]string{"tickets:read"}, caracal.NarrowOptions{
 			Constraints: &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
 			TTLSeconds:  600,
-		},
+		}),
 	})
 })
 ```
 
-A plain `client.Spawn` runs the child under the application's authority. Set `SpawnOptions.Grant` to `caracal.GrantNarrow(...)` only when the child should hold a least-privilege subset, or `caracal.GrantNone()` for a child with no inherited authority. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Missing config error | Confirm the runtime profile or required environment variables. |
-| `Headers` without context fails | Call inside `Spawn`, `Delegate`, or pass `RootOptions{AllowRoot: true}` intentionally. |
-| Delegation fails | Ensure delegation runs from a context with an active agent session. |
-| Gateway URL error | Confirm the runtime profile includes `gateway_url`. |
+| Symptom                         | Check                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| Missing config error            | Confirm the runtime profile or required environment variables.                               |
+| `Headers` without context fails | Call inside `Session`, `Delegate`, or pass `CallOptions{AsApplication: true}` intentionally. |
+| Delegation fails                | Ensure delegation runs from a context with an active Session.                                |
+| Gateway URL error               | Confirm the runtime profile includes `gateway_url`.                                          |
 
-Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Agent Delegation](/concepts/delegation/).
+Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Session Delegation](/concepts/delegation/).

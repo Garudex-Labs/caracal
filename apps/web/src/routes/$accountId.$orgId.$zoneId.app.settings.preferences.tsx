@@ -7,6 +7,7 @@ This file defines the Settings preferences page for theme, guided-tour, and audi
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { CreatedBy } from "@/components/console/CreatedBy";
 import { ConfirmModal, SettingsGroup } from "@/components/console/SettingsPanels";
 import { Button, Field, Skeleton, useToast } from "@/components/ui";
 import { useAuditRetention, useUpdateAuditRetention } from "@/platform/api/hooks";
@@ -135,6 +136,15 @@ function PreferencesPage() {
             />
           )}
         </div>
+        {retention.data?.updated_by ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Last set by <CreatedBy id={retention.data.updated_by} />
+            {retention.data.updated_at
+              ? ` on ${new Date(retention.data.updated_at).toLocaleString()}`
+              : ""}
+            .
+          </p>
+        ) : null}
       </SettingsGroup>
 
       <ConfirmModal

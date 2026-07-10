@@ -4,12 +4,7 @@
 // Unit tests for the syntactic Rego validator.
 
 import { describe, it, expect } from 'vitest'
-import {
-  parseRego,
-  previewAuthzPolicy,
-  validatePolicySource,
-  validateAuthzPolicy,
-} from '../../../../apps/api/src/rego.js'
+import { parseRego, previewAuthzPolicy, validatePolicySource, validateAuthzPolicy } from '../../../../apps/api/src/rego.js'
 
 describe('parseRego', () => {
   it('extracts package and rule names', () => {
@@ -85,6 +80,14 @@ result := { "decision": "allow" }`),
       validateAuthzPolicy(`# caracal:data-document
 package caracal.authz`),
     ).toBe('data_document_must_define_data')
+  })
+
+  it('rejects rules owned by the platform decision contract', () => {
+    expect(
+      validateAuthzPolicy(`# caracal:data-document
+package caracal.authz
+principal_owns_resource if true`),
+    ).toBe('data_document_rule_not_allowed:principal_owns_resource')
   })
 })
 

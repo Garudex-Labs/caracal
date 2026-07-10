@@ -67,7 +67,7 @@ describe('docker-compose default substitutions', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
     expect(yaml).toContain('source: caracalAdminToken')
     expect(yaml).toContain('CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken')
-    expect(yaml).toContain('CARACAL_CONTROL_ENABLED: "true"')
+    expect(yaml).toMatch(/CARACAL_CONTROL_ENABLED: (?:'true'|"true")/)
     expect(yaml).toContain('CONTROL_GATE_FILE: /run/caracal-control/enabled')
     expect(yaml).not.toContain('CONTROL_API_TOKEN: ${CARACAL_ADMIN_TOKEN:-}')
     expect(yaml).not.toMatch(/\n {2}control:\n/)
@@ -124,7 +124,7 @@ describe('runtime-compose default substitutions', () => {
 
   it('runtime api hosts the in-process control plane without a separate service', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'runtime-compose.yml'), 'utf8')
-    expect(yaml).toContain('CARACAL_CONTROL_ENABLED: "true"')
+    expect(yaml).toMatch(/CARACAL_CONTROL_ENABLED: (?:'true'|"true")/)
     expect(yaml).toContain('CONTROL_GATE_FILE: /run/caracal-control/enabled')
     expect(yaml).not.toContain('CONTROL_PORT')
     expect(yaml).not.toMatch(/\n {2}control:\n/)

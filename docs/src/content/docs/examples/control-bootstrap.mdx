@@ -4,17 +4,17 @@ description: Keep an agent environment in sync with a declared plan through a sc
 pageType: workflow
 ---
 
-Control Bootstrap is the canonical Control API automation example under `examples/controlBootstrap`. A small CI/CD-style pipeline keeps one agent's environment - application, provider, resource, and policy - matching a declared plan, without adding product-management verbs to the runtime CLI.
+Control Bootstrap is the canonical Control API automation example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `controlBootstrap/`. A small CI/CD-style pipeline keeps one agent's environment - application, provider, resource, and policy - matching a declared plan, without adding product-management verbs to the runtime CLI.
 
 ## What it demonstrates
 
-| Area | Behavior |
-| --- | --- |
-| Automation surface | Calls `/v1/control/invoke` instead of using a root admin token. |
-| Identity model | Uses scoped, short-lived control keys created in the web console, one scope tier per pipeline stage. |
-| Reconciliation | `apply` creates missing objects, patches drifted ones, and publishes a new policy version on content drift. |
-| CI gating | `verify` is a read-only drift check that exits non-zero when the zone does not match the plan. |
-| Safety model | Uses replay protection, rate limits, scoped control permissions, and audit. |
+| Area               | Behavior                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Automation surface | Calls `/v1/control/invoke` instead of using a root admin token.                                             |
+| Identity model     | Uses scoped, short-lived control keys created in the web console, one scope tier per pipeline stage.        |
+| Reconciliation     | `apply` creates missing objects, patches drifted ones, and publishes a new policy version on content drift. |
+| CI gating          | `verify` is a read-only drift check that exits non-zero when the zone does not match the plan.              |
+| Safety model       | Uses replay protection, rate limits, scoped control permissions, and audit.                                 |
 
 The plan describes the PiperNet reporter agent's environment: the agent application, the `provider://pipernet-mandate` provider, the `resource://pipernet` resource wired to it, and the baseline policy that allows `read`.
 
@@ -30,12 +30,13 @@ The plan describes the PiperNet reporter agent's environment: the agent applicat
 
 2. Create or select the target zone.
 3. Create a control key with only the scopes the stage needs: read/write on app, provider, resource, and policy for `apply`; read for `verify`; read/delete for `teardown`.
-4. Save the one-time `client_id` and `client_secret`. STS resolves the zone from the bound control key.
+4. Save the `client_id` and `client_secret`. STS resolves the zone from the bound control key; the secret stays retrievable from the Applications page through an audited reveal.
 
 ## Run the pipeline
 
 ```bash
-cd examples/controlBootstrap
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/controlBootstrap
 cp env.example .env
 $EDITOR .env
 . .env
@@ -51,18 +52,18 @@ npm run teardown
 
 ## Files to study
 
-| File | Purpose |
-| --- | --- |
-| `controlClient.mjs` | Exchanges client credentials at STS and calls the Control API. |
-| `plan.mjs` | Declares the desired environment, drift checks, scope tiers, and env-driven config. |
-| `apply.mjs` | Reconciles the live zone with the plan. |
-| `verify.mjs` | Read-only drift gate for CI. |
-| `teardown.mjs` | Removes the environment in reverse dependency order. |
+| File                | Purpose                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `controlClient.mjs` | Exchanges client credentials at STS and calls the Control API.                      |
+| `plan.mjs`          | Declares the desired environment, drift checks, scope tiers, and env-driven config. |
+| `apply.mjs`         | Reconciles the live zone with the plan.                                             |
+| `verify.mjs`        | Read-only drift gate for CI.                                                        |
+| `teardown.mjs`      | Removes the environment in reverse dependency order.                                |
 
 ## Test
 
 ```bash
-cd examples/controlBootstrap
+cd caracal-examples/controlBootstrap
 npm test
 ```
 

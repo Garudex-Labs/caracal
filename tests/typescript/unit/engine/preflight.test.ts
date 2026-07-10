@@ -32,7 +32,7 @@ function listen(server: Server): Promise<number> {
 
 function writeSecrets(dir: string, redisPort: number, redisPassword: string, postgresPort: number): void {
   mkdirSync(dir, { recursive: true })
-  for (const file of ['zoneKek', 'auditHmacKey', 'streamsHmacKey', 'gatewayStsHmacKey']) {
+  for (const file of ['secretStoreKek', 'auditHmacKey', 'streamsHmacKey', 'gatewayStsHmacKey']) {
     writeFileSync(join(dir, file), `${KEY}\n`)
   }
   writeFileSync(join(dir, 'postgresPassword'), 'postgres-pass\n')
@@ -50,17 +50,23 @@ describe('runPreflightChecks', () => {
     writeFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'packages: []\n')
     writeFileSync(join(repoRoot, 'package.json'), '{"private":true}\n')
 
-    const postgresPort = await listen(createServer((socket) => {
-      socket.end()
-    }))
-    const redisPort = await listen(createServer((socket) => {
-      socket.on('data', (chunk) => {
-        const command = chunk.toString('utf8')
-        socket.end(command.includes('dev-pass') && command.includes('PING')
-          ? '+OK\r\n+PONG\r\n'
-          : '-WRONGPASS invalid username-password pair or user is disabled.\r\n')
-      })
-    }))
+    const postgresPort = await listen(
+      createServer((socket) => {
+        socket.end()
+      }),
+    )
+    const redisPort = await listen(
+      createServer((socket) => {
+        socket.on('data', (chunk) => {
+          const command = chunk.toString('utf8')
+          socket.end(
+            command.includes('dev-pass') && command.includes('PING')
+              ? '+OK\r\n+PONG\r\n'
+              : '-WRONGPASS invalid username-password pair or user is disabled.\r\n',
+          )
+        })
+      }),
+    )
 
     writeSecrets(join(home, 'dev-secrets'), redisPort, 'dev-pass', postgresPort)
     writeSecrets(join(home, 'secrets'), redisPort, 'stale-pass', postgresPort)
@@ -128,14 +134,14 @@ describe('runPreflightChecks failure reporting', () => {
 
   it('reports invalid mode, unreadable secret files, and malformed service URLs deterministically', async () => {
     process.env.CARACAL_MODE = 'broken'
-    process.env.ZONE_KEK_FILE = join(home, 'missing-kek')
+    process.env.SECRET_STORE_KEK_FILE = join(home, 'missing-kek')
 
     const checks = await runPreflightChecks()
 
     expect(checks.find((check) => check.check === 'CARACAL_MODE')).toMatchObject({ status: 'fail' })
-    expect(checks.find((check) => check.check === 'ZONE_KEK')).toMatchObject({
+    expect(checks.find((check) => check.check === 'SECRET_STORE_KEK')).toMatchObject({
       status: 'fail',
-      detail: expect.stringContaining('ZONE_KEK_FILE unreadable'),
+      detail: expect.stringContaining('SECRET_STORE_KEK_FILE unreadable'),
     })
     expect(checks.find((check) => check.check === 'Postgres')).toMatchObject({
       status: 'fail',
@@ -149,7 +155,7 @@ describe('runPreflightChecks failure reporting', () => {
 
   it('reports stable-mode STS and key length failures', async () => {
     process.env.CARACAL_MODE = 'stable'
-    process.env.ZONE_KEK = 'aa'
+    process.env.SECRET_STORE_KEK = 'aa'
     process.env.AUDIT_HMAC_KEY = 'aa'
     process.env.STREAMS_HMAC_KEY = 'aa'
     process.env.GATEWAY_STS_HMAC_KEY = 'aa'
@@ -160,7 +166,7 @@ describe('runPreflightChecks failure reporting', () => {
       status: 'fail',
       detail: 'stable mode requires absolute STS_URL',
     })
-    expect(checks.find((check) => check.check === 'ZONE_KEK')).toMatchObject({
+    expect(checks.find((check) => check.check === 'SECRET_STORE_KEK')).toMatchObject({
       status: 'fail',
       detail: 'expected 32 bytes, got 1',
     })

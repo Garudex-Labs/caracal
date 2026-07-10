@@ -33,6 +33,29 @@ fi
 echo "  down migrations are not referenced by production tooling"
 
 echo ""
+echo "=== Migration: pre-release schema is one consolidated baseline ==="
+mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -printf '%f\n' | sort)
+expected_files=("0001_baseline.down.sql" "0001_baseline.up.sql")
+if [ "${migration_files[*]}" != "${expected_files[*]}" ]; then
+    echo "FAIL: pre-release migrations must contain only the consolidated 0001 baseline pair" >&2
+    printf '  found: %s\n' "${migration_files[*]}" >&2
+    exit 1
+fi
+echo "  baseline pair is the only migration"
+
+echo ""
+echo "=== Migration: version prefixes are unique ==="
+# migrate.sh applies files in lexicographic filename order and records the full
+# filename as the version, so duplicate numeric prefixes make ordering depend on
+# the suffix and confuse audits of what ran.
+duplicate_prefixes="$(find "${MIGRATIONS_DIR}" -name '*.up.sql' -exec basename {} \; | cut -c1-4 | sort | uniq -d)"
+if [ -n "${duplicate_prefixes}" ]; then
+    echo "FAIL: duplicate migration prefixes: ${duplicate_prefixes}" >&2
+    exit 1
+fi
+echo "  migration version prefixes are unique"
+
+echo ""
 echo "=== Migration: releases ship expand-only schema changes ==="
 # caracal upgrade applies migrations while the previous version still serves, then
 # rolls services. That is only safe when each release's migrations are backward

@@ -7,6 +7,7 @@ package sdk_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
@@ -25,7 +27,7 @@ func TestFromEnvMissing(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "")
 	t.Setenv("CARACAL_ZONE_ID", "")
 	t.Setenv("CARACAL_APPLICATION_ID", "")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected error for missing env")
 	}
@@ -34,7 +36,7 @@ func TestFromEnvMissing(t *testing.T) {
 func TestFromEnvOK(t *testing.T) {
 	t.Setenv("CARACAL_ZONE_ID", "z1")
 	t.Setenv("CARACAL_APPLICATION_ID", "app1")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok1")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok1")
 	c, err := sdk.FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +46,45 @@ func TestFromEnvOK(t *testing.T) {
 	}
 	if c.Coordinator.BaseURL != "http://localhost:4000" || c.GatewayURL != "http://localhost:8081" {
 		t.Fatalf("unexpected default URLs: %+v", c)
+	}
+}
+
+func TestFromEnvProductionRestrictsHTTPToLoopbackOrOverride(t *testing.T) {
+	t.Setenv("CARACAL_ENV", "production")
+	t.Setenv("CARACAL_ZONE_ID", "z1")
+	t.Setenv("CARACAL_APPLICATION_ID", "app1")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok1")
+	t.Setenv("CARACAL_STS_URL", "https://sts.internal")
+	t.Setenv("CARACAL_GATEWAY_URL", "https://gateway.internal")
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.internal:4000")
+
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "must use https") {
+		t.Fatalf("expected https enforcement error, got %v", err)
+	}
+
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://127.0.0.1:4000")
+	if _, err := sdk.FromEnv(); err != nil {
+		t.Fatalf("loopback http should pass: %v", err)
+	}
+
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.internal:4000")
+	t.Setenv("CARACAL_ALLOW_INSECURE_CONFIG_URLS", "true")
+	if _, err := sdk.FromEnv(); err != nil {
+		t.Fatalf("override should pass: %v", err)
+	}
+}
+
+func TestFromClientSecretProductionRequiresHTTPSSTS(t *testing.T) {
+	t.Setenv("CARACAL_ENV", "production")
+	_, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "https://coordinator.internal",
+		STSURL:         "http://sts.internal:8080",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+	})
+	if err == nil || !strings.Contains(err.Error(), "STSURL must use https") {
+		t.Fatalf("expected STSURL https enforcement error, got %v", err)
 	}
 }
 
@@ -72,7 +113,7 @@ func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +128,7 @@ func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	}
 }
 
-func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *testing.T) {
+func TestFromEnvClientSecretUsesExplicitAppResources(t *testing.T) {
 	var gotResources []string
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -104,39 +145,24 @@ func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
 	t.Setenv("CARACAL_STS_URL", sts.URL)
-	t.Setenv("CARACAL_RUN_CREDENTIALS", `[{"resource":"calendar","upstream_prefix":"https://calendar.example.com"}]`)
 	t.Setenv("CARACAL_APP_RESOURCES", "billing")
 
 	c, err := sdk.FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
+	if strings.Join(compactSorted(gotResources), ",") != "billing" {
 		t.Fatalf("unexpected resources: %#v", gotResources)
 	}
-	got := resourceBindingMap(c.Resources)
-	if got["calendar"] != "https://calendar.example.com" {
-		t.Fatalf("expected credential binding, got %#v", got)
+	if len(c.Resources) != 0 {
+		t.Fatalf("unexpected bindings: %#v", c.Resources)
 	}
 }
 
-func TestFromEnvAutoDetectsCredentialFiles(t *testing.T) {
-	var gotResources []string
-	var gotSecret string
-	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		gotResources = r.Form["resource"]
-		gotSecret = r.Form.Get("client_secret")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer sts.Close()
-
+func TestFromEnvIgnoresImplicitCredentialFiles(t *testing.T) {
 	dir := t.TempDir()
 	credentialDir := filepath.Join(dir, "caracal", "runtime", "z", "app")
 	if err := os.MkdirAll(credentialDir, 0o700); err != nil {
@@ -151,20 +177,10 @@ func TestFromEnvAutoDetectsCredentialFiles(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_STS_URL", sts.URL)
+	t.Setenv("CARACAL_STS_URL", "http://sts")
 
-	c, err := sdk.FromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
-		t.Fatal(err)
-	}
-	if gotSecret != "secret" {
-		t.Fatalf("expected auto-detected client secret, got %q", gotSecret)
-	}
-	if strings.Join(compactSorted(gotResources), ",") != "calendar" {
-		t.Fatalf("unexpected resources: %#v", gotResources)
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "CARACAL_APP_CLIENT_SECRET") {
+		t.Fatalf("expected explicit credential error, got %v", err)
 	}
 }
 
@@ -208,7 +224,7 @@ upstream_prefix = "https://billing.example.com"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if gotSecret != "secret" {
@@ -229,7 +245,7 @@ func TestNewUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
 	}))
 	defer sts.Close()
 
-	explicit, err := sdk.New(sdk.ClientSecretOptions{
+	explicit, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
 		CoordinatorURL: "http://coord",
 		STSURL:         sts.URL,
 		ZoneID:         "z",
@@ -287,24 +303,18 @@ resource = "resource://pipernet"
 `, sts.URL, secretPath)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fromProfile, err := sdk.New()
-	if err != nil {
-		t.Fatalf("profile connect: %v", err)
-	}
-	if fromProfile.ZoneID != "z-profile" {
-		t.Fatalf("unexpected profile client: %#v", fromProfile)
-	}
-
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty"))
 	t.Setenv("CARACAL_ZONE_ID", "z-env")
 	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok-env")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok-env")
 	fromEnv, err := sdk.New()
 	if err != nil {
 		t.Fatalf("env connect: %v", err)
 	}
 	if fromEnv.SubjectToken != "tok-env" {
 		t.Fatalf("unexpected env client: %#v", fromEnv)
+	}
+	if fromEnv.ZoneID == "z-profile" {
+		t.Fatalf("New must not inspect default profile paths: %#v", fromEnv)
 	}
 }
 
@@ -327,14 +337,14 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 	if _, err := c.Headers(context.Background()); err == nil {
 		t.Fatal("expected missing context error")
 	}
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.Get(sdk.HeaderAuthorization) != "Bearer tok" {
 		t.Fatalf("missing authorization: %v", h)
 	}
-	if sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)) == "" {
+	if tid, _ := sdk.ParseTraceparent(h.Get(sdk.HeaderTraceparent)); tid == "" {
 		t.Fatalf("missing traceparent: %v", h)
 	}
 }
@@ -342,7 +352,7 @@ func TestHeadersRequiresRootOptIn(t *testing.T) {
 func TestCaracalCurrentAndBindFromRequestRootFallback(t *testing.T) {
 	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "root-token"}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	bound, err := c.BindFromRequest(context.Background(), req, sdk.RootOptions{AllowRoot: true})
+	bound, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatalf("bind from root fallback: %v", err)
 	}
@@ -414,11 +424,11 @@ func TestHTTPClientInjects(t *testing.T) {
 	}))
 	defer srv.Close()
 	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
-		SubjectToken:   "tok",
-		ZoneID:         "z",
-		ApplicationID:  "a",
-		AgentSessionID: "sess9",
-		Hop:            1,
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "a",
+		SessionID:     "sess9",
+		Hop:           1,
 	})
 	client := c.Transport(nil)
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
@@ -433,6 +443,9 @@ func TestHTTPClientInjects(t *testing.T) {
 	}
 	if bag[sdk.BaggageHop] != "1" {
 		t.Fatalf("hop not injected: %v", got)
+	}
+	if got.Get(sdk.HeaderAuthorization) != "" {
+		t.Fatalf("direct upstream must not receive the subject token: %v", got)
 	}
 }
 
@@ -629,6 +642,12 @@ func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	if _, err := c.GatewayRequest("resource://calendar", "https://api.example.com/events"); err == nil {
 		t.Fatal("expected relative path error")
 	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events/../admin"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected dot segment rejection, got %v", err)
+	}
+	if _, err := c.GatewayRequest("resource://calendar", "./events"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected dot segment rejection, got %v", err)
+	}
 }
 
 func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
@@ -640,7 +659,7 @@ func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
 	}
 }
 
-func TestTransportUsesRootTokenWhenAllowed(t *testing.T) {
+func TestTransportAllowsUnboundRootWhenOptedIn(t *testing.T) {
 	c := &sdk.Caracal{
 		ZoneID:       "z",
 		SubjectToken: "root-token",
@@ -656,14 +675,46 @@ func TestTransportUsesRootTokenWhenAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.Transport(nil, sdk.RootOptions{AllowRoot: true}).Do(req)
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 
-	if got.Get(sdk.HeaderAuthorization) != "Bearer root-token" {
-		t.Fatalf("expected root token authorization, got %v", got)
+	if got.Get(sdk.HeaderAuthorization) != "" {
+		t.Fatalf("direct upstream must not receive the subject token: %v", got)
+	}
+	if tid, _ := sdk.ParseTraceparent(got.Get(sdk.HeaderTraceparent)); tid == "" {
+		t.Fatalf("missing traceparent: %v", got)
+	}
+}
+
+func TestBindFromRequestVerifyHook(t *testing.T) {
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a"}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(sdk.HeaderAuthorization, "Bearer inbound")
+
+	var seen string
+	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, token string) (*sdk.VerifiedClaims, error) {
+			seen = token
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen != "inbound" {
+		t.Fatalf("verify hook must receive the inbound token, got %q", seen)
+	}
+	if cur, ok := sdk.Current(ctx); !ok || cur.SubjectToken != "inbound" {
+		t.Fatalf("unexpected bound context: %#v", cur)
+	}
+
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, fmt.Errorf("revoked") },
+	}); err == nil {
+		t.Fatal("verify failure must reject the bind")
 	}
 }
 
@@ -689,7 +740,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	defer srv.Close()
 
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	agent, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
+	agent, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
 		ZoneID:        "z",
 		ApplicationID: "app",
 		Lifecycle:     sdk.LifecycleService,
@@ -698,8 +749,8 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.AgentSessionID != "agent-1" {
-		t.Fatalf("expected agent-1, got %q", agent.AgentSessionID)
+	if agent.SessionID != "agent-1" {
+		t.Fatalf("expected agent-1, got %q", agent.SessionID)
 	}
 	edge, err := sdk.CreateDelegation(context.Background(), client, "tok", sdk.DelegationRequest{
 		ZoneID:                "z",
@@ -714,15 +765,15 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edge.DelegationEdgeID != "edge-1" {
-		t.Fatalf("expected edge-1, got %q", edge.DelegationEdgeID)
+	if edge.DelegationID != "edge-1" {
+		t.Fatalf("expected edge-1, got %q", edge.DelegationID)
 	}
 	if len(bodies) != 2 || bodies[0]["ttl_seconds"] != float64(60) || bodies[1]["ttl_seconds"] != float64(30) {
 		t.Fatalf("unexpected coordinator request bodies: %#v", bodies)
 	}
 }
 
-func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
+func TestStartCoordinatorSessionNoIdempotencyKeyByDefault(t *testing.T) {
 	var seen http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Clone()
@@ -732,8 +783,8 @@ func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	_, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
-		ZoneID: "z", ApplicationID: "app", SubjectSessionID: "sid", ParentID: "parent",
+	_, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
+		ZoneID: "z", ApplicationID: "app", SubjectAuthorityRecordID: "sid", ParentID: "parent",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -743,7 +794,7 @@ func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
 	}
 }
 
-func TestSpawnAgentExplicitIdempotencyKey(t *testing.T) {
+func TestStartCoordinatorSessionExplicitIdempotencyKey(t *testing.T) {
 	var seen http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Clone()
@@ -752,7 +803,7 @@ func TestSpawnAgentExplicitIdempotencyKey(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	_, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
+	_, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
 		ZoneID: "z", ApplicationID: "app", IdempotencyKey: "user-key",
 	})
 	if err != nil {
@@ -763,15 +814,53 @@ func TestSpawnAgentExplicitIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestFromClientSecretPropagatesHTTPClientToCoordinator(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"session_id":"session-1"}`)),
+			Request:    req,
+		}, nil
+	})}
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "https://coordinator.example.com",
+		STSURL:         "https://sts.example.com",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+		HTTPClient:     client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Coordinator.HTTPClient != client {
+		t.Fatal("custom HTTP client must be shared with Coordinator")
+	}
+}
+
 func TestFromEnvRejectsExpiredJWT(t *testing.T) {
 	// Header.Payload.Sig where payload claims exp=1000000 (year 1970).
 	expired := "eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjEwMDAwMDB9.sig"
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", expired)
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", expired)
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected error for expired bootstrap token")
+	}
+}
+
+func TestFromEnvRejectsAlgNoneJWT(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"exp":4000000000}`))
+	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
+	t.Setenv("CARACAL_ZONE_ID", "z")
+	t.Setenv("CARACAL_APPLICATION_ID", "app")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", header+"."+payload+".")
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), `alg "none"`) {
+		t.Fatalf("expected alg none rejection, got %v", err)
 	}
 }
 
@@ -779,7 +868,7 @@ func TestFromEnvSortsResourcesLongestFirst(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES", strings.Join([]string{
 		"short=https://api.example.com/v1",
 		"long=https://api.example.com/v1/accounts/treasury",
@@ -807,7 +896,7 @@ func TestFromEnvResourceBindingsFileObjectAndEnvPrecedence(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES_FILE", bindingsPath)
 	t.Setenv("CARACAL_RESOURCES", "calendar=https://env.example.com/v2")
 	c, err := sdk.FromEnv()
@@ -865,7 +954,7 @@ app_client_secret_file = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true}); err != nil {
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
@@ -881,7 +970,7 @@ func TestFromEnvRejectsMalformedResources(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES", "calendar=not-a-url")
 	if _, err := sdk.FromEnv(); err == nil {
 		t.Fatal("expected malformed resource error")
@@ -899,7 +988,7 @@ func TestFromEnvRejectsMalformedResourceBindingsFile(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coord")
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_SUBJECT_TOKEN", "tok")
+	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok")
 	t.Setenv("CARACAL_RESOURCES_FILE", bindingsPath)
 	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "invalid CARACAL_RESOURCES_FILE") {
 		t.Fatalf("expected malformed resource file error, got %v", err)
@@ -942,7 +1031,7 @@ func TestFromClientSecretCustomHTTPClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, err := c.Headers(context.Background(), sdk.RootOptions{AllowRoot: true})
+	h, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -959,4 +1048,256 @@ type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer sts.Close()
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: coord.URL,
+		STSURL:         sts.URL,
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []oauth.Event
+	c.OnEvent(func(event oauth.Event) {
+		events = append(events, event)
+		panic("sink failure")
+	})
+
+	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	var types []string
+	for _, event := range events {
+		types = append(types, event.Type)
+	}
+	if len(events) < 3 || types[0] != "token.exchange" {
+		t.Fatalf("unexpected event sequence: %v", types)
+	}
+	if !events[0].Ok || events[0].Cached {
+		t.Fatalf("unexpected exchange event: %+v", events[0])
+	}
+	sawSpawn := false
+	for _, event := range events[1:] {
+		if !event.Ok {
+			t.Fatalf("unexpected failed event: %+v", event)
+		}
+		if event.Type == "coordinator.call" && event.Method == http.MethodPost && strings.HasSuffix(event.Path, "/agents") {
+			sawSpawn = true
+		}
+	}
+	if !sawSpawn {
+		t.Fatal("expected a coordinator.call event for the Session-start request")
+	}
+}
+
+func TestOnEventDisposerStopsDelivery(t *testing.T) {
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	var events []oauth.Event
+	dispose := c.OnEvent(func(event oauth.Event) { events = append(events, event) })
+
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	delivered := len(events)
+	if delivered == 0 {
+		t.Fatal("expected events before disposal")
+	}
+	dispose()
+	if err := c.Session(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != delivered {
+		t.Fatalf("expected no delivery after disposal: %d -> %d", delivered, len(events))
+	}
+}
+
+func TestIdentityExposesActingIdentity(t *testing.T) {
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "tok"}
+	zoneID, applicationID, err := c.Identity(context.Background())
+	if err != nil || zoneID != "z" || applicationID != "app" {
+		t.Fatalf("unexpected identity: %s %s %v", zoneID, applicationID, err)
+	}
+	if _, _, err := (&sdk.Caracal{SubjectToken: "tok"}).Identity(context.Background()); err == nil {
+		t.Fatal("expected unresolved identity to fail closed")
+	}
+}
+
+func TestAcceptDelegationValidatesAgainstInboundList(t *testing.T) {
+	status := "active"
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/delegations/inbound/") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"edge-42","status":%q}`, status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "s1",
+	})
+	var accepts []oauth.Event
+	c.OnEvent(func(event oauth.Event) {
+		if event.Type == "delegation.accept" {
+			accepts = append(accepts, event)
+		}
+	})
+
+	accepted, err := c.AcceptDelegation(ctx, "edge-42", sdk.AcceptDelegationOptions{Validate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := sdk.Current(accepted); cur.DelegationID != "edge-42" {
+		t.Fatalf("unexpected accepted context: %+v", cur)
+	}
+
+	status = "revoked"
+	if _, err := c.AcceptDelegation(ctx, "edge-42", sdk.AcceptDelegationOptions{Validate: true}); err == nil || !strings.Contains(err.Error(), "not live for session s1") {
+		t.Fatalf("expected a revoked delegation to be rejected, got %v", err)
+	}
+
+	if _, err := c.AcceptDelegation(ctx, "edge-77"); err != nil {
+		t.Fatalf("expected unvalidated acceptance to skip the pre-flight: %v", err)
+	}
+
+	if len(accepts) != 3 {
+		t.Fatalf("expected 3 delegation.accept events, got %d", len(accepts))
+	}
+	for i, want := range []struct {
+		id string
+		ok bool
+	}{{"edge-42", true}, {"edge-42", false}, {"edge-77", true}} {
+		if accepts[i].DelegationID != want.id || accepts[i].Ok != want.ok || accepts[i].SessionID != "s1" {
+			t.Fatalf("unexpected event %d: %+v", i, accepts[i])
+		}
+	}
+}
+
+func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
+	paths := []string{}
+	coord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+	}))
+	defer coord.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: coord.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ends := []string{}
+	c.OnSessionEnd(func(_ context.Context, cc sdk.CaracalContext) error {
+		ends = append(ends, cc.SessionID)
+		return nil
+	})
+
+	handle, err := c.AttachSession(context.Background(), "agent-persisted", sdk.AttachSessionOptions{HeartbeatInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle.SessionID() != "agent-persisted" || handle.DeadlineAt().IsZero() {
+		t.Fatalf("unexpected handle: %s %v", handle.SessionID(), handle.DeadlineAt())
+	}
+	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
+		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	}
+	if err := handle.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(ends) != 1 || ends[0] != "agent-persisted" {
+		t.Fatalf("expected the end hook to fire once: %v", ends)
+	}
+}
+
+func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
+	type seen struct {
+		target      string
+		traceparent string
+		baggage     string
+	}
+	calls := []seen{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, seen{target: r.URL.RequestURI(), traceparent: r.Header.Get("traceparent"), baggage: r.Header.Get("baggage")})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	c := &sdk.Caracal{
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: "http://coord"},
+	}
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+	res, err := client.Get(upstream.URL + "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if calls[0].traceparent != "" || calls[0].baggage != "" {
+		t.Fatalf("expected no envelope on a non-gateway host: %+v", calls[0])
+	}
+
+	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true})
+	res, err = gatewayClient.Get(upstream.URL + "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if calls[1].traceparent == "" {
+		t.Fatalf("expected the default propagation to carry the envelope: %+v", calls[1])
+	}
 }

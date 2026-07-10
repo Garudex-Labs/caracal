@@ -8,7 +8,9 @@ import type { BetterAuthOptions } from 'better-auth'
 import { APIError } from 'better-auth/api'
 
 import { authDatabase } from './database.ts'
-import { loadConfig, isOperatorAllowed } from './config.ts'
+import { loadConfig } from './config.ts'
+import { enforceDenial, resolveAccess } from './allowlist.ts'
+import { CLIENT_IP_HEADER } from './security.ts'
 import { createMailer } from './mailer.ts'
 import { githubCredentials, googleCredentials } from './providers.ts'
 import { logger } from './logger.ts'
@@ -56,11 +58,10 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
-    // Email/password registration asserts an email the registrant has not proven they own, which
-    // would otherwise grant allowlisted admin to whoever claims the address first. Disable sign-up
-    // in production by default (operators bootstrap through a provider-verified identity) and
-    // require a verified email before a session is issued where sign-up is permitted.
-    disableSignUp: !cfg.passwordSignup,
+    // Password sign-up is gated in front of this handler: the BFF closes the sign-up endpoint
+    // outright when password sign-up is configured off. Better Auth therefore keeps the endpoint
+    // enabled, and the user-creation hook below stays the email authority for every registration path.
+    disableSignUp: false,
     requireEmailVerification: cfg.requireEmailVerification,
     // A password reset proves control of the mailbox, not possession of every signed-in device.
     // Revoke all existing sessions on reset so a compromised credential cannot keep riding an
@@ -117,7 +118,11 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          if (isOperatorAllowed(user.email, cfg)) return
+          // The allowlist file written by `caracal allowlist` on the stack host is the admission
+          // authority: shell access to the host's secrets directory outranks a self-asserted
+          // email address. A listed address may also register through a provider-verified
+          // Google/GitHub sign-in.
+          if (resolveAccess(user.email, cfg) === 'allowed') return
           logger.warn('registration denied for unlisted operator', { email: user.email })
           throw new APIError('FORBIDDEN', { message: 'registration_not_permitted' })
         },
@@ -128,6 +133,25 @@ export const auth = betterAuth({
           if (guides !== undefined && !isValidGuides(guides)) {
             throw new APIError('BAD_REQUEST', { message: 'invalid_guides' })
           }
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session, ctx) => {
+          // Every sign-in method funnels through session creation, including OAuth callbacks, so
+          // re-checking the allowlist here cuts off new sessions the moment the host changes the
+          // file. A `removed` tombstone erases the account's auth records; a lock revokes any
+          // residual sessions. The rejection code is identical for every denial so the browser
+          // learns nothing about which case applied; the reason stays in the server log.
+          const user = ctx ? await ctx.context.internalAdapter.findUserById(session.userId) : null
+          const access = user ? resolveAccess(user.email, cfg) : 'denied'
+          if (access === 'allowed') return
+          logger.warn('sign-in denied by allowlist', { userId: session.userId, access })
+          if (ctx && user) {
+            await enforceDenial(ctx.context, access, { id: user.id, email: user.email })
+          }
+          throw new APIError('FORBIDDEN', { message: 'access_denied', code: 'access_denied' })
         },
       },
     },
@@ -168,9 +192,15 @@ export const auth = betterAuth({
     // The signing edge is HTTPS in production; pin Secure explicitly rather than inferring it
     // from the internal baseURL scheme, which is plain HTTP behind a TLS-terminating proxy.
     useSecureCookies: cfg.secureCookies,
+    // Rate limiting keys on the client address the BFF stamps from connection state on every
+    // request. Without a resolvable address Better Auth collapses to one shared per-path
+    // bucket, letting a single client exhaust everyone's sign-in budget.
+    ipAddress: {
+      ipAddressHeaders: [CLIENT_IP_HEADER],
+    },
     defaultCookieAttributes: {
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: cfg.cookieSameSite,
     },
   },
 })

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Rate limit and cryptographic helper unit tests.
+// Rate limit unit tests.
 
 package internal
 
@@ -17,74 +17,21 @@ func TestCheckRateLimitFailsClosedWhenRedisUnavailable(t *testing.T) {
 	}
 }
 
-func TestSealOpenZEKRoundTrip(t *testing.T) {
-	key := make([]byte, 32)
-	for i := range key {
-		key[i] = byte(i)
+func TestAuthenticationRateLimitRunsBeforeSecretVerification(t *testing.T) {
+	redis := newMemSTSRedis()
+	s := &Server{redis: redis}
+	for i := int64(0); i < authRateLimitMax; i++ {
+		if err := s.recordAuthenticationFailure(context.Background(), "app-1"); err != nil {
+			t.Fatalf("failure %d unexpectedly blocked: %v", i, err)
+		}
 	}
-	plaintext := []byte("super-secret-refresh-token")
-
-	packed, err := sealZEK(key, plaintext)
-	if err != nil {
-		t.Fatalf("seal: %v", err)
+	if err := s.recordAuthenticationFailure(context.Background(), "app-1"); err == nil {
+		t.Fatal("authentication failures against one application must be bounded")
 	}
-	if len(packed) == 0 {
-		t.Fatal("packed must not be empty")
+	if err := s.checkAuthenticationRateLimit(context.Background(), "app-1"); err == nil {
+		t.Fatal("authentication attempts against one application must be bounded")
 	}
-
-	recovered, err := openZEK(key, packed)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if string(recovered) != string(plaintext) {
-		t.Errorf("want %q, got %q", plaintext, recovered)
-	}
-}
-
-func TestSealZEKProducesDifferentOutputEachTime(t *testing.T) {
-	key := make([]byte, 32)
-	plaintext := []byte("same plaintext")
-
-	ct1, err := sealZEK(key, plaintext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ct2, err := sealZEK(key, plaintext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(ct1) == string(ct2) {
-		t.Error("sealed output must differ between calls (random nonce)")
-	}
-}
-
-func TestOpenZEKRejectsTruncatedCiphertext(t *testing.T) {
-	key := make([]byte, 32)
-	_, err := openZEK(key, []byte("short"))
-	if err == nil {
-		t.Error("want error for ciphertext shorter than nonce")
-	}
-}
-
-func TestOpenZEKRejectsWrongKey(t *testing.T) {
-	key := make([]byte, 32)
-	plaintext := []byte("data")
-	packed, err := sealZEK(key, plaintext)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wrongKey := make([]byte, 32)
-	wrongKey[0] = 0xFF
-	_, err = openZEK(wrongKey, packed)
-	if err == nil {
-		t.Error("want error when decrypting with wrong key")
-	}
-}
-
-func TestSealZEKRejectsInvalidKeyLength(t *testing.T) {
-	_, err := sealZEK([]byte("short-key"), []byte("data"))
-	if err == nil {
-		t.Error("want error for invalid key length")
+	if err := s.checkAuthenticationRateLimit(context.Background(), "app-2"); err != nil {
+		t.Fatalf("another application must retain its own budget: %v", err)
 	}
 }

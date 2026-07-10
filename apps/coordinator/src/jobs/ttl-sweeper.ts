@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// TTL sweeper: terminates expired task agents and their descendants transactionally.
+// TTL sweeper settles expired task Sessions and their descendants transactionally.
 
 import type { Pool } from 'pg'
 import { cfg } from '../config.js'
-import { spawnLockKey, terminateSubtree } from '../routes/agents.js'
+import { sessionLockKey, terminateSubtree } from '../routes/agents.js'
 import { type JobHandle, type JobLogger, makeIntervalJob } from './job.js'
 
 const SWEEP_LOCK = 'coordinator:ttl_sweep'
@@ -20,23 +20,21 @@ export async function runTTLSweep(db: Pool): Promise<number> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows: lock } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
-      [SWEEP_LOCK],
-    )
+    const { rows: lock } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`, [
+      SWEEP_LOCK,
+    ])
     if (!lock[0]?.acquired) {
       await client.query('ROLLBACK')
       return 0
     }
     const { rows: expired } = await client.query<{ id: string; zone_id: string }>(
-      `SELECT id, zone_id FROM agent_sessions
+      `SELECT id, zone_id FROM sessions
        WHERE status IN ('active','suspended')
          AND lifecycle <> 'service'
          AND ttl_seconds IS NOT NULL
-         AND spawned_at + (ttl_seconds * interval '1 second') < now()
+         AND started_at + (ttl_seconds * interval '1 second') < now()
        ORDER BY id
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED`,
+      LIMIT $1`,
       [cfg.sweeperBatchSize],
     )
     if (expired.length === 0) {
@@ -50,9 +48,9 @@ export async function runTTLSweep(db: Pool): Promise<number> {
       byZone.set(row.zone_id, list)
     }
     let terminated = 0
-    for (const [zoneId, ids] of byZone) {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [spawnLockKey(zoneId)])
-      terminated += await terminateSubtree(client, zoneId, ids, 'ttl')
+    for (const [zoneId, ids] of [...byZone].sort(([a], [b]) => a.localeCompare(b))) {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
+      terminated += await terminateSubtree(client, zoneId, ids, 'ttl', 'expired')
     }
     await client.query('COMMIT')
     return terminated
@@ -64,10 +62,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
   }
 }
 
-export function startTTLSweeper(
-  db: Pool,
-  options: { intervalMs?: number; log?: JobLogger } = {},
-): JobHandle {
+export function startTTLSweeper(db: Pool, options: { intervalMs?: number; log?: JobLogger } = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.ttlSweepIntervalMs
   return makeIntervalJob(
     () => {

@@ -2,7 +2,7 @@
 title: Caracal Operator
 description: The governed natural-language assistant that turns intent into reviewed, audited control-plane changes.
 sidebar:
-  order: 14
+  order: 15
 ---
 
 Caracal Operator lets you operate the control plane by describing what you want instead of navigating each console page by hand. It turns intent into a reviewed plan, then applies it through the same guarded APIs you use manually - within your operator scope and recorded in the audit log. Every change it makes is one you could have made yourself; it introduces no new authority.
@@ -29,7 +29,7 @@ flowchart LR
 1. **Propose.** Intent becomes a plan whose every step is validated against the capability catalog. A step that names an unknown action or invalid arguments is rejected before anything runs.
 2. **Preview.** The plan is resolved against your live state as a read-only dry run, so each step is marked as a create, an update, a no-op, or blocked when a referenced object is missing. Nothing is written.
 3. **Decide.** You approve or reject the plan. A plan is decided once, and only an approved plan is eligible to apply.
-4. **Apply.** An approved plan is re-validated and re-previewed, then executed step by step. A plan applies only once, and any one-time secret it produces is surfaced in the apply response, never written to the conversation or the audit log.
+4. **Apply.** An approved plan is re-validated and re-previewed, then executed step by step. A plan applies only once, and any secret it produces is surfaced in the apply response, never written to the conversation or the audit log; issued credentials stay retrievable from Secret Store custody through the owning object's audited reveal.
 
 ## Authority and Isolation
 
@@ -50,7 +50,7 @@ Ask mode is enforced in two independent places - the planning skill is never sel
 
 ## Autopilot
 
-In agent mode you can engage **autopilot**, which lets Caracal auto-satisfy the approval step for changes it has pre-authorized as low-risk. It is off by default, and a deployment turns it on with a master switch and an explicit allowlist of low-risk capabilities. Even within the allowlist, Caracal forces a change to a human for any major change - such as granting access or rotating a credential - for plans that exceed the per-plan step limit, when the rolling auto-approval budget is spent, when a preview is anything other than a clean create or update, or when the advisory security review raises a warning. The master switch is a single kill switch that stops all auto-approval on the next turn.
+In agent mode you can engage **autopilot**, which lets Caracal auto-satisfy the approval step for every plan in the conversation. Engaging it is an explicit opt-in to acting without a human in the loop; it is off by default and per conversation, and a platform-level master switch must also be on. Auto-approval never widens authority - the governed execute path still enforces the capability allowlist, the least-privilege executor token, and zone isolation on every apply. Autopilot defers while a plan still needs credentials from the console's secure prompt and stops when a preview shows the plan cannot apply. A deployment can also bound an engaged conversation with a **write budget**: once the cumulative auto-approved write operations would exceed it, autopilot pauses, records the pause in the conversation ledger, and the plan waits for explicit human approval. The master switch is a single kill switch that stops all auto-approval on the next turn.
 
 ## Authoring Policy
 

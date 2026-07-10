@@ -5,7 +5,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
-import { retentionCleanerStats, runRetentionCleanup, startRetentionCleaner } from '../../../../../../apps/coordinator/src/jobs/retention-cleaner.js'
+import {
+  retentionCleanerStats,
+  runRetentionCleanup,
+  startRetentionCleaner,
+} from '../../../../../../apps/coordinator/src/jobs/retention-cleaner.js'
 
 function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
   return {
@@ -15,19 +19,18 @@ function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
 }
 
 describe('runRetentionCleanup', () => {
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('skips cleanup when another replica holds the lock', async () => {
-    const client = clientWithRows([
-      { rows: [] },
-      { rows: [{ acquired: false }] },
-      { rows: [] },
-    ])
+    const client = clientWithRows([{ rows: [] }, { rows: [{ acquired: false }] }, { rows: [] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runRetentionCleanup(db as never)).resolves.toEqual({
       expiredEdges: 0,
       deletedEdges: 0,
       deletedOutbox: 0,
+      deletedIdempotencyReceipts: 0,
     })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
     expect(client.query).not.toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges'), expect.anything())
@@ -47,6 +50,7 @@ describe('runRetentionCleanup', () => {
       { rows: [] },
       { rowCount: 3 },
       { rowCount: 4 },
+      { rowCount: 5 },
       { rows: [] },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
@@ -54,8 +58,13 @@ describe('runRetentionCleanup', () => {
       expiredEdges: 2,
       deletedEdges: 3,
       deletedOutbox: 4,
+      deletedIdempotencyReceipts: 5,
     })
+    const edgeDelete = client.query.mock.calls.find((call) => String(call[0]).includes('DELETE FROM delegation_edges'))
+    expect(String(edgeDelete?.[0])).toContain('child.parent_edge_id = delegation_edges.id')
+
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'expired'"), [500])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("pg_advisory_xact_lock(hashtext('delegation:' || zone_id))"), [500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('RETURNING epoch'), ['z1'])
     expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO caracal_outbox'),
@@ -73,13 +82,16 @@ describe('runRetentionCleanup', () => {
     )
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges d'), [90, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM caracal_outbox o'), [7, 500])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM coordinator_idempotency_receipts r'), [500])
+    expect(client.query.mock.calls.some((call) => String(call[0]).includes('UPDATE sessions'))).toBe(false)
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('rolls back and releases when expiration fails', async () => {
     const err = new Error('expire failed')
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ acquired: true }] })
         .mockRejectedValueOnce(err)

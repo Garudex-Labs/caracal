@@ -105,3 +105,26 @@ SQL
 done
 
 echo "migrations up to date"
+
+# Service login provisioning. The baseline creates the service roles NOLOGIN;
+# each environment attaches its own credentials here so services connect as
+# their least-privilege role instead of the administrative user. Re-applied on
+# every run to keep the cluster in sync with the mounted secret files.
+provision_role() {
+    role="$1"
+    file="$2"
+    if [ -z "${file}" ] || [ ! -r "${file}" ]; then
+        return 0
+    fi
+    psql_cmd -v role="${role}" -v pw="$(cat "${file}")" >/dev/null <<'SQL'
+ALTER ROLE :"role" WITH LOGIN PASSWORD :'pw';
+SQL
+    echo "provisioned login for ${role}"
+}
+
+provision_role caracalapi "${CARACAL_API_DB_PASSWORD_FILE:-}"
+provision_role caracalsts "${CARACAL_STS_DB_PASSWORD_FILE:-}"
+provision_role caracalgateway "${CARACAL_GATEWAY_DB_PASSWORD_FILE:-}"
+provision_role caracalaudit "${CARACAL_AUDIT_DB_PASSWORD_FILE:-}"
+provision_role caracalcoordinator "${CARACAL_COORDINATOR_DB_PASSWORD_FILE:-}"
+provision_role caracalauth "${CARACAL_AUTH_DB_PASSWORD_FILE:-}"

@@ -30,19 +30,19 @@ describe('retrieveDocs', () => {
   })
 
   it('surfaces the step-up endpoint from the densest passage of a long API page', () => {
-    const results = retrieveDocs('exact API endpoint to satisfy a step-up challenge')
+    const results = retrieveDocs('exact API endpoint to approve a step-up challenge')
     const joined = results.map((r) => r.snippet).join('\n')
-    // The satisfy route lives deep in the control-plane API reference; the densest-window snippet
+    // The approve route lives deep in the control-plane API reference; the densest-window snippet
     // must reach it rather than stopping at the page's opening lines.
-    expect(joined).toContain('step-up-challenges')
+    expect(joined).toContain('/step-up/{id}/decision')
     expect(results.some((r) => r.id.includes('step-up'))).toBe(true)
   })
 
   it('keeps Caracal identifiers intact as searchable terms', () => {
     // A query naming the identifier verbatim must match the page that defines provider auth modes.
-    const results = retrieveDocs('which provider auth modes like oauth2_client_credentials or api_key')
+    const results = retrieveDocs('which provider auth modes support shared service credentials or API keys')
     const joined = results.map((r) => `${r.id} ${r.snippet}`).join('\n')
-    expect(joined).toMatch(/oauth2_client_credentials|api_key|bearer_token/)
+    expect(joined).toMatch(/client_credentials|API key|Bearer token/i)
   })
 
   it('returns at most the requested number of passages, each citing a page', () => {

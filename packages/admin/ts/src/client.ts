@@ -1,13 +1,13 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// AdminClient: typed wrapper over the Caracal admin API and agent coordinator.
+// AdminClient: typed wrapper over the Caracal Admin API and Coordinator.
 
 import { AdminApiError } from './errors.js'
 import type { JsonValue } from '@caracalai/core'
 import type {
-  AgentListQuery,
-  AgentSession,
+  AuthorityRecord,
+  AuthorityRecordQuery,
   Application,
   ApplicationInput,
   ApplicationPatchInput,
@@ -18,37 +18,43 @@ import type {
   AuditQuery,
   DCRInput,
   DecisionTrace,
-  DelegationEdge,
+  Delegation,
   DelegationImpact,
+  DelegationTraversal,
   EffectiveAuthority,
   Grant,
   GrantInput,
   GrantQuery,
+  SubjectIssuer,
+  SubjectIssuerInput,
+  SubjectIssuerPatch,
   Policy,
   PolicyInput,
   PolicySet,
+  PolicySetActivationStatus,
   PolicySetSimulation,
   PolicySetVersion,
   PolicyTemplate,
   PolicyValidation,
   PolicyVersion,
   Provider,
-  ProviderGrant,
-  ProviderGrantInput,
-  ProviderGrantOAuthAuthorize,
-  ProviderGrantOAuthAuthorizeInput,
-  ProviderGrantRevokeInput,
+  ProviderConnection,
+  ProviderConnectionAuthorize,
+  ProviderConnectionAuthorizeInput,
+  ProviderConnectionInput,
+  ProviderConnectionRevokeInput,
   ProviderInput,
   ProviderPatchInput,
   Resource,
   ResourceInput,
   Session,
   SessionQuery,
-  AgentSessionRow,
-  AgentSessionQuery,
+  SubjectRevokeInput,
+  SubjectRevokeResult,
   StepUpChallenge,
-  StepUpChallengeSatisfaction,
-  TraverseNode,
+  StepUpDecision,
+  Workload,
+  WorkloadUpdateInput,
   Zone,
   ZoneDcrStatus,
   ZoneInput,
@@ -79,19 +85,59 @@ interface RequestOptions {
   headers?: Record<string, string>
 }
 
-interface AgentListResponse {
-  items: AgentSession[]
-  next_cursor: string | null
-}
-
-interface RowListResponse<T> {
-  rows: T[]
+interface ListResponse<T> {
+  items: T[]
   next_cursor: string | null
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 const MAX_RETRY_AFTER_MS = 30_000
+const MAX_LIST_PAGES = 50
+
+function mapSession(row: Record<string, unknown>): Session {
+  const { agent_session_id, parent_id, subject_authority_record_id, ...rest } = row
+  return {
+    ...rest,
+    session_id: String(agent_session_id),
+    parent_session_id: parent_id === null ? null : String(parent_id),
+    authority_record_id: String(subject_authority_record_id),
+  } as Session
+}
+
+function mapEffectiveAuthority(row: Record<string, unknown>): EffectiveAuthority {
+  const { agent_session_id, inbound_edges, ...rest } = row
+  return {
+    ...rest,
+    session_id: String(agent_session_id),
+    inbound_delegations: Array.isArray(inbound_edges) ? inbound_edges : [],
+  } as unknown as EffectiveAuthority
+}
+
+function mapDelegationImpact(row: Record<string, unknown>): DelegationImpact {
+  const { edge_id, affected_edges, affected_sessions, affected_authority_records, ...rest } = row
+  return {
+    ...rest,
+    delegation_id: String(edge_id),
+    affected_delegations: Array.isArray(affected_edges) ? affected_edges.map(mapDelegationTraversal) : [],
+    affected_sessions: Array.isArray(affected_sessions) ? affected_sessions : [],
+    affected_authority_records: Array.isArray(affected_authority_records) ? affected_authority_records : [],
+  } as unknown as DelegationImpact
+}
+
+function mapDelegation(row: Record<string, unknown>): Delegation {
+  const { id, parent_edge_id, ...rest } = row
+  return {
+    ...rest,
+    delegation_id: String(id),
+    parent_delegation_id: parent_edge_id === null ? null : String(parent_edge_id),
+  } as Delegation
+}
+
+function mapDelegationTraversal(row: Record<string, unknown>): DelegationTraversal {
+  const { id, ...rest } = row
+  return { ...rest, delegation_id: String(id) } as DelegationTraversal
+}
 
 function grantListQuery(query?: GrantQuery): Record<string, string | number | undefined> | undefined {
   if (!query) return undefined
@@ -236,9 +282,25 @@ export class AdminClient {
     throw lastErr ?? new Error('admin_request_exhausted')
   }
 
+  // Drains a keyset-paginated collection by following next_cursor until exhausted, so a
+  // list is the complete collection rather than a silently truncated first page. The page
+  // cap bounds the walk against a server bug that never terminates the cursor chain.
+  private async listAll<T>(path: string, label: string, query?: Record<string, string | number | undefined>): Promise<T[]> {
+    const items: T[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      const response = await this.request<ListResponse<T>>(path, { query: { ...query, cursor } })
+      if (!Array.isArray(response.items)) throw new Error(`${label} response missing items`)
+      items.push(...response.items)
+      if (!response.next_cursor) return items
+      cursor = response.next_cursor
+    }
+    throw new Error(`${label} pagination did not terminate`)
+  }
+
   // Zones
   zones = {
-    list: () => this.request<Zone[]>('/v1/zones'),
+    list: () => this.listAll<Zone>('/v1/zones', 'zones'),
     get: (id: string) => this.request<Zone>(`/v1/zones/${id}`),
     dcrStatus: (id: string) => this.request<ZoneDcrStatus>(`/v1/zones/${id}/dcr-status`),
     create: (input: ZoneInput) => this.request<Zone>('/v1/zones', { method: 'POST', body: input }),
@@ -248,15 +310,20 @@ export class AdminClient {
 
   // Applications
   applications = {
-    list: (zoneId: string) => this.request<Application[]>(`/v1/zones/${zoneId}/applications`),
+    list: (zoneId: string) => this.listAll<Application>(`/v1/zones/${zoneId}/applications`, 'applications'),
     get: (zoneId: string, id: string) => this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`),
     create: (zoneId: string, input: ApplicationInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications`, { method: 'POST', body: input }),
     patch: (zoneId: string, id: string, input: ApplicationPatchInput) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'PATCH', body: input }),
-    // Rotates the credential server-side; the response carries the one-time plaintext secret.
+    // Rotates the credential server-side; the response carries the plaintext secret and
+    // the sealed custody copy in the Secret Store is replaced with it.
     rotateSecret: (zoneId: string, id: string) =>
       this.request<Application>(`/v1/zones/${zoneId}/applications/${id}/rotate-secret`, { method: 'POST' }),
+    // Retrieves the client secret from Secret Store custody. Every call is recorded
+    // in the zone audit timeline as a credential reveal.
+    getClientSecret: (zoneId: string, id: string) =>
+      this.request<{ client_secret: string }>(`/v1/zones/${zoneId}/applications/${id}/client-secret`),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/applications/${id}`, { method: 'DELETE', expectEmpty: true }),
     // DCR (Dynamic Client Registration) is the sole programmatic path for minting
@@ -270,7 +337,7 @@ export class AdminClient {
 
   // Resources
   resources = {
-    list: (zoneId: string) => this.request<Resource[]>(`/v1/zones/${zoneId}/resources`),
+    list: (zoneId: string) => this.listAll<Resource>(`/v1/zones/${zoneId}/resources`, 'resources'),
     get: (zoneId: string, id: string) => this.request<Resource>(`/v1/zones/${zoneId}/resources/${id}`),
     create: (zoneId: string, input: ResourceInput) =>
       this.request<Resource>(`/v1/zones/${zoneId}/resources`, {
@@ -288,7 +355,7 @@ export class AdminClient {
 
   // Providers
   providers = {
-    list: (zoneId: string) => this.request<Provider[]>(`/v1/zones/${zoneId}/providers`),
+    list: (zoneId: string) => this.listAll<Provider>(`/v1/zones/${zoneId}/providers`, 'providers'),
     get: (zoneId: string, id: string) => this.request<Provider>(`/v1/zones/${zoneId}/providers/${id}`),
     create: (zoneId: string, input: ProviderInput) =>
       this.request<Provider>(`/v1/zones/${zoneId}/providers`, { method: 'POST', body: input }),
@@ -300,22 +367,22 @@ export class AdminClient {
 
   // Policies (immutable Rego versions)
   policies = {
-    list: (zoneId: string) => this.request<Policy[]>(`/v1/zones/${zoneId}/policies`),
+    list: (zoneId: string) => this.listAll<Policy>(`/v1/zones/${zoneId}/policies`, 'policies'),
     get: (zoneId: string, id: string) => this.request<Policy & { versions: PolicyVersion[] }>(`/v1/zones/${zoneId}/policies/${id}`),
     create: (zoneId: string, input: PolicyInput) =>
       this.request<Policy & { version_id: string; version: PolicyVersion }>(`/v1/zones/${zoneId}/policies`, {
         method: 'POST',
         body: input,
       }),
-    validate: (content: string, schemaVersion?: string) =>
+    validate: (content: string) =>
       this.request<PolicyValidation>('/v1/policies/validate', {
         method: 'POST',
-        body: { content, schema_version: schemaVersion },
+        body: { content },
       }),
-    addVersion: (zoneId: string, id: string, content: string, schemaVersion?: string) =>
+    addVersion: (zoneId: string, id: string, content: string) =>
       this.request<PolicyVersion & { version_id: string }>(`/v1/zones/${zoneId}/policies/${id}/versions`, {
         method: 'POST',
-        body: { content, schema_version: schemaVersion ?? '2026-05-20' },
+        body: { content },
       }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/policies/${id}`, { method: 'DELETE', expectEmpty: true }),
@@ -333,74 +400,146 @@ export class AdminClient {
 
   // Policy sets
   policySets = {
-    list: (zoneId: string) => this.request<PolicySet[]>(`/v1/zones/${zoneId}/policy-sets`),
+    list: (zoneId: string) => this.listAll<PolicySet>(`/v1/zones/${zoneId}/policy-sets`, 'policy sets'),
     get: (zoneId: string, id: string) => this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets/${id}`),
     create: (zoneId: string, name: string, description?: string) =>
       this.request<PolicySet>(`/v1/zones/${zoneId}/policy-sets`, {
         method: 'POST',
         body: { name, description },
       }),
-    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[], schemaVersion?: string) =>
+    addVersion: (zoneId: string, id: string, manifest: { policy_version_id: string }[]) =>
       this.request<PolicySetVersion & { version_id: string }>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`, {
         method: 'POST',
-        body: { manifest, schema_version: schemaVersion },
+        body: { manifest },
       }),
+    listVersions: (zoneId: string, id: string) =>
+      this.listAll<PolicySetVersion>(`/v1/zones/${zoneId}/policy-sets/${id}/versions`, 'policy set versions'),
     simulate: (zoneId: string, id: string, versionId: string, input?: Record<string, unknown>) =>
       this.request<PolicySetSimulation>(`/v1/zones/${zoneId}/policy-sets/${id}/simulate`, {
         method: 'POST',
         body: { version_id: versionId, input },
       }),
-    activate: (zoneId: string, id: string, versionId: string, shadowVersionId?: string) =>
-      this.request<{ activated: boolean; version_id: string; shadow_version_id: string | null }>(
+    activate: (zoneId: string, id: string, versionId: string) =>
+      this.request<{ activated: boolean; version_id: string; outbox_id: string; status_url: string }>(
         `/v1/zones/${zoneId}/policy-sets/${id}/activate`,
-        { method: 'POST', body: { version_id: versionId, shadow_version_id: shadowVersionId } },
+        { method: 'POST', body: { version_id: versionId } },
       ),
+    activationStatus: (zoneId: string, id: string, versionId?: string, outboxId?: string) =>
+      this.request<PolicySetActivationStatus>(`/v1/zones/${zoneId}/policy-sets/${id}/activation-status`, {
+        query: {
+          ...(versionId ? { version_id: versionId } : {}),
+          ...(outboxId ? { outbox_id: outboxId } : {}),
+        },
+      }),
     delete: (zoneId: string, id: string) =>
       this.request<void>(`/v1/zones/${zoneId}/policy-sets/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
   // Grants
   grants = {
-    list: (zoneId: string, query?: GrantQuery) => this.request<Grant[]>(`/v1/zones/${zoneId}/grants`, { query: grantListQuery(query) }),
+    list: (zoneId: string, query?: GrantQuery) => this.listAll<Grant>(`/v1/zones/${zoneId}/grants`, 'grants', grantListQuery(query)),
     get: (zoneId: string, id: string) => this.request<Grant>(`/v1/zones/${zoneId}/grants/${id}`),
     create: (zoneId: string, input: GrantInput) => this.request<Grant>(`/v1/zones/${zoneId}/grants`, { method: 'POST', body: input }),
     revoke: (zoneId: string, id: string) => this.request<void>(`/v1/zones/${zoneId}/grants/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
-  providerGrants = {
-    create: (zoneId: string, input: ProviderGrantInput) =>
-      this.request<ProviderGrant>(`/v1/zones/${zoneId}/provider-grants`, { method: 'POST', body: input }),
-    authorizeOAuth: (zoneId: string, input: ProviderGrantOAuthAuthorizeInput) =>
-      this.request<ProviderGrantOAuthAuthorize>(`/v1/zones/${zoneId}/provider-grants/oauth/authorize`, { method: 'POST', body: input }),
-    revoke: (zoneId: string, input: ProviderGrantRevokeInput) =>
-      this.request<ProviderGrant>(`/v1/zones/${zoneId}/provider-grants/revoke`, { method: 'POST', body: input }),
+  subjectIssuers = {
+    list: (zoneId: string) => this.listAll<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers`, 'subject issuers'),
+    get: (zoneId: string, id: string) => this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers/${id}`),
+    create: (zoneId: string, input: SubjectIssuerInput) =>
+      this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers`, { method: 'POST', body: input }),
+    patch: (zoneId: string, id: string, input: SubjectIssuerPatch) =>
+      this.request<SubjectIssuer>(`/v1/zones/${zoneId}/subject-issuers/${id}`, { method: 'PATCH', body: input }),
+    delete: (zoneId: string, id: string) =>
+      this.request<void>(`/v1/zones/${zoneId}/subject-issuers/${id}`, { method: 'DELETE', expectEmpty: true }),
   }
 
-  // Sessions (read; revocation is a side effect of grant.revoke or agent.terminate)
+  providerConnections = {
+    create: (zoneId: string, input: ProviderConnectionInput) =>
+      this.request<ProviderConnection>(`/v1/zones/${zoneId}/provider-connections`, { method: 'POST', body: input }),
+    authorizeOAuth: (zoneId: string, input: ProviderConnectionAuthorizeInput) =>
+      this.request<ProviderConnectionAuthorize>(`/v1/zones/${zoneId}/provider-connections/oauth/authorize`, {
+        method: 'POST',
+        body: input,
+      }),
+    revoke: (zoneId: string, input: ProviderConnectionRevokeInput) =>
+      this.request<ProviderConnection>(`/v1/zones/${zoneId}/provider-connections/revoke`, { method: 'POST', body: input }),
+  }
+
+  // Workloads (launcher identities and their credential bindings for caracal run)
+  workloads = {
+    list: (zoneId: string) => this.listAll<Workload>(`/v1/zones/${zoneId}/workloads`, 'workloads'),
+    get: (zoneId: string, id: string) => this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`),
+    // The response carries the plaintext workload secret; a sealed custody copy stays
+    // retrievable through getSecret.
+    create: (zoneId: string, input: { name: string }) =>
+      this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads`, { method: 'POST', body: input }),
+    update: (zoneId: string, id: string, input: WorkloadUpdateInput) =>
+      this.request<Workload>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'PUT', body: input }),
+    // Rotates the credential server-side; the response carries the plaintext secret and
+    // the sealed custody copy in the Secret Store is replaced with it.
+    rotateSecret: (zoneId: string, id: string) =>
+      this.request<Workload & { secret: string }>(`/v1/zones/${zoneId}/workloads/${id}/rotate-secret`, { method: 'POST' }),
+    // Retrieves the workload secret from Secret Store custody. Every call is recorded
+    // in the zone audit timeline as a credential reveal.
+    getSecret: (zoneId: string, id: string) => this.request<{ secret: string }>(`/v1/zones/${zoneId}/workloads/${id}/secret`),
+    delete: (zoneId: string, id: string) =>
+      this.request<void>(`/v1/zones/${zoneId}/workloads/${id}`, { method: 'DELETE', expectEmpty: true }),
+  }
+
+  // Authority records issued by STS. Revocation is performed through the owning authority operation.
+  authorityRecords = {
+    list: async (zoneId: string, query?: AuthorityRecordQuery) => {
+      const response = await this.request<ListResponse<AuthorityRecord>>(`/v1/zones/${zoneId}/authority-records`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('authority-records response missing items')
+      return response.items
+    },
+  }
+
+  // Subjects: the kill switch. One call cuts every authority path a subject
+  // holds - session records, governed sessions riding them, delegations, and
+  // provider connections - and feeds the revocation stream so in-flight
+  // mandates die before their exp. Idempotent.
+  subjects = {
+    revoke: (zoneId: string, input: SubjectRevokeInput) =>
+      this.request<SubjectRevokeResult>(`/v1/zones/${zoneId}/subjects/revoke`, { method: 'POST', body: input }),
+  }
+
+  // Governed sessions. Reads use the Admin API; lifecycle operations map to Coordinator wire routes.
   sessions = {
     list: async (zoneId: string, query?: SessionQuery) => {
-      const response = await this.request<RowListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('sessions response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<Session>>(`/v1/zones/${zoneId}/sessions`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('sessions response missing items')
+      return response.items
     },
-  }
-
-  // Agent sessions (read; status filtering for active/suspended/terminated). CSV export is
-  // available directly from the API endpoint with format=csv.
-  agentSessions = {
-    list: async (zoneId: string, query?: AgentSessionQuery) => {
-      const response = await this.request<RowListResponse<AgentSessionRow>>(`/v1/zones/${zoneId}/agent-sessions`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('agent-sessions response missing rows')
-      return response.rows
+    get: async (zoneId: string, sessionId: string) =>
+      mapSession(await this.request<Record<string, unknown>>(`/zones/${zoneId}/agents/${sessionId}`, { base: 'coordinator' })),
+    children: async (zoneId: string, sessionId: string, query?: SessionQuery) => {
+      const response = await this.request<ListResponse<Record<string, unknown>>>(`/zones/${zoneId}/agents/${sessionId}/children`, {
+        base: 'coordinator',
+        query: { ...query },
+      })
+      if (!Array.isArray(response.items)) throw new Error('session children response missing items')
+      return response.items.map(mapSession)
     },
+    suspend: (zoneId: string, sessionId: string) =>
+      this.request<{ suspended: true }>(`/zones/${zoneId}/agents/${sessionId}/suspend`, { method: 'PATCH', base: 'coordinator' }),
+    resume: (zoneId: string, sessionId: string) =>
+      this.request<{ resumed: true }>(`/zones/${zoneId}/agents/${sessionId}/resume`, { method: 'PATCH', base: 'coordinator' }),
+    terminate: (zoneId: string, sessionId: string) =>
+      this.request<void>(`/zones/${zoneId}/agents/${sessionId}`, { method: 'DELETE', base: 'coordinator', expectEmpty: true }),
+    effectiveAuthority: async (zoneId: string, sessionId: string) =>
+      mapEffectiveAuthority(
+        await this.request<Record<string, unknown>>(`/zones/${zoneId}/agents/${sessionId}/effective-authority`, { base: 'coordinator' }),
+      ),
   }
 
   // Audit
   audit = {
     list: async (zoneId: string, query?: AuditQuery) => {
-      const response = await this.request<RowListResponse<AuditEvent>>(`/v1/zones/${zoneId}/audit`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('audit response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<AuditEvent>>(`/v1/zones/${zoneId}/audit`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('audit response missing items')
+      return response.items
     },
     byRequest: (zoneId: string, requestId: string) => this.request<AuditDetail[]>(`/v1/zones/${zoneId}/audit/by-request/${requestId}`),
     explain: (zoneId: string, requestId: string) =>
@@ -409,61 +548,57 @@ export class AdminClient {
 
   adminAudit = {
     list: async (zoneId: string, query?: AdminAuditQuery) => {
-      const response = await this.request<RowListResponse<AdminAuditEvent>>(`/v1/zones/${zoneId}/admin-audit`, { query: { ...query } })
-      if (!Array.isArray(response.rows)) throw new Error('admin audit response missing rows')
-      return response.rows
+      const response = await this.request<ListResponse<AdminAuditEvent>>(`/v1/zones/${zoneId}/admin-audit`, { query: { ...query } })
+      if (!Array.isArray(response.items)) throw new Error('admin audit response missing items')
+      return response.items
     },
   }
 
   stepUpChallenges = {
-    list: (zoneId: string) => this.request<StepUpChallenge[]>(`/v1/zones/${zoneId}/step-up-challenges`),
+    list: (zoneId: string) => this.listAll<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges`, 'step-up challenges'),
     get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
-    satisfy: (zoneId: string, id: string) =>
-      this.request<StepUpChallengeSatisfaction>(`/v1/zones/${zoneId}/step-up-challenges/${id}/satisfy`, { method: 'POST', body: {} }),
-  }
-
-  // Agents (coordinator)
-  agents = {
-    list: async (zoneId: string, query?: AgentListQuery) => {
-      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents`, { base: 'coordinator', query: { ...query } })
-      if (!Array.isArray(response.items)) throw new Error('agents response missing items')
-      return response.items
-    },
-    get: (zoneId: string, id: string) => this.request<AgentSession>(`/zones/${zoneId}/agents/${id}`, { base: 'coordinator' }),
-    children: async (zoneId: string, id: string, query?: AgentListQuery) => {
-      const response = await this.request<AgentListResponse>(`/zones/${zoneId}/agents/${id}/children`, {
-        base: 'coordinator',
-        query: { ...query },
-      })
-      if (!Array.isArray(response.items)) throw new Error('agent children response missing items')
-      return response.items
-    },
-    suspend: (zoneId: string, id: string) =>
-      this.request<{ suspended: true }>(`/zones/${zoneId}/agents/${id}/suspend`, { method: 'PATCH', base: 'coordinator' }),
-    resume: (zoneId: string, id: string) =>
-      this.request<{ resumed: true }>(`/zones/${zoneId}/agents/${id}/resume`, { method: 'PATCH', base: 'coordinator' }),
-    terminate: (zoneId: string, id: string) =>
-      this.request<void>(`/zones/${zoneId}/agents/${id}`, { method: 'DELETE', base: 'coordinator', expectEmpty: true }),
-    effectiveAuthority: (zoneId: string, id: string) =>
-      this.request<EffectiveAuthority>(`/zones/${zoneId}/agents/${id}/effective-authority`, { base: 'coordinator' }),
+    approve: (zoneId: string, id: string, reason?: string) =>
+      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/approve`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
+    reject: (zoneId: string, id: string, reason?: string) =>
+      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/reject`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
   }
 
   // Delegations (coordinator)
   delegations = {
-    active: (zoneId: string) =>
-      this.request<{ items: DelegationEdge[]; next_cursor: string | null }>(`/zones/${zoneId}/delegations/active`, { base: 'coordinator' }),
-    inbound: (zoneId: string, sessionId: string) =>
-      this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' }),
-    outbound: (zoneId: string, sessionId: string) =>
-      this.request<DelegationEdge[]>(`/zones/${zoneId}/delegations/outbound/${sessionId}`, { base: 'coordinator' }),
-    traverse: (zoneId: string, id: string) =>
-      this.request<TraverseNode[]>(`/zones/${zoneId}/delegations/${id}/traverse`, { base: 'coordinator' }),
-    impact: (zoneId: string, id: string) =>
-      this.request<DelegationImpact>(`/zones/${zoneId}/delegations/${id}/impact`, { base: 'coordinator' }),
-    revoke: (zoneId: string, id: string) =>
-      this.request<{ revoked_edges: number; affected_sessions: number }>(`/zones/${zoneId}/delegations/${id}/revoke`, {
-        method: 'PATCH',
+    active: async (zoneId: string) => {
+      const response = await this.request<ListResponse<Record<string, unknown>>>(`/zones/${zoneId}/delegations/active`, {
         base: 'coordinator',
-      }),
+      })
+      return { ...response, items: response.items.map(mapDelegation) }
+    },
+    inbound: async (zoneId: string, sessionId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/inbound/${sessionId}`, { base: 'coordinator' })).map(
+        mapDelegation,
+      ),
+    outbound: async (zoneId: string, sessionId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/outbound/${sessionId}`, { base: 'coordinator' })).map(
+        mapDelegation,
+      ),
+    traverse: async (zoneId: string, delegationId: string) =>
+      (await this.request<Record<string, unknown>[]>(`/zones/${zoneId}/delegations/${delegationId}/traverse`, { base: 'coordinator' })).map(
+        mapDelegationTraversal,
+      ),
+    impact: async (zoneId: string, delegationId: string) =>
+      mapDelegationImpact(
+        await this.request<Record<string, unknown>>(`/zones/${zoneId}/delegations/${delegationId}/impact`, { base: 'coordinator' }),
+      ),
+    revoke: async (zoneId: string, delegationId: string) => {
+      const response = await this.request<{ revoked_edges: number; affected_sessions: number }>(
+        `/zones/${zoneId}/delegations/${delegationId}/revoke`,
+        { method: 'PATCH', base: 'coordinator' },
+      )
+      return { revoked_delegations: response.revoked_edges, affected_sessions: response.affected_sessions }
+    },
   }
 }

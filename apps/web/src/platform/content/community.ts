@@ -11,7 +11,7 @@ export const communityContent = {
   },
   auth: {
     signInTitle: "Sign in to Caracal",
-    signInSubtitle: "Operate your zones, policies, and agents from one place.",
+    signInSubtitle: "Operate zones, policy, Subjects, Sessions, and Delegation from one place.",
     signUpTitle: "Create your Caracal account",
     signUpSubtitle: "Set up your profile and your first zone in minutes.",
     resetTitle: "Reset your password",
@@ -35,5 +35,11 @@ export const communityContent = {
     toSignUp: "New to Caracal? Create an account",
     toSignIn: "Already have an account? Sign in",
     forgot: "Forgot your password?",
+    accessDeniedTitle: "You don't have access to this deployment",
+    accessDeniedBody:
+      "This Caracal deployment is private. Your account is not currently allowed to sign in or use the console here.",
+    accessDeniedHint:
+      "If you believe this is a mistake, contact the owner of this deployment and ask them to review your access.",
+    accessDeniedCta: "Back to sign in",
   },
 } as const;

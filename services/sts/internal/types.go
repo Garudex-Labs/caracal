@@ -25,27 +25,24 @@ type TokenResponse = corests.TokenResponse
 
 // TokenExchangeRequest is the parsed body of POST /oauth/2/token (application/x-www-form-urlencoded).
 type TokenExchangeRequest struct {
-	GrantType                  string
-	SubjectToken               string
-	SubjectTokenType           string
-	ActorToken                 string
-	Resources                  []string // one or more resource identifiers; repeated param supported
-	Scope                      string
-	ZoneID                     string
-	ApplicationID              string
-	ClientSecret               string
-	ClientAssertion            string
-	ClientAssertionType        string
-	ChallengeID                string // identifier of a previously issued step-up challenge
-	ChallengeResponse          string // single-use secret presented to consume the challenge
-	SessionID                  string
-	AgentSessionID             string
-	DelegationEdgeID           string
-	RequestMethod              string // upstream HTTP method the gateway is authorizing, if any
-	RequestPath                string // upstream request path the gateway is authorizing, if any
-	TTLSeconds                 int
-	GatewayAuthenticated       bool
-	RuntimeCredentialInjection bool
+	GrantType            string
+	SubjectToken         string
+	SubjectTokenType     string
+	Resources            []string // one or more resource identifiers; repeated param supported
+	Scope                string
+	ZoneID               string
+	ApplicationID        string
+	ClientSecret         string
+	ClientAssertion      string
+	ClientAssertionType  string
+	ChallengeID          string // identifier of a previously issued step-up challenge
+	AuthorityRecordID    string
+	SessionID            string
+	DelegationEdgeID     string
+	RequestMethod        string // upstream HTTP method the gateway is authorizing, if any
+	RequestPath          string // upstream request path the gateway is authorizing, if any
+	TTLSeconds           int
+	GatewayAuthenticated bool
 }
 
 // UpstreamAuthMode classifies how the gateway must authenticate to a resource.
@@ -58,13 +55,13 @@ const (
 
 // OPAInput is the canonical input shape for every policy evaluation.
 type OPAInput struct {
-	SchemaVersion  string             `json:"schema_version"`
-	Principal      OPAPrincipal       `json:"principal"`
-	Resource       OPAResource        `json:"resource"`
-	Action         OPAAction          `json:"action"`
-	Session        *OPASession        `json:"session,omitempty"`
-	DelegationEdge *OPADelegationEdge `json:"delegation_edge,omitempty"`
-	Context        OPAContext         `json:"context"`
+	SchemaVersion   string              `json:"schema_version"`
+	Principal       OPAPrincipal        `json:"principal"`
+	Resource        OPAResource         `json:"resource"`
+	Action          OPAAction           `json:"action"`
+	AuthorityRecord *OPAAuthorityRecord `json:"session,omitempty"`
+	DelegationEdge  *OPADelegationEdge  `json:"delegation_edge,omitempty"`
+	Context         OPAContext          `json:"context"`
 }
 
 type OPAPrincipal struct {
@@ -72,7 +69,7 @@ type OPAPrincipal struct {
 	ID                 string   `json:"id"`
 	ZoneID             string   `json:"zone_id"`
 	RegistrationMethod string   `json:"registration_method,omitempty"`
-	AgentSessionID     string   `json:"agent_session_id,omitempty"`
+	SessionID          string   `json:"agent_session_id,omitempty"`
 	Lifecycle          string   `json:"lifecycle,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
 }
@@ -106,7 +103,7 @@ type OPAAction struct {
 	Path   string `json:"path,omitempty"`
 }
 
-type OPASession struct {
+type OPAAuthorityRecord struct {
 	ID string `json:"id"`
 }
 
@@ -128,8 +125,8 @@ type OPAContext struct {
 	ActorClaims       map[string]any `json:"actor_claims"`
 	SubjectClaims     map[string]any `json:"subject_claims,omitempty"`
 	TraceID           string         `json:"trace_id,omitempty"`
-	SessionID         string         `json:"session_id,omitempty"`
-	AgentSessionID    string         `json:"agent_session_id,omitempty"`
+	AuthorityRecordID string         `json:"session_id,omitempty"`
+	SessionID         string         `json:"agent_session_id,omitempty"`
 	DelegationEdgeID  string         `json:"delegation_edge_id,omitempty"`
 	ChallengeResolved bool           `json:"challenge_resolved"`
 	RequestedScopes   []string       `json:"requested_scopes"`
@@ -143,15 +140,19 @@ type OPAResult struct {
 	Diagnostics         []map[string]any `json:"diagnostics"`
 }
 
-// StepUpChallenge describes the 401 response body for interaction_required.
-// ChallengeSecret is the high-entropy single-use proof the client must echo back as
-// challenge_response on the follow-up token-exchange request.
+// StepUpChallenge describes the 401 response body for interaction_required. State is
+// the challenge's current lifecycle state so a retry against a pending approval is
+// distinguishable from a fresh hold. Binding is the hex request hash an approver echoes
+// on the decision endpoint, proving the decision targets this exact challenge instance;
+// the requesting application relays it to its approver surface alongside the id.
 type StepUpChallenge struct {
 	Error              string `json:"error"`
 	ErrorDescription   string `json:"error_description"`
 	ChallengeID        string `json:"challenge_id"`
 	ChallengeType      string `json:"challenge_type"`
-	ChallengeSecret    string `json:"challenge_secret"`
+	State              string `json:"state"`
+	Tier               string `json:"tier,omitempty"`
+	Binding            string `json:"binding"`
 	ChallengeExpiresAt string `json:"challenge_expires_at"`
 	RequestID          string `json:"requestId"`
 }

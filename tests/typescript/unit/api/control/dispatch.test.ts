@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for the shared dispatch entry point: flag validation, scope checks, hidden-command gating, and surface enumeration.
+// Unit tests for the shared dispatch entry point: flag validation, scope checks, catalog gating, and surface enumeration.
 
 import { describe, it, expect } from 'vitest'
 import {
@@ -21,7 +21,7 @@ const stubAdmin = {
 const ctx: DispatchContext = { admin: stubAdmin }
 
 function principal(scopes: string[]): Principal {
-  return { kind: 'remote', subject: 'sub', zoneId: 'z1', clientId: 'c1', scopes }
+  return { subject: 'sub', zoneId: 'z1', clientId: 'c1', scopes }
 }
 
 describe('validateFlags', () => {
@@ -42,55 +42,34 @@ describe('validateFlags', () => {
 
 describe('dispatch', () => {
   it('denies unknown commands', async () => {
-    await expect(
-      dispatch({ command: 'nope', subcommand: '' }, principal([]), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'nope', subcommand: '' }, principal([]), ctx)).rejects.toMatchObject({ code: 'denied' })
   })
 
-  it('blocks local-only Control management for remote principals', async () => {
+  it('denies commands outside the catalog regardless of scopes', async () => {
+    await expect(dispatch({ command: 'control', subcommand: 'key' }, principal(['control:control:read']), ctx)).rejects.toMatchObject({
+      code: 'denied',
+    })
+    await expect(dispatch({ command: 'zone', subcommand: 'list' }, principal(['control:zone:read']), ctx)).rejects.toMatchObject({
+      code: 'denied',
+    })
     await expect(
-      dispatch({ command: 'control', subcommand: 'key' }, principal(['control:control:read']), ctx),
+      dispatch({ command: 'debug', subcommand: 'request', flags: { 'request-id': 'req-1' } }, principal(['control:debug:read']), ctx),
     ).rejects.toMatchObject({ code: 'denied' })
   })
 
   it('denies missing scope', async () => {
-    await expect(
-      dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+    await expect(dispatch({ command: 'resource', subcommand: 'list' }, principal([]), ctx)).rejects.toMatchObject({ code: 'denied' })
   })
 
-  it('blocks global zone administration for remote principals', async () => {
+  it('rejects a zone-bound command when the principal has no zone', async () => {
     await expect(
-      dispatch({ command: 'zone', subcommand: 'list' }, principal(['control:zone:read']), ctx),
-    ).rejects.toMatchObject({ code: 'denied' })
+      dispatch({ command: 'resource', subcommand: 'list' }, { subject: 'console', scopes: ['control:resource:read'] }, ctx),
+    ).rejects.toMatchObject({ code: 'invalid', message: 'zone_id is required' })
   })
 
   it('accepts a matching per-resource scope', async () => {
-    const result = await dispatch(
-      { command: 'resource', subcommand: 'list' },
-      principal(['control:resource:read']),
-      ctx,
-    )
+    const result = await dispatch({ command: 'resource', subcommand: 'list' }, principal(['control:resource:read']), ctx)
     expect(result).toEqual(['z1'])
-  })
-
-  it('skips scope checks for local principals', async () => {
-    const result = await dispatch(
-      { command: 'zone', subcommand: 'list' },
-      { kind: 'local', subject: 'console', scopes: [] },
-      ctx,
-    )
-    expect(result).toEqual([])
-  })
-
-  it('blocks hidden diagnostics commands for remote principals', async () => {
-    await expect(
-      dispatch(
-        { command: 'debug', subcommand: 'request', flags: { 'request-id': 'req-1' } },
-        principal(['control:debug:read']),
-        ctx,
-      ),
-    ).rejects.toMatchObject({ code: 'denied' })
   })
 
   it('routes explain request with read scope', async () => {
@@ -107,14 +86,14 @@ describe('dispatch', () => {
 })
 
 describe('describeRemoteSurface', () => {
-  it('omits hidden and local-only commands', () => {
+  it('omits commands outside the governed catalog', () => {
     const surface = describeRemoteSurface()
     for (const row of surface) {
       expect(row.command).not.toBe('zone')
       expect(row.command).not.toBe('control')
       expect(row.command).not.toBe('completion')
-      expect(row.command).not.toBe('run')
-      expect(row.command).not.toBe('credential')
+      expect(row.command).not.toBe('debug')
+      expect(row.command).not.toBe('doctor')
     }
   })
 

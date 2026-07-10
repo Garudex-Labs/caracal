@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
@@ -42,9 +44,11 @@ type proxy struct {
 	jwks         tokenVerifier
 	guard        *upstreamGuard
 	client       *http.Client
+	writeTimeout time.Duration
+	streamIdle   time.Duration
+	trustProxy   bool
 	log          zerolog.Logger
 	maxBytes     int64
-	bindings     *bindingStore
 	tracker      replayTracker
 	revocations  revocationChecker
 	metrics      *GatewayMetrics
@@ -63,19 +67,20 @@ type replayTracker interface {
 }
 
 type revocationChecker interface {
-	IsRevoked(sid string) bool
-	IsAgentRevoked(agentSessionID string) bool
+	IsRevoked(anchorID string) bool
+	IsSessionRevoked(sessionID string) bool
 	IsDelegationRevoked(delegationEdgeID string) bool
+	SnapshotFresh(now time.Time) bool
 }
 
-type tokenRevocationIDs struct {
-	SID              string
-	RootSID          string
-	AgentSessionID   string
-	DelegationEdgeID string
+type tokenRevocationAnchors struct {
+	AuthorityRecordID     string
+	RootAuthorityRecordID string
+	SessionID             string
+	DelegationEdgeID      string
 }
 
-func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, bindings *bindingStore, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
+func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zerolog.Logger, maxBytes int64, upstreamTimeout time.Duration, tracker replayTracker, revocations revocationChecker, metrics *GatewayMetrics, audit auditEmitter) *proxy {
 	if jwks == nil {
 		panic("proxy requires jwks verifier")
 	}
@@ -97,17 +102,18 @@ func newProxy(sts *stsClient, jwks tokenVerifier, guard *upstreamGuard, log zero
 		ForceAttemptHTTP2:     true,
 	}
 	return &proxy{
-		sts:         sts,
-		jwks:        jwks,
-		guard:       guard,
-		client:      &http.Client{Transport: transport, CheckRedirect: noRedirect},
-		log:         log,
-		maxBytes:    maxBytes,
-		bindings:    bindings,
-		tracker:     tracker,
-		revocations: revocations,
-		metrics:     metrics,
-		audit:       audit,
+		sts:          sts,
+		jwks:         jwks,
+		guard:        guard,
+		client:       &http.Client{Transport: transport, CheckRedirect: noRedirect},
+		writeTimeout: defaultWriteTimeout,
+		streamIdle:   defaultWriteTimeout,
+		log:          log,
+		maxBytes:     maxBytes,
+		tracker:      tracker,
+		revocations:  revocations,
+		metrics:      metrics,
+		audit:        audit,
 	}
 }
 
@@ -115,6 +121,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requestID := requestIDFromContext(r.Context())
 	logger := p.log.With().Str("request_id", requestID).Str("client_ip", clientIP(r.RemoteAddr)).Logger()
 	p.metrics.RequestsTotal.Add(1)
+	if !p.revocations.SnapshotFresh(time.Now()) {
+		writeErr(w, requestID, http.StatusServiceUnavailable, sharederr.STSUnavailable, "revocation state unavailable")
+		p.metrics.RequestsDenied.Add(1)
+		p.metrics.DenialsRevocationStale.Add(1)
+		logger.Warn().Int("status", http.StatusServiceUnavailable).Msg("denied: revocation snapshot stale")
+		return
+	}
 
 	bearer := extractBearer(r.Header.Get("Authorization"))
 	if bearer == "" {
@@ -149,7 +162,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("X-Caracal-Client-ID") != "" {
-		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client id is bound by gateway configuration")
+		writeErr(w, requestID, http.StatusBadRequest, sharederr.InvalidToken, "client identity derives from the bearer token")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsBadRouting.Add(1)
 		logger.Info().Int("status", http.StatusBadRequest).Msg("denied: client id header not honored")
@@ -171,12 +184,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer missing zone")
 		return
 	}
-	bind, ok := p.bindings.Get(zoneID, resource)
-	if !ok {
-		writeErr(w, requestID, http.StatusForbidden, sharederr.AccessDenied, "resource not configured")
+	// The caller's application identity is the client_id claim STS stamped into the
+	// mandate at mint. The peek is unverified here; nothing acts on it until the
+	// JWKS signature check below proves the token is STS-issued.
+	clientID := jwtClientID(bearer)
+	if clientID == "" {
+		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "missing token client")
 		p.metrics.RequestsDenied.Add(1)
-		p.metrics.DenialsBinding.Add(1)
-		logger.Info().Int("status", http.StatusForbidden).Str("resource", resource).Msg("denied: resource has no client binding")
+		p.metrics.DenialsBadRouting.Add(1)
+		logger.Info().Int("status", http.StatusUnauthorized).Msg("denied: bearer missing client")
 		return
 	}
 
@@ -189,13 +205,13 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger = logger.With().
-		Str("zone_id", bind.ZoneID).
-		Str("application_id", bind.ApplicationID).
+		Str("zone_id", zoneID).
+		Str("application_id", clientID).
 		Str("resource", resource).
 		Str("subject_fp", tokenFingerprint(bearer)).
 		Logger()
 
-	if err := p.jwks.Verify(r.Context(), bind.ZoneID, bearer); err != nil {
+	if err := p.jwks.Verify(r.Context(), zoneID, bearer); err != nil {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "bearer signature invalid")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsSignature.Add(1)
@@ -203,7 +219,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, bind.ZoneID, bind.ApplicationID, tokenFingerprint(bearer)) {
+	if !p.tracker.Check(r.Context(), jwtJTI(bearer), exp, jwtUse(bearer), requestID, resource, zoneID, clientID, tokenFingerprint(bearer)) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "token replay detected")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsJTIReplay.Add(1)
@@ -211,25 +227,25 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revocationIDs := tokenRevocationIDs{
-		SID:              jwtSID(bearer),
-		RootSID:          jwtRootSID(bearer),
-		AgentSessionID:   jwtAgentSessionID(bearer),
-		DelegationEdgeID: jwtDelegationEdgeID(bearer),
+	revocationAnchors := tokenRevocationAnchors{
+		AuthorityRecordID:     jwtAuthorityRecordID(bearer),
+		RootAuthorityRecordID: jwtRootAuthorityRecordID(bearer),
+		SessionID:             jwtSessionID(bearer),
+		DelegationEdgeID:      jwtDelegationEdgeID(bearer),
 	}
-	if p.revocations.IsRevoked(revocationIDs.SID) ||
-		p.revocations.IsRevoked(revocationIDs.RootSID) ||
-		p.revocations.IsAgentRevoked(revocationIDs.AgentSessionID) ||
-		p.revocations.IsDelegationRevoked(revocationIDs.DelegationEdgeID) {
+	if p.revocations.IsRevoked(revocationAnchors.AuthorityRecordID) ||
+		p.revocations.IsRevoked(revocationAnchors.RootAuthorityRecordID) ||
+		p.revocations.IsSessionRevoked(revocationAnchors.SessionID) ||
+		p.revocations.IsDelegationRevoked(revocationAnchors.DelegationEdgeID) {
 		writeErr(w, requestID, http.StatusUnauthorized, sharederr.InvalidToken, "session revoked")
 		p.metrics.RequestsDenied.Add(1)
 		p.metrics.DenialsRevoked.Add(1)
 		logger.Info().
 			Int("status", http.StatusUnauthorized).
-			Str("sid", revocationIDs.SID).
-			Str("root_sid", revocationIDs.RootSID).
-			Str("agent_session_id", revocationIDs.AgentSessionID).
-			Str("delegation_edge_id", revocationIDs.DelegationEdgeID).
+			Str("sid", revocationAnchors.AuthorityRecordID).
+			Str("root_sid", revocationAnchors.RootAuthorityRecordID).
+			Str("agent_session_id", revocationAnchors.SessionID).
+			Str("delegation_edge_id", revocationAnchors.DelegationEdgeID).
 			Msg("denied: session revoked")
 		return
 	}
@@ -243,7 +259,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stsCtx, cancel := context.WithTimeout(r.Context(), p.sts.client.Timeout)
-	out := p.sts.Exchange(stsCtx, bearer, bind, resource, r.Method, r.URL.Path, requestID)
+	out := p.sts.Exchange(stsCtx, bearer, zoneID, clientID, resource, r.Method, r.URL.Path, requestID)
 	cancel()
 	p.metrics.STSExchangeLatencyMs.Store(uint64(out.Latency / time.Millisecond))
 	if out.ClientErr != nil {
@@ -268,14 +284,14 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Error().Err(err).Str("upstream_raw", res.Upstream.URL).Msg("upstream rejected by guard")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
 			AuthMode:           res.Upstream.AuthMode,
 			ProviderID:         res.Upstream.ProviderID,
-			GrantID:            res.Upstream.GrantID,
+			ConnectionID:       res.Upstream.ConnectionID,
 			GatewayStatus:      http.StatusBadGateway,
 			EvaluationStatus:   "upstream_rejected",
 			ErrorKind:          "upstream_not_addressable",
@@ -293,15 +309,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.Warn().Msg("provider credential host rejected")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
 			ProviderID:         res.Upstream.ProviderID,
-			GrantID:            res.Upstream.GrantID,
+			ConnectionID:       res.Upstream.ConnectionID,
 			GatewayStatus:      http.StatusBadGateway,
 			EvaluationStatus:   "upstream_rejected",
 			ErrorKind:          "provider_host_not_allowed",
@@ -312,22 +328,22 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, p.maxBytes)
 	defer body.Close()
 
-	upstreamReq, err := buildUpstreamRequest(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID)
+	upstreamReq, err := buildUpstreamRequestWithProxy(r, upstreamURL, res.AccessToken, res.Upstream, body, requestID, p.trustProxy)
 	if err != nil {
 		writeErr(w, requestID, http.StatusBadRequest, sharederr.Internal, "upstream request build failed")
 		p.metrics.UpstreamErrors.Add(1)
 		logger.Error().Err(err).Msg("build upstream request")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
 			ProviderID:         res.Upstream.ProviderID,
-			GrantID:            res.Upstream.GrantID,
+			ConnectionID:       res.Upstream.ConnectionID,
 			GatewayStatus:      http.StatusBadRequest,
 			EvaluationStatus:   "build_failed",
 			ErrorKind:          "request_build_failed",
@@ -335,25 +351,32 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	traceID := traceIDFromTraceparent(upstreamReq.Header.Get("Traceparent"))
+	logger = logger.With().Str("trace_id", traceID).Logger()
+
+	upstreamCtx, cancelUpstream := context.WithCancel(r.Context())
+	upstreamReq = upstreamReq.WithContext(upstreamCtx)
 	start := time.Now()
 	resp, err := p.client.Do(upstreamReq)
 	latency := time.Since(start)
 	if err != nil {
+		cancelUpstream()
 		status, code, msg := classifyUpstreamError(err)
 		writeErr(w, requestID, status, code, msg)
 		p.metrics.UpstreamErrors.Add(1)
 		logger.Error().Err(err).Int("status", status).Msg("upstream request failed")
 		p.emitActionAudit(gatewayAuditInput{
 			RequestID:          requestID,
-			ZoneID:             bind.ZoneID,
-			ApplicationID:      bind.ApplicationID,
+			TraceID:            traceID,
+			ZoneID:             zoneID,
+			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
 			ProviderID:         res.Upstream.ProviderID,
-			GrantID:            res.Upstream.GrantID,
+			ConnectionID:       res.Upstream.ConnectionID,
 			GatewayStatus:      status,
 			Latency:            latency,
 			EvaluationStatus:   "upstream_error",
@@ -361,31 +384,43 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	defer cancelUpstream()
+	resp.Body = &idleReadCloser{ReadCloser: resp.Body, idle: p.streamIdle, cancel: cancelUpstream}
 	defer resp.Body.Close()
 
 	stripHopByHop(resp.Header)
 	if exp.After(time.Now()) {
 		w.Header().Set("X-Caracal-Token-Expires-In", strconv.FormatInt(int64(time.Until(exp).Seconds()), 10))
 	}
-	copyResult := copyResponse(w, resp, p.revocations, revocationIDs)
+	copyResult := copyResponseWithTimeout(w, resp, p.revocations, revocationAnchors, p.writeTimeout, p.streamIdle)
 	p.metrics.RequestsAllowed.Add(1)
+	evaluationStatus := "executed"
+	errorKind := ""
+	if copyResult.Err != nil {
+		evaluationStatus = "upstream_error"
+		errorKind = "response_copy_failed"
+		p.metrics.UpstreamErrors.Add(1)
+		logger.Warn().Err(copyResult.Err).Msg("upstream response copy incomplete")
+	}
 	p.emitActionAudit(gatewayAuditInput{
 		RequestID:          requestID,
-		ZoneID:             bind.ZoneID,
-		ApplicationID:      bind.ApplicationID,
+		TraceID:            traceID,
+		ZoneID:             zoneID,
+		ApplicationID:      clientID,
 		Resource:           resource,
 		SubjectFingerprint: tokenFingerprint(bearer),
 		Method:             r.Method,
 		UpstreamHost:       upstreamURL.Host,
 		AuthMode:           res.Upstream.AuthMode,
 		ProviderID:         res.Upstream.ProviderID,
-		GrantID:            res.Upstream.GrantID,
+		ConnectionID:       res.Upstream.ConnectionID,
 		GatewayStatus:      resp.StatusCode,
 		UpstreamStatus:     resp.StatusCode,
 		Latency:            latency,
 		ResponseBytes:      copyResult.Bytes,
 		RevocationHit:      copyResult.Revoked,
-		EvaluationStatus:   "executed",
+		EvaluationStatus:   evaluationStatus,
+		ErrorKind:          errorKind,
 	})
 	logger.Info().
 		Int("status", resp.StatusCode).
@@ -440,6 +475,12 @@ func (p *proxy) recordSTSFailure(out exchangeOutcome) {
 // Caracal JWT is forwarded as X-Caracal-Identity only when the resource/provider
 // directive explicitly opts in for a trusted upstream.
 func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken string, directive corests.UpstreamDirective, body io.ReadCloser, requestID string) (*http.Request, error) {
+	return buildUpstreamRequestWithProxy(r, upstreamURL, caracalToken, directive, body, requestID, false)
+}
+
+func buildUpstreamRequestWithProxy(r *http.Request, upstreamURL *url.URL, caracalToken string, directive corests.UpstreamDirective, body io.ReadCloser, requestID string, trustProxy bool) (*http.Request, error) {
+	forwardedFor := r.Header.Get("X-Forwarded-For")
+	forwardedProto := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")))
 	joinedPath := joinURLPath(upstreamURL.Path, r.URL.Path)
 	mergedQuery, err := mergeQuery(upstreamURL.RawQuery, r.URL.RawQuery)
 	if err != nil {
@@ -458,10 +499,8 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 	}
 	req.Header = r.Header.Clone()
 	stripHopByHop(req.Header)
-	req.Header.Del("X-Caracal-Client-ID")
-	req.Header.Del("X-Caracal-Resource")
-	req.Header.Del("X-Caracal-Upstream")
-	req.Header.Del("X-Caracal-Identity")
+	stripCaracalBaggage(req.Header)
+	stripReservedHeaders(req.Header)
 
 	authHeader := directive.AuthHeader
 	if authHeader == "" {
@@ -508,18 +547,24 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 		req.Header.Set(authHeader, scheme+" "+caracalToken)
 	}
 	req.Header.Set("X-Request-Id", requestID)
-	if req.Header.Get("Traceparent") == "" {
-		req.Header.Set("Traceparent", traceparentFromRequestID(requestID))
+	// The gateway is a trust boundary: a caller-supplied Traceparent is forwarded only
+	// when it is a parseable W3C value, otherwise it is replaced so malformed tracing
+	// context never propagates upstream.
+	if !validTraceparent(req.Header.Get("Traceparent")) {
+		req.Header.Set("Traceparent", newTraceparent())
 	}
 
 	// Replace, never append: the gateway is a trust boundary and any caller-supplied
 	// X-Forwarded-* values are spoofable. Upstreams that key on the first XFF entry
 	// would otherwise read attacker-controlled data.
-	req.Header.Del("X-Forwarded-For")
-	if ip := clientIP(r.RemoteAddr); ip != "" {
+	if trustProxy && validForwardedIP(forwardedFor) {
+		req.Header.Set("X-Forwarded-For", strings.TrimSpace(strings.Split(forwardedFor, ",")[0]))
+	} else if ip := clientIP(r.RemoteAddr); ip != "" {
 		req.Header.Set("X-Forwarded-For", ip)
 	}
-	if r.TLS != nil {
+	if trustProxy && (forwardedProto == "http" || forwardedProto == "https") {
+		req.Header.Set("X-Forwarded-Proto", forwardedProto)
+	} else if r.TLS != nil {
 		req.Header.Set("X-Forwarded-Proto", "https")
 	} else {
 		req.Header.Set("X-Forwarded-Proto", "http")
@@ -529,6 +574,11 @@ func buildUpstreamRequest(r *http.Request, upstreamURL *url.URL, caracalToken st
 	}
 	req.Host = upstreamURL.Host
 	return req, nil
+}
+
+func validForwardedIP(value string) bool {
+	first := strings.TrimSpace(strings.Split(value, ",")[0])
+	return net.ParseIP(first) != nil
 }
 
 func providerCredentialHostAllowed(upstreamURL *url.URL, hosts []string) bool {
@@ -615,9 +665,38 @@ func sanitizeRedirectHeaders(h http.Header) {
 type responseCopyResult struct {
 	Bytes   int64
 	Revoked bool
+	Err     error
 }
 
-func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationIDs) responseCopyResult {
+type idleReadCloser struct {
+	io.ReadCloser
+	idle     time.Duration
+	cancel   context.CancelFunc
+	timedOut atomic.Bool
+}
+
+func (r *idleReadCloser) Read(p []byte) (int, error) {
+	if r.idle <= 0 {
+		return r.ReadCloser.Read(p)
+	}
+	timer := time.AfterFunc(r.idle, func() {
+		r.timedOut.Store(true)
+		r.cancel()
+		_ = r.ReadCloser.Close()
+	})
+	n, err := r.ReadCloser.Read(p)
+	timer.Stop()
+	if r.timedOut.Load() {
+		return n, context.DeadlineExceeded
+	}
+	return n, err
+}
+
+func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors) responseCopyResult {
+	return copyResponseWithTimeout(w, resp, revocations, ids, defaultWriteTimeout, defaultWriteTimeout)
+}
+
+func copyResponseWithTimeout(w http.ResponseWriter, resp *http.Response, revocations revocationChecker, ids tokenRevocationAnchors, writeTimeout, streamIdle time.Duration) responseCopyResult {
 	// X-Caracal-Identity is the gateway-side mirror of the Caracal JWT for
 	// provider-native auth modes. Echoing it back to clients would surface a
 	// short-TTL but still usable bearer; strip it before fan-out.
@@ -633,47 +712,73 @@ func copyResponse(w http.ResponseWriter, resp *http.Response, revocations revoca
 	}
 	flusher, _ := w.(http.Flusher)
 	if flusher == nil {
+		if writeTimeout > 0 {
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeTimeout))
+		}
 		w.WriteHeader(resp.StatusCode)
-		n, _ := io.Copy(w, resp.Body)
-		return responseCopyResult{Bytes: n}
+		n, err := io.Copy(w, resp.Body)
+		return responseCopyResult{Bytes: n, Err: err}
 	}
 	w.Header().Add("Trailer", "X-Caracal-Revoked")
+	controller := http.NewResponseController(w)
+	streaming := streamResponse(resp)
+	if streaming {
+		_ = controller.SetWriteDeadline(time.Now().Add(streamIdle))
+	} else if writeTimeout > 0 {
+		_ = controller.SetWriteDeadline(time.Now().Add(writeTimeout))
+	}
 	w.WriteHeader(resp.StatusCode)
 	flusher.Flush()
-	n, revoked := streamCopy(w, resp.Body, flusher, revocations, ids)
+	n, revoked, err := streamCopyWithDeadline(w, resp.Body, flusher, revocations, ids, controller, streaming, streamIdle)
 	if revoked {
 		w.Header().Set("X-Caracal-Revoked", "true")
 	}
-	return responseCopyResult{Bytes: n, Revoked: revoked}
+	return responseCopyResult{Bytes: n, Revoked: revoked, Err: err}
 }
 
 // streamCopy reads from src in small chunks and flushes after every successful write.
 // On every chunk boundary it re-checks all authority revocation anchors. Returns
 // true when the stream was truncated due to revocation so the caller can emit the
 // X-Caracal-Revoked trailer.
-func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations revocationChecker, ids tokenRevocationIDs) (int64, bool) {
+func streamCopy(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations revocationChecker, ids tokenRevocationAnchors) (int64, bool) {
+	n, revoked, _ := streamCopyWithDeadline(w, src, flusher, revocations, ids, nil, false, 0)
+	return n, revoked
+}
+
+func streamCopyWithDeadline(w io.Writer, src io.ReadCloser, flusher http.Flusher, revocations revocationChecker, ids tokenRevocationAnchors, controller *http.ResponseController, streaming bool, streamIdle time.Duration) (int64, bool, error) {
 	buf := make([]byte, 4*1024)
 	var total int64
 	for {
-		if revocations.IsRevoked(ids.SID) ||
-			revocations.IsRevoked(ids.RootSID) ||
-			revocations.IsAgentRevoked(ids.AgentSessionID) ||
+		if revocations.IsRevoked(ids.AuthorityRecordID) ||
+			revocations.IsRevoked(ids.RootAuthorityRecordID) ||
+			revocations.IsSessionRevoked(ids.SessionID) ||
 			revocations.IsDelegationRevoked(ids.DelegationEdgeID) {
 			_ = src.Close()
-			return total, true
+			return total, true, nil
 		}
 		n, rerr := src.Read(buf)
 		if n > 0 {
+			if streaming && controller != nil {
+				_ = controller.SetWriteDeadline(time.Now().Add(streamIdle))
+			}
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				return total, false
+				return total, false, werr
 			}
 			total += int64(n)
 			flusher.Flush()
 		}
 		if rerr != nil {
-			return total, false
+			if errors.Is(rerr, io.EOF) {
+				return total, false, nil
+			}
+			return total, false, rerr
 		}
 	}
+}
+
+func streamResponse(resp *http.Response) bool {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	return mediaType == "text/event-stream" || resp.ContentLength < 0
 }
 
 // jwtExp decodes the JWT payload to read the exp claim. Signature validation is delegated
@@ -697,7 +802,7 @@ func jwtExp(token string) (time.Time, bool) {
 	return time.Unix(claims.Exp, 0), true
 }
 
-var zoneIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+var claimIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 func jwtZoneID(token string) string {
 	parts := strings.Split(token, ".")
@@ -714,10 +819,31 @@ func jwtZoneID(token string) string {
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return ""
 	}
-	if !zoneIDPattern.MatchString(claims.ZoneID) {
+	if !claimIDPattern.MatchString(claims.ZoneID) {
 		return ""
 	}
 	return claims.ZoneID
+}
+
+func jwtClientID(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		ClientID string `json:"client_id"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if !claimIDPattern.MatchString(claims.ClientID) {
+		return ""
+	}
+	return claims.ClientID
 }
 
 func extractBearer(h string) string {
@@ -735,16 +861,4 @@ func writeErr(w http.ResponseWriter, requestID string, status int, code shareder
 	w.Header().Set("X-Request-Id", requestID)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(e)
-}
-
-// traceparentFromRequestID builds a W3C traceparent value seeded from the request id
-// so a single trace identifier flows from the gateway through to upstream provider hops.
-func traceparentFromRequestID(requestID string) string {
-	hex := strings.ReplaceAll(requestID, "-", "")
-	for len(hex) < 32 {
-		hex += "0"
-	}
-	traceID := hex[:32]
-	spanID := hex[:16]
-	return "00-" + traceID + "-" + spanID + "-01"
 }

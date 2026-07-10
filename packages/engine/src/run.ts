@@ -4,12 +4,13 @@
 // Verb bodies for `caracal run` and the safe child-process spawn helper.
 
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { InteractionRequiredError, OAuthClient } from '@caracalai/oauth'
-import { DEFAULT_RUN_TTL_SECONDS } from './runtimeConfig.js'
-import type { RuntimeConfig, Credential, RunCredentialType } from './runtimeConfig.js'
-import type { TokenExchangeResponse } from '@caracalai/oauth'
+import { ApprovalRequiredError, fetchRunCredential, fetchRunManifest, pollStepUpState } from '@caracalai/oauth'
+import type { RunBinding, RunCredentialResponse } from '@caracalai/oauth'
+import { RuntimeConfigValidationError, assertCredentialEnvName } from './runtimeConfig.js'
+import type { RuntimeIdentity } from './runtimeConfig.js'
 
 const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGINT: 2,
@@ -19,8 +20,8 @@ const SIGNAL_EXIT_MAP: Record<string, number> = {
   SIGQUIT: 3,
 }
 
-const STEP_UP_POLL_MS = 2000
-const STEP_UP_TIMEOUT_MS = 300_000
+const STEP_UP_FALLBACK_TIMEOUT_MS = 300_000
+const STEP_UP_MIN_TIMEOUT_MS = 5_000
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const BLOCKED_CREDENTIAL_ENV = new Set([
   'NODE_OPTIONS',
@@ -49,6 +50,8 @@ const INHERITED_ENV_KEYS = new Set(
     'NO_COLOR',
     'FORCE_COLOR',
     'CI',
+    'NODE_ENV',
+    'CARACAL_ENV',
     'XDG_RUNTIME_DIR',
     'XDG_CONFIG_HOME',
     'XDG_CACHE_HOME',
@@ -89,118 +92,110 @@ export interface BuildRunEnvOptions {
   readonly onLine?: RunLineSink
 }
 
-export function checkMcpGovernance(args: readonly string[] | string, cfg: RuntimeConfig, onLine?: RunLineSink): void {
-  const haystack = (Array.isArray(args) ? args : [args]).join(' ')
-  const isUnauthorized = ['mcp-server', 'fastmcp', '@modelcontextprotocol'].some((indicator) => haystack.includes(indicator))
-  if (!isUnauthorized) return
-
-  const mode = cfg.mcp_governance?.mode ?? 'block'
-  const action = mode === 'log' ? 'log' : 'blocked'
-  onLine?.(JSON.stringify({ event: 'mcp_governance', action, cmd: haystack }), 'stderr')
-  if (mode !== 'log') throw new Error('mcp_governance_blocked')
+// RunProfile is the fully resolved launch profile a run executes with: the local
+// workload identity plus the console-authored bindings served by STS. The launchId
+// correlates every STS call of one launch in the zone audit stream.
+export interface RunProfile {
+  identity: RuntimeIdentity
+  zoneId: string
+  bindings: RunBinding[]
+  launchId: string
 }
 
-async function waitForChallenge(zoneUrl: string, challengeId: string): Promise<boolean> {
-  const deadline = Date.now() + STEP_UP_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${zoneUrl}/step-up/${challengeId}`)
-      if (res.status === 404 || res.status === 410) {
-        throw new Error(`step_up_challenge_expired (${res.status})`)
-      }
-      if (res.ok) {
-        const data = (await res.json()) as { satisfied: boolean }
-        if (data.satisfied) return true
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('step_up_challenge_expired')) throw err
-    }
-    await new Promise((resolve) => setTimeout(resolve, STEP_UP_POLL_MS))
-  }
-  return false
+// The wait window for a parked run is the hold's own approval window: polling stops when
+// the hold can no longer be approved, not at an arbitrary earlier cutoff. A missing or
+// unparseable expiry falls back to five minutes; a floor keeps a nearly expired hold from
+// producing a zero-length wait that would misreport a still-pending hold as timed out.
+function stepUpWaitMs(expiresAt: string | undefined): number {
+  if (!expiresAt) return STEP_UP_FALLBACK_TIMEOUT_MS
+  const remaining = Date.parse(expiresAt) - Date.now()
+  if (Number.isNaN(remaining)) return STEP_UP_FALLBACK_TIMEOUT_MS
+  return Math.max(STEP_UP_MIN_TIMEOUT_MS, remaining)
 }
 
-function runTTLSeconds(cfg: RuntimeConfig): number {
-  return cfg.ttl_seconds ?? DEFAULT_RUN_TTL_SECONDS
-}
-
-function credentialType(cred: Credential): RunCredentialType {
-  return cred.credential_type ?? 'provider_token'
-}
-
-function injectedCredential(resource: string, type: RunCredentialType, token: TokenExchangeResponse): string {
-  if (type === 'caracal_mandate') return token.accessToken
-  const exact = token.upstreams?.[resource]
-  const directives = Object.values(token.upstreams ?? {})
-  const directive = exact ?? (directives.length === 1 ? directives[0] : undefined)
-  if (!directive?.providerToken) throw new Error(`provider_credential_unavailable:${resource}`)
-  return directive.providerToken
-}
-
-async function exchangeWithStepUp(client: OAuthClient, cfg: RuntimeConfig, cred: Credential, onLine?: RunLineSink): Promise<string> {
-  const type = credentialType(cred)
-  const exchangeOptions = {
-    clientSecret: cfg.app_client_secret,
-    ttlSeconds: runTTLSeconds(cfg),
-    runtimeCredentialInjection: type === 'provider_token',
-  }
+async function mintWithStepUp(
+  identity: RuntimeIdentity,
+  binding: RunBinding,
+  launchId: string,
+  onLine?: RunLineSink,
+): Promise<RunCredentialResponse> {
   try {
-    const token = await client.exchange('', cred.resource, exchangeOptions)
-    return injectedCredential(cred.resource, type, token)
+    return await fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, { launchId })
   } catch (err) {
-    if (!(err instanceof InteractionRequiredError) || !err.challengeId) throw err
-    onLine?.(JSON.stringify({ resource: cred.resource, challenge_id: err.challengeId, reason: 'step_up_required' }), 'stderr')
-    const satisfied = await waitForChallenge(cfg.zone_url, err.challengeId)
-    if (!satisfied) throw new Error('step_up_challenge_timed_out')
-    const token = await client.exchange('', cred.resource, exchangeOptions)
-    return injectedCredential(cred.resource, type, token)
+    if (!(err instanceof ApprovalRequiredError) || !err.approvalId) throw err
+    // The hold's id and binding go to stderr so whatever surface supervises this
+    // runtime can relay them to an approver; the runtime itself just waits.
+    onLine?.(
+      JSON.stringify({
+        resource: binding.resource,
+        challenge_id: err.approvalId,
+        binding: err.binding,
+        expires_at: err.expiresAt,
+        reason: 'approval_required',
+      }),
+      'stderr',
+    )
+    const state = await pollStepUpState(identity.sts_url, err.approvalId, { timeoutMs: stepUpWaitMs(err.expiresAt) })
+    if (state !== 'approved') throw new Error(`approval_${state}`)
+    return fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, {
+      approvalId: err.approvalId,
+      launchId,
+    })
   }
 }
 
-function credentialFailureLine(cred: Credential, err: unknown): string {
+function credentialFailureLine(binding: RunBinding, err: unknown): string {
   const reason = scrubTokens(err instanceof Error ? err.message : String(err))
-  const requestId = err instanceof InteractionRequiredError ? err.challengeId : undefined
-  return JSON.stringify({ resource: cred.resource, reason, requestId })
+  const requestId = err instanceof ApprovalRequiredError ? err.approvalId : undefined
+  return JSON.stringify({ resource: binding.resource, reason, requestId })
 }
 
-function validateCredentialEnv(cred: Credential, used: Set<string>): void {
-  if (!ENV_NAME.test(cred.env)) throw new Error(`invalid_credential_env:${cred.env}`)
-  if (BLOCKED_CREDENTIAL_ENV.has(cred.env)) throw new Error(`blocked_credential_env:${cred.env}`)
-  if (used.has(cred.env)) throw new Error(`duplicate_credential_env:${cred.env}`)
-  used.add(cred.env)
+function validateCredentialEnv(binding: RunBinding, used: Set<string>): void {
+  if (!ENV_NAME.test(binding.env)) throw new Error(`invalid_credential_env:${binding.env}`)
+  if (BLOCKED_CREDENTIAL_ENV.has(binding.env.toUpperCase())) throw new Error(`blocked_credential_env:${binding.env}`)
+  if (used.has(binding.env)) throw new Error(`duplicate_credential_env:${binding.env}`)
+  used.add(binding.env)
 }
 
-export async function buildRunEnv(cfg: RuntimeConfig, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
-  const client = new OAuthClient(cfg.zone_url, cfg.zone_id, cfg.application_id)
+// Resolves the full launch profile for a workload: authenticates against STS with the
+// local identity, fetches the console-authored bindings, and revalidates them locally
+// so a compromised control plane still cannot inject blocked env names.
+export async function resolveRunConfig(identity: RuntimeIdentity): Promise<RunProfile> {
+  const launchId = randomUUID()
+  const manifest = await fetchRunManifest(identity.sts_url, identity.workload_id, identity.workload_secret, { launchId })
+  const used = new Set<string>()
+  for (const binding of manifest.bindings) {
+    assertCredentialEnvName(binding.env)
+    if (used.has(binding.env)) throw new RuntimeConfigValidationError('run manifest', `duplicate credential env '${binding.env}'`)
+    used.add(binding.env)
+  }
+  return { identity, zoneId: manifest.zoneId, bindings: manifest.bindings, launchId }
+}
+
+export async function buildRunEnv(profile: RunProfile, opts: BuildRunEnvOptions = {}): Promise<Record<string, string>> {
   const env: Record<string, string> = {}
   const usedEnv = new Set<string>()
 
-  for (const cred of cfg.credentials ?? []) {
-    validateCredentialEnv(cred, usedEnv)
-  }
-  for (const cred of cfg.optional_credentials ?? []) {
-    validateCredentialEnv(cred, usedEnv)
+  for (const binding of profile.bindings) {
+    validateCredentialEnv(binding, usedEnv)
   }
 
-  for (const cred of cfg.credentials ?? []) {
+  for (const binding of profile.bindings) {
     try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
+      const minted = await mintWithStepUp(profile.identity, binding, profile.launchId, opts.onLine)
+      env[binding.env] = minted.credential
+      // The companion <ENV>_EXPIRES_AT variable carries the epoch-seconds expiry when
+      // the provider reports one, so the child can refresh before the credential dies.
+      // An explicit binding that claims the derived name wins.
+      const expiryEnv = `${binding.env}_EXPIRES_AT`
+      if (minted.expiresAt !== undefined && !usedEnv.has(expiryEnv)) env[expiryEnv] = String(minted.expiresAt)
     } catch (err) {
-      opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
-      if (!cfg.continue_on_failure) throw err
-    }
-  }
-
-  for (const cred of cfg.optional_credentials ?? []) {
-    try {
-      env[cred.env] = await exchangeWithStepUp(client, cfg, cred, opts.onLine)
-    } catch (err) {
-      if (cred.on_failure === 'error') {
-        opts.onLine?.(credentialFailureLine(cred, err), 'stderr')
+      if (!binding.optional || binding.onFailure === 'error') {
+        opts.onLine?.(credentialFailureLine(binding, err), 'stderr')
         throw err
       }
       const reason = scrubTokens(err instanceof Error ? err.message : String(err))
-      opts.onLine?.(`optional credential skipped resource=${cred.resource} reason=${reason}`, 'stdout')
+      opts.onLine?.(`optional credential skipped resource=${binding.resource} reason=${reason}`, 'stdout')
     }
   }
 
@@ -222,7 +217,7 @@ function shouldInheritEnv(key: string): boolean {
 
 function validateChildEnvKey(key: string): void {
   if (!ENV_NAME.test(key)) throw new Error(`invalid_child_env:${key}`)
-  if (BLOCKED_CREDENTIAL_ENV.has(key)) throw new Error(`blocked_child_env:${key}`)
+  if (BLOCKED_CREDENTIAL_ENV.has(key.toUpperCase())) throw new Error(`blocked_child_env:${key}`)
 }
 
 function buildChildEnv(extra: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {

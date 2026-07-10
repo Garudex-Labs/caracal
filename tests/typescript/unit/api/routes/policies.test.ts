@@ -12,7 +12,9 @@ import { policiesRoutes } from '../../../../../apps/api/src/routes/policies.js'
 
 function buildApp() {
   const app = Fastify({ logger: false })
-  const clientQuery = vi.fn().mockResolvedValue({ rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-03-16', created_at: new Date() }] })
+  const clientQuery = vi.fn().mockResolvedValue({
+    rows: [{ id: 'pv-1', policy_id: 'p-1', version: 1, content_sha256: 'abc', schema_version: '2026-05-20', created_at: new Date() }],
+  })
   const db = {
     query: vi.fn(),
     connect: vi.fn().mockResolvedValue({
@@ -62,7 +64,7 @@ describe('POST /v1/zones/:zoneId/policies', () => {
       payload: { name: 'p1', content: 'package caracal.authz\ndefault allow = false' },
     })
     expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body)).toMatchObject({ detail: 'must_be_data_document' })
+    expect(JSON.parse(res.body)).toMatchObject({ error_description: 'must_be_data_document' })
   })
 
   it('accepts a valid data document', async () => {
@@ -103,16 +105,16 @@ describe('POST /v1/policies/validate', () => {
     })
   })
 
-  it('rejects unsupported schema versions', async () => {
+  it('stamps the pinned input schema on validation success', async () => {
     const { app } = buildApp()
     await app.ready()
     const res = await app.inject({
       method: 'POST',
       url: '/v1/policies/validate',
-      payload: { content: validRego, schema_version: '2099-01-01' },
+      payload: { content: validRego },
     })
-    expect(res.statusCode).toBe(422)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_schema_version' })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ valid: true, schema_version: '2026-05-20', input_schema_version: '2026-05-20' })
   })
 })
 
@@ -123,7 +125,9 @@ describe('POST /v1/zones/:zoneId/policies/:id/versions', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'p-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'pv-2', policy_id: 'p-1', version: 2, content_sha256: 'sha-2', schema_version: '2026-05-20' }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'pv-2', policy_id: 'p-1', version: 2, content_sha256: 'sha-2', schema_version: '2026-05-20' }],
+      })
       .mockResolvedValueOnce({ rows: [] })
     await app.ready()
     const res = await app.inject({
@@ -168,13 +172,20 @@ describe('POST /v1/zones/:zoneId/policies/:id/versions', () => {
 describe('GET /v1/zones/:zoneId/policies', () => {
   it('lists policies for the zone', async () => {
     const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'p-1', name: 'One' }, { id: 'p-2', name: 'Two' }] })
+    db.query.mockResolvedValueOnce({
+      rows: [
+        { id: 'p-1', name: 'One' },
+        { id: 'p-2', name: 'Two' },
+      ],
+    })
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/policies' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBeNull()
   })
 })
 

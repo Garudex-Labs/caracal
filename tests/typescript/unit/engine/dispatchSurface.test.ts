@@ -23,8 +23,8 @@ function deepMock(): unknown {
 
 const ctx: DispatchContext = { admin: deepMock() as AdminClient }
 
-function localPrincipal(): Principal {
-  return { kind: 'local', subject: 'op', zoneId: 'z1', scopes: [] }
+function principalWith(...scopes: string[]): Principal {
+  return { subject: 'op', zoneId: 'z1', scopes }
 }
 
 const FLAGS: FlagMap = {
@@ -54,13 +54,13 @@ describe('dispatch handler surface', () => {
   it('routes every exposed (command, subcommand) to the admin client', async () => {
     const surface = describeRemoteSurface()
     expect(surface.length).toBeGreaterThan(0)
-    for (const { command, subcommand } of surface) {
+    for (const { command, subcommand, scope } of surface) {
       try {
-        const result = await dispatch({ command, subcommand, flags: FLAGS }, localPrincipal(), ctx)
+        const result = await dispatch({ command, subcommand, flags: FLAGS }, principalWith(scope), ctx)
         expect(result).toBeDefined()
       } catch (err) {
-        // Some catalog subcommands have no dispatch handler arm yet; the dispatcher
-        // rejects them with a typed DispatchError, which is still exercised code.
+        // Handler arms that need structured flag shapes reject this generic
+        // flag map with a typed DispatchError, which is still exercised code.
         expect((err as { code?: string }).code).toMatch(/unsupported|invalid/)
       }
     }
@@ -86,11 +86,10 @@ describe('dispatch handler surface', () => {
           name: 'PiperNet',
           scopes: 'pipernet:read',
           'upstream-url': 'https://api.pipernet.example',
-          'gateway-application-id': 'app-1',
           'credential-provider-id': 'provider-1',
         },
       },
-      localPrincipal(),
+      principalWith('control:resource:write'),
       { admin },
     )
 
@@ -99,7 +98,6 @@ describe('dispatch handler surface', () => {
       identifier: undefined,
       scopes: ['pipernet:read'],
       upstream_url: 'https://api.pipernet.example',
-      gateway_application_id: 'app-1',
       credential_provider_id: 'provider-1',
     })
   })
@@ -119,7 +117,7 @@ describe('dispatch handler surface', () => {
           scopes: 'invoices:read,invoices:write',
         },
       },
-      localPrincipal(),
+      principalWith('control:grant:write'),
       { admin },
     )
 

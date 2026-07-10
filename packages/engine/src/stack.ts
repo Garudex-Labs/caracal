@@ -29,6 +29,7 @@ export interface StackComposeOpts {
   args: string[]
   env?: Record<string, string | undefined>
   onLine?: (line: string, stream: 'stdout' | 'stderr') => void
+  build?: boolean
 }
 
 export interface StackComposeHandle {
@@ -46,8 +47,8 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
   // source exists and is owned by the invoking user. Without this the Docker
   // daemon creates it as root, leaving the local operator unable to write the gate file.
   ensureControlGateDir(opts.paths.cwd)
-  const args =
-    opts.paths.mode === 'dev' ? ['up', '-d', '--build', '--remove-orphans', ...opts.args] : ['up', '-d', '--remove-orphans', ...opts.args]
+  const build = opts.paths.mode === 'dev' && opts.build !== false
+  const args = build ? ['up', '-d', '--build', '--remove-orphans', ...opts.args] : ['up', '-d', '--remove-orphans', ...opts.args]
   const handle = runExec({
     argv: composeArgv(opts.paths, args),
     env: opts.env,

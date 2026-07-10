@@ -4,7 +4,7 @@
 // Package sdk is the Caracal Go SDK.
 //
 // The drop-in API is the Caracal type. Construct it with New (or by
-// populating the struct directly) and use Spawn, SpawnService, Delegate,
+// populating the struct directly) and use Session, StartSession, Delegate,
 // Transport, ContextMiddleware, Headers, Current, and BindFromRequest. The
 // advanced surface: envelope codec, raw coordinator client, bound context
 // primitives, and transport injection: is exposed in the same package because

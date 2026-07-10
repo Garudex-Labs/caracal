@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Tabs } from '@/components/ui/Tabs'
 import { DcrField } from '@/components/console/DcrField'
 import { ResourceFormModal } from '@/components/console/ResourceForm'
-import type { Application, Provider, Resource } from '@/platform/api/types'
+import type { Provider, Resource } from '@/platform/api/types'
 
 // The server renderer cannot host the modal portal, so the overlay is stubbed to render its
 // body inline while every other kit component stays real.
@@ -23,8 +23,7 @@ vi.mock('@/components/ui', async (importOriginal) => {
   }
 })
 
-const buttonRing =
-  'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+const buttonRing = 'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1 focus-visible:ring-offset-background'
 
 function tagOf(html: string, pattern: RegExp): string {
   const match = html.match(pattern)
@@ -66,7 +65,6 @@ describe('Console focus ring treatment', () => {
       name: 'PiperNet',
       identifier: 'resource://pipernet',
       upstream_url: 'https://api.pipernet.example',
-      gateway_application_id: 'app-1',
       scopes: ['read'],
       credential_provider_id: 'prov-1',
       operations: [{ method: 'GET', path: '/v1/nodes', scope: 'read' }],
@@ -74,15 +72,6 @@ describe('Console focus ring treatment', () => {
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
-    const applications: Application[] = [
-      {
-        id: 'app-1',
-        zone_id: 'zone-1',
-        name: 'Son of Anton',
-        registration_method: 'managed',
-        created_at: '2026-01-01T00:00:00Z',
-      },
-    ]
     const providers: Provider[] = [
       {
         id: 'prov-1',
@@ -101,7 +90,6 @@ describe('Console focus ring treatment', () => {
         open: true,
         mode: 'edit',
         resource,
-        applications,
         providers,
         busy: false,
         onClose: () => {},
@@ -111,9 +99,8 @@ describe('Console focus ring treatment', () => {
     const fieldRing = 'focus:border-ring focus:ring-2 focus:ring-ring/25'
     const method = tagOf(html, /<input[^>]*aria-label="Method"[^>]*>/)
     const path = tagOf(html, /<input[^>]*value="\/v1\/nodes"[^>]*>/)
-    const scope = (html.match(/<select[^>]*>/g) ?? []).find((tag) => tag.includes('font-mono'))
-    expect(scope).toBeDefined()
-    for (const control of [method, path, scope!]) {
+    const scope = tagOf(html, /<input[^>]*aria-label="Scope"[^>]*>/)
+    for (const control of [method, path, scope]) {
       expect(control).toContain('outline-none')
       expect(control).toContain(fieldRing)
     }

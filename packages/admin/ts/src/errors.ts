@@ -11,9 +11,6 @@ export type AdminApiErrorCode =
   | 'challenge_not_found'
   | 'challenge_not_satisfiable'
   | 'dcr_shutdown_required'
-  | 'gateway_application_not_found'
-  | 'gateway_application_required'
-  | 'gateway_exchange_application_must_be_managed'
   | 'grant_not_found'
   | 'grant_scopes_exceed_resource'
   | 'invalid_cursor'
@@ -48,7 +45,13 @@ export class AdminApiError extends CaracalError {
   readonly body: JsonValue
   readonly target: 'api' | 'coordinator'
 
-  constructor(status: number, code: AdminApiErrorCode | (string & {}), body: JsonValue, message?: string, target: 'api' | 'coordinator' = 'api') {
+  constructor(
+    status: number,
+    code: AdminApiErrorCode | (string & {}),
+    body: JsonValue,
+    message?: string,
+    target: 'api' | 'coordinator' = 'api',
+  ) {
     const safeBody = redact(body) as JsonValue
     super(code, message ?? `${code} (HTTP ${status})`, { details: { status, body: safeBody, target } })
     this.name = 'AdminApiError'

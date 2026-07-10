@@ -6,41 +6,56 @@ pageType: reference
 
 STS is the authority issuance boundary. It authenticates applications, validates sessions and delegated authority, evaluates policies, handles step-up challenges, and returns scoped mandate JWTs.
 
-## Runtime
+STS federates subject identity rather than managing it: it never authenticates end users and never generates a `sub`. The subject recorded on a minted session is the `sub` of the exchanged subject token - an opaque, stable identifier owned by the application's own identity system - or the application id itself when the exchange carries no subject token. A zone registers **subject issuers** (external issuer, JWKS URL, audience) to accept end-user identity tokens directly; see [Use STS Endpoint](/api/sts/#subject-identity) for the exchange contract.
 
-| Property | Value |
-| --- | --- |
-| Port | `8080` |
-| Token exchange | `POST /oauth/2/token` |
-| JWKS | `GET /.well-known/jwks.json?zone_id={zone}` |
-| Step-up status | `GET /step-up/{id}` |
-| Health/readiness | `GET /health`, `GET /ready` |
-| Metrics | `GET /metrics`, `GET /metrics.json` |
-| Internal policy simulation | `POST /internal/policy/simulate` |
+## Endpoints
+
+STS listens on port `8080`.
+
+| Method and path                             | Purpose                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| `POST /oauth/2/token`                       | Token exchange that issues mandates.                                      |
+| `POST /v1/run/manifest`                     | Binding manifest for `caracal run` workloads.                             |
+| `POST /v1/run/credential`                   | Credential minting for `caracal run` workloads.                           |
+| `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys.                                                      |
+| `GET /step-up/{id}`                         | Step-up hold status.                                                      |
+| `POST /step-up/{id}/decision`               | Subject-plane step-up decision (federated user session mandate required). |
+| `GET /health`, `GET /ready`                 | Liveness and readiness.                                                   |
+| `GET /metrics`, `GET /metrics.json`         | Service metrics.                                                          |
+
+### Internal Endpoints
+
+Only other Caracal services call these routes. Do not expose them to workloads or the public network.
+
+| Method and path                                    | Purpose                                        |
+| -------------------------------------------------- | ---------------------------------------------- |
+| `POST /internal/policy/simulate`                   | Policy-set simulation for the API service.     |
+| `GET /internal/policy/status/{zoneID}`             | Policy activation status for the API service.  |
+| `POST /internal/zones/{zoneID}/signing-key/rotate` | Zone signing-key rotation for the API service. |
 
 ## Dependencies
 
-| Dependency | Purpose |
-| --- | --- |
-| Postgres | Applications, grants, resources, policies, sessions, step-up challenges, signing keys. |
-| Redis | Policy/key invalidation, revocation, provider coordination, audit emission. |
-| Zone KEK | Decrypt signing and secret material. |
-| Gateway HMAC key | Verify Gateway-authenticated exchanges. |
-| Audit replay dir | Persist audit events while Redis/Audit is unavailable. |
+| Dependency       | Purpose                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Postgres         | Applications, grants, resources, policies, sessions, step-up challenges, signing keys. |
+| Redis            | Policy/key invalidation, revocation, provider coordination, audit emission.            |
+| Zone KEK         | Decrypt signing and secret material.                                                   |
+| Gateway HMAC key | Verify Gateway-authenticated exchanges.                                                |
+| Audit replay dir | Persist audit events while Redis/Audit is unavailable.                                 |
 
 ## Issuance Rules
 
-| Rule | Behavior |
-| --- | --- |
-| Resource mandate TTL | Capped at 15 minutes. |
-| Session mandate TTL | Capped at 60 minutes. |
-| `MAX_GRANT_TTL_SECONDS` | Defaults to `3600`. |
-| `OPA_POLL_SECONDS` | Defaults to `60`, capped at `300`. |
-| Published modes | Require `GATEWAY_STS_HMAC_KEY` and audit/stream keys where configured. |
+| Rule                    | Behavior                                                               |
+| ----------------------- | ---------------------------------------------------------------------- |
+| Resource mandate TTL    | Capped at 15 minutes.                                                  |
+| Session mandate TTL     | Capped at 60 minutes.                                                  |
+| `MAX_GRANT_TTL_SECONDS` | Defaults to `3600`.                                                    |
+| `OPA_POLL_SECONDS`      | Defaults to `60`, capped at `300`.                                     |
+| Published modes         | Require `GATEWAY_STS_HMAC_KEY` and audit/stream keys where configured. |
 
 ## Failure Posture
 
-Invalid client credentials, missing resources, invalid subject tokens, revoked sessions, unsatisfied step-up, policy denial, invalid delegation, and failed Gateway signatures deny exchange. Gateway-authenticated mandate use is additionally held to the resource's native operation floor: an operation that is not declared on an enforced resource, or whose required scope is absent from the mandate, is denied with `operation_not_permitted` independently of policy.
+Invalid client credentials, missing resources, invalid subject tokens, revoked sessions, undecided step-up holds, policy denial, invalid delegation, and failed Gateway signatures deny exchange. Gateway-authenticated mandate use is additionally held to the resource's native operation floor: an operation that is not declared on an enforced resource, or whose required scope is absent from the mandate, is denied with `operation_not_permitted` independently of policy.
 
 ## Next Step
 

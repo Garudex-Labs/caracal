@@ -22,27 +22,28 @@ Audit events are HMAC-protected in published modes. Audit storage includes tampe
 
 ## Integration Points
 
-| Need | Surface |
-| --- | --- |
-| Search recent events | Console `audit` or Audit API search. |
-| Trace one request | Console `request trace` or API request ID lookup. |
-| SIEM export | `caracal.audit.events` consumer or Audit export path. |
-| Evidence archive | Postgres backup plus object-store export. |
-| Tamper response | `CaracalAuditTamperDetected` alert and incident runbook. |
+| Need                 | Surface                                                  |
+| -------------------- | -------------------------------------------------------- |
+| Search recent events | Console `audit` or Audit API search.                     |
+| Trace one request    | Console `request trace` or API request ID lookup.        |
+| SIEM export          | `caracal.audit.events` consumer or Audit export path.    |
+| Evidence archive     | Postgres backup plus object-store export.                |
+| Tamper response      | `CaracalAuditTamperDetected` alert and incident runbook. |
 
 ## Operational Controls
 
 - Monitor Audit DLQ, consumer lag, tamper metrics, and export watermarks.
 - Preserve audit HMAC keys according to retention requirements.
 - Keep audit partitions and backup retention aligned with legal hold requirements.
+- Size writable `AUDIT_EXPORT_TMP_DIR` scratch space for the largest complete hourly Parquet partition; Helm uses `services.audit.exportScratchSizeLimit`.
 - Do not manually mutate `audit_events`; verification expects append-only behavior.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| SIEM is missing events | Redis group lag, export watermark, Audit readiness, and network egress. |
-| DLQ has HMAC failures | Producer key mismatch or corrupted stream payload. |
+| Symptom                     | Check                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| SIEM is missing events      | Redis group lag, export watermark, Audit readiness, and network egress.                     |
+| DLQ has HMAC failures       | Producer key mismatch or corrupted stream payload.                                          |
 | Request explanation missing | Confirm request ID, zone, retention window, and that the protected request reached Caracal. |
 
 ## Next Step

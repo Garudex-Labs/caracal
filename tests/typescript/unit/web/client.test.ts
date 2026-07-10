@@ -98,6 +98,28 @@ describe('request cancellation', () => {
   })
 })
 
+describe('applications list', () => {
+  it('lists active applications without a status parameter', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, { items: [{ id: 'app-1', name: 'Son of Anton' }], next_cursor: null }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const rows = await consoleApi.applications.list('z1')
+    expect(rows).toEqual([{ id: 'app-1', name: 'Son of Anton' }])
+    const url = String(fetchMock.mock.calls[0]![0])
+    expect(url).toContain('/v1/zones/z1/applications')
+    expect(url).not.toContain('status=')
+  })
+
+  it('requests the archived listing when asked', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, { items: [{ id: 'app-2', name: 'Fiona', archived_at: '2026-07-01T00:00:00.000Z' }], next_cursor: null }),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    const rows = await consoleApi.applications.list('z1', undefined, 'archived')
+    expect(rows[0]).toMatchObject({ id: 'app-2', archived_at: '2026-07-01T00:00:00.000Z' })
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/v1/zones/z1/applications?status=archived')
+  })
+})
+
 describe('operator capabilities', () => {
   it('reports whether the operator service is enabled', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { enabled: false }))
@@ -173,13 +195,13 @@ describe('operator conversation lifecycle', () => {
       last_activity_at: '2026-01-01T00:00:00Z',
       archived_at: null,
     }
-    globalThis.fetch = vi.fn(async () => jsonResponse(200, [conv])) as unknown as typeof fetch
+    globalThis.fetch = vi.fn(async () => jsonResponse(200, { items: [conv], next_cursor: null })) as unknown as typeof fetch
     const rows = await consoleApi.operator.conversations.list('z1')
     expect(rows).toEqual([conv])
   })
 
   it('passes a search term through to the conversations query', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, []))
+    const fetchMock = vi.fn(async () => jsonResponse(200, { items: [], next_cursor: null }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
     await consoleApi.operator.conversations.list('z1', { q: 'github' })
     expect(fetchMock.mock.calls[0]![0]).toContain('q=github')
@@ -280,7 +302,10 @@ describe('operator conversation lifecycle', () => {
         created_at: '2026-01-01T00:00:00Z',
       },
     ]
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, firstPage)).mockResolvedValueOnce(jsonResponse(200, secondPage))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { items: firstPage, next_cursor: '200' }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: secondPage, next_cursor: null }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
     const turns = await consoleApi.operator.listTurns('z1', 'conv-1')
     expect(turns).toHaveLength(201)
@@ -290,18 +315,21 @@ describe('operator conversation lifecycle', () => {
 
   it('stops paginating turns after a short page', async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse(200, [
-        {
-          id: 't1',
-          conversation_id: 'conv-1',
-          seq: 1,
-          role: 'user',
-          kind: 'message',
-          content: {},
-          actor_id: 'a',
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      ]),
+      jsonResponse(200, {
+        items: [
+          {
+            id: 't1',
+            conversation_id: 'conv-1',
+            seq: 1,
+            role: 'user',
+            kind: 'message',
+            content: {},
+            actor_id: 'a',
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+        next_cursor: null,
+      }),
     )
     globalThis.fetch = fetchMock as unknown as typeof fetch
     const turns = await consoleApi.operator.listTurns('z1', 'conv-1')

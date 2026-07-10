@@ -79,9 +79,12 @@ func TestSTSHealthStepUpAndWriteErrorResponses(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	writeStepUp(w, "req-1", &challengeState{ID: "challenge-1", ChallengeType: "webauthn", Secret: "secret", ExpiresAt: time.Unix(100, 0).UTC()})
+	writeStepUp(w, "req-1", &challengeState{ID: "challenge-1", ChallengeType: humanApprovalChallengeType, State: ChallengeStatePending, Tier: "money", Binding: []byte{0xaa}, ExpiresAt: time.Unix(100, 0).UTC()})
 	if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
 		t.Fatalf("step-up status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"interaction_required"`) || !strings.Contains(body, `"binding":"aa"`) || !strings.Contains(body, `"state":"pending"`) {
+		t.Fatalf("step-up body must carry state and binding: %s", body)
 	}
 
 	w = httptest.NewRecorder()
@@ -102,12 +105,6 @@ func TestSTSStepUpStatusRejectsMalformedIDs(t *testing.T) {
 func TestSTSPureExchangeHelpers(t *testing.T) {
 	if sessionInput("") != nil || sessionInput("sid").ID != "sid" {
 		t.Fatal("sessionInput should preserve non-empty ids only")
-	}
-	if !sameTokenPrincipal(map[string]any{"sub": "u", "client_id": "app"}, map[string]any{"sub": "u"}) {
-		t.Fatal("same subject with missing actor client should match")
-	}
-	if sameTokenPrincipal(map[string]any{"sub": "u", "client_id": "app1"}, map[string]any{"sub": "u", "client_id": "app2"}) {
-		t.Fatal("different client ids should not match")
 	}
 	resourceID := "resource-1"
 	proof := &delegationProof{

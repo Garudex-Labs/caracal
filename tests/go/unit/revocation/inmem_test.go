@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garudex-labs/caracal/packages/revocation/go"
+	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
 )
 
 func TestInMemoryStoreRevokesUntilTTLExpiry(t *testing.T) {
@@ -39,5 +39,32 @@ func TestInMemoryStoreExplicitTTLOverridesDefault(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	if store.IsRevoked("sid-1") {
 		t.Fatal("expected explicit short ttl to expire")
+	}
+}
+
+func TestInMemoryStoreTracksMonotonicDelegationEpochsUntilTTLExpiry(t *testing.T) {
+	store := revocation.NewInMemoryStore(time.Hour)
+
+	if got := store.CurrentDelegationEpoch("zone-1"); got != 0 {
+		t.Fatalf("expected epoch 0, got %d", got)
+	}
+	if err := store.MarkDelegationEpoch("zone-1", 5, 0); err != nil {
+		t.Fatalf("mark delegation epoch: %v", err)
+	}
+	if err := store.MarkDelegationEpoch("zone-1", 4, 0); err != nil {
+		t.Fatalf("mark stale delegation epoch: %v", err)
+	}
+	if got := store.CurrentDelegationEpoch("zone-1"); got != 5 {
+		t.Fatalf("expected epoch 5, got %d", got)
+	}
+	if err := store.MarkDelegationEpoch("zone-1", 6, time.Millisecond); err != nil {
+		t.Fatalf("mark delegation epoch with ttl: %v", err)
+	}
+	if got := store.CurrentDelegationEpoch("zone-1"); got != 6 {
+		t.Fatalf("expected epoch 6, got %d", got)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if got := store.CurrentDelegationEpoch("zone-1"); got != 0 {
+		t.Fatalf("expected expired epoch to reset, got %d", got)
 	}
 }

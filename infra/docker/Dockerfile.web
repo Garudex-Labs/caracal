@@ -9,7 +9,7 @@ ARG PNPM_VERSION=11.1.1
 FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS health-builder
 ARG CGO_ENABLED=0
 ARG GO_BUILDFLAGS
-ARG GO_LDFLAGS
+ARG GO_LDFLAGS="-s -w"
 ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
 WORKDIR /healthcheck
 COPY infra/healthcheck/ ./
@@ -24,7 +24,7 @@ ENV PNPM_HOME=/pnpm \
     CI=1
 RUN npm install -g corepack@latest && corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/auth/package.json apps/auth/package.json
 COPY packages/ packages/
@@ -41,15 +41,16 @@ COPY apps/auth/ apps/auth/
 ARG SPA_BACKEND_BASE=""
 RUN set -e; \
     pnpm --filter @caracalai/core build; \
+    pnpm --filter @caracalai/server-core build; \
     pnpm --filter @caracalai/admin build; \
     pnpm --filter @caracalai/oauth build; \
     pnpm --filter @caracalai/engine build; \
     VITE_CARACAL_AUTH_URL="${SPA_BACKEND_BASE}" pnpm --filter @caracalai/web build; \
     pnpm --filter @caracalai/auth build; \
-    pnpm --config.inject-workspace-packages=true --filter @caracalai/auth deploy --legacy --prod /out/auth; \
+    pnpm --config.inject-workspace-packages=true --filter @caracalai/auth deploy --prod /out/auth; \
     mkdir -p /out/auth/web && cp -r apps/web/dist/* /out/auth/web/; \
     find /out -type d \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} + 2>/dev/null || true; \
-    find /out -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.map' -o -name 'CHANGELOG*' -o -name '.npmignore' -o -name '.eslintrc*' -o -name '.prettierrc*' \) -delete 2>/dev/null || true
+    find /out -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.map' -o -name 'CHANGELOG*' -o -name '.npmignore' -o -name '.eslintrc*' -o -name '.prettierrc*' -o -name 'pnpm-lock.yaml' -o -name 'pnpm-workspace.yaml' \) -delete 2>/dev/null || true
 
 FROM gcr.io/distroless/nodejs24-debian12:nonroot@sha256:14d42e2511532589a7c7e01a753667a74fcc96266e137e8125006b87b0c32d0a
 ENV NODE_ENV=production \

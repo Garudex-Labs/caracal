@@ -1,6 +1,6 @@
 ---
 title: Choose Your Production Integration Path
-description: Choose the next guide for your production Gateway, SDK, connector, runtime, delegation, audit, or step-up integration.
+description: Choose the next guide for your production Gateway, SDK, adapter, runtime, delegation, audit, or step-up integration.
 pageType: workflow
 ---
 
@@ -8,30 +8,30 @@ Use this bridge after the tutorials. Pick the guide that matches the boundary yo
 
 ## Choose by Boundary
 
-| If your production path is... | Continue with |
-| --- | --- |
-| Route HTTP traffic through Caracal Gateway | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
-| Add Caracal session and Gateway calls to app code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
-| Protect an Express resource server | [Protect an Express App](/guides/protect-express/) |
-| Protect a FastMCP resource server | [Protect a FastMCP App](/guides/protect-fastmcp/) |
-| Protect a Go `net/http` resource server | [Protect a Go net/http Service](/guides/protect-nethttp/) |
-| Protect an MCP server without a dedicated connector | [Protect an MCP Server](/guides/protect-mcp/) |
-| Run an existing CLI or worker under injected runtime tokens | [Run an Agent with caracal run](/guides/runtime-run/) |
-| Model zones, apps, resources, and customer boundaries | [Model Your Application in Caracal](/guides/modeling-recipes/) |
-| Configure provider credentials or OAuth | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/) |
-| Debug denies or unexpected allows | [Debug Authorization Decisions](/guides/authorize-access/) |
-| Delegate work between agents | [Implement Multi-Agent Delegation](/guides/delegation/) |
-| Export or query audit evidence | [Tail and Query the Audit Stream](/guides/audit-stream/) |
-| Require fresh proof for sensitive actions | [Step-Up Re-Authentication](/guides/step-up/) |
+| If your production path is...                               | Continue with                                                                                                    |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Route HTTP traffic through Caracal Gateway                  | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)                                               |
+| Add Caracal session and Gateway calls to app code           | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/)       |
+| Protect an Express resource server                          | [Protect an Express App](/guides/protect-express/)                                                               |
+| Protect a FastMCP resource server                           | [Protect a FastMCP App](/guides/protect-fastmcp/)                                                                |
+| Protect a Go `net/http` resource server                     | [Protect a Go net/http Service](/guides/protect-nethttp/)                                                        |
+| Protect an MCP server without a dedicated adapter           | [Protect an MCP Server](/guides/protect-mcp/)                                                                    |
+| Run an existing CLI or worker under injected runtime tokens | [Run an Agent with caracal run](/guides/runtime-run/)                                                            |
+| Model zones, apps, resources, and customer boundaries       | [Model Your Application in Caracal](/guides/modeling-recipes/)                                                   |
+| Configure provider credentials or OAuth                     | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/) |
+| Debug denies or unexpected allows                           | [Debug Authorization Decisions](/guides/authorize-access/)                                                       |
+| Delegate work between agents                                | [Implement Multi-Agent Delegation](/guides/delegation/)                                                          |
+| Export or query audit evidence                              | [Tail and Query the Audit Stream](/guides/audit-stream/)                                                         |
+| Hold sensitive actions for human approval                   | [Human Approval](/guides/step-up/)                                                                               |
 
 ## Choose by Team Role
 
-| Role | Start with |
-| --- | --- |
-| App engineer | SDK guide for your language, then Gateway or connector guide. |
-| Platform engineer | [Production Integration Patterns](/guides/enterprise-runtime-patterns/), then operations pages. |
+| Role              | Start with                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App engineer      | SDK guide for your language, then Gateway or adapter guide.                                                                                                              |
+| Platform engineer | [Production Integration Patterns](/guides/enterprise-runtime-patterns/), then operations pages.                                                                          |
 | Security reviewer | [Debug Authorization Decisions](/guides/authorize-access/), [Audit and Request Traces](/concepts/audit-ledger/), and [Review the Threat Model](/security/threat-model/). |
-| Policy owner | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/). |
+| Policy owner      | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/).                                                                  |
 
 ## Next Step
 

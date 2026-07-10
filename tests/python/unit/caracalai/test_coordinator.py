@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-Coordinator REST client unit tests: spawn, delegate, and terminate flows.
+Coordinator REST client unit tests: Session start, heartbeat, delegate, and terminate flows.
 """
 
 import unittest
@@ -14,53 +14,123 @@ from caracalai.coordinator import (
     CoordinatorClient,
     DelegationConstraints,
     DelegationRequest,
-    SpawnRequest,
+    StartSessionRequest,
     create_delegation,
-    spawn_agent,
-    terminate_agent,
+    heartbeat_session,
+    start_coordinator_session,
+    terminate_session,
 )
+from caracalai.errors import CoordinatorError
 
 
 def _client(handler) -> CoordinatorClient:
     return CoordinatorClient(
         base_url="http://coordinator.test",
-        _client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
 
-class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_agent_session_id_from_response(self) -> None:
+class StartSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_session_id_from_response(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"agent_session_id": "agent-1"})
 
-        res = await spawn_agent(
+        res = await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(zone_id="z", application_id="app"),
+            StartSessionRequest(zone_id="z", application_id="app"),
         )
-        self.assertEqual(res.agent_session_id, "agent-1")
+        self.assertEqual(res.session_id, "agent-1")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500, json={"error": "internal"})
 
-        with self.assertRaises(httpx.HTTPStatusError):
-            await spawn_agent(
+        with self.assertRaises(CoordinatorError) as caught:
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
+        self.assertEqual(caught.exception.status, 500)
+        self.assertEqual(caught.exception.method, "POST")
+        self.assertIn("internal", caught.exception.body)
+        self.assertIsNone(caught.exception.retry_after_seconds)
+
+    async def test_carries_server_retry_after_hint(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                429, headers={"retry-after": "3"}, json={"error": "throttled"}
+            )
+
+        with self.assertRaises(CoordinatorError) as caught:
+            await start_coordinator_session(
+                _client(handler),
+                "tok",
+                StartSessionRequest(zone_id="z", application_id="app"),
+            )
+        self.assertEqual(caught.exception.retry_after_seconds, 3.0)
+
+    async def test_caps_error_body_in_message(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, text="x" * 5000)
+
+        with self.assertRaises(CoordinatorError) as caught:
+            await start_coordinator_session(
+                _client(handler),
+                "tok",
+                StartSessionRequest(zone_id="z", application_id="app"),
+            )
+        self.assertIn("\u2026 (truncated)", str(caught.exception))
+        self.assertLess(len(str(caught.exception)), 2300)
 
     async def test_raises_when_response_has_no_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"other": "field"})
 
-        with self.assertRaises(KeyError):
-            await spawn_agent(
+        with self.assertRaises(ValueError):
+            await start_coordinator_session(
                 _client(handler),
                 "tok",
-                SpawnRequest(zone_id="z", application_id="app"),
+                StartSessionRequest(zone_id="z", application_id="app"),
             )
+
+    async def test_parses_heartbeat_deadline_and_quotes_zone(self) -> None:
+        captured: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(
+                200,
+                json={
+                    "agent_session_id": "a-1",
+                    "heartbeat_deadline_at": "2026-07-04T00:02:00+00:00",
+                },
+            )
+
+        res = await start_coordinator_session(
+            _client(handler),
+            "tok",
+            StartSessionRequest(zone_id="z/1", application_id="app"),
+        )
+        self.assertEqual(res.heartbeat_deadline_at, "2026-07-04T00:02:00+00:00")
+        self.assertEqual(captured[0].url.raw_path.decode(), "/zones/z%2F1/agents")
+
+    async def test_base_url_trailing_slash_is_normalized(self) -> None:
+        captured: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(200, json={"agent_session_id": "a-1"})
+
+        c = CoordinatorClient(
+            base_url="http://coordinator.test/",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+        await start_coordinator_session(
+            c, "tok", StartSessionRequest(zone_id="z", application_id="app")
+        )
+        self.assertEqual(str(captured[0].url), "http://coordinator.test/zones/z/agents")
 
     async def test_sends_optional_fields_when_set(self) -> None:
         captured: list[dict] = []
@@ -71,13 +141,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(json.loads(req.content))
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 parent_id="parent-1",
                 lifecycle=Lifecycle.SERVICE,
                 ttl_seconds=60,
@@ -100,13 +170,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(req)
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 parent_id="parent-1",
             ),
         )
@@ -119,13 +189,13 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
             captured.append(req)
             return httpx.Response(200, json={"agent_session_id": "a-1"})
 
-        await spawn_agent(
+        await start_coordinator_session(
             _client(handler),
             "tok",
-            SpawnRequest(
+            StartSessionRequest(
                 zone_id="z",
                 application_id="app",
-                subject_session_id="sid-1",
+                subject_authority_record_id="sid-1",
                 idempotency_key="user-supplied-key",
             ),
         )
@@ -137,9 +207,9 @@ class SpawnAgentTests(unittest.IsolatedAsyncioTestCase):
 class CoordinatorLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_client_is_created_lazily_with_timeout(self) -> None:
         c = CoordinatorClient(base_url="http://coordinator.test", timeout=3.5)
-        self.assertIsNone(c._client)
+        self.assertIsNone(c.http_client)
         client = c._http()
-        self.assertIs(c._client, client)
+        self.assertIs(c.http_client, client)
         await c.aclose()
 
     async def test_close_is_idempotent(self) -> None:
@@ -150,28 +220,81 @@ class CoordinatorLifecycleTests(unittest.IsolatedAsyncioTestCase):
         c._http()
         await c.aclose()
         await c.aclose()
-        self.assertIsNone(c._client)
+        self.assertIsNone(c.http_client)
 
 
-class TerminateAgentTests(unittest.IsolatedAsyncioTestCase):
+class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_status_and_deadline_from_agent_wire(self) -> None:
+        captured: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(
+                200,
+                json={
+                    "agent": {
+                        "status": "suspended",
+                        "heartbeat_deadline_at": "2026-07-04T00:02:00+00:00",
+                    }
+                },
+            )
+
+        res = await heartbeat_session(
+            _client(handler), "tok", "z 1", "agent 1", "degraded"
+        )
+        self.assertEqual(res.status, "suspended")
+        self.assertEqual(res.heartbeat_deadline_at, "2026-07-04T00:02:00+00:00")
+        self.assertEqual(
+            captured[0].url.raw_path.decode(),
+            "/zones/z%201/agents/agent%201/heartbeat",
+        )
+        import json
+
+        self.assertEqual(json.loads(captured[0].content), {"status": "degraded"})
+
+    async def test_tolerates_empty_response_body(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(204)
+
+        res = await heartbeat_session(_client(handler), "tok", "z", "session-1")
+        self.assertIsNone(res.status)
+        self.assertIsNone(res.heartbeat_deadline_at)
+
+    async def test_raises_coordinator_error_with_status(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(409, json={"error": "agent_lease_expired"})
+
+        with self.assertRaises(CoordinatorError) as caught:
+            await heartbeat_session(_client(handler), "tok", "z", "session-1")
+        self.assertEqual(caught.exception.status, 409)
+
+
+class TerminateSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_propagates_errors(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(500)
 
-        with self.assertRaises(httpx.HTTPStatusError):
-            await terminate_agent(_client(handler), "tok", "z", "agent-1")
+        with self.assertRaises(CoordinatorError):
+            await terminate_session(_client(handler), "tok", "z", "session-1")
 
     async def test_succeeds_on_204(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(204)
 
-        await terminate_agent(_client(handler), "tok", "z", "agent-1")
+        await terminate_session(_client(handler), "tok", "z", "session-1")
 
 
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_delegation_edge_id(self) -> None:
+    async def test_returns_delegation_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
+            return httpx.Response(
+                200,
+                json={
+                    "delegation_edge_id": "edge-1",
+                    "scopes": ["tool:call"],
+                    "expires_at": "2026-07-04T12:00:00+00:00",
+                },
+            )
 
         res = await create_delegation(
             _client(handler),
@@ -185,13 +308,15 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
                 scopes=["tool:call"],
             ),
         )
-        self.assertEqual(res.delegation_edge_id, "edge-1")
+        self.assertEqual(res.delegation_id, "edge-1")
+        self.assertEqual(res.scopes, ["tool:call"])
+        self.assertEqual(res.expires_at, "2026-07-04T12:00:00+00:00")
 
     async def test_raises_on_http_error(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(403, json={"error": "forbidden"})
 
-        with self.assertRaises(httpx.HTTPStatusError):
+        with self.assertRaises(CoordinatorError):
             await create_delegation(
                 _client(handler),
                 "tok",
@@ -205,11 +330,11 @@ class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-    async def test_raises_when_response_has_no_delegation_edge_id(self) -> None:
+    async def test_raises_when_response_has_no_delegation_id(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"other": "field"})
 
-        with self.assertRaises(KeyError):
+        with self.assertRaises(ValueError):
             await create_delegation(
                 _client(handler),
                 "tok",
@@ -305,6 +430,39 @@ class DelegationConstraintsTests(unittest.TestCase):
         self.assertEqual(wire["policy_approved"], True)
         self.assertEqual(wire["expires_at"], "2026-12-31T00:00:00Z")
         self.assertEqual(wire["broad_reason"], "operator approved")
+
+
+class EventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_emits_coordinator_call_events(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "DELETE":
+                return httpx.Response(403, json={"error": "denied"})
+            return httpx.Response(200, json={"agent_session_id": "agent-1"})
+
+        events = []
+
+        def sink(event):
+            events.append(event)
+            raise RuntimeError("sink failure")
+
+        client = _client(handler)
+        client.on_event = sink
+        await start_coordinator_session(
+            client, "tok", StartSessionRequest(zone_id="z", application_id="app")
+        )
+        with self.assertRaises(CoordinatorError):
+            await terminate_session(client, "tok", "z", "session-1")
+
+        self.assertEqual(len(events), 2)
+        sessions, denied = events
+        self.assertEqual(sessions.type, "coordinator.call")
+        self.assertEqual(sessions.method, "POST")
+        self.assertEqual(sessions.path, "/zones/z/agents")
+        self.assertTrue(sessions.ok)
+        self.assertEqual(sessions.status, 200)
+        self.assertFalse(denied.ok)
+        self.assertEqual(denied.status, 403)
+        self.assertEqual(denied.method, "DELETE")
 
 
 if __name__ == "__main__":

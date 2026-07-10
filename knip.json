@@ -9,16 +9,14 @@
     }
   },
   "ignoreFiles": [
-    "examples/**",
     "packages/engine/scripts/render-dev-env.mjs"
   ],
   "ignoreBinaries": ["build", "sync-embedded", "go", "python", "scripts/release.sh"],
   "ignoreDependencies": [
-    "@changesets/runtime",
     "@caracalai/core",
     "@caracalai/engine",
     "@caracalai/oauth",
-    "@caracalai/transport-mcp",
+    "@caracalai/verify",
     "bun",
     "tsx"
   ]

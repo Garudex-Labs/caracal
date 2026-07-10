@@ -17,7 +17,6 @@ import {
   runTriage,
   tierPlans,
   tierReadsState,
-  tierComposes,
   runPlanner,
   runExplainer,
   runTroubleshooter,
@@ -165,7 +164,7 @@ describe('buildPlannerMessages', () => {
     const messages = buildPlannerMessages('connect github', { facts: null, state: null })
     const system = messages[0].content
     expect(system).toContain('connectProvider')
-    expect(system).toContain('createZone')
+    expect(system).toContain('registerApplication')
     // The effect classification is surfaced so the model cannot mislabel a step.
     expect(system).toContain('changes state')
   })
@@ -201,19 +200,32 @@ describe('buildPlannerMessages', () => {
     expect(content).toContain('3 change(s) already applied')
   })
 
-  it('grounds the planner with durable zone memory carried across conversations', () => {
+  it('grounds the planner with the durable memory of this conversation', () => {
     const messages = buildPlannerMessages('register the billing app', {
       facts: null,
       state: null,
-      zoneMemory: [
+      conversationMemory: [
         { text: 'Connect the Hooli OIDC provider', created_at: '2026-06-01T00:00:00Z' },
         { text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' },
       ],
     })
     const content = messages[1].content
-    expect(content).toContain('Durable zone memory')
+    expect(content).toContain('Durable memory of this chat')
+    expect(content).toContain('history only, not current state')
     expect(content).toContain('Connect the Hooli OIDC provider')
     expect(content).toContain('Register the Son of Anton application')
+  })
+
+  it('ranks the live state read just now above every memory section for existence', () => {
+    const messages = buildPlannerMessages('register the billing app', {
+      facts: null,
+      state: null,
+      conversationMemory: [{ text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' }],
+    })
+    const content = messages[1].content
+    expect(content).toContain('SOURCE OF TRUTH FOR EXISTENCE')
+    expect(content).toContain('only the live state read just now proves what exists')
+    expect(content).toContain('never claim it exists, cite its id, or target it in a plan from those alone')
   })
 
   it('instructs the planner to ask one clarifying question instead of guessing essential detail', () => {
@@ -246,7 +258,7 @@ describe('buildPlannerMessages', () => {
         },
       ],
     })
-    expect(messages[1].content).toContain('application (1): Heiro (id 019f194f-34f8-72aa-9a70-afd41264bf3d)')
+    expect(messages[1].content).toContain('applications (1): Heiro (id 019f194f-34f8-72aa-9a70-afd41264bf3d)')
     expect(messages[0].content).toContain('TARGET EXISTING OBJECTS BY THEIR LIVE ID')
   })
 })
@@ -263,8 +275,8 @@ describe('buildExplainerMessages', () => {
     })
     const content = messages[1].content
     expect(content).toContain('Live state (read just now)')
-    expect(content).toContain('provider (2): GitHub, Stripe')
-    expect(content).toContain('resource: none')
+    expect(content).toContain('providers (2): GitHub, Stripe')
+    expect(content).toContain('resources: none')
     // The system prompt instructs the model to ground in the live state and not invent entities.
     expect(messages[0].content).toContain('do not invent')
   })
@@ -293,8 +305,8 @@ describe('buildExplainerMessages', () => {
       ],
     })
     const content = messages[1].content
-    expect(content).toContain('provider (2): GitHub, Okta [auth: api_key, oauth2_authorization_code]')
-    expect(content).toContain('resource (1): Stripe [scopes: read, write]')
+    expect(content).toContain('providers (2): GitHub, Okta [auth: api_key, oauth2_authorization_code]')
+    expect(content).toContain('resources (1): Stripe [scopes: read, write]')
   })
 
   it('truncates the names list while keeping the live count', () => {
@@ -303,7 +315,7 @@ describe('buildExplainerMessages', () => {
       state: null,
       evidence: [{ capability: 'listApplications', domain: 'application', ok: true, count: 9, names: ['a', 'b', 'c'] }],
     })
-    expect(messages[1].content).toContain('application (9): a, b, c, …')
+    expect(messages[1].content).toContain('applications (9): a, b, c, …')
   })
 
   it('reports a read that could not be gathered without failing the answer', () => {
@@ -312,7 +324,7 @@ describe('buildExplainerMessages', () => {
       state: null,
       evidence: [{ capability: 'listPolicies', domain: 'policy', ok: false, error: 'missing scope control:policy:read' }],
     })
-    expect(messages[1].content).toContain('policy: could not read (missing scope control:policy:read)')
+    expect(messages[1].content).toContain('policies: could not read (missing scope control:policy:read)')
   })
 
   it('omits the live state block when no evidence was gathered', () => {
@@ -343,11 +355,14 @@ describe('shared prompt foundations', () => {
     }
   })
 
-  it('gives the text-answering agents the documentation discipline with a canonical page map', () => {
+  it('gives the text-answering agents the retrieval-only documentation discipline', () => {
     for (const system of [reasoningAgents[1][1], reasoningAgents[2][1], reasoningAgents[3][1]]) {
       expect(system).toContain('USING DOCUMENTATION')
       expect(system).toContain('single most relevant page')
-      expect(system).toContain('/concepts/authority-model')
+      // Citation is retrieval-only: every cited page must come from the retrieved block, so the
+      // prompt carries no hand-maintained page list that could drift from the real site.
+      expect(system).toContain('Cite ONLY pages present in the retrieved block')
+      expect(system).not.toContain('/concepts/authority-model')
     }
   })
 
@@ -401,6 +416,12 @@ describe('shared prompt foundations', () => {
     expect(system).toContain('plans ONLY the defineResource step')
   })
 
+  it('directs the planner to never re-create an object the live state already holds', () => {
+    const system = reasoningAgents[0][1]
+    expect(system).toContain('NEVER RE-CREATE WHAT EXISTS')
+    expect(system).toContain('plan only the steps that remain to be done')
+  })
+
   it('keeps the planner and security analyst on a strict JSON-only output contract', () => {
     expect(buildPlannerMessages('do it', ctx)[0].content).toContain('Reply with ONLY a JSON object')
     expect(buildSecurityAnalystMessages({ summary: 's', steps: [] }, ctx)[0].content).toContain('Reply with ONLY a JSON object')
@@ -413,15 +434,6 @@ describe('tierReadsState', () => {
     expect(tierReadsState('conversational')).toBe(false)
     expect(tierReadsState('change')).toBe(false)
     expect(tierReadsState('compound')).toBe(false)
-  })
-})
-
-describe('tierComposes', () => {
-  it('composes specialists only for the compound tier', () => {
-    expect(tierComposes('compound')).toBe(true)
-    expect(tierComposes('change')).toBe(false)
-    expect(tierComposes('read')).toBe(false)
-    expect(tierComposes('conversational')).toBe(false)
   })
 })
 
@@ -764,7 +776,7 @@ describe('buildTroubleshooterMessages', () => {
       evidence: [{ capability: 'listResources', domain: 'resource', ok: true, count: 1, names: ['Stripe invoices'] }],
     })
     const system = messages[0].content
-    expect(system).toContain('troubleshooting')
+    expect(system).toContain('DIAGNOSE, READ-ONLY')
     expect(system).toContain('denied')
     expect(system).toContain('never make changes')
     expect(messages[1].content).toContain('Live state (read just now)')

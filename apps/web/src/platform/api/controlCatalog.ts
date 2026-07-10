@@ -16,25 +16,11 @@ export const CONTROL_AUDIENCE = "caracal-control";
 // resource STS validates against never fall behind the Console.
 export const CONTROL_PERMISSIONS: ControlPermission[] = [
   {
-    command: "agent",
+    command: "authority-record",
     verb: "read",
     action: "read",
-    scope: "control:agent:read",
-    summary: "List and inspect agent sessions.",
-  },
-  {
-    command: "agent",
-    verb: "write",
-    action: "write",
-    scope: "control:agent:write",
-    summary: "Suspend and resume agent sessions.",
-  },
-  {
-    command: "agent",
-    verb: "delete",
-    action: "delete",
-    scope: "control:agent:delete",
-    summary: "Terminate agent sessions.",
+    scope: "control:authority-record:read",
+    summary: "List STS authority records.",
   },
   {
     command: "app",
@@ -58,6 +44,13 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     summary: "Delete applications.",
   },
   {
+    command: "approval",
+    verb: "read",
+    action: "read",
+    scope: "control:approval:read",
+    summary: "List approval holds raised by policy before a token is released.",
+  },
+  {
     command: "audit",
     verb: "read",
     action: "read",
@@ -69,14 +62,14 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     verb: "read",
     action: "read",
     scope: "control:delegation:read",
-    summary: "Inspect delegation edges.",
+    summary: "Inspect delegations.",
   },
   {
     command: "delegation",
     verb: "delete",
     action: "delete",
     scope: "control:delegation:delete",
-    summary: "Revoke delegation edges.",
+    summary: "Revoke delegations.",
   },
   {
     command: "grant",
@@ -195,7 +188,42 @@ export const CONTROL_PERMISSIONS: ControlPermission[] = [
     verb: "read",
     action: "read",
     scope: "control:session:read",
-    summary: "List authority sessions.",
+    summary: "List and inspect governed sessions.",
+  },
+  {
+    command: "session",
+    verb: "write",
+    action: "write",
+    scope: "control:session:write",
+    summary: "Suspend and resume governed sessions.",
+  },
+  {
+    command: "session",
+    verb: "delete",
+    action: "delete",
+    scope: "control:session:delete",
+    summary: "Terminate governed sessions.",
+  },
+  {
+    command: "workload",
+    verb: "read",
+    action: "read",
+    scope: "control:workload:read",
+    summary: "List and inspect workloads.",
+  },
+  {
+    command: "workload",
+    verb: "write",
+    action: "write",
+    scope: "control:workload:write",
+    summary: "Create and update workloads and rotate their secrets.",
+  },
+  {
+    command: "workload",
+    verb: "delete",
+    action: "delete",
+    scope: "control:workload:delete",
+    summary: "Delete workloads.",
   },
 ];
 
@@ -204,8 +232,9 @@ export const CONTROL_SCOPES = CONTROL_PERMISSIONS.map((permission) => permission
 // Human-readable noun descriptions for the Reference tab. Scopes and summaries are derived
 // from CONTROL_PERMISSIONS so the reference can never drift from the grantable surface.
 export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
-  agent: "Inspect and manage agent sessions.",
+  "authority-record": "Inspect STS-issued authority records.",
   app: "Manage application identities.",
+  approval: "Inspect human-approval holds raised by policy.",
   audit: "Search the audit ledger.",
   delegation: "Inspect and revoke delegated authority.",
   explain: "Explain authorization decisions.",
@@ -214,5 +243,6 @@ export const CONTROL_NOUN_DESCRIPTIONS: Record<string, string> = {
   policy: "Author and manage policies.",
   "policy-set": "Group, activate, and simulate policy sets.",
   resource: "Manage protected resources.",
-  session: "Inspect authority sessions.",
+  session: "Inspect and manage governed sessions.",
+  workload: "Manage launcher identities and their credential bindings.",
 };

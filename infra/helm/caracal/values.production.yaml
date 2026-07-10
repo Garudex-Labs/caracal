@@ -15,4 +15,9 @@ networkPolicy:
   allowOpenDns: false
   allowOpenHttps: false
   dnsEgress: []
+  extraIngress: []
   extraEgress: []
+
+ingress:
+  web:
+    enabled: false

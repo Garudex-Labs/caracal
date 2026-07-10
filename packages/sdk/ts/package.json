@@ -1,7 +1,7 @@
 {
   "name": "@caracalai/sdk",
-  "version": "0.1.6-rc.2",
-  "description": "Caracal agent identity and delegation SDK.",
+  "version": "0.2.0",
+  "description": "Caracal SDK for TypeScript: short-lived, policy-approved authority for AI agents instead of long-lived credentials.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
   "repository": {
@@ -40,18 +40,18 @@
     "access": "public"
   },
   "dependencies": {
-    "@caracalai/oauth": "0.1.6-rc.2",
+    "@caracalai/oauth": "0.2.0",
     "smol-toml": "^1.7.0"
   },
   "scripts": {
     "build": "pnpm --dir ../../oauth/ts build && tsc",
     "typecheck": "pnpm --dir ../../oauth/ts build && tsc --noEmit",
-    "test": "vitest run --root ../../.. tests/typescript/unit/sdk/client.test.ts tests/typescript/unit/sdk/http.test.ts tests/typescript/unit/sdk/context.test.ts tests/typescript/unit/sdk/primitives.test.ts",
+    "test": "vitest run --root ../../.. tests/typescript/unit/sdk",
     "prepublishOnly": "pnpm --dir ../../oauth/ts build && tsc"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

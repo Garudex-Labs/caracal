@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
-import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/core'
+import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/server-core'
 import type { ProviderConfig } from './operator-gateway.js'
 
 function loadEnvChain(): void {
@@ -36,13 +36,17 @@ resolveFileSecrets([
   'DATABASE_URL',
   'REDIS_URL',
   'CARACAL_ADMIN_TOKEN',
-  'ZONE_KEK',
+  'SECRET_STORE_KEK',
+  'SECRET_STORE_KEK_PREVIOUS',
+  'CARACAL_VAULT_TOKEN',
+  'CARACAL_INFISICAL_TOKEN',
+  'CARACAL_AZURE_CLIENT_SECRET',
+  'CARACAL_CUSTOM_SECRETS_TOKEN',
   'STREAMS_HMAC_KEY',
   'AUDIT_HMAC_KEY',
   'GATEWAY_STS_HMAC_KEY',
   'METRICS_BEARER',
   'CONTROL_API_TOKEN',
-  'API_OPERATOR_CONTROL_CLIENT_SECRET',
 ])
 
 export interface Config {
@@ -52,12 +56,11 @@ export interface Config {
   redisUrl: string
   stsUrl: string
   // The data-plane endpoints the Operator's governed LLM transport routes through: the
-  // gateway it presents minted mandates to and the coordinator it spawns its short-lived
-  // agent sessions on. Defaulted for the standard deployment topology; never an end-user
+  // gateway it presents minted mandates to and the coordinator it starts its short-lived
+  // Sessions on. Defaulted for the standard deployment topology; never an end-user
   // surface.
   gatewayUrl: string
   coordinatorUrl: string
-  operatorLlmProxyUrl: string
   gatewayStsHmacKey: Buffer | null
   auditHmacKey: Buffer | null
   logLevel: string
@@ -98,33 +101,40 @@ export interface Config {
   // default). When on, an agent-mode conversation that engages autopilot has its plan approvals
   // auto-satisfied; the switch is set here in Caracal and never by the model or a conversation.
   operatorAutopilotEnabled: boolean
+  // Conversation-level governance over autopilot writes: the cumulative number of mutating plan
+  // steps autopilot may auto-approve in one conversation before further plans stop for explicit
+  // human approval. Zero disables the budget so autopilot is unbounded per conversation.
+  operatorAutopilotWriteBudget: number
   // Caracal-set governance over the Operator's model usage, enforced above the spine: a hard
   // ceiling on a single completion's output tokens and a per-turn model-call budget. Both have
   // safe defaults that bound runaways without affecting normal operation; zero lifts a bound.
   operatorAiMaxOutputTokens: number
   operatorAiMaxCallsPerTurn: number
-  // Internal-only: when set, the Operator provisions and self-governs the reserved
-  // caracal.sys system zone, executing through the governed control plane as a real
-  // least-privilege control identity - exactly as a customer's control key does - rather
-  // than borrowing the admin token. The system zone and that identity are provisioned
-  // autonomously at startup; the only knob is the sealed client secret below, so the user
-  // surface is one secret rather than a hand-wired identity.
-  operatorSelfGovern: boolean
-  // The sealed client secret for the Operator's reserved control identity. Sourced from
-  // platform config (file-resolvable like every platform secret) and never set by an end
-  // user. Null leaves governed execution unconfigured.
-  operatorControlSecret: string | null
   metricsBearer: string | null
   control: ControlConfig | null
 }
 
-// Internal-only: the resolved credentials and zone binding for the Operator's caracal.sys
-// control identity, assembled at startup from the provisioned system zone plus the sealed
-// secret. Strictly a platform-internal adapter; never exposed to or set by end users.
-export interface OperatorControlIdentity {
+// One provisioned application credential: the reserved application's id and the in-process
+// generated client secret currently sealed into it. Held in memory only, rotated
+// automatically, and never persisted or exposed.
+export interface OperatorControlCredential {
   applicationId: string
   clientSecret: string
+}
+
+// Internal-only: the resolved credentials and zone binding for the Operator's caracal.sys
+// identities, assembled at startup by the system-zone provisioner and refreshed on every
+// rotation. Each agent permission boundary is a separate Caracal application whose STS
+// traits structurally bound what it can mint: llm owns the governed model resources on the
+// data plane, researcher holds only the read control scopes, and executor holds the read
+// scopes plus the mutating scopes the Operator's authority grants. expiresAt is the
+// fail-closed deadline: past it every consumer must treat the identity as unconfigured.
+export interface OperatorControlIdentity {
   zoneId: string
+  llm: OperatorControlCredential
+  researcher: OperatorControlCredential
+  executor: OperatorControlCredential
+  expiresAt: Date
 }
 
 export interface ControlConfig {
@@ -205,14 +215,6 @@ function loadOperatorAiProviders(): ProviderConfig[] {
   return providers
 }
 
-// Internal-only: resolves whether the Operator should self-govern the caracal.sys system
-// zone. Governed execution requires the control plane (checked by the caller) and the
-// sealed control secret; the system zone and identity are provisioned autonomously at
-// startup, so the only user-facing knob is the secret.
-function loadOperatorSelfGovern(): boolean {
-  return boolEnv('API_OPERATOR_SELF_GOVERN', false)
-}
-
 export function loadConfig(): Config {
   const gatewayStsHmacKey = process.env.GATEWAY_STS_HMAC_KEY ? Buffer.from(process.env.GATEWAY_STS_HMAC_KEY, 'hex') : null
   if (gatewayStsHmacKey && gatewayStsHmacKey.length < 32) {
@@ -227,15 +229,27 @@ export function loadConfig(): Config {
   if (control && isPublished() && !auditHmacKey) {
     throw new Error('AUDIT_HMAC_KEY is required when CARACAL_CONTROL_ENABLED=true and CARACAL_MODE=rc or stable')
   }
+  const stsUrl = process.env.STS_URL
+  const gatewayUrl = process.env.CARACAL_GATEWAY_URL
+  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL
+  if (isPublished()) {
+    const missing = [
+      ['STS_URL', stsUrl],
+      ['CARACAL_GATEWAY_URL', gatewayUrl],
+      ['CARACAL_COORDINATOR_URL', coordinatorUrl],
+    ]
+      .filter(([, value]) => !value)
+      .map(([name]) => name)
+    if (missing.length > 0) throw new Error(`Published API deployments require explicit service endpoints: ${missing.join(', ')}`)
+  }
   return {
     port,
     host: getenv('HOST', process.env.CARACAL_MODE === 'rc' || process.env.CARACAL_MODE === 'stable' ? '0.0.0.0' : '127.0.0.1'),
     databaseUrl: mustGetenv('DATABASE_URL'),
     redisUrl: mustGetenv('REDIS_URL'),
-    stsUrl: getenv('STS_URL', 'http://localhost:8080'),
-    gatewayUrl: getenv('CARACAL_GATEWAY_URL', 'http://localhost:8081'),
-    coordinatorUrl: getenv('CARACAL_COORDINATOR_URL', 'http://localhost:4000'),
-    operatorLlmProxyUrl: getenv('API_OPERATOR_LLM_PROXY_URL', 'http://litellm:4000/v1'),
+    stsUrl: stsUrl ?? 'http://localhost:8080',
+    gatewayUrl: gatewayUrl ?? 'http://localhost:8081',
+    coordinatorUrl: coordinatorUrl ?? 'http://localhost:4000',
     gatewayStsHmacKey,
     auditHmacKey,
     logLevel: getenv('LOG_LEVEL', 'info'),
@@ -276,10 +290,9 @@ export function loadConfig(): Config {
     operatorSystemZones: csvEnv('API_OPERATOR_SYSTEM_ZONES') ?? [],
     operatorAiProviders: loadOperatorAiProviders(),
     operatorAutopilotEnabled: boolEnv('API_OPERATOR_AUTOPILOT_ENABLED', false),
+    operatorAutopilotWriteBudget: intEnv('API_OPERATOR_AUTOPILOT_WRITE_BUDGET', 0, 0),
     operatorAiMaxOutputTokens: intEnv('API_OPERATOR_AI_MAX_OUTPUT_TOKENS', 4096, 0),
     operatorAiMaxCallsPerTurn: intEnv('API_OPERATOR_AI_MAX_CALLS_PER_TURN', 12, 0),
-    operatorSelfGovern: loadOperatorSelfGovern(),
-    operatorControlSecret: process.env.API_OPERATOR_CONTROL_CLIENT_SECRET?.trim() || null,
     metricsBearer: process.env.METRICS_BEARER ?? null,
     control,
   }

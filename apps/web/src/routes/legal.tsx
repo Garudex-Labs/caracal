@@ -28,10 +28,10 @@ const REPO = "https://github.com/Garudex-Labs/caracal";
 const DOCS = {
   license: {
     title: "Licensing",
-    updated: "Apache 2.0 · Enterprise",
+    updated: "Apache 2.0",
     body: [
-      "Caracal is dual-licensed. The Community Edition is licensed under the Apache License, Version 2.0 free to use, copy, modify, and distribute, provided you preserve license notices and attribution.",
-      "Enterprise Components, anything under an /enterprise path or marked Premium, Enterprise, or Proprietary are the exclusive property of Garudex Labs and are not covered by Apache 2.0. Their use requires a written commercial agreement.",
+      "Caracal is open-source software licensed under the Apache License, Version 2.0 free to use, copy, modify, and distribute, provided you preserve license notices and attribution.",
+      "This repository contains the Community Edition only. Enterprise features are developed and licensed separately under a written commercial agreement and are not part of this codebase.",
       "The codebase may not be used to train, fine-tune, or develop machine-learning or AI models without prior written authorization from Garudex Labs. Copyright © 2026 Garudex Labs.",
     ],
   },
@@ -40,15 +40,14 @@ const DOCS = {
     updated: "Self-hosted · you own your data",
     body: [
       "Caracal is self-hosted. You run the API, Coordinator, STS, Gateway, and Audit services in your own environment and own all data they process.",
-      "Services persist only what the authority lifecycle requires agent sessions, service leases, delegation edges, mandates, and audit evidence. The audit ledger never stores plaintext claims, secrets resolve from files, and logs and responses redact key material and credentials.",
-      "Garudex Labs collects no telemetry from self-hosted deployments. For licensing or enterprise inquiries, contact support@garudexlabs.com.",
+      "Services persist only what the authority lifecycle requires sessions, service leases, delegations, mandates, and audit evidence. The audit ledger never stores plaintext claims, secrets resolve from files, and logs and responses redact key material and credentials.",
+      "Garudex Labs collects no telemetry from self-hosted deployments. For licensing or enterprise inquiries, contact support@caracal.run.",
     ],
   },
 };
 
 const LINKS = [
   { label: "Apache 2.0 License", href: `${REPO}/blob/main/LICENSE` },
-  { label: "Enterprise License", href: `${REPO}/blob/main/ENTERPRISE.LICENSE` },
   { label: "Notice", href: `${REPO}/blob/main/NOTICE` },
   { label: "Code of Conduct", href: `${REPO}/blob/main/.github/CODE_OF_CONDUCT.md` },
   { label: "Security Policy", href: `${REPO}/blob/main/.github/SECURITY.md` },

@@ -6,14 +6,14 @@ pageType: workflow
 
 This tutorial moves from the demo resource in Get Started to one API-style resource that belongs to your stack. The recommended first boundary is Gateway-routed HTTP because it centralizes mandate verification, replay and revocation checks, provider credential brokering, routing, and action-result audit.
 
-Use connector-verified services only when you own the service boundary and can preserve the same enforcement contract inside that service.
+Use adapter-verified services only when you own the service boundary and can preserve the same enforcement contract inside that service.
 
 ## 1. Choose What Caracal Should Protect
 
 | Boundary | Use when | What writes action-result audit |
 | --- | --- | --- |
 | Gateway-routed HTTP | The resource is HTTP, REST, MCP-over-HTTP, or another Gateway-routable upstream. | Gateway. |
-| In-process connector | You own the service process and can verify mandates there. | Your service or adapter after connector verification. |
+| In-process adapter | You own the service process and can verify mandates there. | Your service or adapter after adapter verification. |
 
 Start with Gateway-routed HTTP unless your service must enforce directly in process.
 
@@ -60,9 +60,9 @@ For Gateway-routed calls, the resource route needs an upstream URL and, when req
 
 Use [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) when you need the durable implementation guide for routes, provider auth modes, and validation.
 
-### In-process connector
+### In-process adapter
 
-For services you own, mount the connector at the request boundary:
+For services you own, mount the adapter at the request boundary:
 
 | Runtime | Guide |
 | --- | --- |
@@ -71,7 +71,7 @@ For services you own, mount the connector at the request boundary:
 | Go `net/http` | [Protect a Go net/http Service](/guides/protect-nethttp/) |
 | MCP server | [Protect an MCP Server](/guides/protect-mcp/) |
 
-Connector verification is not enough by itself for a complete production boundary. The protected service must also handle replay protection where applicable, revocation checks, and result audit for accepted work.
+Adapter verification is not enough by itself for a complete production boundary. The protected service must also handle replay protection where applicable, revocation checks, and result audit for accepted work.
 
 ## 5. Verify Allowed, Denied, and Audited Calls
 
@@ -82,7 +82,7 @@ Call the resource from an app configured with your runtime profile or environmen
 | Allowed | The call reaches the upstream and audit shows authorization plus action-result evidence. |
 | Denied | STS returns a denial and the decision trace shows which policy or missing state caused it. |
 
-Open the web console **Audit** and filter by the request ID. If an accepted Gateway-routed call has authorization audit but no action-result audit, check the Gateway route and resource header. If a connector-verified call lacks result audit, the service-side enforcement path is incomplete.
+Open the web console **Audit** and filter by the request ID. If an accepted Gateway-routed call has authorization audit but no action-result audit, check the Gateway route and resource header. If a adapter-verified call lacks result audit, the service-side enforcement path is incomplete.
 
 ## Next Step
 

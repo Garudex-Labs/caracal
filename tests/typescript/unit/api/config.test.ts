@@ -32,10 +32,11 @@ const SAVED_KEYS = [
   'API_OPERATOR_AI_OPENAI_API_KEY',
   'API_OPERATOR_AI_LOCAL_BASE_URL',
   'API_OPERATOR_AI_LOCAL_MODEL',
-  'API_OPERATOR_SELF_GOVERN',
-  'API_OPERATOR_CONTROL_CLIENT_SECRET',
   'API_MAX_RESOURCES_PER_ZONE',
   'API_READY_OUTBOX_DEAD_MAX',
+  'STS_URL',
+  'CARACAL_GATEWAY_URL',
+  'CARACAL_COORDINATOR_URL',
   'CARACAL_MODE',
   'NODE_ENV',
 ]
@@ -140,6 +141,7 @@ describe('api config trustProxy', () => {
   }
   beforeEach(() => {
     for (const [k, v] of Object.entries(REQ)) process.env[k] = v
+    process.env.CARACAL_MODE = 'dev'
   })
   afterEach(() => {
     for (const k of Object.keys(REQ)) delete process.env[k]
@@ -156,29 +158,14 @@ describe('api config trustProxy', () => {
     expect(loadConfig().trustProxy).toBe(true)
   })
 
-  test('defaults self-governance off and leaves the control secret null when unset', async () => {
+  test('carries no permanent administrative credential for the Operator', async () => {
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
     const cfg = loadConfig()
-    expect(cfg.operatorSelfGovern).toBe(false)
-    expect(cfg.operatorControlSecret).toBeNull()
-  })
-
-  test('enables self-governance and loads the control secret when configured', async () => {
-    process.env.API_OPERATOR_SELF_GOVERN = 'true'
-    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET = 'cs_operator_secret'
-    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
-    const cfg = loadConfig()
-    expect(cfg.operatorSelfGovern).toBe(true)
-    expect(cfg.operatorControlSecret).toBe('cs_operator_secret')
-  })
-
-  test('resolves the operator control secret from a secret file', async () => {
-    const secretFile = join(dir, 'operatorControlSecret')
-    writeFileSync(secretFile, 'cs_from_file\n')
-    process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE = secretFile
-    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
-    expect(loadConfig().operatorControlSecret).toBe('cs_from_file')
-    delete process.env.API_OPERATOR_CONTROL_CLIENT_SECRET_FILE
+    // The Operator always self-governs when the control plane is available; its credentials are
+    // generated and rotated in process, so the runtime trust boundary carries no permanent
+    // administrative credential and no governance switch to configure.
+    expect('operatorControlSecret' in cfg).toBe(false)
+    expect('operatorSelfGovern' in cfg).toBe(false)
   })
 
   test('resolves required database and redis URLs from secret files', async () => {
@@ -209,6 +196,9 @@ describe('api config trustProxy', () => {
 
   test('defaults enableDocs off in published builds and on in dev', async () => {
     const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+    process.env.STS_URL = 'https://sts.example.com'
+    process.env.CARACAL_GATEWAY_URL = 'https://gateway.example.com'
+    process.env.CARACAL_COORDINATOR_URL = 'https://coordinator.example.com'
     process.env.CARACAL_MODE = 'stable'
     expect(loadConfig().enableDocs).toBe(false)
     process.env.CARACAL_MODE = 'dev'
@@ -226,6 +216,22 @@ describe('api config trustProxy', () => {
     process.env.API_OPERATOR_ENABLED = 'false'
     expect(loadConfig().operatorEnabled).toBe(false)
     delete process.env.API_OPERATOR_ENABLED
+  })
+
+  test('published deployments require every internal service endpoint explicitly', async () => {
+    process.env.CARACAL_MODE = 'stable'
+    const { loadConfig } = (await import(CONFIG_PATH)) as typeof import('../../../../apps/api/src/config')
+
+    expect(() => loadConfig()).toThrow('STS_URL, CARACAL_GATEWAY_URL, CARACAL_COORDINATOR_URL')
+
+    process.env.STS_URL = 'https://sts.example.com'
+    process.env.CARACAL_GATEWAY_URL = 'https://gateway.example.com'
+    process.env.CARACAL_COORDINATOR_URL = 'https://coordinator.example.com'
+    expect(loadConfig()).toMatchObject({
+      stsUrl: 'https://sts.example.com',
+      gatewayUrl: 'https://gateway.example.com',
+      coordinatorUrl: 'https://coordinator.example.com',
+    })
   })
 
   test('parses operator authority lists, defaulting the grant to null and zones to empty', async () => {

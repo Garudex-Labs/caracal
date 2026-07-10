@@ -5,19 +5,38 @@
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { GATEWAY_REQUEST_HEADER, GATEWAY_SIGNATURE_HEADER, GATEWAY_TIMESTAMP_HEADER, sha256Hex, signGatewayExchange } from '@caracalai/core'
+import {
+  GATEWAY_REQUEST_HEADER,
+  GATEWAY_SIGNATURE_HEADER,
+  GATEWAY_TIMESTAMP_HEADER,
+  sha256Hex,
+  signGatewayExchange,
+} from '@caracalai/server-core'
 import { v7 as uuidv7 } from 'uuid'
 import { STREAM_POLICY_INVALIDATE } from '../redis.js'
 import { enqueueOutbox } from '../outbox.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
 import { OPA_INPUT_SCHEMA_VERSION, validateAuthzPolicy, validatePolicySchemaVersion } from '../rego.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import type { Queryable } from '../db.js'
 import { withTransaction, TxAbort } from '../db.js'
-import { resolveCreatedBy, isOperatorOrigin, zoneCoauthorEnabled } from '../attribution.js'
+import { resolveAttribution } from '../attribution.js'
 
 const MANIFEST_MAX_ENTRIES = 256
+
+const POLICY_SET_NAME_UNIQUE_CONSTRAINT = 'policy_sets_zone_id_name_key'
+
+function isPolicySetNameConflict(err: unknown): boolean {
+  return Boolean(
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: unknown }).code === '23505' &&
+    'constraint' in err &&
+    (err as { constraint?: unknown }).constraint === POLICY_SET_NAME_UNIQUE_CONSTRAINT,
+  )
+}
 
 const PolicySetBody = z.object({
   name: z.string().min(1),
@@ -29,12 +48,10 @@ const PolicySetVersionBody = z.object({
     .array(z.object({ policy_version_id: z.string().min(1) }))
     .min(1)
     .max(MANIFEST_MAX_ENTRIES),
-  schema_version: z.string().default(OPA_INPUT_SCHEMA_VERSION),
 })
 
 const ActivateBody = z.object({
   version_id: z.string().min(1),
-  shadow_version_id: z.string().min(1).optional(),
 })
 const ActivationStatusQuery = z.object({
   version_id: z.string().min(1).optional(),
@@ -64,7 +81,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       'ps.id',
     )
     const { rows } = await fastify.db.query(
-      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.co_authored_by_operator, ps.created_at,
+      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.created_via_operator,
+              ps.updated_by, ps.updated_via_operator, ps.created_at, ps.updated_at,
               psb.active_version_id
        FROM policy_sets ps
        LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
@@ -72,15 +90,15 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY ps.created_at DESC, ps.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.co_authored_by_operator, ps.created_at,
+      `SELECT ps.id, ps.zone_id, ps.name, ps.description, ps.created_by, ps.created_via_operator,
+              ps.updated_by, ps.updated_via_operator, ps.created_at, ps.updated_at,
               psb.active_version_id
        FROM policy_sets ps
        LEFT JOIN policy_set_bindings psb ON psb.policy_set_id = ps.id AND psb.zone_id = ps.zone_id
@@ -99,31 +117,33 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const body = PolicySetBody.parse(req.body)
     const id = uuidv7()
-    const createdBy = resolveCreatedBy(req)
-    const coAuthored = isOperatorOrigin(req) && (await zoneCoauthorEnabled(fastify.db, params.zoneId))
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
 
-    return withTransaction(fastify.db, async (client) => {
-      const { rows } = await client.query(
-        `INSERT INTO policy_sets (id, zone_id, name, description, created_by, co_authored_by_operator)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, zone_id, name, description, created_by, co_authored_by_operator, created_at`,
-        [id, params.zoneId, body.name, body.description ?? null, createdBy, coAuthored],
-      )
-      await client.query(
-        `INSERT INTO policy_set_bindings (zone_id, policy_set_id)
-         VALUES ($1, $2)`,
-        [params.zoneId, id],
-      )
-      return reply.code(201).send(rows[0])
-    })
+    try {
+      return await withTransaction(fastify.db, async (client) => {
+        const { rows } = await client.query(
+          `INSERT INTO policy_sets (id, zone_id, name, description, created_by, created_via_operator)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, zone_id, name, description, created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`,
+          [id, params.zoneId, body.name, body.description ?? null, attribution.actor, attribution.viaOperator],
+        )
+        await client.query(
+          `INSERT INTO policy_set_bindings (zone_id, policy_set_id)
+           VALUES ($1, $2)`,
+          [params.zoneId, id],
+        )
+        return reply.code(201).send(rows[0])
+      })
+    } catch (err) {
+      if (isPolicySetNameConflict(err)) return reply.code(409).send({ error: 'policy_set_name_conflict' })
+      throw err
+    }
   })
 
   fastify.post('/zones/:zoneId/policy-sets/:id/versions', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const body = PolicySetVersionBody.parse(req.body)
-    const schemaErr = validatePolicySchemaVersion(body.schema_version)
-    if (schemaErr) return reply.code(422).send({ error: 'invalid_schema_version', detail: schemaErr })
 
     const { rows: psRows } = await fastify.db.query(`SELECT id FROM policy_sets WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
       params.id,
@@ -131,9 +151,16 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     ])
     if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
 
-    const contractErr = await policySetContractError(fastify.db, params.zoneId, body.manifest, body.schema_version)
-    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
+    const contract = await policySetContract(fastify.db, params.zoneId, body.manifest)
+    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contract.error })
 
+    // Compile the merged bundle on the STS runtime engine before the version is sealed.
+    // Per-policy validation cannot see cross-policy conflicts (two documents defining the
+    // same data key), so this is the only gate that proves the manifest loads as a bundle.
+    const compileErr = await verifyBundleCompiles(fastify, params.id, contract.policies)
+    if (compileErr) return reply.code(compileErr.status).send(compileErr.body)
+
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const manifestJSON = JSON.stringify(body.manifest)
@@ -145,10 +172,14 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
            SELECT COALESCE(MAX(version), 0) + 1 AS v
            FROM policy_set_versions WHERE policy_set_id = $2
          )
-         INSERT INTO policy_set_versions (id, policy_set_id, version, manifest_json, manifest_sha256, schema_version, created_by)
-         SELECT $1, $2, next.v, $3::jsonb, $4, $5, $6 FROM next
+         INSERT INTO policy_set_versions (id, policy_set_id, version, manifest_json, manifest_sha256, schema_version, created_by, created_via_operator)
+         SELECT $1, $2, next.v, $3::jsonb, $4, $5, $6, $7 FROM next
          RETURNING id, policy_set_id, version, manifest_sha256, schema_version, created_at`,
-        [versionId, params.id, manifestJSON, manifestSHA, body.schema_version, req.actor.name],
+        [versionId, params.id, manifestJSON, manifestSHA, contract.schemaVersion, attribution.actor, attribution.viaOperator],
+      )
+      await client.query(
+        `UPDATE policy_sets SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
       return reply.code(201).send({ version_id: rows[0].id, ...rows[0] })
     })
@@ -166,14 +197,13 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!psRows[0]) return reply.code(404).send({ error: 'policy_set_not_found' })
     const keyset = appendKeysetCondition({ conds: ['psv.policy_set_id = $1'], values: [params.id] }, page, 'psv.created_at', 'psv.id')
     const { rows } = await fastify.db.query(
-      `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_sha256, psv.schema_version, psv.created_by, psv.created_at
+      `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_sha256, psv.schema_version, psv.created_by, psv.created_via_operator, psv.created_at
        FROM policy_set_versions psv
        WHERE ${keyset.conds.join(' AND ')}
        ORDER BY psv.created_at DESC, psv.id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id/versions/:versionId', async (req, reply) => {
@@ -181,7 +211,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { rows } = await fastify.db.query(
       `SELECT psv.id, psv.policy_set_id, psv.version, psv.manifest_json, psv.manifest_sha256,
-              psv.schema_version, psv.created_at,
+              psv.schema_version, psv.created_by, psv.created_via_operator, psv.created_at,
               (SELECT json_agg(entry->>'policy_version_id')
                FROM jsonb_array_elements(psv.manifest_json) AS entry) AS policies
        FROM policy_set_versions psv
@@ -198,42 +228,41 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const body = ActivateBody.parse(req.body)
 
-    const { rows: vRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; schema_version: string }>(
-      `SELECT psv.id, psv.manifest_json, psv.schema_version
+    const { rows: vRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest }>(
+      `SELECT psv.id, psv.manifest_json
        FROM policy_set_versions psv
        JOIN policy_sets ps ON ps.id = psv.policy_set_id
        WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL`,
       [body.version_id, params.id, params.zoneId],
     )
     if (!vRows[0]) return reply.code(404).send({ error: 'version_not_found' })
-    const contractErr = await policySetContractError(fastify.db, params.zoneId, vRows[0].manifest_json, vRows[0].schema_version)
-    if (contractErr) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contractErr })
+    const contract = await policySetContract(fastify.db, params.zoneId, vRows[0].manifest_json)
+    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contract.error })
 
-    if (body.shadow_version_id) {
-      const { rows: shadowRows } = await fastify.db.query<{ id: string; manifest_json: PolicyManifest; schema_version: string }>(
-        `SELECT psv.id, psv.manifest_json, psv.schema_version
+    // Re-prove the bundle compiles before it becomes the zone's enforcement. A definitive
+    // compile failure blocks activation; an unreachable STS does not, so rollback stays
+    // available during a runtime outage - propagation then converges via outbox and poll.
+    const compileErr = await verifyBundleCompiles(fastify, params.id, contract.policies)
+    if (compileErr && compileErr.status !== 503) return reply.code(compileErr.status).send(compileErr.body)
+
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    const outboxId = await withTransaction(fastify.db, async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.zoneId])
+      const { rows: lockedVersions } = await client.query(
+        `SELECT psv.id
          FROM policy_set_versions psv
          JOIN policy_sets ps ON ps.id = psv.policy_set_id
-         WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL`,
-        [body.shadow_version_id, params.id, params.zoneId],
+         WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL
+         FOR UPDATE OF ps, psv`,
+        [body.version_id, params.id, params.zoneId],
       )
-      if (!shadowRows[0]) return reply.code(404).send({ error: 'shadow_version_not_found' })
-      const shadowErr = await policySetContractError(fastify.db, params.zoneId, shadowRows[0].manifest_json, shadowRows[0].schema_version)
-      if (shadowErr) return reply.code(422).send({ error: 'invalid_shadow_policy_contract', detail: shadowErr })
-    }
-
-    const outboxId = await withTransaction(fastify.db, async (client) => {
-      const referencedIds = collectManifestIds(vRows[0].manifest_json)
-      if (body.shadow_version_id) {
-        const { rows: shadowVer } = await client.query<{ manifest_json: PolicyManifest }>(
-          `SELECT manifest_json FROM policy_set_versions WHERE id = $1`,
-          [body.shadow_version_id],
-        )
-        if (shadowVer[0]) referencedIds.push(...collectManifestIds(shadowVer[0].manifest_json))
+      if (!lockedVersions[0]) {
+        throw new TxAbort(reply.code(404).send({ error: 'version_not_found' }))
       }
+      const referencedIds = collectManifestIds(vRows[0].manifest_json)
       // Hold SHARE locks on every referenced policy_version row so a concurrent
       // delete of one of them blocks until activation commits. This closes the
-      // TOCTOU between policySetContractError and the UPDATE below.
+      // TOCTOU between policySetContract and the UPDATE below.
       if (referencedIds.length > 0) {
         const { rowCount: lockedCount } = await client.query(`SELECT id FROM policy_versions WHERE id = ANY($1::text[]) FOR SHARE`, [
           Array.from(new Set(referencedIds)),
@@ -242,22 +271,34 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
           throw new TxAbort(reply.code(409).send({ error: 'referenced_policy_version_missing' }))
         }
       }
+      // A zone is governed by exactly one policy set (enforced by the partial unique
+      // index on active bindings). Activating this set deactivates any other, so which
+      // set governs is always deterministic.
+      await client.query(
+        `UPDATE policy_set_bindings
+         SET active_version_id = NULL, updated_at = now()
+         WHERE zone_id = $1 AND policy_set_id <> $2 AND active_version_id IS NOT NULL`,
+        [params.zoneId, params.id],
+      )
       const { rowCount } = await client.query(
         `UPDATE policy_set_bindings
-         SET active_version_id = $1, shadow_version_id = $2, updated_at = now()
-         WHERE zone_id = $3 AND policy_set_id = $4`,
-        [body.version_id, body.shadow_version_id ?? null, params.zoneId, params.id],
+         SET active_version_id = $1, updated_at = now()
+         WHERE zone_id = $2 AND policy_set_id = $3`,
+        [body.version_id, params.zoneId, params.id],
       )
       if (!rowCount) {
         throw new TxAbort(reply.code(404).send({ error: 'policy_set_binding_not_found' }))
       }
+      await client.query(
+        `UPDATE policy_sets SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
+      )
       return enqueueOutbox(client, {
         streamName: STREAM_POLICY_INVALIDATE,
         payload: {
           zone_id: params.zoneId,
           policy_set_id: params.id,
           policy_set_version_id: body.version_id,
-          shadow_version_id: body.shadow_version_id ?? null,
         },
         requestId: req.id,
       })
@@ -268,7 +309,6 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(202).send({
       activated: true,
       version_id: body.version_id,
-      shadow_version_id: body.shadow_version_id ?? null,
       outbox_id: outboxId,
       status_url: `/v1/zones/${encodeURIComponent(params.zoneId)}/policy-sets/${encodeURIComponent(params.id)}/activation-status?version_id=${encodeURIComponent(body.version_id)}&outbox_id=${encodeURIComponent(outboxId)}`,
     })
@@ -280,10 +320,9 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const query = ActivationStatusQuery.parse(req.query)
     const { rows } = await fastify.db.query<{
       active_version_id: string | null
-      shadow_version_id: string | null
       manifest_sha256: string | null
     }>(
-      `SELECT psb.active_version_id, psb.shadow_version_id, psv.manifest_sha256
+      `SELECT psb.active_version_id, psv.manifest_sha256
        FROM policy_set_bindings psb
        JOIN policy_sets ps ON ps.id = psb.policy_set_id AND ps.zone_id = psb.zone_id
        LEFT JOIN policy_set_versions psv ON psv.id = psb.active_version_id
@@ -308,7 +347,6 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       version_id: versionId,
       active,
       active_version_id: rows[0].active_version_id,
-      shadow_version_id: rows[0].shadow_version_id,
       manifest_sha256: rows[0].manifest_sha256,
       propagation_status: activationPropagationStatus(active, outbox.state, stsLoaded, sts.state),
       outbox,
@@ -328,8 +366,8 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
       [body.version_id, params.id, params.zoneId],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'version_not_found' })
-    const contract = await policySetContract(fastify.db, params.zoneId, rows[0].manifest_json, rows[0].schema_version)
-    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', detail: contract.error })
+    const contract = await policySetContract(fastify.db, params.zoneId, rows[0].manifest_json)
+    if (contract.error) return reply.code(422).send({ error: 'invalid_policy_contract', error_description: contract.error })
     const inputWarnings = validateSimulationInput(body.input, params.zoneId)
     const execution = body.input
       ? await executePolicySimulation(fastify, {
@@ -363,13 +401,36 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:zoneId/policy-sets/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
-    const { rowCount } = await fastify.db.query(
-      `UPDATE policy_sets SET archived_at = now(), updated_at = now()
-       WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
-      [params.id, params.zoneId],
-    )
-    if (!rowCount) return reply.code(404).send({ error: 'policy_set_not_found' })
-    return reply.code(204).send()
+    const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
+    return withTransaction(fastify.db, async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.zoneId])
+      const { rowCount } = await client.query(
+        `UPDATE policy_sets SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
+         WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+        [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
+      )
+      if (!rowCount) throw new TxAbort(reply.code(404).send({ error: 'policy_set_not_found' }))
+      // An archived set must stop governing the zone. Clearing the binding and notifying
+      // the runtime in the same transaction drops the zone to deny-all deterministically,
+      // matching what the delete confirmation promises.
+      const { rowCount: deactivated } = await client.query(
+        `UPDATE policy_set_bindings SET active_version_id = NULL, updated_at = now()
+         WHERE zone_id = $1 AND policy_set_id = $2 AND active_version_id IS NOT NULL`,
+        [params.zoneId, params.id],
+      )
+      if (deactivated) {
+        await enqueueOutbox(client, {
+          streamName: STREAM_POLICY_INVALIDATE,
+          payload: {
+            zone_id: params.zoneId,
+            policy_set_id: params.id,
+            policy_set_version_id: null,
+          },
+          requestId: req.id,
+        })
+      }
+      return reply.code(204).send()
+    })
   })
 }
 
@@ -384,7 +445,13 @@ type PolicyManifest = Array<{ policy_version_id?: string }>
 
 interface PolicySetContract {
   policies: PolicyVersionRow[]
+  schemaVersion: string
   error: string | null
+}
+
+interface BundleCompileError {
+  status: 422 | 503
+  body: { error: string; error_description: string }
 }
 
 interface PolicySimulationRequest {
@@ -432,37 +499,59 @@ function collectManifestIds(manifest: string | PolicyManifest): string[] {
   return list.map((entry) => entry.policy_version_id).filter((id): id is string => typeof id === 'string' && id !== '')
 }
 
+// Compiles the manifest's policies together with the platform decision contract on the
+// STS runtime engine. Per-policy syntactic checks cannot see cross-policy conflicts, so
+// only this proves the merged bundle loads. A definitive compile rejection is a 422; an
+// unreachable runtime is a 503 so callers can distinguish retryable verification outages.
+// Returns null when STS simulation is not configured (the runtime re-validates on load).
+async function verifyBundleCompiles(
+  fastify: FastifyInstance,
+  policySetId: string,
+  policies: PolicyVersionRow[],
+): Promise<BundleCompileError | null> {
+  const execution = await executePolicySimulation(fastify, {
+    policy_set_id: policySetId,
+    version_id: 'bundle-verify',
+    manifest_sha256: '',
+    policies: policies.map((policy) => ({ id: policy.id, content: policy.content })),
+    input: {},
+  })
+  if (!execution || execution.explanation.evaluation !== 'failed') return null
+  const detail = String(execution.explanation.reason ?? 'policy bundle failed verification')
+  if (execution.warnings.some((warning) => warning.startsWith('sts_simulation_unreachable:'))) {
+    return { status: 503, body: { error: 'policy_verification_unavailable', error_description: detail } }
+  }
+  return { status: 422, body: { error: 'invalid_policy_bundle', error_description: detail } }
+}
+
 function parseManifest(raw: string): PolicyManifest {
   const parsed = JSON.parse(raw)
   return Array.isArray(parsed) ? (parsed as PolicyManifest) : []
 }
 
-async function policySetContractError(
-  db: Queryable,
-  zoneId: string,
-  manifestJSON: string | PolicyManifest,
-  schemaVersion: string,
-): Promise<string | null> {
-  return (await policySetContract(db, zoneId, manifestJSON, schemaVersion)).error
-}
-
-async function policySetContract(
-  db: Queryable,
-  zoneId: string,
-  manifestJSON: string | PolicyManifest,
-  schemaVersion: string,
-): Promise<PolicySetContract> {
-  const schemaErr = validatePolicySchemaVersion(schemaVersion)
-  if (schemaErr) return { policies: [], error: schemaErr }
+async function policySetContract(db: Queryable, zoneId: string, manifestJSON: string | PolicyManifest): Promise<PolicySetContract> {
   const manifest = Array.isArray(manifestJSON) ? manifestJSON : parseManifest(manifestJSON)
   const rawIds = collectManifestIds(manifest)
-  if (rawIds.length === 0) return { policies: [], error: 'policy set manifest must reference at least one policy version' }
+  if (rawIds.length === 0)
+    return {
+      policies: [],
+      schemaVersion: OPA_INPUT_SCHEMA_VERSION,
+      error: 'policy set manifest must reference at least one policy version',
+    }
   if (rawIds.length > MANIFEST_MAX_ENTRIES) {
-    return { policies: [], error: `policy set manifest exceeds maximum of ${MANIFEST_MAX_ENTRIES} entries` }
+    return {
+      policies: [],
+      schemaVersion: OPA_INPUT_SCHEMA_VERSION,
+      error: `policy set manifest exceeds maximum of ${MANIFEST_MAX_ENTRIES} entries`,
+    }
   }
   const ids = Array.from(new Set(rawIds))
   if (ids.length !== rawIds.length) {
-    return { policies: [], error: 'policy set manifest contains duplicate policy_version_id entries' }
+    return {
+      policies: [],
+      schemaVersion: OPA_INPUT_SCHEMA_VERSION,
+      error: 'policy set manifest contains duplicate policy_version_id entries',
+    }
   }
   const { rows } = await db.query<PolicyVersionRow>(
     `SELECT pv.id, pv.content, pv.schema_version, p.zone_id
@@ -471,34 +560,50 @@ async function policySetContract(
      WHERE pv.id = ANY($1::text[])`,
     [ids],
   )
-  if (rows.length !== ids.length) return { policies: [], error: 'policy set manifest references missing policy versions' }
+  if (rows.length !== ids.length)
+    return { policies: [], schemaVersion: OPA_INPUT_SCHEMA_VERSION, error: 'policy set manifest references missing policy versions' }
+  // Every referenced version must share one supported schema; the set version inherits
+  // it, so callers never author a schema that the referenced policies already pin.
+  const schemaVersion = rows[0].schema_version
   for (const row of rows) {
     if (row.zone_id !== zoneId) {
-      return { policies: [], error: `policy version ${row.id} belongs to a different zone` }
+      return { policies: [], schemaVersion, error: `policy version ${row.id} belongs to a different zone` }
     }
     if (row.schema_version !== schemaVersion) {
       return {
         policies: [],
+        schemaVersion,
         error: `policy version ${row.id} schema ${row.schema_version} does not match policy set schema ${schemaVersion}`,
       }
     }
     const versionErr = validatePolicySchemaVersion(row.schema_version)
-    if (versionErr) return { policies: [], error: `policy version ${row.id} failed schema validation: ${versionErr}` }
+    if (versionErr) return { policies: [], schemaVersion, error: `policy version ${row.id} failed schema validation: ${versionErr}` }
     const err = validateAuthzPolicy(String(row.content))
     if (err === 'must_use_package_caracal_authz') {
-      return { policies: [], error: `policy version ${row.id} must use package caracal.authz` }
+      return { policies: [], schemaVersion, error: `policy version ${row.id} must use package caracal.authz` }
     }
     if (err === 'must_be_data_document') {
-      return { policies: [], error: `policy version ${row.id} must be a data document marked # caracal:data-document` }
+      return { policies: [], schemaVersion, error: `policy version ${row.id} must be a data document marked # caracal:data-document` }
     }
     if (err === 'data_document_must_not_define_result') {
-      return { policies: [], error: `policy version ${row.id} must not define result; the platform decision contract owns every decision` }
+      return {
+        policies: [],
+        schemaVersion,
+        error: `policy version ${row.id} must not define result; the platform decision contract owns every decision`,
+      }
+    }
+    if (err?.startsWith('data_document_rule_not_allowed:')) {
+      return {
+        policies: [],
+        schemaVersion,
+        error: `policy version ${row.id} defines ${err.slice('data_document_rule_not_allowed:'.length)}, which is owned by the platform decision contract`,
+      }
     }
     if (err) {
-      return { policies: [], error: `policy version ${row.id} failed validation: ${err}` }
+      return { policies: [], schemaVersion, error: `policy version ${row.id} failed validation: ${err}` }
     }
   }
-  return { policies: rows, error: null }
+  return { policies: rows, schemaVersion, error: null }
 }
 
 async function executePolicySimulation(
@@ -527,6 +632,7 @@ async function executePolicySimulation(
         ),
       },
       body,
+      signal: AbortSignal.timeout(fastify.cfg.requestTimeoutMs ?? 30_000),
     })
   } catch (err) {
     return {
@@ -633,6 +739,7 @@ async function fetchSTSPolicyStatus(fastify: FastifyInstance, zoneId: string): P
         [GATEWAY_REQUEST_HEADER]: requestId,
         [GATEWAY_SIGNATURE_HEADER]: signGatewayExchange(fastify.cfg.gatewayStsHmacKey, timestamp, requestId, 'GET', path, Buffer.alloc(0)),
       },
+      signal: AbortSignal.timeout(fastify.cfg.requestTimeoutMs ?? 30_000),
     })
   } catch (err) {
     return { state: 'unreachable', detail: err instanceof Error ? err.message : String(err) }

@@ -7,8 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIntervalJob } from '../../../../../../apps/coordinator/src/jobs/job.js'
 
 describe('makeIntervalJob', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers() })
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('reports an error when an in-flight tick does not stop before the shutdown timeout', async () => {
     const onError = vi.fn()
@@ -16,11 +20,13 @@ describe('makeIntervalJob', () => {
 
     await vi.advanceTimersByTimeAsync(100)
     const stopped = job.stop()
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(12_000)
     await stopped
 
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'background job did not stop within 5000ms',
-    }))
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'background job did not stop within 12000ms',
+      }),
+    )
   })
 })

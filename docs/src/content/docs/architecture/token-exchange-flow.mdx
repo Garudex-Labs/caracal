@@ -30,24 +30,25 @@ sequenceDiagram
 
 ## Inputs
 
-| Input | Purpose |
-| --- | --- |
-| `grant_type` | OAuth token-exchange request type. |
-| `subject_token` | Existing user, service, application, or agent authority. |
-| `actor_token` | Optional actor authority for delegated exchange. |
-| `resource` | Target resource identifiers. |
-| `scope` | Requested resource scopes. |
-| `zone_id` | Tenant boundary. |
-| `application_id` and client credential | Authenticates the calling application. |
-| `session_id`, `agent_session_id`, `delegation_edge_id` | Authority anchors for session/delegation checks. |
-| `challenge_id` / `challenge_response` | Step-up completion. |
+| Input                                                  | Purpose                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `grant_type`                                           | OAuth token-exchange request type.                                        |
+| `subject_token`                                        | An existing Caracal session mandate whose authority the exchange narrows. |
+| `resource`                                             | Target resource identifiers.                                              |
+| `scope`                                                | Requested resource scopes.                                                |
+| `zone_id`                                              | Tenant boundary.                                                          |
+| `application_id` and client credential                 | Authenticates the calling application.                                    |
+| `session_id`, `agent_session_id`, `delegation_edge_id` | Protocol names for Authority record ID, Session ID, and Delegation ID.    |
+| `challenge_id`                                         | Consumes an approved step-up hold during retry.                           |
+
+RFC 8693 `actor_token` is not supported; the STS rejects requests that carry one. The calling application's authenticated identity is published to policy input as `input.context.actor_claims.caracal_client_id`.
 
 ## TTL Contracts
 
-| Mandate type | Contract |
-| --- | --- |
-| Resource mandate | Capped at 15 minutes. |
-| Session mandate | Capped at 60 minutes. |
+| Mandate type                | Contract                                                                   |
+| --------------------------- | -------------------------------------------------------------------------- |
+| Resource mandate            | Capped at 15 minutes.                                                      |
+| Session mandate             | Capped at 60 minutes.                                                      |
 | Runtime-injected credential | `caracal run` injects credentials capped at 15 minutes after STS exchange. |
 
 Gateway performs a per-request exchange and rejects inbound tokens that are too close to expiry before proxying.
@@ -58,7 +59,7 @@ Gateway exchanges with STS using a request signature, timestamp, and nonce over 
 
 ## Next Step
 
-Use [Coordinate Agents](/architecture/delegation-flow/) to see how agent sessions and delegation edges feed token exchange.
+Use [Coordinate Sessions](/architecture/delegation-flow/) to see how Sessions and Delegations feed token exchange.
 
 ## Related Pages
 

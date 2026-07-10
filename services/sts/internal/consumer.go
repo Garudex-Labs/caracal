@@ -113,18 +113,18 @@ func (s *Server) consumePolicyInvalidations(ctx context.Context, consumer string
 func (s *Server) handleRevocation(ctx context.Context, msg streamMessage) error {
 	zoneID, _ := msg.Values["zone_id"].(string)
 	sid, _ := msg.Values["session_id"].(string)
-	agentSessionID, _ := msg.Values["agent_session_id"].(string)
+	sessionID, _ := msg.Values["agent_session_id"].(string)
 	if zoneID == "" {
 		return fmt.Errorf("missing zone_id")
 	}
-	if sid == "" && agentSessionID == "" {
+	if sid == "" && sessionID == "" {
 		return fmt.Errorf("missing session_id or agent_session_id")
 	}
 	if sid == "" {
 		return nil
 	}
 	reason, _ := msg.Values["reason"].(string)
-	return s.db.RevokeSession(ctx, zoneID, sid, reason)
+	return s.db.RevokeAuthorityRecord(ctx, zoneID, sid, reason)
 }
 
 // handlePolicyInvalidation reloads the OPA bundle for the zone so an authoring

@@ -13,7 +13,7 @@ Resources describe protected targets such as:
 
 - HTTP APIs behind the Gateway;
 - MCP servers and tool groups;
-- internal services protected by Express, FastMCP, or net/http connectors;
+- internal services protected by Express, FastMCP, or net/http adapters;
 - provider-backed targets that need credential mediation.
 
 | Resource field | Purpose |
@@ -40,7 +40,7 @@ A grant binds:
 
 Grants are not the final decision. They are one input to policy. The active policy set can still deny, require step-up, or constrain the exchange.
 
-Caracal expresses grants in two related forms. The platform decision contract reads grants as a policy **data document** in `package caracal.authz`, keyed by resource and mapping each role to its allowed scopes; see [Policy](/concepts/policy/) for the exact shape. The control plane also stores managed **delegated grants** (the `delegated_grants` table, authored through the Admin or Control API) and **provider grants** (the `provider_grants` table, the per-subject upstream credential grants authored under Providers).
+Caracal expresses grants in two related forms. The platform decision contract reads grants as a policy **data document** in `package caracal.authz`, keyed by resource and mapping each role to its allowed scopes; see [Policy](/concepts/policy/) for the exact shape. The control plane also stores managed **delegated grants** (the `delegated_grants` table, authored through the Admin or Control API): administrative records of subject-level assignments whose revocation immediately ends the subject's active sessions. The decision contract reads the policy data document, not this table - delegated grants govern lifecycle and revocation, not per-exchange scope decisions. Per-subject upstream accounts live separately as **provider connections** (the `provider_connections` table, authored under Providers).
 
 ## Exchange Relationship
 
@@ -72,7 +72,7 @@ Use resource identifiers for targets and scopes for actions. Do not encode envir
 
 ## Next Step
 
-Read [Policies and Policy Sets](/concepts/policy/) to understand how grants become allow, deny, or step-up decisions.
+Read [Providers](/concepts/provider/) to understand the credential Caracal attaches when it calls the upstream target.
 
 ## Related Pages
 

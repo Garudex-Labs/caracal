@@ -25,6 +25,7 @@ import (
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -104,6 +105,12 @@ func (m *memSTSRedis) DelIfValue(_ context.Context, key, value string) error {
 	return nil
 }
 
+func (m *memSTSRedis) ExpireIfValue(_ context.Context, key, value string, _ time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.values[key] == value, nil
+}
+
 func (m *memSTSRedis) Exists(_ context.Context, key string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -159,40 +166,23 @@ func refreshTestServer(db DBQuerier, r stsRedis) *Server {
 	return &Server{
 		db:      db,
 		redis:   r,
-		keys:    newKeyCache(db, zek),
+		keys:    newKeyCache(db, testKeyring(zek)),
+		secrets: secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(zek)),
 		metrics: &STSMetrics{},
 		cfg:     Config{MaxGrantTTLSeconds: 3600},
 		log:     zerolog.Nop(),
 	}
 }
 
-func TestOpenZEKRejectsTamperedCiphertext(t *testing.T) {
-	zek := make([]byte, 32)
-	packed, err := sealZEK(zek, []byte("refresh-token"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	packed[len(packed)-1] ^= 0xff
-	if _, err := openZEK(zek, packed); err == nil {
-		t.Fatal("tampered ciphertext must fail to open")
-	}
-	if _, err := openZEK(zek, []byte("short")); err == nil {
-		t.Fatal("truncated ciphertext must fail to open")
-	}
-	if _, err := sealZEK([]byte("bad-key"), []byte("x")); err == nil {
-		t.Fatal("invalid key length must fail to seal")
-	}
-}
-
-func TestRefreshGrantKeyPrefersGrantID(t *testing.T) {
-	if got := refreshGrantKey("z", "u", "r", nil, &ProviderGrant{ID: "grant-1"}); got != "grant\x00grant-1" {
-		t.Fatalf("grant id key = %q", got)
+func TestRefreshConnectionKeyPrefersConnectionID(t *testing.T) {
+	if got := refreshConnectionKey("z", "u", nil, &ProviderConnection{ID: "connection-1"}); got != "connection\x00connection-1" {
+		t.Fatalf("connection id key = %q", got)
 	}
 	providerID := "provider-1"
-	if got := refreshGrantKey("z", "u", "r", &providerID, nil); got != "z\x00u\x00r\x00provider-1" {
+	if got := refreshConnectionKey("z", "u", &providerID, nil); got != "z\x00u\x00provider-1" {
 		t.Fatalf("composite key = %q", got)
 	}
-	if got := refreshGrantKey("z", "u", "r", nil, &ProviderGrant{}); got != "z\x00u\x00r\x00" {
+	if got := refreshConnectionKey("z", "u", nil, &ProviderConnection{}); got != "z\x00u\x00" {
 		t.Fatalf("composite key without provider = %q", got)
 	}
 }
@@ -315,7 +305,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		return values
 	}
 
-	basic, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_basic", "", "")
+	basic, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_basic", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +316,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("basic auth body must not carry the secret: %v", values)
 	}
 
-	post, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_post", "", "")
+	post, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "secret-1", "client_secret_post", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +324,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_post must carry credentials in the form: %v", values)
 	}
 
-	public, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "none", "", "")
+	public, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "none", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +332,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("public client must carry only client_id: %v", values)
 	}
 
-	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "kid-1", ecKeyPEM(t, elliptic.P256()))
+	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "kid-1", ecKeyPEM(t, elliptic.P256()), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +353,7 @@ func TestBuildProviderTokenRequestAuthMethods(t *testing.T) {
 		t.Fatalf("assertion must carry key id header: %#v", parsed.Header)
 	}
 
-	if _, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "", "not pem"); err == nil {
+	if _, err := buildProviderTokenRequest(context.Background(), endpoint, form, "client-1", "", "private_key_jwt", "", "not pem", ""); err == nil {
 		t.Fatal("bad signing key must fail request construction")
 	}
 }
@@ -518,13 +508,13 @@ func TestRefreshProviderTokenValidatesClientConfiguration(t *testing.T) {
 	endpoint := &url.URL{Scheme: "https", Host: "login.hooli.example", Path: "/oauth/token"}
 	form := url.Values{"grant_type": {"refresh_token"}}
 
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "", "secret", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "", "secret", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("missing client_id must fail")
 	}
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "private_key_jwt", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "private_key_jwt", "", "", ""); err == nil {
 		t.Fatal("missing private key must fail")
 	}
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("missing client secret must fail")
 	}
 }
@@ -535,7 +525,7 @@ func TestRefreshProviderTokenRecordsFailureOnBlockedEndpoint(t *testing.T) {
 	endpoint := &url.URL{Scheme: "https", Host: "localhost:1", Path: "/oauth/token"}
 	form := url.Values{"grant_type": {"refresh_token"}}
 
-	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "secret", "client_secret_basic", "", ""); err == nil {
+	if _, err := server.refreshProviderToken(context.Background(), "p1", endpoint, form, "client-1", "secret", "client_secret_basic", "", "", ""); err == nil {
 		t.Fatal("loopback endpoint must be blocked by the SSRF dialer")
 	}
 	r.mu.Lock()
@@ -551,10 +541,10 @@ type refreshDB struct {
 	stubDB
 	updateErrs []error
 	updates    int
-	latest     *ProviderGrant
+	latest     *ProviderConnection
 }
 
-func (d *refreshDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+func (d *refreshDB) UpdateProviderConnectionTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
 	d.updates++
 	if len(d.updateErrs) == 0 {
 		return nil
@@ -564,7 +554,7 @@ func (d *refreshDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int
 	return err
 }
 
-func (d *refreshDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *string) (*ProviderGrant, error) {
+func (d *refreshDB) GetProviderConnection(_ context.Context, _, _ string, _ *string) (*ProviderConnection, error) {
 	if d.latest == nil {
 		return nil, errors.New("no grant")
 	}
@@ -572,13 +562,13 @@ func (d *refreshDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *strin
 }
 
 func TestPersistRefreshedGrantPaths(t *testing.T) {
-	grant := &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 1}
+	grant := &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 1}
 	expiresAt := time.Now().Add(time.Hour)
 
 	t.Run("first write succeeds", func(t *testing.T) {
 		db := &refreshDB{}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, []byte("a"), []byte("b"), expiresAt); err != nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, []byte("a"), []byte("b"), expiresAt); err != nil {
 			t.Fatal(err)
 		}
 		if db.updates != 1 {
@@ -589,7 +579,7 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 	t.Run("non-conflict error propagates", func(t *testing.T) {
 		db := &refreshDB{updateErrs: []error{errors.New("pg down")}}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); err == nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); err == nil {
 			t.Fatal("database failure must propagate")
 		}
 	})
@@ -598,10 +588,10 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 		future := time.Now().Add(30 * time.Minute)
 		db := &refreshDB{
 			updateErrs: []error{ErrConcurrentGrantUpdate},
-			latest:     &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &future},
+			latest:     &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &future},
 		}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); err != nil {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); err != nil {
 			t.Fatalf("peer-refreshed grant must succeed silently, got %v", err)
 		}
 		if db.updates != 1 {
@@ -613,10 +603,10 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 		past := time.Now().Add(-time.Minute)
 		db := &refreshDB{
 			updateErrs: []error{ErrConcurrentGrantUpdate, ErrConcurrentGrantUpdate, ErrConcurrentGrantUpdate},
-			latest:     &ProviderGrant{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &past},
+			latest:     &ProviderConnection{ID: "grant-1", RefreshTokenVersion: 2, ExpiresAt: &past},
 		}
 		server := refreshTestServer(db, nil)
-		if err := server.persistRefreshedGrant(context.Background(), "z", "u", "r", grant, nil, nil, expiresAt); !errors.Is(err, ErrConcurrentGrantUpdate) {
+		if err := server.persistRefreshedConnection(context.Background(), "z", "u", grant, nil, nil, expiresAt); !errors.Is(err, ErrConcurrentGrantUpdate) {
 			t.Fatalf("exhausted retries must surface the conflict, got %v", err)
 		}
 	})
@@ -625,13 +615,13 @@ func TestPersistRefreshedGrantPaths(t *testing.T) {
 // grantDB serves scripted grant and provider rows for refresh deny-path tests.
 type grantDB struct {
 	stubDB
-	grant       *ProviderGrant
+	grant       *ProviderConnection
 	grantErr    error
 	providerRow *ProviderConfig
 	providerErr error
 }
 
-func (d *grantDB) GetProviderGrant(_ context.Context, _, _, _ string, _ *string) (*ProviderGrant, error) {
+func (d *grantDB) GetProviderConnection(_ context.Context, _, _ string, _ *string) (*ProviderConnection, error) {
 	return d.grant, d.grantErr
 }
 
@@ -639,30 +629,30 @@ func (d *grantDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, err
 	return d.providerRow, d.providerErr
 }
 
-func expiredGrant(refreshCt []byte, providerID *string) *ProviderGrant {
+func expiredGrant(refreshCt []byte, providerID *string) *ProviderConnection {
 	past := time.Now().Add(-time.Minute)
-	return &ProviderGrant{ID: "grant-1", ProviderID: providerID, RefreshTokenCt: refreshCt, ExpiresAt: &past}
+	return &ProviderConnection{ID: "grant-1", ProviderID: providerID, RefreshTokenCt: refreshCt, ExpiresAt: &past}
 }
 
 func TestTryRefreshBrokeredGrantSkipPaths(t *testing.T) {
 	providerID := "provider-1"
 
 	server := refreshTestServer(&grantDB{grantErr: errors.New("no grant")}, nil)
-	if err := server.tryRefreshBrokeredGrant(context.Background(), "z", "", "r", nil); err != nil {
+	if err := server.tryRefreshProviderConnection(context.Background(), "z", "", nil); err != nil {
 		t.Fatalf("empty user must be a no-op, got %v", err)
 	}
-	if err := server.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil); err != nil {
+	if err := server.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil); err != nil {
 		t.Fatalf("missing grant must be a no-op, got %v", err)
 	}
 
 	future := time.Now().Add(time.Hour)
-	fresh := refreshTestServer(&grantDB{grant: &ProviderGrant{ID: "grant-1", ExpiresAt: &future}}, nil)
-	if err := fresh.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil); err != nil {
+	fresh := refreshTestServer(&grantDB{grant: &ProviderConnection{ID: "grant-1", ExpiresAt: &future}}, nil)
+	if err := fresh.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil); err != nil {
 		t.Fatalf("fresh grant must be a no-op, got %v", err)
 	}
 
 	dead := refreshTestServer(&grantDB{grant: expiredGrant(nil, &providerID)}, nil)
-	err := dead.tryRefreshBrokeredGrant(context.Background(), "z", "user-1", "r", nil)
+	err := dead.tryRefreshProviderConnection(context.Background(), "z", "user-1", nil)
 	if err == nil || err.Code != sharederr.CredentialExpired {
 		t.Fatalf("grant without refresh token must be expired, got %#v", err)
 	}
@@ -674,14 +664,14 @@ func TestRefreshExpiredBrokeredGrantDenyMatrix(t *testing.T) {
 	for i := range zek {
 		zek[i] = byte(i + 1)
 	}
-	sealedRefresh, err := sealZEK(zek, []byte("refresh-token"))
+	sealedRefresh, err := secretstore.Seal(zek, []byte("refresh-token"), secretstore.AADConnectionRefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	run := func(db DBQuerier) *sharederr.CaracalError {
 		server := refreshTestServer(db, nil)
-		return server.refreshExpiredBrokeredGrant(context.Background(), "z", "user-1", "r", &providerID)
+		return server.refreshExpiredProviderConnection(context.Background(), "z", "user-1", &providerID)
 	}
 
 	cases := map[string]struct {
@@ -708,13 +698,14 @@ func TestRefreshExpiredBrokeredGrantDenyMatrix(t *testing.T) {
 		},
 		"secret decrypt fails": {
 			db: &grantDB{
+				stubDB: stubDB{storeEnvelopes: map[string][]byte{
+					secretstore.ProviderSecretConfigRef("", providerID): []byte("garbage"),
+				}},
 				grant: expiredGrant(sealedRefresh, &providerID),
 				providerRow: &ProviderConfig{
-					ID:                providerID,
-					ProviderKind:      strPtr("oauth2_authorization_code"),
-					ConfigJSON:        json.RawMessage(`{"token_endpoint":"https://login.hooli.example/token","client_id":"c1"}`),
-					SecretConfigCt:    []byte("garbage"),
-					SecretConfigNonce: make([]byte, 12),
+					ID:           providerID,
+					ProviderKind: strPtr("oauth2_authorization_code"),
+					ConfigJSON:   json.RawMessage(`{"token_endpoint":"https://login.hooli.example/token","client_id":"c1"}`),
 				},
 			},
 			description: "credential_expired_not_renewable",

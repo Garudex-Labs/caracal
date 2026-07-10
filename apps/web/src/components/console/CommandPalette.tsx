@@ -15,6 +15,7 @@ import { cx } from "@/lib/cx";
 import { useActiveZone, useSystemZoneView } from "@/platform/api/hooks";
 import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
+import { SETTINGS_GROUPS } from "@/platform/nav/settingsNav";
 import { setTheme, useTheme } from "@/platform/theme";
 
 interface Command {
@@ -27,6 +28,22 @@ interface Command {
   keywords: string;
   run: () => void;
 }
+
+// Services sub pages, which live under /app/services rather than in the primary nav model.
+const SERVICE_PAGES = [
+  {
+    id: "run",
+    label: "Launcher",
+    keywords: "run launcher workloads caracal run credentials services platform",
+    to: "/app/services/run",
+  },
+  {
+    id: "control",
+    label: "Control API",
+    keywords: "control api keys tokens automation programmatic services platform",
+    to: "/app/services/control",
+  },
+];
 
 function ActionIcon({ children }: { children: ReactNode }) {
   return (
@@ -78,6 +95,33 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         })),
     );
 
+    const servicePages: Command[] = SERVICE_PAGES.filter(
+      (page) => !isHideLockedPath(page.to, systemView),
+    ).map((page) => ({
+      id: `nav:${page.id}`,
+      section: "Platform",
+      label: page.label,
+      hint: "Services",
+      icon: <NavIcon name={page.id} />,
+      keywords: page.keywords,
+      run: go(page.to),
+    }));
+
+    const settingsPages: Command[] = SETTINGS_GROUPS.flatMap((group) =>
+      group.items
+        .filter((item) => !isHideLockedPath(`/app/settings/${item.id}`, systemView))
+        .map((item) => ({
+          id: `nav:settings/${item.id}`,
+          section: "Settings",
+          label: item.label,
+          hint: item.featureSlug ? "Enterprise" : group.label,
+          icon: <NavIcon name={item.id} />,
+          locked: Boolean(item.featureSlug),
+          keywords: `${item.label} ${group.label} settings ${item.description}`.toLowerCase(),
+          run: go(`/app/settings/${item.id}`),
+        })),
+    );
+
     const zoneCommands: Command[] = zones.map((zone) => ({
       id: `zone:${zone.id}`,
       section: "Switch zone",
@@ -109,6 +153,19 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         keywords: "manage zones create new zone",
         run: go("/app/zones"),
       },
+      ...(isHideLockedPath("/app/ai", systemView)
+        ? []
+        : [
+            {
+              id: "action:operator",
+              section: "Actions",
+              label: "Open Caracal Operator",
+              hint: "AI",
+              icon: <NavIcon name="operator" />,
+              keywords: "caracal operator ai assistant chat ask conversation",
+              run: go("/app/ai"),
+            },
+          ]),
       {
         id: "action:theme",
         section: "Actions",
@@ -149,7 +206,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       },
     ];
 
-    return [...nav, ...zoneCommands, ...actions];
+    return [...nav, ...servicePages, ...settingsPages, ...zoneCommands, ...actions];
   }, [navigate, onClose, zones, activeZone, selectZone, theme, systemView]);
 
   const results = useMemo(() => {

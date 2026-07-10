@@ -1,0 +1,72 @@
+---
+title: FastMCP Adapter
+description: FastMCP token verifiers for TypeScript and Python servers.
+---
+
+FastMCP adapters expose small verifier APIs that delegate to the verify packages. Use them when your FastMCP integration needs to authenticate a bearer token before running a tool.
+
+## Install
+
+| Ecosystem  | Package                                                                  |
+| ---------- | ------------------------------------------------------------------------ |
+| TypeScript | `npm install @caracalai/fastmcp @caracalai/verify @caracalai/revocation` |
+| Python     | `pip install caracalai-fastmcp`                                          |
+
+## TypeScript verifier
+
+```ts
+import { extractBearer, verifyFastMcpToken } from '@caracalai/fastmcp'
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
+
+const verifier = createMandateVerifier({
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
+  revocations: new InMemoryRevocationStore(),
+})
+
+const token = extractBearer(request.headers.get('authorization') ?? '')
+if (!token) throw new Error('missing bearer token')
+
+const context = await verifyFastMcpToken(token, verifier, {
+  requiredScopes: ['mcp:tool:call'],
+  requiredTargets: ['https://mcp.example.com'],
+  requireSession: true,
+})
+
+console.log(context.sub, context.zoneId, context.scope)
+```
+
+`verifyFastMcpToken()` returns `{ sub, zoneId, scope }` or throws `FastMcpAuthError`.
+
+## Python verifier
+
+```python
+from caracalai_fastmcp import CaracalAuth, CaracalAuthError
+
+auth = CaracalAuth(
+    issuer="https://sts.example.com",
+    audience="https://mcp.example.com",
+    zone_id="zone_prod",
+    required_scopes=["mcp:tool:call"],
+    required_targets=["https://mcp.example.com"],
+    require_session=True,
+    revocations=revocations,
+)
+
+try:
+    context = await auth.verify_token(token)
+except CaracalAuthError as exc:
+    raise RuntimeError(exc.code) from exc
+```
+
+## Boundary
+
+The adapter verifies tokens; it does not create Sessions or Delegations. Use the [Python SDK](/sdks/python/) or [TypeScript SDK](/sdks/typescript/) to create Caracal context before making outbound calls.
+
+## Related pages
+
+- [Protect a FastMCP App](/guides/protect-fastmcp/)
+- [Verify Package](/sdks/verify/)
+- [Sessions and Revocation](/concepts/sessions-revocation/)

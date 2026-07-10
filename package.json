@@ -2,28 +2,15 @@
   "name": "caracal",
   "private": true,
   "packageManager": "pnpm@11.1.1",
-  "pnpm": {
-    "overrides": {
-      "brace-expansion": "5.0.6",
-      "fast-uri": "3.1.2",
-      "devalue": "5.8.1",
-      "qs": "6.15.2",
-      "vite": "7.3.5",
-      "dompurify": "3.4.11",
-      "esbuild": "0.28.1",
-      "js-yaml": "4.2.0",
-      "read-yaml-file": "^2.1.0",
-      "@opentelemetry/core": "2.8.0"
-    }
-  },
   "bin": {
     "caracal": "apps/runtime/bin/caracal-workspace.mjs"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "setup": "node scripts/setupDev.mjs",
     "caracal": "node apps/runtime/bin/caracal-workspace.mjs",
     "secrets:init": "node infra/secrets/secretInit.mjs",
-    "build:typescript": "pnpm --dir packages/core/ts build && pnpm --dir packages/oauth/ts build && pnpm --dir packages/admin/ts build && pnpm --dir packages/adminAudit/ts build && pnpm --dir packages/engine build && pnpm --dir packages/sdk/ts build && pnpm --dir packages/transport/a2a/ts build && pnpm --dir packages/identity/ts build && pnpm --dir packages/revocation/ts build && pnpm --dir packages/transport/mcp/ts build && pnpm --dir packages/connectors/express/ts build && pnpm --dir packages/connectors/fastmcp/ts build && pnpm --dir packages/connectors/postgres/ts build && pnpm --dir packages/connectors/redis/ts build && pnpm --dir apps/api build && pnpm --dir apps/coordinator build",
+    "build:typescript": "pnpm --filter @caracalai/core --filter @caracalai/server-core --filter @caracalai/oauth --filter @caracalai/admin --filter @caracalai/admin-audit --filter @caracalai/engine --filter @caracalai/sdk --filter @caracalai/identity --filter @caracalai/revocation --filter @caracalai/verify --filter @caracalai/express --filter @caracalai/fastmcp --filter @caracalai/revocation-redis --filter @caracalai/api --filter @caracalai/coordinator run build",
     "style": "node scripts/checkStyle.mjs",
     "style:all": "node scripts/checkStyle.mjs --all",
     "style:fix": "node scripts/checkStyle.mjs --fix",
@@ -35,28 +22,22 @@
     "test:python": "node scripts/runPythonTests.mjs",
     "test:typescript": "node scripts/runTsTests.mjs",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 tests/typescript",
-    "packages:changed": "node scripts/releasePlan.mjs",
     "release:plan": "node scripts/releasePlan.mjs",
     "release:stamp": "node scripts/release.mjs stamp",
     "release:stamp:check": "node scripts/release.mjs stamp --check",
-    "release:changesets-ignore": "node scripts/generateChangesetsIgnore.mjs",
-    "release:changesets-ignore:check": "node scripts/generateChangesetsIgnore.mjs --check",
-    "changeset": "changeset",
-    "version": "changeset version",
     "release": "scripts/release.sh",
     "release:dry-run": "scripts/release.sh stable --dry-run",
     "knip": "node ./node_modules/knip/dist/cli.js --include files,dependencies,unlisted,binaries,unresolved,catalog"
   },
   "devDependencies": {
     "@caracalai/admin": "workspace:*",
-    "@changesets/cli": "^2.27.10",
     "@fastify/rate-limit": "^11.1.0",
-    "@vitest/coverage-v8": "4.1.9",
+    "@vitest/coverage-v8": "4.1.10",
     "express": "^5.2.1",
-    "fastify": "^5.9.0",
+    "fastify": "^5.10.0",
     "pg": "^8.22.0",
-    "knip": "^6.23.0",
-    "prettier": "^3.9.3",
-    "vitest": "^4.1.9"
+    "knip": "^6.24.0",
+    "prettier": "^3.9.4",
+    "vitest": "^4.1.10"
   }
 }

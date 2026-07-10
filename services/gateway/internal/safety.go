@@ -55,6 +55,49 @@ func stripHopByHop(h http.Header) {
 	}
 }
 
+// stripCaracalBaggage removes caracal.* entries from the Baggage header so
+// internal delegation topology never reaches third-party upstreams, while
+// preserving tenant-owned baggage entries.
+func stripCaracalBaggage(h http.Header) {
+	values := h.Values("Baggage")
+	if len(values) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(values))
+	for _, entry := range strings.Split(strings.Join(values, ","), ",") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		key := trimmed
+		if eq := strings.Index(trimmed, "="); eq >= 0 {
+			key = strings.TrimSpace(trimmed[:eq])
+		}
+		if strings.HasPrefix(key, "caracal.") {
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+	if len(kept) == 0 {
+		h.Del("Baggage")
+		return
+	}
+	h.Set("Baggage", strings.Join(kept, ","))
+}
+
+// stripReservedHeaders removes metadata owned by Caracal and forwarding proxies.
+// The Gateway rebuilds the small trusted forwarding set after this boundary.
+func stripReservedHeaders(h http.Header) {
+	for name := range h {
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-caracal-") || strings.HasPrefix(lower, "x-forwarded-") {
+			h.Del(name)
+		}
+	}
+	h.Del("Forwarded")
+	h.Del("X-Real-Ip")
+}
+
 // pathContainsTraversal reports whether p contains a "." or ".." segment, recursively
 // undoing percent-encoding so multi-decoded sequences like %252e are also caught.
 func pathContainsTraversal(p string) bool {
@@ -66,6 +109,9 @@ func pathContainsTraversal(p string) bool {
 			return true
 		}
 		p = decoded
+		if strings.ContainsRune(p, '\\') {
+			return true
+		}
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == ".." || seg == "." {
@@ -242,13 +288,33 @@ func nat64Embedded(ip net.IP) net.IP {
 // newRequestID returns a UUIDv4 string used to correlate access logs and STS audits.
 func newRequestID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// rand.Read failures are unrecoverable; fall back to deterministic marker.
-		return "00000000-0000-4000-8000-000000000000"
-	}
+	_, _ = rand.Read(b[:])
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func newExchangeNonce() (string, error) {
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate gateway exchange nonce: %w", err)
+	}
+	return hex.EncodeToString(nonce[:]), nil
+}
+
+// newTraceparent returns a standards-compliant W3C traceparent header value.
+// It is generated independently from X-Request-Id because request IDs are
+// allowed to be human-friendly opaque strings rather than lowercase hex.
+func newTraceparent() string {
+	var ids [24]byte
+	_, _ = rand.Read(ids[:])
+	if zeroBytes(ids[:16]) {
+		ids[0] = 1
+	}
+	if zeroBytes(ids[16:24]) {
+		ids[16] = 1
+	}
+	return "00-" + hex.EncodeToString(ids[:16]) + "-" + hex.EncodeToString(ids[16:24]) + "-01"
 }
 
 // validRequestID accepts UUID-shaped or short opaque identifiers (≤128 chars, printable ASCII).
@@ -258,6 +324,68 @@ func validRequestID(s string) bool {
 	}
 	for _, r := range s {
 		if r < 0x21 || r > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func zeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// validTraceparent reports whether s is a parseable W3C traceparent. A version-00
+// value must carry exactly the four canonical fields; higher versions may append
+// fields, so their leading fields are parsed and the rest preserved rather than
+// discarded. trace-id and parent-id must be non-zero lowercase hex of fixed width.
+func validTraceparent(s string) bool {
+	parts := strings.Split(s, "-")
+	if len(parts) < 4 {
+		return false
+	}
+	version, traceID, parentID, flags := parts[0], parts[1], parts[2], parts[3]
+	if len(version) != 2 || !isHex(version) || version == "ff" {
+		return false
+	}
+	if version == "00" && len(parts) != 4 {
+		return false
+	}
+	if len(traceID) != 32 || !isHex(traceID) || allZeroHex(traceID) {
+		return false
+	}
+	if len(parentID) != 16 || !isHex(parentID) || allZeroHex(parentID) {
+		return false
+	}
+	return len(flags) == 2 && isHex(flags)
+}
+
+// traceIDFromTraceparent returns the trace-id field that correlates every hop of a
+// request, used to tie gateway access logs and audit events to the distributed trace.
+func traceIDFromTraceparent(s string) string {
+	parts := strings.Split(s, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func allZeroHex(s string) bool {
+	for _, c := range s {
+		if c != '0' {
 			return false
 		}
 	}

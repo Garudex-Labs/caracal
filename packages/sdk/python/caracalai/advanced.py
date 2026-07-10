@@ -9,6 +9,7 @@ from .envelope import (
     HEADER_AUTHORIZATION,
     HEADER_BAGGAGE,
     HEADER_TRACEPARENT,
+    HEADER_TRACESTATE,
     BAGGAGE_AGENT_SESSION,
     BAGGAGE_DELEGATION_EDGE,
     BAGGAGE_HOP,
@@ -16,13 +17,12 @@ from .envelope import (
     BAGGAGE_SESSION,
     MAX_HOP,
     Envelope,
+    Traceparent,
     decode_envelope,
     encode_envelope,
     encode_baggage,
-    extract,
     format_traceparent,
     from_headers,
-    inject,
     parse_baggage,
     parse_traceparent,
     to_headers,
@@ -30,6 +30,7 @@ from .envelope import (
 from .context import (
     CaracalContext,
     AuthoritySummary,
+    VerifiedClaims,
     abind,
     bind,
     capture_context,
@@ -45,27 +46,46 @@ from .coordinator import (
     DelegationConstraints,
     DelegationRequest,
     DelegationResponse,
-    SpawnRequest,
-    SpawnResponse,
+    HeartbeatResponse,
+    InboundDelegation,
+    StartSessionRequest,
+    StartSessionResponse,
     create_delegation,
-    heartbeat_agent,
-    spawn_agent,
-    terminate_agent,
+    get_inbound_delegation,
+    heartbeat_session,
+    list_inbound_delegations,
+    revoke_delegation,
+    start_coordinator_session,
+    terminate_session,
 )
 from .primitives import (
-    Grant,
+    Authority,
+    Delegation,
     LifecycleHook,
-    ServiceAgent,
+    SessionHandle,
+    attach_session,
+    accept_delegation,
     delegate,
-    spawn,
-    spawn_service,
+    session,
+    start_session,
 )
-from .client import Caracal, CaracalConfig, ResourceBinding
+from caracalai_oauth import ClientCredentials, CredentialsResolver
+
+from .client import (
+    Caracal,
+    CaracalConfig,
+    ResourceBinding,
+    _config_from_client_secret,
+    _config_from_env,
+    _config_from_file,
+)
+from .errors import CoordinatorError, MissingTokenError
 from .http import CaracalASGIMiddleware
 
 __all__ = [
     "HEADER_AUTHORIZATION",
     "HEADER_TRACEPARENT",
+    "HEADER_TRACESTATE",
     "HEADER_BAGGAGE",
     "BAGGAGE_AGENT_SESSION",
     "BAGGAGE_DELEGATION_EDGE",
@@ -74,18 +94,18 @@ __all__ = [
     "BAGGAGE_HOP",
     "MAX_HOP",
     "Envelope",
+    "Traceparent",
     "decode_envelope",
     "encode_envelope",
     "encode_baggage",
     "format_traceparent",
     "from_headers",
     "to_headers",
-    "inject",
-    "extract",
     "parse_baggage",
     "parse_traceparent",
     "CaracalContext",
     "AuthoritySummary",
+    "VerifiedClaims",
     "current",
     "capture_context",
     "bind",
@@ -97,22 +117,75 @@ __all__ = [
     "Lifecycle",
     "DelegationConstraints",
     "CoordinatorClient",
-    "SpawnRequest",
-    "SpawnResponse",
+    "StartSessionRequest",
+    "StartSessionResponse",
     "DelegationRequest",
     "DelegationResponse",
-    "spawn_agent",
-    "terminate_agent",
-    "heartbeat_agent",
+    "HeartbeatResponse",
+    "InboundDelegation",
+    "start_coordinator_session",
+    "terminate_session",
+    "heartbeat_session",
     "create_delegation",
-    "spawn",
-    "spawn_service",
-    "Grant",
-    "ServiceAgent",
+    "get_inbound_delegation",
+    "list_inbound_delegations",
+    "revoke_delegation",
+    "session",
+    "start_session",
+    "attach_session",
+    "accept_delegation",
+    "Authority",
+    "Delegation",
+    "SessionHandle",
     "delegate",
     "LifecycleHook",
     "Caracal",
     "CaracalConfig",
     "ResourceBinding",
+    "CoordinatorError",
+    "MissingTokenError",
     "CaracalASGIMiddleware",
+    "ClientCredentials",
+    "CredentialsResolver",
+    "from_config",
+    "from_credentials",
+    "from_env",
 ]
+
+
+def from_env(env) -> Caracal:
+    """Build a client from only the supplied environment mapping."""
+    return Caracal(_config_from_env(env))
+
+
+def from_config(path, env=None) -> Caracal:
+    """Build a client from one explicit profile and optional environment values."""
+    return Caracal(_config_from_file(path, env))
+
+
+def from_credentials(
+    *,
+    coordinator_url: str,
+    sts_url: str,
+    credentials: CredentialsResolver,
+    resources=None,
+    gateway_url=None,
+    scope: str = "agent:lifecycle",
+    default_ttl_seconds=None,
+    http_client=None,
+    coordinator_http_client=None,
+) -> Caracal:
+    """Build a client with a dynamic credential resolver."""
+    return Caracal(
+        _config_from_client_secret(
+            coordinator_url=coordinator_url,
+            sts_url=sts_url,
+            credentials=credentials,
+            resources=resources,
+            gateway_url=gateway_url,
+            scope=scope,
+            default_ttl_seconds=default_ttl_seconds,
+            http_client=http_client,
+            coordinator_http_client=coordinator_http_client,
+        )
+    )

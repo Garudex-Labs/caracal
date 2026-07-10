@@ -8,6 +8,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -23,6 +24,7 @@ type s3Recorder struct {
 	puts   []string
 	status int
 	body   string
+	bytes  int
 }
 
 func (r *s3Recorder) handler() http.Handler {
@@ -33,6 +35,13 @@ func (r *s3Recorder) handler() http.Handler {
 		}
 		r.mu.Lock()
 		r.puts = append(r.puts, req.URL.Path)
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			r.mu.Unlock()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		r.bytes += len(body)
 		r.mu.Unlock()
 		if r.status != 0 {
 			w.Header().Set("Content-Type", "application/xml")
@@ -65,9 +74,10 @@ func exporterFixture(t *testing.T, store *fakeLifecycleStore, recorder *s3Record
 	t.Cleanup(srv.Close)
 
 	exporter, err := newParquetExporter(store, Config{
-		S3Bucket:   "caracal-audit",
-		S3Endpoint: srv.URL,
-		S3Region:   "us-east-1",
+		S3Bucket:      "caracal-audit",
+		S3Endpoint:    srv.URL,
+		S3Region:      "us-east-1",
+		ExportTempDir: t.TempDir(),
 	}, nil, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +108,9 @@ func TestParquetTickExportsPreviousHourOnFreshInstall(t *testing.T) {
 
 	if recorder.putCount() != 1 {
 		t.Fatalf("puts = %d, want 1", recorder.putCount())
+	}
+	if recorder.bytes == 0 {
+		t.Fatal("Parquet upload body must not be empty")
 	}
 	recorder.mu.Lock()
 	path := recorder.puts[0]

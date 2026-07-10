@@ -4,7 +4,7 @@
 - Covers per-language Caracal SDK packages under `packages/sdk/`.
 
 ## Architecture Design
-- SDK packages provide the application-facing Caracal client surface for context propagation, spawn, delegate, coordinator calls, transport helpers, envelopes, and lifecycle hooks.
+- SDK packages provide the application-facing Caracal client surface for context propagation, Sessions, Delegations, Coordinator calls, transport helpers, envelopes, and lifecycle hooks.
 - OAuth token exchange is consumed through `packages/oauth`.
 
 ## Required

@@ -94,7 +94,7 @@ describe('dispatch', () => {
     const registry = buildRegistry(SHELL_COMMANDS, executors)
     await expect(dispatch({ binary: 'caracal web', version: '0.0.0', mode: 'dev', registry }, ['--help'])).rejects.toThrow('exit:0')
     const out = stdout.mock.calls.map((c) => String(c[0])).join('')
-    expect(out).toContain('Usage: caracal web')
+    expect(out).toContain('caracal web <command> [options]')
   })
 
   it('keeps runtime help limited to visible commands and global options', async () => {
@@ -104,8 +104,11 @@ describe('dispatch', () => {
     const registry = buildRegistry(MANAGEMENT_COMMANDS, executors)
     await expect(dispatch({ binary: 'caracal', version: '0.0.0', mode: 'dev', registry }, ['--help'])).rejects.toThrow('exit:0')
     const out = stdout.mock.calls.map((c) => String(c[0])).join('')
-    expect(out).toContain('zone')
-    expect(out).toContain('control')
+    expect(out).toContain('app')
+    expect(out).toContain('policy-set')
+    expect(out).toContain('delegation')
+    expect(out).not.toMatch(/^\s{2}zone\s/m)
+    expect(out).not.toMatch(/^\s{2}control\s/m)
     expect(out).not.toMatch(/\brun\b/)
     expect(out).not.toMatch(/\bdebug\b/)
     expect(out).not.toMatch(/\bmanifest\b/)
@@ -127,15 +130,8 @@ describe('dispatch', () => {
   })
 
   it('still requires config for a normal run invocation', async () => {
-    vi.stubEnv('CARACAL_CONFIG', undefined)
     vi.stubEnv('XDG_CONFIG_HOME', '/nonexistent-caracal-config')
-    for (const key of [
-      'CARACAL_APPLICATION_ID',
-      'CARACAL_APP_CLIENT_SECRET',
-      'CARACAL_APP_CLIENT_SECRET_FILE',
-      'CARACAL_RUN_CREDENTIALS',
-      'CARACAL_RUN_CREDENTIALS_FILE',
-    ]) {
+    for (const key of ['CARACAL_WORKLOAD_ID', 'CARACAL_WORKLOAD_SECRET', 'CARACAL_WORKLOAD_SECRET_FILE']) {
       vi.stubEnv(key, undefined)
     }
     const exit = exitSpy()

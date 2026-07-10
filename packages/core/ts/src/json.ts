@@ -3,7 +3,7 @@
 //
 // JSON value types shared by TypeScript packages.
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-export type JsonObject = { [key: string]: JsonValue };
-export type JsonArray = JsonValue[];
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonObject | JsonArray
+export type JsonObject = { [key: string]: JsonValue }
+export type JsonArray = JsonValue[]

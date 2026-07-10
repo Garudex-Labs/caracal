@@ -12,16 +12,15 @@ import type { PlanItem, PlanStepView } from "./timeline";
 // Each capability domain maps to the Console page that owns its items, so a citation can
 // open the exact surface the Operator acted on. A destination may pin extra search params,
 // such as the view tab that hosts the domain within its page.
-const DOMAIN_ROUTE: Record<
-  OperatorCapabilityDomain,
-  { to: string; label: string; search?: Record<string, string> }
+const DOMAIN_ROUTE: Partial<
+  Record<OperatorCapabilityDomain, { to: string; label: string; search?: Record<string, string> }>
 > = {
   zone: { to: "/app/zones", label: "Zone" },
   application: { to: "/app/applications", label: "Application" },
   provider: { to: "/app/providers", label: "Provider" },
   resource: { to: "/app/resources", label: "Resource" },
   policy: { to: "/app/policies", label: "Policy" },
-  grant: { to: "/app/agents", label: "Grant", search: { view: "delegation" } },
+  grant: { to: "/app/sessions", label: "Grant", search: { view: "delegation" } },
   audit: { to: "/app/audit", label: "Audit" },
 };
 

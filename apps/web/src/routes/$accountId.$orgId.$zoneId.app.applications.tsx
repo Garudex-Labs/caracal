@@ -16,7 +16,9 @@ import {
   DetailSection,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import type { FilterGroup } from "@/components/ui";
+import { SecretModal, type RevealedSecret } from "@/components/console/SecretModal";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import {
   Badge,
@@ -25,7 +27,6 @@ import {
   Field,
   IdentityAvatar,
   Modal,
-  useCopyToClipboard,
   useToast,
   type Column,
 } from "@/components/ui";
@@ -35,6 +36,7 @@ import {
   useCreateApplication,
   useDeleteApplication,
   useRotateApplicationSecret,
+  useRevealApplicationSecret,
   useUpdateApplication,
 } from "@/platform/api/hooks";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
@@ -52,7 +54,7 @@ function ApplicationsRoute() {
   return (
     <ZoneScopedPage
       title="Applications"
-      description="Agent identities that can request authority in this zone."
+      description="Application identities that can request authority in this zone."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
     >
       {(zone) => <ApplicationsPage zoneId={zone.id} zoneName={zone.name} />}
@@ -88,15 +90,18 @@ function credentialRank(app: Application): number {
 function errorMessage(error: unknown): string {
   return classifyError(error, {
     application_name_taken: "An application with this name already exists in this zone.",
+    client_secret_not_stored: "No stored secret for this application. Rotate to store one.",
   });
 }
 
 function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
   const toast = useToast();
-  const query = useApplications(zoneId);
+  const [view, setView] = useState<"active" | "archived">("active");
+  const query = useApplications(zoneId, view);
   const createApp = useCreateApplication(zoneId);
   const updateApp = useUpdateApplication(zoneId);
   const rotateSecret = useRotateApplicationSecret(zoneId);
+  const revealSecret = useRevealApplicationSecret(zoneId);
   const deleteApp = useDeleteApplication(zoneId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -105,11 +110,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
     value: Route.useSearch().create,
     open: () => setCreateOpen(true),
   });
-  const [secret, setSecret] = useState<{
-    name: string;
-    clientSecret: string;
-    rotated: boolean;
-  } | null>(null);
+  const [secret, setSecret] = useState<RevealedSecret | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null);
   const [rotateTarget, setRotateTarget] = useState<Application | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -145,7 +146,19 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
     [allRows, typeFilter, credentialFilter],
   );
 
+  const lifecycleFilter: FilterGroup = {
+    id: "lifecycle",
+    label: "Lifecycle",
+    value: view,
+    onChange: (v) => setView(v as "active" | "archived"),
+    options: [
+      { id: "active", label: "Active" },
+      { id: "archived", label: "Archived" },
+    ],
+  };
+
   const filters: FilterGroup[] = [
+    lifecycleFilter,
     {
       id: "type",
       label: "Type",
@@ -154,21 +167,25 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       options: [
         { id: "all", label: "All types", count: allRows.length },
         { id: "managed", label: "Managed", count: counts.managed },
-        { id: "dynamic", label: "Dynamic (DCR)", count: counts.dynamic },
+        { id: "dynamic", label: "Dynamically registered", count: counts.dynamic },
       ],
     },
-    {
-      id: "credential",
-      label: "Credential",
-      value: credentialFilter,
-      onChange: (v) => setCredentialFilter(v as CredentialFilter),
-      options: [
-        { id: "all", label: "Any credential", count: allRows.length },
-        { id: "active", label: "Active", count: counts.active },
-        { id: "expiring", label: "Expiring", count: counts.expiring },
-        { id: "expired", label: "Expired", count: counts.expired },
-      ],
-    },
+    ...(view === "archived"
+      ? []
+      : [
+          {
+            id: "credential",
+            label: "Credential",
+            value: credentialFilter,
+            onChange: (v: string) => setCredentialFilter(v as CredentialFilter),
+            options: [
+              { id: "all", label: "Any credential", count: allRows.length },
+              { id: "active", label: "Active", count: counts.active },
+              { id: "expiring", label: "Expiring", count: counts.expiring },
+              { id: "expired", label: "Expired", count: counts.expired },
+            ],
+          },
+        ]),
   ];
 
   const columns: Column<Application>[] = [
@@ -191,7 +208,9 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       id: "type",
       header: "Type",
       sortable: true,
-      cell: (app) => <Badge tone="neutral">{isManaged(app) ? "Managed" : "Dynamic (DCR)"}</Badge>,
+      cell: (app) => (
+        <Badge tone="neutral">{isManaged(app) ? "Managed" : "Dynamically registered"}</Badge>
+      ),
     },
     {
       id: "credential",
@@ -210,20 +229,35 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         </span>
       ),
     },
+    ...(view === "archived"
+      ? [
+          {
+            id: "archived",
+            header: "Archived",
+            sortable: true,
+            align: "right",
+            cell: (app) => (
+              <span className="text-xs text-muted-foreground">
+                {app.archived_at ? new Date(app.archived_at).toLocaleDateString() : "-"}
+              </span>
+            ),
+          } satisfies Column<Application>,
+        ]
+      : []),
   ];
 
   return (
     <>
       <ResourceWorkspace
         title="Applications"
-        description="Agent identities that can request authority in this zone."
+        description="Application identities that can request authority in this zone."
         breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
         primaryAction={{ label: "New application", onClick: () => setCreateOpen(true) }}
         rows={rows}
         loading={query.isLoading}
         columns={columns}
         rowKey={(app) => app.id}
-        filters={allRows.length > 0 ? filters : undefined}
+        filters={allRows.length > 0 || view === "archived" ? filters : undefined}
         search={{
           placeholder: "Search applications…",
           match: (app, q) => app.name.toLowerCase().includes(q) || app.id.toLowerCase().includes(q),
@@ -234,12 +268,19 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
           type: (app) => (isManaged(app) ? "0" : "1"),
           credential: (app) => credentialRank(app),
           created: (app) => Date.parse(app.created_at) || 0,
+          archived: (app) => (app.archived_at ? Date.parse(app.archived_at) : 0),
         }}
         empty={{
-          title: query.isError ? "Could not load applications" : "No applications yet",
+          title: query.isError
+            ? "Could not load applications"
+            : view === "archived"
+              ? "No archived applications"
+              : "No applications yet",
           description: query.isError
             ? errorMessage(query.error)
-            : "Create an application to give an agent a scoped identity in this zone.",
+            : view === "archived"
+              ? "Applications you archive keep their record here for audit."
+              : "Create an Application to give a workload a scoped identity in this zone.",
         }}
         detail={{
           title: (app) => app.name,
@@ -254,12 +295,27 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
                 try {
                   await updateApp.mutateAsync({ id: app.id, input: { name } });
                   toast({ tone: "success", title: "Application renamed", description: name });
+                  return true;
                 } catch (err) {
                   toast({ tone: "error", title: "Rename failed", description: errorMessage(err) });
-                  throw err;
+                  return false;
                 }
               }}
               onRotate={() => setRotateTarget(app)}
+              onReveal={async () => {
+                try {
+                  const revealed = await revealSecret.mutateAsync(app.id);
+                  setSecret({
+                    kind: "application",
+                    name: app.name,
+                    id: app.id,
+                    value: revealed.client_secret,
+                    rotated: false,
+                  });
+                } catch (err) {
+                  toast({ tone: "error", title: "Reveal failed", description: errorMessage(err) });
+                }
+              }}
               onDelete={() => setDeleteTarget(app)}
             />
           ),
@@ -279,7 +335,13 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             });
             setCreateOpen(false);
             if (app.client_secret) {
-              setSecret({ name: app.name, clientSecret: app.client_secret, rotated: false });
+              setSecret({
+                kind: "application",
+                name: app.name,
+                id: app.id,
+                value: app.client_secret,
+                rotated: false,
+              });
             } else {
               toast({ tone: "success", title: "Application created", description: app.name });
             }
@@ -299,7 +361,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         open={rotateTarget !== null}
         onClose={() => setRotateTarget(null)}
         title="Rotate client secret"
-        description={`This immediately invalidates the current secret for "${rotateTarget?.name ?? ""}". Any agent using the old secret will fail to authenticate until updated.`}
+        description={`This immediately invalidates the current secret for "${rotateTarget?.name ?? ""}". Any workload using the old secret will fail to authenticate until updated.`}
         confirmLabel="Rotate secret"
         tone="danger"
         onConfirm={async () => {
@@ -308,8 +370,10 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             const rotated = await rotateSecret.mutateAsync(rotateTarget.id);
             if (rotated.client_secret) {
               setSecret({
+                kind: "application",
                 name: rotateTarget.name,
-                clientSecret: rotated.client_secret,
+                id: rotateTarget.id,
+                value: rotated.client_secret,
                 rotated: true,
               });
             }
@@ -322,17 +386,17 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        title="Delete application"
-        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens, any agent using its credentials stops authenticating, and any resource bound to it as a Gateway application loses that route. The record is retained for audit.`}
-        confirmLabel="Delete application"
+        title="Archive application"
+        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens and any workload using its credentials stops authenticating. This cannot be undone; the record stays visible under Archived for audit.`}
+        confirmLabel="Archive application"
         tone="danger"
         onConfirm={async () => {
           if (!deleteTarget) return;
           try {
             await deleteApp.mutateAsync(deleteTarget.id);
-            toast({ tone: "info", title: "Application deleted", description: deleteTarget.name });
+            toast({ tone: "info", title: "Application archived", description: deleteTarget.name });
           } catch (err) {
-            toast({ tone: "error", title: "Delete failed", description: errorMessage(err) });
+            toast({ tone: "error", title: "Archive failed", description: errorMessage(err) });
           }
         }}
       />
@@ -343,6 +407,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
 /* ------------------------------ list cells ------------------------------ */
 
 function CredentialBadge({ app }: { app: Application }) {
+  if (app.archived_at) return <Badge tone="neutral">Revoked</Badge>;
   const state = credentialState(app);
   if (state === "expired") return <Badge tone="danger">Expired</Badge>;
   if (state === "expiring") return <Badge tone="warning">Expiring</Badge>;
@@ -356,23 +421,30 @@ function ApplicationDetail({
   busy,
   onRename,
   onRotate,
+  onReveal,
   onDelete,
 }: {
   app: Application;
   busy: boolean;
-  onRename: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<boolean>;
   onRotate: () => void;
+  onReveal: () => void;
   onDelete: () => void;
 }) {
   const managed = isManaged(app);
+  const archived = Boolean(app.archived_at);
   const state = credentialState(app);
 
   return (
     <div className="flex flex-col gap-6">
       <DetailHeader>
         <CredentialBadge app={app} />
-        <Badge tone="neutral">{managed ? "Managed" : "Dynamic (DCR)"}</Badge>
-        {app.expires_at ? (
+        <Badge tone="neutral">{managed ? "Managed" : "Dynamically registered"}</Badge>
+        {archived && app.archived_at ? (
+          <span className="text-xs text-muted-foreground">
+            Archived {new Date(app.archived_at).toLocaleString()}
+          </span>
+        ) : app.expires_at ? (
           <span className="text-xs text-muted-foreground">
             {state === "expired" ? "Expired " : "Expires "}
             {new Date(app.expires_at).toLocaleString()}
@@ -382,8 +454,13 @@ function ApplicationDetail({
 
       <IdentitySection app={app} busy={busy} onRename={onRename} />
 
-      {managed ? (
-        <CredentialsSection onRotate={onRotate} />
+      {archived ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          This application is archived: its identity is revoked and the record is retained for
+          audit.
+        </p>
+      ) : managed ? (
+        <CredentialsSection onRotate={onRotate} onReveal={onReveal} />
       ) : (
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           Dynamic clients are registered programmatically and expire automatically. Their client
@@ -391,15 +468,17 @@ function ApplicationDetail({
         </p>
       )}
 
-      <DangerZone
-        description={
-          managed
-            ? "Permanently revoke this identity. This cannot be undone."
-            : "Revoke this dynamic client now instead of waiting for it to expire. This cannot be undone."
-        }
-        actionLabel="Delete"
-        onAction={onDelete}
-      />
+      {archived ? null : (
+        <DangerZone
+          description={
+            managed
+              ? "Archive this application and permanently revoke its identity. This cannot be undone."
+              : "Archive this dynamic client now instead of waiting for it to expire. This cannot be undone."
+          }
+          actionLabel="Archive"
+          onAction={onDelete}
+        />
+      )}
     </div>
   );
 }
@@ -411,15 +490,25 @@ function IdentitySection({
 }: {
   app: Application;
   busy: boolean;
-  onRename: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(app.name);
+  const archived = Boolean(app.archived_at);
 
   useEffect(() => {
     setName(app.name);
     setEditing(false);
   }, [app.id, app.name]);
+
+  function commitRename() {
+    const nextName = name.trim();
+    if (!nextName || nextName === app.name) return;
+
+    void onRename(nextName).then((renamed) => {
+      if (renamed) setEditing(false);
+    });
+  }
 
   return (
     <DetailGroup title="Identity">
@@ -434,8 +523,8 @@ function IdentitySection({
                 className="flex-1"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && name.trim() && name.trim() !== app.name) {
-                    void onRename(name.trim()).then(() => setEditing(false));
+                  if (e.key === "Enter") {
+                    commitRename();
                   } else if (e.key === "Escape") {
                     setName(app.name);
                     setEditing(false);
@@ -447,7 +536,7 @@ function IdentitySection({
                 loading={busy}
                 mutating
                 disabled={!name.trim() || name.trim() === app.name}
-                onClick={() => void onRename(name.trim()).then(() => setEditing(false))}
+                onClick={commitRename}
               >
                 Save
               </Button>
@@ -465,9 +554,11 @@ function IdentitySection({
           ) : (
             <div className="flex min-h-9 items-center justify-between gap-2">
               <span className="min-w-0 break-words text-sm text-foreground">{app.name}</span>
-              <Button variant="ghost" size="sm" mutating onClick={() => setEditing(true)}>
-                Rename
-              </Button>
+              {archived ? null : (
+                <Button variant="ghost" size="sm" mutating onClick={() => setEditing(true)}>
+                  Rename
+                </Button>
+              )}
             </div>
           )}
         </dd>
@@ -475,7 +566,17 @@ function IdentitySection({
       <DetailField label="Application ID">
         <CopyValue value={app.id} />
       </DetailField>
+      {app.created_by ? (
+        <DetailField label="Created by">
+          <CreatedBy id={app.created_by} coAuthored={app.created_via_operator} />
+        </DetailField>
+      ) : null}
       <DetailField label="Created">{new Date(app.created_at).toLocaleString()}</DetailField>
+      {app.updated_by ? (
+        <DetailField label="Updated by">
+          <CreatedBy id={app.updated_by} coAuthored={app.updated_via_operator} />
+        </DetailField>
+      ) : null}
       {(app.traits ?? []).length > 0 ? (
         <DetailField label="Traits">
           <span className="flex flex-wrap gap-1.5">
@@ -494,17 +595,27 @@ function IdentitySection({
   );
 }
 
-function CredentialsSection({ onRotate }: { onRotate: () => void }) {
+function CredentialsSection({
+  onRotate,
+  onReveal,
+}: {
+  onRotate: () => void;
+  onReveal: () => void;
+}) {
   return (
     <DetailSection title="Credentials">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-3">
         <p className="min-w-0 text-xs text-muted-foreground">
-          The client secret is shown only once. Rotate to issue a new secret and invalidate the old
-          one immediately.
+          Reveals are audited. Rotating invalidates the current secret immediately.
         </p>
-        <Button variant="secondary" size="sm" mutating onClick={onRotate} className="flex-shrink-0">
-          Rotate secret
-        </Button>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <Button variant="secondary" size="sm" mutating onClick={onReveal}>
+            Reveal secret
+          </Button>
+          <Button variant="secondary" size="sm" mutating onClick={onRotate}>
+            Rotate secret
+          </Button>
+        </div>
       </div>
     </DetailSection>
   );
@@ -541,7 +652,7 @@ function CreateApplicationModal({
       open={open}
       onClose={onClose}
       title="New application"
-      description={`Give an agent a managed identity in ${zoneName}.`}
+      description={`Give a workload a managed Application identity in ${zoneName}.`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>
@@ -565,51 +676,7 @@ function CreateApplicationModal({
           }}
           autoFocus
         />
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Creates a managed identity and reveals its client secret once. The application gains
-          authority only when a policy grants it scopes on a resource.
-        </p>
       </div>
-    </Modal>
-  );
-}
-
-function SecretModal({
-  secret,
-  onClose,
-  onCopied,
-}: {
-  secret: { name: string; clientSecret: string; rotated: boolean } | null;
-  onClose: () => void;
-  onCopied: () => void;
-}) {
-  const copy = useCopyToClipboard();
-
-  return (
-    <Modal
-      open={secret !== null}
-      onClose={onClose}
-      title={secret?.rotated ? "Store the new client secret now" : "Store the client secret now"}
-      description="This secret is shown once and cannot be retrieved later. Copy it before closing."
-      footer={<Button onClick={onClose}>Done</Button>}
-    >
-      {secret ? (
-        <div className="flex flex-col gap-3">
-          <div className="text-sm text-muted-foreground">{secret.name}</div>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs">
-              {secret.clientSecret}
-            </code>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void copy(secret.clientSecret, { onSuccess: onCopied })}
-            >
-              Copy
-            </Button>
-          </div>
-        </div>
-      ) : null}
     </Modal>
   );
 }

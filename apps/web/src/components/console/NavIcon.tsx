@@ -56,9 +56,39 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M9 13h.01M15 13h.01" />
     </>
   ),
+  run: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="m10 9 5 3-5 3V9Z" />
+    </>
+  ),
+  services: (
+    <>
+      <circle cx="12" cy="12" r="2.5" />
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="19" cy="5" r="2" />
+      <circle cx="12" cy="19.5" r="2" />
+      <path d="M10.2 10.2 6.4 6.4M13.8 10.2l3.8-3.8M12 14.5v3" />
+    </>
+  ),
+  subjects: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M6 16c.6-1.5 1.7-2.3 3-2.3s2.4.8 3 2.3" />
+      <path d="M14.5 9.5H18M14.5 13H17" />
+    </>
+  ),
   sessions: (
     <>
       <path d="M3 12h4l2 6 4-14 2 8h6" />
+    </>
+  ),
+  approvals: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <path d="m9 12 2 2 4-4.5" />
+      <path d="M12 2v3M12 19v3" />
     </>
   ),
   audit: (
@@ -91,6 +121,36 @@ const PATHS: Record<string, ReactNode> = {
     <>
       <rect x="4" y="3" width="16" height="18" rx="2" />
       <path d="M9 7h.01M9 11h.01M9 15h.01M15 7h.01M15 11h.01M15 15h.01M10 21v-3h4v3" />
+    </>
+  ),
+  profile: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20.5c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" />
+    </>
+  ),
+  security: (
+    <>
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2" />
+      <path d="M8 10.5v-3a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  preferences: (
+    <>
+      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3" />
+      <path d="M1 14h6M9 8h6M17 16h6" />
+    </>
+  ),
+  operator: (
+    <>
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9z" />
+      <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17z" />
+    </>
+  ),
+  danger: (
+    <>
+      <path d="M10.3 4.1 2.9 17.3a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9.5v4M12 16.8h.01" />
     </>
   ),
   analytics: (

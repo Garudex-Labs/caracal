@@ -46,9 +46,9 @@ class ScopeInsufficientError(CaracalError):
         self.missing_scope = missing_scope
 
 
-class AgentIdentityRequiredError(CaracalError):
-    def __init__(self, description: str = "Agent identity required") -> None:
-        super().__init__(ErrorCode.AGENT_IDENTITY_REQUIRED, description)
+class SessionRequiredError(CaracalError):
+    def __init__(self, description: str = "Session required") -> None:
+        super().__init__("session_required", description)
 
 
 class DelegationRequiredError(CaracalError):
@@ -84,8 +84,8 @@ def _read_chain(raw: object) -> list[ChainHop]:
         out.append(
             ChainHop(
                 application_id=application_id,
-                agent_session_id=_optional_str(item, "agent_session_id"),
-                delegation_edge_id=_optional_str(item, "delegation_edge_id"),
+                session_id=_optional_str(item, "agent_session_id"),
+                delegation_id=_optional_str(item, "delegation_edge_id"),
             )
         )
     return out
@@ -141,8 +141,8 @@ async def verify_token(
     token: str,
     issuer: str,
     audience: str,
+    expected_zone_id: str,
     required_scopes: list[str] | None = None,
-    expected_zone_id: str | None = None,
     required_use: str | None = None,
 ) -> dict[str, JsonValue]:
     try:
@@ -150,20 +150,12 @@ async def verify_token(
     except Exception as e:
         raise TokenInvalidError(f"Token validation failed: {e}") from e
 
-    # STS serves one signing keyset per zone, so the JWKS fetch needs a zone.
-    # The configured zone wins; otherwise the unverified zone_id claim selects
-    # the keyset, which is safe because it only routes the key lookup - the
-    # signature check against that zone's keys then proves the claim.
+    # The configured zone is the only trust anchor: it selects the signing keyset
+    # and must equal the zone_id claim. Verification never reads the zone from the
+    # unverified token, so key selection cannot be influenced by attacker input.
+    if not expected_zone_id:
+        raise ZoneInvalidError("Token zone validation failed")
     fetch_zone = expected_zone_id
-    if not fetch_zone:
-        try:
-            unverified = jwt.decode(token, options={"verify_signature": False})
-        except Exception as e:
-            raise TokenInvalidError(f"Token validation failed: {e}") from e
-        claimed_zone = unverified.get("zone_id")
-        if not isinstance(claimed_zone, str) or not claimed_zone:
-            raise ZoneInvalidError("Token zone validation failed")
-        fetch_zone = claimed_zone
     keys = await _cache.get_keys(issuer, fetch_zone)
 
     token_kid = header.get("kid")
@@ -225,12 +217,7 @@ async def verify_token(
     if not isinstance(scope, str):
         raise TokenInvalidError("Token claim scope must be a string")
     zone_id = decoded.get("zone_id")
-    if (
-        not isinstance(zone_id, str)
-        or not zone_id
-        or zone_id != fetch_zone
-        or (expected_zone_id and zone_id != expected_zone_id)
-    ):
+    if not isinstance(zone_id, str) or not zone_id or zone_id != fetch_zone:
         raise ZoneInvalidError("Token zone validation failed")
     for required in required_scopes or []:
         if not has_scope(scope, required):
@@ -253,13 +240,13 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         required_use=config.required_use,
     )
 
-    agent_session_id = _optional_str(decoded, "agent_session_id")
-    delegation_edge_id = _optional_str(decoded, "delegation_edge_id")
+    session_id = _optional_str(decoded, "agent_session_id")
+    delegation_id = _optional_str(decoded, "delegation_edge_id")
     delegation_chain = _read_chain(decoded.get("delegation_chain"))
 
-    if config.require_agent and not agent_session_id:
-        raise AgentIdentityRequiredError("Agent identity required")
-    if config.require_delegation and not delegation_edge_id:
+    if config.require_session and not session_id:
+        raise SessionRequiredError("Session required")
+    if config.require_delegation and not delegation_id:
         raise DelegationRequiredError("Delegation required")
     for expected in config.require_chain_contains:
         present = any(hop.application_id == expected for hop in delegation_chain)
@@ -288,8 +275,8 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         sub=_required_str(decoded, "sub"),
         zone_id=_required_str(decoded, "zone_id"),
         client_id=_required_str(decoded, "client_id"),
-        sid=_required_str(decoded, "sid"),
-        root_sid=_required_str(decoded, "root_sid"),
+        authority_record_id=_required_str(decoded, "sid"),
+        root_authority_record_id=_required_str(decoded, "root_sid"),
         use=_required_str(decoded, "use"),
         sub_type=_required_str(decoded, "sub_type"),
         jti=_required_str(decoded, "jti"),
@@ -297,8 +284,8 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         expires_at=_required_int(decoded, "exp"),
         scope=scope,
         target_resources=target_resources,
-        agent_session_id=agent_session_id,
-        delegation_edge_id=delegation_edge_id,
+        session_id=session_id,
+        delegation_id=delegation_id,
         source_session_id=_optional_str(decoded, "source_session_id"),
         target_session_id=_optional_str(decoded, "target_session_id"),
         delegation_path=delegation_path,

@@ -92,10 +92,10 @@ describe('buildAdminClient', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { client } = buildAdminClient()
-    await client.agents.list('z1')
+    await client.sessions.get('z1', 'session-1')
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://coordinator.test/zones/z1/agents',
+      'http://coordinator.test/zones/z1/agents/session-1',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer coordinator-secret' }),
       }),
@@ -119,9 +119,8 @@ describe('buildAdminClient', () => {
       CARACAL_API_URL: 'http://localhost:3000',
       CARACAL_COORDINATOR_URL: 'http://localhost:4000',
     }
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input)
-      return new Response(JSON.stringify(url.includes('/agents') ? { items: [], next_cursor: null } : []), {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ items: [], next_cursor: null }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -130,7 +129,7 @@ describe('buildAdminClient', () => {
 
     const { client } = buildAdminClient()
     await client.zones.list()
-    await client.agents.list('z1')
+    await client.sessions.get('z1', 'session-1')
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/v1/zones',
@@ -139,7 +138,7 @@ describe('buildAdminClient', () => {
       }),
     )
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:4000/zones/z1/agents',
+      'http://localhost:4000/zones/z1/agents/session-1',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer coordinator-secret' }),
       }),
@@ -157,7 +156,7 @@ describe('buildAdminClient', () => {
     delete process.env.CARACAL_COORDINATOR_TOKEN_FILE
     const fetchMock = vi.fn(
       async () =>
-        new Response(JSON.stringify([]), {
+        new Response(JSON.stringify({ items: [], next_cursor: null }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),

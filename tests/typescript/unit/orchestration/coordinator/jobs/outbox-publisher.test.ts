@@ -10,7 +10,8 @@ const { publishBatch, startOutboxPublisher } = await import('../../../../../../a
 
 function mockClient(rows: unknown[]) {
   return {
-    query: vi.fn()
+    query: vi
+      .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows })
       .mockResolvedValueOnce({ rows: [] })
@@ -24,7 +25,13 @@ function mockClient(rows: unknown[]) {
 describe('publishBatch', () => {
   it('prepends outbox_id and dedupe_key on every published record', async () => {
     const client = mockClient([
-      { id: 'outbox-1', topic: 'caracal.invocations.lifecycle', dedupe_key: 'invocation.created:inv-1', payload_json: { event: 'created', count: 1 }, attempts: 0 },
+      {
+        id: 'outbox-1',
+        topic: 'caracal.invocations.lifecycle',
+        dedupe_key: 'invocation.created:inv-1',
+        payload_json: { event: 'created', count: 1 },
+        attempts: 0,
+      },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     const redis = { xadd: vi.fn().mockResolvedValueOnce('stream-id-1') }
@@ -32,11 +39,19 @@ describe('publishBatch', () => {
     await publishBatch(db as never, redis as never, 50, 10)
 
     expect(redis.xadd).toHaveBeenCalledWith(
-      'caracal.invocations.lifecycle', 'MAXLEN', '~', '12345', '*',
-      'outbox_id', 'outbox-1',
-      'dedupe_key', 'invocation.created:inv-1',
-      'event', 'created',
-      'count', '1',
+      'caracal.invocations.lifecycle',
+      'MAXLEN',
+      '~',
+      '12345',
+      '*',
+      'outbox_id',
+      'outbox-1',
+      'dedupe_key',
+      'invocation.created:inv-1',
+      'event',
+      'created',
+      'count',
+      '1',
     )
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'published'"), [['outbox-1']])
     expect(client.query).toHaveBeenCalledWith('COMMIT')
@@ -45,7 +60,13 @@ describe('publishBatch', () => {
 
   it('marks failed rows for retry and serializes nested payloads', async () => {
     const client = mockClient([
-      { id: 'outbox-1', topic: 'caracal.agents.lifecycle', dedupe_key: 'spawn:agent-1', payload_json: { nested: { id: 'inv-1' } }, attempts: 0 },
+      {
+        id: 'outbox-1',
+        topic: 'caracal.agents.lifecycle',
+        dedupe_key: 'spawn:agent-1',
+        payload_json: { nested: { id: 'inv-1' } },
+        attempts: 0,
+      },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     const redis = { xadd: vi.fn().mockRejectedValueOnce(new Error('redis down')) }
@@ -53,10 +74,17 @@ describe('publishBatch', () => {
     await publishBatch(db as never, redis as never, 50, 10)
 
     expect(redis.xadd).toHaveBeenCalledWith(
-      'caracal.agents.lifecycle', 'MAXLEN', '~', '12345', '*',
-      'outbox_id', 'outbox-1',
-      'dedupe_key', 'spawn:agent-1',
-      'nested', '{"id":"inv-1"}',
+      'caracal.agents.lifecycle',
+      'MAXLEN',
+      '~',
+      '12345',
+      '*',
+      'outbox_id',
+      'outbox-1',
+      'dedupe_key',
+      'spawn:agent-1',
+      'nested',
+      '{"id":"inv-1"}',
     )
     const retryUpdate = client.query.mock.calls.find((call) => String(call[0]).includes('available_at = now()'))
     expect(retryUpdate?.[1]).toEqual([['outbox-1']])
@@ -78,10 +106,7 @@ describe('publishBatch', () => {
   it('rolls back and releases when the outbox select fails', async () => {
     const err = new Error('select failed')
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockRejectedValueOnce(err)
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(err).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
@@ -95,8 +120,12 @@ describe('publishBatch', () => {
 })
 
 describe('startOutboxPublisher', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers() })
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('returns a handle whose stop awaits the in-flight tick', async () => {
     const client = mockClient([])

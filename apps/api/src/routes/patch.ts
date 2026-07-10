@@ -3,6 +3,8 @@
 //
 // Patch update builder for API route SQL assignments.
 
+import type { Attribution } from '../attribution.js'
+
 type PatchAssignment = (placeholder: string) => string
 
 export type PatchValue = unknown
@@ -36,4 +38,14 @@ export function buildPatchUpdate(baseValues: PatchValue[], fields: PatchField[])
     }
   }
   return sets.length === 0 ? null : { sets, values }
+}
+
+// Stamps the update-side attribution onto a built patch. Appended after the no-fields
+// check so an attribution stamp alone never turns an empty patch into a write.
+export function appendAttribution(update: PatchUpdate, attribution: Attribution): PatchUpdate {
+  update.values.push(attribution.actor)
+  update.sets.push(`updated_by = $${update.values.length}`)
+  update.values.push(attribution.viaOperator)
+  update.sets.push(`updated_via_operator = $${update.values.length}`)
+  return update
 }

@@ -59,7 +59,7 @@ export const ENV_SCHEMA = {
   CARACAL_BASE_VERSION: {
     kind: 'string',
     description: 'Dev base tag used to build local image names (<base>-dev.sha<sha>).',
-    default: '2026.05.26',
+    default: '0.2.0',
   },
   CARACAL_DEV_SHA: {
     kind: 'string',
@@ -76,10 +76,20 @@ export const ENV_SCHEMA = {
     secret: true,
     file: 'postgresPassword',
   },
-  POSTGRES_SHARED_BUFFERS: { kind: 'string', description: 'shared_buffers tuning. Target ~25% of DB memory.', default: '256MB', exposed: true },
+  POSTGRES_SHARED_BUFFERS: {
+    kind: 'string',
+    description: 'shared_buffers tuning. Target ~25% of DB memory.',
+    default: '256MB',
+    exposed: true,
+  },
   POSTGRES_EFFECTIVE_CACHE_SIZE: { kind: 'string', description: 'effective_cache_size planner hint.', default: '768MB', exposed: true },
   POSTGRES_WORK_MEM: { kind: 'string', description: 'work_mem per sort/hash op.', default: '8MB', exposed: true },
-  POSTGRES_MAINTENANCE_WORK_MEM: { kind: 'string', description: 'maintenance_work_mem for VACUUM/CREATE INDEX.', default: '64MB', exposed: true },
+  POSTGRES_MAINTENANCE_WORK_MEM: {
+    kind: 'string',
+    description: 'maintenance_work_mem for VACUUM/CREATE INDEX.',
+    default: '64MB',
+    exposed: true,
+  },
   POSTGRES_MAX_CONNECTIONS: { kind: 'int', description: 'max_connections ceiling.', default: '100', exposed: true },
   POSTGRES_LOG_MIN_DURATION_MS: { kind: 'int', description: 'Slow query log threshold in ms.', default: '500', exposed: true },
 
@@ -116,11 +126,19 @@ export const ENV_SCHEMA = {
     secret: true,
     file: 'metricsBearer',
   },
-  ZONE_KEK: {
+  SECRET_STORE_KEK: {
     kind: 'secret',
-    description: '32-byte zone key-encryption-key. Rotating destroys existing zones.',
+    description: '32-byte master key for the built-in Secret Store. Rotating destroys every stored secret.',
     secret: true,
-    file: 'zoneKek',
+    file: 'secretStoreKek',
+  },
+  CARACAL_SECRET_BACKEND: {
+    kind: 'enum',
+    values: ['builtin', 'vault', 'infisical', 'azurekeyvault', 'awssecretsmanager', 'gcpsecretmanager', 'custom'],
+    description:
+      'Where user-entered provider credentials are stored. builtin uses the encrypted Secret Store in Postgres; external backends read their connection settings from CARACAL_* backend variables.',
+    default: 'builtin',
+    exposed: true,
   },
   AUDIT_HMAC_KEY: {
     kind: 'secret',
@@ -133,6 +151,17 @@ export const ENV_SCHEMA = {
     description: 'HMAC key for outbox/stream message integrity.',
     secret: true,
     file: 'streamsHmacKey',
+  },
+  IDEMPOTENCY_HMAC_KEY: {
+    kind: 'secret',
+    description: 'HMAC key used to digest Coordinator idempotency keys before storage.',
+    secret: true,
+    file: 'idempotencyHmacKey',
+  },
+  IDEMPOTENCY_HMAC_KEY_PREVIOUS: {
+    kind: 'secret',
+    description: 'Previous idempotency HMAC key accepted temporarily during rotation.',
+    secret: true,
   },
   GATEWAY_STS_HMAC_KEY: {
     kind: 'secret',
@@ -150,7 +179,8 @@ export const ENV_SCHEMA = {
   },
   UPSTREAM_HOST_ALLOWLIST: {
     kind: 'string',
-    description: 'Gateway: optional comma-separated allowlist pinning upstream egress to named hosts. Empty permits any operator-provisioned host. Private and on-prem upstreams are allowed by default; dangerous ranges (cloud metadata, loopback, CGNAT, multicast) are always blocked.',
+    description:
+      'Gateway: optional comma-separated allowlist pinning upstream egress to named hosts. Empty permits any operator-provisioned host. Private and on-prem upstreams are allowed by default; dangerous ranges (cloud metadata, loopback, CGNAT, multicast) are always blocked.',
     default: '',
     exposed: true,
   },
@@ -181,6 +211,8 @@ export const ENV_SCHEMA = {
   CARACAL_APP_CPU_RESERVE: { kind: 'string', description: 'Per-app-container CPU reservation.', default: '0.1', exposed: true },
   CARACAL_APP_MEM_LIMIT: { kind: 'string', description: 'Per-app-container memory limit.', default: '512M', exposed: true },
   CARACAL_APP_MEM_RESERVE: { kind: 'string', description: 'Per-app-container memory reservation.', default: '128M', exposed: true },
+  CARACAL_GATEWAY_CPU_LIMIT: { kind: 'string', description: 'Gateway container CPU limit.', default: '2.0', exposed: true },
+  CARACAL_GATEWAY_MEM_LIMIT: { kind: 'string', description: 'Gateway container memory limit.', default: '1G', exposed: true },
   CARACAL_DB_CPU_LIMIT: { kind: 'string', description: 'Postgres CPU limit.', default: '2.0', exposed: true },
   CARACAL_DB_MEM_LIMIT: { kind: 'string', description: 'Postgres memory limit.', default: '1G', exposed: true },
   CARACAL_DB_MEM_RESERVE: { kind: 'string', description: 'Postgres memory reservation.', default: '256M', exposed: true },
@@ -195,11 +227,20 @@ export const ENV_SCHEMA = {
     default: '',
     exposed: true,
   },
-  LOG_LEVEL: { kind: 'enum', values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Log verbosity for all services.', default: 'info', exposed: true },
-  OPERATOR_UPSTREAM_ALLOWLIST: {
-    kind: 'string',
-    description: 'Comma-separated host allowlist the Operator LLM normalizer may forward to. Blank allows any (dev).',
-    default: '',
+  LOG_LEVEL: {
+    kind: 'enum',
+    values: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
+    description: 'Log verbosity for all services.',
+    default: 'info',
+    exposed: true,
+  },
+
+  // ─── Caracal Operator ──────────────────────────────────────────────────────
+  API_OPERATOR_ENABLED: {
+    kind: 'bool',
+    description:
+      'Enables the Caracal Operator console capability. AI providers are configured in the console and stay off until one is added.',
+    default: 'true',
     exposed: true,
   },
 } as const satisfies Record<string, EnvSpec>
@@ -213,8 +254,4 @@ export function envEntries(): [EnvKey, EnvSpec][] {
 export function resolveDefault(spec: EnvSpec, mode: StackMode): string | undefined {
   if (spec.defaults && spec.defaults[mode] !== undefined) return spec.defaults[mode]
   return spec.default
-}
-
-export function isPinned(spec: EnvSpec, mode: StackMode): boolean {
-  return Boolean(spec.pinned?.includes(mode))
 }

@@ -16,12 +16,9 @@ describe('GET /v1/policy-templates', () => {
     const templates = JSON.parse(res.body) as Array<{ id: string; content: string }>
 
     expect(res.statusCode).toBe(200)
-    expect(templates.map((template) => template.id)).toEqual(expect.arrayContaining([
-      'application-bindings',
-      'resource-grants',
-      'label-confinement',
-      'zone-restriction',
-    ]))
+    expect(templates.map((template) => template.id)).toEqual(
+      expect.arrayContaining(['application-bindings', 'resource-grants', 'label-confinement', 'zone-restriction']),
+    )
     expect(new Set(templates.map((template) => template.id)).size).toBe(templates.length)
     const grants = templates.find((template) => template.id === 'resource-grants')
     expect(grants?.content).toContain('# caracal:data-document')

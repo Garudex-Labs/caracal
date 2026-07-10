@@ -8,17 +8,17 @@ Redis Streams move operational events between Caracal services. Redis is not the
 
 ## Streams and Groups
 
-| Stream | Consumer groups |
-| --- | --- |
-| `caracal.audit.events` | `audit-ingestor`, `siem-export` |
-| `caracal.audit.events.dlq` | `audit-dlq-observer` |
-| `caracal.policy.invalidate` | `opa-engine` |
-| `caracal.sessions.revoke` | `sts-revocation` |
-| `caracal.keys.invalidate` | `sts-keys` |
-| `caracal.agents.lifecycle` | `coordinator-relay` |
-| `caracal.invocations.lifecycle` | `invocations-observer` |
-| `caracal.delegations.invalidate` | `delegations-observer` |
-| `caracal.providers.ratelimit` | initialized as a one-entry stream |
+| Stream                           | Consumer groups                   |
+| -------------------------------- | --------------------------------- |
+| `caracal.audit.events`           | `audit-ingestor`, `siem-export`   |
+| `caracal.audit.events.dlq`       | `audit-dlq-observer`              |
+| `caracal.policy.invalidate`      | `opa-engine`                      |
+| `caracal.sessions.revoke`        | `sts-revocation`                  |
+| `caracal.keys.invalidate`        | `sts-keys`                        |
+| `caracal.agents.lifecycle`       | `coordinator-relay`               |
+| `caracal.invocations.lifecycle`  | `invocations-observer`            |
+| `caracal.delegations.invalidate` | `delegations-observer`            |
+| `caracal.providers.ratelimit`    | initialized as a one-entry stream |
 
 ## Provision
 
@@ -60,22 +60,22 @@ Stream messages are signed with `STREAMS_HMAC_KEY` in published modes.
 
 Redis is a correctness-critical store, not a disposable cache: revocation entries and unacknowledged stream messages must survive memory pressure and restarts. Configure every Caracal Redis with:
 
-| Setting | Required value | Why |
-| --- | --- | --- |
-| `maxmemory-policy` | `noeviction` | Any `allkeys-*`/`volatile-*` policy can silently drop revocation entries and pending stream messages, weakening revocation correctness. |
-| `appendonly` | `yes` | Persists stream and revocation state across restarts. |
-| `appendfsync` | `everysec` | Bounds data loss on crash to roughly one second. |
+| Setting            | Required value | Why                                                                                                                                     |
+| ------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxmemory-policy` | `noeviction`   | Any `allkeys-*`/`volatile-*` policy can silently drop revocation entries and pending stream messages, weakening revocation correctness. |
+| `appendonly`       | `yes`          | Persists stream and revocation state across restarts.                                                                                   |
+| `appendfsync`      | `everysec`     | Bounds data loss on crash to roughly one second.                                                                                        |
 
 The bundled Redis image (`infra/redis/redis.conf`) already sets these. **External or managed Redis is your responsibility** - many managed tiers default to `allkeys-lru`. On startup each consumer service (STS, Gateway, Audit) reads the live `maxmemory-policy` and logs a warning when it is not `noeviction`, so a misconfigured store is visible in service logs immediately. The check never blocks startup and is skipped when the provider restricts `CONFIG GET`.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Audit DLQ grows | HMAC failures, malformed producers, Redis memory pressure, and Audit database writes. |
-| Policy changes do not take effect | `caracal.policy.invalidate` group health and STS policy age metrics. |
-| Revocation is delayed | `caracal.sessions.revoke` pending entries and Gateway/STS consumer health. |
-| Provisioner warns about length | Plan an explicit stream retention/reset; provisioning does not rewrite stream policy silently. |
+| Symptom                           | Check                                                                                          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Audit DLQ grows                   | HMAC failures, malformed producers, Redis memory pressure, and Audit database writes.          |
+| Policy changes do not take effect | `caracal.policy.invalidate` group health and STS policy age metrics.                           |
+| Revocation is delayed             | `caracal.sessions.revoke` pending entries and Gateway/STS consumer health.                     |
+| Provisioner warns about length    | Plan an explicit stream retention/reset; provisioning does not rewrite stream policy silently. |
 
 ## Next Step
 

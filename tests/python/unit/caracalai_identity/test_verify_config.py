@@ -20,7 +20,7 @@ from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
 from caracalai_identity.types import Claims, ChainHop, JwtConfig
 from caracalai_identity.verify import (
-    AgentIdentityRequiredError,
+    SessionRequiredError,
     ChainMismatchError,
     DelegationRequiredError,
     HopCountExceededError,
@@ -62,7 +62,6 @@ class StubCache:
         return self.keys
 
 
-
 class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.original_cache = verify._cache
@@ -73,6 +72,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
     async def _verify(self, extra_claims: dict, **config_kwargs) -> Claims:
         token, jwk = mint_es256_token(claims=extra_claims)
         verify._cache = StubCache([jwk])
+        config_kwargs.setdefault("expected_zone_id", "zone1")
         cfg = JwtConfig(
             issuer="https://sts.example.com",
             audience="resource://api",
@@ -88,27 +88,31 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims.sub, "user1")
         self.assertEqual(claims.zone_id, "zone1")
         self.assertEqual(claims.client_id, "app-1")
-        self.assertEqual(claims.sid, "sid-1")
-        self.assertEqual(claims.root_sid, "root1")
+        self.assertEqual(claims.authority_record_id, "sid-1")
+        self.assertEqual(claims.root_authority_record_id, "root1")
         self.assertEqual(claims.sub_type, "user")
         self.assertGreater(claims.expires_at, claims.issued_at)
         self.assertEqual(claims.target_resources, ["resource://api"])
 
-    async def test_raises_agent_required_when_absent(self) -> None:
-        with self.assertRaises(AgentIdentityRequiredError):
-            await self._verify({}, require_agent=True)
+    async def test_raises_session_required_when_absent(self) -> None:
+        with self.assertRaises(SessionRequiredError):
+            await self._verify({}, require_session=True)
 
-    async def test_accepts_when_agent_session_id_present(self) -> None:
-        claims = await self._verify({"agent_session_id": "agent-1"}, require_agent=True)
-        self.assertEqual(claims.agent_session_id, "agent-1")
+    async def test_accepts_when_session_id_present(self) -> None:
+        claims = await self._verify(
+            {"agent_session_id": "agent-1"}, require_session=True
+        )
+        self.assertEqual(claims.session_id, "agent-1")
 
     async def test_raises_delegation_required_when_absent(self) -> None:
         with self.assertRaises(DelegationRequiredError):
             await self._verify({}, require_delegation=True)
 
-    async def test_accepts_when_delegation_edge_id_present(self) -> None:
-        claims = await self._verify({"delegation_edge_id": "edge-1"}, require_delegation=True)
-        self.assertEqual(claims.delegation_edge_id, "edge-1")
+    async def test_accepts_when_delegation_id_present(self) -> None:
+        claims = await self._verify(
+            {"delegation_edge_id": "edge-1"}, require_delegation=True
+        )
+        self.assertEqual(claims.delegation_id, "edge-1")
 
     async def test_raises_chain_mismatch_when_app_absent(self) -> None:
         chain = [{"application_id": "app-child"}]
@@ -120,14 +124,20 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cm.exception.missing_application_id, "app-parent")
 
     async def test_accepts_chain_when_app_present(self) -> None:
-        chain = [{"application_id": "app-parent", "agent_session_id": "s1", "delegation_edge_id": "e1"}]
+        chain = [
+            {
+                "application_id": "app-parent",
+                "agent_session_id": "s1",
+                "delegation_edge_id": "e1",
+            }
+        ]
         claims = await self._verify(
             {"delegation_chain": chain},
             require_chain_contains=["app-parent"],
         )
         self.assertEqual(claims.delegation_chain[0].application_id, "app-parent")
-        self.assertEqual(claims.delegation_chain[0].agent_session_id, "s1")
-        self.assertEqual(claims.delegation_chain[0].delegation_edge_id, "e1")
+        self.assertEqual(claims.delegation_chain[0].session_id, "s1")
+        self.assertEqual(claims.delegation_chain[0].delegation_id, "e1")
 
     async def test_rejects_compact_chain_keys(self) -> None:
         chain = [{"app": "app-child", "session": "s2", "edge": "e2"}]
@@ -143,7 +153,11 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_for_invalid_token_string(self) -> None:
         verify._cache = StubCache([])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config("not.a.jwt", cfg)
 
@@ -161,7 +175,7 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_for_malformed_agent_claim(self) -> None:
         with self.assertRaises(TokenInvalidError):
-            await self._verify({"agent_session_id": ["agent-1"]}, require_agent=True)
+            await self._verify({"agent_session_id": ["agent-1"]}, require_session=True)
 
     async def test_raises_hop_count_exceeded(self) -> None:
         with self.assertRaises(HopCountExceededError):
@@ -183,7 +197,11 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         _, wrong_jwk = mint_es256_token()
         wrong_jwk["kid"] = "other-kid"
         verify._cache = StubCache([wrong_jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config(token, cfg)
 
@@ -191,26 +209,36 @@ class VerifyConfigTests(unittest.IsolatedAsyncioTestCase):
         token, _ = mint_es256_token()
         _, wrong_jwk = mint_es256_token()
         verify._cache = StubCache([wrong_jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         with self.assertRaises(TokenInvalidError):
             await verify_config(token, cfg)
 
     async def test_resolves_no_kid_token_using_all_keys(self) -> None:
         token, jwk = _mint_no_kid_token()
         verify._cache = StubCache([jwk])
-        cfg = JwtConfig(issuer="https://sts.example.com", audience="resource://api")
+        cfg = JwtConfig(
+            issuer="https://sts.example.com",
+            audience="resource://api",
+            expected_zone_id="zone1",
+        )
         claims = await verify_config(token, cfg)
         self.assertEqual(claims.sub, "user1")
 
 
 class VerifyChainContainsTests(unittest.TestCase):
-    def _claims(self, client_id: str = "app-1", chain: list[ChainHop] | None = None) -> Claims:
+    def _claims(
+        self, client_id: str = "app-1", chain: list[ChainHop] | None = None
+    ) -> Claims:
         return Claims(
             sub="u",
             zone_id="z",
             client_id=client_id,
-            sid="s",
-            root_sid="r",
+            authority_record_id="s",
+            root_authority_record_id="r",
             use="resource",
             sub_type="user",
             jti="j",
@@ -229,7 +257,9 @@ class VerifyChainContainsTests(unittest.TestCase):
 
     def test_returns_false_when_application_is_absent(self) -> None:
         chain = [ChainHop(application_id="app-other")]
-        self.assertFalse(verify_chain_contains(self._claims(chain=chain), "app-unknown"))
+        self.assertFalse(
+            verify_chain_contains(self._claims(chain=chain), "app-unknown")
+        )
 
 
 if __name__ == "__main__":

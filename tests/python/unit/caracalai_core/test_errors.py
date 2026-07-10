@@ -11,6 +11,9 @@ from caracalai_core.errors import CaracalError, ErrorCode
 
 
 class CaracalErrorTests(unittest.TestCase):
+    def test_session_required_code_is_canonical(self) -> None:
+        self.assertEqual(ErrorCode.SESSION_REQUIRED, "session_required")
+
     def test_string_and_json_include_optional_fields(self) -> None:
         err = CaracalError(
             ErrorCode.ACCESS_DENIED,
@@ -20,12 +23,15 @@ class CaracalErrorTests(unittest.TestCase):
         )
 
         self.assertEqual(str(err), "access_denied: Denied")
-        self.assertEqual(err.to_json(), {
-            "error": "access_denied",
-            "error_description": "Denied",
-            "requestId": "req-1",
-            "details": {"scope": "calendar.read"},
-        })
+        self.assertEqual(
+            err.to_json(),
+            {
+                "error": "access_denied",
+                "error_description": "Denied",
+                "requestId": "req-1",
+                "details": {"scope": "calendar.read"},
+            },
+        )
 
     def test_json_omits_empty_optional_fields(self) -> None:
         self.assertEqual(

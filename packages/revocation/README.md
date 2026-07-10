@@ -1,6 +1,6 @@
 # Caracal Revocation
 
-`packages/revocation` owns the revocation lookup contract and the bounded in-memory default. Storage-backed implementations live in connector packages such as `packages/connectors/redis`.
+`packages/revocation` owns the revocation lookup contract and the bounded in-memory default. Storage-backed implementations live in connector packages such as `packages/backends/redis`.
 
 ## Production contract
 

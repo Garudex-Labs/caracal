@@ -27,9 +27,9 @@ if ([string]::IsNullOrEmpty($InstallDir)) {
     }
 }
 $VerifyProvenance = $true
-$RequireProvenance = $true
-if ($env:CARACAL_REQUIRE_PROVENANCE -eq '0') {
-    $RequireProvenance = $false
+$RequireProvenance = $false
+if ($env:CARACAL_REQUIRE_PROVENANCE -eq '1') {
+    $RequireProvenance = $true
 }
 if ($env:CARACAL_VERIFY_PROVENANCE -eq '0' -or $NoVerifyProvenance) {
     $VerifyProvenance = $false
@@ -127,7 +127,7 @@ if ($Version -eq 'latest') {
 } else {
     $tag = $Version
 }
-if ($tag -notmatch '^v\d{4}\.\d{2}\.\d{2}(\.\d+)?(-rc\.(sha[0-9A-Za-z]+|\d+))?$') {
+if ($tag -notmatch '^v\d+\.\d+\.\d+(-rc\.(sha[0-9A-Za-z]+|\d+))?$') {
     throw "release tag $tag is not a supported Caracal release tag"
 }
 $base = "https://github.com/$repo/releases/download/$tag"
@@ -236,6 +236,7 @@ Write-Ok 'Caracal runtime is installed'
 Write-Section 'Next steps'
 Write-Host "  Release: $tag ($mode)"
 Write-Host '  Start the stack: caracal up'
+Write-Host '  Existing install? Roll onto this release: caracal upgrade'
 Write-Host '  Open the web console: caracal web'
 Write-Section 'Uninstall'
 Write-Host "  Remove caracal.exe from $InstallDir and the user PATH entry."

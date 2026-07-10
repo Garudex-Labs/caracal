@@ -8,26 +8,26 @@ Use this checklist before a platform team accepts production ownership of a Cara
 
 ## Handoff Checklist
 
-| Area | Evidence |
-| --- | --- |
-| Ownership | Service owner, on-call rotation, escalation path, security owner. |
-| Versioning | Image tags, chart values, release notes, rollback revision. |
-| Secrets | Secret inventory, storage location, rotation owner, last rotation date. |
-| Storage | Postgres backup/restore proof, Redis stream verification, retention policy. |
-| Network | Ingress, NetworkPolicy, DNS, TLS, upstream egress, provider endpoints. |
-| Observability | Dashboards, ServiceMonitor, PrometheusRule or equivalent alerts, log access. |
-| Runbooks | Deployment, upgrade, incident, backup, restore, policy deployment, failure recovery. |
-| Access | Console/Admin access, Control API credentials, audit access, break-glass policy. |
-| Compliance | Audit export path, evidence retention, tamper-response plan. |
+| Area          | Evidence                                                                             |
+| ------------- | ------------------------------------------------------------------------------------ |
+| Ownership     | Service owner, on-call rotation, escalation path, security owner.                    |
+| Versioning    | Image tags, chart values, release notes, rollback revision.                          |
+| Secrets       | Secret inventory, storage location, rotation owner, last rotation date.              |
+| Storage       | Postgres backup/restore proof, Redis stream verification, retention policy.          |
+| Network       | Ingress, NetworkPolicy, DNS, TLS, upstream egress, provider endpoints.               |
+| Observability | Dashboards, ServiceMonitor, PrometheusRule or equivalent alerts, log access.         |
+| Runbooks      | Deployment, upgrade, incident, backup, restore, policy deployment, failure recovery. |
+| Access        | Console/Admin access, Control API credentials, audit access, break-glass policy.     |
+| Compliance    | Audit export path, evidence retention, tamper-response plan.                         |
 
 ## Day-2 Operations
 
-| Cadence | Action |
-| --- | --- |
-| Daily | Check readiness, critical alerts, audit DLQ, outbox health, and revocation freshness. |
-| Weekly | Review capacity, backups, policy changes, and pending stream entries. |
-| Monthly | Rotate or review secrets, restore test, audit export review, dependency updates. |
-| Per release | Render diff, migration review, rollout gates, rollback compatibility check. |
+| Cadence     | Action                                                                                |
+| ----------- | ------------------------------------------------------------------------------------- |
+| Daily       | Check readiness, critical alerts, audit DLQ, outbox health, and revocation freshness. |
+| Weekly      | Review capacity, backups, policy changes, and pending stream entries.                 |
+| Monthly     | Rotate or review secrets, restore test, audit export review, dependency updates.      |
+| Per release | Render diff, migration review, rollout gates, rollback compatibility check.           |
 
 ## Escalation Package
 

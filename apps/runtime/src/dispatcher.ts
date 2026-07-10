@@ -4,22 +4,18 @@
 // Shared dispatcher kernel: builds usage text and routes argv through the runtime CLI registry.
 
 import { COMMAND_NAME_PATTERN, type CommandGroup } from '@caracalai/engine/commands'
-import {
-  RuntimeConfigMissingError,
-  RuntimeConfigValidationError,
-  loadRuntimeConfig as loadValidatedRuntimeConfig,
-} from '@caracalai/engine/runtime-config'
+import { RuntimeConfigMissingError, RuntimeConfigValidationError, loadRuntimeIdentity } from '@caracalai/engine/runtime-config'
 import { formatVersionOutput } from '@caracalai/engine'
 import { style, printError } from './style.ts'
 import type { CommandRegistry } from './registry.ts'
-import type { RuntimeConfig } from './config.ts'
+import type { RuntimeIdentity } from './config.ts'
 
 const GROUP_TITLES: Record<CommandGroup, string> = {
-  stack: 'Stack',
-  runtime: 'Runtime',
-  admin: 'Admin',
-  observability: 'Observability',
-  multiagent: 'Multi-agent',
+  stack: 'STACK',
+  runtime: 'RUNTIME',
+  admin: 'ADMIN',
+  observability: 'OBSERVABILITY',
+  multiagent: 'MULTI-AGENT',
 }
 
 export interface DispatchOptions {
@@ -28,24 +24,21 @@ export interface DispatchOptions {
   readonly mode: 'dev' | 'rc' | 'stable'
   readonly sha: string
   readonly registry: CommandRegistry
-  readonly extras?: readonly string[]
   readonly loadConfig?: boolean
 }
 
-function loadConfig(required: boolean): RuntimeConfig | undefined {
-  return loadValidatedRuntimeConfig(required)
-}
-
-export function loadRuntimeConfig(required: boolean): RuntimeConfig | undefined {
-  return loadConfig(required)
+function loadConfig(required: boolean): RuntimeIdentity | undefined {
+  return loadRuntimeIdentity(required)
 }
 
 export function printUsage(opts: DispatchOptions, out: NodeJS.WriteStream = process.stderr): void {
-  const H = (s: string) => style.header(s)
   const lines: string[] = [
-    `${style.title('Usage:')} ${opts.binary} <command> [options]`,
+    style.brand('Caracal CLI'),
     '',
-    'Caracal runtime command surface.',
+    style.dim('Secure AI authority, identity, and runtime for governed agent execution.'),
+    '',
+    style.title('Usage:'),
+    `  ${opts.binary} <command> [options]`,
     '',
   ]
   const groups = new Map<CommandGroup, typeof opts.registry.ordered>()
@@ -58,25 +51,20 @@ export function printUsage(opts: DispatchOptions, out: NodeJS.WriteStream = proc
   for (const group of Object.keys(GROUP_TITLES) as CommandGroup[]) {
     const items = groups.get(group)
     if (!items || items.length === 0) continue
-    lines.push(H(GROUP_TITLES[group]))
-    if (group === 'multiagent') lines.push('  Requires CARACAL_COORDINATOR_TOKEN.')
+    lines.push(style.section(GROUP_TITLES[group]))
+    if (group === 'multiagent') lines.push(style.dim('  Requires CARACAL_COORDINATOR_TOKEN.'))
     for (const b of items) {
-      lines.push(`  ${b.descriptor.name.padEnd(14)} ${b.descriptor.summary}`)
+      lines.push(`  ${style.command(b.descriptor.name.padEnd(14))} ${style.dim(b.descriptor.summary)}`)
       if (b.descriptor.subcommands?.length) {
-        lines.push(`    ${style.label('subcommands:')} ${b.descriptor.subcommands.join(', ')}`)
+        lines.push(style.dim(`    subcommands: ${b.descriptor.subcommands.join(', ')}`))
       }
     }
     lines.push('')
   }
-  if (opts.extras && opts.extras.length > 0) {
-    lines.push(H('Command options'))
-    for (const line of opts.extras) lines.push(line)
-    lines.push('')
-  }
   lines.push(
-    H('Global options'),
-    '  -h, --help      Show help',
-    '  -v, --version   Show version',
+    style.section('GLOBAL OPTIONS'),
+    `  ${style.flag('-h, --help'.padEnd(14))} ${style.dim('Show help')}`,
+    `  ${style.flag('-v, --version'.padEnd(14))} ${style.dim('Show version')}`,
     '',
   )
   out.write(lines.join('\n'))
@@ -97,12 +85,14 @@ export async function dispatch(opts: DispatchOptions, rawArgs: readonly string[]
   }
   if (command === '--version' || command === '-v' || command === 'version') {
     if (rest.includes('--json')) {
-      process.stdout.write(JSON.stringify({
-        binary: opts.binary,
-        version: opts.version,
-        mode: opts.mode,
-        sha: opts.sha,
-      }) + '\n')
+      process.stdout.write(
+        JSON.stringify({
+          binary: opts.binary,
+          version: opts.version,
+          mode: opts.mode,
+          sha: opts.sha,
+        }) + '\n',
+      )
     } else {
       process.stdout.write(formatVersionOutput(opts))
     }
@@ -119,7 +109,7 @@ export async function dispatch(opts: DispatchOptions, rawArgs: readonly string[]
   // help/usage path without first demanding runtime config the user has no chance to supply.
   const operands = rest[0] === '--' ? rest.slice(1) : rest
   const skipConfig = isHelpToken(rest[0]) || ((binding.descriptor.requiresArgs ?? false) && operands.length === 0)
-  let cfg: RuntimeConfig | undefined
+  let cfg: RuntimeIdentity | undefined
   if (opts.loadConfig && !skipConfig) {
     try {
       cfg = loadConfig(binding.descriptor.requiresConfig ?? false)

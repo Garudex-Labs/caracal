@@ -2,9 +2,14 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file renders a creator label with an optional Caracal operator co-author badge.
+This file renders an attribution identity as its current profile name with an optional Caracal operator co-author badge.
 */
+import { useQuery } from "@tanstack/react-query";
+
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useCopyToClipboard } from "@/components/ui";
+import { resolveProfileName } from "@/platform/api/profiles";
+import { accountIdFor } from "@/platform/state/localInstall";
 import { cx } from "@/lib/cx";
 
 const OperatorStarGlyph = ({ className }: { className?: string }) => (
@@ -13,19 +18,84 @@ const OperatorStarGlyph = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const CopyGlyph = () => (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </svg>
+);
+
+// Attribution stores an immutable identity, never a display name. This component resolves it to
+// the profile's current name at render time - so a rename updates every historical record on
+// screen - and keeps the stable identity one hover away for audit work: a resolved profile shows
+// its Account ID (the deterministic CRC rendering of the profile id, matching Settings), while
+// identities the install cannot resolve (admin credentials, erased profiles) render verbatim.
+// The hover card is interactive so the identity can be copied from it.
 export function CreatedBy({
-  name,
+  id,
   coAuthored,
   className,
 }: {
-  name: string | null | undefined;
+  id: string | null | undefined;
   coAuthored?: boolean;
   className?: string;
 }) {
-  const label = name && name.trim().length > 0 ? name : "-";
+  const copy = useCopyToClipboard();
+  const identity = id && id.trim().length > 0 ? id : null;
+  const profile = useQuery({
+    queryKey: ["profile", identity],
+    queryFn: () => resolveProfileName(identity!),
+    enabled: identity !== null,
+    staleTime: 60_000,
+  });
+  const name = profile.data ?? null;
+  // Account IDs exist only for profile identities; prefixed identities such as
+  // admin tokens keep the recorded identity on hover even when a name resolves.
+  const accountId = identity && name && !identity.includes(":") ? accountIdFor(identity) : null;
   return (
     <span className={cx("inline-flex items-center gap-1.5", className)}>
-      <span className="min-w-0 break-words">{label}</span>
+      {identity ? (
+        <Tooltip
+          interactive
+          side="top"
+          label={
+            <span className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                {accountId ? "Account ID: " : "Recorded identity: "}
+                <span className="break-all font-mono text-foreground">{accountId ?? identity}</span>
+              </span>
+              <button
+                type="button"
+                aria-label={accountId ? "Copy Account ID" : "Copy recorded identity"}
+                onClick={() =>
+                  void copy(accountId ?? identity, {
+                    successTitle: accountId ? "Account ID copied" : "Identity copied",
+                  })
+                }
+                className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground"
+              >
+                <CopyGlyph />
+              </button>
+            </span>
+          }
+        >
+          <span className="min-w-0 break-words" tabIndex={0}>
+            {name ?? identity}
+          </span>
+        </Tooltip>
+      ) : (
+        <span className="min-w-0 break-words">-</span>
+      )}
       {coAuthored ? (
         <Tooltip label="Co-authored by Caracal Operator" side="top">
           <span

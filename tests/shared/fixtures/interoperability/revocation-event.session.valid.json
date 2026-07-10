@@ -1,6 +1,6 @@
 {
   "zone_id": "zone-1",
-  "session_id": "sid-1",
+  "session_id": "authority-record-1",
   "reason": "grant_revoked",
   "grant_id": "grant-1",
   "outbox_id": "outbox-1",

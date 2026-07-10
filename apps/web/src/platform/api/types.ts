@@ -12,6 +12,11 @@ export interface Zone {
   slug: string;
   dcr_enabled: boolean;
   operator_coauthor_badge: boolean;
+  operator_governed: boolean;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +38,7 @@ export interface ZonePatchInput {
   dcr_enabled?: boolean;
   dcr_shutdown?: DcrShutdownMode;
   operator_coauthor_badge?: boolean;
+  operator_governed?: boolean;
 }
 
 export interface ZoneDcrStatus {
@@ -48,8 +54,14 @@ export interface Application {
   registration_method: RegistrationMethod;
   traits?: string[];
   expires_at?: string | null;
+  archived_at?: string | null;
   client_secret?: string;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface ApplicationInput {
@@ -61,6 +73,33 @@ export interface ApplicationInput {
 export interface ApplicationPatchInput {
   name?: string;
   traits?: string[];
+}
+
+export interface WorkloadBinding {
+  env: string;
+  resource: string;
+  scopes?: string[];
+  optional?: boolean;
+  on_failure?: "warn" | "error";
+}
+
+export interface Workload {
+  id: string;
+  zone_id: string;
+  name: string;
+  bindings: WorkloadBinding[];
+  secret?: string;
+  created_by: string | null;
+  created_via_operator: boolean;
+  created_at: string;
+  updated_by: string | null;
+  updated_via_operator: boolean;
+  updated_at: string | null;
+}
+
+export interface WorkloadUpdateInput {
+  name?: string;
+  bindings?: WorkloadBinding[];
 }
 
 export type ResourceOperationEnforcement = "enforced" | "transport_uniform";
@@ -77,13 +116,17 @@ export interface Resource {
   name: string;
   identifier: string;
   upstream_url: string | null;
-  gateway_application_id: string | null;
   scopes: string[];
   credential_provider_id: string | null;
   operations: ResourceOperation[];
   operation_enforcement: ResourceOperationEnforcement;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface ResourceInput {
@@ -92,7 +135,6 @@ export interface ResourceInput {
   upstream_url?: string | null;
   scopes: string[];
   credential_provider_id?: string | null;
-  gateway_application_id?: string | null;
   operations?: ResourceOperation[];
   operation_enforcement?: ResourceOperationEnforcement;
 }
@@ -105,9 +147,21 @@ export type ProviderKind =
   | "oauth2_authorization_code"
   | "oauth2_client_credentials"
   | "api_key"
-  | "bearer_token";
+  | "bearer_token"
+  | "http_basic";
 
-export type ProviderSecretConfigKey = "client_secret" | "private_key" | "api_key" | "bearer_token";
+export const PROVIDER_KIND_LABEL: Record<ProviderKind, string> = {
+  none: "None",
+  caracal_mandate: "Caracal mandate",
+  oauth2_authorization_code: "OAuth 2.0 (auth code)",
+  oauth2_client_credentials: "OAuth 2.0 (client creds)",
+  api_key: "API key",
+  bearer_token: "Bearer token",
+  http_basic: "HTTP Basic",
+};
+
+export type ProviderSecretConfigKey =
+  "client_secret" | "private_key" | "api_key" | "bearer_token" | "password";
 
 export interface Provider {
   id: string;
@@ -117,8 +171,14 @@ export interface Provider {
   kind: ProviderKind;
   config_json: Record<string, unknown>;
   secret_config_keys: ProviderSecretConfigKey[];
+  connectivity_failed_at: string | null;
+  created_by: string | null;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface ProviderInput {
@@ -126,6 +186,7 @@ export interface ProviderInput {
   identifier?: string;
   kind: ProviderKind;
   config_json?: Record<string, unknown>;
+  check?: boolean;
 }
 
 export interface ProviderPatchInput {
@@ -136,9 +197,18 @@ export interface ProviderPatchInput {
 }
 
 export interface ProviderTestResult {
-  status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error" | "untestable";
+  status: "ok" | "auth_failed" | "unreachable" | "endpoint_error" | "config_error";
   detail: string;
   checked_at: string;
+}
+
+export interface ProviderDiscovery {
+  issuer: string;
+  token_endpoint: string;
+  authorization_endpoint?: string;
+  revocation_endpoint?: string;
+  scopes_supported?: string[];
+  token_endpoint_auth_methods_supported?: string[];
 }
 
 export interface Policy {
@@ -146,10 +216,12 @@ export interface Policy {
   zone_id: string;
   name: string;
   description: string | null;
-  owner_type: string;
   created_by: string;
-  co_authored_by_operator: boolean;
+  created_via_operator: boolean;
+  updated_by: string | null;
+  updated_via_operator: boolean;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface PolicyVersion {
@@ -160,6 +232,7 @@ export interface PolicyVersion {
   content_sha256: string;
   schema_version: string;
   created_by?: string;
+  created_via_operator?: boolean;
   created_at: string;
 }
 
@@ -173,8 +246,6 @@ export interface PolicyInput {
 
 export interface PolicyValidateResult {
   valid: boolean;
-  error?: string;
-  detail?: string;
   schema_version?: string;
   input_schema_version?: string;
   output_contract?: {
@@ -195,13 +266,6 @@ export interface PolicyPreview {
   data_referenced: string[];
 }
 
-export interface PolicyTemplate {
-  id: string;
-  name: string;
-  description: string;
-  content: string;
-}
-
 export interface PolicySet {
   id: string;
   zone_id: string;
@@ -209,8 +273,11 @@ export interface PolicySet {
   description: string | null;
   active_version_id: string | null;
   created_by?: string;
-  co_authored_by_operator?: boolean;
+  created_via_operator?: boolean;
+  updated_by?: string | null;
+  updated_via_operator?: boolean;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface PolicyManifestEntry {
@@ -225,6 +292,8 @@ export interface PolicySetVersion {
   manifest_sha256: string;
   schema_version: string;
   policies?: string[];
+  created_by?: string | null;
+  created_via_operator?: boolean;
   created_at: string;
 }
 
@@ -236,7 +305,6 @@ export interface ActivationStatus {
   version_id: string;
   active: boolean;
   active_version_id: string | null;
-  shadow_version_id: string | null;
   manifest_sha256: string | null;
   propagation_status: string;
   outbox: { state: string; [key: string]: unknown };
@@ -256,18 +324,71 @@ export interface SimulateResult {
   result: unknown;
 }
 
-export interface Session {
+export interface AuthorityRecord {
   id: string;
-  zone_id: string;
-  session_type: string;
-  subject_id: string;
-  parent_id: string | null;
+  zoneId: string;
+  type: string;
+  subjectId: string;
+  parentId: string | null;
   status: string;
-  expires_at: string;
-  authenticated_at: string;
+  expiresAt: string;
+  authenticatedAt: string;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface SubjectSummary {
+  subject_id: string;
+  federated: boolean;
+  application_name: string | null;
+  total_sessions: number;
+  active_sessions: number;
+  revoked_sessions: number;
+  first_seen: string;
+  last_seen: string;
+  last_revoked_at: string | null;
+  issuer: string | null;
+}
+
+export interface SubjectQuery {
+  kind?: "user" | "application";
+  search?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface SubjectGovernedSession {
+  id: string;
+  application_id: string;
+  application_name: string | null;
+  lifecycle: string;
+  status: string;
+  startedAt: string;
+}
+
+export interface SubjectConnection {
+  id: string;
+  provider_id: string;
+  provider_name: string | null;
+  status: string;
+  expires_at: string | null;
   created_at: string;
-  revoked_at: string | null;
-  revoked_reason: string | null;
+}
+
+export interface SubjectOverview {
+  subject: SubjectSummary;
+  governed: { active: number; total: number; recent: SubjectGovernedSession[] };
+  approvals: { pending: number; total: number };
+  connections: SubjectConnection[];
+}
+
+export interface SubjectRevokeResult {
+  subject_id: string;
+  sessions: number;
+  governed_sessions: number;
+  delegations: number;
+  connections: number;
 }
 
 export interface AuditEvent {
@@ -293,7 +414,95 @@ export interface AuditDetail extends AuditEvent {
 export interface AuditRetention {
   retention_days: number;
   max_days: number;
+  updated_by: string | null;
   updated_at: string | null;
+}
+
+export type StepUpState = "pending" | "approved" | "rejected" | "expired" | "consumed";
+
+export interface StepUpChallenge {
+  id: string;
+  zone_id: string;
+  session_id: string;
+  principal_id: string;
+  application_id: string | null;
+  challenge_type: string;
+  tier: string | null;
+  approver_class: "operator" | "subject" | "any";
+  privacy_mode: "identified" | "pseudonymous" | "anonymous";
+  binding: string;
+  metadata_json: Record<string, unknown> | null;
+  decision_reason: string | null;
+  created_at: string;
+  expires_at: string;
+  satisfied_at: string | null;
+  rejected_at: string | null;
+  consumed_at: string | null;
+  approver_subject_id: string | null;
+  prior_approved: number;
+  prior_rejected: number;
+  state: StepUpState;
+}
+
+export interface StepUpDecision {
+  id: string;
+  state: "approved" | "rejected";
+  satisfied_at: string | null;
+  rejected_at: string | null;
+  approver_subject_id: string;
+}
+
+export interface ApprovalQuery {
+  state?: StepUpState;
+  cursor?: string;
+}
+
+export interface ApprovalCounts {
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+  consumed: number;
+}
+
+export interface NotificationSink {
+  id: string;
+  zone_id: string;
+  name: string;
+  url: string;
+  event_types: string[];
+  active: boolean;
+  consecutive_failures: number;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationSinkCreated extends NotificationSink {
+  secret: string;
+}
+
+export interface NotificationSinkInput {
+  name: string;
+  url: string;
+  event_types?: string[];
+  active?: boolean;
+}
+
+export interface SinkDelivery {
+  id: string;
+  sink_id: string;
+  event_id: string;
+  event_type: string;
+  attempts: number;
+  available_at: string;
+  delivered_at: string | null;
+  abandoned_at: string | null;
+  response_status: number | null;
+  last_error: string | null;
+  created_at: string;
 }
 
 export interface DeniedDecision {
@@ -338,8 +547,8 @@ export interface ZoneOverview {
   recent_events: OverviewEvent[];
 }
 
-export interface RowList<T> {
-  rows: T[];
+export interface ListEnvelope<T> {
+  items: T[];
   next_cursor: string | null;
 }
 
@@ -388,25 +597,25 @@ export interface DiagnosticsReport {
   generatedAt: string;
 }
 
-export type AgentStatus = "active" | "suspended" | "terminated";
+export type SessionStatus = "active" | "suspended" | "terminated" | "expired";
 
-export interface Agent {
-  agent_session_id: string;
-  zone_id: string;
-  application_id: string;
-  parent_id: string | null;
-  subject_session_id: string | null;
+export interface Session {
+  id: string;
+  zoneId: string;
+  applicationId: string;
+  parentId: string | null;
+  subjectAuthorityRecordId: string | null;
   lifecycle: string;
   labels: string[];
-  status: AgentStatus;
+  status: SessionStatus;
   depth: number;
-  ttl_seconds: number | null;
+  ttlSeconds: number | null;
   metadata: Record<string, unknown> | null;
-  spawned_at: string;
-  terminated_at: string | null;
-  termination_reason: string | null;
-  last_heartbeat_at: string | null;
-  heartbeat_deadline_at: string | null;
+  startedAt: string;
+  terminatedAt: string | null;
+  terminationReason: string | null;
+  lastHeartbeatAt: string | null;
+  heartbeatDeadlineAt: string | null;
 }
 
 export interface CoordinatorList<T> {
@@ -415,15 +624,15 @@ export interface CoordinatorList<T> {
 }
 
 export interface EffectiveAuthority {
-  agent_session_id: string;
-  inbound_edges: string[];
-  effective_scopes: string[];
-  effective_resources: string[];
-  effective_resource_ids?: string[];
-  effective_resource_constrained?: boolean;
-  effective_max_hops: number | null;
-  effective_ttl_seconds: number | null;
-  earliest_expires_at: string | null;
+  sessionId: string;
+  inboundDelegations: string[];
+  scopes: string[];
+  resources: string[];
+  resourceIds?: string[];
+  resourceConstrained?: boolean;
+  maxHops: number | null;
+  ttlSeconds: number | null;
+  expiresAt: string | null;
 }
 
 export interface DelegationEdge {
@@ -451,49 +660,56 @@ export interface DelegationHop {
   depth: number;
 }
 
-export interface DelegationImpactRow extends DelegationHop {
-  subject_session_id: string | null;
+// The coordinator's revocation-impact envelope: the downstream edges a revocation
+// cascades through, plus the distinct Sessions and Subject authority records losing authority.
+export interface DelegationImpact {
+  delegationId: string;
+  affectedDelegations: DelegationHop[];
+  affectedSessions: string[];
+  affectedAuthorityRecords: string[];
 }
 
 /* ------------------------------ Provider grants ----------------------------- */
 
-export interface ProviderGrant {
+export interface ProviderConnection {
   id: string;
   zone_id: string;
-  user_id: string;
-  resource_id: string;
+  subject_id: string;
   provider_id: string;
-  scopes: string[];
   status: string;
   expires_at: string | null;
+  refreshed_at?: string | null;
+  renewable?: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface ProviderGrantAuthorizeInput {
-  user_id: string;
-  resource_id: string;
-  provider_id: string;
-  scopes: string[];
+export interface ProviderConnectionListQuery {
+  provider_id?: string;
+  subject_id?: string;
+  status?: string;
 }
 
-export interface ProviderGrantAuthorizeResult {
+export interface ProviderConnectionAuthorizeInput {
+  subject_id: string;
+  provider_id: string;
+}
+
+export interface ProviderConnectionAuthorizeResult {
   authorization_url: string;
   state: string;
   expires_at: string;
 }
 
-export interface ProviderGrantRevokeInput {
-  user_id: string;
-  resource_id: string;
+export interface ProviderConnectionRevokeInput {
+  subject_id: string;
   provider_id: string;
 }
 
-export interface ProviderGrantListQuery {
-  provider_id?: string;
-  resource_id?: string;
-  user_id?: string;
-  status?: string;
+export type UpstreamRevocation = "revoked" | "unsupported" | "failed";
+
+export interface ProviderConnectionRevokeResult extends ProviderConnection {
+  upstream_revocation: UpstreamRevocation;
 }
 
 /* -------------------------------- Control API ------------------------------- */
@@ -515,6 +731,10 @@ export interface ControlKey {
   maxTtlSeconds?: number;
   expiresAt?: string;
   createdAt: string;
+  createdBy?: string | null;
+  createdViaOperator?: boolean;
+  updatedBy?: string | null;
+  updatedViaOperator?: boolean;
 }
 
 export interface ControlKeyCreateInput {
@@ -617,7 +837,8 @@ export interface AdminAuditQuery {
   cursor?: string;
 }
 
-export interface SessionQuery {
+export interface AuthorityRecordQuery {
+  id?: string;
   status?: string;
   subject_id?: string;
   format?: string;
@@ -625,7 +846,7 @@ export interface SessionQuery {
   cursor?: string;
 }
 
-export interface AgentQuery {
+export interface SessionQuery {
   status?: string;
   lifecycle?: string;
   application_id?: string;
@@ -667,7 +888,7 @@ export interface Invocation {
   created_at: string;
 }
 
-export interface AgentService {
+export interface SessionService {
   id: string;
   zone_id: string;
   application_id: string;
@@ -681,7 +902,18 @@ export interface AgentService {
 }
 
 export type OperatorCapabilityDomain =
-  "zone" | "application" | "provider" | "resource" | "policy" | "grant" | "audit";
+  | "zone"
+  | "application"
+  | "provider"
+  | "resource"
+  | "policy"
+  | "grant"
+  | "authority-record"
+  | "session"
+  | "delegation"
+  | "audit"
+  | "workload"
+  | "approval";
 
 export interface OperatorCapability {
   id: string;

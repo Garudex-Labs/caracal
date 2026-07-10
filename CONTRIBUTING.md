@@ -7,10 +7,10 @@
 | ------------------- | ------- |
 | Node.js             | 24+     |
 | pnpm                | 11.1.1  |
-| Docker + Compose v2 | 24+     |
+| Docker + Compose v2 | 25+     |
 | Go                  | 1.26+   |
 | Python              | 3.14+   |
-| Bun                 | latest  |
+| Bun                 | 1.3.14  |
 
 - `<os>` ∈ `linux` · `darwin` · `windows`
 - `<arch>` ∈ `x64` · `arm64`
@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `2026.06.04-dev.sha<sha>`                                | `2026.06.25-rc.1` / `0.1.6-rc.2`                          | `2026.06.04` / `0.1.4`                                    |
-| Container images      | `localhost/caracal-{svc}:2026.06.04-dev.sha<sha>`        | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.25-rc.1`      | `ghcr.io/garudex-labs/caracal-{svc}:v2026.06.04`          |
+| Version               | `0.2.0-dev.sha<sha>`                                     | `0.2.0-rc.1`                                                | `0.2.0`                                                    |
+| Container images      | `localhost/caracal-{svc}:0.2.0-dev.sha<sha>`             | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0-rc.1`            | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0`                |
 
 </details>
 
@@ -32,13 +32,14 @@
 
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git && cd caracal
-pnpm caracal up                     # Build and start the full stack
+pnpm run setup                       # Install workspace and language dependencies
+pnpm caracal up                     # Build and start the Caracal platform
 
 # Essential Commands
-pnpm caracal --help                 # Show runtime shell help and available lifecycle commands
-pnpm caracal status                 # Check health status of all services
-pnpm caracal down [--help]          # Stop the stack
-pnpm caracal purge                  # Remove stack, volumes, logs, examples, cache, and installed data
+pnpm caracal --help                 # Show CLI help and available commands
+pnpm caracal status                 # Show platform health
+pnpm caracal down [--help]          # Stop the platform (-v removes volumes)
+pnpm caracal purge                  # Remove platform state (stack, volumes, logs, config, cache)
 ```
 
 <details>
@@ -59,12 +60,13 @@ pnpm caracal web              # Human-facing product management in the browser
 
 #### Standalone execution
 
-`pnpm caracal run -- <command>` loads runtime config, exchanges application credentials with STS, injects scoped resource tokens into the child process, and runs it directly (no shell). It does not create apps, secrets, zones, or profiles. Create a managed `token` application first, save the one-time client secret, and store credentials in the OS Caracal config directory.
+`pnpm caracal run -- <command>` authenticates as a workload, fetches its launch bindings from STS, injects scoped resource credentials into the child process, and runs it directly (no shell). It does not create workloads, secrets, zones, or bindings. Create a workload on the Launcher page in the web console, save the one-time workload secret to the runtime secret path, and author the launch bindings on the same page.
 
-Run example workloads from their example directory:
+Run example workloads from a clone of the [Caracal examples repository](https://github.com/Garudex-Labs/examples):
 
 ```bash
-cd examples/ResearchAgent
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/ResearchAgent
 cp env.example .env
 $EDITOR .env
 . .env
@@ -75,23 +77,26 @@ On Windows, source the `.env` file from Git Bash or WSL, or set the same variabl
 
 #### Control API (optional)
 
-The web console is the primary management interface for Caracal. The Control API is an optional OAuth-protected endpoint for approved external automation and can be managed from the **web console → Runtime → Control** item.
-
+The web console is the primary management interface for Caracal. The Control API is an optional OAuth-protected endpoint for approved external automation and can be managed from the **Control** page.
 
 ## Tests
 
 ```bash
 pnpm run style                               # changed-file style gate
 pnpm test                                    # full suite (ts + go + py)
-pnpm run test:typescript | test:go | test:python
+pnpm run test:typescript                     # TypeScript suite
+pnpm run test:go                             # Go suite
+pnpm run test:python                         # Python suite
 ```
 
 `scripts/testCi.sh` mirrors `.github/workflows/test.yml` locally:
 
 ```bash
 scripts/testCi.sh                # full suite (style + ts + go + py + docs)
-scripts/testCi.sh --smoke | --style | --go | --py | --ts
+scripts/testCi.sh --smoke        # workspace build and Go vet
 ```
+
+The script also accepts `--all`, `--style`, `--ts`, `--go`, `--py`, and `--docs`.
 
 ### Testing Policy
 
@@ -103,9 +108,9 @@ This policy is mandatory and is enforced during review:
 
 ## Coding Style
 
-Caracal follows standard language conventions: TypeScript/JavaScript (TypeScript + Prettier), Go (Effective Go + `gofmt`), and Python (PEP 8 + Ruff). 
+Caracal follows standard language conventions: TypeScript/JavaScript (TypeScript + Prettier), Go (Effective Go + `gofmt`), and Python (PEP 8 + Ruff).
 
-Style checks run automatically in pull requests, with `pnpm run style` for validation and `pnpm run style:fix` for automatic formatting.
+The style gate always formats with the same pinned toolchain CI checks against: Prettier from the workspace lockfile, `gofmt`, and the Ruff version pinned in `scripts/pythonStyleRequirements.in` (installed into the repository venv on demand). `pnpm install` activates the repository pre-commit hook (`.githooks/pre-commit`), which formats and restages staged source files on every commit. Use `pnpm run style` to validate unpushed work and `pnpm run style:fix` to format manually.
 
 
 ## Submitting Changes
@@ -126,15 +131,13 @@ Style checks run automatically in pull requests, with `pnpm run style` for valid
 
 ## Code Review
 
-Changes are proposed against `main`, and the review required to merge depends on the contributor's role.
+Every change is proposed as a pull request against `main` and reviewed before merge.
 
 ### How review is conducted
 
-- Repository admins may push directly to `main`.
-- Maintainers listed in `.github/MAINTAINERS` open a pull request but may merge it without a separate approving review.
-- All other contributors open a pull request that requires at least one approving review from a maintainer before it is merged. Authors must not approve or merge their own changes.
-- Maintainers are listed in `.github/CODEOWNERS`, so they are requested automatically and their approval is required to merge a contributor pull request.
-- Release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
+- At least one maintainer other than the author must approve each pull request. Authors must not approve or merge their own changes.
+- Maintainers are listed in `.github/CODEOWNERS`, so they are requested automatically.
+- Stable release publishing requires `release-approval` from a maintainer other than the one who prepared the release.
 
 ### What reviewers must check
 
@@ -157,11 +160,11 @@ Dependency changes get extra scrutiny because they are a common supply-chain att
 
 ### What is required to be acceptable
 
-A contributor pull request is acceptable to merge only when it has at least one approving review from a maintainer, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion. Maintainers and admins are trusted to hold the changes they merge directly to the same standard.
+A pull request is acceptable to merge only when it has at least one approving review from a maintainer other than the author, all required CI checks pass, review comments are resolved, and the change is judged a worthwhile improvement free of known defects that would argue against inclusion.
 
 ## Releases
 
-Release artifacts share one CalVer: `vYYYY.MM.DD` (`.N` for same-day re-cuts). Only `.github/MAINTAINERS` can run release workflows. Stable releases require `release-approval` from a different maintainer.
+Every artifact in a release shares one Semantic Version: `product.version` in `release.config.json` (`vX.Y.Z`, rc trains use `vX.Y.Z-rc.N`). Only `.github/MAINTAINERS` can run release workflows. Stable releases require `release-approval` from a different maintainer.
 
 ### Create dev builds
 
@@ -171,7 +174,7 @@ Use dev builds only for development:
 pnpm --dir apps/runtime build:release                          # stamp dev + build local images + bun compile (all targets)
 BIN="$(pwd)/apps/runtime/dist/caracal-<os>-<arch>"                 # absolute path; survives cd
 pnpm caracal down                                          # Stop dev before testing
-    "$BIN" --version                                           # → caracal 2026.06.04-dev.sha<sha> [dev (sha <sha>)]
+    "$BIN" --version                                           # → caracal 0.2.0-dev.sha<sha> [dev (sha <sha>)]
 (cd /tmp && "$BIN" up && "$BIN" status && "$BIN" down)
 ```
 
@@ -179,7 +182,7 @@ pnpm caracal down                                          # Stop dev before tes
 
 ### Native build flags
 
-Go-based container builds preserve debug information by default and accept standard build arguments for native toolchains: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; pass linker options through `GO_LDFLAGS` when a release or diagnostic build needs them.
+Go-based container builds strip debug symbols by default (`GO_LDFLAGS` defaults to `-s -w`) and accept standard build arguments for native toolchains: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; override `GO_LDFLAGS` when a diagnostic build needs symbol tables.
 
 ### Release flow
 
@@ -187,53 +190,39 @@ Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves
 
 | Step | rc | stable |
 | --- | --- | --- |
-| Prepare | `scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1` | `scripts/release.sh stable --dry-run` |
-| Review | Commit the generated manifest and metadata. | Review the stable diff and generated version. |
-| Dry-run | `scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
-| Publish | Tag and push `v2026.06.25-rc.1`. | `scripts/release.sh stable` |
+| Prepare | Set `product.version` to `X.Y.Z-rc.N` in `release.config.json`, then `scripts/release.sh rc prepare` | Set `product.version` to `X.Y.Z`, then `scripts/release.sh stamp` |
+| Review | Commit the stamped files, manifest, and metadata. | Commit the stamped files and review the stable diff. |
+| Dry-run | `scripts/release.sh rc dry-run --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
+| Publish | Tag and push `vX.Y.Z-rc.N`. | `scripts/release.sh stable` |
 | Validate | Pre-publish gate proves artifacts before the tag is published. | Pre-publish gate proves artifacts before stable promotion. |
-
-```bash
-# rc
-scripts/release.sh rc prepare --base-version 2026.06.10 --suffix rc.1
-git add -A && git commit -m "rc: v2026.06.25-rc.1"
-scripts/release.sh rc dry-run --base-version 2026.06.10 --suffix rc.1 --local
-git tag -a v2026.06.25-rc.1 -m v2026.06.25-rc.1
-git push origin HEAD && git push origin v2026.06.25-rc.1
-
-# stable
-scripts/release.sh stable --dry-run
-scripts/release.sh stable
-```
 
 Remote rc dry-runs dispatch `release.yml` without publishing. They only read the default branch or the exact release tag ref, and the working tree must be clean unless `--allow-dirty` is used deliberately.
 
 ### Release validation
 
-Validation happens before publishing. The `context` job verifies the release manifest, version stamps, and changeset state; `archives` proves reproducible builds, runs binary smoke tests, generates checksums, and attaches provenance; the npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. The publish jobs then self-verify that each version is live on its registry.
+Validation happens before publishing. The `context` job verifies the release manifest and version stamps; `archives` proves reproducible builds, runs binary smoke tests, generates checksums, and attaches provenance; the npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. The publish jobs then self-verify that each version is live on its registry.
 
 `scripts/release.sh rc prepare`, `stable`, and `promote` also write the docs Releases record (`docs/src/data/releases/<tag>.json`) from the manifest, so release evidence is committed with the release rather than generated afterward.
 
 ### Package publishing
 
 ```bash
-pnpm release:plan --since v2026.05.14
+pnpm release:plan
 pnpm release:stamp:check
-gh workflow run publishNpm.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
-gh workflow run publishNpm.yml -f package=changed -f runner=ubuntu-24.04
-gh workflow run publishPypi.yml -f package=changed -f dryRun=true -f runner=ubuntu-24.04
-gh workflow run publishPypi.yml -f package=changed -f runner=ubuntu-24.04
+gh workflow run publishNpm.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
+gh workflow run publishNpm.yml -f package=all -f runner=ubuntu-24.04
+gh workflow run publishPypi.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
+gh workflow run publishPypi.yml -f package=all -f runner=ubuntu-24.04
 ```
 
-Protected workflows are the normal path for npm and PyPI. They read `release.config.json`, ignore `examples/**`, publish changed packages, include exact-pin dependents, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. Use `baseRef` to override the diff base and `package=all` only for deliberate full publishes. Local stable publishing requires approval and `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1`.
+Protected workflows are the normal path for npm and PyPI. They read `release.config.json`, publish every publishable package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. Use `package=<name>` only to resume a partially failed publish. Local stable publishing requires approval and `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1`.
 
 ### Published artifacts
 
 ```
 npm:    @caracalai/{core,oauth,admin,identity,revocation,sdk,
-                    transport-mcp,transport-a2a,
-                    mcp-express,mcp-fastmcp,tokenstate-postgres,revocation-redis}
-pypi:   caracalai-{core,oauth,identity,revocation,sdk,transport-mcp,mcp-fastmcp,revocation-redis}
+                    verify,express,fastmcp,revocation-redis}
+pypi:   caracalai-{core,oauth,admin,identity,revocation,sdk,verify,fastmcp,asgi,revocation-redis}
 ghcr:   ghcr.io/garudex-labs/caracal-{go,node,web,postgres,redis,runtime}
 ```
 
@@ -241,12 +230,12 @@ Browse: [npm](https://www.npmjs.com/~caracal-run) · [PyPI](https://pypi.org/use
 
 ### Rollback
 
-Never delete a published tag. Roll forward with a new CalVer tag. The floating `vYYYY.MM` image tag moves with the new cut; pinned `v<calver>` tags are immutable.
+Never delete a published tag. Roll forward with a new SemVer tag. The floating `vX.Y` image tag moves with the new cut; pinned `vX.Y.Z` tags are immutable.
 
 ## Security
 
-Do not file public issues for vulnerabilities. See [SECURITY.md](SECURITY.md).
+Do not file public issues for vulnerabilities. See [SECURITY.md](.github/SECURITY.md).
 
 ## License
 
-Apache-2.0. By contributing you agree your contribution is licensed under the same terms ([LICENSE](../LICENSE)).
+Apache-2.0. By contributing you agree your contribution is licensed under the same terms ([LICENSE](LICENSE)).

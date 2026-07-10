@@ -22,10 +22,9 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const { rows: lock } = await client.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`,
-      [SWEEP_LOCK],
-    )
+    const { rows: lock } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_xact_lock(hashtext($1)) AS acquired`, [
+      SWEEP_LOCK,
+    ])
     if (!lock[0]?.acquired) {
       await client.query('ROLLBACK')
       return 0
@@ -33,8 +32,7 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
     const { rows } = await client.query<OverdueRow>(
       `UPDATE agent_invocations AS i
        SET status = CASE WHEN i.attempts < i.max_attempts THEN 'failed' ELSE 'timed_out' END,
-           started_at = CASE WHEN i.attempts < i.max_attempts THEN NULL ELSE i.started_at END,
-           completed_at = CASE WHEN i.attempts < i.max_attempts THEN NULL ELSE now() END,
+           completed_at = now(),
            error_json = COALESCE(i.error_json, '{}'::jsonb)
                         || jsonb_build_object('reason', 'deadline_exceeded'),
            updated_at = now()
@@ -73,10 +71,7 @@ export async function runDeadlineSweep(db: Pool): Promise<number> {
   }
 }
 
-export function startDeadlineEnforcer(
-  db: Pool,
-  options: { intervalMs?: number; log?: JobLogger } = {},
-): JobHandle {
+export function startDeadlineEnforcer(db: Pool, options: { intervalMs?: number; log?: JobLogger } = {}): JobHandle {
   const intervalMs = options.intervalMs ?? cfg.deadlineSweepIntervalMs
   return makeIntervalJob(
     () => runDeadlineSweep(db),

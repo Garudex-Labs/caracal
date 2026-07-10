@@ -40,7 +40,7 @@ function cursor(ts: string, id: string): string {
 }
 
 describe('GET /v1/zones', () => {
-  it('lists zones with keyset pagination and next link', async () => {
+  it('lists zones with keyset pagination and next cursor', async () => {
     const { app, db } = buildRouteApp(zonesRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
@@ -56,8 +56,9 @@ describe('GET /v1/zones', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toHaveLength(2)
-    expect(res.headers.link).toContain('cursor=')
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(2)
+    expect(body.next_cursor).toBe(cursor('2026-01-01T00:00:00.000Z', 'z1'))
     expect(db.query.mock.calls[0][1]).toEqual(['2026-01-03T00:00:00.000Z', 'z3', 2])
   })
 
@@ -180,9 +181,7 @@ describe('POST /v1/zones', () => {
     const created = { id: 'z2', name: 'My Zone', slug: 'my-zone-2', dcr_enabled: false }
     db.query
       .mockResolvedValueOnce({ rows: [] })
-      .mockRejectedValueOnce(
-        Object.assign(new Error('duplicate zone slug'), { code: '23505', constraint: 'zones_slug_key' }),
-      )
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate zone slug'), { code: '23505', constraint: 'zones_slug_key' }))
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [created] })
@@ -345,7 +344,7 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_shutdown_required', live_dcr_applications: 2 })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_shutdown_required', details: { live_dcr_applications: 2 } })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
@@ -377,7 +376,7 @@ describe('PATCH /v1/zones/:id', () => {
       [zone],
       [{ id: 'app-1' }],
       [{ id: 'sid-1' }],
-      [{ id: 'agent-1', subject_session_id: 'sid-agent', parent_id: null }],
+      [{ id: 'agent-1', subject_authority_record_id: 'sid-agent', parent_id: null }],
       [{ id: 'edge-1' }],
       [],
       [],
@@ -394,11 +393,11 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1']])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'admin:test-admin', false])
     const archiveCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE applications'))
-    expect(String(archiveCall?.[0])).not.toContain('updated_at')
+    expect(String(archiveCall?.[0])).toContain('updated_by')
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE authority_records'), ['z1', ['app-1']])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE sessions'), ['z1', ['app-1']])
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE agent_sessions'), ['z1', ['app-1']])
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO event_outbox'))
     expect(outboxCalls).toHaveLength(1)
     expect((outboxCalls[0][1] as unknown[][])[0]).toHaveLength(4)
@@ -418,7 +417,7 @@ describe('PATCH /v1/zones/:id', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1']])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'admin:test-admin', false])
   })
 
   it('returns an actionable error when DCR shutdown runtime grants are missing', async () => {

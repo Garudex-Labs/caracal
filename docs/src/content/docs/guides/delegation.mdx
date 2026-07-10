@@ -1,19 +1,19 @@
 ---
 title: Implement Multi-Agent Delegation
-description: Spawn child agents, attach typed constraints, inspect graph impact, and revoke safely.
+description: Start child Sessions, attach typed constraints, inspect graph impact, and revoke safely.
 ---
 
-Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
+Use Delegation when one Session needs to hand a narrower slice of authority to another Session. The SDK creates the Delegation and carries the context; the web console shows the graph and impact.
 
-`spawn()` always creates the child under the **same application** as the parent - `spawn()` never moves a child into a different application. Use a narrowing grant only when the child should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application.
+`session()` always starts the child under the **same application** as the parent. Narrow the child's authority only when it should hold less than the parent. To hand authority across applications, use `delegate()` with a peer Session under the other application; it returns the Delegation, and the receiver presents it with `acceptDelegation()`.
 
 ## Implementation flow
 
 ```mermaid
 flowchart LR
-  Parent["Parent agent session"] --> Spawn["Spawn child with narrowing grant"]
-  Spawn --> Edge["Bounded delegation edge"]
-  Edge --> Child["Run child with delegated context"]
+  Parent["Parent Session"] --> Start["Start child with narrowed authority"]
+  Start --> Delegation["Bounded Delegation"]
+  Delegation --> Child["Run child with delegated context"]
   Child --> Exchange["Exchange for resource mandate"]
   Exchange --> Audit["Inspect audit and graph"]
 ```
@@ -21,22 +21,25 @@ flowchart LR
 ## TypeScript example
 
 ```ts
-import { Caracal, Grant } from "@caracalai/sdk";
+import { Caracal, Authority } from '@caracalai/sdk'
 
-const caracal = new Caracal();
+const caracal = new Caracal()
 
-await caracal.spawn(async () => {
-  await caracal.spawn(async () => {
-    const headers = await caracal.headersAsync();
-    await fetch("https://api.example.com/tickets", { headers });
-  }, {
-    grant: Grant.narrow(["tickets:read"], {
-      resourceId: "https://api.example.com/tickets",
-      constraints: { maxHops: 1, budget: 5 },
-      ttlSeconds: 600,
-    }),
-  });
-});
+await caracal.session(async () => {
+  await caracal.session(
+    async () => {
+      const headers = await caracal.headersAsync()
+      await fetch('https://api.example.com/tickets', { headers })
+    },
+    {
+      authority: Authority.narrow(['tickets:read'], {
+        resourceId: 'https://api.example.com/tickets',
+        constraints: { maxHops: 1, budget: 5 },
+        ttlSeconds: 600,
+      }),
+    },
+  )
+})
 ```
 
 ## Review the graph
@@ -47,23 +50,27 @@ await caracal.spawn(async () => {
 4. Use impact before revoking an edge.
 5. Check **Audit** for the delegated exchange and resource decision.
 
+## Hand Over the Delegation ID Safely
+
+The issuer and receiver share the opaque Delegation ID over their authenticated work channel, such as a queue message, RPC field, or task payload. Creation is only an offer and does not mutate receiver context. Possessing and presenting this target-Session-bound ID through `acceptDelegation()` is receiver consent; STS also checks the receiving application and live target Session. Use `acceptDelegation(delegationId, fn, { validate: true })` to confirm that exact ID with Coordinator before work runs under it. Every presentation emits a `delegation.accept` event.
+
 ## Safe constraints
 
-| Constraint | Good default |
-| --- | --- |
-| Scopes | Small subset of parent authority. |
-| TTL | Minutes, not days. |
-| Hop count | `1` unless a deeper graph is intentional. |
-| Budget | Explicit request or work limit. |
-| Resource | Single resource whenever possible. |
+| Constraint | Good default                              |
+| ---------- | ----------------------------------------- |
+| Scopes     | Small subset of parent authority.         |
+| TTL        | Required; use minutes, not days.          |
+| Hop count  | `1` unless a deeper graph is intentional. |
+| Budget     | Maximum distinct scopes in each exchange. |
+| Resource   | Single resource whenever possible.        |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `Delegate requires an active agent session` | Call delegation inside `spawn()` or a bound Caracal context. |
-| Resource denies delegated request | Confirm policy accepts the edge constraints and required scopes. |
-| Chain validation fails | Confirm the expected application appears in the delegation path. |
-| Revocation did not affect child | Confirm cascade revocation and resource-server revocation consumers. |
+| Symptom                               | Check                                                                |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `Delegate requires an active Session` | Call delegation inside `session()` or a bound Caracal context.       |
+| Resource denies delegated request     | Confirm the edge, ancestry, policy grant, and required scopes remain live. |
+| Chain validation fails                | Confirm authoritative parent links are continuous; configure `requireChainContains` separately at verifiers when needed. |
+| Revocation did not affect child       | Confirm cascade revocation and resource-server revocation consumers. |
 
-Related pages: [Agent Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).
+Related pages: [Session Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).

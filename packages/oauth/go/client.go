@@ -7,15 +7,18 @@ package oauth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +38,9 @@ type Client struct {
 	httpClient    *http.Client
 	mu            sync.Mutex
 	inflight      map[string]*exchangeCall
+	// OnEvent is the observability sink; each completed exchange and approval
+	// wait reports here. Panics inside the sink never reach the caller.
+	OnEvent func(Event)
 }
 
 type exchangeCall struct {
@@ -44,10 +50,14 @@ type exchangeCall struct {
 }
 
 type stsErrorResponse struct {
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
-	ChallengeID      string `json:"challenge_id"`
-	ACRValues        string `json:"acr_values"`
+	Error              string `json:"error"`
+	ErrorDescription   string `json:"error_description"`
+	ChallengeID        string `json:"challenge_id"`
+	State              string `json:"state"`
+	Tier               string `json:"tier"`
+	Binding            string `json:"binding"`
+	ChallengeExpiresAt string `json:"challenge_expires_at"`
+	RequestID          string `json:"requestId"`
 }
 
 type stsSuccessResponse struct {
@@ -80,6 +90,22 @@ func (c *Client) SetHTTPClient(client *http.Client) {
 	}
 }
 
+func (c *Client) emit(event Event) {
+	if c.OnEvent == nil {
+		return
+	}
+	defer func() {
+		// The observability sink must never break the token path.
+		_ = recover()
+	}()
+	c.OnEvent(event)
+}
+
+// Invalidate drops every cached token derived by this client. In-flight exchanges are not canceled.
+func (c *Client) Invalidate() {
+	c.cache.Clear()
+}
+
 // Exchange performs RFC 8693 token exchange or returns a safe cached response.
 func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	return c.ExchangeResources(ctx, subjectToken, []string{resource}, opts)
@@ -89,12 +115,39 @@ func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, op
 func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	timeout := timeoutFromOptions(opts)
 	preflightWindow := int64(timeout/time.Second) + 30
+	oneShot := opts.OneShot || opts.ChallengeID != ""
 	cacheSubject := c.cacheSubject(subjectToken, opts)
 	cacheResource := c.cacheResource(resources, opts)
-	if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
-		if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > preflightWindow {
-			return cached, nil
+	eventResources := resourceList(resources)
+	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
+	if !oneShot && !opts.ForceRefresh {
+		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
+			// The preflight window is capped at half the token lifetime so
+			// short-lived tokens are still served from cache instead of
+			// re-exchanged on every call.
+			window := min(preflightWindow, int64(cached.ExpiresIn)/2)
+			if cached.IssuedAt+int64(cached.ExpiresIn)-time.Now().Unix() > window {
+				c.emit(Event{Type: "token.exchange", Ok: true, Cached: true, Resources: eventResources, Scopes: eventScopes})
+				return cached, nil
+			}
 		}
+	}
+
+	if oneShot {
+		start := time.Now()
+		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
+		event := Event{Type: "token.exchange", Ok: err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
+		if err != nil {
+			var caracalErr *CaracalError
+			var approvalErr *ApprovalRequiredError
+			if errors.As(err, &caracalErr) {
+				event.Code, event.Status = caracalErr.Code, caracalErr.HTTPStatus
+			} else if errors.As(err, &approvalErr) {
+				event.Code, event.Status = "interaction_required", approvalErr.HTTPStatus
+			}
+		}
+		c.emit(event)
+		return token, err
 	}
 
 	inflightKey := cacheSubject + "::" + cacheResource
@@ -110,10 +163,23 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	defer c.clearInflight(inflightKey, call)
 	defer close(call.done)
 
-	call.token, call.err = c.doExchange(ctx, subjectToken, resourceList(resources), opts, false, time.Now().Add(timeout))
+	start := time.Now()
+	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
+	event := Event{Type: "token.exchange", Ok: call.err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 	if call.err == nil {
 		c.cache.Set(cacheSubject, cacheResource, call.token)
+	} else {
+		var caracalErr *CaracalError
+		var interactionErr *ApprovalRequiredError
+		if errors.As(call.err, &caracalErr) {
+			event.Code = caracalErr.Code
+			event.Status = caracalErr.HTTPStatus
+		} else if errors.As(call.err, &interactionErr) {
+			event.Code = "interaction_required"
+			event.Status = interactionErr.HTTPStatus
+		}
 	}
+	c.emit(event)
 	return call.token, call.err
 }
 
@@ -140,10 +206,9 @@ func (c *Client) cacheSubject(subjectToken string, opts ExchangeOptions) string 
 	parts := []string{
 		c.zoneID + "::" + c.applicationID,
 		hashSecret(subjectToken),
-		hashSecret(opts.ActorToken),
+		opts.AuthorityRecordID,
 		opts.SessionID,
-		opts.AgentSessionID,
-		opts.DelegationEdgeID,
+		opts.DelegationID,
 		c.authContext(opts),
 		hashSecret(opts.ClientAssertion),
 	}
@@ -166,7 +231,7 @@ func (c *Client) authContext(opts ExchangeOptions) string {
 	return strings.Join([]string{secret, assertion, opts.ClientAssertionType}, ":")
 }
 
-func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, isRetry bool, deadline time.Time) (TokenExchangeResponse, error) {
+func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, deadline time.Time) (TokenExchangeResponse, error) {
 	form := url.Values{
 		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":        {c.zoneID},
@@ -182,16 +247,16 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	setFormValue(form, "client_secret", opts.ClientSecret)
 	setFormValue(form, "client_assertion", opts.ClientAssertion)
 	setFormValue(form, "client_assertion_type", opts.ClientAssertionType)
-	setFormValue(form, "actor_token", opts.ActorToken)
-	setFormValue(form, "session_id", opts.SessionID)
-	setFormValue(form, "agent_session_id", opts.AgentSessionID)
-	setFormValue(form, "delegation_edge_id", opts.DelegationEdgeID)
+	setFormValue(form, "session_id", opts.AuthorityRecordID)
+	setFormValue(form, "agent_session_id", opts.SessionID)
+	setFormValue(form, "delegation_edge_id", opts.DelegationID)
 	if scope := normalizedScopes(opts.Scopes); scope != "" {
 		form.Set("scope", scope)
 	}
 	if opts.TTLSeconds > 0 {
 		form.Set("ttl_seconds", ttlString(opts.TTLSeconds))
 	}
+	setFormValue(form, "challenge_id", opts.ChallengeID)
 
 	var res *http.Response
 	var err error
@@ -241,18 +306,30 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 		if body.Error == "interaction_required" {
 			msg := body.ErrorDescription
 			if msg == "" {
-				msg = "Step-up required"
+				msg = "Approval required"
 			}
-			return TokenExchangeResponse{}, &InteractionRequiredError{Message: msg, ChallengeID: body.ChallengeID, Resource: firstResource(resources), ACRValues: body.ACRValues}
+			return TokenExchangeResponse{}, &ApprovalRequiredError{
+				Message:    msg,
+				ApprovalID: body.ChallengeID,
+				Resource:   firstResource(resources),
+				State:      body.State,
+				Tier:       body.Tier,
+				Binding:    body.Binding,
+				ExpiresAt:  body.ChallengeExpiresAt,
+				RequestID:  body.RequestID,
+				HTTPStatus: res.StatusCode,
+			}
 		}
-		if res.StatusCode == http.StatusUnauthorized && !isRetry {
-			opts.Retries = 0
-			return c.doExchange(ctx, subjectToken, resources, opts, true, deadline)
+		code := body.Error
+		if code == "" {
+			code = "error"
 		}
-		if body.ErrorDescription != "" {
-			return TokenExchangeResponse{}, errors.New(body.ErrorDescription)
+		return TokenExchangeResponse{}, &CaracalError{
+			Code:        code,
+			Description: body.ErrorDescription,
+			RequestID:   body.RequestID,
+			HTTPStatus:  res.StatusCode,
 		}
-		return TokenExchangeResponse{}, fmt.Errorf("STS error %d", res.StatusCode)
 	}
 	if !jsonResponse(res.Header.Get("Content-Type")) {
 		return TokenExchangeResponse{}, fmt.Errorf("STS response invalid: expected application/json")
@@ -277,10 +354,198 @@ func validateSuccess(body stsSuccessResponse) (TokenExchangeResponse, error) {
 	return TokenExchangeResponse{AccessToken: body.AccessToken, TokenType: "Bearer", ExpiresIn: body.ExpiresIn, IssuedAt: time.Now().Unix()}, nil
 }
 
+// WaitForApproval long-polls an approval until an approver decides it, it
+// expires, or the timeout elapses. Returns the final lifecycle state: ApprovalApproved
+// means a retry of Exchange with ChallengeID will mint; ApprovalRejected and
+// ApprovalExpired are terminal; ApprovalPending means the timeout elapsed with no
+// decision and waiting again is safe.
+func (c *Client) WaitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (ApprovalState, error) {
+	if approvalID == "" {
+		return "", errors.New("WaitForApproval requires an approval id")
+	}
+	start := time.Now()
+	finish := func(state ApprovalState, err error) (ApprovalState, error) {
+		c.emit(Event{Type: "approval.wait", Ok: err == nil, Duration: time.Since(start), ApprovalID: approvalID, State: string(state)})
+		return state, err
+	}
+	deadline := start.Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return finish(ApprovalPending, nil)
+		}
+		wait := int(remaining / time.Second)
+		if wait > 25 {
+			wait = 25
+		}
+		if wait < 1 {
+			wait = 1
+		}
+		reqCtx, cancel := context.WithDeadline(ctx, deadline)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(approvalID), wait), nil)
+		if err != nil {
+			cancel()
+			return finish("", err)
+		}
+		c.mu.Lock()
+		client := c.httpClient
+		c.mu.Unlock()
+		res, err := client.Do(req)
+		cancel()
+		if err != nil {
+			return finish("", err)
+		}
+		var body struct {
+			State string `json:"state"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			return finish("", fmt.Errorf("step-up status failed: %d", res.StatusCode))
+		}
+		if decodeErr != nil {
+			return finish("", decodeErr)
+		}
+		if body.State != "" && body.State != "pending" {
+			state, stateErr := approvalState(body.State)
+			if stateErr != nil {
+				return finish("", stateErr)
+			}
+			return finish(state, nil)
+		}
+	}
+}
+
 func setFormValue(form url.Values, name, value string) {
 	if value != "" {
 		form.Set(name, value)
 	}
+}
+
+// FederateSubjectOptions shape the federation exchange.
+type FederateSubjectOptions struct {
+	ClientSecret string
+	TTLSeconds   int
+	Timeout      time.Duration
+}
+
+// FederateSubject exchanges an end user's identity token from a zone-trusted
+// external issuer for a Caracal Subject authority record. The application
+// authenticates itself with its client secret and relays the token verbatim;
+// the minted record is the Subject's identity anchor and carries no resource
+// authority. Never cached: each federation is an explicit identity event.
+func (c *Client) FederateSubject(ctx context.Context, idToken string, opts FederateSubjectOptions) (TokenExchangeResponse, error) {
+	if idToken == "" {
+		return TokenExchangeResponse{}, errors.New("FederateSubject requires the end user identity token")
+	}
+	form := url.Values{
+		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"subject_token":      {idToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:id_token"},
+		"zone_id":            {c.zoneID},
+		"application_id":     {c.applicationID},
+	}
+	setFormValue(form, "client_secret", opts.ClientSecret)
+	if opts.TTLSeconds > 0 {
+		form.Set("ttl_seconds", strconv.Itoa(opts.TTLSeconds))
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.stsURL+"/oauth/2/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.mu.Lock()
+	client := c.httpClient
+	c.mu.Unlock()
+	res, err := client.Do(req)
+	if err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var body stsErrorResponse
+		if decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body); decodeErr != nil && decodeErr != io.EOF {
+			return TokenExchangeResponse{}, fmt.Errorf("STS error %d: invalid error response", res.StatusCode)
+		}
+		code := body.Error
+		if code == "" {
+			code = "federation_failed"
+		}
+		return TokenExchangeResponse{}, &CaracalError{Code: code, Description: body.ErrorDescription, RequestID: body.RequestID, HTTPStatus: res.StatusCode}
+	}
+	var body stsSuccessResponse
+	if err := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&body); err != nil {
+		return TokenExchangeResponse{}, err
+	}
+	return validateSuccess(body)
+}
+
+// DecideApprovalInput carries an end user's decision on a subject-reserved
+// approval hold.
+type DecideApprovalInput struct {
+	SubjectToken string
+	ApprovalID   string
+	Binding      string
+	Decision     string
+	Reason       string
+	Timeout      time.Duration
+}
+
+// DecideApproval posts an end user's decision on a subject-reserved approval
+// hold. The subject token is the user's federated session mandate, and the
+// binding must echo the hold exactly - a prompt that does not know the held
+// resource and scope set cannot decide it.
+func (c *Client) DecideApproval(ctx context.Context, input DecideApprovalInput) error {
+	if input.SubjectToken == "" || input.ApprovalID == "" || input.Binding == "" {
+		return errors.New("DecideApproval requires SubjectToken, ApprovalID, and Binding")
+	}
+	payload := map[string]string{"decision": input.Decision, "binding": input.Binding}
+	if input.Reason != "" {
+		payload["reason"] = input.Reason
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	timeout := input.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost,
+		fmt.Sprintf("%s/step-up/%s/decision", c.stsURL, url.PathEscape(input.ApprovalID)), strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+input.SubjectToken)
+	c.mu.Lock()
+	client := c.httpClient
+	c.mu.Unlock()
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var errBody stsErrorResponse
+		if decodeErr := json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(&errBody); decodeErr != nil && decodeErr != io.EOF {
+			return fmt.Errorf("approval decision failed: %d", res.StatusCode)
+		}
+		code := errBody.Error
+		if code == "" {
+			code = "decision_failed"
+		}
+		return &CaracalError{Code: code, Description: errBody.ErrorDescription, RequestID: errBody.RequestID, HTTPStatus: res.StatusCode}
+	}
+	return nil
 }
 
 func normalizedScopes(scopes []string) string {
@@ -332,9 +597,10 @@ func retryDelay(res *http.Response, attempt int) time.Duration {
 	}
 	delay := time.Duration(250*(1<<attempt)) * time.Millisecond
 	if delay > 5*time.Second {
-		return 5 * time.Second
+		delay = 5 * time.Second
 	}
-	return delay
+	half := delay / 2
+	return half + rand.N(half+1)
 }
 
 func sleepWithinDeadline(ctx context.Context, delay time.Duration, deadline time.Time) error {
@@ -380,10 +646,13 @@ func ttlString(ttl int) string {
 	return fmt.Sprintf("%d", ttl)
 }
 
+// hashSecret derives a cache-key component from a secret with a keyed MAC so
+// the component cannot be recomputed from a known token by an observer.
 func hashSecret(value string) string {
 	if value == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	mac := hmac.New(sha256.New, cacheKeySecret)
+	mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil))
 }

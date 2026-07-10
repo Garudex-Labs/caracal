@@ -9,21 +9,22 @@ Caracal gives agents short-lived, policy-approved authority instead of long-live
 
 ## Read This Section in Order
 
-| Start here | Use it to understand |
-| --- | --- |
-| [Caracal Mental Model](/concepts/model-overview/) | The smallest useful picture of Caracal. |
-| [Authority and Enforcement](/concepts/authority-model/) | Where decisions happen before requests reach a target. |
-| [Zones](/concepts/zone/) | The tenant boundary that owns keys, policies, resources, sessions, and audit. |
-| [Identities and Applications](/concepts/principal/) | The identities that authenticate, run, and delegate. |
-| [Resources and Grants](/concepts/resource-grant/) | What can be accessed and which scopes are granted. |
-| [Policies and Policy Sets](/concepts/policy/) | Rego rules evaluated by the STS during token exchange. |
-| [Step-Up Challenges](/concepts/step-up/) | How sensitive actions require fresh approval. |
-| [Mandates](/concepts/mandate/) | The short-lived JWT that carries approved authority. |
-| [Agent Delegation](/concepts/delegation/) | How one agent passes bounded authority to another. |
-| [Delegation Constraints](/concepts/constraint/) | The limits attached to delegated authority. |
-| [Sessions and Revocation](/concepts/sessions-revocation/) | How active authority is ended and propagated. |
-| [Audit and Request Traces](/concepts/audit-ledger/) | The event trail behind decisions and runs. |
-| [Caracal Operator](/concepts/operator/) | The governed natural-language assistant for control-plane changes. |
+| Start here                                                | Use it to understand                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Caracal Mental Model](/concepts/model-overview/)         | The smallest useful picture of Caracal.                                       |
+| [Authority and Enforcement](/concepts/authority-model/)   | Where decisions happen before requests reach a target.                        |
+| [Zones](/concepts/zone/)                                  | The tenant boundary that owns keys, policies, resources, sessions, and audit. |
+| [Identities and Applications](/concepts/principal/)       | The identities that authenticate, run, and delegate.                          |
+| [Resources and Grants](/concepts/resource-grant/)         | What can be accessed and which scopes are granted.                            |
+| [Providers](/concepts/provider/)                          | The credential Caracal attaches to the upstream target.                       |
+| [Policies and Policy Sets](/concepts/policy/)             | Rego rules evaluated by the STS during token exchange.                        |
+| [Mandates](/concepts/mandate/)                            | The short-lived JWT that carries approved authority.                          |
+| [Step-Up Challenges](/concepts/step-up/)                  | How sensitive actions are held for human approval.                            |
+| [Session Delegation](/concepts/delegation/)               | How one agent passes bounded authority to another.                            |
+| [Delegation Constraints](/concepts/constraint/)           | The limits attached to delegated authority.                                   |
+| [Sessions and Revocation](/concepts/sessions-revocation/) | How active authority is ended and propagated.                                 |
+| [Audit and Request Traces](/concepts/audit-ledger/)       | The event trail behind decisions and runs.                                    |
+| [Caracal Operator](/concepts/operator/)                   | The governed natural-language assistant for control-plane changes.            |
 
 ## Core Flow
 
@@ -33,7 +34,7 @@ flowchart LR
   SDK --> STS["STS token exchange"]
   STS --> Policy["Active policy set"]
   Policy --> Mandate["Mandate JWT"]
-  Mandate --> Gateway["Gateway or connector"]
+  Mandate --> Gateway["Gateway or adapter"]
   Gateway --> Resource["Protected resource"]
   STS --> Audit["Audit ledger"]
   Gateway --> Audit
@@ -41,26 +42,27 @@ flowchart LR
 
 The same model appears across the product:
 
-- Onboarding uses the web console guided setup to create the first zone, application, resource, and policy, then you configure runtime access with environment variables or a `caracal.toml` profile.
-- Guides use the SDKs, Console, Admin API, and connectors to build repeatable integrations.
+- Onboarding uses the web console guided setup to create the first zone, application, resource, and policy, then you create a workload with launch bindings on the console's Launcher page and give it its workload ID and secret.
+- Guides use the SDKs, Console, Admin API, and adapters to build repeatable integrations.
 - Operations pages use the same terms when explaining keys, revocation, audit, and runtime health.
 
 ## Term Map
 
-| Term | Short definition | Canonical page |
-| --- | --- | --- |
-| Zone | Tenant boundary for authority data and signing keys. | [Zones](/concepts/zone/) |
-| Application | Registered client or agent workload. | [Identities and Applications](/concepts/principal/) |
-| Principal | User, service, or agent identity bound to a session. | [Identities and Applications](/concepts/principal/) |
-| Resource | Protected API, MCP server, tool group, or upstream target. | [Resources and Grants](/concepts/resource-grant/) |
-| Grant | Binding from an application and user to resource scopes. | [Resources and Grants](/concepts/resource-grant/) |
-| Policy | Versioned Rego logic evaluated at token exchange. | [Policies and Policy Sets](/concepts/policy/) |
-| Policy set | Versioned bundle of policies activated for a zone. | [Policies and Policy Sets](/concepts/policy/) |
-| Mandate | Short-lived JWT issued by the STS after policy approval. | [Mandates](/concepts/mandate/) |
-| Delegation edge | Bounded authority transfer between agent sessions. | [Agent Delegation](/concepts/delegation/) |
-| Revocation anchor | Session, root session, agent session, or delegation edge checked by resource servers. | [Sessions and Revocation](/concepts/sessions-revocation/) |
-| Caracal Operator | Governed natural-language assistant that turns intent into reviewed control-plane changes. | [Caracal Operator](/concepts/operator/) |
-| System zone | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal. | [Zones](/concepts/zone/#system-zone) |
+| Term              | Short definition                                                                                         | Canonical page                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Zone              | Tenant boundary for authority data and signing keys.                                                     | [Zones](/concepts/zone/)                                  |
+| Application       | Registered client or agent workload.                                                                     | [Identities and Applications](/concepts/principal/)       |
+| Principal         | User, service, or agent identity bound to a session.                                                     | [Identities and Applications](/concepts/principal/)       |
+| Resource          | Protected API, MCP server, tool group, or upstream target.                                               | [Resources and Grants](/concepts/resource-grant/)         |
+| Grant             | Binding from an application and user to resource scopes.                                                 | [Resources and Grants](/concepts/resource-grant/)         |
+| Provider          | Credential mode Caracal uses toward the upstream target.                                                 | [Providers](/concepts/provider/)                          |
+| Policy            | Versioned Rego logic evaluated at token exchange.                                                        | [Policies and Policy Sets](/concepts/policy/)             |
+| Policy set        | Versioned bundle of policies activated for a zone.                                                       | [Policies and Policy Sets](/concepts/policy/)             |
+| Mandate           | Short-lived JWT issued by the STS after policy approval.                                                 | [Mandates](/concepts/mandate/)                            |
+| Delegation        | Bounded authority transfer between Sessions.                                                             | [Session Delegation](/concepts/delegation/)               |
+| Revocation anchor | Authority record ID, Root authority record ID, Session ID, or Delegation ID checked by resource servers. | [Sessions and Revocation](/concepts/sessions-revocation/) |
+| Caracal Operator  | Governed natural-language assistant that turns intent into reviewed control-plane changes.               | [Caracal Operator](/concepts/operator/)                   |
+| System zone       | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal.                                   | [Zones](/concepts/zone/#system-zone)                      |
 
 ## What to Read Next
 

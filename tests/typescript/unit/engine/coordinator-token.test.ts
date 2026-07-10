@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const discoverCoordinatorToken = vi.hoisted(() => vi.fn())
 
-vi.mock('@caracalai/core', () => ({ discoverCoordinatorToken }))
+vi.mock('@caracalai/server-core', () => ({ discoverCoordinatorToken }))
 
 describe('ensureCoordinatorToken', () => {
   it('throws when no coordinator token is discoverable', async () => {

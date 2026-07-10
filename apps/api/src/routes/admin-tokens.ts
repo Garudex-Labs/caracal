@@ -7,21 +7,22 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { randomBytes } from 'node:crypto'
-import { sha256 } from '@caracalai/core'
+import { sha256 } from '@caracalai/server-core'
 import { hashAdminToken } from '../hash-secret.js'
 import { isDerivedConsoleActor } from '../auth.js'
 import { zoneExists } from '../zone-guard.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 
 const MintBody = z
   .object({
     name: z.string().min(1).max(120),
     scope: z.enum(['global', 'zone']),
     zone_id: z.string().min(1).max(128).optional(),
-    // Whether the minted token may mutate state. Defaults to write so an unspecified mint is a
+    // What the minted token may do. Defaults to write so an unspecified mint is a
     // full-capability token exactly as before; a read token is the opt-in least-privilege
-    // credential that cannot change state at the API.
-    capability: z.enum(['read', 'write']).default('write'),
+    // credential that cannot change state at the API; an approve token may read and decide
+    // human-approval holds but mutate nothing else.
+    capability: z.enum(['read', 'write', 'approve']).default('write'),
   })
   .strict()
 
@@ -118,8 +119,7 @@ export const adminTokensRoutes: FastifyPluginAsync = async (fastify) => {
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows as { id: string; created_at: string | Date }[], page.limit)
-    return rows
+    return listPage(rows as { id: string; created_at: string | Date }[], page.limit)
   })
 
   fastify.delete('/admin-tokens/:id', async (req, reply) => {

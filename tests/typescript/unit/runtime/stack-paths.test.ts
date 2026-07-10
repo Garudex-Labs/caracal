@@ -8,14 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePaths } from '../../../../apps/runtime/src/commands/stack.ts'
-import { detectActiveLocalStackRuntime } from '../../../../packages/engine/src/stackPaths.ts'
-
-const spawnSyncMock = vi.hoisted(() => vi.fn())
-
-vi.mock('node:child_process', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:child_process')>()),
-  spawnSync: spawnSyncMock,
-}))
+import { resolveStackPaths } from '../../../../packages/engine/src/stackPaths.ts'
 
 function repoFixture(): string {
   const repoRoot = mkdtempSync(join(tmpdir(), 'caracal-repo-'))
@@ -31,7 +24,6 @@ describe('resolvePaths', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
-    spawnSyncMock.mockReset()
   })
 
   it('defaults to dev mode when CARACAL_REPO_ROOT is set and CARACAL_MODE is unset', () => {
@@ -67,7 +59,7 @@ describe('resolvePaths', () => {
     const paths = resolvePaths()
 
     expect(paths.mode).toBe('dev')
-    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'zoneKek', 'auditHmacKey', 'streamsHmacKey']) {
+    for (const name of ['postgresPassword', 'redisPassword', 'caracalAdminToken', 'secretStoreKek', 'auditHmacKey', 'streamsHmacKey']) {
       const file = join(paths.secretsDir, name)
       expect(existsSync(file)).toBe(true)
       expect(readFileSync(file, 'utf8').trim().length).toBeGreaterThan(0)
@@ -179,79 +171,29 @@ describe('resolvePaths', () => {
   })
 })
 
-describe('detectActiveLocalStackRuntime', () => {
+describe('resolveStackPaths provision control', () => {
   afterEach(() => {
     vi.restoreAllMocks()
-    spawnSyncMock.mockReset()
+    vi.unstubAllEnvs()
   })
 
-  it('detects the running local API stack mode, version, home, and secrets', () => {
-    spawnSyncMock.mockReturnValueOnce({ status: 0, stdout: 'api-container\n' }).mockReturnValueOnce({
-      status: 0,
-      stdout: JSON.stringify([
-        {
-          Config: {
-            Image: 'ghcr.io/garudex-labs/caracal-node:v2026.06.25-rc.1',
-            Env: ['CARACAL_MODE=rc'],
-            Labels: {
-              'com.docker.compose.project.working_dir': '/home/raw/.config/caracal',
-              'com.docker.compose.project.config_files': '/home/raw/.config/caracal/compose.yml',
-            },
-          },
-          Mounts: [{ Source: '/home/raw/.config/caracal/secrets/caracalAdminToken', Destination: '/run/secrets/caracalAdminToken' }],
-          NetworkSettings: {
-            Ports: {
-              '3000/tcp': [{ HostIp: '127.0.0.1', HostPort: '3000' }],
-            },
-          },
-        },
-      ]),
-    })
+  it('provision: false resolves dev paths without generating secrets', () => {
+    const repoRoot = repoFixture()
 
-    expect(detectActiveLocalStackRuntime()).toEqual({
-      mode: 'rc',
-      version: '2026.06.25-rc.1',
-      registry: 'ghcr.io/garudex-labs/',
-      home: '/home/raw/.config/caracal',
-      repoRoot: undefined,
-      composeFile: '/home/raw/.config/caracal/compose.yml',
-      secretsDir: '/home/raw/.config/caracal/secrets',
-    })
+    const paths = resolveStackPaths({ mode: 'dev', repoRoot, provision: false })
+
+    expect(paths.secretsDir).toContain('dev-secrets')
+    expect(existsSync(paths.secretsDir)).toBe(false)
   })
 
-  it('derives the dev repo root from the compose project directory, not the compose subdir', () => {
-    spawnSyncMock.mockReturnValueOnce({ status: 0, stdout: 'api-container\n' }).mockReturnValueOnce({
-      status: 0,
-      stdout: JSON.stringify([
-        {
-          Config: {
-            Image: 'caracal-node:dev',
-            Env: ['CARACAL_MODE=dev'],
-            Labels: {
-              'com.docker.compose.project.working_dir': '/home/raw/code/caracal/infra/docker',
-              'com.docker.compose.project.config_files': '/home/raw/code/caracal/infra/docker/docker-compose.yml',
-            },
-          },
-          Mounts: [
-            { Source: '/home/raw/code/caracal/.caracal/dev-secrets/caracalAdminToken', Destination: '/run/secrets/caracalAdminToken' },
-          ],
-          NetworkSettings: {
-            Ports: {
-              '3000/tcp': [{ HostIp: '127.0.0.1', HostPort: '3000' }],
-            },
-          },
-        },
-      ]),
-    })
+  it('provision: false resolves stable paths without installing runtime assets', () => {
+    const home = mkdtempSync(join(tmpdir(), 'caracal-home-'))
+    vi.stubEnv('CARACAL_HOME', home)
 
-    expect(detectActiveLocalStackRuntime()).toEqual({
-      mode: 'dev',
-      version: 'dev',
-      registry: undefined,
-      home: undefined,
-      repoRoot: '/home/raw/code/caracal',
-      composeFile: '/home/raw/code/caracal/infra/docker/docker-compose.yml',
-      secretsDir: '/home/raw/code/caracal/.caracal/dev-secrets',
-    })
+    const paths = resolveStackPaths({ mode: 'stable', provision: false })
+
+    expect(paths.cwd).toBe(home)
+    expect(existsSync(paths.composeFile)).toBe(false)
+    expect(existsSync(join(home, 'secrets'))).toBe(false)
   })
 })

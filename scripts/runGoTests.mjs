@@ -14,12 +14,13 @@ const sourceDir = join(root, 'tests', 'source', 'go')
 
 const GO_PKGS = [
   './packages/core/go/...',
+  './packages/admin/go/...',
   './services/sts/...',
   './services/audit/...',
   './services/gateway/...',
-  './packages/transport/mcp/go/...',
-  './packages/connectors/nethttp/go/...',
-  './packages/connectors/redis/go/...',
+  './packages/verify/go/...',
+  './packages/adapters/nethttp/go/...',
+  './packages/backends/redis/go/...',
   './packages/identity/go/...',
   './packages/oauth/go/...',
   './packages/revocation/go/...',
@@ -28,18 +29,18 @@ const GO_PKGS = [
 
 const TEST_DIRS = [
   './tests/go/unit/revocation',
-  './tests/go/unit/transport/mcp',
+  './tests/go/unit/verify',
   './tests/go/unit/identity',
-  './tests/go/unit/connectors/nethttp',
+  './tests/go/unit/adapters/nethttp',
   './tests/go/contract/interoperability',
   './tests/go/property',
 ]
 
 const COVERPKG = [
-  'github.com/garudex-labs/caracal/packages/transport/mcp/go',
+  'github.com/garudex-labs/caracal/packages/verify/go',
   'github.com/garudex-labs/caracal/packages/revocation/go',
   'github.com/garudex-labs/caracal/packages/identity/go',
-  'github.com/garudex-labs/caracal/packages/connectors/nethttp/go',
+  'github.com/garudex-labs/caracal/packages/adapters/nethttp/go',
 ].join(',')
 
 function runStatus(command, args) {
@@ -54,6 +55,29 @@ function runStatus(command, args) {
 function run(command, args) {
   const status = runStatus(command, args)
   if (status !== 0) process.exit(status)
+}
+
+function goEnv(name) {
+  const result = spawnSync('go', ['env', name], { cwd: root, encoding: 'utf8' })
+  if (result.error) {
+    process.stderr.write(`failed to read go env ${name}: ${result.error.message}\n`)
+    process.exit(1)
+  }
+  if (result.status !== 0) {
+    process.stderr.write(`failed to read go env ${name}\n`)
+    process.exit(result.status ?? 1)
+  }
+  return result.stdout.trim()
+}
+
+function raceArgs() {
+  if (goEnv('CGO_ENABLED') !== '0') return ['-race']
+  if (process.env.CI) {
+    process.stderr.write('Go race tests require CGO_ENABLED=1; enable cgo for CI.\n')
+    process.exit(1)
+  }
+  process.stderr.write('warning: CGO_ENABLED=0; running Go tests without -race.\n')
+  return []
 }
 
 function collectTestFiles(dir) {
@@ -77,7 +101,7 @@ function runWithStagedSourceTests(args) {
     for (const source of collectTestFiles(sourceDir).sort()) {
       const target = join(root, relative(sourceDir, source))
       if (existsSync(target)) {
-        throw new Error(`refusing to overwrite existing test file: ${relative(root, target).split(sep).join('/')}`)
+        continue
       }
       mkdirSync(dirname(target), { recursive: true })
       copyFileSync(source, target)
@@ -96,11 +120,12 @@ function runWithStagedSourceTests(args) {
 const mode = process.argv[2] ?? ''
 
 if (mode === '--vet') {
-  run('go', ['vet', ...GO_PKGS])
+  runWithStagedSourceTests(['vet', ...GO_PKGS])
 } else if (mode === '--coverage') {
+  const race = raceArgs()
   mkdirSync(join(root, 'coverage', 'go'), { recursive: true })
-  runWithStagedSourceTests(['test', '-race', '-covermode=atomic', '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
-  run('go', ['test', '-race', '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
+  runWithStagedSourceTests(['test', ...race, '-covermode=atomic', '-coverprofile=coverage/go/coverage.out', ...GO_PKGS])
+  run('go', ['test', ...race, '-covermode=atomic', `-coverpkg=${COVERPKG}`, '-coverprofile=coverage/go/tests.out', ...TEST_DIRS])
   const merged = readFileSync(join(root, 'coverage', 'go', 'tests.out'), 'utf8')
     .split('\n')
     .slice(1)
@@ -108,8 +133,9 @@ if (mode === '--vet') {
   appendFileSync(join(root, 'coverage', 'go', 'coverage.out'), merged)
   run('go', ['tool', 'cover', '-func=coverage/go/coverage.out'])
 } else if (mode === '') {
-  runWithStagedSourceTests(['test', '-race', ...GO_PKGS])
-  run('go', ['test', '-race', ...TEST_DIRS])
+  const race = raceArgs()
+  runWithStagedSourceTests(['test', ...race, ...GO_PKGS])
+  run('go', ['test', ...race, ...TEST_DIRS])
 } else {
   process.stderr.write('usage: node scripts/runGoTests.mjs [--coverage|--vet]\n')
   process.exit(2)

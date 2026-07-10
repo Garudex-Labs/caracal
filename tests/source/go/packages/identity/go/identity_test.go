@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -134,7 +135,7 @@ func TestVerifyValidatesSignedClaimsAndChain(t *testing.T) {
 		RequiredScopes:       []string{"read"},
 		RequiredTargets:      []string{"resource://pipernet"},
 		RequiredUse:          MandateUseResource,
-		RequireAgent:         true,
+		RequireSession:       true,
 		RequireDelegation:    true,
 		RequireChainContains: []string{"app-0"},
 		MaxHopCount:          2,
@@ -154,7 +155,7 @@ func TestVerifyValidatesSignedClaimsAndChain(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("expected one JWKS fetch, got %d", calls.Load())
 	}
-	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet"}); err != nil {
+	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); err != nil {
 		t.Fatalf("cached verify: %v", err)
 	}
 	if calls.Load() != 1 {
@@ -181,7 +182,7 @@ func TestVerifyRejectsInvalidClaims(t *testing.T) {
 		{name: "bad zone", cfg: Config{ZoneID: "zone-2"}, want: ErrZoneInvalid},
 		{name: "missing required scope", cfg: Config{RequiredScopes: []string{"delete"}}, want: &ScopeMissingError{}},
 		{name: "missing required target", cfg: Config{RequiredTargets: []string{"resource://missing"}}, want: ErrTokenInvalid},
-		{name: "missing agent", cfg: Config{RequireAgent: true}, overrides: jwt.MapClaims{"agent_session_id": ""}, want: ErrAgentIdentityRequired},
+		{name: "missing session", cfg: Config{RequireSession: true}, overrides: jwt.MapClaims{"agent_session_id": ""}, want: ErrSessionRequired},
 		{name: "missing delegation", cfg: Config{RequireDelegation: true}, overrides: jwt.MapClaims{"delegation_edge_id": ""}, want: ErrDelegationRequired},
 		{name: "hop exceeded", cfg: Config{MaxHopCount: 1}, want: ErrHopCountExceeded},
 		{name: "chain mismatch", cfg: Config{RequireChainContains: []string{"app-x"}}, want: &ChainMismatchError{}},
@@ -197,6 +198,9 @@ func TestVerifyRejectsInvalidClaims(t *testing.T) {
 			cfg := tt.cfg
 			cfg.Issuer = srv.URL
 			cfg.Audience = "resource://pipernet"
+			if cfg.ZoneID == "" {
+				cfg.ZoneID = "zone-1"
+			}
 			_, err := Verify(token, cfg)
 			if err == nil {
 				t.Fatal("expected error")
@@ -233,10 +237,10 @@ func TestVerifyRejectsSignatureAndJWKSFailures(t *testing.T) {
 	defer srv.Close()
 
 	token := signedToken(t, key, "kid-1", srv.URL, nil)
-	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet"}); !errors.Is(err, ErrTokenInvalid) {
+	if _, err := Verify(token, Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("expected invalid signature, got %v", err)
 	}
-	if _, err := Verify(strings.TrimSuffix(token, "x")+"x", Config{Issuer: srv.URL, Audience: "resource://pipernet"}); !errors.Is(err, ErrTokenInvalid) {
+	if _, err := Verify(strings.TrimSuffix(token, "x")+"x", Config{Issuer: srv.URL, Audience: "resource://pipernet", ZoneID: "zone-1"}); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("expected malformed token error, got %v", err)
 	}
 }
@@ -317,6 +321,60 @@ func TestGetJWKSHandlesFetchDecodeAndConcurrentCalls(t *testing.T) {
 	wg.Wait()
 }
 
+func TestGetJWKSNormalizesIssuerAndRejectsOversizedDocuments(t *testing.T) {
+	ResetJWKSCache()
+	key := testKey(t)
+	good, calls := issuerWithJWKS(t, func() string {
+		body, _ := json.Marshal(map[string]any{"keys": []any{jwkForKey(key, "kid-1")}})
+		return string(body)
+	})
+	defer good.Close()
+	if _, err := GetJWKS(good.URL+"/", "zone-1"); err != nil {
+		t.Fatalf("trailing slash issuer: %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected normalized issuer fetch, got %d calls", calls.Load())
+	}
+
+	ResetJWKSCache()
+	large := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[],"padding":"` + strings.Repeat("x", jwksMaxBytes) + `"}`))
+	}))
+	defer large.Close()
+	if _, err := GetJWKS(large.URL, "zone-1"); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("expected oversized JWKS rejection, got %v", err)
+	}
+}
+
+func TestJWKSCacheUsesInjectedHTTPClient(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"keys":[]}`)),
+			Request:    req,
+		}, nil
+	})}
+	cache := NewJWKSCache(client, time.Minute)
+	if _, err := cache.Get(context.Background(), "https://issuer.example", "zone-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Get(context.Background(), "https://issuer.example", "zone-1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one injected-client request, got %d", calls.Load())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
 func TestParseECJWKRejectsUnsupportedKeys(t *testing.T) {
 	key := testKey(t)
 	valid := jwkForKey(key, "kid-1")
@@ -363,15 +421,22 @@ func TestClaimReaderEdgeCases(t *testing.T) {
 	if (&ChainMismatchError{ApplicationID: "app-1"}).Error() != "delegation chain missing application: app-1" {
 		t.Fatal("unexpected chain error")
 	}
-	if readChain(nil) != nil || readChain("bad") != nil {
-		t.Fatal("invalid chain shapes should return nil")
+	if chain, ok := readChain(nil); chain != nil || !ok {
+		t.Fatal("absent chain should be nil and valid")
 	}
-	chain := readChain([]any{
-		"skip",
-		map[string]any{"application_id": ""},
+	if _, ok := readChain("bad"); ok {
+		t.Fatal("non-array chain should be invalid")
+	}
+	if _, ok := readChain([]any{"skip"}); ok {
+		t.Fatal("non-object hop should be invalid")
+	}
+	if _, ok := readChain([]any{map[string]any{"application_id": ""}}); ok {
+		t.Fatal("empty application_id hop should be invalid")
+	}
+	chain, ok := readChain([]any{
 		map[string]any{"application_id": "app-1", "agent_session_id": "agent-1", "delegation_edge_id": "edge-1"},
 	})
-	if len(chain) != 1 || chain[0].ApplicationID != "app-1" {
+	if !ok || len(chain) != 1 || chain[0].ApplicationID != "app-1" {
 		t.Fatalf("unexpected chain: %#v", chain)
 	}
 	if readStringSlice(nil) != nil || readStringSlice("bad") != nil {

@@ -17,35 +17,47 @@ import type { RedisClient } from './redis.js'
 import { redisMinuteBucket } from './redis.js'
 import { adminAuthPlugin } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
+import { MeteredBackend, buildSecretBackend, secretBackendCounters } from './secret-store.js'
 import { controlPlugin } from './control/plugin.js'
 import { AdminClient } from '@caracalai/admin'
-import { provisionSystemZone, llmResourceIdentifier, type GovernedUpstream } from './system-zone.js'
-import { createOperatorLlmTransport, type OperatorLlmTransport } from './operator-llm-transport.js'
+import { createAdvancedClientFromCredentials } from '@caracalai/sdk/advanced'
+import {
+  provisionSystemZone,
+  llmResourceIdentifier,
+  LLM_SCOPE,
+  OPERATOR_CREDENTIAL_ROTATE_SEC,
+  OPERATOR_ROLE,
+  type GovernedUpstream,
+  type OperatorRoleScopes,
+} from './system-zone.js'
+import { buildOperatorAuthority } from './operator-authority.js'
+import { researcherRoleScopes, executorRoleScopes } from './operator-agent-roles.js'
+import { isReservedZone } from './reserved-namespace.js'
 import type { ProviderConfig } from './operator-gateway.js'
 import { createOperatorAiManager, buildStoreProviderConfigs, type OperatorAiManager } from './operator-ai-manager.js'
 import { listAiProviders } from './operator-ai-store.js'
 import type { OperatorControlIdentity } from './config.js'
+import { getTraceContext, parseTraceparent, bindTrace, buildPinoRedactPaths, CaracalError, createLogger } from '@caracalai/core'
 import {
   isPublished,
-  getTraceContext,
-  parseTraceparent,
-  bindTrace,
   renderObservabilityMetrics,
-  buildPinoRedactPaths,
   instrumentFastifyApp,
   withTimeout,
-  CaracalError,
   pathOnly,
-  createLogger,
-} from '@caracalai/core'
+  loadSecretStoreKeks,
+} from '@caracalai/server-core'
 import { zonesRoutes } from './routes/zones.js'
 import { applicationsRoutes } from './routes/applications.js'
+import { workloadsRoutes } from './routes/workloads.js'
 import { resourcesRoutes } from './routes/resources.js'
 import { providersRoutes } from './routes/providers.js'
 import { policiesRoutes } from './routes/policies.js'
 import { policySetsRoutes } from './routes/policy-sets.js'
 import { grantsRoutes } from './routes/grants.js'
+import { subjectIssuersRoutes } from './routes/subject-issuers.js'
+import { subjectsRoutes } from './routes/subjects.js'
 import { stepUpChallengesRoutes } from './routes/step-up-challenges.js'
+import { notificationSinksRoutes } from './routes/notification-sinks.js'
 import { policyTemplatesRoutes } from './routes/policy-templates.js'
 import { zoneEventsRoutes } from './routes/zone-events.js'
 import { zoneOverviewRoutes } from './routes/zone-overview.js'
@@ -187,6 +199,11 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   app.decorate('db', db)
   app.decorate('redis', redis)
   app.decorate('cfg', cfg)
+  // Machine-tier envelopes need the KEK on every code path regardless of the
+  // configured backend, so a missing or malformed keyring fails the boot here
+  // instead of surfacing at the first secret operation.
+  loadSecretStoreKeks()
+  app.decorate('secrets', new MeteredBackend(buildSecretBackend(db)))
   instrumentFastifyApp(app, 'caracal-api')
 
   app.addHook('onRequest', async (req) => {
@@ -217,14 +234,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     )
   })
 
-  app.addHook('onSend', async (req, reply, payload) => {
+  app.addHook('onSend', (req, reply, payload, done) => {
     reply.header('x-request-id', req.id)
     if (req.url.startsWith('/v1/')) {
       reply.header('x-content-type-options', 'nosniff')
       reply.header('referrer-policy', 'no-referrer')
       reply.header('cache-control', 'no-store')
     }
-    return payload
+    done(null, payload)
   })
 
   if (cfg.v1RateLimitPerMin > 0) {
@@ -280,60 +297,75 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
 
   await app.register(zonesRoutes, { prefix: '/v1' })
   await app.register(applicationsRoutes, { prefix: '/v1' })
+  await app.register(workloadsRoutes, { prefix: '/v1' })
   await app.register(resourcesRoutes, { prefix: '/v1' })
   await app.register(providersRoutes, { prefix: '/v1' })
   await app.register(policiesRoutes, { prefix: '/v1' })
   await app.register(policySetsRoutes, { prefix: '/v1' })
   await app.register(grantsRoutes, { prefix: '/v1' })
+  await app.register(subjectIssuersRoutes, { prefix: '/v1' })
+  await app.register(subjectsRoutes, { prefix: '/v1' })
   await app.register(stepUpChallengesRoutes, { prefix: '/v1' })
+  await app.register(notificationSinksRoutes, { prefix: '/v1' })
   await app.register(policyTemplatesRoutes, { prefix: '/v1' })
   await app.register(zoneEventsRoutes, { prefix: '/v1' })
   await app.register(zoneOverviewRoutes, { prefix: '/v1' })
   await app.register(adminTokensRoutes, { prefix: '/v1' })
   await app.register(auditRetentionRoutes, { prefix: '/v1' })
-  // Mutable holder for the Operator's resolved control identity. Populated by the system
-  // zone provisioner after the server is listening, when the control plane is reachable over
-  // loopback; until then the getter returns null and governed execution stays unconfigured.
+  // Mutable holder for the Operator's resolved identities. Populated by the system zone
+  // provisioner after the server is listening, when the control plane is reachable over
+  // loopback, and refreshed by every credential rotation. Consumers read it only through
+  // currentIdentity, which fails closed the instant the credential deadline passes: an
+  // identity whose rotation was missed is unconfigured, never a stale credential in use.
   const operatorControlIdentity: { current: OperatorControlIdentity | null } = { current: null }
+  const currentIdentity = (): OperatorControlIdentity | null => {
+    const identity = operatorControlIdentity.current
+    if (!identity || Date.now() >= identity.expiresAt.getTime()) return null
+    return identity
+  }
 
-  // When self-governance is active, the Operator must not hold its upstream LLM keys: the
-  // provisioner seals each keyed provider into Caracal, and here the matching providers are
-  // re-pointed at the gateway with a per-provider transport that mints and presents a Caracal
-  // resource mandate. The key is dropped from the in-process config, so a governed provider
-  // calls its model only through Caracal's own authority plane. Keyless local providers need
-  // no protection and are left calling directly. The transport resolves the Operator identity
-  // lazily because it is provisioned after the server is listening; until then a governed call
-  // fails closed rather than leaking a key.
-  const governanceActive = Boolean(cfg.control && cfg.operatorSelfGovern && cfg.operatorControlSecret)
+  // The Operator is always governed: whenever the control plane is available it must not hold
+  // its upstream LLM keys. The provisioner seals each keyed provider into Caracal, and here the
+  // matching providers are re-pointed at the gateway through a per-resource governed transport
+  // that mints and presents a Caracal resource mandate. The key is dropped from the in-process
+  // config, so a governed provider calls its model only through Caracal's own authority plane.
+  // Keyless local providers need no protection and are left calling directly.
+  const governanceActive = Boolean(cfg.control)
 
-  // The Operator's governed LLM transport mints and presents a Caracal resource mandate per
-  // call, so a governed provider reaches its model only through Caracal's own authority plane.
-  // It resolves the Operator identity lazily because that identity is provisioned after the
-  // server is listening; until then a governed call fails closed rather than leaking a key.
-  const transport: OperatorLlmTransport | null = governanceActive
-    ? createOperatorLlmTransport({
-        stsUrl: cfg.stsUrl,
+  // The Operator's own SDK client. Its credentials resolve per call from the mutable identity
+  // holder: the identity is provisioned after the server is listening, rotates on a deadline,
+  // and the resolver returning null fails a governed call closed rather than leaking a key.
+  const caracal = governanceActive
+    ? createAdvancedClientFromCredentials({
         coordinatorUrl: cfg.coordinatorUrl,
+        stsUrl: cfg.stsUrl,
         gatewayUrl: cfg.gatewayUrl,
-        resolveIdentity: () => operatorControlIdentity.current,
+        credentials: () => {
+          const identity = currentIdentity()
+          return identity ? { zoneId: identity.zoneId, ...identity.llm } : null
+        },
       })
+    : null
+
+  const governedFetch = caracal
+    ? (resourceIdentifier: string): typeof fetch =>
+        caracal.applicationTransport(resourceIdentifier, { scopes: [LLM_SCOPE], labels: [OPERATOR_ROLE] })
     : null
 
   // The env-configured providers, governed when a key is supplied (the key is dropped from the
   // in-process config and the call is routed through the gateway) and direct when keyless.
-  const envConfigs: ProviderConfig[] =
-    governanceActive && transport
-      ? cfg.operatorAiProviders.map((provider) =>
-          provider.apiKey
-            ? {
-                ...provider,
-                apiKey: undefined,
-                baseUrl: cfg.gatewayUrl,
-                transport: transport.governedFetch(llmResourceIdentifier(provider.id)),
-              }
-            : provider,
-        )
-      : cfg.operatorAiProviders
+  const envConfigs: ProviderConfig[] = governedFetch
+    ? cfg.operatorAiProviders.map((provider) =>
+        provider.apiKey
+          ? {
+              ...provider,
+              apiKey: undefined,
+              baseUrl: cfg.gatewayUrl,
+              transport: governedFetch(llmResourceIdentifier(provider.id)),
+            }
+          : provider,
+      )
+    : cfg.operatorAiProviders
 
   // The store-managed providers' gateway entries, rebuilt whenever the registry changes so a
   // provider added or edited from the console applies to the next request without an env edit.
@@ -354,15 +386,14 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   // keys; the routes surface its absence so the console explains the prerequisite rather than
   // accepting a key it cannot protect.
   const aiManager: OperatorAiManager | null =
-    governanceActive && transport && provisionAdmin
+    governedFetch && provisionAdmin
       ? createOperatorAiManager({
           db,
           admin: provisionAdmin,
-          resolveIdentity: () => operatorControlIdentity.current,
+          resolveIdentity: currentIdentity,
           envUpstreams: envGovernedUpstreams,
           gatewayUrl: cfg.gatewayUrl,
-          proxyUrl: cfg.operatorLlmProxyUrl,
-          transport,
+          governedFetch,
           onRegistryChange: (configs) => {
             storeConfigs = configs
           },
@@ -378,28 +409,43 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     aiManager,
     autopilotPolicy: buildAutopilotPolicy({
       enabled: cfg.operatorAutopilotEnabled,
+      conversationWriteBudget: cfg.operatorAutopilotWriteBudget,
     }),
     aiGovernance: buildGovernanceLimits({
       maxOutputTokens: cfg.operatorAiMaxOutputTokens,
       maxCallsPerTurn: cfg.operatorAiMaxCallsPerTurn,
     }),
-    resolveControlIdentity: () => operatorControlIdentity.current,
+    resolveControlIdentity: currentIdentity,
     controlEndpoints: cfg.control
       ? { stsUrl: cfg.stsUrl, audience: cfg.control.audience, controlUrl: cfg.control.apiUrl, controlEnabled: true }
       : null,
   })
 
-  // When self-governance is enabled, provision the reserved caracal.sys system zone and the
-  // Operator's least-privilege control identity once the server is listening - the only
-  // point the in-process admin client can reach the control plane over loopback. The
-  // Operator then governs that one zone. Provisioning failure leaves governed execution
-  // unconfigured rather than crashing the API; a later restart retries.
-  if (cfg.control && cfg.operatorSelfGovern && cfg.operatorControlSecret && provisionAdmin) {
-    const secret = cfg.operatorControlSecret
+  // Whenever the control plane is available, provision the reserved caracal.sys system zone and
+  // the Operator's least-privilege role identities once the server is listening - the only
+  // point the in-process admin client can reach the control plane over loopback. Governance is
+  // not optional: an Operator with a control plane always executes through it. The same
+  // provision runs again on every rotation tick: each run generates fresh in-process secrets
+  // and a fresh credential deadline, so no long-lived credential ever exists. Provisioning
+  // failure leaves governed execution unconfigured rather than crashing the API; the next
+  // rotation tick retries, and a credential whose rotation keeps failing expires and fails
+  // closed at both the identity holder and the STS.
+  if (cfg.control && provisionAdmin) {
     const audience = cfg.control.audience
     const isolatedSystemZone = new Set(cfg.operatorSystemZones)
     const admin = provisionAdmin
     const provisionLog = createLogger('api-system-zone', cfg.logLevel as 'info')
+    // Each role identity carries exactly its own least-privilege scope set as STS traits:
+    // the researcher the read scopes, the executor the read scopes plus the mutating scopes
+    // the Operator's configured authority grants.
+    const authority = buildOperatorAuthority({
+      allowedCapabilities: cfg.operatorAllowedCapabilities,
+      systemZones: cfg.operatorSystemZones,
+    })
+    const roles: OperatorRoleScopes = {
+      researcher: [...researcherRoleScopes()].sort(),
+      executor: [...executorRoleScopes(authority)].sort(),
+    }
     // Deterministic by-slug lookup for the singleton system zone. Selecting regardless of
     // archival avoids a unique-slug conflict on create when an archived system zone exists,
     // and finds the zone no matter how many zones the deployment has (a list scan would miss
@@ -408,13 +454,15 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       const { rows } = await db.query<{ id: string }>('SELECT id FROM zones WHERE slug = $1 LIMIT 1', [slug])
       return rows[0] ?? null
     }
-    app.addHook('onListen', async () => {
+    const provisionIdentities = async (): Promise<void> => {
       // Serialize provisioning across instances with a Postgres advisory lock, so two API
       // replicas starting together cannot both run the find-then-create lookups and create
       // duplicate reserved objects. The lock is held on a dedicated connection only for the
       // brief provisioning window and released in finally; a crash drops it with the
       // session. The provisioner is idempotent, so the instance that waits then converges on
-      // the objects the first one created.
+      // the objects the first one created. Secrets are per-instance and last-writer-wins: an
+      // instance whose sealed secret is superseded fails closed at the token mint until its
+      // own next rotation tick re-seals, so replicas never share or persist a credential.
       const lock = await db.connect()
       try {
         await lock.query('SELECT pg_advisory_lock($1)', [SYSTEM_ZONE_PROVISION_LOCK])
@@ -424,20 +472,22 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         const storeRecords = await listAiProviders(db)
         const storeUpstreams: GovernedUpstream[] = storeRecords.map((record) => ({
           id: record.slug,
-          baseUrl: cfg.operatorLlmProxyUrl,
+          baseUrl: record.baseUrl,
           auth: record.auth,
         }))
         const desiredUpstreams = [...envGovernedUpstreams, ...storeUpstreams]
-        const identity = await provisionSystemZone(admin, secret, audience, findZoneBySlug, desiredUpstreams)
+        const identity = await provisionSystemZone(admin, audience, findZoneBySlug, roles, desiredUpstreams)
         operatorControlIdentity.current = {
-          applicationId: identity.operatorApplicationId,
-          clientSecret: secret,
           zoneId: identity.zoneId,
+          llm: identity.llm,
+          researcher: identity.researcher,
+          executor: identity.executor,
+          expiresAt: identity.expiresAt,
         }
         // Publish the store providers' gateway entries from the freshly reconciled resource
         // map, so a console-added provider is live immediately after a restart.
         const resourceBySlug = new Map(identity.governedResources.map((entry) => [entry.id, entry.resourceIdentifier]))
-        if (transport) storeConfigs = buildStoreProviderConfigs(storeRecords, resourceBySlug, cfg.gatewayUrl, transport)
+        if (governedFetch) storeConfigs = buildStoreProviderConfigs(storeRecords, resourceBySlug, cfg.gatewayUrl, governedFetch)
         if (isolatedSystemZone.has(identity.zoneId)) {
           // The Operator must govern its own system zone; listing it as an isolated zone
           // would block self-governance before the identity check. Warn rather than fail so
@@ -448,7 +498,10 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         }
         provisionLog.info('system zone provisioned', {
           zone_id: identity.zoneId,
-          operator_application_id: identity.operatorApplicationId,
+          operator_application_id: identity.llm.applicationId,
+          researcher_application_id: identity.researcher.applicationId,
+          executor_application_id: identity.executor.applicationId,
+          credentials_expire_at: identity.expiresAt.toISOString(),
           governed_resources: identity.governedResources.map((entry) => entry.resourceIdentifier),
         })
       } catch (err) {
@@ -457,6 +510,16 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         await lock.query('SELECT pg_advisory_unlock($1)', [SYSTEM_ZONE_PROVISION_LOCK]).catch(() => {})
         lock.release()
       }
+    }
+    app.addHook('onListen', async () => {
+      await provisionIdentities()
+      // Rotate well inside the credential deadline, so a healthy instance never runs up to
+      // expiry and a transient rotation failure has headroom to retry on the next tick.
+      const rotation = setInterval(() => {
+        void provisionIdentities()
+      }, OPERATOR_CREDENTIAL_ROTATE_SEC * 1000)
+      rotation.unref()
+      app.addHook('onClose', async () => clearInterval(rotation))
     })
   }
 
@@ -466,7 +529,26 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       redis,
       auditHmacKey: cfg.auditHmacKey,
       controlLogLevel: cfg.logLevel,
-      resolvePlatformOperatorSubject: () => operatorControlIdentity.current?.applicationId ?? null,
+      auditOutbox: db,
+      resolveOperatorSubjects: () => {
+        const identity = currentIdentity()
+        return identity ? new Set([identity.researcher.applicationId, identity.executor.applicationId]) : null
+      },
+      // The authoritative zone record behind the handler's zone-scope boundary: existence,
+      // archival, the reserved caracal.sys namespace, and the explicit per-zone grant.
+      lookupZoneScopeTarget: async (zoneId: string) => {
+        const { rows } = await db.query<{ name: string; slug: string; archived_at: string | null; operator_governed: boolean }>(
+          'SELECT name, slug, archived_at, operator_governed FROM zones WHERE id = $1 LIMIT 1',
+          [zoneId],
+        )
+        if (!rows[0]) return null
+        return {
+          reserved: isReservedZone(rows[0]),
+          archived: rows[0].archived_at !== null,
+          operatorGoverned: rows[0].operator_governed === true,
+        }
+      },
+      isolatedZones: new Set(cfg.operatorSystemZones),
     })
   }
 
@@ -485,7 +567,15 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
     }
     const health = await withTimeout(queryOutboxHealth(db), READY_CHECK_TIMEOUT_MS, 'metrics outbox check timed out')
     reply.type('text/plain; version=0.0.4')
-    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n`
+    const secretMetrics = [
+      '# HELP caracal_secret_backend_operations_total Secret backend operations attempted',
+      '# TYPE caracal_secret_backend_operations_total counter',
+      `caracal_secret_backend_operations_total ${secretBackendCounters.operations}`,
+      '# HELP caracal_secret_backend_errors_total Secret backend operations that failed',
+      '# TYPE caracal_secret_backend_errors_total counter',
+      `caracal_secret_backend_errors_total ${secretBackendCounters.errors}`,
+    ].join('\n')
+    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n${secretMetrics}\n`
   })
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {

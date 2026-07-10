@@ -1,9 +1,9 @@
 ---
 title: Integrate the TypeScript SDK
-description: Install @caracalai/sdk, load a runtime profile, spawn agents, delegate authority, and inject Caracal headers.
+description: Install @caracalai/sdk, load a runtime profile, run governed sessions, delegate authority, and inject Caracal headers.
 ---
 
-Use `@caracalai/sdk` in Node applications that need agent sessions, delegation, Gateway routing, or Caracal context propagation.
+Use `@caracalai/sdk` in Node applications that need Sessions, delegation, Gateway routing, or Caracal context propagation.
 
 ## Install
 
@@ -13,117 +13,166 @@ npm install @caracalai/sdk
 
 ## Configure
 
-The SDK resolves configuration in this order:
+`new Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.fromClientSecret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `@caracalai/sdk/advanced`.
 
-1. `new Caracal({ clientSecret: ... })` explicit options.
-2. `new Caracal({ configPath })`.
-3. `CARACAL_CONFIG` or a `caracal.toml` in the default config path.
-4. Environment variables.
-
-## Connect and spawn
+## Connect and start a Session
 
 ```ts
-import { Caracal } from "@caracalai/sdk";
+import { Caracal } from '@caracalai/sdk'
 
-const caracal = new Caracal();
+const caracal = new Caracal()
 
-await caracal.spawn(async () => {
-  const headers = await caracal.headersAsync();
+await caracal.session(async () => {
+  const headers = await caracal.headersAsync()
 
-  await fetch("https://api.example.com/tickets", {
+  await fetch('https://api.example.com/tickets', {
     headers,
-  });
-});
+  })
+})
 ```
 
-`spawn()` creates an agent session, binds the Caracal context while the callback runs, and terminates the session when the callback exits.
+`session()` creates a Session, binds the Caracal context while the callback runs, and terminates the session when the callback exits.
 
-To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `spawn()` records a `task` session, while `spawnService()` records a heartbeat-leased `service`.
+To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and Delegation. The Session lifecycle is handled for you: `session()` records a `task` Session, while `startSession()` records a heartbeat-leased `service` Session.
 
 ```ts
-await caracal.spawn(async () => {
-  const headers = await caracal.headersAsync();
-  await fetch("https://api.example.com/tickets", { headers });
-}, { labels: ["refund-agent"] });
+await caracal.session(
+  async () => {
+    const headers = await caracal.headersAsync()
+    await fetch('https://api.example.com/tickets', { headers })
+  },
+  { labels: ['refund-agent'] },
+)
 ```
 
 See [If many agents share one managed application, can policy and audit still tell them apart?](/reference/faq/#faq-008).
 
-## Long-lived service agents
+## Long-lived long-lived Sessions
 
-Daemons and workers that outlive a single request use `spawnService()` instead of `spawn()`. It returns a handle you own: keep the session alive by calling `heartbeat()` on a timer and retire it with `close()`. Each `heartbeat()` **renews the lease** - it extends the deadline the coordinator measures liveness against; it does not merely check status. A service session is reaped by the coordinator only if it stops heartbeating before its lease expires. Unlike a `task`, a `service` is **not** subject to the wall-clock TTL sweeper; its lifetime is governed entirely by the lease, so a faithfully heartbeated service runs until you close it.
+Daemons and workers that outlive a single request use `startSession()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the Session with `close()`. Each renewal extends the lease. A long-lived Session is reaped only if it stops heartbeating before its lease expires. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
 
 ```ts
-const svc = await caracal.spawnService({ labels: ["billing-worker"] });
+const svc = await caracal.startSession({ labels: ['billing-worker'] })
 try {
   while (running) {
-    await svc.heartbeat();
-    await doWork(await caracal.headersAsync());
-    await sleep(30_000);
+    await doWork(await caracal.headersAsync()) // lease renews in the background
   }
 } finally {
-  await svc.close();
+  await svc.close()
 }
 ```
 
-When your code spends long stretches awaiting a provider (a streaming response, a slow tool), renewing the lease from the same loop can starve. Pass `heartbeatIntervalMs` to renew the lease from an independent timer, so the lease stays current even while your code is blocked on a long `await`:
+The renewal cadence is controlled by `heartbeatIntervalMs`:
+
+| `heartbeatIntervalMs` | Behavior                                                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| unset                 | Cadence derives from the server lease: renew at roughly a third of the remaining lease, with jitter. The right default for almost every worker. |
+| positive              | Fixed cadence. Use when you need deterministic renewal timing, for example under test clocks.                                                   |
+| `0` or negative       | No background timer; the lease is renewed only by your own `heartbeat()` calls, and a missed renewal lets the lease lapse.                      |
+
+The handle exposes `deadlineAt` - the lease deadline the coordinator reported on the last renewal - so a worker can surface its own liveness margin. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
+
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning:
+
+The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `onStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attachSession()` to restart lease renewal. `onLeaseLost` remains reserved for terminal loss.
 
 ```ts
-const svc = await caracal.spawnService({ labels: ["voice-worker"], heartbeatIntervalMs: 30_000 });
-try {
-  for await (const chunk of stream(await caracal.headersAsync())) {  // lease renews in the background
-    await handle(chunk);
-  }
-} finally {
-  await svc.close();
-}
+const svc = await caracal.startSession({
+  labels: ['voice-worker'],
+  onLeaseLost: () => shutdown(),
+})
 ```
 
-Auto-heartbeat is opt-in (omit `heartbeatIntervalMs` to renew manually). Transient renewal errors are logged and retried on the next tick rather than crashing the worker. A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
+A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
 
-## Spawn a narrowed child
+A worker that restarts does not need a fresh session: persist `svc.sessionId` and re-attach with `attachSession()`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `CoordinatorError`, telling the worker to start a new one - and returns the same handle `startSession()` does:
 
 ```ts
-import { Grant } from "@caracalai/sdk";
-
-await caracal.spawn(async () => {
-  await caracal.spawn(async () => {
-    const headers = await caracal.headersAsync();
-    await fetch("https://api.example.com/tickets", { headers });
-  }, {
-    grant: Grant.narrow(["tickets:read"], {
-      resourceId: "https://api.example.com/tickets",
-      constraints: { maxHops: 1, budget: 5 },
-      ttlSeconds: 600,
-    }),
-  });
-});
+const svc = await caracal.attachSession(persistedSessionId, {
+  onLeaseLost: () => shutdown(),
+})
 ```
 
-A plain `spawn()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `grant: Grant.narrow(...)` only when the child should hold a smaller subset, or `Grant.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to an agent session that already exists, typically in another application.
+The rebuilt context carries the Session identity only; Delegations bound by the previous holder are re-presented with `acceptDelegation()`.
+
+## Start a narrowed child
+
+```ts
+import { Authority } from '@caracalai/sdk'
+
+await caracal.session(async () => {
+  await caracal.session(
+    async () => {
+      const headers = await caracal.headersAsync()
+      await fetch('https://api.example.com/tickets', { headers })
+    },
+    {
+      authority: Authority.narrow(['tickets:read'], {
+        resourceId: 'https://api.example.com/tickets',
+        constraints: { maxHops: 1, budget: 5 },
+        ttlSeconds: 600,
+      }),
+    },
+  )
+})
+```
+
+A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to a Session that already exists, typically in another application: it returns the delegation, and the receiving session presents it with `acceptDelegation(delegationId, fn)`.
+
+## Handle approvals
+
+A mint whose scope is approval-gated throws `ApprovalRequiredError`. `withApproval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call:
+
+```ts
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate('https://api.example.com/tickets', ['tickets:admin'], { approvalId }),
+)
+```
+
+A rejected, expired, or already-consumed decision rethrows the original `ApprovalRequiredError`; its `approvalId` lets you resume waiting later with `waitForApproval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`).
 
 ## Route through the Gateway
 
 ```ts
-const request = caracal.gatewayRequest("https://api.example.com/tickets", "/tickets");
+const request = caracal.gatewayRequest('https://api.example.com/tickets', '/tickets')
 
 await fetch(request.url, {
   headers: {
     ...request.headers,
-    ...(await caracal.headersAsync({ allowRoot: true })),
+    ...(await caracal.headersAsync({ asApplication: true })),
   },
-});
+})
 ```
 
 For provider SDKs that accept a custom `fetch`, pass `caracal.transport()` so Caracal headers and Gateway routing are applied automatically.
 
+## Call as the application
+
+Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })`: a fetch pinned to one resource, calling as the application's own identity. There is no ambient authority to borrow, so each mint cycle _builds_ the authority the platform requires: it starts a **source and target session pair**, issues a delegation narrowing `scopes` to the resource between them, and mints the mandate from that delegation - which is why every request the transport sends is still session-attributed, policy-checked, and delegation-bounded in audit, exactly like user-context traffic.
+
+Authority provisioning costs four control-plane calls (one lifecycle bootstrap mint, two Session starts, and one Delegation) roughly once per authority cache key and mandate TTL. Same-key callers share provisioning, and distinct-key provisioning is serialized to stay within Coordinator Session capacity. Every outbound request then performs one uncached STS mandate mint so its replay-protected JTI is unique. Cache hits avoid Coordinator and Delegation traffic, but STS throughput still scales with governed request throughput. Tune `mandateTtlSeconds` for authority lifetime, not to eliminate the per-request mint.
+
+```ts
+const llm = new OpenAI({
+  baseURL: 'https://api.pipernet.example/v1',
+  apiKey: 'unused-gateway-injects-credentials',
+  fetch: caracal.applicationTransport('resource://pipernet', { scopes: ['chat:complete'] }),
+})
+```
+
+## Shut down cleanly
+
+`await caracal.close()` releases client-held state: cached application mandates and in-flight mint cycles are dropped, the credential exchanger's cached lifecycle token is invalidated, and the sessions backing released application transports are terminated best-effort (anything missed retires on its own TTL). The client stays usable afterwards - the next call simply mints fresh state.
+
+Two things `close()` deliberately does **not** do. It does not retire `startSession()`/`attachSession()` handles - those Sessions are yours, so call `handle.close()` on each before the process exits, or persist the Session ID and re-attach after restart. It also does not abort in-flight requests on transports you handed to provider SDKs; bound them with `timeoutMs` or an `AbortSignal` and let them drain.
+
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `Caracal.fromEnv: missing ...` | Confirm the runtime profile or required `CARACAL_*` variables are present. |
-| Root headers rejected | Call `headersAsync({ allowRoot: true })` only when service-root identity is intentional. |
-| Delegation fails | Ensure the call runs inside `spawn()` or another bound context. |
-| Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`. |
+| Symptom                         | Check                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Caracal: missing ...`          | Confirm the named profile or required `CARACAL_*` variables are present.                     |
+| Root headers rejected           | Call `headersAsync({ asApplication: true })` only when service-root identity is intentional. |
+| Delegation fails                | Ensure the call runs inside `session()` or another bound context.                            |
+| Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`.                          |
 
 Related pages: [Add SDK to Your App](/get-started/add-sdk-to-your-app/) and [Implement Multi-Agent Delegation](/guides/delegation/).

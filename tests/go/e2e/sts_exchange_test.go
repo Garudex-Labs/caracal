@@ -26,7 +26,7 @@ func TestSTSTokenExchangeAvailable(t *testing.T) {
 	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
 	form.Set("subject_token", "invalid")
 	form.Set("subject_token_type", "urn:ietf:params:oauth:token-type:jwt")
-	req, err := http.NewRequest(http.MethodPost, base+"/oauth/token", bytes.NewBufferString(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, base+"/oauth/2/token", bytes.NewBufferString(form.Encode()))
 	if err != nil {
 		t.Fatalf("build req: %v", err)
 	}

@@ -82,21 +82,23 @@ func (c *stsClient) Health(ctx context.Context) error {
 	return nil
 }
 
-// Exchange performs an RFC 8693 token exchange. The caller's identity is sent as
-// (zone_id, application_id) form fields rather than a positional client_id, so
-// neither value depends on a separator-free encoding. The upstream operation
-// (method, path) is forwarded so STS can authorize authority per operation; it is
-// covered by the gateway exchange HMAC and cannot be forged by a direct caller.
-func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind binding, resource, method, path, requestID string) exchangeOutcome {
+// Exchange performs an RFC 8693 token exchange. The caller's identity is the
+// (zone_id, application_id) pair read from the verified mandate's claims and sent
+// as form fields rather than a positional client_id, so neither value depends on
+// a separator-free encoding. The upstream operation (method, path) is forwarded
+// so STS can authorize authority per operation; it is covered by the gateway
+// exchange HMAC and cannot be forged by a direct caller.
+func (c *stsClient) Exchange(ctx context.Context, subjectToken, zoneID, applicationID, resource, method, path, requestID string) exchangeOutcome {
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"zone_id":            {bind.ZoneID},
-		"application_id":     {bind.ApplicationID},
+		"zone_id":            {zoneID},
+		"application_id":     {applicationID},
 		"subject_token":      {subjectToken},
 		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
 		"resource":           {resource},
 		"request_method":     {method},
 		"request_path":       {path},
+		"gateway_request_id": {requestID},
 	}
 	body := form.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -113,9 +115,14 @@ func (c *stsClient) Exchange(ctx context.Context, subjectToken string, bind bind
 	}
 	if len(c.exchangeHMACKey) > 0 {
 		timestamp := time.Now().UTC()
+		nonce, err := newExchangeNonce()
+		if err != nil {
+			return exchangeOutcome{Status: http.StatusInternalServerError,
+				ClientErr: sharederr.New(sharederr.STSUnavailable, "sts request signing failed"), InternalErr: err}
+		}
 		req.Header.Set(corests.GatewayTimestampHeader, fmt.Sprintf("%d", timestamp.Unix()))
-		req.Header.Set(corests.GatewayRequestHeader, requestID)
-		req.Header.Set(corests.GatewaySignatureHeader, corests.SignGatewayExchange(c.exchangeHMACKey, timestamp, requestID, req.Method, req.URL.Path, []byte(body)))
+		req.Header.Set(corests.GatewayRequestHeader, nonce)
+		req.Header.Set(corests.GatewaySignatureHeader, corests.SignGatewayExchange(c.exchangeHMACKey, timestamp, nonce, req.Method, req.URL.Path, []byte(body)))
 	}
 
 	start := time.Now()

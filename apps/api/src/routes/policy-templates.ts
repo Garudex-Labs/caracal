@@ -13,7 +13,8 @@ const TEMPLATES = [
   {
     id: 'application-bindings',
     name: 'Application Bindings',
-    description: 'Map each application key used in grants to the control-plane application id the STS sees as input.principal.id. Author the real ids when provisioning.',
+    description:
+      'Map each application key used in grants to the control-plane application id the STS sees as input.principal.id. Author the real ids when provisioning.',
     content: `# caracal:data-document
 package caracal.authz
 
@@ -28,7 +29,8 @@ app_ids := {
   {
     id: 'resource-grants',
     name: 'Resource Grants',
-    description: 'For each resource view, declare the owning application and the scope set each role may hold. The platform contract allows a mint only when the acting application owns the view, the agent role grants the scope, and the delegation edge narrows to it.',
+    description:
+      'For each resource view, declare the owning application and the scope set each role may hold. The platform contract allows a mint only when the acting application owns the view, the Session role grants the scope, and the Delegation narrows to it.',
     content: `# caracal:data-document
 package caracal.authz
 
@@ -45,7 +47,8 @@ grants := {
   {
     id: 'label-confinement',
     name: 'Label Confinement',
-    description: 'Cap every agent session whose principal carries a label prefix to a fixed scope set. A session labelled customer:<id> may mint only these scopes, whatever its role would otherwise allow.',
+    description:
+      'Cap every Session whose principal carries a label prefix to a fixed scope set. A Session labelled customer:<id> may mint only these scopes, whatever its role would otherwise allow.',
     content: `# caracal:data-document
 package caracal.authz
 
@@ -60,7 +63,8 @@ confinement := [{
   {
     id: 'zone-restriction',
     name: 'Zone Restriction',
-    description: 'Deny overlay. Any entry present here makes the platform decision contract deny every exchange in the zone, overriding all grants. Add an entry to freeze the zone during a maintenance window; keep it empty to authorize normally.',
+    description:
+      'Deny overlay. Any entry present here makes the platform decision contract deny every exchange in the zone, overriding all grants. Add an entry to freeze the zone during a maintenance window; keep it empty to authorize normally.',
     content: `# caracal:data-document
 package caracal.authz
 

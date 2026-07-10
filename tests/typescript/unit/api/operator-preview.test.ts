@@ -4,7 +4,7 @@
 // Unit tests for the read-only Operator execution preview.
 
 import { describe, it, expect, vi } from 'vitest'
-import { previewPlan, type PreviewQueryable } from '../../../../apps/api/src/operator-preview.js'
+import { PREVIEW_TARGETS, previewPlan, type PreviewQueryable } from '../../../../apps/api/src/operator-preview.js'
 
 // A queryable whose existence checks are scripted per call. Each entry is the rows
 // array returned for the next db.query invocation, in order.
@@ -53,7 +53,7 @@ describe('previewPlan', () => {
     const db = scriptedDb([])
     const result = await previewPlan(db, 'z1', {
       summary: 'Audit',
-      steps: [{ id: 's1', capability: 'explainAccess', args: { application_id: 'app-1' } }],
+      steps: [{ id: 's1', capability: 'explainRequest', args: { request_id: 'req-1' } }],
     })
     expect(result.steps[0]).toMatchObject({ effect: 'read_only' })
     expect(db.query as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
@@ -207,16 +207,102 @@ describe('previewPlan', () => {
 
   it('previews a multi-step plan against live state in order', async () => {
     const db = scriptedDb([
-      { rows: [] }, // createZone name free
+      { rows: [] }, // connectProvider name free
       { rows: [{ one: 1 }] }, // registerApplication name taken
     ])
     const result = await previewPlan(db, 'z1', {
       summary: 'Stand up',
       steps: [
-        { id: 's1', capability: 'createZone', args: { name: 'Production' } },
+        { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
         { id: 's2', capability: 'registerApplication', args: { name: 'billing-worker' } },
       ],
     })
     expect(result.steps.map((s) => s.effect)).toEqual(['create', 'exists'])
+  })
+
+  it('treats an id bound by a step-output reference as satisfied by the plan itself', async () => {
+    const db = scriptedDb([
+      { rows: [] }, // connectProvider name free; the referenced provider is never queried
+    ])
+    const result = await previewPlan(db, 'z1', {
+      summary: 'Connect and bind',
+      steps: [
+        { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+        {
+          id: 's2',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            credential_provider_id: '{{steps.s1.outputs.provider_id}}',
+          },
+        },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.steps.map((s) => s.effect)).toEqual(['create', 'create'])
+    expect(db.query as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
+  })
+})
+
+// The preview is the one sanctioned direct-database read path beside the governed control
+// reads: it needs exact existence and liveness predicates the paged governed lists cannot
+// answer. These conformance tests hold it to the same security semantics - every target maps
+// to a fixed table carrying the control plane's own liveness predicate, and every query it
+// issues is a parameterized, zone-bound, read-only SELECT.
+describe('direct-read conformance', () => {
+  it('binds every preview target to a fixed table and the control-plane liveness predicate', () => {
+    const liveness: Record<string, string> = {
+      applications: 'archived_at IS NULL',
+      providers: 'archived_at IS NULL',
+      resources: 'archived_at IS NULL',
+      policies: 'archived_at IS NULL',
+      policySets: 'archived_at IS NULL',
+      grants: "status <> 'revoked'",
+      workloads: 'id IS NOT NULL',
+      sessions: "status IN ('active', 'suspended')",
+      delegations: "status = 'active'",
+    }
+    expect(PREVIEW_TARGETS.sessions.table).toBe('sessions')
+    expect(Object.keys(PREVIEW_TARGETS).sort()).toEqual(Object.keys(liveness).sort())
+    for (const [target, spec] of Object.entries(PREVIEW_TARGETS)) {
+      expect(spec.table).toMatch(/^[a-z_]+$/)
+      expect(spec.live).toBe(liveness[target])
+    }
+  })
+
+  it('issues only parameterized, zone-scoped, read-only SELECT queries for every preview shape', async () => {
+    const recorded: { text: string; params: unknown[] }[] = []
+    const db = {
+      query: vi.fn(async (text: string, params?: unknown[]) => {
+        recorded.push({ text, params: params ?? [] })
+        return { rows: [{ one: 1 }] }
+      }),
+    } as unknown as PreviewQueryable
+    await previewPlan(db, 'z1', {
+      summary: 'One step of every live-read preview shape',
+      steps: [
+        { id: 's1', capability: 'connectProvider', args: { name: 'Hooli OIDC', kind: 'oauth2_client_credentials' } },
+        { id: 's2', capability: 'deleteApplication', args: { application_id: 'app-1' } },
+        {
+          id: 's3',
+          capability: 'defineResource',
+          args: {
+            name: 'PiperNet',
+            scopes: ['pipernet:read'],
+            upstream_url: 'https://api.pipernet.example',
+            credential_provider_id: 'prov-1',
+          },
+        },
+      ],
+    })
+    expect(recorded.length).toBeGreaterThan(0)
+    for (const { text, params } of recorded) {
+      expect(text.trim()).toMatch(/^SELECT 1 AS one FROM [a-z_]+ WHERE /)
+      expect(text).toContain('zone_id = $2')
+      expect(text).toContain('LIMIT 1')
+      expect(params[1]).toBe('z1')
+    }
   })
 })

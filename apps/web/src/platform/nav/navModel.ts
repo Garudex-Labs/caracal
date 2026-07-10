@@ -45,8 +45,9 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "runtime",
     label: "Runtime",
     items: [
-      { id: "agents", label: "Agents", to: "/app/agents", zoneScoped: true },
       { id: "sessions", label: "Sessions", to: "/app/sessions", zoneScoped: true },
+      { id: "subjects", label: "Subjects", to: "/app/subjects", zoneScoped: true },
+      { id: "approvals", label: "Approvals", to: "/app/approvals", zoneScoped: true },
     ],
   },
   {
@@ -59,8 +60,8 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "automation",
-    label: "Automation",
-    items: [{ id: "control", label: "Control API", to: "/app/control", zoneScoped: true }],
+    id: "platform",
+    label: "Platform",
+    items: [{ id: "services", label: "Services", to: "/app/services", zoneScoped: true }],
   },
 ];

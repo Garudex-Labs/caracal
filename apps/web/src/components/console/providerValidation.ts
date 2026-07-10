@@ -10,7 +10,8 @@ import type { ProviderKind } from "@/platform/api/types";
 // and the Console doctor). Enforcing them in the browser gives operators immediate,
 // field-level feedback instead of a round-trip error, and keeps the web at parity with the
 // TUI rather than laxer than the backend it submits to.
-export const PROVIDER_IDENTIFIER_PATTERN = /^provider:\/\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PROVIDER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const PROVIDER_IDENTIFIER_PREFIX = "provider://";
 const HEADER_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
 const OAUTH_PARAM_PATTERN = /^[A-Za-z0-9._~-]+$/;
@@ -73,6 +74,27 @@ export function isHost(value: string): boolean {
   return HOST_PATTERN.test(value);
 }
 
+// Operators habitually paste full endpoint URLs into host allow-list fields. Each entry
+// that carries a scheme, path, port, or credentials is reduced to its bare hostname so the
+// pasted form of the right value never bounces as a format error; entries already in
+// hostname form pass through untouched, preserving the operator's exact text while typing.
+export function normalizeHostList(raw: string): string {
+  let changed = false;
+  const entries = raw.split(",").map((item) => {
+    const entry = item.trim();
+    const stripped = entry.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "");
+    if (stripped === entry && !/[/?#]/.test(entry)) return entry;
+    const host = stripped
+      .slice(stripped.indexOf("@") + 1)
+      .split(/[/?#]/)[0]
+      .split(":")[0];
+    if (!host || host === entry) return entry;
+    changed = true;
+    return host;
+  });
+  return changed ? entries.join(", ") : raw;
+}
+
 export interface ParsedParams {
   value: Record<string, string>;
   error?: string;
@@ -118,6 +140,7 @@ export function validateFieldFormat(key: string, raw: string): string | undefine
   switch (key) {
     case "authorization_endpoint":
     case "token_endpoint":
+    case "revocation_endpoint":
       return isHttpsUrl(value) ? undefined : "Must be an HTTPS URL.";
     case "redirect_uri":
       return isAbsoluteUri(value) ? undefined : "Must be an absolute URI.";
@@ -139,6 +162,10 @@ export function validateFieldFormat(key: string, raw: string): string | undefine
     case "authorization_params":
     case "token_params":
       return parseParams(value, reservedParamsFor(key)).error;
+    case "certificate":
+      return value.startsWith("-----BEGIN CERTIFICATE-----")
+        ? undefined
+        : "Must be a PEM-encoded certificate.";
     default:
       return undefined;
   }
@@ -157,9 +184,13 @@ export function crossFieldIssues(
 ): CrossFieldIssue[] {
   const issues: CrossFieldIssue[] = [];
   if (kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials") {
-    const method = (values.client_auth_method || "client_secret_basic").trim();
+    const grantType = (values.grant_type || "client_credentials").trim();
+    const method = (
+      values.client_auth_method || (grantType === "jwt_bearer" ? "none" : "client_secret_basic")
+    ).trim();
     const hasSecret = (values.client_secret ?? "").trim() !== "";
     const hasPrivateKey = (values.private_key ?? "").trim() !== "";
+    const needsPrivateKey = method === "private_key_jwt" || grantType === "jwt_bearer";
 
     if (kind === "oauth2_authorization_code" && method === "private_key_jwt") {
       issues.push({
@@ -167,26 +198,37 @@ export function crossFieldIssues(
         message: "private_key_jwt is not supported for authorization code providers.",
       });
     }
-    if (method === "private_key_jwt") {
-      if (hasSecret) {
-        issues.push({
-          key: "client_secret",
-          message: "Remove the client secret when using private_key_jwt.",
-        });
-      }
-    } else {
+    if (grantType === "jwt_bearer" && method === "private_key_jwt") {
+      issues.push({
+        key: "client_auth_method",
+        message: "private_key_jwt cannot be combined with the jwt_bearer grant.",
+      });
+    }
+    if (method === "private_key_jwt" && hasSecret) {
+      issues.push({
+        key: "client_secret",
+        message: "Remove the client secret when using private_key_jwt.",
+      });
+    }
+    if (!needsPrivateKey) {
       if (hasPrivateKey) {
         issues.push({
           key: "private_key",
-          message: "A private key requires the private_key_jwt method.",
+          message: "A private key requires private_key_jwt or the jwt_bearer grant.",
         });
       }
       if ((values.key_id ?? "").trim() !== "") {
         issues.push({
           key: "key_id",
-          message: "Key ID requires the private_key_jwt method.",
+          message: "Key ID requires private_key_jwt or the jwt_bearer grant.",
         });
       }
+    }
+    if (method !== "private_key_jwt" && (values.certificate ?? "").trim() !== "") {
+      issues.push({
+        key: "certificate",
+        message: "A client certificate requires the private_key_jwt method.",
+      });
     }
   }
   if (kind === "api_key") {
@@ -198,11 +240,51 @@ export function crossFieldIssues(
       });
     }
   }
+  // Single-line credentials pasted with embedded newlines or with their authorization
+  // scheme still attached would be sealed verbatim and fail every upstream call, so the
+  // same control-plane intake rules are surfaced in the form before submit. PEM private
+  // keys legitimately span multiple lines and are exempt.
+  for (const key of ["client_secret", "api_key", "bearer_token", "password"]) {
+    const secret = (values[key] ?? "").trim();
+    // Matching control characters is the entire point of this check.
+    // eslint-disable-next-line no-control-regex
+    if (secret !== "" && /[\u0000-\u001f\u007f]/.test(secret)) {
+      issues.push({ key, message: "Must be a single-line value without control characters." });
+    }
+  }
+  const composed =
+    kind === "bearer_token"
+      ? { key: "bearer_token", scheme: (values.auth_scheme ?? "").trim() || "Bearer" }
+      : kind === "api_key" && (values.auth_scheme ?? "").trim() !== ""
+        ? { key: "api_key", scheme: (values.auth_scheme ?? "").trim() }
+        : undefined;
+  if (
+    composed &&
+    (values[composed.key] ?? "")
+      .trim()
+      .toLowerCase()
+      .startsWith(`${composed.scheme.toLowerCase()} `)
+  ) {
+    issues.push({
+      key: composed.key,
+      message: `Enter the credential without the '${composed.scheme}' prefix; the gateway adds it.`,
+    });
+  }
   return issues;
 }
 
+// Validates the slug the operator types after the locked provider:// prefix; the form owns
+// the prefix, so the value here never carries it.
 export function validateIdentifier(value: string): string | undefined {
   const text = value.trim();
-  if (!text || PROVIDER_IDENTIFIER_PATTERN.test(text)) return undefined;
-  return "Must match provider://lowercase-slug.";
+  if (!text || PROVIDER_SLUG_PATTERN.test(text)) return undefined;
+  return "Use lowercase letters, numbers, and hyphens (e.g. hooli-oidc).";
+}
+
+// Accepts pasted full identifiers gracefully: the locked prefix is removed so the slug field
+// never displays a doubled namespace.
+export function stripIdentifierPrefix(value: string): string {
+  return value.startsWith(PROVIDER_IDENTIFIER_PREFIX)
+    ? value.slice(PROVIDER_IDENTIFIER_PREFIX.length)
+    : value;
 }

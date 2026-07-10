@@ -13,6 +13,8 @@ curl_args="-fsS --max-time 5"
 probe() {
     name="$1"
     url="$2"
+    # curl_args intentionally splits into separate arguments.
+    # shellcheck disable=SC2086
     if curl ${curl_args} -o /dev/null -w "%{http_code}" "${url}" | grep -qE '^(2|3)[0-9][0-9]$'; then
         echo "ok    ${name} ${url}"
     else

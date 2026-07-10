@@ -13,17 +13,18 @@ ARG CXXFLAGS
 ARG LDFLAGS
 ARG GOFLAGS
 ARG GO_BUILDFLAGS
-ARG GO_LDFLAGS
+ARG GO_LDFLAGS="-s -w"
 ENV CGO_ENABLED=${CGO_ENABLED} GOOS=linux
 WORKDIR /build
 COPY go.work go.work
+COPY packages/admin/go/ packages/admin/go/
 COPY packages/core/go/ packages/core/go/
 COPY packages/identity/go/ packages/identity/go/
 COPY packages/oauth/go/ packages/oauth/go/
 COPY packages/revocation/go/ packages/revocation/go/
-COPY packages/transport/mcp/go/ packages/transport/mcp/go/
-COPY packages/connectors/nethttp/go/ packages/connectors/nethttp/go/
-COPY packages/connectors/redis/go/ packages/connectors/redis/go/
+COPY packages/verify/go/ packages/verify/go/
+COPY packages/adapters/nethttp/go/ packages/adapters/nethttp/go/
+COPY packages/backends/redis/go/ packages/backends/redis/go/
 COPY packages/sdk/go/ packages/sdk/go/
 COPY services/sts/ services/sts/
 COPY services/audit/ services/audit/

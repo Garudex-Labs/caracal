@@ -1,52 +1,102 @@
 ---
-title: Use Management API
-description: Management API endpoints served by the Caracal API service.
+title: Use the Admin API
+description: Admin API endpoints served by the Caracal API service.
 pageType: api
 ---
 
-The Control-Plane REST API is served by the API service on port `3000`. Management routes are registered under `/v1` and are protected by admin authentication.
+The Admin API is served by the API service on port `3000`. Management routes are registered under `/v1` and are protected by admin authentication.
+
+## Authentication
+
+Send an admin token as a bearer credential on every `/v1` request:
+
+```
+Authorization: Bearer <admin token>
+```
+
+| Status | Error                                         | Meaning                                           |
+| ------ | --------------------------------------------- | ------------------------------------------------- |
+| `401`  | `unauthorized`, `invalid_admin_token`         | Token is missing, malformed, expired, or revoked. |
+| `403`  | `admin_token_read_only`                       | Write attempted with a read-only token.           |
+| `403`  | `admin_token_zone_mismatch`, `zone_forbidden` | Token is scoped to a different zone.              |
+| `403`  | `system_zone_read_only`                       | Write attempted against the reserved system zone. |
+
+## Error Shape
+
+Every non-2xx `/v1` response carries a single JSON envelope:
+
+```json
+{
+  "error": "invalid_body",
+  "error_description": "Request body failed validation",
+  "details": { "issues": [{ "path": ["name"], "message": "Required" }] }
+}
+```
+
+`error` is the stable machine code to branch on. `error_description`, when present, is a human-readable summary of the failure. `details`, when present, carries structured context: for example, the validation issues on `invalid_body`, the failed connectivity check on `provider_check_failed`, or the live dynamic-client count on `dcr_shutdown_required`. See [Error Codes](/reference/errors/) for the shared code catalog.
 
 ## Health and Diagnostics
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Dependency and service readiness. |
-| `GET` | `/metrics` | Service metrics. |
-| `GET` | `/docs` | Optional API docs when enabled. |
+| Method | Path       | Purpose                           |
+| ------ | ---------- | --------------------------------- |
+| `GET`  | `/health`  | Liveness check.                   |
+| `GET`  | `/ready`   | Dependency and service readiness. |
+| `GET`  | `/metrics` | Service metrics.                  |
+| `GET`  | `/docs`    | Optional API docs when enabled.   |
 
 ## Core Resources
 
-| Resource | Collection | Item | Extra |
-| --- | --- | --- | --- |
-| Zones | `GET`, `POST /v1/zones` | `GET`, `PATCH`, `DELETE /v1/zones/:id` | `GET /v1/zones/:id/dcr-status` |
-| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr` |
-| Providers | `GET`, `POST /v1/zones/:zoneId/providers` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/providers/:id` | - |
-| Resources | `GET`, `POST /v1/zones/:zoneId/resources` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/resources/:id` | - |
+| Resource     | Collection                                   | Item                                                        | Extra                                                                                                                                                      |
+| ------------ | -------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zones        | `GET`, `POST /v1/zones`                      | `GET`, `PATCH`, `DELETE /v1/zones/:id`                      | `GET /v1/zones/:id/dcr-status`, `GET /v1/zones/:id/overview`                                                                                               |
+| Applications | `GET`, `POST /v1/zones/:zoneId/applications` | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/applications/:id` | `POST /v1/zones/:zoneId/applications/dcr`, `POST /v1/zones/:zoneId/applications/:id/rotate-secret`, `GET /v1/zones/:zoneId/applications/:id/client-secret` |
+| Providers    | `GET`, `POST /v1/zones/:zoneId/providers`    | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/providers/:id`    | -                                                                                                                                                          |
+| Resources    | `GET`, `POST /v1/zones/:zoneId/resources`    | `GET`, `PATCH`, `DELETE /v1/zones/:zoneId/resources/:id`    | -                                                                                                                                                          |
+| Workloads    | `GET`, `POST /v1/zones/:zoneId/workloads`    | `GET`, `PUT`, `DELETE /v1/zones/:zoneId/workloads/:id`      | `POST /v1/zones/:zoneId/workloads/:id/rotate-secret`, `GET /v1/zones/:zoneId/workloads/:id/secret`                                                         |
+
+Workloads are the launcher identities `caracal run` uses. Create a workload, deliver its secret to the launch environment, and rotate the secret here when you automate runtime setup; the secret stays retrievable from Secret Store custody through an audited reveal endpoint.
 
 ## Policy and Access
 
-| Area | Read | Write |
-| --- | --- | --- |
-| Policy validation | - | `POST /v1/policies/validate` |
-| Policies | `GET /v1/zones/:zoneId/policies`, `GET /v1/zones/:zoneId/policies/:id` | `POST /v1/zones/:zoneId/policies`, `POST /v1/zones/:zoneId/policies/:id/versions`, `DELETE /v1/zones/:zoneId/policies/:id` |
-| Policy sets | `GET /v1/zones/:zoneId/policy-sets`, `GET /v1/zones/:zoneId/policy-sets/:id`, `GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId`, `GET /v1/zones/:zoneId/policy-sets/:id/activation-status` | `POST /v1/zones/:zoneId/policy-sets`, `POST /v1/zones/:zoneId/policy-sets/:id/versions`, `POST /v1/zones/:zoneId/policy-sets/:id/activate`, `POST /v1/zones/:zoneId/policy-sets/:id/simulate`, `DELETE /v1/zones/:zoneId/policy-sets/:id` |
-| Policy templates | `GET /v1/policy-templates` | - |
-| Grants | `GET /v1/zones/:zoneId/grants`, `GET /v1/zones/:zoneId/grants/:id` | `POST /v1/zones/:zoneId/grants`, `DELETE /v1/zones/:zoneId/grants/:id` |
-| Provider grants | - | `POST /v1/zones/:zoneId/provider-grants`, `POST /v1/zones/:zoneId/provider-grants/oauth/authorize`, `POST /v1/zones/:zoneId/provider-grants/revoke` |
+| Area                 | Read                                                                                                                                                                                                 | Write                                                                                                                                                                                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Policy validation    | -                                                                                                                                                                                                    | `POST /v1/policies/validate`                                                                                                                                                                                                              |
+| Policies             | `GET /v1/zones/:zoneId/policies`, `GET /v1/zones/:zoneId/policies/:id`                                                                                                                               | `POST /v1/zones/:zoneId/policies`, `POST /v1/zones/:zoneId/policies/:id/versions`, `DELETE /v1/zones/:zoneId/policies/:id`                                                                                                                |
+| Policy sets          | `GET /v1/zones/:zoneId/policy-sets`, `GET /v1/zones/:zoneId/policy-sets/:id`, `GET /v1/zones/:zoneId/policy-sets/:id/versions/:versionId`, `GET /v1/zones/:zoneId/policy-sets/:id/activation-status` | `POST /v1/zones/:zoneId/policy-sets`, `POST /v1/zones/:zoneId/policy-sets/:id/versions`, `POST /v1/zones/:zoneId/policy-sets/:id/activate`, `POST /v1/zones/:zoneId/policy-sets/:id/simulate`, `DELETE /v1/zones/:zoneId/policy-sets/:id` |
+| Policy templates     | `GET /v1/policy-templates`                                                                                                                                                                           | -                                                                                                                                                                                                                                         |
+| Grants               | `GET /v1/zones/:zoneId/grants`, `GET /v1/zones/:zoneId/grants/:id`                                                                                                                                   | `POST /v1/zones/:zoneId/grants`, `DELETE /v1/zones/:zoneId/grants/:id`                                                                                                                                                                    |
+| Subject issuers      | `GET /v1/zones/:zoneId/subject-issuers`, `GET /v1/zones/:zoneId/subject-issuers/:id`                                                                                                                 | `POST /v1/zones/:zoneId/subject-issuers`, `PATCH /v1/zones/:zoneId/subject-issuers/:id`, `DELETE /v1/zones/:zoneId/subject-issuers/:id`                                                                                                   |
+| Provider connections | `GET /v1/zones/:zoneId/provider-connections`, `GET /v1/zones/:zoneId/provider-connections/oauth/callback` (OAuth redirect target)                                                                    | `POST /v1/zones/:zoneId/provider-connections`, `POST /v1/zones/:zoneId/provider-connections/oauth/authorize`, `POST /v1/zones/:zoneId/provider-connections/revoke`                                                                        |
 
 Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
 
-## Audit, Sessions, and Step-Up
+## Audit, Authority Records, Sessions, and Approvals
 
-| Resource | Methods and paths |
-| --- | --- |
-| Audit | `GET /v1/zones/:zoneId/audit`, `GET /v1/zones/:zoneId/audit/by-request/:requestId`, `GET /v1/zones/:zoneId/audit/by-request/:requestId/explain` |
-| Admin audit | `GET /v1/zones/:zoneId/admin-audit` |
-| Sessions | `GET /v1/zones/:zoneId/sessions` |
-| Agent sessions | `GET /v1/zones/:zoneId/agent-sessions` (filter by `status`, `lifecycle`, `label`, `parent_id`, `application_id`; `format=csv` to export) |
-| Step-up challenges | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/satisfy` |
-| Zone events | Zone-scoped event routes under `/v1/zones/:zoneId/...` |
+| Resource          | Methods and paths                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Audit             | `GET /v1/zones/:zoneId/audit`, `GET /v1/zones/:zoneId/audit/by-request/:requestId`, `GET /v1/zones/:zoneId/audit/by-request/:requestId/explain`                                                                                                                                                                    |
+| Admin audit       | `GET /v1/zones/:zoneId/admin-audit`                                                                                                                                                                                                                                                                                |
+| Authority records | `GET /v1/zones/:zoneId/authority-records`. Filter by `authority_record_id`, `subject_id`, or `status`; use `format=csv` to export.                                                                                                                                                                                |
+| Subjects          | `GET /v1/zones/:zoneId/subjects`, `GET /v1/zones/:zoneId/subjects/overview?subject_id=`, `POST /v1/zones/:zoneId/subjects/revoke` (the kill switch revokes every live Authority record for the Subject, terminates linked Sessions, revokes Delegations and provider connections, and feeds the revocation stream) |
+| Sessions          | `GET /v1/zones/:zoneId/sessions`. Filter by `status`, `lifecycle`, `label`, `parent_session_id`, or `application_id`; use `format=csv` to export.                                                                                                                                                                 |
+| Approvals         | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/approve`, `POST /v1/zones/:zoneId/step-up-challenges/:id/reject`; `step-up-challenges` is the protocol path.                                                            |
+
+## Platform Administration
+
+These routes require the global admin token.
+
+| Resource        | Methods and paths                                             |
+| --------------- | ------------------------------------------------------------- |
+| Admin tokens    | `GET`, `POST /v1/admin-tokens`; `DELETE /v1/admin-tokens/:id` |
+| Audit retention | `GET`, `PUT /v1/audit-retention`                              |
+
+Use `POST /v1/admin-tokens` to mint read-only or zone-scoped tokens for automation, and keep the bootstrap token as break-glass.
+
+## Listing and Filters
+
+- List endpoints accept `limit` (default `200`, max `500`) and an opaque `cursor`. Every list response is an envelope of `items` and `next_cursor`; pass `next_cursor` as the next request's `cursor` and stop when it is `null`. The Admin SDK list helpers for collection resources drain the cursor chain and return the complete collection.
+- `GET /v1/zones/:zoneId/audit` accepts `since`, `until`, `request_id`, `decision`, `event_type`, `application_id`, `session_id`, `authority_record_id`, and `label`.
+- Add `format=csv` to audit and admin-audit lists for exports; use `fields` to select columns.
 
 ## Usage Notes
 
@@ -54,11 +104,12 @@ Use Console when you are performing these operations interactively. Use the Admi
 - For scoped, non-interactive provisioning, drive the Control API with a control key. See [Automate Management](/services/control/#non-interactive-automation) and the `controlBootstrap` example.
 - Prefer declarative reconciliation over scripting individual writes: [Declarative Management](/services/control/#declarative-management) converges a zone from a desired-state document with idempotent apply, dry-run plan, and CI-friendly verify.
 - Policy activation and simulation are API operations, but top-level `caracal` runtime commands do not expose them.
+- Caracal Operator routes under `/v1/operator` and zone-scoped operator paths back the web console. They are not a stable automation surface.
 - Writes that produce downstream state changes enqueue signed Redis stream events through the API outbox.
 
 ## Next Step
 
-Continue to [Use Coordinator API](/api/coordinator/) when automation needs agent session, invocation, or delegation endpoints.
+Continue to [Use Coordinator API](/api/coordinator/) when automation needs Session, invocation, or Delegation endpoints.
 
 ## Related Pages
 

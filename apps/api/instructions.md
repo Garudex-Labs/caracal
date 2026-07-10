@@ -17,6 +17,8 @@
 - Must filter every per-zone query by an explicit `zone_id` value in route handlers. The `src/db.ts` pool sets `caracal.zone_id='*'` on every connection, which authorizes cross-zone access and bypasses RLS row filtering; zone scoping is enforced in application code, not by the database.
 - Must declare every Operator capability as one entry in `src/operator-capabilities.ts` carrying its args schema, mutating flag, and `preview` spec, and add one `src/operator-control-map.ts` entry only when it is governed-executable.
 - Must let Operator authority, role scopes, and the system-zone identity derive from those two registries; never hand-list a capability's scope anywhere else.
+- Must treat Operator memory surfaces (per-conversation durable memory, session facts, recent turns) as activity history only: they record what was done and what is going on, never whether an object exists now. Each conversation's memory is recalled only by that conversation.
+- Must resolve existence and current state through a live governed read or a route-side deterministic check (plan preview, execute re-preview, drift gate) at every decision point; a memory or prompt claim is never a substitute.
 
 ## Forbidden
 - Must not accept Cedar policies or add a second policy language.

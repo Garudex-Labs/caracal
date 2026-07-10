@@ -8,30 +8,42 @@ The Helm chart in `infra/helm/caracal` renders production-shaped Kubernetes reso
 
 ## Rendered Resources
 
-| Resource | Purpose |
-| --- | --- |
-| Deployment | API, Audit, Coordinator, Web, and Control when enabled. |
-| StatefulSet | STS and Gateway when replay persistence is enabled. |
-| Job | Pre-install/pre-upgrade Postgres migrations for the control-plane and web session schemas. |
-| Service | ClusterIP service per enabled component. |
-| Ingress | Web console by default; optional external API and Gateway endpoints. |
-| NetworkPolicy | Default-deny with explicit internal, storage, DNS, OTLP, HTTPS, and custom egress controls. |
-| PDB/HPA | Availability and scaling controls per service. |
-| ServiceMonitor/PrometheusRule | Metrics scraping and built-in alert recipes. |
+| Resource                      | Purpose                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| Deployment                    | API, Audit, Coordinator, Web, and Control when enabled.                                     |
+| StatefulSet                   | STS and Gateway when replay persistence is enabled.                                         |
+| Job                           | Pre-install/pre-upgrade Postgres migrations for the control-plane and web session schemas.  |
+| Service                       | ClusterIP service per enabled component.                                                    |
+| Ingress                       | Optional external Web, API, Gateway, and STS endpoints.                                     |
+| NetworkPolicy                 | Default-deny with explicit internal, storage, DNS, OTLP, HTTPS, and custom egress controls. |
+| PDB/HPA                       | Availability and scaling controls per service.                                              |
+| ServiceMonitor/PrometheusRule | Metrics scraping and built-in alert recipes.                                                |
 
 ## Profile Selection
 
 The chart ships three overlays on top of `values.yaml`. Pick one explicitly - `values.production.yaml` is the canonical enterprise install path:
 
-| Overlay | `global.mode` | Posture | Use for |
-| --- | --- | --- | --- |
-| `values.production.yaml` | `stable` | Fail-closed; replicas, PDBs, anti-affinity baked in | **Production (canonical)** |
-| `values.rc.yaml` | `rc` | Same fail-closed trust boundary; release-candidate build may be functionally unstable | Staging / pre-release validation |
-| `values.dev.yaml` | `dev` | Relaxed, single-host conveniences | Local evaluation only |
+| Overlay                  | `global.mode` | Posture                                                                               | Use for                          |
+| ------------------------ | ------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
+| `values.production.yaml` | `stable`      | Fail-closed; replicas, PDBs, anti-affinity baked in                                   | **Production (canonical)**       |
+| `values.rc.yaml`         | `rc`          | Same fail-closed trust boundary; release-candidate build may be functionally unstable | Staging / pre-release validation |
+| `values.dev.yaml`        | `dev`         | Relaxed, single-host conveniences                                                     | Local evaluation only            |
 
 Always pass the chosen overlay with `--values`; never install on bare `values.yaml`.
 
 ## Minimal Install Shape
+
+Released chart versions are published to the GitHub Container Registry as OCI artifacts; pin an explicit version for production:
+
+```bash
+helm upgrade --install caracal oci://ghcr.io/garudex-labs/charts/caracal \
+  --version 0.2.0 \
+  --namespace caracal \
+  --create-namespace \
+  --values values.production.yaml
+```
+
+From a repository checkout, install the working-tree chart instead:
 
 ```bash
 helm upgrade --install caracal infra/helm/caracal \
@@ -40,32 +52,35 @@ helm upgrade --install caracal infra/helm/caracal \
   --values infra/helm/caracal/values.production.yaml
 ```
 
-Before installing, provide the runtime Secret named by `secrets.runtimeSecretName` or set `secrets.create=true` with plaintext values only for a controlled evaluation environment. The runtime Secret must include `caracalAuthSecret` for Better Auth signing and `authDatabaseUrl` for the web console session database, alongside the standard database, Redis, admin, Coordinator, KEK, HMAC, and token keys.
+To manage the install declaratively, [Provision with OpenTofu](/operations/opentofu/) wraps this chart with pinned versions, atomic upgrades, and environment roots.
+
+Before installing, provide the runtime Secret named by `secrets.runtimeSecretName` or set `secrets.create=true` with plaintext values only for a controlled evaluation environment. The runtime Secret must include service-specific database URLs (`apiDatabaseUrl`, `stsDatabaseUrl`, `gatewayDatabaseUrl`, `auditDatabaseUrl`, and `coordinatorDatabaseUrl`), `idempotencyHmacKey`, `caracalAuthSecret`, `authDatabaseUrl`, Redis, admin, Coordinator, KEK, HMAC, and metrics keys.
 
 For a managed-cloud install with the runtime Secret provisioned by the External Secrets Operator, a production overlay, and cert-manager TLS ingress, follow [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/).
 
 ## Service Ports
 
-| Component | Port |
-| --- | --- |
-| API | `3000` |
-| STS | `8080` |
-| Gateway | `8081` |
-| Audit | `9090` |
-| Coordinator | `4000` |
-| Web Console BFF | `3002` |
-| Control | in-process in API (`3000`) when enabled |
+| Component       | Port                                    |
+| --------------- | --------------------------------------- |
+| API             | `3000`                                  |
+| STS             | `8080`                                  |
+| Gateway         | `8081`                                  |
+| Audit           | `9090`                                  |
+| Coordinator     | `4000`                                  |
+| Web Console BFF | `3002`                                  |
+| Control         | in-process in API (`3000`) when enabled |
 
 ## Production Values to Review
 
-| Area | Values |
-| --- | --- |
-| Images | `global.registry`, `global.tag`, `global.imagePullPolicy`, `global.mode` |
-| Secrets | `secrets.runtimeSecretName`, `secrets.database.*`, `secrets.redis.*`, token secret refs |
-| Network | `networkPolicy.*`, `ingress.web.*`, `ingress.gateway.*`, `ingress.api.*` |
-| Reliability | `services.<name>.replicas`, `pdb`, `hpa`, resource requests/limits |
-| Replay | `replayPersistence.enabled`, `storageClassName`, `size` |
-| Observability | `serviceMonitor.enabled`, `alertRules.enabled`, `global.otelExporterOtlpEndpoint` |
+| Area          | Values                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------- |
+| Images        | `global.registry`, `global.tag`, `global.imagePullPolicy`, `global.mode`                |
+| Secrets       | `secrets.runtimeSecretName`, `secrets.database.*`, `secrets.redis.*`, token secret refs |
+| Network       | `services.<name>.internalUrl`, `services.sts.issuerUrl`, `networkPolicy.*`, `ingress.*` |
+| Reliability   | `services.<name>.replicas`, `pdb`, `hpa`, resource requests/limits                      |
+| Audit export  | `services.audit.exportScratchSizeLimit`                                                 |
+| Replay        | `replayPersistence.enabled`, `storageClassName`, `size`                                 |
+| Observability | `serviceMonitor.enabled`, `alertRules.enabled`, `global.otelExporterOtlpEndpoint`       |
 
 ## Web Console Deployment
 
@@ -87,9 +102,13 @@ Set `autoMigrate: "true"` only for single-replica evaluation installs where boot
 
 ## Ingress and NetworkPolicy
 
-`ingress.web.enabled` is `true` by default and `ingress.web.host` defaults to `caracal.example.com`. API and Gateway Ingress remain disabled by default to keep public exposure minimal. Add `ingress.web.tlsSecretName` and the ingress-class annotations required by the platform edge.
+Production values leave every Ingress disabled until the operator supplies a host, TLS secret, and matching NetworkPolicy. API, Gateway, and STS Ingress remain optional to keep public exposure minimal. Add the ingress-class annotations required by the platform edge.
 
-When `networkPolicy.enabled=true`, browser-to-web traffic from the ingress controller is not admitted automatically. Add a `networkPolicy.extraIngress` rule that selects the ingress controller namespace or pods and permits port `3002` to the web pods.
+Stable rendering fails when NetworkPolicy has no DNS rule, or when any Ingress is enabled without `networkPolicy.extraIngress`. Configure exact DNS peers and an ingress-controller selector before installation rather than deploying an unreachable release.
+
+Every non-Web service accepts `extraEnv`, `extraEnvFrom`, `extraVolumes`, and `extraVolumeMounts`. Use these for private CA bundles, proxy settings, workload-identity files, and service-specific cloud credentials without forking the chart.
+
+Audit writes each complete hourly Parquet partition to an ephemeral scratch volume before streaming it to object storage. Size `services.audit.exportScratchSizeLimit` for the largest expected hourly partition plus encoder overhead. The chart mounts this bounded `emptyDir` at the `AUDIT_EXPORT_TMP_DIR` path; node ephemeral-storage pressure can interrupt an export, but the durable watermark advances only after upload succeeds, so the next exporter tick retries the hour.
 
 ## Validation Flow
 
@@ -114,13 +133,13 @@ Migrations are forward-only. Rollbacks must use application versions compatible 
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Migration Job fails | Check database host, port, user, database name, password key, and `sslMode`. |
-| Pods fail readiness | Inspect dependency readiness, mounted secrets, and service-specific required env vars. |
-| Web Ingress returns 503 or times out | Confirm `services.web.publicUrl`, `authDatabaseUrl`, `caracalAuthSecret`, API/Coordinator readiness, and `networkPolicy.extraIngress` for the ingress controller. |
-| Gateway Ingress works but upstream calls fail | Check NetworkPolicy egress and upstream allowlist configuration. |
-| STS or Gateway loses audit replay | Ensure replay persistence is enabled and PVCs are not deleted during rollouts. |
+| Symptom                                       | Check                                                                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Migration Job fails                           | Check database host, port, user, database name, password key, and `sslMode`.                                                                                      |
+| Pods fail readiness                           | Inspect dependency readiness, mounted secrets, and service-specific required env vars.                                                                            |
+| Web Ingress returns 503 or times out          | Confirm `services.web.publicUrl`, `authDatabaseUrl`, `caracalAuthSecret`, API/Coordinator readiness, and `networkPolicy.extraIngress` for the ingress controller. |
+| Gateway Ingress works but upstream calls fail | Check NetworkPolicy egress and upstream allowlist configuration.                                                                                                  |
+| STS or Gateway loses audit replay             | Ensure replay persistence is enabled and PVCs are not deleted during rollouts.                                                                                    |
 
 ## Next Step
 

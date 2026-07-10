@@ -53,7 +53,12 @@ export function flagInt(flags: Record<string, string | boolean>, key: string): n
 
 export function flagList(flags: Record<string, string | boolean>, key: string): string[] | undefined {
   const v = flagString(flags, key)
-  return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined
+  return v
+    ? v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : undefined
 }
 
 export function usage(line: string): never {
@@ -96,9 +101,7 @@ function printTableImpl(rows: readonly Record<string, unknown>[], columns: reado
   }
   const cells = rows.map((row) => columns.map((c) => formatCell(row[c])))
   const widths = columns.map((c, i) => Math.max(c.length, ...cells.map((row) => row[i]!.length)))
-  process.stdout.write(
-    style.header(columns.map((c, i) => pad(c, widths[i]!)).join('  ')) + '\n',
-  )
+  process.stdout.write(style.header(columns.map((c, i) => pad(c, widths[i]!)).join('  ')) + '\n')
   process.stdout.write(style.label(widths.map((w) => '-'.repeat(w)).join('  ')) + '\n')
   for (const row of cells) {
     process.stdout.write(row.map((v, i) => pad(v, widths[i]!)).join('  ') + '\n')

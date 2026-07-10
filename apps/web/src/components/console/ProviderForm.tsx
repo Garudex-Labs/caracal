@@ -6,39 +6,60 @@ This file builds the kind-aware create and edit form for upstream credential pro
 */
 import { useState } from "react";
 
-import { Button, Disclosure, Field, Modal, PasswordField, Select, Textarea } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Disclosure,
+  Field,
+  Modal,
+  PasswordField,
+  Select,
+  Textarea,
+} from "@/components/ui";
 import {
   crossFieldIssues,
+  normalizeHostList,
   parseParams,
   reservedParamsFor,
   serializeParams,
   validateFieldFormat,
   validateIdentifier,
+  PROVIDER_IDENTIFIER_PREFIX,
+  stripIdentifierPrefix,
 } from "@/components/console/providerValidation";
-import type { Provider, ProviderInput, ProviderKind } from "@/platform/api/types";
+import type {
+  Provider,
+  ProviderDiscovery,
+  ProviderInput,
+  ProviderKind,
+  ProviderTestResult,
+} from "@/platform/api/types";
+
+export const TEST_STATUS: Record<
+  ProviderTestResult["status"],
+  { label: string; tone: "success" | "danger" | "warning" }
+> = {
+  ok: { label: "Connection verified", tone: "success" },
+  auth_failed: { label: "Authentication failed", tone: "danger" },
+  unreachable: { label: "Endpoint unreachable", tone: "danger" },
+  endpoint_error: { label: "Unexpected endpoint response", tone: "warning" },
+  config_error: { label: "Configuration error", tone: "warning" },
+};
 
 const KIND_OPTIONS: { value: ProviderKind; label: string }[] = [
-  { value: "caracal_mandate", label: "Caracal mandate" },
+  { value: "caracal_mandate", label: "Caracal-issued token (Caracal-aware upstream)" },
   { value: "oauth2_authorization_code", label: "OAuth 2.0: authorization code" },
   { value: "oauth2_client_credentials", label: "OAuth 2.0: client credentials" },
   { value: "api_key", label: "API key" },
   { value: "bearer_token", label: "Bearer token" },
+  { value: "http_basic", label: "HTTP Basic" },
   { value: "none", label: "None" },
 ];
 
-const KIND_SUMMARY: Record<ProviderKind, string> = {
-  caracal_mandate:
-    "Forwards the Caracal mandate directly to the upstream. No upstream credentials.",
-  oauth2_authorization_code:
-    "User-delegated OAuth. Users approve access; tokens are exchanged per user.",
-  oauth2_client_credentials:
-    "Service-to-service OAuth. Caracal exchanges client credentials for tokens.",
-  api_key: "Attaches a static API key in a header or query parameter.",
-  bearer_token: "Forwards a static bearer token to allow-listed upstream hosts.",
-  none: "Placeholder provider. No credential routing.",
-};
+type FieldKind =
+  "text" | "multiline" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
 
-type FieldKind = "text" | "secret" | "secret-multiline" | "list" | "params" | "bool" | "select";
+type Values = Record<string, string>;
 
 interface ProviderField {
   key: string;
@@ -50,10 +71,21 @@ interface ProviderField {
   options?: string[];
   placeholder?: string;
   dependsOn?: Partial<Record<string, string>>;
+  visible?: (values: Values) => boolean;
 }
 
 const AUTH_CODE_METHODS = ["client_secret_basic", "client_secret_post", "none"];
 const CC_METHODS = ["client_secret_basic", "client_secret_post", "private_key_jwt", "none"];
+const CC_GRANT_TYPES = ["client_credentials", "jwt_bearer"];
+
+// The private key signs either a private_key_jwt client assertion or a jwt_bearer
+// grant assertion, so the key and kid fields surface for both selections.
+function needsPrivateKey(values: Values): boolean {
+  return (
+    (values.client_auth_method ?? defaultFor("client_auth_method", values)) === "private_key_jwt" ||
+    (values.grant_type ?? "client_credentials") === "jwt_bearer"
+  );
+}
 
 // Mirrors apps/api PUBLIC/SECRET provider config keys so the form never sends
 // fields the control plane would reject.
@@ -83,8 +115,8 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       kind: "text",
       required: true,
       placeholder:
-        "https://caracal.piedpiper.example/v1/zones/<zone-id>/provider-grants/oauth/callback",
-      hint: "Caracal's callback: <control-plane URL>/v1/zones/<zone-id>/provider-grants/oauth/callback. Register this exact URL with the provider.",
+        "https://caracal.piedpiper.example/v1/zones/<zone-id>/provider-connections/oauth/callback",
+      hint: "Caracal's callback: <control-plane URL>/v1/zones/<zone-id>/provider-connections/oauth/callback. Register this exact URL with the provider.",
     },
     { key: "client_id", label: "Client ID", kind: "text", required: true },
     {
@@ -105,6 +137,13 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       kind: "select",
       options: AUTH_CODE_METHODS,
       advanced: true,
+    },
+    {
+      key: "revocation_endpoint",
+      label: "Revocation endpoint",
+      kind: "text",
+      advanced: true,
+      hint: "Optional RFC 7009 endpoint. When set, revoking a connection also revokes the upstream tokens at the provider.",
     },
     {
       key: "authorization_params",
@@ -148,13 +187,6 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
       hint: "Also send X-Caracal-Identity to trusted upstreams.",
     },
-    {
-      key: "allow_runtime_injection",
-      label: "Allow runtime injection",
-      kind: "bool",
-      advanced: true,
-      hint: "Allow caracal run to inject this credential into a child process.",
-    },
   ],
   oauth2_client_credentials: [
     {
@@ -186,10 +218,34 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
     },
     {
+      key: "grant_type",
+      label: "Grant type",
+      kind: "select",
+      options: CC_GRANT_TYPES,
+      hint: "client_credentials for standard machine-to-machine OAuth; jwt_bearer for RFC 7523 signed-assertion grants such as Google service accounts.",
+    },
+    {
+      key: "assertion_subject",
+      label: "Assertion subject",
+      kind: "text",
+      advanced: true,
+      dependsOn: { grant_type: "jwt_bearer" },
+      hint: "Optional sub claim, e.g. a user to act as under domain-wide delegation. Defaults to the client ID.",
+    },
+    {
+      key: "assertion_audience",
+      label: "Assertion audience",
+      kind: "text",
+      advanced: true,
+      dependsOn: { grant_type: "jwt_bearer" },
+      hint: "Optional aud claim for providers that expect a value other than the token endpoint.",
+    },
+    {
       key: "audience",
       label: "Token audience",
       kind: "text",
       advanced: true,
+      dependsOn: { grant_type: "client_credentials" },
       hint: "Optional audience parameter for token endpoints that require one.",
     },
     {
@@ -197,6 +253,7 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Resource indicator",
       kind: "text",
       advanced: true,
+      dependsOn: { grant_type: "client_credentials" },
       hint: "Optional RFC 8707 / Azure-style resource value.",
     },
     {
@@ -204,16 +261,24 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       label: "Key ID",
       kind: "text",
       advanced: true,
-      dependsOn: { client_auth_method: "private_key_jwt" },
-      hint: "Optional kid header for private_key_jwt assertions.",
+      visible: needsPrivateKey,
+      hint: "Optional kid header for signed assertions.",
     },
     {
       key: "private_key",
       label: "Private key (PEM)",
       kind: "secret-multiline",
       advanced: true,
+      visible: needsPrivateKey,
+      hint: "PEM private key used to sign private_key_jwt or jwt_bearer assertions.",
+    },
+    {
+      key: "certificate",
+      label: "Client certificate (PEM)",
+      kind: "multiline",
+      advanced: true,
       dependsOn: { client_auth_method: "private_key_jwt" },
-      hint: "PEM private key used to sign private_key_jwt client assertions.",
+      hint: "Optional. Adds x5t thumbprint headers to client assertions, required by Microsoft Entra ID certificate credentials.",
     },
     {
       key: "token_params",
@@ -284,6 +349,13 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
     },
     { key: "api_key", label: "API key", kind: "secret", required: true },
     {
+      key: "allowed_token_hosts",
+      label: "Allowed upstream hosts",
+      kind: "list",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
+    },
+    {
       key: "auth_scheme",
       label: "Authorization scheme",
       kind: "text",
@@ -310,7 +382,8 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       key: "allowed_token_hosts",
       label: "Allowed upstream hosts",
       kind: "list",
-      hint: "Host allow-list for static bearer-token forwarding.",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
     },
     {
       key: "auth_header",
@@ -339,11 +412,46 @@ const FIELDS: Record<ProviderKind, ProviderField[]> = {
       advanced: true,
     },
   ],
+  http_basic: [
+    {
+      key: "username",
+      label: "Username",
+      kind: "text",
+      required: true,
+      placeholder: "richard.hendricks@piedpiper.example",
+      hint: "Username or account identifier the upstream pairs with the password.",
+    },
+    {
+      key: "password",
+      label: "Password",
+      kind: "secret",
+      required: true,
+      hint: "Password or API token, sealed at rest. Gateway sends Authorization: Basic.",
+    },
+    {
+      key: "allowed_token_hosts",
+      label: "Allowed upstream hosts",
+      kind: "list",
+      advanced: true,
+      hint: "Optional guardrail. Hosts this credential may be forwarded to; blank allows every resource bound to this provider.",
+    },
+    {
+      key: "forward_caracal_identity",
+      label: "Forward Caracal identity",
+      kind: "bool",
+      advanced: true,
+      hint: "Also send X-Caracal-Identity to trusted upstreams.",
+    },
+  ],
 };
 
-const SECRET_KEYS = new Set(["client_secret", "private_key", "api_key", "bearer_token"]);
-
-type Values = Record<string, string>;
+const SECRET_KEYS = new Set([
+  "client_secret",
+  "private_key",
+  "api_key",
+  "bearer_token",
+  "password",
+]);
 
 const PARAM_KEYS = new Set(["authorization_params", "token_params"]);
 
@@ -391,16 +499,20 @@ function buildConfig(kind: ProviderKind, values: Values, isEdit: boolean): Recor
 const KEEP_SECRET = "";
 
 function fieldVisible(field: ProviderField, values: Values): boolean {
+  if (field.visible) return field.visible(values);
   if (!field.dependsOn) return true;
   return Object.entries(field.dependsOn).every(([key, expected]) => {
-    const current = values[key] ?? defaultFor(key);
+    const current = values[key] ?? defaultFor(key, values);
     return current === expected;
   });
 }
 
-function defaultFor(key: string): string {
+function defaultFor(key: string, values: Values): string {
   if (key === "auth_location") return "header";
-  if (key === "client_auth_method") return "client_secret_basic";
+  if (key === "grant_type") return "client_credentials";
+  if (key === "client_auth_method") {
+    return (values.grant_type ?? "") === "jwt_bearer" ? "none" : "client_secret_basic";
+  }
   return "";
 }
 
@@ -409,15 +521,19 @@ export function ProviderFormModal({
   mode,
   provider,
   busy,
+  zoneId,
   onClose,
   onSubmit,
+  onDiscover,
 }: {
   open: boolean;
   mode: "create" | "edit";
   provider?: Provider;
   busy: boolean;
+  zoneId?: string;
   onClose: () => void;
-  onSubmit: (input: ProviderInput) => void;
+  onSubmit: (input: ProviderInput) => Promise<ProviderTestResult | undefined>;
+  onDiscover?: (issuer: string) => Promise<ProviderDiscovery>;
 }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState("");
@@ -425,6 +541,14 @@ export function ProviderFormModal({
   const [kind, setKind] = useState<ProviderKind>("caracal_mandate");
   const [values, setValues] = useState<Values>({});
   const [touched, setTouched] = useState(false);
+  const [checkFailed, setCheckFailed] = useState<ProviderTestResult | null>(null);
+  const [action, setAction] = useState<"connect" | "skip">("connect");
+  const [issuer, setIssuer] = useState("");
+  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [discoverNote, setDiscoverNote] = useState<{
+    tone: "success" | "danger";
+    text: string;
+  } | null>(null);
 
   // Seed (or fully reset) the form each time the modal opens. Resetting the seed ref on
   // close is essential: for "create" the seed key is constant, so without this the previous
@@ -435,21 +559,101 @@ export function ProviderFormModal({
   if (open && seedKey !== seedRef) {
     setSeedRef(seedKey);
     setName(provider?.name ?? "");
-    setIdentifier(provider?.identifier ?? "");
+    setIdentifier(stripIdentifierPrefix(provider?.identifier ?? ""));
     setKind(provider?.kind ?? "caracal_mandate");
     setValues(initialValues(provider));
     setTouched(false);
+    setCheckFailed(null);
+    setIssuer("");
+    setDiscoverBusy(false);
+    setDiscoverNote(null);
   } else if (!open && seedRef !== null) {
     setSeedRef(null);
   }
 
   const fields = FIELDS[kind];
-  const visibleFields = fields.filter((f) => fieldVisible(f, values));
+  // The callback path is fixed and the zone is known, so the redirect URI guidance
+  // shows the exact value to register with the provider instead of a template the
+  // operator has to assemble by hand.
+  const visibleFields = fields
+    .filter((f) => fieldVisible(f, values))
+    .map((f) =>
+      f.key === "redirect_uri" && zoneId
+        ? {
+            ...f,
+            hint: `Caracal's callback: <control-plane URL>/v1/zones/${zoneId}/provider-connections/oauth/callback. Register this exact URL with the provider.`,
+          }
+        : f,
+    );
   const basicFields = visibleFields.filter((f) => !f.advanced);
   const advancedFields = visibleFields.filter((f) => f.advanced);
 
   function setValue(key: string, value: string) {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    const next = key === "allowed_token_hosts" ? normalizeHostList(value) : value;
+    setValues((prev) => ({ ...prev, [key]: next }));
+    setCheckFailed(null);
+  }
+
+  // Resolves the issuer's published OIDC / RFC 8414 metadata through the control plane
+  // and fills the endpoint fields, replacing the most error-prone copy-paste step of
+  // OAuth provider onboarding. MCP servers publish this metadata, so pasting an MCP
+  // server's issuer works the same way.
+  async function discover() {
+    if (!onDiscover || !issuer.trim() || discoverBusy) return;
+    setDiscoverBusy(true);
+    setDiscoverNote(null);
+    try {
+      const metadata = await onDiscover(issuer.trim());
+      const filled: string[] = [];
+      setValues((prev) => {
+        const next: Values = { ...prev, token_endpoint: metadata.token_endpoint };
+        filled.push("token endpoint");
+        if (kind === "oauth2_authorization_code" && metadata.authorization_endpoint) {
+          next.authorization_endpoint = metadata.authorization_endpoint;
+          filled.push("authorization endpoint");
+        }
+        if (kind === "oauth2_authorization_code" && metadata.revocation_endpoint) {
+          next.revocation_endpoint = metadata.revocation_endpoint;
+          filled.push("revocation endpoint");
+        }
+        return next;
+      });
+      setCheckFailed(null);
+      // RFC 8414 metadata advertises which client authentication methods the token
+      // endpoint accepts; a mismatch with the selected method is flagged here so it
+      // fails at form time, not at the first token request. The jwt_bearer grant
+      // authenticates through the assertion itself, so the hint does not apply.
+      const supported = metadata.token_endpoint_auth_methods_supported;
+      const effectiveAuth = values.client_auth_method || "client_secret_basic";
+      const authMismatch =
+        values.grant_type !== "jwt_bearer" &&
+        Array.isArray(supported) &&
+        supported.length > 0 &&
+        !supported.includes(effectiveAuth);
+      if (kind === "oauth2_authorization_code" && !metadata.authorization_endpoint) {
+        setDiscoverNote({
+          tone: "danger",
+          text: "The issuer metadata has no authorization endpoint; filled the token endpoint only.",
+        });
+      } else if (authMismatch) {
+        setDiscoverNote({
+          tone: "danger",
+          text: `Filled the ${filled.join(" and ")}, but the issuer does not list ${effectiveAuth} as a supported client authentication method (supported: ${supported.join(", ")}).`,
+        });
+      } else {
+        setDiscoverNote({
+          tone: "success",
+          text: `Filled the ${filled.join(" and ")} from the issuer metadata.`,
+        });
+      }
+    } catch {
+      setDiscoverNote({
+        tone: "danger",
+        text: "Discovery failed. Check the issuer URL or enter the endpoints manually.",
+      });
+    } finally {
+      setDiscoverBusy(false);
+    }
   }
 
   function missingRequired(): string | null {
@@ -463,16 +667,20 @@ export function ProviderFormModal({
       if (SECRET_KEYS.has(field.key) && secretStored(field.key)) continue;
       if (raw === "") return `${field.label} is required.`;
     }
-    // OAuth client authentication makes a credential conditionally mandatory, exactly as the
-    // control plane enforces: a client secret for the secret-based methods, or a private key
-    // for private_key_jwt. 'none' needs neither.
+    // OAuth client authentication and grant type make a credential conditionally mandatory,
+    // exactly as the control plane enforces: a client secret for the secret-based methods,
+    // and a private key for private_key_jwt client assertions or jwt_bearer grants.
     if (kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials") {
-      const method = (values.client_auth_method || "client_secret_basic").trim();
-      if (method === "private_key_jwt") {
+      const grantType = (values.grant_type || "client_credentials").trim();
+      const method = (values.client_auth_method || defaultFor("client_auth_method", values)).trim();
+      if (method === "private_key_jwt" || grantType === "jwt_bearer") {
         if ((values.private_key ?? "").trim() === "" && !secretStored("private_key")) {
-          return "A private key is required for private_key_jwt.";
+          return grantType === "jwt_bearer"
+            ? "A private key is required to sign jwt_bearer assertions."
+            : "A private key is required for private_key_jwt.";
         }
-      } else if (method !== "none") {
+      }
+      if (method !== "none" && method !== "private_key_jwt") {
         if ((values.client_secret ?? "").trim() === "" && !secretStored("client_secret")) {
           return "Client secret is required for this authentication method.";
         }
@@ -498,7 +706,8 @@ export function ProviderFormModal({
     return errors;
   }
 
-  function submit() {
+  async function submit(check: boolean) {
+    setAction(check ? "connect" : "skip");
     setTouched(true);
     if (missingRequired()) return;
     if (Object.keys(fieldErrors()).length > 0) return;
@@ -506,16 +715,25 @@ export function ProviderFormModal({
     const input: ProviderInput = {
       kind,
       ...(name.trim() ? { name: name.trim() } : {}),
-      ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
+      ...(identifier.trim()
+        ? { identifier: `${PROVIDER_IDENTIFIER_PREFIX}${identifier.trim()}` }
+        : {}),
       ...(kind === "none" || kind === "caracal_mandate" ? {} : { config_json: config }),
+      ...(check ? { check: true } : {}),
     };
-    onSubmit(input);
+    setCheckFailed(null);
+    const failed = await onSubmit(input);
+    if (failed) setCheckFailed(failed);
   }
 
   const errors = touched ? fieldErrors() : {};
   const error = touched ? missingRequired() : null;
   const hasFieldError = Object.keys(errors).length > 0;
   const hasAdvancedError = advancedFields.some((f) => errors[f.key]);
+  // Only OAuth kinds own a token endpoint Caracal can genuinely verify before creation.
+  // Every other kind gets the plain create flow: presenting a check that cannot fail
+  // would be a fake validation experience.
+  const canConnect = kind === "oauth2_authorization_code" || kind === "oauth2_client_credentials";
 
   return (
     <Modal
@@ -532,9 +750,33 @@ export function ProviderFormModal({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy}>
-            {isEdit ? "Save changes" : "Create provider"}
-          </Button>
+          {isEdit ? (
+            <Button onClick={() => void submit(false)} loading={busy}>
+              Save changes
+            </Button>
+          ) : canConnect ? (
+            <>
+              <Button
+                onClick={() => void submit(true)}
+                loading={busy && action === "connect"}
+                disabled={busy}
+              >
+                Connect
+              </Button>
+              <button
+                type="button"
+                className="basis-full text-right text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => void submit(false)}
+                disabled={busy}
+              >
+                Skip for now
+              </button>
+            </>
+          ) : (
+            <Button onClick={() => void submit(false)} loading={busy}>
+              Create provider
+            </Button>
+          )}
         </>
       }
     >
@@ -552,7 +794,10 @@ export function ProviderFormModal({
             label="Type"
             info="The credential mechanism this provider uses to obtain upstream access. Selecting a type determines the rest of the configuration fields."
             value={kind}
-            onChange={(e) => setKind(e.target.value as ProviderKind)}
+            onChange={(e) => {
+              setKind(e.target.value as ProviderKind);
+              setCheckFailed(null);
+            }}
           >
             {KIND_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -562,15 +807,50 @@ export function ProviderFormModal({
           </Select>
         </div>
 
-        <p className="border-l-2 border-border pl-3 text-xs text-muted-foreground">
-          {KIND_SUMMARY[kind]}
-        </p>
+        {canConnect && onDiscover ? (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Field
+                  label="Issuer URL"
+                  info="Autofills the endpoint fields from the issuer's published OIDC or OAuth authorization server metadata. Works for identity providers and MCP servers alike; endpoints stay editable afterwards."
+                  placeholder="https://login.hooli.example"
+                  value={issuer}
+                  onChange={(e) => {
+                    setIssuer(e.target.value);
+                    setDiscoverNote(null);
+                  }}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => void discover()}
+                loading={discoverBusy}
+                disabled={busy || !issuer.trim()}
+              >
+                Autofill
+              </Button>
+            </div>
+            {discoverNote ? (
+              <p
+                className={
+                  discoverNote.tone === "success"
+                    ? "text-xs text-muted-foreground"
+                    : "text-xs text-destructive"
+                }
+              >
+                {discoverNote.text}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {basicFields.map((field) => (
           <ProviderFieldInput
             key={field.key}
             field={field}
             value={values[field.key] ?? ""}
+            fallback={defaultFor(field.key, values)}
             stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
             isEdit={isEdit}
             error={errors[field.key]}
@@ -589,6 +869,7 @@ export function ProviderFormModal({
               key={field.key}
               field={field}
               value={values[field.key] ?? ""}
+              fallback={defaultFor(field.key, values)}
               stored={Boolean(provider?.secret_config_keys.includes(field.key as never))}
               isEdit={isEdit}
               error={errors[field.key]}
@@ -597,14 +878,33 @@ export function ProviderFormModal({
           ))}
           <Field
             label="Identifier"
-            info="The stable identifier used to reference this provider in resources and tokens. Generated from the name when blank; must use the provider:// namespace."
-            placeholder="provider://hooli-oidc"
-            hint="Optional. Generated from the name when blank. Must match provider://lowercase-slug."
+            info="The stable identifier used to reference this provider in resources and tokens. Generated from the name when blank; the provider:// namespace is fixed, so only the slug varies."
+            prefix="provider://"
+            placeholder="hooli-oidc"
+            hint="Optional. Lowercase letters, numbers, and hyphens."
             value={identifier}
             error={errors.identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
+            onChange={(e) => setIdentifier(stripIdentifierPrefix(e.target.value))}
           />
         </Disclosure>
+
+        {checkFailed ? (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Badge tone={TEST_STATUS[checkFailed.status].tone}>
+                {TEST_STATUS[checkFailed.status].label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {new Date(checkFailed.checked_at).toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="text-xs text-foreground">{checkFailed.detail}</p>
+            <p className="text-xs text-muted-foreground">
+              The provider was not created. Fix the configuration and connect again, or use
+              &quot;Skip for now&quot; to create it with a Failed badge until a check passes.
+            </p>
+          </div>
+        ) : null}
 
         {error ? (
           <p className="text-sm text-destructive">{error}</p>
@@ -619,6 +919,7 @@ export function ProviderFormModal({
 function ProviderFieldInput({
   field,
   value,
+  fallback,
   stored,
   isEdit,
   error,
@@ -626,6 +927,7 @@ function ProviderFieldInput({
 }: {
   field: ProviderField;
   value: string;
+  fallback?: string;
   stored: boolean;
   isEdit: boolean;
   error?: string;
@@ -664,7 +966,7 @@ function ProviderFieldInput({
       <Select
         label={field.label}
         info={field.hint}
-        value={value || field.options?.[0]}
+        value={value || fallback || field.options?.[0]}
         onChange={(e) => onChange(e.target.value)}
       >
         {field.options?.map((option) => (
@@ -676,7 +978,7 @@ function ProviderFieldInput({
     );
   }
 
-  if (field.kind === "secret-multiline") {
+  if (field.kind === "multiline" || field.kind === "secret-multiline") {
     return (
       <div>
         <Textarea

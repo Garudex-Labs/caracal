@@ -7,6 +7,7 @@ CaracalContext: bound identity and delegation context via contextvars.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 from dataclasses import dataclass, replace
 from typing import NotRequired, TypeVar, TypedDict, Unpack
@@ -23,40 +24,77 @@ _ctx_var: contextvars.ContextVar[CaracalContext] = contextvars.ContextVar(
 
 @dataclass(frozen=True)
 class CaracalContext:
+    # The bearer credential this context presents: the session mandate every
+    # gateway-bound call and token exchange authenticates with. Named for the
+    # RFC 8693 subject_token it becomes on the wire; it is not an end-user
+    # identity - see subject_authority_record_id for that.
     subject_token: str
     zone_id: str
     application_id: str
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
-    parent_edge_id: str | None = None
     session_id: str | None = None
+    delegation_id: str | None = None
+    parent_delegation_id: str | None = None
+    subject_authority_record_id: str | None = None
+    # W3C trace id (32 lowercase hex characters) correlating this context's requests.
     trace_id: str | None = None
+    trace_flags: str | None = None
+    trace_state: str | None = None
+    baggage: tuple[tuple[str, str], ...] = ()
+    # Delegation depth: how many delegation hand-offs precede this context; 0 at the root.
     hop: int = 0
+    # Marks a context whose subject token came from this process's own
+    # credential configuration, so the client may refresh it through its
+    # token source. Inbound contexts carry a caller's token and stay pinned.
+    # Process-local; never serialized to the envelope.
+    own_token: bool = False
+    # Fresh bearer resolver for contexts owned by this process. Inbound
+    # contexts remain pinned because own_token is false.
+    token_source: Callable[[], str] | None = None
 
 
 @dataclass(frozen=True)
 class AuthoritySummary:
     zone_id: str
     application_id: str
+    subject_authority_record_id: str | None
     session_id: str | None
-    agent_session_id: str | None
-    delegation_edge_id: str | None
-    parent_edge_id: str | None
+    delegation_id: str | None
+    parent_delegation_id: str | None
     trace_id: str | None
     hop: int
     chain: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VerifiedClaims:
+    """Attribution a verify hook proved from the token itself. Fields set here
+    override the caller-supplied envelope when binding inbound context, so
+    attribution comes from verified claims rather than forgeable headers."""
+
+    zone_id: str | None = None
+    application_id: str | None = None
+    session_id: str | None = None
+    delegation_id: str | None = None
+    parent_delegation_id: str | None = None
+    subject_authority_record_id: str | None = None
+    hop: int | None = None
 
 
 class CaracalContextPatch(TypedDict):
     subject_token: NotRequired[str]
     zone_id: NotRequired[str]
     application_id: NotRequired[str]
-    agent_session_id: NotRequired[str | None]
-    delegation_edge_id: NotRequired[str | None]
-    parent_edge_id: NotRequired[str | None]
     session_id: NotRequired[str | None]
+    delegation_id: NotRequired[str | None]
+    parent_delegation_id: NotRequired[str | None]
+    subject_authority_record_id: NotRequired[str | None]
     trace_id: NotRequired[str | None]
+    trace_flags: NotRequired[str | None]
+    trace_state: NotRequired[str | None]
+    baggage: NotRequired[tuple[tuple[str, str], ...]]
     hop: NotRequired[int]
+    own_token: NotRequired[bool]
+    token_source: NotRequired[Callable[[], str] | None]
 
 
 def current() -> CaracalContext | None:
@@ -90,14 +128,23 @@ def with_overrides(**patch: Unpack[CaracalContextPatch]) -> CaracalContext:
     return replace(base, **patch)
 
 
+async def context_bearer(ctx: CaracalContext) -> str:
+    if ctx.own_token and ctx.token_source is not None:
+        return await asyncio.to_thread(ctx.token_source)
+    return ctx.subject_token
+
+
 def to_envelope(ctx: CaracalContext) -> Envelope:
     return Envelope(
         subject_token=ctx.subject_token,
-        agent_session_id=ctx.agent_session_id,
-        delegation_edge_id=ctx.delegation_edge_id,
-        parent_edge_id=ctx.parent_edge_id,
         session_id=ctx.session_id,
+        delegation_id=ctx.delegation_id,
+        parent_delegation_id=ctx.parent_delegation_id,
+        subject_authority_record_id=ctx.subject_authority_record_id,
         trace_id=ctx.trace_id,
+        trace_flags=ctx.trace_flags,
+        trace_state=ctx.trace_state,
+        baggage=dict(ctx.baggage),
         hop=ctx.hop,
     )
 
@@ -114,11 +161,14 @@ def from_envelope(
         subject_token=env.subject_token,
         zone_id=zone_id,
         application_id=application_id,
-        agent_session_id=env.agent_session_id,
-        delegation_edge_id=env.delegation_edge_id,
-        parent_edge_id=env.parent_edge_id,
         session_id=env.session_id,
+        delegation_id=env.delegation_id,
+        parent_delegation_id=env.parent_delegation_id,
+        subject_authority_record_id=env.subject_authority_record_id,
         trace_id=env.trace_id,
+        trace_flags=env.trace_flags,
+        trace_state=env.trace_state,
+        baggage=tuple(sorted(env.baggage.items())),
         hop=env.hop,
     )
 
@@ -129,21 +179,21 @@ def describe_authority(ctx: CaracalContext | None = None) -> AuthoritySummary | 
     if ctx is None:
         return None
     chain: list[str] = []
+    if ctx.subject_authority_record_id:
+        chain.append(f"subject:{ctx.subject_authority_record_id}")
     if ctx.session_id:
         chain.append(f"session:{ctx.session_id}")
-    if ctx.agent_session_id:
-        chain.append(f"agent-session:{ctx.agent_session_id}")
-    if ctx.parent_edge_id:
-        chain.append(f"parent-edge:{ctx.parent_edge_id}")
-    if ctx.delegation_edge_id:
-        chain.append(f"delegation-edge:{ctx.delegation_edge_id}")
+    if ctx.parent_delegation_id:
+        chain.append(f"parent-delegation:{ctx.parent_delegation_id}")
+    if ctx.delegation_id:
+        chain.append(f"delegation:{ctx.delegation_id}")
     return AuthoritySummary(
         zone_id=ctx.zone_id,
         application_id=ctx.application_id,
+        subject_authority_record_id=ctx.subject_authority_record_id,
         session_id=ctx.session_id,
-        agent_session_id=ctx.agent_session_id,
-        delegation_edge_id=ctx.delegation_edge_id,
-        parent_edge_id=ctx.parent_edge_id,
+        delegation_id=ctx.delegation_id,
+        parent_delegation_id=ctx.parent_delegation_id,
         trace_id=ctx.trace_id,
         hop=ctx.hop,
         chain=tuple(chain),

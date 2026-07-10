@@ -59,7 +59,7 @@ const RESERVED_PREFIX: Record<ReservedObjectType, string> = {
 
 export interface ReservedNamespaceError {
   error: string
-  detail: string
+  error_description: string
 }
 
 // The bootstrap deployment identity that provisions and seals the reserved system zone. It
@@ -91,8 +91,8 @@ export const RESERVED_ZONE_SQL = `(lower(name) LIKE '${RESERVED_PREFIX.zoneName}
 // reserved namespace; every other actor - including the global-scope Console and external
 // admin tokens - is refused, so a tenant or an operator-minted credential can never squat or
 // impersonate a Caracal internal system. The comparison is case-insensitive so a display
-// name cannot evade by changing case. The detail names only that the namespace is reserved,
-// never which internal objects exist, so the refusal does not map internal structure.
+// name cannot evade by changing case. The description names only that the namespace is
+// reserved, never which internal objects exist, so the refusal does not map internal structure.
 export function assertReservedNamespace(
   objectType: ReservedObjectType,
   value: string | undefined,
@@ -103,7 +103,7 @@ export function assertReservedNamespace(
   if (reserved && !isInternalProvisioner(actor)) {
     return {
       error: 'reserved_namespace',
-      detail: `the '${RESERVED_NAMESPACE}' namespace is reserved for Caracal internal systems`,
+      error_description: `the '${RESERVED_NAMESPACE}' namespace is reserved for Caracal internal systems`,
     }
   }
   return null

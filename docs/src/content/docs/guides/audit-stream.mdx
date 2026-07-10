@@ -16,30 +16,47 @@ Use audit when a request is denied, step-up is triggered, delegation behaves une
 ## Automation workflow
 
 ```ts
-import { AdminClient } from "@caracalai/admin";
+import { AdminClient } from '@caracalai/admin'
 
 const admin = new AdminClient({
   apiUrl: process.env.CARACAL_API_URL!,
   adminToken: process.env.CARACAL_ADMIN_TOKEN!,
-});
+})
 
 const events = await admin.audit.list(process.env.CARACAL_ZONE_ID!, {
-  decision: "deny",
+  decision: 'deny',
   limit: 25,
-});
+})
 
-const trace = await admin.audit.explain(process.env.CARACAL_ZONE_ID!, events[0].request_id!);
-console.log(trace.final_decision, trace.denied);
+const trace = await admin.audit.explain(process.env.CARACAL_ZONE_ID!, events[0].request_id!)
+console.log(trace.final_decision, trace.denied)
 ```
 
 ## Useful filters
 
-| Filter | Use it for |
-| --- | --- |
-| Request ID | Stitch together STS, Gateway, connector, and explain events. |
-| Decision | Find denies, allows, or partial decisions. |
-| Event type | Focus on policy, session, delegation, step-up, or admin changes. |
-| Time window | Investigate a run, incident, or rollout. |
+| Filter      | Use it for                                                       |
+| ----------- | ---------------------------------------------------------------- |
+| Request ID  | Stitch together STS, Gateway, adapter, and explain events.       |
+| Decision    | Find denies, allows, or partial decisions.                       |
+| Event type  | Focus on policy, session, delegation, step-up, or admin changes. |
+| Time window | Investigate a run, incident, or rollout.                         |
+
+## Ship events to a SIEM
+
+Poll `admin.audit.list` with a `since` cursor (or subscribe to the audit stream topics) and forward events as-is: the shape is stable JSON, ready for field mapping in Splunk, Elastic, or any OCSF pipeline.
+
+| Field                         | Type           | Meaning                                                                           |
+| ----------------------------- | -------------- | --------------------------------------------------------------------------------- |
+| `id`                          | string         | Unique event id; use as the dedup key.                                            |
+| `zone_id`                     | string         | Zone the event belongs to.                                                        |
+| `event_type`                  | string         | What happened: exchange, decision, replay_detected, revocation, lifecycle events. |
+| `request_id`                  | string \| null | Correlates every event from one request across STS, Gateway, and adapters.        |
+| `decision`                    | string \| null | `allow`, `deny`, or `partial` for decision-bearing events.                        |
+| `evaluation_status`           | string \| null | How policy evaluation concluded.                                                  |
+| `metadata_json`               | object \| null | Event-specific attributes: session, resource, scopes, client identity.            |
+| `occurred_at` / `ingested_at` | string         | Event time and audit-service ingest time (RFC 3339).                              |
+
+Event detail (`admin.audit.explain`) adds the determining policies, policy-set version, manifest hash, and diagnostics for decision events - fetch it lazily from the SIEM for alerts rather than shipping it wholesale. Alert first on `decision: "deny"` spikes, `replay_detected`, and delegation events for sessions outside your expected label set.
 
 ## What to capture in incidents
 
@@ -51,6 +68,6 @@ console.log(trace.final_decision, trace.denied);
 - final decision;
 - determining policies;
 - diagnostics;
-- session or delegation edge IDs when present.
+- session or Delegation IDs when present.
 
 Related page: [Audit and Request Traces](/concepts/audit-ledger/).

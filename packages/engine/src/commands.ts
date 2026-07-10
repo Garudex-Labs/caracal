@@ -21,7 +21,6 @@ export interface CommandDescriptor {
   readonly requiresArgs?: boolean
   readonly requiresZone?: boolean
   readonly hidden?: boolean
-  readonly localOnly?: boolean
   /**
    * Command performs its own per-object scope checks instead of carrying a single static scope.
    * The declarative surface (state, ensure) asserts each touched noun's scope at runtime, so a
@@ -34,23 +33,9 @@ export interface CommandDescriptor {
   readonly scopes?: { readonly [k: string]: ScopeVerb | undefined }
 }
 
-const READ_VERBS = new Set([
-  'list',
-  'get',
-  'tree',
-  'tail',
-  'active',
-  'inbound',
-  'outbound',
-  'traverse',
-  'read',
-  'inspect',
-  'use',
-  'validate',
-  'simulate',
-])
+const READ_VERBS = new Set(['list', 'get', 'tree', 'tail', 'active', 'inbound', 'outbound', 'traverse', 'validate', 'simulate'])
 
-const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke', 'purge'])
+const DELETE_VERBS = new Set(['delete', 'terminate', 'revoke'])
 
 /** Derive a default scope verb for a subcommand using verb conventions. Explicit `scopes` map wins. */
 export function scopeFor(desc: CommandDescriptor, sub: string): ScopeVerb {
@@ -67,12 +52,12 @@ export function scopeName(desc: CommandDescriptor, sub: string): string {
 }
 
 export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
-  { name: 'up', group: 'stack', summary: 'Build and start the local stack' },
-  { name: 'down', group: 'stack', summary: 'Stop the stack; use -v to remove volumes' },
+  { name: 'up', group: 'stack', summary: 'Build and start the Caracal platform' },
+  { name: 'down', group: 'stack', summary: 'Stop the platform (-v removes volumes)' },
   {
     name: 'status',
     group: 'stack',
-    summary: 'Check service health',
+    summary: 'Show platform health',
     flags: {
       '': [
         { name: '--ready', summary: 'Probe dependency readiness instead of liveness' },
@@ -83,28 +68,35 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
     name: 'purge',
     group: 'stack',
-    summary: 'Clean stack artifacts and local state',
+    summary: 'Remove platform state',
     subcommands: ['stack', 'volumes', 'logs', 'config', 'runtime', 'secrets', 'cache', 'all'],
   },
   {
     name: 'upgrade',
     group: 'stack',
-    summary: 'Migrate and roll the stack onto this version with no maintenance window',
+    summary: 'Upgrade the platform in place',
     flags: {
       '': [{ name: '--no-pull', summary: 'Reuse local images instead of pulling the pinned release' }],
     },
   },
   {
+    name: 'allowlist',
+    group: 'stack',
+    summary: 'Manage Console sign-in access',
+    subcommands: ['add', 'remove', 'lock', 'unlock', 'list'],
+    requiresArgs: true,
+  },
+  {
     name: 'run',
     group: 'runtime',
-    summary: 'Run a command with just-in-time injected credentials',
+    summary: 'Execute a workload with scoped runtime credentials',
     requiresConfig: true,
     requiresArgs: true,
   },
   {
     name: 'web',
     group: 'runtime',
-    summary: 'Launch the Caracal web console (UI + backend-for-frontend)',
+    summary: 'Open the Caracal Console',
     flags: {
       '': [
         { name: '--web-port', summary: 'Port for the web UI (default 3001)' },
@@ -117,65 +109,15 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
 
 export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   {
-    name: 'doctor',
-    group: 'admin',
-    summary: 'Run operator diagnostics for the local control plane',
-    flags: {
-      '': [
-        { name: '--preflight', summary: 'Run local deployment preflight checks only' },
-        { name: '--ready', summary: 'Treat warnings as not ready for automation gates' },
-        { name: '--zone', summary: 'Inspect one zone instead of every visible zone' },
-        { name: '--json', summary: 'Emit structured machine-readable diagnostics' },
-      ],
-    },
-  },
-  {
-    name: 'manifest',
-    group: 'admin',
-    summary: 'Validate interoperability extension manifests',
-    subcommands: ['validate'],
-    hidden: true,
-    flags: {
-      validate: [
-        { name: '--file', summary: 'Manifest JSON file' },
-        { name: '--kind', summary: 'Manifest kind override' },
-        { name: '--json', summary: 'Emit machine-readable result' },
-      ],
-    },
-    scopes: { validate: 'read' },
-  },
-  {
-    name: 'zone',
-    group: 'admin',
-    summary: 'Manage zones',
-    subcommands: ['use', 'list', 'get', 'create', 'patch', 'delete'],
-    flags: {
-      create: [
-        { name: '--name', summary: 'Zone display name (required)' },
-        { name: '--slug', summary: 'URL-safe slug' },
-        { name: '--dcr', summary: 'Enable dynamic client registration' },
-      ],
-      patch: [
-        { name: '--name', summary: 'Zone display name' },
-        { name: '--slug', summary: 'URL-safe slug' },
-        { name: '--dcr', summary: 'Enable/disable DCR (=true|false)' },
-        { name: '--dcr-shutdown', summary: 'When disabling DCR with live apps: keep_live or revoke_live' },
-      ],
-    },
-  },
-
-  {
     name: 'app',
     group: 'admin',
     summary: 'Manage applications',
     requiresZone: true,
-    subcommands: ['list', 'get', 'create', 'patch', 'delete', 'dcr'],
+    subcommands: ['list', 'get', 'create', 'patch', 'rotate-secret', 'delete', 'dcr'],
     flags: {
       create: [{ name: '--name', summary: 'Application name' }],
-      patch: [
-        { name: '--name', summary: 'Application name' },
-        { name: '--client-secret', summary: 'Client secret' },
-      ],
+      patch: [{ name: '--name', summary: 'Application name' }],
+      'rotate-secret': [{ name: '--id', summary: 'Application ID' }],
       dcr: [
         { name: '--name', summary: 'Application name' },
         { name: '--expires-in', summary: 'Client lifetime seconds (1-3600)' },
@@ -195,7 +137,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--identifier', summary: 'Resource identifier; generated from name when omitted' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },
@@ -205,7 +146,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--name', summary: 'Resource name' },
         { name: '--scopes', summary: 'Comma-separated resource scopes' },
         { name: '--upstream-url', summary: 'Upstream URL' },
-        { name: '--gateway-application-id', summary: 'Gateway application for upstream routing' },
         { name: '--credential-provider-id', summary: 'Upstream credential provider ID' },
         { name: '--operations', summary: 'JSON array of {method, path, scope} operations the Gateway authorizes' },
         { name: '--operation-enforcement', summary: 'enforced (deny undeclared operations) or transport_uniform' },
@@ -225,7 +165,8 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--identifier', summary: 'Provider identifier' },
         {
           name: '--kind',
-          summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+          summary:
+            'Provider kind (none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token, http_basic)',
         },
         { name: '--config', summary: 'Inline config JSON' },
       ],
@@ -234,7 +175,8 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--name', summary: 'Provider name' },
         {
           name: '--kind',
-          summary: 'Provider kind (caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token)',
+          summary:
+            'Provider kind (none, caracal_mandate, oauth2_authorization_code, oauth2_client_credentials, api_key, bearer_token, http_basic)',
         },
         { name: '--config', summary: 'Inline config JSON' },
       ],
@@ -253,20 +195,14 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--description', summary: 'Policy description' },
         { name: '--content', summary: 'Inline policy content' },
         { name: '--file', summary: 'Read content from file' },
-        { name: '--schema-version', summary: 'Policy schema version' },
-        { name: '--owner-type', summary: 'Owner type' },
-        { name: '--shadow', summary: 'Shadow policy mode' },
       ],
       validate: [
         { name: '--file', summary: 'Read Rego from file' },
         { name: '--content', summary: 'Inline Rego content' },
-        { name: '--schema-version', summary: 'Policy schema version' },
       ],
       version: [
-        { name: '--version', summary: 'Version label' },
         { name: '--content', summary: 'Inline policy content' },
         { name: '--file', summary: 'Read content from file' },
-        { name: '--schema-version', summary: 'Policy schema version' },
       ],
     },
   },
@@ -283,10 +219,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--description', summary: 'Description' },
       ],
       version: [{ name: '--policy-versions', summary: 'Comma-separated policy version IDs' }],
-      activate: [
-        { name: '--version', summary: 'Policy set version ID' },
-        { name: '--shadow', summary: 'Shadow policy set version ID' },
-      ],
+      activate: [{ name: '--version', summary: 'Policy set version ID' }],
       simulate: [
         { name: '--version', summary: 'Policy set version ID' },
         { name: '--input', summary: 'Inline OPA input fixture JSON' },
@@ -327,13 +260,16 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     subcommands: ['application', 'identity-provider', 'resource', 'policy', 'policy-set'],
     requiresZone: true,
     delegatesScope: true,
-    flags: {
-      application: [
-        { name: '--spec', summary: 'Object spec JSON keyed by its stable identity field' },
-        { name: '--dry-run', summary: 'Compute the plan without writing' },
-        { name: '--idempotency-key', summary: 'Caller correlation key recorded in the audit trail' },
-      ],
-    },
+    flags: Object.fromEntries(
+      ['application', 'identity-provider', 'resource', 'policy', 'policy-set'].map((kind) => [
+        kind,
+        [
+          { name: '--spec', summary: 'Object spec JSON keyed by its stable identity field' },
+          { name: '--dry-run', summary: 'Compute the plan without writing' },
+          { name: '--idempotency-key', summary: 'Caller correlation key recorded in the audit trail' },
+        ],
+      ]),
+    ),
   },
 
   {
@@ -346,9 +282,26 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'session',
+    name: 'workload',
     group: 'admin',
-    summary: 'List authority sessions',
+    summary: 'Manage workload launcher identities and their credential bindings',
+    subcommands: ['list', 'get', 'create', 'patch', 'rotate-secret', 'delete'],
+    requiresZone: true,
+    flags: {
+      create: [{ name: '--name', summary: 'Workload name' }],
+      patch: [
+        { name: '--id', summary: 'Workload ID' },
+        { name: '--name', summary: 'Workload name' },
+        { name: '--bindings', summary: 'JSON array of {env, resource, scopes, optional, on_failure} credential bindings' },
+      ],
+      'rotate-secret': [{ name: '--id', summary: 'Workload ID' }],
+    },
+  },
+
+  {
+    name: 'authority-record',
+    group: 'admin',
+    summary: 'List STS authority records',
     subcommands: ['list'],
     requiresZone: true,
     flags: {
@@ -361,11 +314,22 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
+    name: 'approval',
+    group: 'admin',
+    summary: 'Read approval requests awaiting a human decision',
+    subcommands: ['list'],
+    requiresZone: true,
+  },
+
+  {
     name: 'audit',
     group: 'observability',
     summary: 'Search audit events',
-    subcommands: ['tail'],
+    subcommands: ['tail', 'admin'],
     requiresZone: true,
+    // The admin subcommand reads the admin action log; it is a read despite its verb not
+    // being a conventional read verb, so the scope is pinned explicitly.
+    scopes: { admin: 'read' },
     flags: {
       tail: [
         { name: '--since', summary: 'Start of time window' },
@@ -375,6 +339,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
         { name: '--request-id', summary: 'Filter by request ID' },
         { name: '--limit', summary: 'Maximum rows to return' },
       ],
+      admin: [{ name: '--limit', summary: 'Maximum rows to return' }],
     },
   },
 
@@ -394,33 +359,16 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
   },
 
   {
-    name: 'debug',
-    group: 'observability',
-    summary: 'Trace one request through decisions and diagnostics',
-    subcommands: ['request'],
-    requiresZone: true,
-    hidden: true,
-    flags: {
-      request: [
-        { name: '--request-id', summary: 'Request ID from an audit event' },
-        { name: '--json', summary: 'Emit machine-readable DecisionTrace JSON' },
-        { name: '--flow', summary: 'Render the authority path as Mermaid' },
-      ],
-    },
-    scopes: { request: 'read' },
-  },
-
-  {
-    name: 'agent',
+    name: 'session',
     group: 'multiagent',
-    summary: 'Manage agent sessions',
+    summary: 'Manage governed sessions',
     subcommands: ['list', 'get', 'tree', 'suspend', 'resume', 'terminate'],
     requiresZone: true,
   },
   {
     name: 'delegation',
     group: 'multiagent',
-    summary: 'Manage delegation edges',
+    summary: 'Manage delegations',
     subcommands: ['active', 'inbound', 'outbound', 'traverse', 'revoke'],
     requiresZone: true,
   },
@@ -431,29 +379,6 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     summary: 'Manage delegated grants binding an application and user to resource scopes',
     subcommands: ['list', 'get', 'create', 'revoke'],
     requiresZone: true,
-  },
-
-  {
-    name: 'control',
-    group: 'admin',
-    summary: 'Manage the optional in-process API control plane',
-    subcommands: ['enable', 'disable', 'status', 'key', 'rotate', 'revoke'],
-    localOnly: true,
-    flags: {
-      key: [
-        { name: '--name', summary: 'Credential display name' },
-        { name: '--audience', summary: 'Control resource audience' },
-      ],
-      rotate: [{ name: '--client-secret', summary: 'New client secret' }],
-    },
-  },
-
-  {
-    name: 'completion',
-    group: 'runtime',
-    summary: 'Generate shell completions',
-    subcommands: ['bash', 'zsh', 'fish', 'powershell'],
-    hidden: true,
   },
 ])
 

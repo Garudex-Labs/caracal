@@ -19,6 +19,7 @@ import (
 	"time"
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -43,37 +44,39 @@ type KeyCache struct {
 	entries      map[string]*zoneCacheEntry
 	pubKeysCache map[string]*publicKeysCacheEntry
 	db           DBQuerier
-	zek          []byte
+	keyring      *secretstore.Keyring
 }
 
-func newKeyCache(db DBQuerier, zek []byte) *KeyCache {
+func newKeyCache(db DBQuerier, keyring *secretstore.Keyring) *KeyCache {
 	return &KeyCache{
 		entries:      make(map[string]*zoneCacheEntry),
 		pubKeysCache: make(map[string]*publicKeysCacheEntry),
 		db:           db,
-		zek:          zek,
+		keyring:      keyring,
 	}
 }
 
 func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PrivateKey, string, error) {
 	k.mu.RLock()
-	e, ok := k.entries[zoneID]
+	cached, cachedOK := k.entries[zoneID]
 	k.mu.RUnlock()
-	if ok && time.Now().Before(e.expiresAt) {
-		return e.key, e.kid, nil
-	}
-
 	secret, err := k.db.GetZoneSigningKeySecret(ctx, zoneID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			secret, err = k.generateZoneSigningKey(ctx, zoneID)
 		}
 		if err != nil {
+			if cachedOK && time.Now().Before(cached.expiresAt) {
+				return cached.key, cached.kid, nil
+			}
 			return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
 		}
 	}
+	if cachedOK && cached.kid == secret.ID && time.Now().Before(cached.expiresAt) {
+		return cached.key, cached.kid, nil
+	}
 
-	keyBytes, err := sharedcrypto.Open(k.zek, secret.Nonce, secret.Ciphertext)
+	keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("decrypt signing key: %w", err)
 	}
@@ -90,22 +93,22 @@ func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.Priv
 }
 
 func (k *KeyCache) generateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
-	ciphertext, nonce, err := k.sealZoneSigningKey()
+	envelope, err := k.sealZoneSigningKey()
 	if err != nil {
 		return nil, err
 	}
-	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	return k.db.EnsureZoneSigningKeySecret(ctx, zoneID, envelope)
 }
 
 func (k *KeyCache) RotateZoneSigningKey(ctx context.Context, zoneID string) (*SecretRow, error) {
 	if zoneID == "" {
 		return nil, errors.New("zone_id required")
 	}
-	ciphertext, nonce, err := k.sealZoneSigningKey()
+	envelope, err := k.sealZoneSigningKey()
 	if err != nil {
 		return nil, err
 	}
-	secret, err := k.db.InsertZoneSigningKeySecret(ctx, zoneID, ciphertext, nonce)
+	secret, err := k.db.InsertZoneSigningKeySecret(ctx, zoneID, envelope)
 	if err != nil {
 		return nil, err
 	}
@@ -113,24 +116,24 @@ func (k *KeyCache) RotateZoneSigningKey(ctx context.Context, zoneID string) (*Se
 	return secret, nil
 }
 
-func (k *KeyCache) sealZoneSigningKey() ([]byte, []byte, error) {
+func (k *KeyCache) sealZoneSigningKey() ([]byte, error) {
 	priv, err := sharedcrypto.GenerateP256Key()
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate signing key: %w", err)
+		return nil, fmt.Errorf("generate signing key: %w", err)
 	}
 	der, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal signing key: %w", err)
+		return nil, fmt.Errorf("marshal signing key: %w", err)
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	if len(keyBytes) == 0 {
-		return nil, nil, fmt.Errorf("encode signing key")
+		return nil, fmt.Errorf("encode signing key")
 	}
-	ciphertext, nonce, err := sharedcrypto.Seal(k.zek, keyBytes)
+	envelope, err := k.keyring.Seal(keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("seal signing key: %w", err)
+		return nil, fmt.Errorf("seal signing key: %w", err)
 	}
-	return ciphertext, nonce, nil
+	return envelope, nil
 }
 
 func (k *KeyCache) getPublicKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PublicKey, string, error) {
@@ -163,7 +166,7 @@ func (k *KeyCache) getPublicKeysByZone(ctx context.Context, zoneID string) (map[
 	var decryptFailedKids []string
 	var parseFailedKids []string
 	for _, secret := range secrets {
-		keyBytes, err := sharedcrypto.Open(k.zek, secret.Nonce, secret.Ciphertext)
+		keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			decryptFailedKids = append(decryptFailedKids, secret.ID)
 			continue
@@ -202,15 +205,16 @@ func (k *KeyCache) Invalidate(zoneID string) {
 // ChainHop is a single step in the delegation chain attribution.
 type ChainHop struct {
 	AppID            string `json:"application_id"`
-	AgentSessionID   string `json:"agent_session_id,omitempty"`
+	SessionID        string `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string `json:"delegation_edge_id,omitempty"`
 }
 
-// Mandate use classes. Session mandates represent an execution session and may be
-// re-presented to STS as subject_token; resource mandates are narrowed to a specific
-// resource set and must never be reused as subject_token.
+// Mandate use classes. Session mandates authorize lifecycle operations,
+// Gateway mandates are one-shot ingress credentials accepted only by Gateway,
+// and resource mandates authorize the final upstream execution.
 const (
 	UseSession  = "session"
+	UseGateway  = "gateway"
 	UseResource = "resource"
 )
 
@@ -233,7 +237,7 @@ type Claims struct {
 	Use              string     `json:"use"`
 	SubType          string     `json:"sub_type"`
 	Target           []string   `json:"target,omitempty"`
-	AgentSessionID   string     `json:"agent_session_id,omitempty"`
+	SessionID        string     `json:"agent_session_id,omitempty"`
 	DelegationEdgeID string     `json:"delegation_edge_id,omitempty"`
 	SourceSessionID  string     `json:"source_session_id,omitempty"`
 	TargetSessionID  string     `json:"target_session_id,omitempty"`
@@ -245,24 +249,24 @@ type Claims struct {
 
 // IssueParams holds everything needed to produce a signed JWT.
 type IssueParams struct {
-	ZoneID           string
-	AppID            string
-	SubjectID        string
-	SubType          string
-	Use              string
-	SID              string
-	RootSID          string
-	Scopes           string
-	Resources        []string
-	TTL              time.Duration
-	AgentSessionID   string
-	DelegationEdgeID string
-	SourceSessionID  string
-	TargetSessionID  string
-	DelegationPath   []string
-	DelegationChain  []ChainHop
-	GraphEpoch       int64
-	IssuedAt         time.Time
+	ZoneID                string
+	AppID                 string
+	SubjectID             string
+	SubType               string
+	Use                   string
+	AuthorityRecordID     string
+	RootAuthorityRecordID string
+	Scopes                string
+	Resources             []string
+	TTL                   time.Duration
+	SessionID             string
+	DelegationEdgeID      string
+	SourceSessionID       string
+	TargetSessionID       string
+	DelegationPath        []string
+	DelegationChain       []ChainHop
+	GraphEpoch            int64
+	IssuedAt              time.Time
 }
 
 func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerURL string) (string, string, error) {
@@ -292,7 +296,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 	// can be re-presented as subject_token), resource mandates carry only their
 	// target resources (so they cannot bootstrap further exchanges).
 	var audience []string
-	if use == UseSession {
+	if use == UseSession || use == UseGateway {
 		audience = []string{issuerURL}
 	} else {
 		audience = append(audience, params.Resources...)
@@ -309,12 +313,12 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 		ZoneID:           params.ZoneID,
 		ClientID:         params.AppID,
 		Scope:            params.Scopes,
-		SID:              params.SID,
-		RootSID:          params.RootSID,
+		SID:              params.AuthorityRecordID,
+		RootSID:          params.RootAuthorityRecordID,
 		Use:              use,
 		SubType:          subType,
 		Target:           params.Resources,
-		AgentSessionID:   params.AgentSessionID,
+		SessionID:        params.SessionID,
 		DelegationEdgeID: params.DelegationEdgeID,
 		SourceSessionID:  params.SourceSessionID,
 		TargetSessionID:  params.TargetSessionID,

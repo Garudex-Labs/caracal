@@ -18,7 +18,7 @@ TABLES=(
   admin_tokens
   agent_invocations
   agent_services
-  agent_sessions
+  sessions
   agent_topology
   applications
   audit_events
@@ -26,12 +26,11 @@ TABLES=(
   audit_export_watermark
   audit_ingest_alerts
   caracal_outbox
+  coordinator_idempotency_receipts
   delegated_grants
   delegation_edges
   delegation_graph_epochs
   event_outbox
-  gateway_binding_revision
-  gateway_resource_bindings
   policies
   policy_set_bindings
   policy_set_versions
@@ -40,7 +39,7 @@ TABLES=(
   providers
   resources
   secrets
-  sessions
+  authority_records
   step_up_challenges
   zones
 )
@@ -55,6 +54,8 @@ done
 echo ""
 echo "=== Migration: retired tables absent ==="
 RETIRED_TABLES=(
+  gateway_binding_revision
+  gateway_resource_bindings
   invitations
   teams
 )
@@ -81,11 +82,11 @@ fi
 echo "  DELETE denied OK"
 
 echo ""
-echo "=== Policy versions immutable: trigger installed ==="
-if [ "$(scalar "SELECT count(*) FROM pg_trigger WHERE tgname = 'policy_versions_immutable' AND NOT tgisinternal;")" = "1" ]; then
-  echo "  trigger OK"
+echo "=== Policy snapshots immutable: triggers installed ==="
+if [ "$(scalar "SELECT count(*) FROM pg_trigger WHERE tgname IN ('policy_versions_immutable', 'policy_set_versions_immutable') AND NOT tgisinternal;")" = "2" ]; then
+  echo "  triggers OK"
 else
-  echo "  FAIL: policy_versions immutability trigger missing"
+  echo "  FAIL: policy snapshot immutability trigger missing"
   exit 1
 fi
 
@@ -94,7 +95,7 @@ echo "=== RLS: zone-scoped tables are fail-closed ==="
 RLS_TABLES=(
   providers
   applications
-  sessions
+  authority_records
   secrets
   delegated_grants
   policies
@@ -102,15 +103,15 @@ RLS_TABLES=(
   policy_set_bindings
   resources
   audit_events
-  agent_sessions
+  sessions
   delegation_edges
   agent_services
   agent_invocations
-  gateway_resource_bindings
   step_up_challenges
   admin_audit_events
   admin_tokens
   delegation_graph_epochs
+  coordinator_idempotency_receipts
 )
 for t in "${RLS_TABLES[@]}"; do
   if [ "$(scalar "SELECT relrowsecurity FROM pg_class WHERE oid = 'public.$t'::regclass;")" != "t" ]; then
@@ -123,6 +124,14 @@ for t in "${RLS_TABLES[@]}"; do
   fi
   echo "  $t OK"
 done
+
+echo ""
+echo "=== Delegation lineage: parent edge is same-zone ==="
+if [ "$(scalar "SELECT count(*) FROM pg_constraint WHERE conname = 'delegation_edges_zone_parent_fk' AND pg_get_constraintdef(oid) = 'FOREIGN KEY (zone_id, parent_edge_id) REFERENCES delegation_edges(zone_id, id) ON DELETE SET NULL (parent_edge_id)';")" != "1" ]; then
+  echo "  FAIL: delegation parent edge foreign key is not zone-aware"
+  exit 1
+fi
+echo "  zone-aware parent edge foreign key OK"
 
 echo ""
 echo "=== Audit partitions: current rolling window exists ==="

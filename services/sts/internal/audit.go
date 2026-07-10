@@ -98,7 +98,9 @@ func (a *AuditBuffer) Emit(event AuditEvent) {
 	case a.ch <- event:
 	default:
 		a.log.Warn().Str("id", event.ID).Msg("audit buffer full; persisting event for replay")
-		a.persistBatch([]AuditEvent{event})
+		if err := a.persistBatch([]AuditEvent{event}); err != nil {
+			a.recordLoss(1, err)
+		}
 	}
 }
 
@@ -163,18 +165,29 @@ func (a *AuditBuffer) xaddEvent(ctx context.Context, ev AuditEvent) error {
 	return a.redis.XAdd(ctx, auditStream, values)
 }
 
+// recordLoss escalates definitive audit loss: both the stream and the disk fallback
+// failed, so the events are unrecoverable and the loss must be visible in logs and metrics.
+func (a *AuditBuffer) recordLoss(count uint64, err error) {
+	a.dropped.Add(count)
+	if a.metrics != nil {
+		a.metrics.AuditDropped.Add(count)
+	}
+	a.log.Error().Err(err).Uint64("count", count).Msg("audit events lost: stream and disk persistence both failed")
+}
+
 // persistBatch appends events to a per-process ndjson file so a later startup can
 // replay them. Called on Redis push failure and on shutdown with a non-empty batch.
-func (a *AuditBuffer) persistBatch(batch []AuditEvent) {
+// Returns an error when the batch could not be durably persisted.
+func (a *AuditBuffer) persistBatch(batch []AuditEvent) error {
 	if len(batch) == 0 {
-		return
+		return nil
 	}
 	name := fmt.Sprintf("pending-%d-%d%s", os.Getpid(), time.Now().UnixNano(), auditReplayExt)
 	path := filepath.Join(a.replayDir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, auditReplayPerm)
 	if err != nil {
 		a.log.Error().Err(err).Str("path", path).Msg("audit replay file open")
-		return
+		return err
 	}
 	closed := false
 	defer func() {
@@ -193,31 +206,32 @@ func (a *AuditBuffer) persistBatch(batch []AuditEvent) {
 		}
 		if _, err := w.Write(append(data, '\n')); err != nil {
 			a.log.Error().Err(err).Msg("audit replay file write")
-			return
+			return err
 		}
 	}
 	if err := w.Flush(); err != nil {
 		a.log.Error().Err(err).Msg("audit replay file flush")
-		return
+		return err
 	}
 	if err := f.Sync(); err != nil {
 		a.log.Error().Err(err).Str("path", path).Msg("audit replay file sync")
-		return
+		return err
 	}
 	if err := f.Close(); err != nil {
 		closed = true
 		a.log.Error().Err(err).Str("path", path).Msg("audit replay file close")
-		return
+		return err
 	}
 	closed = true
 	if err := syncReplayDir(a.replayDir); err != nil {
 		a.log.Error().Err(err).Str("dir", a.replayDir).Msg("audit replay dir sync")
-		return
+		return err
 	}
 	if a.metrics != nil {
 		a.metrics.AuditReplayPending.Add(uint64(len(batch)))
 	}
 	a.log.Warn().Str("path", path).Int("count", len(batch)).Msg("audit batch persisted to disk for later replay")
+	return nil
 }
 
 // replayPending streams persisted audit events to Redis for recovery. Files persist
@@ -302,7 +316,9 @@ func (a *AuditBuffer) start(ctx context.Context) {
 				}
 			}
 			if len(failed) > 0 {
-				a.persistBatch(failed)
+				if err := a.persistBatch(failed); err != nil {
+					a.recordLoss(uint64(len(failed)), err)
+				}
 			}
 			batch = batch[:0]
 		}
@@ -327,7 +343,9 @@ func (a *AuditBuffer) start(ctx context.Context) {
 						drained = true
 					}
 				}
-				a.persistBatch(batch)
+				if err := a.persistBatch(batch); err != nil {
+					a.recordLoss(uint64(len(batch)), err)
+				}
 				return
 			}
 		}

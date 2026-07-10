@@ -8,42 +8,48 @@ Gateway is served on port `8081`. It is not a CRUD API; it is a protected revers
 
 ## Operator Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Readiness check. |
-| `GET` | `/metrics` | Prometheus metrics. |
-| `GET` | `/metrics.json` | JSON metrics. |
+| Method | Path                           | Purpose                     |
+| ------ | ------------------------------ | --------------------------- |
+| `GET`  | `/health`                      | Liveness check.             |
+| `GET`  | `/ready`                       | Readiness check.            |
+| `GET`  | `/metrics`                     | Prometheus metrics.         |
+| `GET`  | `/metrics.json`                | JSON metrics.               |
 | `POST` | `/internal/revocations/reload` | Reload revocation snapshot. |
 
 ## Request Requirements
 
-| Input | Required | Purpose |
-| --- | --- | --- |
-| `Authorization: Bearer ...` | yes | Inbound Caracal mandate. |
-| `X-Caracal-Resource` | yes | Resource identifier used to find a Gateway binding. |
-| Request path | yes | Forwarded to the configured upstream after traversal checks. |
+| Input                       | Required | Purpose                                                      |
+| --------------------------- | -------- | ------------------------------------------------------------ |
+| `Authorization: Bearer ...` | yes      | Inbound Caracal mandate.                                     |
+| `X-Caracal-Resource`        | yes      | Resource identifier STS resolves to the routed upstream.     |
+| Request path                | yes      | Forwarded to the configured upstream after traversal checks. |
 
-Gateway ignores client attempts to set `X-Caracal-Client-ID`; the client ID is bound by Gateway configuration.
+Gateway rejects any request that sets `X-Caracal-Client-ID`; the caller's application identity derives from the verified mandate's `client_id` claim.
 
 ## Denial Checks
 
 Gateway rejects before upstream dispatch. Treat these checks as the safety gate in front of every protected upstream.
 
-| Stage | Checks |
-| --- | --- |
-| Request preflight | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal. |
-| Token validation | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
-| Binding resolution | `(zone_id, resource)` has a Gateway binding and the bound upstream passes host safety checks. |
-| STS exchange | Gateway’s STS circuit is closed and the signed exchange succeeds. |
+| Stage               | Checks                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Request preflight   | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal.                      |
+| Token validation    | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
+| Resource resolution | STS resolves `(zone_id, resource)` to a gateway-routed resource, and the returned upstream passes host safety checks.            |
+| STS exchange        | Gateway’s STS circuit is closed and the signed exchange succeeds; STS enforces the resource’s declared scopes on the mandate.    |
 
 ## Forwarding Behavior
 
-After checks pass, Gateway performs a signed STS exchange, receives a resource mandate, forwards the request to the bound upstream, and emits audit evidence. Request and upstream timeouts are controlled by Gateway service config.
+After checks pass, Gateway performs a signed STS exchange, receives a resource mandate, forwards the request to the resource's upstream, and emits audit evidence. Request and upstream timeouts are controlled by Gateway service config.
+
+Gateway proxies HTTP request/response traffic, including streamed responses such as SSE. Streamed bodies are flushed chunk by chunk, and revocation anchors are re-checked on every chunk boundary; a mid-stream revocation truncates the stream and sets the `X-Caracal-Revoked` trailer. Gateway does not proxy WebSocket connections: hop-by-hop headers, including `Upgrade`, are stripped before forwarding, so upgrade handshakes never reach the upstream. Protect WebSocket workloads with in-process verification at the service edge instead, using [Protect an MCP Server](/guides/protect-mcp/) or a framework adapter.
+
+## Replay Protection
+
+Every resource mandate is single-use at the Gateway. On first presentation the Gateway records the token's `jti` in Redis with a lifetime equal to the token's remaining validity; presenting the same mandate again is rejected as a confirmed replay and emits a `replay_detected` audit event carrying the request id, resource, and client identity. Session mandates are exempt because their only valid audience is the STS exchange itself. There is no client-side nonce to manage: the mandate's `jti` is the nonce. Scoped SDK transports therefore bypass mandate caching and single-flight for the final exchange, and application transports cache only their source/target Session and delegation state before minting a fresh final mandate per request. They never retry the data-plane request or replay its body. When Redis is unreachable, the production default rejects the request rather than silently widening the replay window; a deployment can opt into fail-open, which forwards the request and logs the tracker error.
 
 ## Next Step
 
-Continue to [Use Event Topics](/api/event-topics/) to understand the Redis Stream topics that carry audit, invalidation, revocation, and agent lifecycle events.
+Continue to [Use Event Topics](/api/event-topics/) to understand the Redis Stream topics that carry audit, invalidation, revocation, and Session lifecycle events.
 
 ## Related Pages
 

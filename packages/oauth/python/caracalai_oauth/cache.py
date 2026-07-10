@@ -24,16 +24,22 @@ class TokenCache(Protocol):
     def get(self, subject_token: str, resource: str) -> TokenExchangeResponse | None:
         pass
 
-    def set(self, subject_token: str, resource: str, token: TokenExchangeResponse) -> None:
+    def set(
+        self, subject_token: str, resource: str, token: TokenExchangeResponse
+    ) -> None:
         pass
 
 
 class InMemoryTokenCache:
     def __init__(self, max_entries: int = 10_000) -> None:
         if max_entries <= 0:
-            raise ValueError("InMemoryTokenCache.max_entries must be a positive integer")
+            raise ValueError(
+                "InMemoryTokenCache.max_entries must be a positive integer"
+            )
         self._max_entries = max_entries
-        self._entries: OrderedDict[str, tuple[TokenExchangeResponse, int]] = OrderedDict()
+        self._entries: OrderedDict[str, tuple[TokenExchangeResponse, int]] = (
+            OrderedDict()
+        )
 
     def get(self, subject_token: str, resource: str) -> TokenExchangeResponse | None:
         key = _cache_key(subject_token, resource)
@@ -47,7 +53,9 @@ class InMemoryTokenCache:
         self._entries.move_to_end(key)
         return token
 
-    def set(self, subject_token: str, resource: str, token: TokenExchangeResponse) -> None:
+    def set(
+        self, subject_token: str, resource: str, token: TokenExchangeResponse
+    ) -> None:
         key = _cache_key(subject_token, resource)
         remaining = token.issued_at + token.expires_in - time()
         if remaining <= 0:

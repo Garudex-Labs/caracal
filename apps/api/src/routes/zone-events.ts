@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Zone audit and session read routes for management clients.
+// Zone audit, authority record, and governed session read routes for management clients.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
@@ -77,10 +77,10 @@ const AuditQuery = z.object({
   until: z.string().datetime().optional(),
   request_id: z.string().min(1).optional(),
   decision: z.enum(['allow', 'deny', 'partial']).optional(),
-  event_type: z.string().min(1).optional(),
+  event_type: z.string().min(1).max(512).optional(),
   application_id: z.string().min(1).max(128).optional(),
-  agent_session_id: z.string().min(1).max(128).optional(),
   session_id: z.string().min(1).max(128).optional(),
+  authority_record_id: z.string().min(1).max(128).optional(),
   label: z.string().min(1).max(64).optional(),
   format: z.enum(['json', 'csv']).default('json'),
   fields: z.string().min(1).max(1000).optional(),
@@ -88,7 +88,18 @@ const AuditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
 
-const SessionQuery = z.object({
+// event_type accepts a single type or a comma-separated list, so one query can cover an
+// audit domain (for example every step_up_* lifecycle event) without client-side merging.
+function parseEventTypes(raw: string): string[] | null {
+  const types = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  return types.length > 0 && types.length <= 16 ? types : null
+}
+
+const AuthorityRecordQuery = z.object({
+  authority_record_id: z.string().min(1).max(128).optional(),
   status: z.enum(['active', 'revoked', 'expired']).optional(),
   subject_id: z.string().min(1).optional(),
   format: z.enum(['json', 'csv']).default('json'),
@@ -109,27 +120,27 @@ const AdminAuditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
 
-const AgentSessionQuery = z.object({
+const SessionQuery = z.object({
   status: z.enum(['active', 'suspended', 'terminated', 'expired']).optional(),
   lifecycle: z.enum(['task', 'service']).optional(),
   application_id: z.string().min(1).optional(),
-  parent_id: z.string().min(1).optional(),
+  parent_session_id: z.string().min(1).optional(),
   label: z.string().min(1).max(64).optional(),
   format: z.enum(['json', 'csv']).default('json'),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
 })
 
-const AGENT_SESSION_CSV_COLUMNS = [
-  'id',
+const SESSION_CSV_COLUMNS = [
+  'session_id',
   'application_id',
-  'parent_id',
+  'parent_session_id',
   'status',
   'lifecycle',
   'labels',
   'depth',
   'child_count',
-  'spawned_at',
+  'started_at',
   'last_active_at',
   'terminated_at',
   'termination_reason',
@@ -138,7 +149,12 @@ const AGENT_SESSION_CSV_COLUMNS = [
 
 function toCsvCell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
+  let text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
+  // Formula-injection guard: a cell starting with a formula trigger is prefixed
+  // with a single quote so spreadsheet applications render it as text. Exported
+  // values such as federated subject identifiers are issuer-controlled, so every
+  // cell is treated as hostile.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
@@ -150,11 +166,11 @@ function csvDocument(columns: readonly string[], rows: Record<string, unknown>[]
   return `${lines.join('\r\n')}\r\n`
 }
 
-const SESSION_CSV_COLUMNS = [
-  'id',
-  'session_type',
+const AUTHORITY_RECORD_CSV_COLUMNS = [
+  'authority_record_id',
+  'authority_record_type',
   'subject_id',
-  'parent_id',
+  'parent_authority_record_id',
   'status',
   'authenticated_at',
   'created_at',
@@ -180,6 +196,24 @@ const AUDIT_METADATA_FIELDS = [
   'upstream_status',
   'result_class',
   'reason',
+  'trace_id',
+  'provider_id',
+  'connection_id',
+  'upstream_host',
+  'gateway_status',
+  'error_kind',
+  'response_bytes',
+  'auth_mode',
+  'subject_fingerprint',
+  'subject',
+  'authorized_by',
+  'command',
+  'subcommand',
+  'challenge_id',
+  'tier',
+  'approver_class',
+  'privacy_mode',
+  'approver_subject_id',
 ] as const
 
 const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]
@@ -201,7 +235,7 @@ const ADMIN_AUDIT_ROW_FIELDS = [
   'signed',
 ] as const
 
-const ADMIN_AUDIT_EXPORT_FIELDS: readonly string[] = [...ADMIN_AUDIT_ROW_FIELDS, 'changed_fields']
+const ADMIN_AUDIT_EXPORT_FIELDS: readonly string[] = [...ADMIN_AUDIT_ROW_FIELDS, 'change_kind', 'changed_fields']
 
 // Projects an event row onto the caller-selected export fields, flattening the
 // redacted JSON payload so exports carry human-usable columns instead of blobs.
@@ -243,7 +277,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!fields) return reply.code(400).send({ error: 'invalid_fields' })
 
     const conds = ['zone_id = $1']
-    const values: (string | number)[] = [params.zoneId]
+    const values: (string | number | string[])[] = [params.zoneId]
     if (q.since) {
       values.push(q.since)
       conds.push(`occurred_at >= $${values.length}`)
@@ -261,19 +295,26 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       conds.push(`decision = $${values.length}`)
     }
     if (q.event_type) {
-      values.push(q.event_type)
-      conds.push(`event_type = $${values.length}`)
+      const types = parseEventTypes(q.event_type)
+      if (!types) return reply.code(400).send({ error: 'invalid_query' })
+      if (types.length === 1) {
+        values.push(types[0]!)
+        conds.push(`event_type = $${values.length}`)
+      } else {
+        values.push(types)
+        conds.push(`event_type = ANY($${values.length})`)
+      }
     }
     if (q.application_id) {
       values.push(q.application_id)
       conds.push(`metadata_json->>'application_id' = $${values.length}`)
     }
-    if (q.agent_session_id) {
-      values.push(q.agent_session_id)
-      conds.push(`metadata_json->>'agent_session_id' = $${values.length}`)
-    }
     if (q.session_id) {
       values.push(q.session_id)
+      conds.push(`metadata_json->>'agent_session_id' = $${values.length}`)
+    }
+    if (q.authority_record_id) {
+      values.push(q.authority_record_id)
       conds.push(`metadata_json->>'session_id' = $${values.length}`)
     }
     if (q.label) {
@@ -313,11 +354,11 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
     if (q.fields) {
       return {
-        rows: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
+        items: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
         next_cursor: next,
       }
     }
-    return { rows: redacted, next_cursor: next }
+    return { items: redacted, next_cursor: next }
   })
 
   fastify.get('/zones/:zoneId/audit/by-request/:requestId', async (req, reply) => {
@@ -439,22 +480,26 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
     if (q.fields) {
       return {
-        rows: redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json')),
+        items: redacted.map((r) => projectRow(r, fields, ADMIN_AUDIT_ROW_FIELDS, 'payload_json')),
         next_cursor: next,
       }
     }
-    return { rows: redacted, next_cursor: next }
+    return { items: redacted, next_cursor: next }
   })
 
-  fastify.get('/zones/:zoneId/sessions', async (req, reply) => {
+  fastify.get('/zones/:zoneId/authority-records', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
-    const parsed = SessionQuery.safeParse(req.query ?? {})
+    const parsed = AuthorityRecordQuery.safeParse(req.query ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
 
     const conds = ['zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
+    if (q.authority_record_id) {
+      values.push(q.authority_record_id)
+      conds.push(`id = $${values.length}`)
+    }
     if (q.status) {
       values.push(q.status)
       conds.push(`status = $${values.length}`)
@@ -474,9 +519,10 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     values.push(q.limit)
 
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, session_type, subject_id, parent_id, status, expires_at,
+      `SELECT id AS authority_record_id, zone_id, session_type AS authority_record_type, subject_id,
+              parent_id AS parent_authority_record_id, status, expires_at,
               authenticated_at, created_at, revoked_at, revoked_reason
-       FROM sessions
+      FROM authority_records
        WHERE ${conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC
        LIMIT $${values.length}`,
@@ -485,19 +531,19 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv; charset=utf-8')
-      reply.header('content-disposition', `attachment; filename="sessions-${params.zoneId}.csv"`)
-      return reply.send(csvDocument(SESSION_CSV_COLUMNS, rows))
+      reply.header('content-disposition', `attachment; filename="authority-records-${params.zoneId}.csv"`)
+      return reply.send(csvDocument(AUTHORITY_RECORD_CSV_COLUMNS, rows))
     }
 
     const last = rows[rows.length - 1]
-    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.created_at).toISOString(), last.id) : null
-    return { rows, next_cursor: next }
+    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.created_at).toISOString(), last.authority_record_id) : null
+    return { items: rows, next_cursor: next }
   })
 
-  fastify.get('/zones/:zoneId/agent-sessions', async (req, reply) => {
+  fastify.get('/zones/:zoneId/sessions', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
-    const parsed = AgentSessionQuery.safeParse(req.query ?? {})
+    const parsed = SessionQuery.safeParse(req.query ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
 
@@ -515,8 +561,8 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       values.push(q.application_id)
       conds.push(`application_id = $${values.length}`)
     }
-    if (q.parent_id) {
-      values.push(q.parent_id)
+    if (q.parent_session_id) {
+      values.push(q.parent_session_id)
       conds.push(`parent_id = $${values.length}`)
     }
     if (q.label) {
@@ -529,28 +575,28 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)
-      conds.push(`(spawned_at, id) < ($${values.length - 1}, $${values.length})`)
+      conds.push(`(started_at, id) < ($${values.length - 1}, $${values.length})`)
     }
     values.push(q.limit)
 
     const { rows } = await fastify.db.query(
-      `SELECT id, application_id, parent_id, status, lifecycle, labels, depth, child_count,
-              spawned_at, last_active_at, terminated_at, termination_reason, ttl_seconds
-       FROM agent_sessions
+      `SELECT id AS session_id, application_id, parent_id AS parent_session_id, status, lifecycle, labels, depth, child_count,
+          started_at, last_active_at, terminated_at, termination_reason, ttl_seconds
+        FROM sessions
        WHERE ${conds.join(' AND ')}
-       ORDER BY spawned_at DESC, id DESC
+        ORDER BY started_at DESC, id DESC
        LIMIT $${values.length}`,
       values,
     )
 
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv; charset=utf-8')
-      reply.header('content-disposition', `attachment; filename="agent-sessions-${params.zoneId}.csv"`)
-      return reply.send(csvDocument(AGENT_SESSION_CSV_COLUMNS, rows))
+      reply.header('content-disposition', `attachment; filename="sessions-${params.zoneId}.csv"`)
+      return reply.send(csvDocument(SESSION_CSV_COLUMNS, rows))
     }
 
     const last = rows[rows.length - 1]
-    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.spawned_at).toISOString(), last.id) : null
-    return { rows, next_cursor: next }
+    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.started_at).toISOString(), last.session_id) : null
+    return { items: rows, next_cursor: next }
   })
 }

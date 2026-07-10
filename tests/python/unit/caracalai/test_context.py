@@ -7,6 +7,7 @@ Unit tests for CaracalContext bound context and envelope conversion.
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 
 from caracalai.advanced import (
@@ -71,21 +72,40 @@ class AbindTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(captured, ctx)
         self.assertIsNone(current())
 
+    async def test_isolates_concurrent_bind_scopes(self) -> None:
+        async def scoped(agent: str) -> str | None:
+            ctx = CaracalContext(
+                subject_token="tok",
+                zone_id="z",
+                application_id="app",
+                session_id=agent,
+            )
+
+            async def observe() -> str | None:
+                await asyncio.sleep(0.001)
+                active = current()
+                return active.session_id if active else None
+
+            return await abind(ctx, observe())
+
+        results = await asyncio.gather(*(scoped(f"agent-{n}") for n in "abc"))
+        self.assertEqual(results, ["agent-a", "agent-b", "agent-c"])
+
 
 class WithOverridesTests(unittest.TestCase):
     def test_returns_patched_copy_of_active_context(self) -> None:
         ctx = CaracalContext(subject_token="tok", zone_id="z", application_id="app")
 
         def fn() -> CaracalContext:
-            return with_overrides(agent_session_id="agent-1")
+            return with_overrides(session_id="agent-1")
 
         patched = bind(ctx, fn)
         self.assertEqual(patched.subject_token, "tok")
-        self.assertEqual(patched.agent_session_id, "agent-1")
+        self.assertEqual(patched.session_id, "agent-1")
 
     def test_raises_when_no_context_is_active(self) -> None:
         with self.assertRaises(RuntimeError):
-            with_overrides(agent_session_id="agent-1")
+            with_overrides(session_id="agent-1")
 
 
 class ToEnvelopeTests(unittest.TestCase):
@@ -94,19 +114,19 @@ class ToEnvelopeTests(unittest.TestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            agent_session_id="agent-1",
-            delegation_edge_id="edge-1",
-            parent_edge_id="parent-1",
-            session_id="sid-1",
+            session_id="agent-1",
+            delegation_id="edge-1",
+            parent_delegation_id="parent-1",
+            subject_authority_record_id="sid-1",
             trace_id="a" * 32,
             hop=3,
         )
         env = to_envelope(ctx)
         self.assertEqual(env.subject_token, "tok")
-        self.assertEqual(env.agent_session_id, "agent-1")
-        self.assertEqual(env.delegation_edge_id, "edge-1")
-        self.assertEqual(env.parent_edge_id, "parent-1")
-        self.assertEqual(env.session_id, "sid-1")
+        self.assertEqual(env.session_id, "agent-1")
+        self.assertEqual(env.delegation_id, "edge-1")
+        self.assertEqual(env.parent_delegation_id, "parent-1")
+        self.assertEqual(env.subject_authority_record_id, "sid-1")
         self.assertEqual(env.trace_id, "a" * 32)
         self.assertEqual(env.hop, 3)
 
@@ -115,16 +135,16 @@ class FromEnvelopeTests(unittest.TestCase):
     def test_builds_context_from_envelope(self) -> None:
         env = Envelope(
             subject_token="tok",
-            agent_session_id="agent-1",
-            session_id="sid-1",
+            session_id="agent-1",
+            subject_authority_record_id="sid-1",
             hop=2,
         )
         ctx = from_envelope(env, zone_id="z1", application_id="app-1")
         self.assertEqual(ctx.subject_token, "tok")
         self.assertEqual(ctx.zone_id, "z1")
         self.assertEqual(ctx.application_id, "app-1")
-        self.assertEqual(ctx.agent_session_id, "agent-1")
-        self.assertEqual(ctx.session_id, "sid-1")
+        self.assertEqual(ctx.session_id, "agent-1")
+        self.assertEqual(ctx.subject_authority_record_id, "sid-1")
         self.assertEqual(ctx.hop, 2)
 
     def test_raises_when_envelope_has_no_subject_token(self) -> None:
@@ -139,19 +159,20 @@ class DescribeAuthorityTests(unittest.TestCase):
             subject_token="tok",
             zone_id="z",
             application_id="app",
-            session_id="sid-1",
-            agent_session_id="agent-1",
-            delegation_edge_id="edge-1",
+            subject_authority_record_id="sid-1",
+            session_id="agent-1",
+            delegation_id="edge-1",
             hop=2,
         )
         summary = describe_authority(ctx)
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.application_id, "app")
-        self.assertEqual(summary.session_id, "sid-1")
+        self.assertEqual(summary.subject_authority_record_id, "sid-1")
+        self.assertEqual(summary.session_id, "agent-1")
         self.assertEqual(
             summary.chain,
-            ("session:sid-1", "agent-session:agent-1", "delegation-edge:edge-1"),
+            ("subject:sid-1", "session:agent-1", "delegation:edge-1"),
         )
         self.assertNotIn("tok", repr(summary))
 

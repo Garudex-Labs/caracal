@@ -13,7 +13,11 @@ sys.path.append(str(Path(__file__).parents[3] / "shared" / "test-utils" / "pytho
 
 from caracal_test_tokens import mint_es256_token
 from caracalai_identity import verify
-from caracalai_identity.verify import ScopeInsufficientError, TokenInvalidError, ZoneInvalidError
+from caracalai_identity.verify import (
+    ScopeInsufficientError,
+    TokenInvalidError,
+    ZoneInvalidError,
+)
 
 
 class StubCache:
@@ -64,14 +68,24 @@ class TokenValidationSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.cache.keys = [jwk]
 
         with self.assertRaises(ZoneInvalidError):
-            await verify.verify_token(token, "https://sts.example.com", "resource://api")
+            await verify.verify_token(
+                token,
+                "https://sts.example.com",
+                "resource://api",
+                expected_zone_id="zone1",
+            )
 
     async def test_rejects_wrong_audience(self) -> None:
         token, jwk = mint_es256_token(audience="resource://other")
         self.cache.keys = [jwk]
 
         with self.assertRaises(TokenInvalidError):
-            await verify.verify_token(token, "https://sts.example.com", "resource://api")
+            await verify.verify_token(
+                token,
+                "https://sts.example.com",
+                "resource://api",
+                expected_zone_id="zone1",
+            )
 
 
 if __name__ == "__main__":

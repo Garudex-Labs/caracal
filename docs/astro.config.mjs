@@ -15,7 +15,7 @@ import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
-  'Pre-execution authority enforcement for AI agents. Policies, mandates, and audit for production-grade autonomous systems.'
+  'The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.'
 
 export default defineConfig({
   output: 'static',
@@ -175,6 +175,9 @@ export default defineConfig({
                 { label: 'Integrate the TypeScript SDK', link: '/guides/sdk-typescript/' },
                 { label: 'Integrate the Python SDK', link: '/guides/sdk-python/' },
                 { label: 'Integrate the Go SDK', link: '/guides/sdk-go/' },
+                { label: 'Safe Retries and Idempotency', link: '/guides/idempotency/' },
+                { label: 'Test Caracal Integrations', link: '/guides/testing/' },
+                { label: 'Govern Agent Frameworks', link: '/guides/frameworks/' },
                 { label: 'Run an Agent with caracal run', link: '/guides/runtime-run/' },
               ],
             },
@@ -194,7 +197,8 @@ export default defineConfig({
               items: [
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
-                { label: 'Step-Up Re-Authentication', link: '/guides/step-up/' },
+                { label: 'Human Approvals', link: '/guides/step-up/' },
+                { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
                 { label: 'Production Integration Patterns', link: '/guides/enterprise-runtime-patterns/' },
               ],
             },
@@ -219,23 +223,20 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Verification Layer Overview', link: '/sdks/verification-layer/' },
-                { label: 'Framework Connectors', link: '/sdks/connectors/' },
-                { label: 'Express Connector', link: '/sdks/connectors/express/' },
-                { label: 'ASGI Connector', link: '/sdks/connectors/asgi/' },
-                { label: 'FastMCP Connector', link: '/sdks/connectors/fastmcp/' },
-                { label: 'Go net/http Connector', link: '/sdks/connectors/nethttp/' },
-                { label: 'MCP Auth Transport', link: '/sdks/transport-mcp/' },
+                { label: 'Framework Adapters', link: '/sdks/adapters/' },
+                { label: 'Express Adapter', link: '/sdks/adapters/express/' },
+                { label: 'ASGI Adapter', link: '/sdks/adapters/asgi/' },
+                { label: 'FastMCP Adapter', link: '/sdks/adapters/fastmcp/' },
+                { label: 'Go net/http Adapter', link: '/sdks/adapters/nethttp/' },
+                { label: 'Verify Package', link: '/sdks/verify/' },
                 { label: 'Identity Package', link: '/sdks/identity/' },
                 { label: 'Revocation Package', link: '/sdks/revocation/' },
               ],
             },
             {
-              label: 'Token Exchange and A2A',
+              label: 'Token Exchange',
               collapsed: true,
-              items: [
-                { label: 'OAuth Package', link: '/sdks/oauth/' },
-                { label: 'A2A Transport', link: '/sdks/transport-a2a/' },
-              ],
+              items: [{ label: 'OAuth Package', link: '/sdks/oauth/' }],
             },
             {
               label: 'Admin Automation',
@@ -245,10 +246,7 @@ export default defineConfig({
             {
               label: 'State Backends',
               collapsed: true,
-              items: [
-                { label: 'Redis Revocation Store', link: '/sdks/connectors/redis/' },
-                { label: 'Postgres Token State Backend', link: '/sdks/connectors/postgres/' },
-              ],
+              items: [{ label: 'Redis Revocation Store', link: '/sdks/backends/redis/' }],
             },
           ],
         },
@@ -259,12 +257,13 @@ export default defineConfig({
             { label: 'Operate Runtime and the Web Console', link: '/runtime-console/' },
             { label: 'Choose the Right Surface', link: '/runtime-console/cli-and-console/' },
             { label: 'Start and Check the Stack', link: '/runtime-console/stack/' },
+            { label: 'Control Console Access', link: '/runtime-console/console-access/' },
             { label: 'Use the Web Console', link: '/runtime-console/console/' },
             { label: 'Configure Workloads', link: '/runtime-console/config-file/' },
             { label: 'Run Workloads', link: '/runtime-console/runtime/' },
             { label: 'Manage Product Objects', link: '/runtime-console/admin/' },
             { label: 'Inspect Diagnostics and Audit', link: '/runtime-console/observability/' },
-            { label: 'Manage Agents and Delegation', link: '/runtime-console/agents/' },
+            { label: 'Manage Sessions and Delegation', link: '/runtime-console/agents/' },
           ],
         },
         {
@@ -287,9 +286,10 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Resources and Grants', link: '/concepts/resource-grant/' },
+                { label: 'Providers', link: '/concepts/provider/' },
                 { label: 'Policies and Policy Sets', link: '/concepts/policy/' },
-                { label: 'Step-Up Challenges', link: '/concepts/step-up/' },
                 { label: 'Mandates', link: '/concepts/mandate/' },
+                { label: 'Approvals', link: '/concepts/step-up/' },
               ],
             },
             {
@@ -322,8 +322,10 @@ export default defineConfig({
               label: 'Deploy',
               collapsed: true,
               items: [
+                { label: 'Choose a Deployment Profile', link: '/operations/deployment-profiles/' },
                 { label: 'Deploy with Docker Compose', link: '/operations/docker-compose/' },
                 { label: 'Deploy with Helm', link: '/operations/kubernetes-helm/' },
+                { label: 'Provision with OpenTofu', link: '/operations/opentofu/' },
                 { label: 'Choose a Cloud Profile', link: '/operations/cloud-native-profiles/' },
                 { label: 'Deploy on Managed Kubernetes', link: '/operations/cloud-reference-deployments/' },
                 { label: 'Package an Install Kit', link: '/operations/enterprise-install-kit/' },
@@ -334,6 +336,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Configure Service Environment', link: '/operations/env-vars/' },
+                { label: 'Configure Secret Backends', link: '/operations/secret-backends/' },
                 { label: 'Harden Production', link: '/operations/tls-hardening/' },
                 { label: 'Rotate Keys and Secrets', link: '/operations/key-management/' },
                 { label: 'Operate PostgreSQL', link: '/operations/postgres/' },
@@ -550,10 +553,10 @@ export default defineConfig({
           items: [
             { label: 'Use API Reference', link: '/api/' },
             {
-              label: 'Management APIs',
+              label: 'Admin APIs',
               collapsed: true,
               items: [
-                { label: 'Use Management API', link: '/api/control-plane/' },
+                { label: 'Use the Admin API', link: '/api/control-plane/' },
                 { label: 'Use Coordinator API', link: '/api/coordinator/' },
               ],
             },

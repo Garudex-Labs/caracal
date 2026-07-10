@@ -1,0 +1,63 @@
+---
+title: Redis Revocation Store
+description: Shared Redis revocation stores and revocation stream consumers.
+---
+
+The Redis backends provide shared revocation state for resource servers. They let multiple service instances reject mandates after sessions, roots, agents, or Delegations are revoked.
+
+The resource server does not need to share a network with Caracal services. For separate VPC, cluster, or cloud deployments, give the resource workload private TLS connectivity to the managed Redis endpoint that carries Caracal streams, authenticate it with a dedicated least-privilege Redis identity, and run the consumer beside the verifier. Do not expose Redis publicly or distribute Caracal administrative tokens to resource applications.
+
+## Install
+
+| Ecosystem  | Package                                                             |
+| ---------- | ------------------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/revocation-redis`                           |
+| Python     | `pip install caracalai-revocation-redis`                            |
+| Go         | `go get github.com/garudex-labs/caracal/packages/backends/redis/go` |
+
+## Defaults
+
+| Setting           | Default                                         |
+| ----------------- | ----------------------------------------------- |
+| Revocation stream | `caracal.sessions.revoke`                       |
+| Consumer group    | `resource-revocation`                           |
+| Revocation TTL    | 24 hours                                        |
+| Signature support | Optional HMAC verification for stream messages. |
+
+## TypeScript store
+
+```ts
+import { RedisRevocationStore } from '@caracalai/revocation-redis'
+
+const revocations = new RedisRevocationStore(redis, {
+  defaultTtlMs: 24 * 60 * 60 * 1000,
+})
+
+await revocations.markRevoked('sess_123')
+const blocked = await revocations.isRevoked('sess_123')
+```
+
+## Stream consumer
+
+Use the stream consumer when your resource server should learn revocations from the audit/control plane instead of marking them locally.
+
+```ts
+import { RedisRevocationConsumer } from '@caracalai/revocation-redis'
+
+const consumer = new RedisRevocationConsumer(redis, revocations, {
+  consumerName: 'api-1',
+  hmacSecret: process.env.CARACAL_REVOCATION_HMAC_SECRET,
+})
+
+await consumer.start()
+```
+
+Stream events can revoke multiple anchors. Resource servers should treat Redis or signature failures according to their risk posture; high-risk resources should fail closed.
+
+Each independently deployed resource instance uses a unique consumer name under a deployment-specific consumer group. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
+
+## Related pages
+
+- [Revocation Package](/sdks/revocation/)
+- [Sessions and Revocation](/concepts/sessions-revocation/)
+- [Verify Package](/sdks/verify/)

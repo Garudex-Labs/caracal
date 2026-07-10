@@ -1,16 +1,16 @@
 ---
-title: Agent Delegation
-description: Directed, cycle-checked edges that pass scoped authority between agent sessions.
+title: Session Delegation
+description: Bounded, cycle-checked authority passed between governed Sessions.
 sidebar:
-  order: 9
+  order: 10
 ---
 
-Delegation lets one agent session pass a narrower, typed slice of authority to another agent session.
+Delegation lets one Session pass a narrower, typed slice of authority to another Session.
 
-Authority follows the **application**. Agents you spawn under the same application already act under that application's authority - no delegation edge is needed for ordinary fan-out. You create a delegation edge in exactly two cases:
+Authority follows the **application**. Sessions started under the same application already act under that application's authority. Create a Delegation in exactly two cases:
 
 - To **narrow** authority, so a child holds only a subset of what its parent can do (least privilege).
-- To carry authority **across applications**, when the receiver is a different application that must consent.
+- To carry authority **across applications**, when a receiving Session belongs to a different application and explicitly presents the offered Delegation ID.
 
 It is represented as a graph of directed edges. Each edge connects a source session to a target session, carries scopes and constraints, and can be revoked independently.
 
@@ -18,66 +18,69 @@ It is represented as a graph of directed edges. Each edge connects a source sess
 
 ```mermaid
 flowchart LR
-  User["Subject session"] --> A["Agent session A"]
-  A -->|"edge: read tickets"| B["Agent session B"]
-  B -->|"edge: summarize only"| C["Agent session C"]
+  Authority["Subject authority record"] --> A["Session A"]
+  A -->|"delegation: read tickets"| B["Session B"]
+  B -->|"delegation: summarize only"| C["Session C"]
   A -. revoke .-> B
   B -. cascade .-> C
 ```
 
-## Delegation Edge Fields
+## Delegation Fields
 
-| Field | Purpose |
-| --- | --- |
-| Source session | The session that delegates authority. |
-| Target session | The child or receiving agent session. |
-| Issuer application | Application creating the delegation. |
-| Receiver application | Application receiving authority. |
-| Resource | Optional resource boundary for the edge. |
-| Scopes | Subset of authority being delegated. |
-| Constraints | Typed limits such as TTL, hop count, budget, and approval state. |
-| Status | Active or revoked lifecycle state. |
+| Field                | Purpose                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| Source session       | The session that delegates authority.                            |
+| Target session       | The child or receiving Session.                                  |
+| Issuer application   | Application creating the delegation.                             |
+| Receiver application | Application receiving authority.                                 |
+| Resource             | Optional resource boundary for the edge.                         |
+| Scopes               | Subset of authority being delegated.                             |
+| Constraints          | Typed limits such as TTL, hop count, and distinct-scope budget, plus audit metadata. |
+| Status               | Active, expired, or revoked lifecycle state.                     |
 
 ## Rules
 
 - Delegation should narrow authority, not expand it.
+- Every Delegation must have a positive TTL; unbounded edges are rejected before creation.
 - Delegation paths must not cycle.
 - Hop count should be bounded.
-- Revoking an upstream edge should invalidate downstream authority.
+- Revoking an upstream Delegation should invalidate downstream authority.
 - Resource servers should verify delegation claims when they require delegated access.
 
-## What an Edge Bounds - and What It Does Not
+Expiry removes the edge's authority without terminating either endpoint Session. STS rejects the expired edge and caps every mandate minted through it so the mandate cannot outlive the edge. The target Session remains active but cannot use that Delegation again; it must receive another live Delegation before it can mint delegated authority. Revocation is different: it is an explicit monotonic action that cascades through downstream Delegations and affected Session subtrees.
 
-An edge bounds **the token issued for that edge** and **any further edge chained from it**. It does **not** raise the application's authority ceiling. This distinction is the whole security model, so make it explicit:
+## What a Delegation Bounds - and What It Does Not
 
-- When a child is created with a **narrowing grant**, a `source → child` edge is recorded. A token exchange that presents this edge is bounded to the edge's scopes, and the coordinator enforces that any edge chained from the child is a subset of it (`scopes ⊆ parent`, plus TTL, hop, budget, and resource narrowing).
-- When a child is created with **inherit** (the default) under a **narrowed parent**, the coordinator **mirrors the parent's edge onto the child** in the same spawn transaction - a `parent → child` edge copying the parent's exact scopes, resource, constraints, and expiry. Least-privilege is therefore **transitive by default**: an inherit child cannot exceed its parent's narrowing.
-- When a child is created with **inherit** under a **root parent** (one that holds the application's full authority with no inbound edge), no edge is recorded and the child runs under the application's authority bounded by policy. There is nothing narrower to carry forward.
+A Delegation bounds **the token issued for that Delegation** and **any further Delegation chained from it**. It does **not** raise the application's authority ceiling. Internally and on the wire, Delegations are represented as graph edges.
 
-Worked example: A spawns B with `grant=narrow([tickets:read])`, then B spawns C.
+- When a child is created with a **narrowing grant**, a `source → child` edge is recorded. A token exchange that presents this edge is bounded to the edge's scopes. Coordinator prevents widening when an edge is created, and STS independently rechecks every adjacent ancestor and child for scope, resource, expiry, TTL, hop, and budget attenuation before every delegated issuance.
+- When a child is started with **inherit** under a narrowed parent, Coordinator mirrors the parent's Delegation onto the child in the same creation transaction. Least privilege is transitive by default.
+- When a child is created with **inherit** under a **root parent** (one that holds the application's full authority with no inbound edge), no edge is recorded and the child runs under the application's policy-bounded authority. There is nothing narrower to carry forward - and because the decision contract mints resource mandates only over a Delegation, an edge-less session cannot present _delegated_ authority at all.
 
-- If B spawns C with **inherit**, the coordinator records a `B → C` edge mirroring B's `tickets:read` slice, so C is bounded by B's narrowing - not the application's full authority.
-- If B spawns C with a **narrowing grant**, a `B → C` edge is recorded and the coordinator rejects it unless `C ⊆ B` - so B can never pass on authority it does not hold.
+Worked example: A starts B with `Authority.narrow([tickets:read])`, then B starts C.
 
-The consequence: the **application plus policy** is the hard, server-enforced boundary every session is contained by. Within one application, transitive inheritance keeps a narrowed subtree narrowed automatically. To place a subtree behind a real cross-application trust boundary, move it under a different application via `delegate()`, which requires receiver consent. All sessions of one application share a credential and a trust domain by design; transitive inheritance contains an *accidentally* un-narrowed descendant, while a separate application contains a *mutually distrusting* one.
+- If B starts C with **inherit**, Coordinator records a `B → C` edge mirroring B's `tickets:read` slice, so C remains bounded by B's narrowing.
+- If B starts C with narrower authority, Coordinator records a `B → C` edge and rejects it unless `C ⊆ B`.
+
+The consequence: the **application plus policy** is the hard, server-enforced boundary every session is contained by. Within one application, transitive inheritance keeps a narrowed subtree narrowed automatically. To place a subtree behind a real cross-application trust boundary, move it under a different application via `delegate()`. Creation records an offer and does not mutate the receiver's context. The receiver consents by possessing and presenting the opaque, target-Session-bound Delegation ID with `acceptDelegation()`; STS also verifies receiver application ownership and the live target Session before minting. All sessions of one application share a credential and a trust domain by design; transitive inheritance contains an _accidentally_ un-narrowed descendant, while a separate application contains a _mutually distrusting_ one.
 
 ## SDK Relationship
 
-The SDKs expose one primitive for creating children and one for granting a peer:
+The SDKs expose one primitive for creating children, one for granting a peer, and one for presenting a received grant:
 
-| Language | Spawn a child | Grant to an existing peer |
-| --- | --- | --- |
-| TypeScript | `spawn()` / `spawn({ grant })` | `delegate()` |
-| Python | `spawn()` / `spawn(grant=…)` | `delegate()` |
-| Go | `Spawn()` / `Spawn` with `Grant` | `Delegate()` |
+| Language   | Start a child                            | Delegate to an existing peer | Present a received Delegation |
+| ---------- | ---------------------------------------- | ---------------------------- | ----------------------------- |
+| TypeScript | `session()` / `session({ authority })`   | `delegate()` / `revokeDelegation()` | `acceptDelegation()` |
+| Python     | `session()` / `session(authority=…)`     | `delegate()` / `revoke_delegation()` | `accept_delegation()` |
+| Go         | `Session()` / `Session` with `Authority` | `Delegate()` / `RevokeDelegation()` | `AcceptDelegation()` |
 
-`spawn()` returns a child running under the **same application's** authority - it never moves a child into a different application. Pass a **narrowing grant** (`Grant.narrow([...])`, `Grant.narrow(...)`, or `GrantNarrow(...)`) to bind a least-privilege delegation edge to the child, or `Grant.none()` for a child with no inherited authority. To hand authority across applications, use `delegate()`, which records an edge to an already-existing peer session under that other application.
+`session()` returns a child running under the **same application's** authority; it never moves the child into another application. Pass `Authority.narrow(...)` to bind a least-privilege Delegation or `Authority.none()` for no inherited authority. To hand authority across applications, use `delegate()` with an existing peer Session. The issuer's context is unchanged, and the receiver presents the Delegation with `acceptDelegation()`.
 
 These helpers propagate session and delegation context so later token exchanges include the correct graph proof.
 
 ## Where You Interact With Delegation
 
-Delegation is authored **at runtime, from the SDK** - there is no Console form for creating edges, and it is not an internal-only concept. You create edges by calling `spawn(grant=…)` or `delegate(to=…)` in your agent code; the coordinator records and enforces them. You **observe** the resulting graph through audit: every token-exchange decision records the delegation edge id, the chain of hops, and the granted scopes, which the web console audit view and the Admin audit API expose for inspection and filtering. So the split is: **SDK to author, audit/Console to observe** - the mental model maps directly onto two SDK calls, not a separate management surface.
+Delegation is authored **at runtime through the SDK**. There is intentionally no Console creation form; the Console remains an operator inspection and revocation surface. Call `session(authority=…)` or `delegate(to=…)`; Coordinator records and enforces the Delegation. Audit records the Delegation ID, hop chain, and scopes. See the [Coordinator protocol table](/api/coordinator/#delegation) for retained wire names.
 
 ## Next Step
 

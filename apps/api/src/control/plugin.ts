@@ -11,19 +11,28 @@ import type { ControlConfig } from '../config.js'
 import type { RedisClient } from '../redis.js'
 import { Authenticator } from './auth.js'
 import { RedisSink } from './audit.js'
+import type { ClientLike } from '../outbox.js'
 import { RateLimiter } from './ratelimit.js'
 import { RedisReplay } from './replay.js'
 import { fileGate } from './gate.js'
-import { registerInvokeRoute } from './handler.js'
+import { registerInvokeRoute, type ZoneScopeTarget } from './handler.js'
 
 export interface ControlPluginOptions {
   cfg: ControlConfig
   redis: RedisClient
   auditHmacKey: Buffer | null
   controlLogLevel: string
-  // The reserved Operator's application id, used to authorize its cross-zone governance. Null
-  // until the system zone is provisioned, or when self-governance is disabled.
-  resolvePlatformOperatorSubject?: () => string | null
+  // Durable fallback for audit events when the stream is unreachable: the transactional
+  // outbox, drained to the same stream by the outbox dispatcher.
+  auditOutbox: ClientLike
+  // The reserved Operator role identities' application ids, used to authorize cross-zone
+  // governance and attribution. Null until the system zone is provisioned, when the
+  // credentials have expired, or when self-governance is disabled.
+  resolveOperatorSubjects?: () => ReadonlySet<string> | null
+  // Authoritative zone lookup for the zone-scope boundary; null when the zone does not exist.
+  lookupZoneScopeTarget?: (zoneId: string) => Promise<ZoneScopeTarget | null>
+  // Zones isolated from Operator administration by deployment policy.
+  isolatedZones?: ReadonlySet<string>
 }
 
 const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, opts) => {
@@ -33,7 +42,7 @@ const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, 
   const replay = new RedisReplay(redis, cfg.replayTtlSec * 1000)
   const rate = new RateLimiter(cfg.rateCapacity, cfg.rateWindowSec * 1000)
   const admin = new AdminClient({ apiUrl: cfg.apiUrl, adminToken: cfg.apiToken })
-  const sink = new RedisSink(redis, auditHmacKey ?? undefined, log)
+  const sink = new RedisSink(redis, auditHmacKey ?? undefined, log, undefined, opts.auditOutbox)
   const gate = fileGate(cfg.gateFile)
 
   registerInvokeRoute(app, {
@@ -45,7 +54,9 @@ const controlPluginImpl: FastifyPluginAsync<ControlPluginOptions> = async (app, 
     gate,
     redis,
     ipRateLimitPerMin: cfg.ipRateLimitPerMin,
-    resolvePlatformOperatorSubject: opts.resolvePlatformOperatorSubject,
+    resolveOperatorSubjects: opts.resolveOperatorSubjects,
+    lookupZoneScopeTarget: opts.lookupZoneScopeTarget,
+    isolatedZones: opts.isolatedZones,
   })
 }
 

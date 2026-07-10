@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { runWithTrace } from '../../../../packages/core/ts/src/logging.ts'
 import {
   applySecurityHeaders,
+  clientIp,
   downstreamHeaders,
   isAllowedOrigin,
   isCrossSiteWrite,
@@ -19,6 +20,27 @@ import {
 } from '../../../../apps/auth/src/security.ts'
 
 const ALLOW = ['https://app.example.com']
+
+function ipReq(headers: Record<string, string>, remoteAddress?: string): IncomingMessage {
+  return { headers, socket: { remoteAddress } } as unknown as IncomingMessage
+}
+
+describe('clientIp', () => {
+  it('uses the TCP peer address when the proxy is untrusted, ignoring forwarded headers', () => {
+    expect(clientIp(ipReq({}, '203.0.113.9'), false)).toBe('203.0.113.9')
+    expect(clientIp(ipReq({ 'x-forwarded-for': '198.51.100.1' }, '203.0.113.9'), false)).toBe('203.0.113.9')
+  })
+
+  it('resolves the entry appended by the trusted hop, not caller-controlled ones', () => {
+    expect(clientIp(ipReq({ 'x-forwarded-for': '198.51.100.1' }, '10.0.0.2'), true)).toBe('198.51.100.1')
+    expect(clientIp(ipReq({ 'x-forwarded-for': 'spoofed, 198.51.100.1' }, '10.0.0.2'), true)).toBe('198.51.100.1')
+  })
+
+  it('falls back to the TCP peer when a trusted proxy sent no forwarded header', () => {
+    expect(clientIp(ipReq({}, '10.0.0.2'), true)).toBe('10.0.0.2')
+    expect(clientIp(ipReq({ 'x-forwarded-for': '  ' }, '10.0.0.2'), true)).toBe('10.0.0.2')
+  })
+})
 
 function req(opts: { method?: string; headers?: Record<string, string> }): IncomingMessage {
   return { method: opts.method, headers: opts.headers ?? {} } as unknown as IncomingMessage
@@ -167,9 +189,7 @@ describe('safeTarget', () => {
   })
 
   it('confines the coordinator surface to its own prefix', () => {
-    expect(safeTarget('http://localhost:4000', '/zones/abc/agents', '/zones/')).toBe(
-      'http://localhost:4000/zones/abc/agents',
-    )
+    expect(safeTarget('http://localhost:4000', '/zones/abc/agents', '/zones/')).toBe('http://localhost:4000/zones/abc/agents')
     expect(safeTarget('http://localhost:4000', '/metrics', '/zones/')).toBeUndefined()
   })
 })

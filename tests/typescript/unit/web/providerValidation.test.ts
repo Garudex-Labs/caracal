@@ -7,21 +7,31 @@ import { describe, expect, it } from 'vitest'
 
 import {
   crossFieldIssues,
+  normalizeHostList,
   parseParams,
   RESERVED_TOKEN_PARAMS,
   serializeParams,
+  stripIdentifierPrefix,
   validateFieldFormat,
   validateIdentifier,
 } from '../../../../apps/web/src/components/console/providerValidation.ts'
 
 describe('validateIdentifier', () => {
-  it('accepts an empty identifier (auto-generated) and a valid slug', () => {
+  it('accepts an empty slug (auto-generated) and a valid slug', () => {
     expect(validateIdentifier('')).toBeUndefined()
-    expect(validateIdentifier('provider://hooli-oidc')).toBeUndefined()
+    expect(validateIdentifier('hooli-oidc')).toBeUndefined()
   })
-  it('rejects a malformed identifier', () => {
-    expect(validateIdentifier('hooli')).toBeDefined()
-    expect(validateIdentifier('provider://Hooli_OIDC')).toBeDefined()
+  it('rejects values that are not a lowercase slug', () => {
+    expect(validateIdentifier('provider://hooli-oidc')).toBeDefined()
+    expect(validateIdentifier('Hooli_OIDC')).toBeDefined()
+    expect(validateIdentifier('-hooli')).toBeDefined()
+  })
+})
+
+describe('stripIdentifierPrefix', () => {
+  it('removes the locked namespace from pasted full identifiers', () => {
+    expect(stripIdentifierPrefix('provider://hooli-oidc')).toBe('hooli-oidc')
+    expect(stripIdentifierPrefix('hooli-oidc')).toBe('hooli-oidc')
   })
 })
 
@@ -47,6 +57,23 @@ describe('validateFieldFormat', () => {
   })
   it('treats blank values as valid (optional fields)', () => {
     expect(validateFieldFormat('token_endpoint', '')).toBeUndefined()
+  })
+})
+
+describe('normalizeHostList', () => {
+  it('reduces pasted URLs to their bare hostnames', () => {
+    expect(normalizeHostList('https://caracalaus.services.ai.azure.com/openai/v1')).toBe('caracalaus.services.ai.azure.com')
+    expect(normalizeHostList('https://api.github.com:443/v3?x=1#top')).toBe('api.github.com')
+    expect(normalizeHostList('https://user:pass@api.github.com/v3')).toBe('api.github.com')
+    expect(normalizeHostList('api.github.com/v3')).toBe('api.github.com')
+  })
+  it('normalizes each entry of a comma-separated list independently', () => {
+    expect(normalizeHostList('https://a.example.com/x, b.example.com')).toBe('a.example.com, b.example.com')
+  })
+  it('leaves plain hostnames and in-progress typing untouched', () => {
+    expect(normalizeHostList('api.github.com')).toBe('api.github.com')
+    expect(normalizeHostList('api.github.com, ')).toBe('api.github.com, ')
+    expect(normalizeHostList('')).toBe('')
   })
 })
 
@@ -101,6 +128,26 @@ describe('crossFieldIssues', () => {
     const issues = crossFieldIssues('api_key', { auth_location: 'query', auth_scheme: 'ApiKey' })
     expect(issues.some((i) => i.key === 'auth_scheme')).toBe(true)
   })
+  it('flags control characters in single-line secrets and leaves PEM keys alone', () => {
+    expect(crossFieldIssues('bearer_token', { bearer_token: 'line-one\nline-two' }).some((i) => i.key === 'bearer_token')).toBe(true)
+    expect(
+      crossFieldIssues('oauth2_client_credentials', {
+        grant_type: 'jwt_bearer',
+        private_key: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      }),
+    ).toEqual([])
+  })
+  it('flags a credential pasted with the composed authorization scheme attached', () => {
+    expect(crossFieldIssues('bearer_token', { bearer_token: 'Bearer hoolibox-token' }).some((i) => i.key === 'bearer_token')).toBe(true)
+    expect(
+      crossFieldIssues('api_key', {
+        header_name: 'Authorization',
+        auth_scheme: 'Bearer',
+        api_key: 'bearer sk-hooli',
+      }).some((i) => i.key === 'api_key'),
+    ).toBe(true)
+    expect(crossFieldIssues('api_key', { header_name: 'X-Custom-Auth', api_key: 'Bearer raw-value' })).toEqual([])
+  })
   it('reports no issues for a valid client-credentials config', () => {
     expect(
       crossFieldIssues('oauth2_client_credentials', {
@@ -108,5 +155,37 @@ describe('crossFieldIssues', () => {
         client_secret: 'shhh',
       }),
     ).toEqual([])
+  })
+  it('forbids combining private_key_jwt with the jwt_bearer grant', () => {
+    const issues = crossFieldIssues('oauth2_client_credentials', {
+      grant_type: 'jwt_bearer',
+      client_auth_method: 'private_key_jwt',
+    })
+    expect(issues.some((i) => i.key === 'client_auth_method')).toBe(true)
+  })
+  it('accepts a private key and key id under the jwt_bearer grant without a method change', () => {
+    expect(
+      crossFieldIssues('oauth2_client_credentials', {
+        grant_type: 'jwt_bearer',
+        private_key: '-----BEGIN-----',
+        key_id: 'kid1',
+      }),
+    ).toEqual([])
+  })
+  it('ties the client certificate to the private_key_jwt method', () => {
+    const issues = crossFieldIssues('oauth2_client_credentials', {
+      client_auth_method: 'client_secret_basic',
+      client_secret: 'shhh',
+      certificate: '-----BEGIN CERTIFICATE-----',
+    })
+    expect(issues.some((i) => i.key === 'certificate')).toBe(true)
+  })
+})
+
+describe('validateFieldFormat certificate', () => {
+  it('requires PEM certificate framing', () => {
+    expect(validateFieldFormat('certificate', '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----')).toBeUndefined()
+    expect(validateFieldFormat('certificate', 'not a certificate')).toBeDefined()
+    expect(validateFieldFormat('certificate', '')).toBeUndefined()
   })
 })

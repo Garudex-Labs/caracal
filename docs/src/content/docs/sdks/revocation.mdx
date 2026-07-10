@@ -3,41 +3,41 @@ title: Revocation Package
 description: Revocation-store interfaces and in-memory stores for resource servers.
 ---
 
-The revocation packages define the store contract resource servers use to reject mandates after a session, root session, agent session, or delegation edge has been revoked.
+The revocation packages define the store contract resource servers use to reject mandates after an Authority record, Root authority record, Session, or Delegation has been revoked.
 
 ## Install
 
-| Ecosystem | Package |
-| --- | --- |
-| TypeScript | `npm install @caracalai/revocation` |
-| Python | `pip install caracalai-revocation` |
-| Go | `go get github.com/garudex-labs/caracal/packages/revocation/go` |
+| Ecosystem  | Package                                                         |
+| ---------- | --------------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/revocation`                             |
+| Python     | `pip install caracalai-revocation`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/revocation/go` |
 
 ## Contract
 
-| Operation | Meaning |
-| --- | --- |
-| `isRevoked(sid)` / `is_revoked(sid)` / `IsRevoked(sid)` | Return whether an anchor is revoked. |
-| `markRevoked(sid, ttl)` / `mark_revoked(sid, ttl)` / `MarkRevoked(sid, ttl)` | Record an anchor as revoked for a TTL. |
+| Operation                                                                    | Meaning                                                                                                                                      |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isRevoked(anchorId)` / `is_revoked(anchor_id)` / `IsRevoked(anchorID)`                      | Return whether an Authority record, Root authority record, Session, or Delegation anchor is revoked. |
+| `markRevoked(anchorId, ttl)` / `mark_revoked(anchor_id, ttl)` / `MarkRevoked(anchorID, ttl)` | Record a revocation anchor for a TTL.                                                                |
 
 ## In-memory stores
 
 Use in-memory stores for local development, tests, and single-process examples:
 
-| Ecosystem | In-memory API |
-| --- | --- |
+| Ecosystem  | In-memory API                                               |
+| ---------- | ----------------------------------------------------------- |
 | TypeScript | `new InMemoryRevocationStore({ defaultTtlMs, maxEntries })` |
-| Python | `InMemoryRevocationStore(default_ttl_ms=...)` |
-| Go | `revocation.NewInMemoryStore(defaultTTL)` |
+| Python     | `InMemoryRevocationStore(default_ttl_ms=...)`               |
+| Go         | `revocation.NewInMemoryStore(defaultTTL)`                   |
 
 In-memory stores do not share revocation state across processes. Production resource servers should use a shared backend and consume `caracal.sessions.revoke`.
 
 ## Production path
 
-Use [Redis Revocation Store](/sdks/connectors/redis/) for multi-instance resource servers. The Redis connector reads signed revocation stream messages, marks every revocation anchor, and lets verifiers fail closed when Redis is unavailable.
+Use [Redis Revocation Store](/sdks/backends/redis/) for multi-instance resource servers. The Redis backend reads signed revocation stream messages, marks every revocation anchor, and lets verifiers fail closed when Redis is unavailable.
 
 ## Related pages
 
 - [Sessions and Revocation](/concepts/sessions-revocation/)
-- [MCP Auth Transport](/sdks/transport-mcp/)
+- [Verify Package](/sdks/verify/)
 - [Protect an MCP Server](/guides/protect-mcp/)

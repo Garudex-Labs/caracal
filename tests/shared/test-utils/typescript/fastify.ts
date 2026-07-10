@@ -18,9 +18,17 @@ interface BuildRouteAppExtras {
 
 export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions = { prefix: '/v1' }, extras: BuildRouteAppExtras = {}) {
   const app = Fastify({ logger: false })
+  // Transaction control is transparent here: BEGIN/COMMIT/ROLLBACK and the zone
+  // GUC resolve locally so route assertions keep indexing only business queries.
   const db = {
     query: vi.fn(),
-    connect: vi.fn(),
+    connect: vi.fn(async () => ({
+      query: (text: string, params?: unknown[]) => {
+        if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(text) || text.includes('set_config')) return Promise.resolve({ rows: [] })
+        return db.query(text, params)
+      },
+      release: () => undefined,
+    })),
   }
   const redis = {
     incr: vi.fn(),
@@ -31,15 +39,30 @@ export function buildRouteApp(route: FastifyPluginAsync, options: RouteOptions =
     call: vi.fn(),
     xadd: vi.fn(),
   }
+  const secretValues = new Map<string, Buffer>()
+  const secrets = {
+    kind: 'builtin' as const,
+    values: secretValues,
+    put: vi.fn(async (ref: string, value: Buffer) => {
+      secretValues.set(ref, Buffer.from(value))
+    }),
+    get: vi.fn(async (ref: string) => {
+      const value = secretValues.get(ref)
+      return value ? Buffer.from(value) : null
+    }),
+    delete: vi.fn(async (ref: string) => {
+      secretValues.delete(ref)
+    }),
+  }
   app.decorate('db', db as never)
   app.decorate('redis', redis as never)
+  app.decorate('secrets', secrets as never)
   app.decorateRequest('account', null)
-  if (extras.actor !== undefined || extras.account !== undefined) {
-    app.addHook('preHandler', async (req) => {
-      if (extras.actor !== undefined) (req as unknown as { actor: unknown }).actor = extras.actor
-      if (extras.account !== undefined) (req as unknown as { account: unknown }).account = extras.account
-    })
-  }
+  const actor = extras.actor === undefined ? { id: 'test-admin', name: 'test-admin' } : extras.actor
+  app.addHook('preHandler', async (req) => {
+    ;(req as unknown as { actor: unknown }).actor = actor
+    if (extras.account !== undefined) (req as unknown as { account: unknown }).account = extras.account
+  })
   app.register(route, options)
-  return { app, db, redis }
+  return { app, db, redis, secrets }
 }

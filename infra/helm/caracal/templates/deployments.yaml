@@ -28,6 +28,12 @@ metadata:
 spec:
   {{- if $statefulReplay }}
   serviceName: {{ include "caracal.fullname" $root }}-{{ $name }}
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   {{- end }}
   replicas: {{ $service.replicas }}
   selector:
@@ -43,10 +49,21 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
+        {{- if $root.Values.secrets.create }}
+        checksum/secret: {{ $root.Values.secrets | toYaml | sha256sum }}
+        {{- end }}
         {{- with $root.Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with default $root.Values.scheduling.priorityClassName $service.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $root.Values.scheduling.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "caracal.serviceAccountName" $root }}
       automountServiceAccountToken: {{ $root.Values.serviceAccount.automountToken }}
       securityContext:
@@ -81,13 +98,15 @@ spec:
             - name: LOG_LEVEL
               value: {{ $root.Values.global.logLevel | quote }}
             - name: DATABASE_URL_FILE
-              value: /run/secrets/databaseUrl
+              value: /run/secrets/{{ $name }}DatabaseUrl
             - name: REDIS_URL_FILE
               value: /run/secrets/redisUrl
-            - name: ZONE_KEK_FILE
-              value: /run/secrets/zoneKek
-            - name: ZONE_KEK_PROVIDER
-              value: local
+            - name: SECRET_STORE_KEK_FILE
+              value: /run/secrets/secretStoreKek
+            {{- if $root.Values.secrets.kekRotation }}
+            - name: SECRET_STORE_KEK_PREVIOUS_FILE
+              value: /run/secrets/secretStoreKekPrevious
+            {{- end }}
             - name: AUDIT_HMAC_KEY_FILE
               value: /run/secrets/auditHmacKey
             - name: STREAMS_HMAC_KEY_FILE
@@ -104,14 +123,27 @@ spec:
             - name: AUDIT_ADMIN_TOKEN_FILE
               value: /run/secrets/audit-admin-token/token
             {{- end }}
-            {{- if and $replayService $metricsBearerSecretName }}
+            {{- if $metricsBearerSecretName }}
             - name: METRICS_BEARER_FILE
               value: /run/secrets/metrics-bearer/bearer
+            {{- else }}
+            - name: METRICS_BEARER_FILE
+              value: /run/secrets/metricsBearer
             {{- end }}
             - name: STS_URL
-              value: http://{{ include "caracal.fullname" $root }}-sts:{{ $root.Values.services.sts.port }}
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "sts") | quote }}
             - name: ISSUER_URL
-              value: {{ default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl | quote }}
+              value: {{ default (include "caracal.serviceUrl" (dict "root" $root "name" "sts")) $root.Values.services.sts.issuerUrl | quote }}
+            {{- if eq $name "api" }}
+            - name: CARACAL_GATEWAY_URL
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "gateway") | quote }}
+            - name: CARACAL_COORDINATOR_URL
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "coordinator") | quote }}
+            {{- end }}
+            {{- if eq $name "audit" }}
+            - name: AUDIT_EXPORT_TMP_DIR
+              value: /var/lib/caracal/audit-export
+            {{- end }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ $root.Values.global.otelExporterOtlpEndpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
@@ -126,9 +158,9 @@ spec:
             - name: CONTROL_GATE_FILE
               value: /run/caracal-control/enabled
             - name: STS_ISSUER_URL
-              value: {{ default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl | quote }}
+              value: {{ default (include "caracal.serviceUrl" (dict "root" $root "name" "sts")) $root.Values.services.sts.issuerUrl | quote }}
             - name: STS_JWKS_URL
-              value: {{ printf "%s/.well-known/jwks.json" (default (printf "http://%s-sts:%v" (include "caracal.fullname" $root) $root.Values.services.sts.port) $root.Values.services.sts.issuerUrl) | quote }}
+              value: {{ printf "%s/.well-known/jwks.json" (default (include "caracal.serviceUrl" (dict "root" $root "name" "sts")) $root.Values.services.sts.issuerUrl) | quote }}
             - name: CONTROL_AUDIENCE
               value: {{ default "caracal-control" $root.Values.control.audience | quote }}
             - name: CONTROL_API_TOKEN_FILE
@@ -137,9 +169,26 @@ spec:
             {{- if eq $name "coordinator" }}
             - name: CARACAL_COORDINATOR_TOKEN_FILE
               value: /run/secrets/caracalCoordinatorToken
+            - name: IDEMPOTENCY_HMAC_KEY_FILE
+              value: /run/secrets/idempotencyHmacKey
+            - name: IDEMPOTENCY_RETENTION_SECONDS
+              value: {{ $root.Values.secrets.idempotency.retentionSeconds | quote }}
+            - name: GENERATED_IDEMPOTENCY_RETENTION_SECONDS
+              value: {{ $root.Values.secrets.idempotency.generatedRetentionSeconds | quote }}
+            - name: IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE
+              value: {{ $root.Values.secrets.idempotency.maxReceiptsPerScope | quote }}
+            - name: COORDINATOR_BODY_LIMIT_BYTES
+              value: {{ $root.Values.secrets.idempotency.bodyLimitBytes | quote }}
             - name: AGENT_COORDINATOR_SCOPE
               value: {{ default "agent:lifecycle" $service.requiredScope | quote }}
             {{- end }}
+            {{- with $service.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $service.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: runtime-secrets
               mountPath: /run/secrets
@@ -154,7 +203,7 @@ spec:
               mountPath: /run/secrets/audit-admin-token
               readOnly: true
             {{- end }}
-            {{- if and $replayService $metricsBearerSecretName }}
+            {{- if $metricsBearerSecretName }}
             - name: metrics-bearer
               mountPath: /run/secrets/metrics-bearer
               readOnly: true
@@ -163,10 +212,17 @@ spec:
             - name: replay
               mountPath: /var/lib/caracal
             {{- end }}
+            {{- if eq $name "audit" }}
+            - name: audit-export
+              mountPath: /var/lib/caracal/audit-export
+            {{- end }}
             {{- if $controlEnabled }}
             - name: control-gate
               mountPath: /run/caracal-control
               readOnly: true
+            {{- end }}
+            {{- with $service.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           startupProbe:
             httpGet:
@@ -186,6 +242,12 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+          {{- if gt (int $root.Values.scheduling.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ $root.Values.scheduling.preStopSleepSeconds }}
+          {{- end }}
           resources:
             {{- toYaml $service.resources | nindent 12 }}
           securityContext:
@@ -196,7 +258,7 @@ spec:
                 - ALL
       volumes:
         - name: runtime-secrets
-          {{ include "caracal.secretVolume" $root | nindent 10 }}
+          {{ include "caracal.secretVolume" (dict "root" $root "name" $name) | nindent 10 }}
         {{- if and (eq $name "sts") $stsAdminTokenSecretName }}
         - name: sts-admin-token
           secret:
@@ -213,7 +275,7 @@ spec:
               - key: {{ default "auditAdminToken" $root.Values.secrets.auditAdminToken.key | quote }}
                 path: token
         {{- end }}
-        {{- if and $replayService $metricsBearerSecretName }}
+        {{- if $metricsBearerSecretName }}
         - name: metrics-bearer
           secret:
             secretName: {{ $metricsBearerSecretName | quote }}
@@ -225,10 +287,18 @@ spec:
         - name: replay
           emptyDir: {}
         {{- end }}
+        {{- if eq $name "audit" }}
+        - name: audit-export
+          emptyDir:
+            sizeLimit: {{ $service.exportScratchSizeLimit | quote }}
+        {{- end }}
         {{- if $controlEnabled }}
         - name: control-gate
           configMap:
             name: {{ include "caracal.fullname" $root }}-control-gate
+        {{- end }}
+        {{- with $service.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- if $statefulReplay }}
   volumeClaimTemplates:

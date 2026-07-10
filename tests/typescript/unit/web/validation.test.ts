@@ -5,7 +5,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { validateResourceIdentifier, validateZoneSlug } from '../../../../apps/web/src/platform/api/validation.ts'
+import {
+  stripResourceIdentifierPrefix,
+  validateResourceIdentifier,
+  validateZoneSlug,
+} from '../../../../apps/web/src/platform/api/validation.ts'
 
 describe('validateResourceIdentifier', () => {
   it('treats empty/whitespace as valid (the field is optional and auto-generated)', () => {
@@ -13,28 +17,38 @@ describe('validateResourceIdentifier', () => {
     expect(validateResourceIdentifier('   ')).toBeUndefined()
   })
 
-  it('accepts an absolute audience URI', () => {
-    expect(validateResourceIdentifier('resource://pipernet')).toBeUndefined()
-    expect(validateResourceIdentifier('https://api.pipernet.example/v1')).toBeUndefined()
+  it('accepts a lowercase slug after the locked prefix', () => {
+    expect(validateResourceIdentifier('pipernet')).toBeUndefined()
+    expect(validateResourceIdentifier('not-hotdog')).toBeUndefined()
+    expect(validateResourceIdentifier('nucleus2')).toBeUndefined()
   })
 
-  it('rejects a non-absolute identifier', () => {
-    expect(validateResourceIdentifier('pipernet')).toMatch(/absolute URI/)
-    expect(validateResourceIdentifier('/relative/path')).toMatch(/absolute URI/)
+  it('rejects uppercase, spaces, and disallowed punctuation', () => {
+    expect(validateResourceIdentifier('PiperNet')).toMatch(/lowercase letters/)
+    expect(validateResourceIdentifier('with space')).toMatch(/lowercase letters/)
+    expect(validateResourceIdentifier('under_score')).toMatch(/lowercase letters/)
+    expect(validateResourceIdentifier('dot.dot')).toMatch(/lowercase letters/)
   })
 
-  it('rejects the provider:// reserved namespace', () => {
-    expect(validateResourceIdentifier('provider://hooli-oidc')).toMatch(/provider:\/\/ namespace/)
-  })
-
-  it('rejects embedded credentials', () => {
-    expect(validateResourceIdentifier('https://user:pass@api.pipernet.example')).toMatch(/embed credentials/)
-    expect(validateResourceIdentifier('https://user@api.pipernet.example')).toMatch(/embed credentials/)
+  it('rejects leading, trailing, and doubled hyphens', () => {
+    expect(validateResourceIdentifier('-pipernet')).toMatch(/lowercase letters/)
+    expect(validateResourceIdentifier('pipernet-')).toMatch(/lowercase letters/)
+    expect(validateResourceIdentifier('piper--net')).toMatch(/lowercase letters/)
   })
 
   it('trims surrounding whitespace before validating', () => {
-    expect(validateResourceIdentifier('  resource://ok  ')).toBeUndefined()
-    expect(validateResourceIdentifier('  not-a-uri  ')).toMatch(/absolute URI/)
+    expect(validateResourceIdentifier('  pipernet  ')).toBeUndefined()
+    expect(validateResourceIdentifier('  Piper Net  ')).toMatch(/lowercase letters/)
+  })
+})
+
+describe('stripResourceIdentifierPrefix', () => {
+  it('removes the locked prefix from pasted full identifiers', () => {
+    expect(stripResourceIdentifierPrefix('resource://pipernet')).toBe('pipernet')
+  })
+
+  it('leaves bare slugs untouched', () => {
+    expect(stripResourceIdentifierPrefix('pipernet')).toBe('pipernet')
   })
 })
 

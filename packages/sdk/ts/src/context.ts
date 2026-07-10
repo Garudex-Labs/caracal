@@ -9,27 +9,66 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { Envelope } from './envelope.js'
 
 export interface CaracalContext {
+  /**
+   * The bearer credential this context presents: the session mandate every
+   * gateway-bound call and token exchange authenticates with. Named for the
+   * RFC 8693 subject_token it becomes on the wire; it is not an end-user
+   * identity - see subjectAuthorityRecordId for that.
+   */
   subjectToken: string
   zoneId: string
   applicationId: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
   sessionId?: string
+  delegationId?: string
+  parentDelegationId?: string
+  subjectAuthorityRecordId?: string
+  /** W3C trace id (32 lowercase hex characters) correlating this context's requests. */
   traceId?: string
+  traceFlags?: string
+  traceState?: string
+  baggage?: Record<string, string>
+  /** Delegation depth: how many delegation hand-offs precede this context; 0 at the root. */
   hop: number
+  /**
+   * Marks a context whose subject token came from this process's own
+   * credential configuration, so the client may refresh it through its token
+   * source. Inbound contexts carry a caller's token and stay pinned.
+   * Process-local; never serialized to the envelope.
+   */
+  ownToken?: boolean
+  /** Fresh bearer resolver for owned contexts; process-local and never serialized. */
+  tokenSource?: () => string | Promise<string>
 }
 
 export interface AuthoritySummary {
   zoneId: string
   applicationId: string
+  subjectAuthorityRecordId?: string
   sessionId?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
-  parentEdgeId?: string
+  delegationId?: string
+  parentDelegationId?: string
   traceId?: string
   hop: number
   chain: string[]
+}
+
+/**
+ * Attribution a verify hook proved from the token itself. Fields returned here
+ * override the caller-supplied envelope when binding inbound context, so
+ * attribution comes from verified claims rather than forgeable headers.
+ */
+export interface VerifiedClaims {
+  zoneId?: string
+  applicationId?: string
+  sessionId?: string
+  delegationId?: string
+  parentDelegationId?: string
+  subjectAuthorityRecordId?: string
+  hop?: number
+}
+
+export function cloneBaggage(baggage: Record<string, string> | undefined): Record<string, string> | undefined {
+  return baggage ? { ...baggage } : undefined
 }
 
 const storage = new AsyncLocalStorage<CaracalContext>()
@@ -40,27 +79,36 @@ export function current(): CaracalContext | undefined {
 
 export function captureContext(): CaracalContext | undefined {
   const ctx = current()
-  return ctx ? { ...ctx } : undefined
+  return ctx ? { ...ctx, baggage: cloneBaggage(ctx.baggage) } : undefined
 }
 
-export function bind<T>(ctx: CaracalContext, fn: () => T | Promise<T>): T | Promise<T> {
+export function bind<T>(ctx: CaracalContext, fn: () => T): T {
   return storage.run(ctx, fn)
 }
 
-export function withOverrides<T>(patch: Partial<CaracalContext>, fn: () => T | Promise<T>): T | Promise<T> {
+export async function contextBearer(ctx: CaracalContext): Promise<string> {
+  return ctx.ownToken && ctx.tokenSource ? await ctx.tokenSource() : ctx.subjectToken
+}
+
+export function withOverrides(patch: Partial<CaracalContext>): CaracalContext {
   const base = current()
   if (!base) throw new Error('withOverrides requires an existing Caracal context')
-  return storage.run({ ...base, ...patch }, fn)
+  const merged = { ...base, ...patch }
+  if (!('baggage' in patch)) merged.baggage = cloneBaggage(base.baggage)
+  return merged
 }
 
 export function toEnvelope(ctx: CaracalContext): Envelope {
   return {
     subjectToken: ctx.subjectToken,
-    agentSessionId: ctx.agentSessionId,
-    delegationEdgeId: ctx.delegationEdgeId,
-    parentEdgeId: ctx.parentEdgeId,
     sessionId: ctx.sessionId,
+    delegationId: ctx.delegationId,
+    parentDelegationId: ctx.parentDelegationId,
+    subjectAuthorityRecordId: ctx.subjectAuthorityRecordId,
     traceId: ctx.traceId,
+    traceFlags: ctx.traceFlags,
+    traceState: ctx.traceState,
+    baggage: ctx.baggage,
     hop: ctx.hop,
   }
 }
@@ -71,11 +119,14 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     subjectToken: env.subjectToken,
     zoneId: base.zoneId,
     applicationId: base.applicationId,
-    agentSessionId: env.agentSessionId,
-    delegationEdgeId: env.delegationEdgeId,
-    parentEdgeId: env.parentEdgeId,
     sessionId: env.sessionId,
+    delegationId: env.delegationId,
+    parentDelegationId: env.parentDelegationId,
+    subjectAuthorityRecordId: env.subjectAuthorityRecordId,
     traceId: env.traceId,
+    traceFlags: env.traceFlags,
+    traceState: env.traceState,
+    baggage: cloneBaggage(env.baggage),
     hop: env.hop,
   }
 }
@@ -83,17 +134,17 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {
   if (!ctx) return undefined
   const chain: string[] = []
+  if (ctx.subjectAuthorityRecordId) chain.push(`subject:${ctx.subjectAuthorityRecordId}`)
   if (ctx.sessionId) chain.push(`session:${ctx.sessionId}`)
-  if (ctx.agentSessionId) chain.push(`agent-session:${ctx.agentSessionId}`)
-  if (ctx.parentEdgeId) chain.push(`parent-edge:${ctx.parentEdgeId}`)
-  if (ctx.delegationEdgeId) chain.push(`delegation-edge:${ctx.delegationEdgeId}`)
+  if (ctx.parentDelegationId) chain.push(`parent-delegation:${ctx.parentDelegationId}`)
+  if (ctx.delegationId) chain.push(`delegation:${ctx.delegationId}`)
   return {
     zoneId: ctx.zoneId,
     applicationId: ctx.applicationId,
+    subjectAuthorityRecordId: ctx.subjectAuthorityRecordId,
     sessionId: ctx.sessionId,
-    agentSessionId: ctx.agentSessionId,
-    delegationEdgeId: ctx.delegationEdgeId,
-    parentEdgeId: ctx.parentEdgeId,
+    delegationId: ctx.delegationId,
+    parentDelegationId: ctx.parentDelegationId,
     traceId: ctx.traceId,
     hop: ctx.hop,
     chain,

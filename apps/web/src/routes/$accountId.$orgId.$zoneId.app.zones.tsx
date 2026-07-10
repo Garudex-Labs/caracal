@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DcrField } from "@/components/console/DcrField";
 import { ModulePage } from "@/components/console/ModulePage";
+import { CreatedBy } from "@/components/console/CreatedBy";
 import {
   CopyValue,
   DangerZone,
@@ -65,8 +66,8 @@ function errorMessage(error: unknown): string {
 // when the optimistic pre-check could not see the clients (status fetch failed or raced).
 function liveDcrFromError(error: unknown): number | null {
   if (error instanceof ConsoleApiError && error.code === "dcr_shutdown_required") {
-    const detail = error.detail as { live_dcr_applications?: unknown } | undefined;
-    const count = detail?.live_dcr_applications;
+    const body = error.detail as { details?: { live_dcr_applications?: unknown } } | undefined;
+    const count = body?.details?.live_dcr_applications;
     return typeof count === "number" ? count : 0;
   }
   return null;
@@ -165,7 +166,7 @@ function ZonesPage() {
     },
     {
       id: "dcr",
-      header: "DCR",
+      header: "Dynamic registration",
       cell: (zone) =>
         zone.dcr_enabled ? <Badge tone="neutral">Enabled</Badge> : <Badge tone="muted">Off</Badge>,
     },
@@ -435,7 +436,8 @@ function ZonesPage() {
           toast({
             tone: "info",
             title: "Dynamic clients revoked",
-            description: "Live DCR clients and their sessions were revoked.",
+            description:
+              "Live dynamically registered clients, Authority records, and Sessions were revoked.",
           });
         }}
         onClose={() => setDeleteTarget(null)}
@@ -697,9 +699,9 @@ function ZoneDetailDrawer({
           >
             {isActive ? <Badge tone="success">Active</Badge> : null}
             {zone.dcr_enabled ? (
-              <Badge tone="neutral">DCR enabled</Badge>
+              <Badge tone="neutral">Dynamic registration enabled</Badge>
             ) : (
-              <Badge tone="muted">DCR off</Badge>
+              <Badge tone="muted">Dynamic registration off</Badge>
             )}
           </DetailHeader>
 
@@ -712,7 +714,17 @@ function ZoneDetailDrawer({
               <CopyValue value={zone.id} />
             </DetailField>
             <DetailField label="Owner">{owner}</DetailField>
+            {zone.created_by ? (
+              <DetailField label="Created by">
+                <CreatedBy id={zone.created_by} coAuthored={zone.created_via_operator} />
+              </DetailField>
+            ) : null}
             <DetailField label="Created">{new Date(zone.created_at).toLocaleString()}</DetailField>
+            {zone.updated_by ? (
+              <DetailField label="Updated by">
+                <CreatedBy id={zone.updated_by} coAuthored={zone.updated_via_operator} />
+              </DetailField>
+            ) : null}
             {zone.updated_at && zone.updated_at !== zone.created_at ? (
               <DetailField label="Updated">
                 {new Date(zone.updated_at).toLocaleString()}
@@ -869,7 +881,7 @@ function DeleteZoneDialog({
             variant="danger"
             onClick={onConfirm}
             loading={busy}
-            disabled={!confirmed || loading || revoking || loadError !== null}
+            disabled={!confirmed || loading || revoking}
           >
             Delete zone
           </Button>
@@ -882,9 +894,19 @@ function DeleteZoneDialog({
             <Spinner /> Checking dependencies…
           </div>
         ) : loadError ? (
-          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            Could not load dependencies: {loadError}
-          </p>
+          <>
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              Could not load this zone's dependency counts: {loadError}. Deletion still archives the
+              zone and everything inside it.
+            </p>
+            <Field
+              label={`Type "${zone?.name ?? ""}" to confirm`}
+              placeholder={zone?.name ?? ""}
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              autoFocus
+            />
+          </>
         ) : deps ? (
           <>
             <div>
@@ -919,7 +941,8 @@ function DeleteZoneDialog({
                 </p>
                 <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-400/90">
                   Deleting the zone does not revoke them. To cut off access immediately, revoke them
-                  first. This archives the identities and revokes their sessions and agents.
+                  first. This archives the identities and revokes their Authority records and
+                  Sessions.
                 </p>
                 <Button
                   variant="secondary"
@@ -929,7 +952,7 @@ function DeleteZoneDialog({
                   loading={revoking}
                   disabled={busy}
                 >
-                  Disable DCR &amp; revoke live clients
+                  Disable dynamic registration &amp; revoke live clients
                 </Button>
                 {revokeError ? (
                   <p className="mt-2 text-xs text-destructive">Revoke failed: {revokeError}</p>
@@ -1007,8 +1030,8 @@ function DcrShutdownDialog({
           <div className="text-sm font-medium text-destructive">Revoke all live clients now</div>
           <p className="mt-1 text-xs text-muted-foreground">
             Archives the {liveCount} dynamic identit{liveCount === 1 ? "y" : "ies"}, revokes their
-            sessions, and terminates related ephemeral agents immediately. Use this to stop DCR
-            access at once.
+            Authority records, and terminates related ephemeral Sessions immediately. Use this to
+            stop dynamic-registration access at once.
           </p>
         </button>
       </div>

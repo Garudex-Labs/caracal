@@ -3,7 +3,7 @@
 //
 // JWT bearer verification against STS JWKS endpoint.
 
-import { pathOnly } from '@caracalai/core'
+import { pathOnly } from '@caracalai/server-core'
 import { timingSafeEqual } from 'node:crypto'
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -53,9 +53,9 @@ declare module 'fastify' {
       scopes: string[]
       subject: string
       clientId: string
-      agentSessionId?: string
-      delegationEdgeId?: string
       sessionId?: string
+      delegationEdgeId?: string
+      authorityRecordId?: string
     }
   }
 }
@@ -81,13 +81,20 @@ const OPERATOR_SUBJECT = 'caracal-operator'
 function classifyError(err: unknown): string {
   const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined
   switch (code) {
-    case 'ERR_JWT_EXPIRED': return 'token_expired'
-    case 'ERR_JWT_CLAIM_VALIDATION_FAILED': return 'claim_invalid'
-    case 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED': return 'signature_invalid'
-    case 'ERR_JOSE_ALG_NOT_ALLOWED': return 'algorithm_not_allowed'
-    case 'ERR_JWKS_NO_MATCHING_KEY': return 'jwks_no_matching_key'
-    case 'ERR_JWKS_TIMEOUT': return 'jwks_timeout'
-    default: return typeof code === 'string' && code.startsWith('ERR_JOSE_') ? 'jose_error' : 'unknown_error'
+    case 'ERR_JWT_EXPIRED':
+      return 'token_expired'
+    case 'ERR_JWT_CLAIM_VALIDATION_FAILED':
+      return 'claim_invalid'
+    case 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED':
+      return 'signature_invalid'
+    case 'ERR_JOSE_ALG_NOT_ALLOWED':
+      return 'algorithm_not_allowed'
+    case 'ERR_JWKS_NO_MATCHING_KEY':
+      return 'jwks_no_matching_key'
+    case 'ERR_JWKS_TIMEOUT':
+      return 'jwks_timeout'
+    default:
+      return typeof code === 'string' && code.startsWith('ERR_JOSE_') ? 'jose_error' : 'unknown_error'
   }
 }
 
@@ -110,6 +117,7 @@ function operatorZone(method: string, path: string): string | undefined {
   if (parts[2] === 'delegations') {
     if (method === 'GET' && parts.length === 4 && parts[3] === 'active') return parts[1]
     if (method === 'GET' && parts.length === 5 && (parts[3] === 'inbound' || parts[3] === 'outbound')) return parts[1]
+    if (method === 'GET' && parts.length === 6 && parts[3] === 'inbound') return parts[1]
     if (method === 'GET' && parts.length === 5 && (parts[4] === 'traverse' || parts[4] === 'impact')) return parts[1]
     if (method === 'PATCH' && parts.length === 5 && parts[4] === 'revoke') return parts[1]
   }
@@ -129,22 +137,22 @@ async function validateRuntimeIdentity(
   app: FastifyInstance,
   zoneId: string,
   clientId: string,
-  sessionId: string | undefined,
+  authorityRecordId: string | undefined,
 ): Promise<boolean> {
   const { rows } = await app.db.query<RuntimeIdentityRow>(
     `SELECT ($3::text = '' OR EXISTS (
-              SELECT 1 FROM sessions s
-              WHERE s.id = $3
-                AND s.zone_id = $2
-                AND s.status = 'active'
-                AND s.expires_at > now()
+              SELECT 1 FROM authority_records a
+              WHERE a.id = $3
+                AND a.zone_id = $2
+                AND a.status = 'active'
+                AND a.expires_at > now()
             )) AS session_active
      FROM applications a
      WHERE a.id = $1
        AND a.zone_id = $2
        AND a.archived_at IS NULL
        AND (a.expires_at IS NULL OR a.expires_at > now())`,
-    [clientId, zoneId, sessionId ?? ''],
+    [clientId, zoneId, authorityRecordId ?? ''],
   )
   const row = rows[0]
   return Boolean(row?.session_active)
@@ -230,12 +238,12 @@ export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Pr
     reply.code(401).send({ error: 'invalid_token' })
     return
   }
-  const agentSessionId = typeof payload['agent_session_id'] === 'string' ? payload['agent_session_id'] : undefined
+  const sessionId = typeof payload['agent_session_id'] === 'string' ? payload['agent_session_id'] : undefined
   const delegationEdgeId = typeof payload['delegation_edge_id'] === 'string' ? payload['delegation_edge_id'] : undefined
-  const sessionId = typeof payload['sid'] === 'string' ? payload['sid'] : undefined
-  if (!(await validateRuntimeIdentity(req.server, zoneId, clientId, sessionId))) {
+  const authorityRecordId = typeof payload['sid'] === 'string' ? payload['sid'] : undefined
+  if (!(await validateRuntimeIdentity(req.server, zoneId, clientId, authorityRecordId))) {
     reply.code(401).send({ error: 'identity_revoked' })
     return
   }
-  req.caracalAuth = { zoneId, scopes, subject, clientId, agentSessionId, delegationEdgeId, sessionId }
+  req.caracalAuth = { zoneId, scopes, subject, clientId, sessionId, delegationEdgeId, authorityRecordId }
 }

@@ -4,22 +4,22 @@ description: Run the agent-swarm reference protected by one Caracal managed appl
 pageType: workflow
 ---
 
-Lynx Capital is a runnable reference under `examples/lynxCapital`. It models a
+Lynx Capital is a runnable reference in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `lynxCapital/`. It models a
 finance-operations platform: an LLM swarm of orchestrators, regional workflows, and
 thousands of ephemeral domain workers executes payout cycles across twenty partner
 providers, with every agent and every provider call governed by Caracal. It is the primary
-reference for modelling permission boundaries, spawned agents, providers, resources, and
+reference for modelling permission boundaries, Sessions for agents, providers, resources, and
 policies on Caracal.
 
 ## Architecture
 
-| Building block | Role |
-| --- | --- |
-| Applications | `lynx-operations`, `lynx-intake`, `lynx-ledger`, `lynx-compliance`, `lynx-treasury`, `lynx-payments`, `lynx-audit` - one **managed application** per permission boundary, each holding only its own partner authority. |
-| Agents | Every spawned agent - orchestrator or worker - is its own **agent session** under its role's application, labeled `[role, lynx-swarm]` with run and agent metadata, narrowed by a delegation edge to its role's scopes and views. |
-| Providers | Twenty partner **credential providers** (`provider://<slug>`), each registered in the exact config shape its kind supports: API key, bearer token, OAuth client credentials, OAuth authorization code, Caracal mandate, or none. |
-| Resources | Per-application **resource views** (`resource://<app>-<provider>`). The Gateway binds each view to exactly one application, so shared partners expose one view per boundary, each carrying only that boundary's scopes. |
-| Policy set | `lynx-finance-ops`: default-deny base, generated bindings and grants data, and one shared decisions policy allowing exactly each application's role-granted mandate mints and gateway calls. |
+| Building block | Role                                                                                                                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Applications   | `lynx-operations`, `lynx-intake`, `lynx-ledger`, `lynx-compliance`, `lynx-treasury`, `lynx-payments`, `lynx-audit` - one **managed application** per permission boundary, each holding only its own partner authority.           |
+| Agents         | Every agent execution - orchestrator or worker - is its own **Session** under its role's application, labeled `[role, lynx-swarm]` with run and agent metadata, narrowed by a Delegation to its role's scopes and views.         |
+| Providers      | Twenty partner **credential providers** (`provider://<slug>`), each registered in the exact config shape its kind supports: API key, bearer token, OAuth client credentials, OAuth authorization code, Caracal mandate, or none. |
+| Resources      | Per-application **resource views** (`resource://<app>-<provider>`). The Gateway binds each view to exactly one application, so shared partners expose one view per boundary, each carrying only that boundary's scopes.          |
+| Policy set     | `lynx-finance-ops`: default-deny base, generated bindings and grants data, and one shared decisions policy allowing exactly each application's role-granted mandate mints and gateway calls.                                     |
 
 The model is declared once in `config/tenancy.yaml`; the SDK seam, agent runner,
 provisioning, and policy all read from it.
@@ -30,21 +30,21 @@ A Caracal application is a credential and trust boundary, and the Gateway binds 
 resource to exactly one application. Splitting the swarm by permission boundary means a
 payments worker and an audit worker can both reach the same partner - through different
 views, with different scopes - while a compromised intake agent can never present payment
-authority. Agents are sessions, not applications: each spawn gets its own identity, labels,
-delegation edge, and audit trail without minting new application credentials.
+authority. Agent executions are Sessions, not applications: each started Session gets its own identity, labels,
+Delegation, and audit trail without minting new application credentials.
 
-### Spawned agents
+### Sessions for agents
 
-The swarm's runner gives every agent its own session via the SDK's `spawn`:
-orchestrators inherit under the operations boundary; each domain worker spawns under its
-application's per-run dispatcher root with `Grant.narrow(role scopes, views, max_hops=1,
+The swarm's runner gives every agent its own session via the SDK's `session()`:
+orchestrators inherit under the operations boundary; each domain worker starts under its
+application's per-run dispatcher root with `Authority.narrow(role scopes, views, max_hops=1,
 run TTL)`. Ad-hoc partner-integration workers resolve their boundary, scope, and view
 dynamically from the requested provider operation. Logs and policy decisions identify
 exactly which agent did what.
 
 ### Customer attribution and confinement
 
-Workers acting on one customer's records - invoicing, dunning, payment application - spawn
+Workers acting on one customer's records - invoicing, dunning, payment application - start Sessions
 with a `customer:<id>` label and a `customer_id` metadata key. The metadata key makes
 per-customer audit a direct filter over the shared zone trail; the label is policy input,
 and the base policy confines customer-labeled agents to the customer-record scopes, so a
@@ -67,7 +67,8 @@ flowchart LR
 ## Commands
 
 ```bash
-cd examples/lynxCapital
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/lynxCapital
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -82,7 +83,7 @@ scoped Control key created once in Console.
 cp -n .env.provision.example .env.provision   # set CONTROL_CLIENT_ID / _SECRET
 . .env.provision
 python scripts/provision.py     # applications, providers, views, policy set (idempotent)
-python scripts/reference.py     # SDK walkthrough: labeled spawns, narrowed grants, mandates
+python scripts/reference.py     # SDK walkthrough: labeled Sessions, narrowed authority, mandates
 python scripts/teardown.py      # remove the provisioned objects
 ```
 
@@ -96,7 +97,7 @@ key on the real control-plane UUIDs.
 `policies/` is an importable, OPA-tested library. The base policy default-denies and owns
 the decision contract; generated data documents carry the application bindings and the
 resource-view grants; one shared decisions policy allows mandate mints (scope ∩
-delegation edge, role label granted, view owned by the caller) and gateway uses (mandate
+Delegation, role label granted, view owned by the caller) and gateway uses (mandate
 target includes the view), naming the deciding application boundary in every decision.
 Expected access behavior is documented in
 `policies/README.md`.
@@ -108,7 +109,7 @@ opa test policies/ -v
 ## SDK integration
 
 Application code uses two seams: `app/caracal.py` (per-application runtimes, worker
-authority, mandate minting, gateway calls) and `app/agents/runner.py` (per-agent session
+authority, mandate minting, gateway calls) and `app/agents/runner.py` (per-Session
 lifecycle):
 
 ```python

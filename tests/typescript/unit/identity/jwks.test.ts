@@ -12,6 +12,7 @@ describe('getKeySet', () => {
   afterEach(() => {
     clearJwksCache()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     vi.useRealTimers()
   })
 
@@ -38,6 +39,17 @@ describe('getKeySet', () => {
 
     expect(first).toBe(second)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('restricts http issuers to loopback hosts or the explicit override', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ keys: [] }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getKeySet('http://sts.internal:8080', 'zone1')).rejects.toThrow('insecure issuer scheme')
+    await expect(getKeySet('http://127.0.0.1:8080', 'zone1')).resolves.toBeTypeOf('function')
+
+    vi.stubEnv('CARACAL_ALLOW_INSECURE_CONFIG_URLS', 'true')
+    await expect(getKeySet('http://sts.internal:8080', 'zone1')).resolves.toBeTypeOf('function')
   })
 
   it('rejects key set lookups without a zone', async () => {
@@ -68,6 +80,14 @@ describe('getKeySet', () => {
     await expect(getKeySet('https://issuer-three.example', 'zone1')).rejects.toThrow('JWKS fetch failed: 503')
   })
 
+  it('rejects oversized JWKS documents before parsing', async () => {
+    const cache = createJwksCache({
+      fetchImpl: async () => new Response(JSON.stringify({ keys: [], padding: 'x'.repeat(256 * 1024) })),
+    })
+
+    await expect(cache.getKeySet('https://issuer-large.example', 'zone1')).rejects.toThrow('JWKS document too large')
+  })
+
   it('returns stale key set and triggers background revalidation after TTL', async () => {
     vi.useFakeTimers()
     const issuer = 'https://issuer-stale.example'
@@ -89,7 +109,8 @@ describe('getKeySet', () => {
   it('resets revalidating flag when background refresh fails', async () => {
     vi.useFakeTimers()
     const issuer = 'https://issuer-stale-fail.example'
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ keys: [] }) })
       .mockResolvedValueOnce({ ok: false, status: 500 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ keys: [] }) })

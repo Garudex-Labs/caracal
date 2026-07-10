@@ -5,11 +5,13 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { resolveAttribution } from '../attribution.js'
 
 const RetentionBody = z.object({ retention_days: z.number().int().min(1) }).strict()
 
 interface RetentionRow {
   retention_days: number
+  updated_by: string | null
   updated_at: string
 }
 
@@ -20,12 +22,13 @@ export const auditRetentionRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/audit-retention', async () => {
     const max = fastify.cfg?.auditRetentionMaxDays ?? 365
     const { rows } = await fastify.db.query<RetentionRow>(
-      'SELECT retention_days, updated_at FROM audit_retention WHERE singleton',
+      'SELECT retention_days, updated_by, updated_at FROM audit_retention WHERE singleton',
     )
     const configured = rows[0]?.retention_days
     return {
       retention_days: configured === undefined ? max : Math.min(configured, max),
       max_days: max,
+      updated_by: rows[0]?.updated_by ?? null,
       updated_at: rows[0]?.updated_at ?? null,
     }
   })
@@ -37,13 +40,14 @@ export const auditRetentionRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.data.retention_days > max) {
       return reply.code(400).send({ error: 'retention_above_limit', max_days: max })
     }
+    const attribution = await resolveAttribution(req, fastify.db, null)
     const { rows } = await fastify.db.query<RetentionRow>(
-      `INSERT INTO audit_retention (singleton, retention_days) VALUES (true, $1)
+      `INSERT INTO audit_retention (singleton, retention_days, updated_by) VALUES (true, $1, $2)
        ON CONFLICT (singleton)
-       DO UPDATE SET retention_days = EXCLUDED.retention_days, updated_at = now()
-       RETURNING retention_days, updated_at`,
-      [body.data.retention_days],
+       DO UPDATE SET retention_days = EXCLUDED.retention_days, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING retention_days, updated_by, updated_at`,
+      [body.data.retention_days, attribution.actor],
     )
-    return { retention_days: rows[0].retention_days, max_days: max, updated_at: rows[0].updated_at }
+    return { retention_days: rows[0].retention_days, max_days: max, updated_by: rows[0].updated_by, updated_at: rows[0].updated_at }
   })
 }

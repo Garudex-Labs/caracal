@@ -30,7 +30,8 @@
           "enum": ["managed", "dcr"]
         },
         "agent_session_id": {
-          "type": "string"
+          "type": "string",
+          "description": "Governed Session ID."
         },
         "lifecycle": {
           "type": "string",
@@ -92,6 +93,7 @@
       "additionalProperties": true
     },
     "session": {
+      "description": "Authority record selected for this decision; its id is an Authority record ID. The object name is retained as a versioned wire key.",
       "oneOf": [
         {
           "type": "null"
@@ -110,6 +112,7 @@
       ]
     },
     "delegation_edge": {
+      "description": "Delegation used for this decision. The object name is retained as a versioned wire key.",
       "oneOf": [
         {
           "type": "null"
@@ -123,10 +126,12 @@
               "minLength": 1
             },
             "source_session_id": {
-              "type": "string"
+              "type": "string",
+              "description": "Source governed Session ID."
             },
             "target_session_id": {
-              "type": "string"
+              "type": "string",
+              "description": "Target governed Session ID."
             },
             "issuer_application_id": {
               "type": "string"
@@ -181,13 +186,16 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": "string",
+          "description": "Authority record ID; the field name is retained as a versioned wire key."
         },
         "agent_session_id": {
-          "type": "string"
+          "type": "string",
+          "description": "Governed Session ID."
         },
         "delegation_edge_id": {
-          "type": "string"
+          "type": "string",
+          "description": "Delegation ID."
         },
         "challenge_resolved": {
           "type": "boolean"

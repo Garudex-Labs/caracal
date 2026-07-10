@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Tests for the gateway's revocation cache and sid extraction.
+// Tests for the gateway's revocation cache and authority-record claim extraction.
 
 package internal
 
@@ -23,19 +23,19 @@ func TestRevocationStoreMarkAndExpire(t *testing.T) {
 	if store.IsRevoked("sid1") {
 		t.Fatalf("fresh store should not report sid1 revoked")
 	}
-	store.markSession("sid1")
+	store.markAuthorityRecord("sid1")
 	if !store.IsRevoked("sid1") {
 		t.Fatalf("sid1 should be revoked after mark")
 	}
 	store.mu.Lock()
-	store.sessions["sid1"] = time.Now().Add(-time.Second)
+	store.authorityRecords["sid1"] = time.Now().Add(-time.Second)
 	store.mu.Unlock()
 	if store.IsRevoked("sid1") {
 		t.Fatalf("expired entry should not report revoked")
 	}
 	store.prune()
 	store.mu.RLock()
-	_, present := store.sessions["sid1"]
+	_, present := store.authorityRecords["sid1"]
 	store.mu.RUnlock()
 	if present {
 		t.Fatalf("prune should drop expired entries")
@@ -45,7 +45,7 @@ func TestRevocationStoreMarkAndExpire(t *testing.T) {
 func TestRevocationStoreEmptySessionNotRevoked(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	if store.IsRevoked("") {
-		t.Fatalf("empty session id must report not revoked")
+		t.Fatalf("empty authority-record id must report not revoked")
 	}
 }
 
@@ -53,7 +53,7 @@ func TestProcessRevocationMessageRequiresValidSignature(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: false}
 
-	processRevocationMessage(context.Background(), redis, store, redisMessage("1-0", map[string]any{"session_id": "sid1"}), nil, zerolog.New(io.Discard))
+	processRevocationMessage(context.Background(), redis, store, groupRevoke, redisMessage("1-0", map[string]any{"session_id": "sid1"}), nil, zerolog.New(io.Discard))
 
 	if store.IsRevoked("sid1") {
 		t.Fatalf("invalid stream signature must not mark session revoked")
@@ -67,7 +67,7 @@ func TestProcessRevocationMessageMarksSignedSession(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: true}
 
-	processRevocationMessage(context.Background(), redis, store, redisMessage("1-1", map[string]any{"session_id": "sid1"}), nil, zerolog.New(io.Discard))
+	processRevocationMessage(context.Background(), redis, store, groupRevoke, redisMessage("1-1", map[string]any{"session_id": "sid1"}), nil, zerolog.New(io.Discard))
 
 	if !store.IsRevoked("sid1") {
 		t.Fatalf("valid revocation message should mark session revoked")
@@ -84,7 +84,7 @@ func TestProcessRevocationMessageUpdatesMetrics(t *testing.T) {
 	id := time.Now().Add(-3 * time.Second).Format("150405")
 	msgID := fmt.Sprintf("%d-0", time.Now().Add(-3*time.Second).UnixMilli())
 
-	processRevocationMessage(context.Background(), redis, store, redisMessage(msgID, map[string]any{"session_id": id}), metrics, zerolog.New(io.Discard))
+	processRevocationMessage(context.Background(), redis, store, groupRevoke, redisMessage(msgID, map[string]any{"session_id": id}), metrics, zerolog.New(io.Discard))
 
 	snap := metrics.Snapshot()
 	if snap.RevocationMessages != 1 {
@@ -99,9 +99,9 @@ func TestProcessRevocationMessageMarksSignedAgent(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: true}
 
-	processRevocationMessage(context.Background(), redis, store, redisMessage("1-3", map[string]any{"agent_session_id": "agent1"}), nil, zerolog.New(io.Discard))
+	processRevocationMessage(context.Background(), redis, store, groupRevoke, redisMessage("1-3", map[string]any{"agent_session_id": "agent1"}), nil, zerolog.New(io.Discard))
 
-	if !store.IsAgentRevoked("agent1") {
+	if !store.IsSessionRevoked("agent1") {
 		t.Fatalf("valid revocation message should mark agent revoked")
 	}
 	if len(redis.acked) != 1 || redis.acked[0] != "1-3" {
@@ -113,10 +113,10 @@ func TestProcessRevocationMessageMarksSignedDelegation(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	redis := &fakeRevocationRedis{verify: true}
 
-	processRevocationMessage(context.Background(), redis, store, redisMessage("1-4", map[string]any{"delegation_edge_id": "edge1"}), nil, zerolog.New(io.Discard))
+	processRevocationMessage(context.Background(), redis, store, groupRevoke, redisMessage("1-4", map[string]any{"delegation_edge_id": "edge1"}), nil, zerolog.New(io.Discard))
 
 	if !store.IsDelegationRevoked("edge1") {
-		t.Fatalf("valid revocation message should mark delegation edge revoked")
+		t.Fatalf("valid revocation message should mark Delegation revoked")
 	}
 	if len(redis.acked) != 1 || redis.acked[0] != "1-4" {
 		t.Fatalf("valid stream message should be acked once, got %v", redis.acked)
@@ -125,15 +125,27 @@ func TestProcessRevocationMessageMarksSignedDelegation(t *testing.T) {
 
 func TestApplyRevocationSnapshotMarksAllAuthorityAnchors(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
-	applyRevocationSnapshot(store, []string{"sid1"}, []string{"agent1"}, []string{"edge1"})
+	applyRevocationSnapshot(store, []string{"sid1"}, []string{"agent1"}, []string{"edge1"}, store.streamGeneration.Load())
 	if !store.IsRevoked("sid1") {
-		t.Fatalf("snapshot should mark session revoked")
+		t.Fatalf("snapshot should mark Authority record revoked")
 	}
-	if !store.IsAgentRevoked("agent1") {
-		t.Fatalf("snapshot should mark agent session revoked")
+	if !store.IsSessionRevoked("agent1") {
+		t.Fatalf("snapshot should mark Session revoked")
 	}
 	if !store.IsDelegationRevoked("edge1") {
-		t.Fatalf("snapshot should mark delegation revoked")
+		t.Fatalf("snapshot should mark Delegation revoked")
+	}
+}
+
+func TestApplyRevocationSnapshotRemovesResumedSession(t *testing.T) {
+	store := newRevocationStore(zerolog.New(io.Discard))
+	applyRevocationSnapshot(store, nil, []string{"agent1"}, nil, store.streamGeneration.Load())
+	if !store.IsSessionRevoked("agent1") {
+		t.Fatal("suspended Session must be present in the snapshot")
+	}
+	applyRevocationSnapshot(store, nil, nil, nil, store.streamGeneration.Load())
+	if store.IsSessionRevoked("agent1") {
+		t.Fatal("resumed Session must be removed by the current-state snapshot")
 	}
 }
 
@@ -159,7 +171,7 @@ func TestProcessRevocationMessageDeadLettersPoisonMessage(t *testing.T) {
 	msg := redisMessage("1-2", map[string]any{"zone_id": "zone1"})
 
 	for i := 0; i < maxFailures; i++ {
-		processRevocationMessage(context.Background(), redis, store, msg, nil, zerolog.New(io.Discard))
+		processRevocationMessage(context.Background(), redis, store, groupRevoke, msg, nil, zerolog.New(io.Discard))
 	}
 
 	if len(redis.dead) != 1 {
@@ -173,26 +185,26 @@ func TestProcessRevocationMessageDeadLettersPoisonMessage(t *testing.T) {
 	}
 }
 
-func TestJWTSIDReadsSidClaim(t *testing.T) {
+func TestJWTAuthorityRecordIDReadsSidClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtSID(tok); got != "sess-123" {
+	if got := jwtAuthorityRecordID(tok); got != "sess-123" {
 		t.Fatalf("want sess-123, got %q", got)
 	}
 }
 
-func TestJWTSIDRequiresSidClaim(t *testing.T) {
+func TestJWTAuthorityRecordIDRequiresSidClaim(t *testing.T) {
 	payload := `{"agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtSID(tok); got != "" {
+	if got := jwtAuthorityRecordID(tok); got != "" {
 		t.Fatalf("want empty sid, got %q", got)
 	}
 }
 
-func TestJWTAgentSessionIDReadsClaim(t *testing.T) {
+func TestJWTSessionIDReadsClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtAgentSessionID(tok); got != "agent-xyz" {
+	if got := jwtSessionID(tok); got != "agent-xyz" {
 		t.Fatalf("want agent-xyz, got %q", got)
 	}
 }
@@ -205,16 +217,16 @@ func TestJWTDelegationEdgeIDReadsClaim(t *testing.T) {
 	}
 }
 
-func TestJWTRootSIDReadsClaim(t *testing.T) {
+func TestJWTRootAuthorityRecordIDReadsClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","root_sid":"root-123"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtRootSID(tok); got != "root-123" {
+	if got := jwtRootAuthorityRecordID(tok); got != "root-123" {
 		t.Fatalf("want root-123, got %q", got)
 	}
 }
 
-func TestJWTSIDMalformed(t *testing.T) {
-	if got := jwtSID("notajwt"); got != "" {
+func TestJWTAuthorityRecordIDMalformed(t *testing.T) {
+	if got := jwtAuthorityRecordID("notajwt"); got != "" {
 		t.Fatalf("malformed token should return empty sid, got %q", got)
 	}
 }
@@ -322,9 +334,9 @@ func TestReplayPendingRevocationsProcessesClaimedMessages(t *testing.T) {
 		},
 	}
 
-	replayPendingRevocations(context.Background(), redis, store, "consumer-1", metrics, zerolog.Nop())
+	replayPendingRevocations(context.Background(), redis, store, groupRevoke, "consumer-1", metrics, zerolog.Nop())
 
-	if !store.IsRevoked("sid-1") || !store.IsAgentRevoked("agent-1") {
+	if !store.IsRevoked("sid-1") || !store.IsSessionRevoked("agent-1") {
 		t.Fatal("claimed revocation messages should update the store")
 	}
 	if metrics.Snapshot().RevocationPendingReplayed != 2 {
@@ -339,7 +351,7 @@ func TestProcessRevocationMessagesAppliesEveryMessage(t *testing.T) {
 	store := newRevocationStore(zerolog.Nop())
 	rdb := &fakeRevocationRedis{verify: true}
 
-	processRevocationMessages(context.Background(), rdb, store, []redis.XMessage{
+	processRevocationMessages(context.Background(), rdb, store, groupRevoke, []redis.XMessage{
 		redisMessage("1-0", map[string]any{"session_id": "sid-1"}),
 		redisMessage("2-0", map[string]any{"edge_id": "edge-1"}),
 	}, nil, zerolog.Nop())
@@ -355,7 +367,7 @@ func TestTrackRevocationFailureIncrementsDeadLetterMetrics(t *testing.T) {
 	msg := redisMessage("9-0", map[string]any{"bad": "message"})
 
 	for range maxFailures {
-		trackRevocationFailure(context.Background(), redis, msg, errors.New("bad message"), metrics, zerolog.Nop())
+		trackRevocationFailure(context.Background(), redis, groupRevoke, msg, errors.New("bad message"), metrics, zerolog.Nop())
 	}
 
 	if metrics.Snapshot().RevocationDeadLetters != 1 {
@@ -367,7 +379,7 @@ func TestRevocationBackgroundHelpersStopOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	runRevocationGC(ctx, newRevocationStore(zerolog.Nop()))
-	runRevocationLoop(ctx, &fakeRevocationRedis{}, newRevocationStore(zerolog.Nop()), "consumer-1", nil, zerolog.Nop())
+	runRevocationLoop(ctx, &fakeRevocationRedis{}, newRevocationStore(zerolog.Nop()), groupRevoke, "consumer-1", nil, zerolog.Nop())
 	if hostname() == "" {
 		t.Fatal("hostname helper should never return empty")
 	}
@@ -410,7 +422,7 @@ func TestRunRevocationLoopAppliesStreamMessages(t *testing.T) {
 	redis := &revocationBatchRedis{cancel: cancel, msgs: []redis.XMessage{redisMessage("1-0", map[string]any{"session_id": "sid-live"})}}
 	redis.verify = true
 
-	runRevocationLoop(ctx, redis, store, "consumer-1", nil, zerolog.Nop())
+	runRevocationLoop(ctx, redis, store, groupRevoke, "consumer-1", nil, zerolog.Nop())
 
 	if !store.IsRevoked("sid-live") {
 		t.Fatal("stream message must revoke the session")

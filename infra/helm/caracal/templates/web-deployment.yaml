@@ -18,6 +18,11 @@ metadata:
     {{- include "caracal.labels" $root | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   replicas: {{ $service.replicas }}
   selector:
     matchLabels:
@@ -32,10 +37,21 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
+        {{- if $root.Values.secrets.create }}
+        checksum/secret: {{ $root.Values.secrets | toYaml | sha256sum }}
+        {{- end }}
         {{- with $root.Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with default $root.Values.scheduling.priorityClassName $service.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $root.Values.scheduling.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "caracal.serviceAccountName" $root }}
       automountServiceAccountToken: {{ $root.Values.serviceAccount.automountToken }}
       securityContext:
@@ -79,9 +95,9 @@ spec:
               value: "true"
             # Internal control-plane endpoints, never exposed to the browser.
             - name: CARACAL_API_URL
-              value: {{ printf "http://%s-api:%v" $fullname $root.Values.services.api.port | quote }}
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "api") | quote }}
             - name: CARACAL_COORDINATOR_URL
-              value: {{ printf "http://%s-coordinator:%v" $fullname $root.Values.services.coordinator.port | quote }}
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "coordinator") | quote }}
             - name: CARACAL_AUTH_DATABASE_SSL
               value: {{ $service.databaseSsl | quote }}
             - name: CARACAL_AUTH_AUTO_MIGRATE
@@ -106,6 +122,11 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName | quote }}
                   key: caracalCoordinatorToken
+            # Console sign-in allowlist. The projected volume below is optional, so the path
+            # simply reads as "no entries" until an operator adds the operatorAllowlist.json
+            # key (written by `caracal allowlist`) to the runtime secret.
+            - name: CARACAL_OPERATOR_ALLOWLIST_FILE
+              value: /run/caracalBootstrap/operatorAllowlist.json
             {{- with $service.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -127,12 +148,31 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+          {{- if gt (int $root.Values.scheduling.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ $root.Values.scheduling.preStopSleepSeconds }}
+          {{- end }}
           resources:
             {{- toYaml $service.resources | nindent 12 }}
+          volumeMounts:
+            - name: allowlist
+              mountPath: /run/caracalBootstrap
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+      volumes:
+        # Projects only the allowlist key, so no other runtime secret material reaches this pod.
+        - name: allowlist
+          secret:
+            secretName: {{ $secretName | quote }}
+            optional: true
+            items:
+              - key: operatorAllowlist.json
+                path: operatorAllowlist.json
 {{- end }}

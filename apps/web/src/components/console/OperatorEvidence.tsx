@@ -19,8 +19,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   resource: "Resources",
   policy: "Policies",
   grant: "Grants",
+  "authority-record": "Authority records",
   session: "Sessions",
-  agent: "Agents",
   delegation: "Delegations",
   audit: "Audit",
 };
@@ -190,14 +190,14 @@ function GrantRow({ row }: { row: EvidenceRowView }) {
   );
 }
 
-function SessionRow({ row }: { row: EvidenceRowView }) {
+function AuthorityRecordRow({ row }: { row: EvidenceRowView }) {
   return (
     <Row
       lead={
         <>
           <Mono value={text(row, "subject_id") || text(row, "id")} />
-          {text(row, "session_type") ? (
-            <Badge tone="muted">{text(row, "session_type")}</Badge>
+          {text(row, "authority_record_type") ? (
+            <Badge tone="muted">{text(row, "authority_record_type")}</Badge>
           ) : null}
           <StatusBadge value={text(row, "status")} />
         </>
@@ -211,7 +211,7 @@ function SessionRow({ row }: { row: EvidenceRowView }) {
   );
 }
 
-function AgentRow({ row }: { row: EvidenceRowView }) {
+function SessionRow({ row }: { row: EvidenceRowView }) {
   return (
     <Row
       lead={
@@ -225,7 +225,7 @@ function AgentRow({ row }: { row: EvidenceRowView }) {
       trail={
         <>
           {text(row, "depth") ? <span>depth {text(row, "depth")}</span> : null}
-          <span>{when(row, "spawned_at")}</span>
+          <span>{when(row, "started_at")}</span>
         </>
       }
     />
@@ -300,8 +300,8 @@ const DOMAIN_ROWS: Record<string, (props: { row: EvidenceRowView }) => ReactNode
   resource: ResourceRow,
   policy: PolicyRow,
   grant: GrantRow,
+  "authority-record": AuthorityRecordRow,
   session: SessionRow,
-  agent: AgentRow,
   delegation: DelegationRow,
   audit: AuditRow,
 };

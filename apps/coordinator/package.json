@@ -1,8 +1,11 @@
 {
   "name": "@caracalai/coordinator",
-  "version": "0.1.6-rc.2",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
@@ -11,8 +14,9 @@
   "dependencies": {
     "@caracalai/admin-audit": "workspace:*",
     "@caracalai/core": "workspace:*",
+    "@caracalai/server-core": "workspace:*",
     "@caracalai/identity": "workspace:*",
-    "fastify": "^5.9.0",
+    "fastify": "^5.10.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.3",
     "pg": "^8.22.0",
@@ -21,9 +25,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.0",
     "@types/pg": "^8.11.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

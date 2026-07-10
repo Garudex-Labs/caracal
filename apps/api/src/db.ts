@@ -122,11 +122,7 @@ export interface TxOptions {
   baseDelayMs?: number
 }
 
-export async function withTransaction<T>(
-  db: DB,
-  fn: (client: TxClient) => Promise<T>,
-  options: TxOptions = {},
-): Promise<T> {
+export async function withTransaction<T>(db: DB, fn: (client: TxClient) => Promise<T>, options: TxOptions = {}): Promise<T> {
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3)
   const baseDelayMs = Math.max(1, options.baseDelayMs ?? 10)
   const client = await db.connect()

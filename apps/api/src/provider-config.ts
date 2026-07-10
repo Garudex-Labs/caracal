@@ -10,6 +10,7 @@ export const PROVIDER_KINDS = [
   'oauth2_client_credentials',
   'api_key',
   'bearer_token',
+  'http_basic',
 ] as const
 
 export type ProviderKind = (typeof PROVIDER_KINDS)[number]
@@ -23,6 +24,9 @@ export interface ProviderConfigField {
   // argument, a model prompt, or a log; the console collects them through masked inputs and
   // the Operator collects them through the secure credential prompt.
   secret?: boolean
+  // Multiline secrets such as PEM keys legitimately contain newlines; every other secret is
+  // a single-line credential in which embedded control characters are paste artifacts.
+  multiline?: boolean
   note?: string
 }
 
@@ -32,6 +36,9 @@ export interface ProviderConfigField {
 export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfigField[]> = {
   none: [],
   caracal_mandate: [],
+  // User-consent grants are keyed to a user principal, and workload launches have
+  // none, so the kind carries no runtime-injection switch: STS denies the path
+  // unconditionally.
   oauth2_authorization_code: [
     { key: 'authorization_endpoint', requirement: 'required', note: 'HTTPS endpoint where users approve delegated access' },
     { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued or refreshed' },
@@ -40,30 +47,40 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'client_secret', requirement: 'required', secret: true, note: 'not used when client_auth_method is none' },
     { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
     { key: 'client_auth_method', requirement: 'optional', note: 'client_secret_basic default, client_secret_post, or none' },
+    { key: 'revocation_endpoint', requirement: 'optional', note: 'RFC 7009 endpoint for best-effort upstream revocation on disconnect' },
     { key: 'allowed_token_hosts', requirement: 'optional', note: 'defaults to the token endpoint host' },
     { key: 'authorization_params', requirement: 'optional' },
     { key: 'token_params', requirement: 'optional' },
     { key: 'auth_header', requirement: 'optional' },
     { key: 'auth_scheme', requirement: 'optional' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
-    { key: 'allow_runtime_injection', requirement: 'optional' },
   ],
   oauth2_client_credentials: [
     { key: 'token_endpoint', requirement: 'required', note: 'HTTPS endpoint where tokens are issued' },
     { key: 'client_id', requirement: 'required', note: 'the OAuth client id' },
     { key: 'client_secret', requirement: 'required', secret: true, note: 'not used with private_key_jwt or none' },
-    { key: 'private_key', requirement: 'optional', secret: true, note: 'PEM key, required only with private_key_jwt' },
+    {
+      key: 'private_key',
+      requirement: 'optional',
+      secret: true,
+      multiline: true,
+      note: 'PEM key, required with private_key_jwt or jwt_bearer',
+    },
     { key: 'scopes', requirement: 'optional', note: 'upstream OAuth scopes to request' },
     {
       key: 'client_auth_method',
       requirement: 'optional',
       note: 'client_secret_basic default, client_secret_post, private_key_jwt, or none',
     },
+    { key: 'grant_type', requirement: 'optional', note: 'client_credentials default, or jwt_bearer for RFC 7523 assertion grants' },
+    { key: 'assertion_subject', requirement: 'optional', note: 'jwt_bearer only; sub claim, defaults to the client id' },
+    { key: 'assertion_audience', requirement: 'optional', note: 'jwt_bearer only; aud claim, defaults to the token endpoint' },
     { key: 'audience', requirement: 'optional' },
     { key: 'resource', requirement: 'optional' },
     { key: 'allowed_token_hosts', requirement: 'optional', note: 'defaults to the token endpoint host' },
     { key: 'token_params', requirement: 'optional' },
-    { key: 'key_id', requirement: 'optional', note: 'private_key_jwt only' },
+    { key: 'key_id', requirement: 'optional', note: 'private_key_jwt or jwt_bearer only' },
+    { key: 'certificate', requirement: 'optional', note: 'private_key_jwt only; PEM certificate for x5t thumbprint headers' },
     { key: 'auth_header', requirement: 'optional' },
     { key: 'auth_scheme', requirement: 'optional' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
@@ -74,6 +91,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'header_name', requirement: 'required', note: 'when auth_location is header' },
     { key: 'query_param_name', requirement: 'required', note: 'when auth_location is query' },
     { key: 'api_key', requirement: 'required', secret: true },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'host allow-list for forwarding' },
     { key: 'auth_scheme', requirement: 'optional', note: 'header auth only' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
     { key: 'allow_runtime_injection', requirement: 'optional' },
@@ -85,6 +103,15 @@ export const PROVIDER_CONFIG_FIELDS: Record<ProviderKind, readonly ProviderConfi
     { key: 'auth_scheme', requirement: 'optional' },
     { key: 'forward_caracal_identity', requirement: 'optional' },
     { key: 'allow_runtime_injection', requirement: 'optional' },
+  ],
+  // Basic credentials are a two-part secret, so the kind stays Gateway-forwarded only:
+  // runtime injection delivers a single credential string per binding and cannot carry
+  // the username/password pair without inventing a joining convention.
+  http_basic: [
+    { key: 'username', requirement: 'required', note: 'username or account identifier for HTTP Basic auth' },
+    { key: 'password', requirement: 'required', secret: true, note: 'password or API token paired with the username' },
+    { key: 'allowed_token_hosts', requirement: 'optional', note: 'host allow-list for forwarding' },
+    { key: 'forward_caracal_identity', requirement: 'optional' },
   ],
 }
 
@@ -104,3 +131,12 @@ export const PUBLIC_PROVIDER_CONFIG_KEYS = configKeys(false)
 // The secret config keys each provider kind seals at rest. A value under one of these keys
 // must never appear in a conversation ledger, a plan argument, a model prompt, or a log.
 export const SECRET_PROVIDER_CONFIG_KEYS = configKeys(true)
+
+// The secret config keys whose values legitimately span multiple lines. Every other secret
+// is a single-line credential, and intake rejects embedded control characters in it.
+export const MULTILINE_SECRET_CONFIG_KEYS: ReadonlySet<string> = new Set(
+  Object.values(PROVIDER_CONFIG_FIELDS)
+    .flat()
+    .filter((field) => field.secret && field.multiline)
+    .map((field) => field.key),
+)

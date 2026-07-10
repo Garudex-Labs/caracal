@@ -4,18 +4,18 @@
 
 Give maintainers a fast, repeatable way to detect, contain, recover from, and learn from security or reliability incidents in Caracal.
 
-One Incident Lead owns sequencing, decisions, evidence, and closure. One Driver makes changes. One Reviewer checks risk. On a IR team, one person may cover multiple roles, but ownership must be explicit.
+One Incident Lead owns sequencing, decisions, evidence, and closure. One Driver makes changes. One Reviewer checks risk. On an IR team, one person may cover multiple roles, but ownership must be explicit.
 
 ## Scope
 
 Use this process for incidents affecting:
 
-- `apps/api`: control-plane routes, admin auth, policies, grants, zones, applications, resources, providers, teams, invitations, and step-up APIs.
-- `apps/coordinator`: agent lifecycle, delegation, invocation, TTL, retention, outbox, and lifecycle events.
+- `apps/api`: control-plane routes, admin auth, zones, applications, resources, providers, policies, policy sets, grants, step-up challenges, admin tokens, audit retention, the AI Operator, and the optional control invocation plugin (`apps/api/src/control`).
+- `apps/coordinator`: Session lifecycle, Delegation, invocation, TTL, retention, outbox, and lifecycle events.
+- `apps/auth` and `apps/web`: operator sign-in, sessions, the authenticated console proxy, and the web console.
 - `services/sts`: token exchange, OPA policy decisions, signing keys, JWKS, replay, revocation, step-up, and audit emission.
 - `services/gateway`: proxy enforcement, upstream safety, STS exchange, bindings, replay, and revocation checks.
 - `services/audit`: audit stream consumption, append-only ledger, HMAC chain, tamper sweeps, retention, and export.
-- `apps/api/src/control`: optional in-process control invocation plugin gated by explicit enablement, engine catalog enforcement, JTI replay, rate limits, and audit.
 - Redis Streams, PostgreSQL, Docker runtime, installers, releases, dependencies, and shared `packages/*`.
 
 Use the public issue tracker for non-security bugs. Use a private GitHub Security Advisory for suspected vulnerabilities, credential exposure, unsafe execution, policy bypass, or exploitable operational failures.
@@ -36,7 +36,7 @@ Escalate severity immediately if tokens, secrets, keys, policy enforcement, audi
 | Check | Action | Evidence | Move on when |
 |---|---|---|---|
 | Source of signal: advisory, email, issue, logs, CI, dependency alert, runtime health, audit metrics, or maintainer observation. | Create or update the private advisory for security incidents; assign an Incident Lead. | Reporter text, timestamps, URLs, affected refs, service names, versions, and initial severity. | There is one source of truth and an owner. |
-| Affected boundary: API, coordinator, STS, gateway, audit, control, relay, package, infra, release, or dependency. | Map the signal to the threat model target area. | File paths, endpoints, stream names, containers, images, package names, and config keys. | The suspected blast radius is named. |
+| Affected boundary: API, coordinator, auth/BFF, web console, STS, gateway, audit, control, relay, package, infra, release, or dependency. | Map the signal to the threat model target area. | File paths, endpoints, stream names, containers, images, package names, and config keys. | The suspected blast radius is named. |
 | Sensitive data risk. | Remove secrets from public channels; preserve private copies only in the advisory or approved secure storage. | Redacted samples plus location of original evidence. | No sensitive data is exposed in public discussion. |
 
 ## Triage
@@ -64,7 +64,7 @@ Contain first for SEV0/SEV1. Root-cause work waits until the blast radius is bou
 |---|---|---|---|
 | Root cause. | Identify the exact missing guard, unsafe default, race, dependency flaw, release failure, or operational gap. | Minimal root-cause note with files, functions, routes, streams, config, or artifacts. | The fix target is precise. |
 | Code/config fix. | Make the smallest complete change that removes the unsafe path. Prefer deny-by-default, explicit validation, scoped authorization, safe retries, and bounded timeouts. | Diff, tests added, config changed, migration or release notes if needed. | The vulnerable behavior is removed, not hidden. |
-| Related paths. | Search for duplicate enforcement gaps across API, coordinator, STS, gateway, audit, control, relay, packages, and infra. | Search terms, matching files, and decision for each match. | No known sibling path remains exposed. |
+| Related paths. | Search for duplicate enforcement gaps across API, coordinator, auth/BFF, STS, gateway, audit, control, relay, packages, and infra. | Search terms, matching files, and decision for each match. | No known sibling path remains exposed. |
 
 ## Recovery
 
@@ -118,7 +118,7 @@ Useful commands are the existing repository commands: targeted `go test ./servic
 |---|---|---|---|
 | Exploit regression. | Re-run the original reproduction and at least one negative variant. | Before/after result and test name or command. | The exploit fails for the right reason. |
 | Boundary coverage. | Validate affected trust boundaries from `THREAT_MODEL.md`: auth, policy, gateway upstreams, streams, audit, secrets, runtime, release, or enterprise isolation. | Checklist tied to impacted threats. | Each affected boundary has a guard and a test/review note. |
-| Targeted tests. | Run the smallest relevant suite first: API, coordinator, STS, gateway, audit, control, relay, package, infra, installer, or release check. | Command output or CI link. | Relevant tests pass or failures are explained as unrelated. |
+| Targeted tests. | Run the smallest relevant suite first: API, coordinator, auth/BFF, STS, gateway, audit, control, relay, package, infra, installer, or release check. | Command output or CI link. | Relevant tests pass or failures are explained as unrelated. |
 | Broader safety. | Run broader tests/typecheck/CI when shared packages, auth, crypto, config, release, or infra changed. | Command output or CI link. | No changed boundary remains unvalidated. |
 | Runtime readiness. | Check `/health`, `/ready`, metrics, stream lag, audit tamper metrics, and dependency status in the affected stack. | Health/readiness output and metric summary. | Runtime behavior is stable under the recovered configuration. |
 

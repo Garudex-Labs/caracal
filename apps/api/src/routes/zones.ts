@@ -7,10 +7,11 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { insertAdminAuditRecord } from '@caracalai/admin-audit'
-import { buildPatchUpdate, patchColumn } from './patch.js'
+import { appendAttribution, buildPatchUpdate, patchColumn } from './patch.js'
+import { resolveAttribution, type Attribution } from '../attribution.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { IdParams, parseParams } from './params.js'
-import { appendKeysetCondition, parseListPagination, setNextLink } from './list-pagination.js'
+import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace, RESERVED_ZONE_SQL, mintZoneId } from '../reserved-namespace.js'
 import { enqueueOutboxBatch, type EnqueueArgs } from '../outbox.js'
 import { STREAM_AGENTS_LIFECYCLE, STREAM_SESSIONS_REVOKE } from '../redis.js'
@@ -39,6 +40,7 @@ const ZoneUpdateBody = z
     dcr_enabled: z.boolean().optional(),
     dcr_shutdown: z.enum(['keep_live', 'revoke_live']).optional(),
     operator_coauthor_badge: z.boolean().optional(),
+    operator_governed: z.boolean().optional(),
   })
   .strict()
 
@@ -54,23 +56,31 @@ interface ZoneRow {
   slug: string
   dcr_enabled: boolean
   operator_coauthor_badge: boolean
+  operator_governed: boolean
+  created_by: string | null
+  created_via_operator: boolean
+  updated_by: string | null
+  updated_via_operator: boolean
   created_at: string
   updated_at: string
 }
 
 const ZONE_SLUG_UNIQUE_CONSTRAINT = 'zones_slug_key'
 
+const ZONE_SELECT = `id, name, slug, dcr_enabled, operator_coauthor_badge, operator_governed,
+         created_by, created_via_operator, updated_by, updated_via_operator, created_at, updated_at`
+
 interface LiveDcrApplication {
   id: string
 }
 
-interface RevokedSession {
+interface RevokedAuthorityRecord {
   id: string
 }
 
-interface TerminatedAgent {
+interface TerminatedSession {
   id: string
-  subject_session_id: string
+  subject_authority_record_id: string
   parent_id: string | null
 }
 
@@ -111,20 +121,22 @@ async function nextZoneSlug(client: Queryable, name: string): Promise<string> {
 // the zones route and the Operator executor so both create zones identically.
 export async function createZoneRecord(
   db: Queryable,
-  input: { name: string; slug?: string; dcrEnabled?: boolean; ownerAccountId?: string | null },
+  input: { name: string; slug?: string; dcrEnabled?: boolean; ownerAccountId?: string | null; attribution: Attribution },
 ): Promise<ZoneRow> {
   for (let attempt = 0; ; attempt++) {
     try {
       const { rows } = await db.query<ZoneRow>(
-        `INSERT INTO zones (id, name, slug, dek_ciphertext, dcr_enabled, owner_account_id)
-         VALUES ($1, $2, $3, gen_random_bytes(32), $4, $5)
-         RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
+        `INSERT INTO zones (id, name, slug, dcr_enabled, owner_account_id, created_by, created_via_operator)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING ${ZONE_SELECT}`,
         [
           mintZoneId(uuidv7),
           input.name,
           input.slug ?? (await nextZoneSlug(db, input.name)),
           input.dcrEnabled ?? false,
           input.ownerAccountId ?? null,
+          input.attribution.actor,
+          input.attribution.viaOperator,
         ],
       )
       return rows[0]
@@ -172,59 +184,60 @@ async function revokeDcrIdentities(
   zoneId: string,
   applicationIds: string[],
   requestId: string,
-): Promise<{ applications: number; sessions: number; agents: number; delegations: number }> {
-  if (applicationIds.length === 0) return { applications: 0, sessions: 0, agents: 0, delegations: 0 }
+  attribution: Attribution,
+): Promise<{ applications: number; authorityRecords: number; sessions: number; delegations: number }> {
+  if (applicationIds.length === 0) return { applications: 0, authorityRecords: 0, sessions: 0, delegations: 0 }
 
   const { rows: apps } = await client.query<{ id: string }>(
     `UPDATE applications
-     SET archived_at = now()
+     SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
      WHERE zone_id = $1 AND id = ANY($2::text[]) AND archived_at IS NULL
      RETURNING id`,
-    [zoneId, applicationIds],
+    [zoneId, applicationIds, attribution.actor, attribution.viaOperator],
   )
 
-  const { rows: sessions } = await client.query<RevokedSession>(
+  const { rows: authorityRecords } = await client.query<RevokedAuthorityRecord>(
     `WITH RECURSIVE revoked_tree AS (
-       SELECT id FROM sessions
+       SELECT id FROM authority_records
        WHERE zone_id = $1
          AND session_type = 'application'
          AND subject_id = ANY($2::text[])
          AND status = 'active'
        UNION
-       SELECT s.id FROM sessions s
-       JOIN revoked_tree r ON s.parent_id = r.id
-       WHERE s.zone_id = $1 AND s.status = 'active'
+       SELECT ar.id FROM authority_records ar
+       JOIN revoked_tree r ON ar.parent_id = r.id
+       WHERE ar.zone_id = $1 AND ar.status = 'active'
      )
-     UPDATE sessions
+     UPDATE authority_records
      SET status = 'revoked', revoked_at = now(), revoked_reason = 'dcr_shutdown'
      WHERE zone_id = $1 AND id IN (SELECT id FROM revoked_tree)
      RETURNING id`,
     [zoneId, applicationIds],
   )
 
-  const { rows: agents } = await client.query<TerminatedAgent>(
+  const { rows: sessions } = await client.query<TerminatedSession>(
     `WITH RECURSIVE tree AS (
-       SELECT id, subject_session_id, parent_id
-       FROM agent_sessions
+       SELECT id, subject_authority_record_id, parent_id
+       FROM sessions
        WHERE zone_id = $1
          AND application_id = ANY($2::text[])
          AND status IN ('active','suspended')
        UNION
-       SELECT child.id, child.subject_session_id, child.parent_id
-       FROM agent_sessions child
+       SELECT child.id, child.subject_authority_record_id, child.parent_id
+       FROM sessions child
        JOIN tree parent ON child.parent_id = parent.id
        WHERE child.zone_id = $1 AND child.status IN ('active','suspended')
      )
-     UPDATE agent_sessions
+     UPDATE sessions
      SET status = 'terminated', terminated_at = now(), updated_at = now()
      WHERE zone_id = $1 AND id IN (SELECT id FROM tree)
-     RETURNING id, subject_session_id, parent_id`,
+     RETURNING id, subject_authority_record_id, parent_id`,
     [zoneId, applicationIds],
   )
 
-  const agentIds = agents.map((row) => row.id)
+  const sessionIds = sessions.map((row) => row.id)
   const { rows: delegations } =
-    agentIds.length > 0
+    sessionIds.length > 0
       ? await client.query<RevokedDelegation>(
           `UPDATE delegation_edges
        SET status = 'revoked', revoked_at = now(), edge_version = edge_version + 1, updated_at = now()
@@ -232,19 +245,19 @@ async function revokeDcrIdentities(
          AND status = 'active'
          AND (source_session_id = ANY($2::text[]) OR target_session_id = ANY($2::text[]))
        RETURNING id`,
-          [zoneId, agentIds],
+          [zoneId, sessionIds],
         )
       : { rows: [] as RevokedDelegation[] }
 
   const events: EnqueueArgs[] = []
-  for (const row of sessions) {
+  for (const row of authorityRecords) {
     events.push({
       streamName: STREAM_SESSIONS_REVOKE,
       payload: { zone_id: zoneId, session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
-  for (const row of agents) {
+  for (const row of sessions) {
     events.push({
       streamName: STREAM_AGENTS_LIFECYCLE,
       payload: {
@@ -258,7 +271,7 @@ async function revokeDcrIdentities(
     })
     events.push({
       streamName: STREAM_SESSIONS_REVOKE,
-      payload: { zone_id: zoneId, session_id: row.subject_session_id, agent_session_id: row.id, reason: 'dcr_shutdown' },
+      payload: { zone_id: zoneId, session_id: row.subject_authority_record_id, agent_session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
@@ -271,7 +284,12 @@ async function revokeDcrIdentities(
   }
   await enqueueOutboxBatch(client, events)
 
-  return { applications: apps.length, sessions: sessions.length, agents: agents.length, delegations: delegations.length }
+  return {
+    applications: apps.length,
+    authorityRecords: authorityRecords.length,
+    sessions: sessions.length,
+    delegations: delegations.length,
+  }
 }
 
 async function auditDcrShutdown(
@@ -280,7 +298,7 @@ async function auditDcrShutdown(
   requestId: string,
   zoneId: string,
   mode: 'keep_live' | 'revoke_live' | 'no_live',
-  counts: { live: number; applications: number; sessions: number; agents: number; delegations: number },
+  counts: { live: number; applications: number; authorityRecords: number; sessions: number; delegations: number },
 ): Promise<void> {
   await insertAdminAuditRecord(client, {
     requestId,
@@ -299,14 +317,19 @@ async function auditDcrShutdown(
       dcr_shutdown_mode: mode,
       live_dcr_applications: counts.live,
       revoked_applications: counts.applications,
-      revoked_sessions: counts.sessions,
-      terminated_agents: counts.agents,
+      revoked_authority_records: counts.authorityRecords,
+      terminated_sessions: counts.sessions,
       revoked_delegations: counts.delegations,
     },
   })
 }
 
-async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody): Promise<ZoneRow | null | undefined> {
+async function patchZone(
+  client: Queryable,
+  id: string,
+  body: ZoneUpdateBody,
+  attribution: Attribution,
+): Promise<ZoneRow | null | undefined> {
   const update = buildPatchUpdate(
     [id],
     [
@@ -314,13 +337,15 @@ async function patchZone(client: Queryable, id: string, body: ZoneUpdateBody): P
       patchColumn('slug', body.slug),
       patchColumn('dcr_enabled', body.dcr_enabled),
       patchColumn('operator_coauthor_badge', body.operator_coauthor_badge),
+      patchColumn('operator_governed', body.operator_governed),
     ],
   )
   if (!update) return undefined
+  appendAttribution(update, attribution)
   const { rows } = await client.query<ZoneRow>(
     `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
      WHERE id = $1 AND archived_at IS NULL
-     RETURNING id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at`,
+     RETURNING ${ZONE_SELECT}`,
     update.values,
   )
   return rows[0] ?? null
@@ -343,13 +368,12 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const keyset = appendKeysetCondition({ conds, values }, page)
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at
+      `SELECT ${ZONE_SELECT}
        FROM zones WHERE ${keyset.conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT ${keyset.limitPlaceholder}`,
       keyset.values,
     )
-    setNextLink(req, reply, rows, page.limit)
-    return rows
+    return listPage(rows, page.limit)
   })
 
   fastify.post('/zones', async (req, reply) => {
@@ -364,6 +388,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
         slug: body.slug,
         dcrEnabled: body.dcr_enabled,
         ownerAccountId: req.account?.id ?? null,
+        attribution: await resolveAttribution(req, fastify.db, null),
       })
       return reply.code(201).send(row)
     } catch (err) {
@@ -376,7 +401,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
-      `SELECT id, name, slug, dcr_enabled, operator_coauthor_badge, created_at, updated_at
+      `SELECT ${ZONE_SELECT}
        FROM zones WHERE id = $1 AND archived_at IS NULL`,
       [params.id],
     )
@@ -415,8 +440,9 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.dcr_shutdown && body.dcr_enabled !== false) {
       return reply.code(400).send({ error: 'dcr_shutdown_not_applicable' })
     }
+    const attribution = await resolveAttribution(req, fastify.db, params.id)
     if (body.dcr_enabled !== false) {
-      const row = await patchZone(fastify.db, params.id, body)
+      const row = await patchZone(fastify.db, params.id, body, attribution)
       if (row === null) return reply.code(404).send({ error: 'zone_not_found' })
       if (row === undefined) return reply.code(400).send({ error: 'no_fields' })
       return row
@@ -427,6 +453,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
       [patchColumn('name', body.name), patchColumn('slug', body.slug), patchColumn('dcr_enabled', body.dcr_enabled)],
     )
     if (!update) return reply.code(400).send({ error: 'no_fields' })
+    appendAttribution(update, attribution)
     try {
       return await withTransaction(fastify.db, async (client) => {
         const { rows: zones } = await client.query<{ dcr_enabled: boolean }>(
@@ -437,13 +464,13 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
 
         const apps = zones[0].dcr_enabled || body.dcr_shutdown ? await liveDcrApplications(client, params.id, true) : []
         if (apps.length > 0 && !body.dcr_shutdown) {
-          throw new TxAbort(reply.code(409).send({ error: 'dcr_shutdown_required', live_dcr_applications: apps.length }))
+          throw new TxAbort(reply.code(409).send({ error: 'dcr_shutdown_required', details: { live_dcr_applications: apps.length } }))
         }
 
         const { rows } = await client.query<ZoneRow>(
           `UPDATE zones SET ${update.sets.join(', ')}, updated_at = now()
            WHERE id = $1 AND archived_at IS NULL
-           RETURNING id, name, slug, dcr_enabled, created_at, updated_at`,
+           RETURNING ${ZONE_SELECT}`,
           update.values,
         )
         const shutdown =
@@ -453,8 +480,9 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
                 params.id,
                 apps.map((app) => app.id),
                 req.id,
+                attribution,
               )
-            : { applications: 0, sessions: 0, agents: 0, delegations: 0 }
+            : { applications: 0, authorityRecords: 0, sessions: 0, delegations: 0 }
         if (zones[0].dcr_enabled || body.dcr_shutdown) {
           await auditDcrShutdown(
             client,
@@ -482,10 +510,11 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/zones/:id', async (req, reply) => {
     const params = parseParams(IdParams, req, reply)
     if (!params) return
+    const attribution = await resolveAttribution(req, fastify.db, params.id)
     const { rowCount } = await fastify.db.query(
-      `UPDATE zones SET archived_at = now(), updated_at = now()
+      `UPDATE zones SET archived_at = now(), updated_at = now(), updated_by = $2, updated_via_operator = $3
        WHERE id = $1 AND archived_at IS NULL`,
-      [params.id],
+      [params.id, attribution.actor, attribution.viaOperator],
     )
     if (!rowCount) return reply.code(404).send({ error: 'zone_not_found' })
     return reply.code(204).send()

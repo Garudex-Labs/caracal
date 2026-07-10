@@ -156,7 +156,7 @@ func TestCloseWaitsForReplayPersistence(t *testing.T) {
 	}
 }
 
-func TestEmitDropsWhenFull(t *testing.T) {
+func TestEmitPersistsWhenFull(t *testing.T) {
 	dir := t.TempDir()
 	var dropped atomic.Uint64
 	c, err := NewClient(&fakeStreamer{}, ClientConfig{
@@ -174,8 +174,11 @@ func TestEmitDropsWhenFull(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		c.Emit(Event{ID: "x"})
 	}
-	if dropped.Load() == 0 {
-		t.Fatal("expected drops when buffer is exhausted without consumer")
+	if dropped.Load() != 0 {
+		t.Fatalf("overflow must not drop durable events: %d", dropped.Load())
+	}
+	if c.Snapshot().Persisted != 8 {
+		t.Fatalf("overflow persisted = %d", c.Snapshot().Persisted)
 	}
 }
 
@@ -300,6 +303,35 @@ func TestPersistBatchInvokesMetricHookAndSnapshot(t *testing.T) {
 
 	c.persistBatch([]Event{{ID: "ev-1"}, {ID: "ev-2"}})
 
+	if persisted.Load() != 2 || c.Snapshot().Persisted != 2 {
+		t.Fatalf("unexpected persisted metrics hook=%d snapshot=%d", persisted.Load(), c.Snapshot().Persisted)
+	}
+	stats := ReplayStatsForDir(dir, time.Now())
+	if stats.Files != 1 {
+		t.Fatalf("want one replay file, got %d", stats.Files)
+	}
+}
+
+func TestPersistBatchRecordsMetricsWhenReplayDirSyncFails(t *testing.T) {
+	c, _, dir := newTestClient(t, nil, false)
+	var persisted atomic.Uint64
+	c.cfg.Metrics.OnReplayPersisted = func(n uint64) { persisted.Add(n) }
+
+	var syncCalled bool
+	c.syncReplayDir = func(got string) error {
+		syncCalled = true
+		if got != dir {
+			t.Fatalf("syncReplayDir got %q, want %q", got, dir)
+		}
+		return errors.New("dir sync unsupported")
+	}
+
+	if err := c.persistBatch([]Event{{ID: "ev-1"}, {ID: "ev-2"}}); err != nil {
+		t.Fatalf("persistBatch should retain written replay file metrics when dir sync fails: %v", err)
+	}
+	if !syncCalled {
+		t.Fatal("expected replay directory sync attempt")
+	}
 	if persisted.Load() != 2 || c.Snapshot().Persisted != 2 {
 		t.Fatalf("unexpected persisted metrics hook=%d snapshot=%d", persisted.Load(), c.Snapshot().Persisted)
 	}

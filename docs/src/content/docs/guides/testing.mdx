@@ -1,0 +1,129 @@
+---
+title: Test Caracal Integrations
+description: Fake the coordinator and STS behind injected HTTP clients, assert on emitted events, and run integration tests against a local runtime.
+---
+
+Caracal integrations test cleanly because every control-plane dependency enters through an injectable HTTP client: `fetchImpl` in TypeScript, `http_client` and `httpx.MockTransport` in Python, `HTTPClient` and `httptest` in Go. Fake the wire, not the SDK - your test exercises the same request construction, retry, and caching code that runs in production, and nothing reaches a network.
+
+## What to stub
+
+A governed Session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly:
+
+| Call                             | Respond with                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST /zones/{zone}/agents`      | Protocol Session-start response `{"agent_session_id": "agent-1"}`; add `heartbeat_deadline_at` for long-lived Sessions. |
+| `POST /zones/{zone}/delegations` | Protocol Delegation response `{"delegation_edge_id": "edge-1"}`.                                                        |
+| `POST .../agents/{id}/heartbeat` | `{"agent": {"status": "active", "heartbeat_deadline_at": "..."}}`                                                       |
+| `DELETE .../agents/{id}`         | `204`                                                                                                                   |
+| `POST /oauth/2/token`            | `{"access_token": "tok", "token_type": "Bearer", "expires_in": 900}`                                                    |
+
+Return an error status to exercise failure paths: a `503` drives the idempotent Session-start retry, `429` with `Retry-After` drives hinted backoff, and a `401` from an `interaction_required` body raises the approval hold.
+
+Make scoped-transport Gateway fakes replay-sensitive: remember each presented bearer and reject a duplicate with `token_replayed`. Repeated and concurrent requests must carry distinct mandates, while an application transport must still create only one source/target Session pair and one delegation per authority-cache key.
+
+## TypeScript
+
+```ts
+import { describe, expect, it, vi } from 'vitest'
+import { Caracal } from '@caracalai/sdk'
+
+it('runs work inside a governed Session', async () => {
+  const calls: { url: string; method: string }[] = []
+  const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    calls.push({ url: String(input), method: init.method ?? 'GET' })
+    if (init.method === 'POST' && String(input).endsWith('/agents')) {
+      return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+    }
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
+
+  const caracal = new Caracal({
+    coordinator: { baseUrl: 'http://coord.test', fetchImpl },
+    zoneId: 'z',
+    applicationId: 'app',
+    subjectToken: 'test-token',
+  })
+
+  const result = await caracal.session(async (ctx) => ctx.sessionId)
+
+  expect(result).toBe('agent-1')
+  expect(calls.at(-1)?.method).toBe('DELETE') // the session was retired
+})
+```
+
+## Python
+
+```python
+import httpx
+from caracalai import Caracal, CaracalConfig
+from caracalai.coordinator import CoordinatorClient
+
+
+async def test_runs_work_inside_a_governed_session() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and str(request.url).endswith("/agents"):
+            return httpx.Response(200, json={"agent_session_id": "agent-1"})
+        return httpx.Response(204)
+
+    coordinator = CoordinatorClient(
+        base_url="http://coord.test",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    caracal = Caracal(
+        CaracalConfig(
+            coordinator=coordinator,
+            zone_id="z",
+            application_id="app",
+            subject_token="test-token",
+        )
+    )
+
+    async with caracal.session() as ctx:
+        assert ctx.session_id == "agent-1"
+```
+
+## Go
+
+```go
+func TestRunsWorkInsideAGovernedSession(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"agent_session_id":"agent-1"}`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := &caracal.Caracal{
+		Coordinator:   &caracal.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "test-token",
+	}
+
+	err := client.Session(context.Background(), func(ctx context.Context) error {
+		cur, _ := caracal.Current(ctx)
+		if cur.SessionID != "agent-1" {
+			t.Fatalf("unexpected session: %s", cur.SessionID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+```
+
+## Assert on behavior, not internals
+
+Two seams make assertions precise without reaching into SDK state. The fake transport records every request, so you can assert the wire contract: an `idempotency-key` header on Session starts, the Delegation body, and termination on Session exit. `onEvent` reports control-plane operations as data, so tests can assert the expected `coordinator.call`, `token.exchange`, or `delegation.accept` events.
+
+Client-secret flows need the STS stub too: answer `POST /oauth/2/token` with a bearer and `expires_in`, and mint distinct tokens per call when the test asserts caching (a second exchange means a cache miss). For approval flows, return the `interaction_required` error body once and a token on the retry - `withApproval` completes end to end against the fake.
+
+## Integration tier
+
+Fakes prove your code; a local runtime proves the contract. `caracal up` starts the full platform on localhost, and the same test binary points at it by swapping the injected client for real URLs from `caracal status`. Keep this tier thin - a handful of end-to-end paths per integration - and let the fake-backed tests carry the matrix.
+
+Related pages: [Integrate the TypeScript SDK](/guides/sdk-typescript/), [Integrate the Python SDK](/guides/sdk-python/), and [Integrate the Go SDK](/guides/sdk-go/).

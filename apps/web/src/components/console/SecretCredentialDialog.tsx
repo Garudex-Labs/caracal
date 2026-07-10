@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { Button, Modal } from "@/components/ui";
 import { KeyGlyph } from "@/components/console/OperatorGlyphs";
+import { PROVIDER_KIND_LABEL } from "@/platform/api/types";
 
 // What the prompt shows for each credential field: the human label, the paste hint per provider
 // convention, and whether the value is a multi-line block (a PEM key) rather than a single token.
@@ -43,12 +44,9 @@ function fieldMeta(field: string) {
   );
 }
 
-const KIND_LABELS: Record<string, string> = {
-  oauth2_authorization_code: "OAuth 2.0 authorization code",
-  oauth2_client_credentials: "OAuth 2.0 client credentials",
-  api_key: "API key",
-  bearer_token: "Bearer token",
-};
+function kindLabel(kind: string): string {
+  return (PROVIDER_KIND_LABEL as Record<string, string>)[kind] ?? kind;
+}
 
 function RevealIcon({ shown }: { shown: boolean }) {
   return (
@@ -115,7 +113,7 @@ export function SecretCredentialDialog({
       open={open}
       onClose={onClose}
       title={`Credentials for ${providerName}`}
-      description={`This ${KIND_LABELS[kind] ?? kind} provider needs the values below. They are sealed into a short-lived vault, applied once when the plan runs, and never enter the chat, the plan, or the model. Unused values expire after 30 minutes.`}
+      description={`This ${kindLabel(kind)} provider needs the values below. They are sealed into a short-lived vault, applied once when the plan runs, and never enter the chat, the plan, or the model. Unused values expire after 30 minutes.`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={pending}>

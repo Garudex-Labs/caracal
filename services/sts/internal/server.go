@@ -7,13 +7,15 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 	"github.com/garudex-labs/caracal/packages/core/go/logging"
 	coremetrics "github.com/garudex-labs/caracal/packages/core/go/metrics"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/garudex-labs/caracal/packages/core/go/telemetry"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -32,6 +35,11 @@ import (
 const (
 	maxRequestBodyBytes = 64 * 1024
 	jwksCacheMaxAge     = 300
+
+	stepUpMaxWaitSeconds  = 25
+	stepUpReasonMaxLength = 500
+	stepUpSweepInterval   = time.Hour
+	stepUpRetention       = 24 * time.Hour
 )
 
 // Server holds all runtime state for the STS.
@@ -41,12 +49,13 @@ type Server struct {
 	redis              stsRedis
 	opa                *OPAEngine
 	keys               *KeyCache
+	secrets            secretstore.Backend
 	auditBuffer        *AuditBuffer
 	metrics            *STSMetrics
 	refreshGroup       singleflight.Group
 	providerTokenMu    sync.RWMutex
 	providerTokenCache map[string]providerServiceTokenCacheEntry
-	stepUpThrottle     *stepUpThrottle
+	subjectKeys        *subjectKeyCache
 	consumersReady     chan struct{}
 	log                zerolog.Logger
 }
@@ -59,6 +68,7 @@ type stsRedis interface {
 	Get(context.Context, string) (string, error)
 	Del(context.Context, string) error
 	DelIfValue(context.Context, string, string) error
+	ExpireIfValue(context.Context, string, string, time.Duration) (bool, error)
 	Exists(context.Context, string) (bool, error)
 	IncrWithExpiry(context.Context, string, time.Duration) (int64, error)
 	EnsureGroup(context.Context, string, string) error
@@ -99,18 +109,23 @@ func New(ctx context.Context) (*Server, error) {
 	}
 	rdb.SetStreamSigning(streamKey, cfg.IsPublished())
 
-	kek, err := resolveKEK(cfg.ZoneKEKProvider)
+	keyring, err := secretstore.LoadKeyring()
 	if err != nil {
 		return nil, fmt.Errorf("kek: %w", err)
 	}
 
-	keys := newKeyCache(db, kek)
+	metrics := &STSMetrics{}
+	secrets, err := newSecretBackend(cfg.SecretBackend, db, keyring, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("secret backend: %w", err)
+	}
+
+	keys := newKeyCache(db, keyring)
 	opa := newOPAEngine(db, log)
 	if err := verifyDecisionContract(); err != nil {
 		return nil, fmt.Errorf("decision contract: %w", err)
 	}
 	opa.SetPollInterval(time.Duration(cfg.OPAPollSeconds) * time.Second)
-	metrics := &STSMetrics{}
 	buf, err := newAuditBuffer(rdb, log, cfg.IsPublished(), cfg.AuditReplayDir, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("audit: %w", err)
@@ -122,9 +137,10 @@ func New(ctx context.Context) (*Server, error) {
 		redis:          rdb,
 		opa:            opa,
 		keys:           keys,
+		secrets:        secrets,
 		auditBuffer:    buf,
 		metrics:        metrics,
-		stepUpThrottle: newStepUpThrottle(),
+		subjectKeys:    newSubjectKeyCache(cfg.PrivateEgressHosts),
 		consumersReady: make(chan struct{}),
 		log:            log,
 	}, nil
@@ -139,12 +155,15 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.startConsumers(ctx)
 	go s.opa.StartPGPolling(ctx)
 	go s.opa.SeedZones(ctx)
+	go s.startStepUpSweeper(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/2/token", s.handleTokenExchange)
+	mux.HandleFunc("POST /v1/run/manifest", s.handleRunManifest)
+	mux.HandleFunc("POST /v1/run/credential", s.handleRunCredential)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /step-up/{id}", s.handleStepUpStatus)
-	mux.HandleFunc("POST /internal/step-up/{id}/approve", s.handleApproveStepUp)
+	mux.HandleFunc("POST /step-up/{id}/decision", s.handleStepUpDecision)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /ready", s.handleReady)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -206,7 +225,7 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]JWKSEntry, 0, len(secrets))
 	for _, secret := range secrets {
-		keyBytes, err := sharedcrypto.Open(s.keys.zek, secret.Nonce, secret.Ciphertext)
+		keyBytes, err := s.keys.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)
 		if err != nil {
 			s.metrics.JWKSInvalidKeys.Add(1)
 			s.log.Warn().Err(err).Str("zone", zoneID).Str("kid", secret.ID).Str("reason", "decrypt").Msg("jwks: skipped invalid signing key")
@@ -239,66 +258,225 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleStepUpStatus reports the lifecycle state of a challenge and nothing else. The
+// challenge id is an unguessable capability held by the party that received the 401,
+// and the body discloses no approver identity, no request metadata, and no bindings,
+// so polling it leaks nothing worth authenticating. An optional wait parameter
+// long-polls until the state leaves pending or the window closes, replacing tight
+// client-side polling loops.
 func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 	challengeID := r.PathValue("id")
 	if _, err := uuid.Parse(challengeID); err != nil {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
 		return
 	}
-	c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
-		return
+	wait := time.Duration(0)
+	if raw := r.URL.Query().Get("wait"); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 0 {
+			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid wait"))
+			return
+		}
+		if seconds > stepUpMaxWaitSeconds {
+			seconds = stepUpMaxWaitSeconds
+		}
+		wait = time.Duration(seconds) * time.Second
 	}
-	metadata := c.MetadataJSON
-	if len(metadata) == 0 {
-		metadata = []byte("{}")
+	if wait > 0 {
+		// The server-wide write timeout is shorter than the poll window, so the
+		// deadline is extended for exactly this response.
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Now().Add(wait + 5*time.Second))
 	}
+	deadline := time.Now().Add(wait)
+	for {
+		c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+			return
+		}
+		now, err := s.db.CurrentTime(r.Context())
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
+			return
+		}
+		state := challengeLifecycleState(c, now)
+		if state != ChallengeStatePending || !time.Now().Before(deadline) {
+			writeStepUpState(w, c, state)
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func writeStepUpState(w http.ResponseWriter, c *StepUpChallengePG, state string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-		"id":             c.ID,
-		"challenge_type": c.ChallengeType,
-		"satisfied":      c.SatisfiedAt != nil,
-		"consumed":       c.ConsumedAt != nil,
-		"expires_at":     c.ExpiresAt.Format(time.RFC3339),
-		"approver":       c.ApproverSubjectID,
-		"metadata":       json.RawMessage(metadata),
+		"id":         c.ID,
+		"state":      state,
+		"expires_at": c.ExpiresAt.Format(time.RFC3339),
 	})
 }
 
-// handleApproveStepUp lets the control plane record an authenticated approver
-// satisfying a pending human-approval challenge. The control plane authenticates the
-// human approver and presents the approver's subject id; STS owns the durable artifact
-// and the single-use, bound consumption that the mandate mint then requires. The update
-// only lands on a live, unsatisfied human-approval challenge, so it can neither approve
-// an mfa challenge nor resurrect an expired or already consumed one.
-func (s *Server) handleApproveStepUp(w http.ResponseWriter, r *http.Request) {
-	if !s.adminAuthorized(w, r) {
-		return
-	}
+// handleStepUpDecision records an approver's decision on a pending hold from the
+// subject plane: the approver is an authenticated end user of the requesting
+// application, presenting the session mandate that application minted for them.
+// Caracal never learns who the application's users are beyond this mandate; the
+// application owns the approval surface and relays only the challenge id and binding.
+// The guards, in order: the mandate must verify for the challenge's zone and belong to
+// a user, its session must be live and minted by the very application the hold binds,
+// the hold must admit subject decisions, the approver's session may not share a
+// delegation lineage with the session that raised the hold, and the echoed binding
+// must match the hold exactly. The decision record applies the tier's privacy mode.
+func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 	challengeID := r.PathValue("id")
 	if _, err := uuid.Parse(challengeID); err != nil {
 		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
 		return
 	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="caracal-sts"`)
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "session mandate required"))
+		return
+	}
 	var body struct {
-		ZoneID            string `json:"zone_id"`
-		ApproverSubjectID string `json:"approver_subject_id"`
+		Decision string `json:"decision"`
+		Binding  string `json:"binding"`
+		Reason   string `json:"reason"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
 		return
 	}
-	if body.ZoneID == "" || body.ApproverSubjectID == "" {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "zone_id and approver_subject_id required"))
+	if body.Decision != "approved" && body.Decision != "rejected" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "decision must be approved or rejected"))
 		return
 	}
-	if err := s.db.ApproveStepUpChallenge(r.Context(), challengeID, body.ZoneID, body.ApproverSubjectID); err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "no pending human-approval challenge for this id"))
+	if len(body.Reason) > stepUpReasonMaxLength {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "reason too long"))
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"approved": true, "challenge_id": challengeID})
+	c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+	if err != nil || c.ChallengeType != humanApprovalChallengeType {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+		return
+	}
+	claims, err := s.validateSubjectToken(r.Context(), token, c.ZoneID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid session mandate"))
+		return
+	}
+	if claimString(claims, "sub_type") != SubTypeUser {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approver must be a user session"))
+		return
+	}
+	if c.ApplicationID == "" {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "challenge does not admit subject decisions"))
+		return
+	}
+	approverAuthorityRecordID, serr := s.validateAuthorityRecord(r.Context(), c.ZoneID, c.ApplicationID, "", claims)
+	if serr != nil {
+		writeError(w, http.StatusForbidden, serr)
+		return
+	}
+	if c.ApproverClass != ApproverClassSubject && c.ApproverClass != ApproverClassAny {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval requires an operator decision"))
+		return
+	}
+	related, err := s.db.AuthorityRecordsRelated(r.Context(), c.ZoneID, approverAuthorityRecordID, c.AuthorityRecordID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "authority record lineage unavailable"))
+		return
+	}
+	if related {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "an approver cannot decide a hold raised by its own authority record lineage"))
+		return
+	}
+	if body.Binding != hex.EncodeToString(c.ResourceSetHash) {
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "binding does not match this challenge"))
+		return
+	}
+	decideErr := s.db.DecideStepUpChallenge(r.Context(), DecideStepUpParams{
+		ID:                        c.ID,
+		ZoneID:                    c.ZoneID,
+		Approve:                   body.Decision == "approved",
+		ApproverSubjectID:         approverRecordID(c.PrivacyMode, c.ZoneID, claimString(claims, "sub")),
+		ApproverAuthorityRecordID: approverAuthorityRecordID,
+		Reason:                    body.Reason,
+	})
+	if decideErr != nil {
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "challenge is not pending"))
+		return
+	}
+	if auditErr := s.emitStepUpAudit(c.ID, c.ZoneID, "step_up_decided", body.Decision,
+		mergeAuditMeta(stepUpAuditMeta(c), map[string]any{
+			"approver_plane":      "subject",
+			"approver_session_id": approverAuthorityRecordID,
+		})); auditErr != nil {
+		writeError(w, http.StatusInternalServerError, auditErr)
+		return
+	}
+	updated, err := s.db.GetStepUpChallenge(r.Context(), c.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge reload failed"))
+		return
+	}
+	now, err := s.db.CurrentTime(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
+		return
+	}
+	writeStepUpState(w, updated, challengeLifecycleState(updated, now))
+}
+
+// approverRecordID applies a hold's privacy mode to the approver identity the decision
+// record retains. identified stores the subject verbatim; pseudonymous stores a stable
+// zone-scoped pseudonym so decisions by one approver correlate without naming anyone;
+// anonymous stores only a redaction marker. Every mode retains the approver's authority
+// record id separately as the forensic and revocation anchor.
+func approverRecordID(privacyMode, zoneID, sub string) string {
+	switch privacyMode {
+	case PrivacyAnonymous:
+		return "subject:redacted"
+	case PrivacyPseudonymous:
+		sum := sha256.Sum256([]byte(zoneID + "\x00" + sub))
+		return "subject:pseudonym:" + hex.EncodeToString(sum[:8])
+	default:
+		return "subject:" + sub
+	}
+}
+
+// startStepUpSweeper deletes challenge rows whose lifecycle ended more than the
+// retention window ago. The audit stream is the durable record; the table only needs
+// terminal rows long enough for operators to inspect recent decisions.
+func (s *Server) startStepUpSweeper(ctx context.Context) {
+	ticker := time.NewTicker(stepUpSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now, err := s.db.CurrentTime(ctx)
+			if err != nil {
+				s.log.Warn().Err(err).Msg("step-up sweep: trusted time unavailable")
+				continue
+			}
+			deleted, err := s.db.DeleteExpiredStepUpChallenges(ctx, now.Add(-stepUpRetention))
+			if err != nil {
+				s.log.Warn().Err(err).Msg("step-up sweep failed")
+				continue
+			}
+			if deleted > 0 {
+				s.log.Info().Int64("deleted", deleted).Msg("step-up sweep purged terminal challenges")
+			}
+		}
+	}
 }
 
 func (s *Server) handleRotateZoneSigningKey(w http.ResponseWriter, r *http.Request) {
@@ -416,6 +594,8 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		{Name: "caracal_sts_audit_replay_replayed_total", Help: "STS audit events replayed after sink recovery", Type: coremetrics.Counter, Value: float64(sts.AuditReplayReplayed)},
 		{Name: "caracal_sts_audit_sink_errors_total", Help: "STS audit sink publish errors", Type: coremetrics.Counter, Value: float64(sts.AuditSinkErrors)},
 		{Name: "caracal_sts_jwks_invalid_keys_total", Help: "STS signing keys skipped because JWKS validation failed", Type: coremetrics.Counter, Value: float64(sts.JWKSInvalidKeys)},
+		{Name: "caracal_sts_secret_backend_reads_total", Help: "Secret backend reads attempted by the data plane", Type: coremetrics.Counter, Value: float64(sts.SecretBackendReads)},
+		{Name: "caracal_sts_secret_backend_errors_total", Help: "Secret backend reads that failed", Type: coremetrics.Counter, Value: float64(sts.SecretBackendErrors)},
 		{Name: "caracal_sts_provider_refresh_shared_total", Help: "STS provider credential refresh calls served by a shared in-process result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshShared)},
 		{Name: "caracal_sts_provider_refresh_leased_total", Help: "STS provider credential refresh calls that acquired the distributed refresh lease", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshLeased)},
 		{Name: "caracal_sts_provider_refresh_waited_total", Help: "STS provider credential refresh calls that waited for a distributed peer result", Type: coremetrics.Counter, Value: float64(sts.ProviderRefreshWaited)},
@@ -444,63 +624,4 @@ func (s *Server) handleMetricsJSON(w http.ResponseWriter, r *http.Request) {
 		"opa":           s.opa.MetricsSnapshot(),
 		"audit_dropped": s.auditBuffer.Dropped(),
 	})
-}
-
-// resolveKEK loads the 32-byte zone encryption key. ZONE_KEK is mandatory in every
-// environment: an all-zero fallback would let any database snapshot decrypt every
-// zone's signing keys.
-func resolveKEK(provider string) ([]byte, error) {
-	switch provider {
-	case "local", "":
-		raw := os.Getenv("ZONE_KEK")
-		if raw == "" {
-			return nil, errors.New("ZONE_KEK is required")
-		}
-		b, err := hex.DecodeString(raw)
-		if err != nil {
-			return nil, fmt.Errorf("ZONE_KEK: %w", err)
-		}
-		if len(b) != 32 {
-			return nil, fmt.Errorf("ZONE_KEK must be 32 bytes, got %d", len(b))
-		}
-		if reason := weakKEKReason(b); reason != "" {
-			return nil, errors.New(reason)
-		}
-		return b, nil
-	default:
-		return nil, fmt.Errorf("unsupported KEK provider: %s", provider)
-	}
-}
-
-func weakKEKReason(b []byte) string {
-	allSame := true
-	ascending := true
-	descending := true
-	alternating := true
-	for i := 1; i < len(b); i++ {
-		if b[i] != b[0] {
-			allSame = false
-		}
-		if int(b[i]) != int(b[i-1])+1 {
-			ascending = false
-		}
-		if int(b[i]) != int(b[i-1])-1 {
-			descending = false
-		}
-		if i >= 2 && b[i] != b[i%2] {
-			alternating = false
-		}
-	}
-	switch {
-	case allSame && b[0] == 0:
-		return "ZONE_KEK must not be all zeros"
-	case allSame:
-		return "ZONE_KEK must not repeat the same byte"
-	case ascending || descending:
-		return "ZONE_KEK must not use a sequential byte pattern"
-	case alternating:
-		return "ZONE_KEK must not use a repeating byte pattern"
-	default:
-		return ""
-	}
 }

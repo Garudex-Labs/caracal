@@ -13,7 +13,7 @@ import {
 
 import type { Actor } from './auth.js'
 
-const TRAIT_MAX_COUNT = 32
+const TRAIT_MAX_COUNT = 64
 const TRAIT_MAX_LENGTH = 128
 const TRAIT_PATTERN = /^[A-Za-z][A-Za-z0-9._:-]*$/
 const PRIVILEGED_NAMESPACES = ['control', 'caracal.sys'] as const
@@ -22,7 +22,7 @@ const CONTROL_MAX_TTL_SECONDS = 900
 
 export interface TraitError {
   error: string
-  detail: string
+  error_description: string
 }
 
 let controlScopeCatalog: Set<string> | undefined
@@ -60,34 +60,34 @@ function validateControlTrait(trait: string): string | null {
 export function validateTraits(traits: readonly string[] | undefined, actor: Actor): TraitError | null {
   if (traits === undefined) return null
   if (traits.length > TRAIT_MAX_COUNT) {
-    return { error: 'trait_count_exceeded', detail: `at most ${TRAIT_MAX_COUNT} traits allowed` }
+    return { error: 'trait_count_exceeded', error_description: `at most ${TRAIT_MAX_COUNT} traits allowed` }
   }
   const seen = new Set<string>()
   let maxTtlCount = 0
   let expiresCount = 0
   for (const trait of traits) {
     if (typeof trait !== 'string' || trait.length === 0 || trait.length > TRAIT_MAX_LENGTH) {
-      return { error: 'trait_invalid', detail: `traits must be 1..${TRAIT_MAX_LENGTH} chars` }
+      return { error: 'trait_invalid', error_description: `traits must be 1..${TRAIT_MAX_LENGTH} chars` }
     }
     if (!TRAIT_PATTERN.test(trait)) {
-      return { error: 'trait_invalid', detail: `trait '${trait}' violates [A-Za-z][A-Za-z0-9._:-]* format` }
+      return { error: 'trait_invalid', error_description: `trait '${trait}' violates [A-Za-z][A-Za-z0-9._:-]* format` }
     }
     if (seen.has(trait)) {
-      return { error: 'trait_duplicate', detail: `duplicate trait '${trait}'` }
+      return { error: 'trait_duplicate', error_description: `duplicate trait '${trait}'` }
     }
     seen.add(trait)
     const namespace = trait.split(':', 1)[0]!
     if (PRIVILEGED_NAMESPACES.includes(namespace as (typeof PRIVILEGED_NAMESPACES)[number]) && actor.scope !== 'global') {
-      return { error: 'trait_forbidden', detail: `trait namespace '${namespace}' requires global admin scope` }
+      return { error: 'trait_forbidden', error_description: `trait namespace '${namespace}' requires global admin scope` }
     }
     if (namespace === 'control') {
-      const detail = validateControlTrait(trait)
-      if (detail) return { error: 'trait_invalid', detail }
+      const reason = validateControlTrait(trait)
+      if (reason) return { error: 'trait_invalid', error_description: reason }
       if (trait.startsWith(CONTROL_MAX_TTL_TRAIT_PREFIX) && ++maxTtlCount > 1) {
-        return { error: 'trait_invalid', detail: 'at most one control max TTL trait allowed' }
+        return { error: 'trait_invalid', error_description: 'at most one control max TTL trait allowed' }
       }
       if (trait.startsWith(CONTROL_EXPIRES_TRAIT_PREFIX) && ++expiresCount > 1) {
-        return { error: 'trait_invalid', detail: 'at most one control expiry trait allowed' }
+        return { error: 'trait_invalid', error_description: 'at most one control expiry trait allowed' }
       }
     }
   }

@@ -13,7 +13,8 @@ import { startDeadlineEnforcer } from './jobs/deadline-enforcer.js'
 import { startRetentionCleaner } from './jobs/retention-cleaner.js'
 import { startLifecycleRelay } from './jobs/lifecycle-relay.js'
 import { cfg } from './config.js'
-import { assertPublishedSafe, createLogger, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/core'
+import { createLogger } from '@caracalai/core'
+import { assertPublishedSafe, initNodeTelemetry, ShutdownRegistry, withTimeout } from '@caracalai/server-core'
 
 assertPublishedSafe()
 
@@ -24,7 +25,7 @@ const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string
 const shutdownTelemetry = initNodeTelemetry('caracal-coordinator', { error: (msg, meta) => log('error', msg, meta) })
 
 process.on('unhandledRejection', (reason) => {
-  log('error', 'unhandledRejection', { reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) })
+  log('error', 'unhandledRejection', { reason: reason instanceof Error ? (reason.stack ?? reason.message) : String(reason) })
   process.exit(1)
 })
 process.on('uncaughtException', (err) => {

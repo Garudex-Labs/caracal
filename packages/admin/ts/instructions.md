@@ -5,6 +5,8 @@
 
 ## Architecture Design
 - `AdminClient` is the typed HTTP wrapper for the control-plane API and coordinator API.
+- `ControlClient` mints a scoped, single-use Caracal token per call and invokes governed control commands.
+- `ensure*` reconcilers converge applications, providers, resources, and policy sets idempotently over `AdminClient`.
 - Callers provide URLs and tokens explicitly; this package performs no environment or disk discovery.
 
 ## Required

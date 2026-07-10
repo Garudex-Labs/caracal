@@ -15,7 +15,15 @@ import { hasSession } from "@/platform/auth/guards";
 import { content } from "@/platform/content/resolver";
 
 export const Route = createFileRoute("/sign-in")({
-  beforeLoad: async () => {
+  validateSearch: (search: Record<string, unknown>): { error?: string } => ({
+    ...(typeof search.error === "string" ? { error: search.error } : {}),
+  }),
+  beforeLoad: async ({ search }) => {
+    // OAuth denials arrive as an error redirect from the auth backend. Both the registration
+    // and the sign-in rejection land on the same uniform page, before any UI flashes.
+    if (search.error === "access_denied" || search.error === "registration_not_permitted") {
+      throw redirect({ to: "/access-denied" });
+    }
     if (await hasSession()) throw redirect({ to: "/app" });
   },
   component: SignInPage,
@@ -36,7 +44,8 @@ function SignInPage() {
   useEffect(() => {
     let active = true;
     fetchEnabledProviders().then((enabled) => {
-      if (active) setResetAvailable(enabled.passwordReset);
+      if (!active) return;
+      setResetAvailable(enabled.passwordReset);
     });
     return () => {
       active = false;
@@ -50,6 +59,10 @@ function SignInPage() {
     const { error: signInError } = await signIn.email({ email, password, rememberMe: remember });
     setBusy(false);
     if (signInError) {
+      if (signInError.message === "access_denied") {
+        navigate({ to: "/access-denied" });
+        return;
+      }
       setError(signInError.message ?? "Could not sign in.");
       return;
     }

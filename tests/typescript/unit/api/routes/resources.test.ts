@@ -21,11 +21,11 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual([{ id: 'res-demo', identifier: 'demo-api', created_at: '2026-05-25T00:00:00.000Z' }])
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('r.identifier <> $2'),
-      ['z1', 'caracal-control', 200],
-    )
+    expect(JSON.parse(res.body)).toEqual({
+      items: [{ id: 'res-demo', identifier: 'demo-api', created_at: '2026-05-25T00:00:00.000Z' }],
+      next_cursor: null,
+    })
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), ['z1', 'caracal-control', 200])
   })
 
   it('lets the Control path include the Control API resource', async () => {
@@ -41,11 +41,35 @@ describe('GET /v1/zones/:zoneId/resources', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual([{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }])
-    expect(db.query).not.toHaveBeenCalledWith(
-      expect.stringContaining('r.identifier <> $2'),
-      expect.anything(),
-    )
+    expect(JSON.parse(res.body)).toEqual({
+      items: [{ id: 'res-control', identifier: 'caracal-control', created_at: '2026-05-25T00:00:00.000Z' }],
+      next_cursor: null,
+    })
+    expect(db.query).not.toHaveBeenCalledWith(expect.stringContaining('r.identifier <> $2'), expect.anything())
+  })
+
+  it('lists archived resources for audit when requested', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [{ id: 'res-retired', identifier: 'resource://not-hotdog', archived_at: '2026-07-01T00:00:00.000Z' }],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/resources?status=archived',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).items).toHaveLength(1)
+    expect(String(db.query.mock.calls[0][0])).toContain('r.archived_at IS NOT NULL')
+  })
+
+  it('rejects an unknown status filter', async () => {
+    const { app } = buildRouteApp(resourcesRoutes)
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/resources?status=all' })
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -78,7 +102,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         name: 'a'.repeat(201),
         upstream_url: 'https://api.pipernet.example',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
       },
     })
@@ -95,7 +118,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     const base = {
       name: 'PiperNet',
       upstream_url: 'https://api.pipernet.example',
-      gateway_application_id: 'app-1',
       credential_provider_id: 'provider-1',
     }
     const tooManyScopes = await app.inject({
@@ -126,9 +148,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects provider references outside the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
@@ -148,9 +168,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects relative or provider-shaped resource identifiers', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     for (const identifier of ['pipernet', 'provider://pipernet']) {
@@ -161,7 +179,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
           identifier,
           upstream_url: 'https://api.pipernet.example',
           scopes: ['read'],
-          gateway_application_id: 'app-1',
           credential_provider_id: 'provider-1',
         },
       })
@@ -174,9 +191,7 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('rejects resources without Gateway routing', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ exists: 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -205,7 +220,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       payload: {
         identifier: 'resource://api',
         upstream_url: 'https://api.example.com',
-        gateway_application_id: 'app-1',
         scopes: ['read'],
       },
     })
@@ -215,53 +229,22 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('requires a gateway application for gateway-routed resources', async () => {
+  it('creates the resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/resources',
-      payload: {
-        identifier: 'resource://api',
-        upstream_url: 'https://api.example.com',
-        scopes: ['read'],
-        credential_provider_id: 'provider-1',
-      },
-    })
-
-    expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_application_required' })
-    expect(db.connect).not.toHaveBeenCalled()
-  })
-
-  it('creates a gateway binding atomically with upstream resources', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+      .mockResolvedValueOnce({
+        rows: [
+          {
             id: 'res-1',
             zone_id: 'z1',
             identifier: 'resource://api',
             upstream_url: 'https://api.example.com',
             scopes: ['read'],
-          }],
-        })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
-    db.connect.mockResolvedValueOnce(client)
+          },
+        ],
+      })
 
     await app.ready()
     const res = await app.inject({
@@ -271,29 +254,20 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         identifier: 'resource://api',
         upstream_url: 'https://api.example.com',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
       },
     })
 
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', gateway_application_id: 'app-1' })
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api', 'z1', 'app-1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
-    expect(client.query).toHaveBeenCalledWith('COMMIT')
-    expect(client.release).toHaveBeenCalled()
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', identifier: 'resource://api' })
+    const insertValues = db.query.mock.calls[2]![1] as unknown[]
+    expect(insertValues[6]).toBe('provider-1')
+    expect(db.connect).not.toHaveBeenCalled()
   })
 
   it('rejects operations whose scope is not declared on the resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
     const res = await app.inject({
@@ -303,7 +277,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         identifier: 'resource://nucleus',
         upstream_url: 'https://api.pipernet.example',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
         operations: [{ method: 'get', path: '/api/get_payment', scope: 'write' }],
       },
@@ -316,11 +289,12 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('defaults new gateway resources to enforced operation authority', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
             id: 'res-1',
             zone_id: 'z1',
             identifier: 'resource://nucleus',
@@ -328,18 +302,9 @@ describe('POST /v1/zones/:zoneId/resources', () => {
             scopes: ['read'],
             operations: [{ method: 'GET', path: '/api/get_payment', scope: 'read' }],
             operation_enforcement: 'enforced',
-          }],
-        })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
-    db.connect.mockResolvedValueOnce(client)
+          },
+        ],
+      })
 
     await app.ready()
     const res = await app.inject({
@@ -349,13 +314,12 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         identifier: 'resource://nucleus',
         upstream_url: 'https://api.pipernet.example',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
         operations: [{ method: 'get', path: '/api/get_payment', scope: 'read' }],
       },
     })
 
-    const insertValues = client.query.mock.calls[1]![1] as unknown[]
+    const insertValues = db.query.mock.calls[2]![1] as unknown[]
     expect(res.statusCode).toBe(201)
     expect(insertValues[7]).toBe(JSON.stringify([{ method: 'GET', path: '/api/get_payment', scope: 'read' }]))
     expect(insertValues[8]).toBe('enforced')
@@ -363,30 +327,22 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
   it('suffixes generated resource identifiers when the resource name already exists in the zone', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-2',
-            zone_id: 'z1',
-            identifier: 'resource://api-2',
-            upstream_url: 'https://api.example.com',
-            scopes: ['read'],
-          }],
-        })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
-    db.connect.mockResolvedValueOnce(client)
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'res-2',
+            zone_id: 'z1',
+            identifier: 'resource://api-2',
+            upstream_url: 'https://api.example.com',
+            scopes: ['read'],
+          },
+        ],
+      })
 
     await app.ready()
     const res = await app.inject({
@@ -396,18 +352,13 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         name: 'API',
         upstream_url: 'https://api.example.com',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
       },
     })
 
-    const insertValues = client.query.mock.calls[1]![1] as unknown[]
+    const insertValues = db.query.mock.calls[4]![1] as unknown[]
     expect(res.statusCode).toBe(201)
     expect(insertValues[3]).toBe('resource://api-2')
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api-2', 'z1', 'app-1'],
-    )
   })
 
   it('returns conflict for explicit duplicate resource identifiers', async () => {
@@ -416,18 +367,10 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       code: '23505',
       constraint: 'resources_zone_id_identifier_key',
     })
-    const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockRejectedValueOnce(conflict)
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    }
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
-    db.connect.mockResolvedValueOnce(client)
+      .mockRejectedValueOnce(conflict)
 
     await app.ready()
     const res = await app.inject({
@@ -437,15 +380,12 @@ describe('POST /v1/zones/:zoneId/resources', () => {
         identifier: 'resource://api',
         upstream_url: 'https://api.example.com',
         scopes: ['read'],
-        gateway_application_id: 'app-1',
         credential_provider_id: 'provider-1',
       },
     })
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_identifier_conflict' })
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
-    expect(client.release).toHaveBeenCalled()
   })
 
   it('rejects resource creation when the zone resource quota is exhausted', async () => {
@@ -454,7 +394,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
       .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'managed' }] })
       .mockResolvedValueOnce({ rows: [{ resource_count: '1' }] })
 
     await app.ready()
@@ -464,7 +403,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       payload: {
         identifier: 'resource://api',
         upstream_url: 'https://api.example.com',
-        gateway_application_id: 'app-1',
         scopes: ['read'],
         credential_provider_id: 'provider-1',
       },
@@ -472,31 +410,6 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_quota_exceeded' })
-    expect(db.connect).not.toHaveBeenCalled()
-  })
-
-  it('rejects binding a DCR application as the Gateway identity', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
-      .mockResolvedValueOnce({ rows: [{ registration_method: 'dcr' }] })
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/resources',
-      payload: {
-        identifier: 'resource://api',
-        upstream_url: 'https://api.example.com',
-        scopes: ['read'],
-        gateway_application_id: 'dcr-app',
-        credential_provider_id: 'provider-1',
-      },
-    })
-
-    expect(res.statusCode).toBe(400)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_exchange_application_must_be_managed' })
     expect(db.connect).not.toHaveBeenCalled()
   })
 
@@ -543,29 +456,10 @@ describe('POST /v1/zones/:zoneId/resources', () => {
 })
 
 describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
-  it('rejects gateway application rebinding outside the zone', async () => {
-    const { app, db } = buildRouteApp(resourcesRoutes)
-    db.query.mockResolvedValueOnce({ rows: [] })
-
-    await app.ready()
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/v1/zones/z1/resources/res-1',
-      payload: { gateway_application_id: 'app-other-zone' },
-    })
-
-    expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'gateway_application_not_found' })
-    expect(db.query).toHaveBeenCalledTimes(1)
-  })
-
   it('returns 404 when the resource is missing during patch', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -582,18 +476,22 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('returns no_fields when patch does not change resource data or gateway binding', async () => {
+  it('returns no_fields when patch does not change resource data', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              scopes: ['read'],
+              operations: [],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -628,32 +526,34 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
     expect(db.query).toHaveBeenCalledTimes(1)
   })
 
-  it('moves the gateway binding when the resource identifier changes', async () => {
+  it('patches the resource identifier in place', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              scopes: ['read'],
+              operations: [],
+            },
+          ],
         })
         .mockResolvedValueOnce({
-          rows: [{
-            id: 'res-1',
-            zone_id: 'z1',
-            identifier: 'resource://api/v2',
-            upstream_url: 'https://api.example.com',
-            scopes: ['read'],
-          }],
+          rows: [
+            {
+              id: 'res-1',
+              zone_id: 'z1',
+              identifier: 'resource://api/v2',
+              upstream_url: 'https://api.example.com',
+              scopes: ['read'],
+            },
+          ],
         })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
@@ -669,33 +569,27 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
       identifier: 'resource://api/v2',
-      gateway_application_id: 'app-1',
     })
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM gateway_resource_bindings'),
-      ['resource://api', 'z1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO gateway_resource_bindings'),
-      ['resource://api/v2', 'z1', 'app-1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE resources'), expect.arrayContaining(['res-1', 'z1']))
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('rejects resource identifier patches that use the provider namespace', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'resource://api',
-            upstream_url: 'https://api.example.com',
-            credential_provider_id: 'provider-1',
-            gateway_application_id: 'app-1',
-          }],
+          rows: [
+            {
+              identifier: 'resource://api',
+              upstream_url: 'https://api.example.com',
+              credential_provider_id: 'provider-1',
+              scopes: ['read'],
+              operations: [],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -718,15 +612,19 @@ describe('PATCH /v1/zones/:zoneId/resources/:id', () => {
   it('blocks generic edits to the Control API resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            identifier: 'caracal-control',
-            upstream_url: null,
-            credential_provider_id: null,
-            gateway_application_id: null,
-          }],
+          rows: [
+            {
+              identifier: 'caracal-control',
+              upstream_url: null,
+              credential_provider_id: null,
+              scopes: ['control:agent:write'],
+              operations: [],
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -750,10 +648,7 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
   it('returns 404 when deleting a missing resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -769,14 +664,13 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('archives the resource and removes its gateway binding atomically', async () => {
+  it('archives the resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ identifier: 'resource://api' }] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
@@ -790,13 +684,7 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
     })
 
     expect(res.statusCode).toBe(204)
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM gateway_resource_bindings'),
-      ['resource://api', 'z1'],
-    )
-    expect(client.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE gateway_binding_revision'),
-    )
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('SET archived_at = now()'), expect.arrayContaining(['res-1', 'z1']))
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     expect(client.release).toHaveBeenCalled()
   })
@@ -804,7 +692,8 @@ describe('DELETE /v1/zones/:zoneId/resources/:id', () => {
   it('blocks deletion of the Control API resource', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     const client = {
-      query: vi.fn()
+      query: vi
+        .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ identifier: 'caracal-control' }] })
         .mockResolvedValueOnce({ rows: [] }),

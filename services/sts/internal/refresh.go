@@ -11,8 +11,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -26,12 +28,11 @@ import (
 	"strings"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -68,72 +69,72 @@ type distributedRefreshResult struct {
 	Description string         `json:"description,omitempty"`
 }
 
-func sealZEK(zek, plaintext []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.New(zek)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	ct := aead.Seal(nil, nonce, plaintext, nil)
-	return append(nonce, ct...), nil
-}
-
-func openZEK(zek, packed []byte) ([]byte, error) {
-	aead, err := chacha20poly1305.New(zek)
-	if err != nil {
-		return nil, err
-	}
-	ns := aead.NonceSize()
-	if len(packed) < ns {
-		return nil, errors.New("ciphertext too short")
-	}
-	return aead.Open(nil, packed[:ns], packed[ns:], nil)
-}
-
-// tryRefreshBrokeredGrant fetches the delegated grant for userID+resourceID,
-// refreshes the provider access token if expired, and updates the grant.
-func (s *Server) tryRefreshBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
-	if userID == "" {
+// tryRefreshProviderConnection fetches the subject's provider connection, refreshes
+// the upstream access token if it is expired or inside the refresh skew, and updates
+// the connection. Connections without an expiry are non-expiring upstream tokens and
+// are served as stored.
+func (s *Server) tryRefreshProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) *sharederr.CaracalError {
+	if subjectID == "" {
 		return nil
 	}
-	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
+	connection, err := s.db.GetProviderConnection(ctx, zoneID, subjectID, providerID)
 	if err != nil {
+		return nil
+	}
+	if connection.ExpiresAt == nil {
 		return nil
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
-		return nil
-	}
-	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
+	renewable := len(connection.RefreshTokenCt) > 0 && connection.ProviderID != nil
+	if !renewable {
+		if connection.ExpiresAt.After(now) {
+			return nil
+		}
+		s.markProviderConnectionExpired(ctx, connection.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	return s.coordinatedGrantRefresh(ctx, refreshGrantKey(zoneID, userID, resourceID, providerID, grant), func(runCtx context.Context) *sharederr.CaracalError {
-		return s.refreshExpiredBrokeredGrant(runCtx, zoneID, userID, resourceID, providerID)
+	// Renewable connections refresh inside the same skew the service-token cache uses,
+	// so the gateway is never handed an upstream token that dies mid-request.
+	if connection.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+		return nil
+	}
+	return s.coordinatedGrantRefresh(ctx, refreshConnectionKey(zoneID, subjectID, providerID, connection), func(runCtx context.Context) *sharederr.CaracalError {
+		return s.refreshExpiredProviderConnection(runCtx, zoneID, subjectID, providerID)
 	})
 }
 
-func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID, resourceID string, providerID *string) *sharederr.CaracalError {
-	grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, providerID)
+func (s *Server) markProviderConnectionExpired(ctx context.Context, connectionID string) {
+	if err := s.db.MarkProviderConnectionExpired(ctx, connectionID); err != nil {
+		s.log.Warn().Err(err).Str("connection_id", connectionID).Msg("provider connection expiry transition failed")
+	}
+}
+
+func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) *sharederr.CaracalError {
+	connection, err := s.db.GetProviderConnection(ctx, zoneID, subjectID, providerID)
 	if err != nil {
+		return nil
+	}
+	if connection.ExpiresAt == nil {
 		return nil
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if grant.ExpiresAt != nil && grant.ExpiresAt.After(now) {
-		return nil
-	}
-	if len(grant.RefreshTokenCt) == 0 || grant.ProviderID == nil {
+	if len(connection.RefreshTokenCt) == 0 || connection.ProviderID == nil {
+		if connection.ExpiresAt.After(now) {
+			return nil
+		}
+		s.markProviderConnectionExpired(ctx, connection.ID)
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	provider, err := s.db.GetProvider(ctx, *grant.ProviderID)
+	if connection.ExpiresAt.After(now.Add(providerTokenCacheSkew)) {
+		return nil
+	}
+	provider, err := s.db.GetProvider(ctx, *connection.ProviderID)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -144,24 +145,25 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 		TokenEndpoint     string            `json:"token_endpoint"`
 		ClientID          string            `json:"client_id"`
 		ClientAuthMethod  string            `json:"client_auth_method"`
+		AuthScheme        string            `json:"auth_scheme"`
 		AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 		TokenParams       map[string]string `json:"token_params"`
 	}
 	if err := json.Unmarshal(provider.ConfigJSON, &provCfg); err != nil || provCfg.TokenEndpoint == "" || provCfg.ClientID == "" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	secretConfig, _, err := s.providerSecretConfig(ctx, provider)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	tokenEndpoint, err := validateTokenEndpoint(provCfg.TokenEndpoint, provCfg.AllowedTokenHosts)
+	tokenEndpoint, err := validateTokenEndpoint(provCfg.TokenEndpoint, provCfg.AllowedTokenHosts, s.cfg.PrivateEgressHosts)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential endpoint not allowed")
 	}
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return sharederr.New(sharederr.CredentialExpired, "provider refresh circuit open")
 	}
-	refreshToken, err := openZEK(s.keys.zek, grant.RefreshTokenCt)
+	refreshToken, err := s.keys.keyring.Open(connection.RefreshTokenCt, secretstore.AADConnectionRefreshToken)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
@@ -170,27 +172,32 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 	if err := applyOAuthTokenParams(form, provCfg.TokenParams); err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "provider token params invalid")
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod, "", "")
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, provCfg.ClientID, secretConfig.ClientSecret, provCfg.ClientAuthMethod, "", "", "")
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
 	var tokenResp struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
+		TokenType    string `json:"token_type"`
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	newAccessCt, err := sealZEK(s.keys.zek, []byte(tokenResp.AccessToken))
+	if !validProviderTokenType(tokenResp.TokenType, provCfg.AuthScheme) {
+		s.log.Warn().Str("provider", provider.ID).Str("token_type", tokenResp.TokenType).Msg("provider returned unsupported token_type")
+		return sharederr.New(sharederr.CredentialExpired, "provider token type unsupported")
+	}
+	newAccessCt, err := s.keys.keyring.Seal([]byte(tokenResp.AccessToken), secretstore.AADConnectionAccessToken)
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
 	}
 	var newRefreshCt []byte
 	if tokenResp.RefreshToken != "" {
-		newRefreshCt, err = sealZEK(s.keys.zek, []byte(tokenResp.RefreshToken))
+		newRefreshCt, err = s.keys.keyring.Seal([]byte(tokenResp.RefreshToken), secretstore.AADConnectionRefreshToken)
 	} else {
-		newRefreshCt, err = sealZEK(s.keys.zek, refreshToken)
+		newRefreshCt, err = s.keys.keyring.Seal(refreshToken, secretstore.AADConnectionRefreshToken)
 	}
 	if err != nil {
 		return sharederr.New(sharederr.Internal, "token re-encryption failed")
@@ -208,10 +215,21 @@ func (s *Server) refreshExpiredBrokeredGrant(ctx context.Context, zoneID, userID
 			Int("max_grant_ttl_seconds", s.cfg.MaxGrantTTLSeconds).
 			Msg("capped provider token ttl")
 	}
-	if err := s.persistRefreshedGrant(ctx, zoneID, userID, resourceID, grant, newAccessCt, newRefreshCt, expiresAt); err != nil {
-		return sharederr.New(sharederr.Internal, "grant update failed")
+	if err := s.persistRefreshedConnection(ctx, zoneID, subjectID, connection, newAccessCt, newRefreshCt, expiresAt); err != nil {
+		return sharederr.New(sharederr.Internal, "connection update failed")
 	}
 	return nil
+}
+
+// validProviderTokenType enforces RFC 6749 section 7.1: a token of an unrecognized
+// type must not be forwarded under the Bearer scheme. An explicit upstream auth
+// scheme on the provider is the operator's assertion that the type is intentional.
+func validProviderTokenType(tokenType, authScheme string) bool {
+	trimmed := strings.TrimSpace(tokenType)
+	if trimmed == "" || strings.EqualFold(trimmed, "bearer") {
+		return true
+	}
+	return strings.TrimSpace(authScheme) != ""
 }
 
 func (s *Server) coordinatedGrantRefresh(ctx context.Context, key string, refresh func(context.Context) *sharederr.CaracalError) *sharederr.CaracalError {
@@ -268,7 +286,13 @@ func (s *Server) coordinatedDistributedGrantRefresh(ctx context.Context, key str
 			if s.metrics != nil {
 				s.metrics.ProviderRefreshLeased.Add(1)
 			}
+			// The lease renews while this holder still owns it, so a refresh that outlives one
+			// TTL never loses its lease mid-flight to a second concurrent refresher, while a
+			// crashed holder stops renewing and its lease expires within one TTL.
+			renewCtx, stopRenew := context.WithCancel(ctx)
+			go s.renewRefreshLease(renewCtx, lockKey, leaseID.String())
 			err := refresh(ctx)
+			stopRenew()
 			if setErr := s.redis.SetTTL(ctx, resultKey, refreshResultFromError(err), refreshResultTTL); setErr != nil {
 				if s.metrics != nil {
 					s.metrics.ProviderRefreshErrors.Add(1)
@@ -300,6 +324,30 @@ func refreshCoordinationKeys(key string) (string, string) {
 	return base + ":lock", base + ":result"
 }
 
+func (s *Server) renewRefreshLease(ctx context.Context, lockKey, leaseID string) {
+	ticker := time.NewTicker(refreshLeaseTTL / 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			renewed, err := s.redis.ExpireIfValue(ctx, lockKey, leaseID, refreshLeaseTTL)
+			if err != nil {
+				if s.metrics != nil {
+					s.metrics.ProviderRefreshErrors.Add(1)
+				}
+				s.log.Warn().Err(err).Msg("provider refresh lease renewal failed")
+				continue
+			}
+			if !renewed {
+				s.log.Warn().Msg("provider refresh lease no longer owned; renewal stopped")
+				return
+			}
+		}
+	}
+}
+
 func refreshResultFromError(err *sharederr.CaracalError) distributedRefreshResult {
 	if err == nil {
 		return distributedRefreshResult{OK: true}
@@ -328,15 +376,15 @@ func (s *Server) readRefreshResult(ctx context.Context, key string) (*sharederr.
 	return sharederr.New(result.Code, result.Description), true, nil
 }
 
-func refreshGrantKey(zoneID, userID, resourceID string, providerID *string, grant *ProviderGrant) string {
-	if grant != nil && grant.ID != "" {
-		return "grant\x00" + grant.ID
+func refreshConnectionKey(zoneID, subjectID string, providerID *string, connection *ProviderConnection) string {
+	if connection != nil && connection.ID != "" {
+		return "connection\x00" + connection.ID
 	}
 	provider := ""
 	if providerID != nil {
 		provider = *providerID
 	}
-	return zoneID + "\x00" + userID + "\x00" + resourceID + "\x00" + provider
+	return zoneID + "\x00" + subjectID + "\x00" + provider
 }
 
 type providerSecretConfig struct {
@@ -344,22 +392,29 @@ type providerSecretConfig struct {
 	PrivateKey   string `json:"private_key"`
 	APIKey       string `json:"api_key"`
 	BearerToken  string `json:"bearer_token"`
+	Password     string `json:"password"`
 }
 
-func openProviderSecretConfig(zek []byte, provider *ProviderConfig) (providerSecretConfig, error) {
+// providerSecretConfig fetches and parses a provider's credential document through
+// the configured secret backend. The digest fingerprints the raw payload so cached
+// provider service tokens are invalidated when credentials rotate. Providers with
+// no stored credentials (for example public OAuth clients) resolve to an empty
+// config with an empty digest.
+func (s *Server) providerSecretConfig(ctx context.Context, provider *ProviderConfig) (providerSecretConfig, string, error) {
 	var cfg providerSecretConfig
-	if len(provider.SecretConfigCt) == 0 {
-		return cfg, nil
-	}
-	plaintext, err := sharedcrypto.Open(zek, provider.SecretConfigNonce, provider.SecretConfigCt)
+	value, found, err := s.secrets.Get(ctx, secretstore.ProviderSecretConfigRef(provider.ZoneID, provider.ID))
 	if err != nil {
-		return cfg, err
+		return cfg, "", err
 	}
-	defer clear(plaintext)
-	if err := json.Unmarshal(plaintext, &cfg); err != nil {
-		return cfg, err
+	if !found {
+		return cfg, "", nil
 	}
-	return cfg, nil
+	defer clear(value)
+	digest := sha256.Sum256(value)
+	if err := json.Unmarshal(value, &cfg); err != nil {
+		return cfg, "", err
+	}
+	return cfg, hex.EncodeToString(digest[:]), nil
 }
 
 func normalizeOAuthClientAuthMethod(method string) string {
@@ -383,26 +438,26 @@ func capGrantTTL(providerSeconds, maxSeconds int) time.Duration {
 	return time.Duration(providerSeconds) * time.Second
 }
 
-// persistRefreshedGrant writes the refreshed tokens with optimistic-lock retries.
-// On version conflict it re-reads the grant; if a peer already produced fresh
+// persistRefreshedConnection writes the refreshed tokens with optimistic-lock retries.
+// On version conflict it re-reads the connection; if a peer already produced fresh
 // tokens, the call returns nil without re-writing.
-func (s *Server) persistRefreshedGrant(
+func (s *Server) persistRefreshedConnection(
 	ctx context.Context,
-	zoneID, userID, resourceID string,
-	grant *ProviderGrant,
+	zoneID, subjectID string,
+	connection *ProviderConnection,
 	accessCt, refreshCt []byte,
 	expiresAt time.Time,
 ) error {
-	expectedVersion := grant.RefreshTokenVersion
+	expectedVersion := connection.RefreshTokenVersion
 	for attempt := 0; attempt < grantPersistAttempts; attempt++ {
-		err := s.db.UpdateProviderGrantTokens(ctx, grant.ID, expectedVersion, accessCt, refreshCt, expiresAt)
+		err := s.db.UpdateProviderConnectionTokens(ctx, connection.ID, expectedVersion, accessCt, refreshCt, expiresAt)
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, ErrConcurrentGrantUpdate) {
 			return err
 		}
-		latest, readErr := s.db.GetProviderGrant(ctx, zoneID, userID, resourceID, grant.ProviderID)
+		latest, readErr := s.db.GetProviderConnection(ctx, zoneID, subjectID, connection.ProviderID)
 		if readErr != nil {
 			return readErr
 		}
@@ -451,7 +506,7 @@ func applyOAuthTokenParams(form url.Values, params map[string]string) error {
 // allowlist (no implicit "any host" mode), case-insensitive exact host match. The host
 // is also pre-resolved to reject private/loopback/link-local addresses; the dialer
 // re-checks at connect time so DNS rebinding cannot bypass the gate.
-func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) {
+func validateTokenEndpoint(raw string, allowedHosts []string, privateHosts ...[]string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
@@ -479,8 +534,9 @@ func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) 
 	if len(addrs) == 0 {
 		return nil, errors.New("provider token endpoint resolves to no addresses")
 	}
+	privateAllowed := len(privateHosts) > 0 && hostAllowed(u.Hostname(), privateHosts[0])
 	for _, ip := range addrs {
-		if isUnsafeIP(ip) {
+		if isUnsafeIP(ip, privateAllowed) {
 			return nil, errors.New("provider token endpoint resolves to a non-routable address")
 		}
 	}
@@ -489,34 +545,35 @@ func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) 
 
 // isUnsafeIP returns true for any address class that must not be reachable from STS:
 // loopback, link-local, multicast, unspecified, and RFC 1918 / RFC 4193 private space.
-func isUnsafeIP(ip net.IP) bool {
+func isUnsafeIP(ip net.IP, allowPrivate ...bool) bool {
 	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
+	privateAllowed := len(allowPrivate) > 0 && allowPrivate[0]
 	if ip4 := ip.To4(); ip4 != nil {
 		switch {
-		case ip4[0] == 10:
+		case ip4[0] == 10 && !privateAllowed:
 			return true
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 && !privateAllowed:
 			return true
-		case ip4[0] == 192 && ip4[1] == 168:
+		case ip4[0] == 192 && ip4[1] == 168 && !privateAllowed:
 			return true
 		case ip4[0] == 169 && ip4[1] == 254:
 			return true
-		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127:
+		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 && !privateAllowed:
 			return true
 		}
 		return false
 	}
-	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
+	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc && !privateAllowed {
 		return true
 	}
 	// NAT64 well-known prefix (RFC 6052) embeds an IPv4 target in the low 32 bits;
 	// re-check the embedded address so 64:ff9b::<private-or-metadata-v4> cannot
 	// tunnel past the guard while genuine NAT64 to public addresses still resolves.
 	if embedded := nat64Embedded(ip); embedded != nil {
-		return isUnsafeIP(embedded)
+		return isUnsafeIP(embedded, privateAllowed)
 	}
 	return false
 }
@@ -544,7 +601,7 @@ func nat64Embedded(ip net.IP) net.IP {
 
 // safeHTTPClient builds a one-shot HTTP client with redirects disabled and a dialer
 // that re-validates the resolved address right before the TCP connect.
-func safeHTTPClient(timeout time.Duration) *http.Client {
+func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Client {
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: timeout}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -556,8 +613,9 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 			if err != nil {
 				return nil, err
 			}
+			privateAllowed := len(privateHosts) > 0 && hostAllowed(host, privateHosts[0])
 			for _, ip := range ips {
-				if isUnsafeIP(ip) {
+				if isUnsafeIP(ip, privateAllowed) {
 					return nil, fmt.Errorf("blocked address %s", ip.String())
 				}
 			}
@@ -574,7 +632,16 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey string) ([]byte, error) {
+func hostAllowed(host string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), host) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey, certificate string) ([]byte, error) {
 	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
 	if clientID == "" {
 		return nil, errors.New("provider oauth client_id missing")
@@ -585,7 +652,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	if method != "none" && method != "private_key_jwt" && clientSecret == "" {
 		return nil, errors.New("provider oauth client_secret missing")
 	}
-	client := safeHTTPClient(providerRefreshTimeout)
+	client := safeHTTPClient(providerRefreshTimeout, s.cfg.PrivateEgressHosts)
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
 		if attempt > 0 {
@@ -595,7 +662,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 			case <-time.After(jitteredBackoff(providerRetryBackoff, attempt-1)):
 			}
 		}
-		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method, keyID, privateKey)
+		req, err := buildProviderTokenRequest(ctx, endpoint, form, clientID, clientSecret, method, keyID, privateKey, certificate)
 		if err != nil {
 			return nil, err
 		}
@@ -620,7 +687,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	return nil, lastErr
 }
 
-func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method, keyID, privateKey string) (*http.Request, error) {
+func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.Values, clientID, clientSecret, method, keyID, privateKey, certificate string) (*http.Request, error) {
 	requestForm := url.Values{}
 	for key, values := range form {
 		requestForm[key] = append([]string(nil), values...)
@@ -630,7 +697,7 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 		requestForm.Set("client_id", clientID)
 		requestForm.Set("client_secret", clientSecret)
 	case "private_key_jwt":
-		assertion, err := buildProviderClientAssertion(endpoint.String(), clientID, keyID, privateKey, time.Now().UTC())
+		assertion, err := buildProviderClientAssertion(endpoint.String(), clientID, keyID, privateKey, certificate, time.Now().UTC())
 		if err != nil {
 			return nil, err
 		}
@@ -645,13 +712,16 @@ func buildProviderTokenRequest(ctx context.Context, endpoint *url.URL, form url.
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Accept pins the response to JSON: endpoints that predate RFC 6749 defaults, such as
+	// GitHub's, answer form-encoded without it.
+	req.Header.Set("Accept", "application/json")
 	if method == "client_secret_basic" {
 		req.SetBasicAuth(clientID, clientSecret)
 	}
 	return req, nil
 }
 
-func buildProviderClientAssertion(audience, clientID, keyID, privateKey string, now time.Time) (string, error) {
+func buildProviderClientAssertion(audience, clientID, keyID, privateKey, certificate string, now time.Time) (string, error) {
 	method, key, err := providerSigningKey(privateKey)
 	if err != nil {
 		return "", err
@@ -664,6 +734,17 @@ func buildProviderClientAssertion(audience, clientID, keyID, privateKey string, 
 		"exp": now.Add(time.Minute).Unix(),
 		"jti": uuid.NewString(),
 	})
+	if certificate != "" {
+		// Microsoft Entra ID certificate credentials identify the signing certificate by
+		// thumbprint header rather than kid; both digest forms are emitted since verifiers
+		// accept either and ignore the one they do not use.
+		x5t, x5tS256, err := providerCertThumbprints(certificate)
+		if err != nil {
+			return "", err
+		}
+		token.Header["x5t"] = x5t
+		token.Header["x5t#S256"] = x5tS256
+	}
 	if text := strings.TrimSpace(keyID); text != "" {
 		token.Header["kid"] = text
 	}
@@ -685,6 +766,57 @@ func providerSigningKey(privateKey string) (jwt.SigningMethod, any, error) {
 		return providerECDSASigningMethod(key)
 	}
 	return nil, nil, errors.New("provider oauth private_key is unsupported")
+}
+
+// providerCertThumbprints digests the certificate's DER bytes into the JOSE x5t
+// (SHA-1, required by Microsoft Entra ID) and x5t#S256 header values.
+func providerCertThumbprints(certificate string) (string, string, error) {
+	block, _ := pem.Decode([]byte(certificate))
+	if block == nil {
+		return "", "", errors.New("provider certificate must be PEM encoded")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", "", errors.New("provider certificate is invalid")
+	}
+	sum1 := sha1.Sum(cert.Raw)
+	sum256 := sha256.Sum256(cert.Raw)
+	return base64.RawURLEncoding.EncodeToString(sum1[:]), base64.RawURLEncoding.EncodeToString(sum256[:]), nil
+}
+
+// buildProviderGrantAssertion signs the RFC 7523 section 2.1 authorization grant: the
+// assertion itself is the grant, so the scopes ride inside the JWT as Google's
+// service-account flow expects, the subject defaults to the client id, and the
+// audience defaults to the token endpoint.
+func buildProviderGrantAssertion(cfg oauthClientCredentialsConfig, privateKey, tokenEndpoint string, now time.Time) (string, error) {
+	method, key, err := providerSigningKey(privateKey)
+	if err != nil {
+		return "", err
+	}
+	subject := strings.TrimSpace(cfg.AssertionSubject)
+	if subject == "" {
+		subject = cfg.ClientID
+	}
+	audience := strings.TrimSpace(cfg.AssertionAudience)
+	if audience == "" {
+		audience = tokenEndpoint
+	}
+	claims := jwt.MapClaims{
+		"iss": cfg.ClientID,
+		"sub": subject,
+		"aud": audience,
+		"iat": now.Unix(),
+		"exp": now.Add(5 * time.Minute).Unix(),
+		"jti": uuid.NewString(),
+	}
+	if len(cfg.Scopes) > 0 {
+		claims["scope"] = strings.Join(cfg.Scopes, " ")
+	}
+	token := jwt.NewWithClaims(method, claims)
+	if text := strings.TrimSpace(cfg.KeyID); text != "" {
+		token.Header["kid"] = text
+	}
+	return token.SignedString(key)
 }
 
 func providerSigningMethod(key any) (jwt.SigningMethod, any, error) {

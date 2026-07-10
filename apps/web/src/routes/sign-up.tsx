@@ -40,6 +40,12 @@ function SignUpPage() {
     const { data, error: signUpError } = await signUp.email({ name, email, password });
     setBusy(false);
     if (signUpError) {
+      // A registration denial is a deployment-owner decision, shown on the uniform
+      // access-denied page rather than as an inline form error.
+      if (signUpError.message === "registration_not_permitted") {
+        navigate({ to: "/access-denied" });
+        return;
+      }
       setError(signUpError.message ?? "Could not create account.");
       return;
     }

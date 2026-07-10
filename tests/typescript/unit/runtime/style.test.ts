@@ -65,7 +65,11 @@ describe('runtime style helpers', () => {
       style.dim('a'),
       style.kbd('a'),
       style.selected('a'),
-    ]).toEqual(Array.from({ length: 17 }, () => 'a'))
+      style.brand('a'),
+      style.section('a'),
+      style.command('a'),
+      style.flag('a'),
+    ]).toEqual(Array.from({ length: 21 }, () => 'a'))
   })
 
   it('writes semantic messages and scrubs secrets on stderr', () => {

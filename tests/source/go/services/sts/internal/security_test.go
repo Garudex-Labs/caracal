@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Targeted security tests for STS hardening: KEK guard, Argon2id, challenge binding,
+// Targeted security tests for STS hardening: Argon2id, challenge binding,
 // SSRF defenses, JWKS zone scoping, and policy reload safety.
 
 package internal
@@ -9,7 +9,6 @@ package internal
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -31,33 +31,12 @@ func testKEK(fill byte) []byte {
 	return kek
 }
 
-func TestResolveKEKRejectsEmpty(t *testing.T) {
-	t.Setenv("ZONE_KEK", "")
-	_, err := resolveKEK("local")
-	if err == nil {
-		t.Fatal("must reject empty ZONE_KEK")
+func testKeyring(keys ...[]byte) *secretstore.Keyring {
+	ring, err := secretstore.NewKeyring(keys...)
+	if err != nil {
+		panic(err)
 	}
-}
-
-func TestResolveKEKRejectsAllZeros(t *testing.T) {
-	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 32)))
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("must reject all-zero ZONE_KEK")
-	}
-}
-
-func TestResolveKEKRejectsBadHex(t *testing.T) {
-	t.Setenv("ZONE_KEK", "not-hex")
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("expected hex decode error")
-	}
-}
-
-func TestResolveKEKRejectsWrongLength(t *testing.T) {
-	t.Setenv("ZONE_KEK", hex.EncodeToString(make([]byte, 16)))
-	if _, err := resolveKEK("local"); err == nil {
-		t.Fatal("expected length error")
-	}
+	return ring
 }
 
 func TestRotateZoneSigningKeyEndpointRequiresAdmin(t *testing.T) {
@@ -83,7 +62,7 @@ func TestRotateZoneSigningKeyEndpointCreatesKeyAndInvalidatesCache(t *testing.T)
 	srv := &Server{
 		cfg:  Config{AdminToken: "secret"},
 		db:   db,
-		keys: newKeyCache(db, testKEK(1)),
+		keys: newKeyCache(db, testKeyring(testKEK(1))),
 	}
 	cached := map[string]*ecdsa.PublicKey{}
 	srv.keys.entries["z1"] = &zoneCacheEntry{expiresAt: time.Now().Add(time.Hour)}
@@ -97,7 +76,7 @@ func TestRotateZoneSigningKeyEndpointCreatesKeyAndInvalidatesCache(t *testing.T)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	if db.insertedKey == nil || len(db.insertedKey.Ciphertext) == 0 || len(db.insertedKey.Nonce) == 0 {
+	if db.insertedKey == nil || len(db.insertedKey.Envelope) == 0 {
 		t.Fatal("rotation did not insert encrypted signing key")
 	}
 	if _, ok := srv.keys.entries["z1"]; ok {
@@ -140,40 +119,6 @@ func TestVerifyClientSecretEmptyInputs(t *testing.T) {
 	}
 }
 
-func TestHashResourceSetIsCanonical(t *testing.T) {
-	a := hashResourceSet([]string{"resource://A", "resource://b"})
-	b := hashResourceSet([]string{"resource://b ", " RESOURCE://a"})
-	if hex.EncodeToString(a) != hex.EncodeToString(b) {
-		t.Fatal("hash must be order/case/whitespace invariant")
-	}
-	c := hashResourceSet([]string{"resource://a"})
-	if hex.EncodeToString(a) == hex.EncodeToString(c) {
-		t.Fatal("different sets must hash differently")
-	}
-}
-
-// stubChallengeDB captures ConsumeStepUpChallenge calls.
-type stubChallengeDB struct {
-	stubDB
-	gotParams  ConsumeStepUpParams
-	consumeErr error
-}
-
-func (s *stubChallengeDB) ConsumeStepUpChallenge(_ context.Context, p ConsumeStepUpParams) error {
-	s.gotParams = p
-	return s.consumeErr
-}
-
-func TestVerifyAndConsumeChallengeRejectsEmpty(t *testing.T) {
-	srv := &Server{db: &stubChallengeDB{}}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "", "secret", []string{"r"}); err != ErrChallengeInvalid {
-		t.Fatalf("empty id must reject, got %v", err)
-	}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "id", "", []string{"r"}); err != ErrChallengeInvalid {
-		t.Fatalf("empty secret must reject, got %v", err)
-	}
-}
-
 func TestHashApprovalBindingBindsScopes(t *testing.T) {
 	a := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
 	b := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:read"})
@@ -193,18 +138,23 @@ type stubApprovalDB struct {
 	consumeErr error
 }
 
+func (s *stubApprovalDB) InsertAuthorityRecordWithApproval(_ context.Context, _ *AuthorityRecord, p ConsumeApprovalParams) error {
+	s.gotParams = p
+	return s.consumeErr
+}
+
 func (s *stubApprovalDB) ConsumeApprovalChallenge(_ context.Context, p ConsumeApprovalParams) error {
 	s.gotParams = p
 	return s.consumeErr
 }
 
-func TestVerifyAndConsumeApprovalBindsRequestHash(t *testing.T) {
+func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 	db := &stubApprovalDB{}
 	srv := &Server{db: db}
-	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
 		t.Fatalf("empty id must reject, got %v", err)
 	}
-	if err := srv.verifyAndConsumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
 		t.Fatalf("consume: %v", err)
 	}
 	want := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
@@ -216,29 +166,10 @@ func TestVerifyAndConsumeApprovalBindsRequestHash(t *testing.T) {
 	}
 }
 
-func TestVerifyAndConsumeChallengePassesBindings(t *testing.T) {
-	db := &stubChallengeDB{}
+func TestConsumeApprovalPropagatesInvalid(t *testing.T) {
+	db := &stubApprovalDB{consumeErr: ErrChallengeInvalid}
 	srv := &Server{db: db}
-	resources := []string{"r1", "r2"}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z1", "p1", "c1", "secret", resources); err != nil {
-		t.Fatal(err)
-	}
-	if db.gotParams.ZoneID != "z1" || db.gotParams.PrincipalID != "p1" || db.gotParams.ID != "c1" {
-		t.Fatalf("bindings not propagated: %+v", db.gotParams)
-	}
-	want := sha256.Sum256([]byte("secret"))
-	if hex.EncodeToString(db.gotParams.ChallengeSecretHash) != hex.EncodeToString(want[:]) {
-		t.Fatal("secret hash mismatch")
-	}
-	if hex.EncodeToString(db.gotParams.ResourceSetHash) != hex.EncodeToString(hashResourceSet(resources)) {
-		t.Fatal("resource set hash mismatch")
-	}
-}
-
-func TestVerifyAndConsumeChallengePropagatesInvalid(t *testing.T) {
-	db := &stubChallengeDB{consumeErr: ErrChallengeInvalid}
-	srv := &Server{db: db}
-	if err := srv.verifyAndConsumeChallenge(context.Background(), "z", "p", "c", "s", []string{"r"}); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil); err != ErrChallengeInvalid {
 		t.Fatalf("want ErrChallengeInvalid, got %v", err)
 	}
 }
@@ -295,6 +226,22 @@ func TestIsUnsafeIPCoversReservedRanges(t *testing.T) {
 		if isUnsafeIP(ip) {
 			t.Errorf("%s must be safe", c)
 		}
+	}
+}
+
+func TestPrivateEgressGrantAllowsPrivateRangesButNeverMetadataOrLoopback(t *testing.T) {
+	for _, address := range []string{"10.0.0.1", "172.16.0.1", "192.168.0.1", "100.64.0.1", "fd00::1"} {
+		if isUnsafeIP(net.ParseIP(address), true) {
+			t.Fatalf("explicit private egress grant must allow %s", address)
+		}
+	}
+	for _, address := range []string{"127.0.0.1", "169.254.169.254", "::1", "fe80::1", "64:ff9b::a9fe:a9fe"} {
+		if !isUnsafeIP(net.ParseIP(address), true) {
+			t.Fatalf("private egress grant must never allow %s", address)
+		}
+	}
+	if !hostAllowed("idp.internal.example", []string{"IDP.INTERNAL.EXAMPLE"}) {
+		t.Fatal("private host allowlist must be exact and case-insensitive")
 	}
 }
 

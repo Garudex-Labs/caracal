@@ -40,6 +40,26 @@ func TestLoadConfigAllowsUnsignedDevAudit(t *testing.T) {
 	if len(cfg.AuditHMACKey) != 0 {
 		t.Fatal("dev config must allow unsigned audit mode")
 	}
+	if cfg.ExportTempDir == "" {
+		t.Fatal("audit export temporary directory must have a default")
+	}
+}
+
+func TestLoadConfigUsesConfiguredExportTempDir(t *testing.T) {
+	t.Setenv("PORT", "9090")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("REDIS_URL", "redis://example")
+	t.Setenv("CARACAL_MODE", "dev")
+	t.Setenv("AUDIT_HMAC_KEY", "")
+	t.Setenv("AUDIT_EXPORT_TMP_DIR", "/var/lib/caracal/audit-export")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg.ExportTempDir != "/var/lib/caracal/audit-export" {
+		t.Fatalf("ExportTempDir = %q", cfg.ExportTempDir)
+	}
 }
 
 func TestLoadConfigRejectsNonStandardPort(t *testing.T) {

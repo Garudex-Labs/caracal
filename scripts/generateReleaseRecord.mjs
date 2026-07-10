@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-const tagPattern = /^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
+const tagPattern = /^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
 const archivePlatforms = ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']
 const zipPlatform = 'windows-amd64'
 const extras = ['manifest.json', 'install.sh', 'install.ps1', 'SHA256SUMS']
@@ -29,7 +29,8 @@ const release = manifest.release
 if (!tagPattern.test(release ?? '')) fail(`invalid manifest release tag: ${release}`)
 
 const channel = manifest.mode ?? (release.includes('-rc.') ? 'rc' : 'stable')
-const date = manifest.publishedAt ?? manifest.generatedAt?.slice(0, 10) ?? release.replace(/^v(\d{4})\.(\d{2})\.(\d{2}).*$/, '$1-$2-$3')
+const date = manifest.publishedAt ?? manifest.generatedAt?.slice(0, 10)
+if (!date) fail('manifest has no publishedAt or generatedAt date')
 
 const components = Object.keys(manifest.binaries ?? {})
 if (components.length === 0) fail('manifest has no binaries to derive assets from')

@@ -14,9 +14,10 @@ import {
   seedBootstrapAdminToken,
   seedConsoleReadToken,
   seedConsoleWriteToken,
+  seedConsoleApproveToken,
 } from '../../../../apps/api/src/auth.js'
-import { deriveConsoleReadToken, deriveConsoleWriteToken } from '../../../../packages/core/ts/src/consoleToken.js'
-import { signAccountAssertion } from '../../../../packages/core/ts/src/accountAssertion.js'
+import { deriveConsoleReadToken, deriveConsoleWriteToken } from '../../../../packages/serverCore/ts/src/consoleToken.js'
+import { signAccountAssertion } from '../../../../packages/serverCore/ts/src/accountAssertion.js'
 
 function digest(token: string): Buffer {
   return createHash('sha256').update(token).digest()
@@ -34,7 +35,7 @@ function makeDb(
     tokenHash?: string | null
     scope?: 'global' | 'zone'
     zoneId?: string | null
-    capability?: 'read' | 'write'
+    capability?: 'read' | 'write' | 'approve'
     createdBy?: string
     zoneReserved?: boolean
     zoneOwner?: string | null
@@ -111,10 +112,12 @@ async function buildPluginApp(
   })
   app.get('/v1/zones', async (req) => ({ ok: true, actor: req.actor, account: req.account }))
   app.get('/v1/zones/:zoneId/things', async (req) => ({ ok: true, params: req.params }))
-  app.get('/v1/zones/:zoneId/provider-grants/oauth/callback', async () => ({ ok: true }))
+  app.get('/v1/zones/:zoneId/provider-connections/oauth/callback', async () => ({ ok: true }))
   app.post('/v1/zones', async () => ({ ok: true }))
   app.delete('/v1/zones/:zoneId', async () => ({ ok: true }))
   app.post('/v1/policies/validate', async () => ({ ok: true }))
+  app.post('/v1/zones/:zoneId/step-up-challenges/:id/approve', async () => ({ ok: true }))
+  app.post('/v1/zones/:zoneId/step-up-challenges/:id/reject', async () => ({ ok: true }))
   return app
 }
 
@@ -150,7 +153,7 @@ describe('adminAuthPlugin', () => {
 
   it('allows OAuth provider callbacks without an admin bearer', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret' }))
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-grants/oauth/callback?state=s&code=c' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/provider-connections/oauth/callback?state=s&code=c' })
     expect(res.statusCode).toBe(200)
     await app.close()
   })
@@ -243,6 +246,67 @@ describe('adminAuthPlugin', () => {
   it('lets a write-capability token mutate', async () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write' }))
     const res = await app.inject({ method: 'POST', url: '/v1/zones', headers: { authorization: 'Bearer secret' } })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+  })
+
+  it('lets an approve-capability token read and decide holds', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'approve' }))
+    for (const probe of [
+      { method: 'GET' as const, url: '/v1/zones' },
+      { method: 'POST' as const, url: '/v1/zones/z1/step-up-challenges/c1/approve' },
+      { method: 'POST' as const, url: '/v1/zones/z1/step-up-challenges/c1/reject' },
+    ]) {
+      const res = await app.inject({ ...probe, headers: { authorization: 'Bearer secret' } })
+      expect(res.statusCode, `${probe.method} ${probe.url}`).toBe(200)
+    }
+    await app.close()
+  })
+
+  it('denies an approve-capability token every other mutation', async () => {
+    for (const probe of [
+      { method: 'POST' as const, url: '/v1/zones' },
+      { method: 'DELETE' as const, url: '/v1/zones/z1' },
+    ]) {
+      const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'approve' }))
+      const res = await app.inject({ ...probe, headers: { authorization: 'Bearer secret' } })
+      expect(res.statusCode, `${probe.method} ${probe.url}`).toBe(403)
+      expect(res.json()).toEqual({ error: 'admin_token_approve_only' })
+      await app.close()
+    }
+  })
+
+  it('denies a write-capability token the decision surface: write never implies approve', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-derived-write' }))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      headers: { authorization: 'Bearer secret' },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'approve_capability_required' })
+    await app.close()
+  })
+
+  it('denies a read-capability token the decision surface', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'read' }))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/reject',
+      headers: { authorization: 'Bearer secret' },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'admin_token_read_only' })
+    await app.close()
+  })
+
+  it('lets the bootstrap deployment token decide holds as the break-glass credential', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-bootstrap' }))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      headers: { authorization: 'Bearer secret' },
+    })
     expect(res.statusCode).toBe(200)
     await app.close()
   })
@@ -529,6 +593,34 @@ describe('seedConsoleWriteToken', () => {
   })
 })
 
+describe('seedConsoleApproveToken', () => {
+  it('does nothing when env token is not set', async () => {
+    const db = { query: vi.fn() } as unknown as DB
+    await seedConsoleApproveToken(db, { envToken: null, log: () => {} })
+    expect(db.query).not.toHaveBeenCalled()
+  })
+
+  it('inserts a global approve-capability row under its own creator', async () => {
+    const inserts: { sql: string; params?: unknown[] }[] = []
+    const db = {
+      query: vi.fn().mockImplementation((sql: string, params?: unknown[]) => {
+        inserts.push({ sql, params })
+        if (sql.includes('SELECT token_hash')) return Promise.resolve({ rows: [] })
+        return Promise.resolve({ rows: [], rowCount: 1 })
+      }),
+    } as unknown as DB
+    await seedConsoleApproveToken(db, { envToken: 'tok', log: () => {} })
+    const insert = inserts.find((q) => q.sql.startsWith('INSERT INTO admin_tokens'))
+    expect(insert).toBeDefined()
+    expect(insert!.params![1]).toBe('console-approve')
+    expect(insert!.params![4]).toBe('approve')
+    // A distinct creator so the approve seeder's stale-revoke never revokes the other derived tokens.
+    expect(insert!.params![5]).toBe('env-derived-approve')
+    const revoke = inserts.find((q) => q.sql.includes('created_by = $1') && q.sql.includes('revoked_at = now()'))
+    expect(revoke!.params![0]).toBe('env-derived-approve')
+  })
+})
+
 describe('isDerivedConsoleActor', () => {
   const actor = (createdBy: string) => ({
     id: 't1',
@@ -542,6 +634,7 @@ describe('isDerivedConsoleActor', () => {
   it('recognises both derived Console creators', () => {
     expect(isDerivedConsoleActor(actor('env-derived'))).toBe(true)
     expect(isDerivedConsoleActor(actor('env-derived-write'))).toBe(true)
+    expect(isDerivedConsoleActor(actor('env-derived-approve'))).toBe(true)
   })
 
   it('does not match the bootstrap or operator-minted creators', () => {

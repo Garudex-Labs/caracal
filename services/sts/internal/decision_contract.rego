@@ -50,7 +50,7 @@ principal_owns_resource if {
 
 # An application bootstrapping its session mandate with its client secret. The only
 # permitted scope is agent:lifecycle, and no agent, delegation, or subject context may
-# ride along: the mandate authorizes coordinator spawns, not resource calls.
+# ride along: the mandate authorizes Coordinator Session starts, not resource calls.
 bootstrap_exchange if {
 	{scope | some scope in input.context.requested_scopes} == {"agent:lifecycle"}
 	not input.context.subject_claims
@@ -58,8 +58,8 @@ bootstrap_exchange if {
 	not input.context.agent_session_id
 }
 
-# A spawned agent minting its resource mandate. The exchange must reference the agent
-# session and its delegation edge, must not carry a subject token, and every requested
+# A governed Session minting its resource mandate. The exchange must reference the Session
+# Session and its Delegation, must not carry a subject token, and every requested
 # scope must sit inside the edge's narrowed grant. This subset check is the delegation
 # narrowing floor: removing it would let an agent mint authority its parent never held.
 delegated_mint if {
@@ -115,26 +115,49 @@ principal_has_prefix(prefix) if {
 	startswith(label, prefix)
 }
 
-# A spawned agent presenting its minted mandate at the Gateway. The mandate must be
+# A workload minting one bound runtime credential during caracal run. The binding a
+# zone admin authored in the console is the grant: it names the resource, the scopes,
+# and the env var, and STS resolves it server-side so the request wire carries no
+# authority. No agent, delegation, or subject context may ride along.
+workload_mint if {
+	input.principal.type == "Workload"
+	input.action.id == "CredentialInjection"
+	not input.context.subject_claims
+	not input.delegation_edge
+	not input.context.agent_session_id
+}
+
+# A governed Session presenting its minted mandate at the Gateway. The mandate must be
 # delegation-bound and name this resource in its target audience, and the Gateway
-# exchange requests no scopes: authority rides in the mandate claims. Per-operation
-# scope authority is enforced natively by the Gateway and STS against the resource's
-# declared operations, so this rule decides delegation and view binding only.
+# exchange requests no scopes: authority rides in the mandate claims. Every carried
+# scope is rechecked against the current role grant, so policy narrowing takes effect
+# before an unexpired mandate can reach the upstream.
 mandate_use if {
 	input.context.subject_claims.delegation_edge_id != ""
 	some target in input.context.subject_claims.target
 	target == input.resource.identifier
 	not requested_scopes_present
+	count(presented_scopes) > 0
 }
 
 requested_scopes_present if {
 	count(input.context.requested_scopes) > 0
 }
 
-# The presenting agent session must carry a role label granted on this resource.
+presented_scopes := {scope |
+	is_string(input.context.subject_claims.scope)
+	some scope in split(input.context.subject_claims.scope, " ")
+	scope != ""
+}
+
+# The presenting Session must carry a role whose current grant still contains every
+# scope in the mandate. Role existence alone is insufficient after a policy narrows.
 use_role_allowed if {
 	some role in input.principal.labels
-	resource_grant.roles[role]
+	scopes := resource_grant.roles[role]
+	every scope in presented_scopes {
+		scope in scopes
+	}
 }
 
 # Deny-only extensibility. An adopter may publish restriction reasons as a data
@@ -145,12 +168,14 @@ restriction_denied if {
 }
 
 # Risk classification and approval gating. An adopter may tag scopes with an opaque
-# risk tier and declare which tiers require human approval. The platform reads the
-# tier as metadata, names it in mint diagnostics for audit and observability, and
-# holds any mint whose scope tier is approval-gated behind a durable approval an
-# authenticated approver must satisfy before it is minted. The tier vocabulary is the
-# adopter's; the platform fixes no taxonomy. Like restrictions, a risk rule can only
-# add a gate, never widen authority.
+# risk tier and declare which tiers gate minting behind a durable human approval. An
+# approval declaration names its tier and may shape the hold: who may decide it
+# (operator, subject, or any), how long it lives, and how much approver identity the
+# decision record retains. The platform reads tiers as opaque metadata, names the
+# classified risk of every requested scope in mint diagnostics, and holds any gated
+# mint until an authenticated approver decides it. The tier vocabulary is the
+# adopter's; the platform fixes no taxonomy. Like restrictions, an approval
+# declaration can only add a gate, never widen authority.
 default risk_rules := []
 
 risk_rules := data.caracal.authz.risk
@@ -161,9 +186,9 @@ scope_tier(scope) := tier if {
 	tier := rule.tier
 }
 
-default gated_tiers := []
+default approval_declarations := []
 
-gated_tiers := data.caracal.authz.approval_tiers
+approval_declarations := data.caracal.authz.approval_tiers
 
 risk_scopes := sort([scope |
 	some scope in input.context.requested_scopes
@@ -174,16 +199,59 @@ requested_risk := [{"scope": scope, "tier": scope_tier(scope)} |
 	some scope in risk_scopes
 ]
 
-approval_required if {
-	some scope in input.context.requested_scopes
-	scope_tier(scope) in gated_tiers
+# A malformed risk rule can silently remove classification, and a declaration without
+# a tier can silently remove its gate. Both documents therefore fail closed until the
+# data is repaired.
+valid_risk_rule(rule) if {
+	is_object(rule)
+	is_string(rule.scope)
+	rule.scope != ""
+	is_string(rule.tier)
+	rule.tier != ""
 }
+
+malformed_risk_rules if {
+	not is_array(risk_rules)
+}
+
+malformed_risk_rules if {
+	is_array(risk_rules)
+	some rule in risk_rules
+	not valid_risk_rule(rule)
+}
+
+valid_approval_declaration(decl) if {
+	is_object(decl)
+	is_string(decl.tier)
+	decl.tier != ""
+}
+
+malformed_approval_declarations if {
+	not is_array(approval_declarations)
+}
+
+malformed_approval_declarations if {
+	is_array(approval_declarations)
+	some decl in approval_declarations
+	not valid_approval_declaration(decl)
+}
+
+matched_declarations := sort({decl |
+	some decl in approval_declarations
+	some scope in input.context.requested_scopes
+	scope_tier(scope) == decl.tier
+})
+
+approval_required if count(matched_declarations) > 0
 
 mint_diagnostics := array.concat(step_up_diagnostics, risk_diagnostics)
 
 default step_up_diagnostics := []
 
-step_up_diagnostics := [{"step_up_required": "human_approval"}] if approval_required
+step_up_diagnostics := [{"step_up_required": {
+	"type": "human_approval",
+	"tiers": matched_declarations,
+}}] if approval_required
 
 default risk_diagnostics := []
 
@@ -196,16 +264,27 @@ result := allow_result("caracal-bootstrap") if {
 	not restriction_denied
 }
 
-# A spawned agent minting a resource mandate, narrowed by its delegation edge, confined
+# A governed Session minting a resource mandate, narrowed by its Delegation, confined
 # by its labels, and bound to a role its grants allow.
 result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 	principal_owns_resource
 	delegated_mint
 	mint_role_allowed
 	not restriction_denied
+	not malformed_risk_rules
+	not malformed_approval_declarations
 }
 
-# A spawned agent presenting its minted mandate at the Gateway, bound to a role its
+# A workload minting a bound runtime credential. Restrictions and approval-gated risk
+# tiers subtract and gate exactly as they do for application mints.
+result := mint_allow("caracal-workload-mint") if {
+	workload_mint
+	not restriction_denied
+	not malformed_risk_rules
+	not malformed_approval_declarations
+}
+
+# A governed Session presenting its minted mandate at the Gateway, bound to a role its
 # grants allow on the named resource.
 result := allow_result(sprintf("caracal-%s-use", [principal_app])) if {
 	principal_owns_resource

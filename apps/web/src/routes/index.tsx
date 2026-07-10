@@ -16,12 +16,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Authority infrastructure for agents and services. Caracal issues short-lived, policy-approved mandates for protected resources and records the decision trail.",
+          "The identity and authorization layer for AI agents. Agents never hold credentials: every action is policy-approved before it runs, delegation can only narrow, and a tamper-evident audit trail proves what happened.",
       },
-      { property: "og:title", content: "Caracal · README" },
+      { property: "og:title", content: "Caracal · Authority, not credentials, for AI agents" },
       {
         property: "og:description",
-        content: "Authority infrastructure for agents and services.",
+        content:
+          "The identity and authorization layer for AI agents. Policy-approved actions, instant revocation, audit evidence.",
       },
     ],
     links: [
@@ -64,8 +65,9 @@ function ReadmeSection() {
     <section className="border-b border-border px-4 py-10 sm:px-6 md:px-10 md:py-14">
       <SectionLabel>README</SectionLabel>
       <p className="mt-6 max-w-3xl text-lg leading-snug tracking-tight text-foreground sm:text-xl md:text-[1.35rem]">
-        <span className="font-medium">Caracal</span> gives agents short-lived, delegated, and
-        auditable authority to act safely across tools, APIs, DBs, MCPs and workflows.
+        <span className="font-medium">Caracal</span> gives AI agents authority, not credentials:
+        short-lived, scoped, instantly revocable access to tools, APIs, and MCP servers. Every
+        action is approved by policy before it runs.
       </p>
 
       <div className="mt-8 rounded-lg border border-border bg-card md:mt-10">
@@ -291,7 +293,7 @@ function FeaturesSection() {
     {
       n: "05",
       title: "Revoke access instantly.",
-      desc: "Shut down a runaway agent and everything it spawned loses access at once, no waiting for tokens to expire.",
+      desc: "Shut down a runaway agent and everything it started loses access at once, no waiting for tokens to expire.",
       chip: <RevocationChip />,
     },
     {
@@ -410,7 +412,7 @@ function DecisionChip() {
   const rows = [
     ["payments:read", "allow", "text-emerald-600"],
     ["tickets:write", "deny", "text-rose-600"],
-    ["customer:export", "step-up", "text-amber-600"],
+    ["customer:export", "approval", "text-amber-600"],
   ];
   return (
     <div className="space-y-1.5 font-mono text-[10px]">
@@ -471,7 +473,7 @@ function AuditChip() {
   const rows = [
     ["10:50", "agent-7f3a", "allow", "payments:read", "bg-emerald-500 text-white"],
     ["10:48", "agent-2c1b", "deny", "tickets:write", "bg-rose-500 text-white"],
-    ["10:45", "agent-9d4e", "step-up", "customer:read", "bg-amber-500 text-white"],
+    ["10:45", "agent-9d4e", "approval", "customer:read", "bg-amber-500 text-white"],
   ];
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card font-mono text-[10px]">
@@ -562,26 +564,26 @@ if err != nil {
       },
     },
     {
-      label: "SPAWN A SESSION",
-      desc: "spawn() opens an agent session, binds its authority context, and tears it down the moment the block returns.",
+      label: "RUN A SESSION",
+      desc: "session() opens a governed session around your code, binds its authority context, and tears it down the moment the block returns.",
       code: {
-        TypeScript: `// spawn() opens an agent session, binds its
+        TypeScript: `// session() opens a governed session, binds its
 // authority context, and tears it down on exit.
-await caracal.spawn(async () => {
+await caracal.session(async () => {
   // every gateway call runs inside this session
 })`,
         Python: `import asyncio
 
-# spawn() opens an agent session, binds its
+# session() opens a governed session, binds its
 # authority context, and tears it down on exit.
 async def main():
-    async with caracal.spawn():
+    async with caracal.session():
         ...  # gateway calls run inside this session
 
 asyncio.run(main())`,
-        Go: `// Spawn() opens an agent session, binds its
+        Go: `// Session() opens a governed session, binds its
 // authority context, and tears it down on exit.
-err = c.Spawn(context.Background(), func(ctx context.Context) error {
+err = c.Session(context.Background(), func(ctx context.Context) error {
     // every gateway call runs inside this session
     return nil
 })`,
@@ -840,7 +842,7 @@ function InfrastructureSection() {
       title: "STS",
       port: ":8080",
       desc: "Issues short-lived, signed mandates.",
-      items: ["Token exchange", "Mandate issuance + JWKS", "Policy evaluation", "Step-up status"],
+      items: ["Token exchange", "Mandate issuance + JWKS", "Policy evaluation", "Approval status"],
     },
     {
       title: "Gateway",
@@ -852,7 +854,7 @@ function InfrastructureSection() {
       title: "Coordinator",
       port: ":4000",
       desc: "Tracks the live authority graph.",
-      items: ["Agent sessions", "Service leases", "Delegation edges", "Invocations"],
+      items: ["Sessions", "Service leases", "Delegations", "Invocations"],
     },
     {
       title: "Audit",

@@ -6,7 +6,7 @@
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthError, type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
-import { registerInvokeRoute, type InvokeDeps } from '../../../../../apps/api/src/control/handler.js'
+import { registerInvokeRoute, type InvokeDeps, type ZoneScopeTarget } from '../../../../../apps/api/src/control/handler.js'
 import { RateLimiter } from '../../../../../apps/api/src/control/ratelimit.js'
 import type { EventSink } from '../../../../../apps/api/src/control/audit.js'
 import type { Replay } from '../../../../../apps/api/src/control/replay.js'
@@ -39,9 +39,16 @@ function claims(overrides: Partial<Claims> = {}): Claims {
     exp: Math.floor(Date.now() / 1000) + 300,
     zoneId: 'z1',
     clientId: 'app-1',
-    scope: 'control:agent:read control:agent:write',
+    scope: 'control:session:read control:session:write',
     ...overrides,
   }
+}
+
+// Builds a dispatch context whose admin mock supports the request-scoped header wrapping the
+// handler applies to every dispatch.
+function ctx(admin: Record<string, unknown>): DispatchContext {
+  const full: Record<string, unknown> = { ...admin, withDefaultHeaders: () => full }
+  return { admin: full } as unknown as DispatchContext
 }
 
 describe('registerInvokeRoute', () => {
@@ -62,7 +69,7 @@ describe('registerInvokeRoute', () => {
     })
 
     expect(res.statusCode).toBe(503)
-    expect(res.json()).toEqual({ error: 'control disabled' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'control_disabled', reason: expect.any(String) } })
     expect(verify).not.toHaveBeenCalled()
   })
 
@@ -78,11 +85,11 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.json()).toEqual({ error: 'token replay' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'token_replay', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'replay' }))
   })
 
@@ -99,11 +106,11 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(429)
-    expect(res.json()).toEqual({ error: 'rate limited' })
+    expect(res.json()).toEqual({ ok: false, error: { code: 'rate_limited', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'rate limited' }))
   })
 
@@ -123,14 +130,14 @@ describe('registerInvokeRoute', () => {
     registerInvokeRoute(app, d)
     await app.ready()
     const headers = { authorization: 'Bearer token' }
-    const payload = { command: 'agent', subcommand: 'list' }
+    const payload = { command: 'session', subcommand: 'list' }
 
     const first = await app.inject({ method: 'POST', url: '/v1/control/invoke', headers, payload })
     expect(first.statusCode).not.toBe(429)
     const second = await app.inject({ method: 'POST', url: '/v1/control/invoke', headers, payload })
 
     expect(second.statusCode).toBe(429)
-    expect(second.json()).toEqual({ error: 'rate limited' })
+    expect(second.json()).toEqual({ ok: false, error: { code: 'rate_limited', reason: expect.any(String) } })
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason: 'ip rate limited' }))
     expect(verify).toHaveBeenCalledTimes(1)
   })
@@ -140,7 +147,7 @@ describe('registerInvokeRoute', () => {
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    d.ctx = { admin: { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } } } as DispatchContext
+    d.ctx = ctx({ sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -148,20 +155,45 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list', flags: ['ignored'] },
+      payload: { command: 'session', subcommand: 'list', flags: ['ignored'] },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true, result: [{ id: 'agent-1' }] })
-    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'agent' }))
+    expect(res.json()).toEqual({ ok: true, result: [{ id: 'session-1' }] })
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'session' }))
   })
 
-  it('records the body authorizing actor as audit attribution on the allow event', async () => {
+  it('refuses to report success when the allow audit cannot be durably recorded', async () => {
     const app = Fastify()
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: () => admin }
+    const emit = vi.fn(async (ev: { decision: string }) => {
+      if (ev.decision === 'allow') throw new Error('audit store unavailable')
+    })
+    d.sink = { emit } as EventSink
+    d.ctx = ctx({ sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) } })
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token' },
+      payload: { command: 'session', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'audit_unavailable', reason: expect.any(String) } })
+  })
+
+  it('records the body authorizing actor as audit attribution when the subject is a reserved Operator identity', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims()))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['subject-1'])
+    const admin = { sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) }, withDefaultHeaders: () => admin }
     d.ctx = { admin } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -170,10 +202,36 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list', authorized_by: 'account-7' },
+      payload: { command: 'session', subcommand: 'list', authorized_by: 'account-7' },
     })
 
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', authorizedBy: 'account-7' }))
+  })
+
+  it('discards client-supplied attribution from any subject that is not a reserved Operator identity', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims({ sub: 'tenant-key' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['operator-executor'])
+    const admin = { sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) }, withDefaultHeaders: vi.fn(() => admin) }
+    d.ctx = { admin } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token' },
+      payload: { command: 'session', subcommand: 'list', authorized_by: 'forged-human', co_author_operator: true },
+    })
+
+    // The command still runs in the caller's own authority, but no attribution header is ever
+    // derived from the client-supplied fields and the audit carries no forged actor. The only
+    // header stamped on the dispatch is the request id for trace correlation.
+    expect(res.statusCode).toBe(200)
+    expect(admin.withDefaultHeaders).toHaveBeenCalledWith({ 'x-request-id': expect.any(String) })
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', authorizedBy: undefined }))
   })
 
   it('maps dispatch denials, invalid requests, and upstream failures', async () => {
@@ -184,7 +242,7 @@ describe('registerInvokeRoute', () => {
 
     const deniedDeps = deps(vi.fn(async () => claims()))
     deniedDeps.replay.mark = vi.fn(async () => true)
-    deniedDeps.ctx = { admin: { zones: { list: vi.fn() } } } as DispatchContext
+    deniedDeps.ctx = ctx({ zones: { list: vi.fn() } })
     registerInvokeRoute(denied, deniedDeps)
     await denied.ready()
     const deniedRes = await denied.inject({
@@ -198,49 +256,48 @@ describe('registerInvokeRoute', () => {
 
     const invalidDeps = deps(vi.fn(async () => claims()))
     invalidDeps.replay.mark = vi.fn(async () => true)
-    invalidDeps.ctx = { admin: { agents: { suspend: vi.fn() } } } as DispatchContext
+    invalidDeps.ctx = ctx({ sessions: { suspend: vi.fn() } })
     registerInvokeRoute(invalid, invalidDeps)
     await invalid.ready()
     const invalidRes = await invalid.inject({
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'suspend' },
+      payload: { command: 'session', subcommand: 'suspend' },
     })
     expect(invalidRes.statusCode).toBe(400)
     expect(invalidRes.json()).toEqual({ ok: false, error: { code: 'invalid', reason: expect.any(String) } })
 
     const upstreamDeps = deps(vi.fn(async () => claims()))
     upstreamDeps.replay.mark = vi.fn(async () => true)
-    upstreamDeps.ctx = {
-      admin: {
-        agents: {
-          list: vi.fn(async () => {
-            throw new Error('api down')
-          }),
-        },
+    upstreamDeps.ctx = ctx({
+      sessions: {
+        list: vi.fn(async () => {
+          throw new Error('api down')
+        }),
       },
-    } as DispatchContext
+    })
     registerInvokeRoute(upstream, upstreamDeps)
     await upstream.ready()
     const upstreamRes = await upstream.inject({
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
     expect(upstreamRes.statusCode).toBe(502)
     expect(upstreamRes.json()).toEqual({ ok: false, error: { code: 'upstream', reason: 'upstream error' } })
   })
 
-  it('lets the reserved Operator govern a tenant zone via the zone-scope header', async () => {
+  it('lets the reserved Operator govern a granted zone via the zone-scope header', async () => {
     const app = Fastify()
     apps.push(app)
     const list = vi.fn(async () => [{ id: 'a1' }])
     const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
     d.replay.mark = vi.fn(async () => true)
-    d.resolvePlatformOperatorSubject = () => 'operator-reader'
-    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
+    d.ctx = ctx({ applications: { list } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -253,18 +310,20 @@ describe('registerInvokeRoute', () => {
 
     expect(res.statusCode).toBe(200)
     // The read targets the tenant zone, and the audit is attributed to the zone actually read.
+    expect(d.lookupZoneScopeTarget).toHaveBeenCalledWith('z-tenant')
     expect(list).toHaveBeenCalledWith('z-tenant')
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
   })
 
-  it('lets the reserved Operator mutate a tenant zone via the zone-scope header', async () => {
+  it('lets the reserved Operator mutate a granted zone via the zone-scope header', async () => {
     const app = Fastify()
     apps.push(app)
     const create = vi.fn(async () => ({ id: 'app-new' }))
-    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:write' })))
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-executor', zoneId: 'z-system', scope: 'control:app:write' })))
     d.replay.mark = vi.fn(async () => true)
-    d.resolvePlatformOperatorSubject = () => 'operator-reader'
-    d.ctx = { admin: { applications: { create } } } as unknown as DispatchContext
+    d.resolveOperatorSubjects = () => new Set(['operator-executor'])
+    d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
+    d.ctx = ctx({ applications: { create } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -281,13 +340,38 @@ describe('registerInvokeRoute', () => {
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-tenant' }))
   })
 
-  it('ignores the zone-scope header for a subject that is not the reserved Operator', async () => {
+  it('acts in the token zone without any grant check when the header names it', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const list = vi.fn(async () => [{ id: 'a1' }])
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.lookupZoneScopeTarget = vi.fn(async () => null)
+    d.ctx = ctx({ applications: { list } })
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-system' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(d.lookupZoneScopeTarget).not.toHaveBeenCalled()
+    expect(list).toHaveBeenCalledWith('z-system')
+  })
+
+  it('denies the zone-scope header for a subject that is not a reserved Operator identity', async () => {
     const app = Fastify()
     apps.push(app)
     const list = vi.fn(async () => [{ id: 'a1' }])
     const d = deps(vi.fn(async () => claims({ sub: 'tenant-key', zoneId: 'z-own', scope: 'control:app:read' })))
     d.replay.mark = vi.fn(async () => true)
-    d.resolvePlatformOperatorSubject = () => 'operator-reader'
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
     d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -299,9 +383,118 @@ describe('registerInvokeRoute', () => {
       payload: { command: 'app', subcommand: 'list' },
     })
 
-    expect(res.statusCode).toBe(200)
-    // A tenant key can never use the header to reach another zone: the command stays in its own zone.
-    expect(list).toHaveBeenCalledWith('z-own')
-    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', zoneId: 'z-own' }))
+    // A tenant key stamping the header is refused and audited, never silently re-scoped.
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'denied', reason: 'zone scope: subject is not a reserved operator identity' } })
+    expect(list).not.toHaveBeenCalled()
+    expect(d.sink.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: 'deny', reason: 'zone scope: subject is not a reserved operator identity', zoneId: 'z-own' }),
+    )
+  })
+
+  it('denies the zone-scope header when the Operator credential has expired and no subjects resolve', async () => {
+    // An expired Operator identity resolves to null subjects, so a previously valid subject
+    // presenting a still-live token fails closed at the boundary instead of retaining authority.
+    const app = Fastify()
+    apps.push(app)
+    const list = vi.fn(async () => [{ id: 'a1' }])
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => null
+    d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
+    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'denied', reason: 'zone scope: subject is not a reserved operator identity' } })
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a malformed zone id', 'z/../etc', null, 'zone scope: malformed zone id'],
+    ['a zone that does not exist', 'z-missing', null, 'zone scope: zone does not exist'],
+    ['an archived zone', 'z-archived', { reserved: false, archived: true, operatorGoverned: true }, 'zone scope: zone is archived'],
+    ['a reserved zone', 'z-reserved', { reserved: true, archived: false, operatorGoverned: true }, 'zone scope: reserved zone'],
+    [
+      'a zone without the administration grant',
+      'z-ungoverned',
+      { reserved: false, archived: false, operatorGoverned: false },
+      'zone scope: zone has not granted operator administration',
+    ],
+  ] as [string, string, ZoneScopeTarget | null, string][])('denies zone scope targeting %s', async (_case, target, zone, reason) => {
+    const app = Fastify()
+    apps.push(app)
+    const list = vi.fn(async () => [{ id: 'a1' }])
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.lookupZoneScopeTarget = vi.fn(async () => zone)
+    d.ctx = { admin: { applications: { list } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': target },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'denied', reason } })
+    expect(list).not.toHaveBeenCalled()
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'deny', reason, command: 'app', subcommand: 'list' }))
+  })
+
+  it('denies zone scope targeting an isolated zone', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.lookupZoneScopeTarget = vi.fn(async () => ({ reserved: false, archived: false, operatorGoverned: true }))
+    d.isolatedZones = new Set(['z-isolated'])
+    d.ctx = { admin: { applications: { list: vi.fn() } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-isolated' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'denied', reason: 'zone scope: isolated zone' } })
+  })
+
+  it('denies zone scope when no zone authority is wired', async () => {
+    const app = Fastify()
+    apps.push(app)
+    const d = deps(vi.fn(async () => claims({ sub: 'operator-reader', zoneId: 'z-system', scope: 'control:app:read' })))
+    d.replay.mark = vi.fn(async () => true)
+    d.resolveOperatorSubjects = () => new Set(['operator-reader'])
+    d.ctx = { admin: { applications: { list: vi.fn() } } } as unknown as DispatchContext
+
+    registerInvokeRoute(app, d)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/control/invoke',
+      headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
+      payload: { command: 'app', subcommand: 'list' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ ok: false, error: { code: 'denied', reason: 'zone scope: no zone authority configured' } })
   })
 })

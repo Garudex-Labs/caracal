@@ -1,0 +1,25 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Python package metadata for the Caracal admin client.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caracalai-admin"
+version = "0.2.0"
+description = "Caracal admin client for Python: control-plane invocation, admin API access, and idempotent provisioning reconcilers"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "caracalai-core",
+  "httpx>=0.28.0",
+  "idna>=3.15",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["caracalai_admin"]

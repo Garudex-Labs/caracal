@@ -9,6 +9,7 @@ import type { TokenExchangeResponse } from './types.js'
 export interface TokenCache {
   get(subjectToken: string, resource: string): TokenExchangeResponse | undefined
   set(subjectToken: string, resource: string, token: TokenExchangeResponse): void
+  clear(): void
 }
 
 export interface InMemoryTokenCacheOptions {
@@ -56,6 +57,10 @@ export class InMemoryTokenCache implements TokenCache {
       if (oldest === undefined) break
       this.map.delete(oldest)
     }
+  }
+
+  clear(): void {
+    this.map.clear()
   }
 }
 

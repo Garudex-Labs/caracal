@@ -8,8 +8,8 @@ name: caracal
 x-logging: &defaultLogging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "5"
+    max-size: '10m'
+    max-file: '5'
 
 x-security: &defaultSecurity
   security_opt:
@@ -29,6 +29,46 @@ x-appService: &appService
   networks:
     - caracalData
 
+x-appResources: &appResources
+  deploy:
+    resources:
+      limits:
+        cpus: '${CARACAL_APP_CPU_LIMIT:-1.0}'
+        memory: '${CARACAL_APP_MEM_LIMIT:-512M}'
+        pids: 256
+      reservations:
+        cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+        memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
+
+# Secret backend selection for user-entered provider credentials. The builtin Secret
+# Store needs nothing beyond SECRET_STORE_KEK; the remaining values configure an
+# external backend and stay empty (treated as unset) under builtin.
+x-secretBackendEnv: &secretBackendEnv
+  CARACAL_SECRET_BACKEND: ${CARACAL_SECRET_BACKEND:-builtin}
+  CARACAL_VAULT_ADDR: ${CARACAL_VAULT_ADDR:-}
+  CARACAL_VAULT_TOKEN: ${CARACAL_VAULT_TOKEN:-}
+  CARACAL_VAULT_MOUNT: ${CARACAL_VAULT_MOUNT:-}
+  CARACAL_VAULT_NAMESPACE: ${CARACAL_VAULT_NAMESPACE:-}
+  CARACAL_INFISICAL_URL: ${CARACAL_INFISICAL_URL:-}
+  CARACAL_INFISICAL_TOKEN: ${CARACAL_INFISICAL_TOKEN:-}
+  CARACAL_INFISICAL_PROJECT_ID: ${CARACAL_INFISICAL_PROJECT_ID:-}
+  CARACAL_INFISICAL_ENV: ${CARACAL_INFISICAL_ENV:-}
+  CARACAL_INFISICAL_PATH: ${CARACAL_INFISICAL_PATH:-}
+  CARACAL_AZURE_VAULT_URL: ${CARACAL_AZURE_VAULT_URL:-}
+  CARACAL_AZURE_TENANT_ID: ${CARACAL_AZURE_TENANT_ID:-}
+  CARACAL_AZURE_CLIENT_ID: ${CARACAL_AZURE_CLIENT_ID:-}
+  CARACAL_AZURE_CLIENT_SECRET: ${CARACAL_AZURE_CLIENT_SECRET:-}
+  CARACAL_AWS_REGION: ${CARACAL_AWS_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+  CARACAL_GCP_PROJECT: ${CARACAL_GCP_PROJECT:-}
+  CARACAL_GCP_CREDENTIALS_FILE: ${CARACAL_GCP_CREDENTIALS_FILE:-}
+  GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  CARACAL_CUSTOM_SECRETS_URL: ${CARACAL_CUSTOM_SECRETS_URL:-}
+  CARACAL_CUSTOM_SECRETS_TOKEN: ${CARACAL_CUSTOM_SECRETS_TOKEN:-}
+  CARACAL_PRIVATE_EGRESS_HOSTS: ${CARACAL_PRIVATE_EGRESS_HOSTS:-}
+
 networks:
   caracalData:
     driver: bridge
@@ -45,16 +85,40 @@ secrets:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/caracalCoordinatorToken
   metricsBearer:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/metricsBearer
-  zoneKek:
-    file: ${CARACAL_SECRETS_DIR:-./secrets}/zoneKek
+  secretStoreKek:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/secretStoreKek
   auditHmacKey:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/auditHmacKey
   streamsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/streamsHmacKey
+  idempotencyHmacKey:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/idempotencyHmacKey
   gatewayStsHmacKey:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/gatewayStsHmacKey
   databaseUrl:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/databaseUrl
+  apiDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/apiDatabaseUrl
+  stsDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/stsDatabaseUrl
+  gatewayDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/gatewayDatabaseUrl
+  auditDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/auditDatabaseUrl
+  coordinatorDatabaseUrl:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/coordinatorDatabaseUrl
+  apiDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/apiDbPassword
+  stsDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/stsDbPassword
+  gatewayDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/gatewayDbPassword
+  auditDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/auditDbPassword
+  coordinatorDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/coordinatorDbPassword
+  authDbPassword:
+    file: ${CARACAL_SECRETS_DIR:-./secrets}/authDbPassword
   authDatabaseUrl:
     file: ${CARACAL_SECRETS_DIR:-./secrets}/authDatabaseUrl
   caracalAuthSecret:
@@ -65,7 +129,7 @@ secrets:
 services:
   replayVolumeInit:
     image: busybox:1.37.0@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
-    restart: "no"
+    restart: 'no'
     network_mode: none
     security_opt:
       - no-new-privileges:true
@@ -116,19 +180,22 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgresPassword
       POSTGRES_DB: ${POSTGRES_DB:-caracal}
     ports:
-      - "127.0.0.1:5432:5432"
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgresData:/var/lib/postgresql
     tmpfs:
       - /tmp:size=64m,mode=1777
       - /var/run/postgresql:size=16m,mode=0755
-    shm_size: "256m"
+    shm_size: '256m'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h /var/run/postgresql"]
+      # TCP probe: initdb's temporary server only listens on the unix socket, so
+      # health reflects the real postmaster that dependents reach over TCP.
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   redis:
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-redis:v${CARACAL_VERSION}
@@ -146,7 +213,7 @@ services:
       REDIS_PASSWORD_FILE: /run/secrets/redisPassword
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
     ports:
-      - "127.0.0.1:6379:6379"
+      - '127.0.0.1:6379:6379'
     volumes:
       - redisData:/data
       - type: tmpfs
@@ -154,15 +221,20 @@ services:
         tmpfs:
           mode: 1023
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned"]
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH=$$(cat /run/secrets/redisPassword) redis-cli --no-auth-warning PING | grep -q PONG && test -f /run/caracal/provisioned',
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 10s
+      start_interval: 250ms
 
   dbMigrate:
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-postgres:v${CARACAL_VERSION}
-    restart: "no"
+    restart: 'no'
     init: true
     logging: *defaultLogging
     security_opt:
@@ -180,21 +252,39 @@ services:
     secrets:
       - source: postgresPassword
         target: postgresPassword
+      - source: apiDbPassword
+        target: apiDbPassword
+      - source: stsDbPassword
+        target: stsDbPassword
+      - source: gatewayDbPassword
+        target: gatewayDbPassword
+      - source: auditDbPassword
+        target: auditDbPassword
+      - source: coordinatorDbPassword
+        target: coordinatorDbPassword
+      - source: authDbPassword
+        target: authDbPassword
     environment:
       PGHOST: postgres
-      PGPORT: "5432"
+      PGPORT: '5432'
       PGUSER: ${POSTGRES_USER:-caracal}
       PGPASSWORD_FILE: /run/secrets/postgresPassword
       PGDATABASE: ${POSTGRES_DB:-caracal}
       # Internal isolated network with the bundled Postgres (no server TLS).
       # External/managed databases must set CARACAL_DB_SSLMODE to require or verify-full.
       PGSSLMODE: ${CARACAL_DB_SSLMODE:-disable}
-    entrypoint: ["/bin/sh", "/usr/local/bin/caracal-migrate"]
+      CARACAL_API_DB_PASSWORD_FILE: /run/secrets/apiDbPassword
+      CARACAL_STS_DB_PASSWORD_FILE: /run/secrets/stsDbPassword
+      CARACAL_GATEWAY_DB_PASSWORD_FILE: /run/secrets/gatewayDbPassword
+      CARACAL_AUDIT_DB_PASSWORD_FILE: /run/secrets/auditDbPassword
+      CARACAL_COORDINATOR_DB_PASSWORD_FILE: /run/secrets/coordinatorDbPassword
+      CARACAL_AUTH_DB_PASSWORD_FILE: /run/secrets/authDbPassword
+    entrypoint: ['/bin/sh', '/usr/local/bin/caracal-migrate']
 
   sts:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/sts"]
+    command: ['/usr/local/bin/sts']
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -205,12 +295,12 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: stsDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
-      - source: zoneKek
-        target: zoneKek
+      - source: secretStoreKek
+        target: secretStoreKek
       - source: auditHmacKey
         target: auditHmacKey
       - source: streamsHmacKey
@@ -220,45 +310,46 @@ services:
       - source: metricsBearer
         target: metricsBearer
     environment:
+      <<: *secretBackendEnv
       CARACAL_MODE: ${CARACAL_MODE:-stable}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
-      ZONE_KEK_FILE: /run/secrets/zoneKek
+      SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
-      ZONE_KEK_PROVIDER: local
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       PORT: 8080
     ports:
-      - "127.0.0.1:8080:8080"
+      - '127.0.0.1:8080:8080'
     volumes:
       - stsReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   api:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
-    command: ["/app/api/dist/main.js"]
+    command: ['/app/api/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: apiDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
-      - source: zoneKek
-        target: zoneKek
+      - source: secretStoreKek
+        target: secretStoreKek
       - source: streamsHmacKey
         target: streamsHmacKey
       - source: gatewayStsHmacKey
@@ -270,41 +361,61 @@ services:
       - source: auditHmacKey
         target: auditHmacKey
     environment:
+      <<: *secretBackendEnv
       CARACAL_MODE: ${CARACAL_MODE:-stable}
       DATABASE_URL_FILE: /run/secrets/databaseUrl
       REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
       CARACAL_GATEWAY_URL: http://gateway:8081
       CARACAL_COORDINATOR_URL: http://coordinator:4000
-      ZONE_KEK_FILE: /run/secrets/zoneKek
+      # Service-to-service traffic stays on the compose-internal bridge network and is
+      # authenticated with HMAC keys and tokens, so plain http between containers is safe.
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
+      SECRET_STORE_KEK_FILE: /run/secrets/secretStoreKek
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       AUDIT_HMAC_KEY_FILE: /run/secrets/auditHmacKey
-      CARACAL_CONTROL_ENABLED: "true"
+      CARACAL_CONTROL_ENABLED: 'true'
       CONTROL_GATE_FILE: /run/caracal-control/enabled
       STS_JWKS_URL: http://sts:8080/.well-known/jwks.json
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
       CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken
+      # Caracal Operator. AI providers are added in the console's AI settings: the key is
+      # sealed into the caracal.sys system zone and the governed resource points at the
+      # OpenAI-compatible endpoint the operator enters, so no model traffic leaves ungoverned
+      # and no key ever lives in an env file. The Operator always self-governs: the control
+      # plane provisions that zone and its rotating least-privilege identities autonomously.
+      API_OPERATOR_ENABLED: ${API_OPERATOR_ENABLED:-true}
       PORT: 3000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:3000:3000"
+      - '127.0.0.1:3000:3000'
     volumes:
-      - "${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro"
+      - '${CARACAL_CONTROL_STATE_DIR:-./control}:/run/caracal-control:ro'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
   gateway:
     <<: *appService
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/gateway"]
+    command: ['/usr/local/bin/gateway']
+    deploy:
+      resources:
+        limits:
+          cpus: '${CARACAL_GATEWAY_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_GATEWAY_MEM_LIMIT:-1G}'
+          pids: 256
+        reservations:
+          cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+          memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -315,7 +426,7 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: gatewayDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -340,22 +451,25 @@ services:
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       UPSTREAM_HOST_ALLOWLIST: ${UPSTREAM_HOST_ALLOWLIST:-}
+      TRUST_PROXY: ${CARACAL_GATEWAY_TRUST_PROXY:-false}
+      STREAM_IDLE_TIMEOUT: ${CARACAL_GATEWAY_STREAM_IDLE_TIMEOUT:-60s}
       PORT: 8081
     ports:
-      - "127.0.0.1:8081:8081"
+      - '127.0.0.1:8081:8081'
     volumes:
       - gatewayReplay:/var/lib/caracal
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   audit:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
-    command: ["/usr/local/bin/audit"]
+    command: ['/usr/local/bin/audit']
     depends_on:
       postgres:
         condition: service_healthy
@@ -364,7 +478,7 @@ services:
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: auditDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
@@ -382,32 +496,36 @@ services:
       AUDIT_EXPORT_S3_ENDPOINT: ${AUDIT_EXPORT_S3_ENDPOINT:-}
       AUDIT_EXPORT_S3_BUCKET: ${AUDIT_EXPORT_S3_BUCKET:-}
       AUDIT_EXPORT_S3_REGION: ${AUDIT_EXPORT_S3_REGION:-us-east-1}
-      PORT: "9090"
+      AUDIT_EXPORT_TMP_DIR: /tmp
+      PORT: '9090'
     ports:
-      - "127.0.0.1:9090:9090"
+      - '127.0.0.1:9090:9090'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 15s
+      start_interval: 250ms
 
   coordinator:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-node:v${CARACAL_VERSION}
-    command: ["/app/coordinator/dist/main.js"]
+    command: ['/app/coordinator/dist/main.js']
     depends_on:
       sts:
         condition: service_healthy
       dbMigrate:
         condition: service_completed_successfully
     secrets:
-      - source: databaseUrl
+      - source: coordinatorDatabaseUrl
         target: databaseUrl
       - source: redisUrl
         target: redisUrl
       - source: streamsHmacKey
         target: streamsHmacKey
+      - source: idempotencyHmacKey
+        target: idempotencyHmacKey
       - source: caracalCoordinatorToken
         target: caracalCoordinatorToken
       - source: metricsBearer
@@ -418,25 +536,34 @@ services:
       REDIS_URL_FILE: /run/secrets/redisUrl
       STS_URL: http://sts:8080
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
+      # Service-to-service traffic stays on the compose-internal bridge network and is
+      # authenticated with HMAC keys and tokens, so plain http between containers is safe.
+      CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true'
       STREAMS_HMAC_KEY_FILE: /run/secrets/streamsHmacKey
+      IDEMPOTENCY_HMAC_KEY_FILE: /run/secrets/idempotencyHmacKey
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
+      IDEMPOTENCY_RETENTION_SECONDS: ${IDEMPOTENCY_RETENTION_SECONDS:-604800}
+      GENERATED_IDEMPOTENCY_RETENTION_SECONDS: ${GENERATED_IDEMPOTENCY_RETENTION_SECONDS:-86400}
+      IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE: ${IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE:-10000}
+      COORDINATOR_BODY_LIMIT_BYTES: ${COORDINATOR_BODY_LIMIT_BYTES:-262144}
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       PORT: 4000
       HOST: 0.0.0.0
     ports:
-      - "127.0.0.1:4000:4000"
+      - '127.0.0.1:4000:4000'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
   web:
-    <<: *appService
+    <<: [*appService, *appResources]
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-web:v${CARACAL_VERSION}
-    command: ["/app/auth/dist/server.js"]
+    command: ['/app/auth/dist/server.js']
     depends_on:
       postgres:
         condition: service_healthy
@@ -458,10 +585,12 @@ services:
       CARACAL_AUTH_DATABASE_URL_FILE: /run/secrets/authDatabaseUrl
       CARACAL_AUTH_DATABASE_SSL: disable
       CARACAL_AUTH_SECRET_FILE: /run/secrets/caracalAuthSecret
-      CARACAL_AUTH_AUTO_MIGRATE: "true"
+      CARACAL_AUTH_AUTO_MIGRATE: 'true'
       CARACAL_AUTH_URL: ${CARACAL_WEB_URL:-http://localhost:3001}
+      CARACAL_VERSION: v${CARACAL_VERSION}
       CARACAL_WEB_ORIGIN: ${CARACAL_WEB_ORIGIN:-}
-      CARACAL_OPERATOR_EMAILS: ${CARACAL_OPERATOR_EMAILS:-}
+      CARACAL_AUTH_TRUST_PROXY: ${CARACAL_AUTH_TRUST_PROXY:-}
+      CARACAL_OPERATOR_ALLOWLIST_FILE: /run/caracalHostSecrets/operatorAllowlist.json
       CARACAL_OPEN_REGISTRATION: ${CARACAL_OPEN_REGISTRATION:-}
       CARACAL_PASSWORD_SIGNUP: ${CARACAL_PASSWORD_SIGNUP:-}
       CARACAL_SMTP_URL: ${CARACAL_SMTP_URL:-}
@@ -477,14 +606,21 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 3002
       HOST: 0.0.0.0
+    # The allowlist file is written by `caracal allowlist` on the host, often after the stack is
+    # already up, so it arrives through a directory bind rather than a compose secret, whose
+    # file source must exist at start. Only the allowlist subdirectory is mounted, read-only,
+    # so the container never sees sibling host secrets and cannot change admission policy.
+    volumes:
+      - ${CARACAL_SECRETS_DIR:-./secrets}/allowlist:/run/caracalHostSecrets:ro
     ports:
-      - "127.0.0.1:3001:3002"
+      - '127.0.0.1:3001:3002'
     healthcheck:
-      test: ["CMD", "/healthcheck"]
+      test: ['CMD', '/healthcheck']
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 20s
+      start_interval: 250ms
 
 volumes:
   postgresData:

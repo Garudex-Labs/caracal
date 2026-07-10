@@ -125,7 +125,7 @@ func TestGatewayReadyReportsSuccessAndDependencyFailures(t *testing.T) {
 func TestGatewayMetricsAuthorizationAndJSONGauges(t *testing.T) {
 	server := testGatewayServer(t, "http://127.0.0.1:1")
 	server.cfg.MetricsBearer = "secret"
-	server.revocations.markSession("sid-1")
+	server.revocations.markAuthorityRecord("sid-1")
 	server.revocations.markSnapshotFresh(time.Now().Add(-time.Second))
 
 	w := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestGatewayMetricsAuthorizationAndJSONGauges(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap.BindingsLoaded != 1 || snap.RevocationsActive != 1 || snap.RevocationSnapshotFresh != 1 {
+	if snap.RevocationsActive != 1 || snap.RevocationSnapshotFresh != 1 {
 		t.Fatalf("unexpected metric gauges: %+v", snap)
 	}
 
@@ -199,22 +199,14 @@ type readyRedis struct {
 
 func (r *readyRedis) Ping(context.Context) error { return r.pingErr }
 
+func (r *readyRedis) Close() error { return nil }
+
 type fakeAuditStream struct{}
 
 func (fakeAuditStream) XAdd(context.Context, string, map[string]any) error { return nil }
 
 func testGatewayServer(t *testing.T, stsURL string) *Server {
 	t.Helper()
-	bindings := newTestBindingStore(&fakeBindingPool{
-		t: t,
-		queries: []bindingQuery{
-			{sql: "SELECT version FROM gateway_binding_revision WHERE id = true", rows: rowValues([]any{int64(1)})},
-			{sql: "SELECT version FROM gateway_binding_revision WHERE id = true", rows: rowValues([]any{int64(1)})},
-		},
-	})
-	cached := map[string]binding{"zone-1\x00resource://api": {ZoneID: "zone-1", ApplicationID: "app-1"}}
-	bindings.cache.Store(&cached)
-	bindings.revision.Store(1)
 	auditClient, err := audit.NewClient(fakeAuditStream{}, audit.ClientConfig{ReplayDir: t.TempDir(), Logger: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +217,6 @@ func testGatewayServer(t *testing.T, stsURL string) *Server {
 		cfg:         Config{},
 		log:         zerolog.Nop(),
 		sts:         newSTSClient(stsURL, time.Second, nil),
-		bindings:    bindings,
 		redis:       &readyRedis{fakeRevocationRedis: fakeRevocationRedis{verify: true}},
 		audit:       auditClient,
 		revocations: revocations,

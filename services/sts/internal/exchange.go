@@ -8,18 +8,23 @@ package internal
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -32,19 +37,25 @@ const (
 	// initiating long streams must treat ttlResourceMandate as the contract upper
 	// bound: streams running past it should expect upstream-side disconnect
 	// or a fresh exchange and reconnect orchestrated by the SDK.
-	ttlResourceMandate     = 15 * time.Minute
-	ttlSessionMandate      = 60 * time.Minute
-	gatewayExchangeSkew    = 60 * time.Second
-	controlInvokeTrait     = "control:invoke"
-	controlScopeTrait      = "control:scope:"
-	controlMaxTTLTrait     = "control:max-ttl:"
-	controlExpiresTrait    = "control:expires:"
-	defaultControlAudience = "caracal-control"
-	providerTokenCacheSkew = 30 * time.Second
+	ttlResourceMandate        = 15 * time.Minute
+	ttlAuthorityRecordMandate = 60 * time.Minute
+	gatewayExchangeSkew       = 60 * time.Second
+	controlInvokeTrait        = "control:invoke"
+	controlScopeTrait         = "control:scope:"
+	controlMaxTTLTrait        = "control:max-ttl:"
+	controlExpiresTrait       = "control:expires:"
+	defaultControlAudience    = "caracal-control"
+	providerTokenCacheSkew    = 30 * time.Second
+	maxDelegationHops         = 10
+	tokenExchangeGrantType    = "urn:ietf:params:oauth:grant-type:token-exchange"
+	accessTokenType           = "urn:ietf:params:oauth:token-type:access_token"
 )
 
 type delegationProof struct {
 	edge        *DelegationEdge
+	edges       []*DelegationEdge
+	source      *Session
+	target      *Session
 	constraints delegationConstraints
 	path        []string
 	chain       []ChainHop
@@ -63,9 +74,27 @@ type delegationConstraints struct {
 }
 
 func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	requestID := r.Header.Get("X-Request-Id")
+	if requestID == "" {
+		if id, err := uuid.NewV7(); err == nil {
+			requestID = id.String()
+		} else {
+			requestID = uuid.NewString()
+		}
+	}
+	if requestID != "" {
+		w.Header().Set("X-Request-Id", requestID)
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return
+	}
+	// RFC 8693 actor tokens are not part of the exchange contract: the acting
+	// application authenticates with its own client credentials and rides the
+	// policy input as caracal_client_id.
+	if r.FormValue("actor_token") != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token is not supported: authenticate the acting application with its own client credentials"))
 		return
 	}
 	ttlSeconds := 0
@@ -77,25 +106,7 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		}
 		ttlSeconds = parsedTTL
 	}
-	runtimeCredentialInjection := false
-	if rawRuntimeInjection := r.FormValue("runtime_credential_injection"); rawRuntimeInjection != "" {
-		if rawRuntimeInjection != "true" && rawRuntimeInjection != "false" {
-			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid runtime_credential_injection"))
-			return
-		}
-		runtimeCredentialInjection = rawRuntimeInjection == "true"
-	}
 
-	requestID := r.Header.Get("X-Request-Id")
-	if requestID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			s.log.Error().Err(err).Msg("request id generation failed")
-			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
-			return
-		}
-		requestID = id.String()
-	}
 	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID)
 	if gatewayErr != nil {
 		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid gateway exchange signature"))
@@ -103,30 +114,55 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := TokenExchangeRequest{
-		GrantType:                  r.FormValue("grant_type"),
-		SubjectToken:               r.FormValue("subject_token"),
-		SubjectTokenType:           r.FormValue("subject_token_type"),
-		ActorToken:                 r.FormValue("actor_token"),
-		Resources:                  r.Form["resource"],
-		Scope:                      r.FormValue("scope"),
-		ZoneID:                     r.FormValue("zone_id"),
-		ApplicationID:              r.FormValue("application_id"),
-		ClientSecret:               r.FormValue("client_secret"),
-		ClientAssertion:            r.FormValue("client_assertion"),
-		ClientAssertionType:        r.FormValue("client_assertion_type"),
-		ChallengeID:                r.FormValue("challenge_id"),
-		ChallengeResponse:          r.FormValue("challenge_response"),
-		SessionID:                  r.FormValue("session_id"),
-		AgentSessionID:             r.FormValue("agent_session_id"),
-		DelegationEdgeID:           r.FormValue("delegation_edge_id"),
-		RequestMethod:              r.FormValue("request_method"),
-		RequestPath:                r.FormValue("request_path"),
-		TTLSeconds:                 ttlSeconds,
-		GatewayAuthenticated:       gatewayAuthenticated,
-		RuntimeCredentialInjection: runtimeCredentialInjection,
+		GrantType:            r.FormValue("grant_type"),
+		SubjectToken:         r.FormValue("subject_token"),
+		SubjectTokenType:     r.FormValue("subject_token_type"),
+		Resources:            r.Form["resource"],
+		Scope:                r.FormValue("scope"),
+		ZoneID:               r.FormValue("zone_id"),
+		ApplicationID:        r.FormValue("application_id"),
+		ClientSecret:         r.FormValue("client_secret"),
+		ClientAssertion:      r.FormValue("client_assertion"),
+		ClientAssertionType:  r.FormValue("client_assertion_type"),
+		ChallengeID:          r.FormValue("challenge_id"),
+		AuthorityRecordID:    r.FormValue("session_id"),
+		SessionID:            r.FormValue("agent_session_id"),
+		DelegationEdgeID:     r.FormValue("delegation_edge_id"),
+		RequestMethod:        r.FormValue("request_method"),
+		RequestPath:          r.FormValue("request_path"),
+		TTLSeconds:           ttlSeconds,
+		GatewayAuthenticated: gatewayAuthenticated,
+	}
+	if req.GrantType != tokenExchangeGrantType {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "unsupported grant_type"))
+		return
+	}
+	if req.SubjectTokenType != "" && req.SubjectTokenType != accessTokenType && req.SubjectTokenType != SubjectTokenTypeIDToken {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "unsupported subject_token_type"))
+		return
+	}
+	if req.SubjectToken != "" && req.SubjectTokenType == "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "subject_token_type is required with subject_token"))
+		return
+	}
+	if req.SubjectToken == "" && req.SubjectTokenType != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "subject_token is required with subject_token_type"))
+		return
+	}
+	if !req.GatewayAuthenticated {
+		if rateErr := s.checkAuthenticationRateLimit(r.Context(), strings.TrimSpace(req.ApplicationID)); rateErr != nil {
+			writeError(w, http.StatusTooManyRequests, rateErr)
+			return
+		}
 	}
 
 	resp, challenge, code, apiErr := s.exchange(r.Context(), req, requestID)
+	if !req.GatewayAuthenticated && code == http.StatusUnauthorized && apiErr != nil && apiErr.Description == "invalid client credentials" {
+		if rateErr := s.recordAuthenticationFailure(r.Context(), strings.TrimSpace(req.ApplicationID)); rateErr != nil {
+			writeError(w, http.StatusTooManyRequests, rateErr)
+			return
+		}
+	}
 	if apiErr != nil {
 		writeError(w, code, apiErr)
 		return
@@ -149,8 +185,8 @@ func (s *Server) verifyGatewayExchange(r *http.Request, requestID string) (bool,
 	if timestamp == "" && signature == "" && gatewayRequestID == "" {
 		return false, nil
 	}
-	if gatewayRequestID != requestID {
-		return false, fmt.Errorf("gateway request id mismatch")
+	if r.FormValue("gateway_request_id") != requestID {
+		return false, fmt.Errorf("gateway correlation id mismatch")
 	}
 	if err := corests.VerifyGatewayExchange(s.cfg.GatewayHMACKey, time.Now().UTC(), gatewayExchangeSkew, timestamp, gatewayRequestID, signature, r.Method, r.URL.EscapedPath(), []byte(r.PostForm.Encode())); err != nil {
 		return false, err
@@ -246,6 +282,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid client credentials")
 	}
 
+	// Subject federation is a distinct exchange class: the authenticated application
+	// presents its end user's external identity token and receives a user subject
+	// session, minting no resource authority. It is dispatched before the resource
+	// requirement because it names no resources by design.
+	if req.SubjectTokenType == SubjectTokenTypeIDToken {
+		return s.federateSubject(ctx, req, app, zoneID, requestID)
+	}
+
 	if len(req.Resources) == 0 {
 		return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "at least one resource is required")
 	}
@@ -257,38 +301,33 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
-		subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
+		if req.GatewayAuthenticated {
+			subjectClaims, err = s.validateGatewaySubjectToken(ctx, req.SubjectToken, zoneID)
+		} else {
+			subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
+		}
 		if err != nil {
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid subject_token")
 		}
-		sid, serr := s.validateTokenSession(ctx, zoneID, app.ID, req.SessionID, subjectClaims)
+		sid, serr := s.validateAuthorityRecord(ctx, zoneID, app.ID, req.AuthorityRecordID, subjectClaims)
 		if serr != nil {
 			return nil, nil, http.StatusForbidden, serr
 		}
-		if req.SessionID == "" {
-			req.SessionID = sid
+		if req.AuthorityRecordID == "" {
+			req.AuthorityRecordID = sid
 		}
-		if aerr := bindSubjectAgentSession(&req, subjectClaims); aerr != nil {
+		if aerr := bindGovernedSession(&req, subjectClaims); aerr != nil {
+			return nil, nil, http.StatusForbidden, aerr
+		}
+		if aerr := bindDelegationEdge(&req, subjectClaims); aerr != nil {
 			return nil, nil, http.StatusForbidden, aerr
 		}
 	}
 
-	actorClaims := map[string]any{}
-	if req.ActorToken != "" {
-		actorClaims, err = s.validateSubjectToken(ctx, req.ActorToken, zoneID)
-		if err != nil {
-			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid actor_token")
-		}
-		if _, serr := s.validateTokenSession(ctx, zoneID, app.ID, "", actorClaims); serr != nil {
-			return nil, nil, http.StatusForbidden, serr
-		}
-		if sameTokenPrincipal(subjectClaims, actorClaims) {
-			return nil, nil, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token and subject_token must identify distinct principals")
-		}
-	}
-	// client_id is the authenticated calling application; it is published on a separate
-	// key so it never shadows actor token claims (which carry a distinct application id).
-	actorClaims["caracal_client_id"] = app.ID
+	// The authenticated calling application rides the policy input on
+	// actor_claims.caracal_client_id, keeping "who is acting" evaluable
+	// without a separate actor credential.
+	actorClaims := map[string]any{"caracal_client_id": app.ID}
 
 	principalID := app.ID
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
@@ -296,73 +335,67 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	}
 
 	challengeResolved := false
-	if req.ChallengeID != "" || req.ChallengeResponse != "" {
-		var approval *StepUpChallengePG
-		if req.ChallengeID != "" {
-			if existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID); lookupErr == nil && existing.ChallengeType == humanApprovalChallengeType {
-				approval = existing
+	var approval *StepUpChallengePG
+	if req.ChallengeID != "" {
+		// Verify the presented approval against every binding without consuming it:
+		// consumption happens after the policy loop, immediately before the session is
+		// created, so a downstream deny never burns a granted approval. The generic
+		// invalid answer covers lookup failure and every binding mismatch alike, so a
+		// probe cannot distinguish another zone's challenge from a wrong scope set.
+		existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID)
+		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
+			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
+			existing.AuthorityRecordID != req.AuthorityRecordID ||
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope))) {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not found or bindings do not match")
 		}
-		if approval != nil {
-			// Async human approval: satisfied out-of-band by a named approver, so it
-			// carries no secret and never feeds the brute-force throttle.
-			if approval.ConsumedAt != nil {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval already used")
+		switch challengeLifecycleState(existing, exchangeNow) {
+		case ChallengeStateConsumed:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			if approval.SatisfiedAt == nil {
-				// Still pending: re-surface the same challenge so a premature retry
-				// waits on the approver rather than failing.
-				return nil, &challengeState{
-					ID:            approval.ID,
-					ZoneID:        approval.ZoneID,
-					SessionID:     approval.SessionID,
-					ChallengeType: approval.ChallengeType,
-					ExpiresAt:     approval.ExpiresAt,
-				}, http.StatusUnauthorized, nil
+			return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval already used; another request consumed it")
+		case ChallengeStateRejected:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+				mergeAuditMeta(appMeta, stepUpAuditMeta(existing))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			if cerr := s.verifyAndConsumeApproval(ctx, zoneID, principalID, req.ChallengeID, req.Resources, strings.Fields(req.Scope)); cerr != nil {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not satisfied or expired")
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected")
+		case ChallengeStateExpired:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_expired", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			challengeResolved = true
-		} else {
-			if ok, _ := s.stepUpThrottle.Allow(zoneID, principalID); !ok {
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "challenge_cooldown", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusTooManyRequests, sharederr.New(sharederr.AccessDenied, "too many failed step-up attempts; try again later")
-			}
-			if cerr := s.verifyAndConsumeChallenge(ctx, zoneID, principalID, req.ChallengeID, req.ChallengeResponse, req.Resources); cerr != nil {
-				s.stepUpThrottle.RecordFailure(zoneID, principalID)
-				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "challenge_invalid", &OPAResult{}, appMeta); auditErr != nil {
-					return nil, nil, http.StatusInternalServerError, auditErr
-				}
-				return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "challenge not satisfied or expired")
-			}
-			s.stepUpThrottle.RecordSuccess(zoneID, principalID)
+			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval expired")
+		case ChallengeStatePending:
+			// Still pending: re-surface the same challenge so a premature retry waits
+			// on the approver rather than failing.
+			return nil, challengeWire(existing, exchangeNow), http.StatusUnauthorized, nil
+		default:
+			approval = existing
 			challengeResolved = true
 		}
 	}
-	delegation, agentSession, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
+	delegation, session, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
 	}
 
 	delegationMeta := delegationAuditMeta(delegation)
 
-	scopes := strings.Fields(req.Scope)
+	scopes := distinctScopes(req.Scope)
+	req.Scope = strings.Join(scopes, " ")
 	action := gatewayActionInput(req)
 	mandate := mandateScopeSet(subjectClaims)
 	var grantedResources []string
+	// Tracks the last user-consent credential failure so a fully denied exchange can
+	// answer with the operational reason instead of a generic policy verdict.
+	var providerDenial *sharederr.CaracalError
 	grantedDirectives := map[string]UpstreamDirective{}
 	grantedResourceRows := map[string]*Resource{}
-	var pendingChallenge *challengeState
-	stepUpType := ""
+	var gateDecls []tierDeclaration
 	controlKeyExchange := false
 
 	for _, identifier := range req.Resources {
@@ -374,7 +407,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			}
 			continue
 		}
-		if !scopesAllowed(scopes, resource.Scopes) {
+		if !scopesAllowed(scopes, resourceMintScopes(resource)) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "scope_mismatch", &OPAResult{},
 				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier})); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -428,14 +461,20 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			continue
 		}
 
-		providerCredentialAccess := req.GatewayAuthenticated || req.RuntimeCredentialInjection
-		if req.RuntimeCredentialInjection && resource.CredentialProviderID == nil {
-			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider"})); auditErr != nil {
+		// The control resource is mintable only through the control-key contract above.
+		// Any other route to it - a delegated grant on the control resource, a session
+		// exchange, a scope outside the key's traits - would mint a control-audience
+		// token free of the control-key restrictions, so it is denied categorically.
+		if resource.Identifier == controlAudience() {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "control_resource_requires_control_key", &OPAResult{},
+				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier})); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
-			continue
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied,
+				"the control resource is mintable only by a control key exchanging its own client credentials for control scopes")
 		}
+
+		providerCredentialAccess := req.GatewayAuthenticated
 		if providerCredentialAccess && resource.CredentialProviderID != nil {
 			provider, perr := s.db.GetProvider(ctx, *resource.CredentialProviderID)
 			if perr != nil {
@@ -445,24 +484,6 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				}
 				continue
 			}
-			if req.RuntimeCredentialInjection {
-				providerCfg, cfgErr := providerDirectiveConfig(provider.ConfigJSON)
-				if cfgErr != nil {
-					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_unavailable", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "provider_config_invalid"})); auditErr != nil {
-						return nil, nil, http.StatusInternalServerError, auditErr
-					}
-					continue
-				}
-				kind := derefStr(provider.ProviderKind)
-				if !providerCfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
-					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_injection_denied", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "runtime_injection_not_allowed"})); auditErr != nil {
-						return nil, nil, http.StatusInternalServerError, auditErr
-					}
-					continue
-				}
-			}
 			if providerRequiresUserGrant(provider) {
 				userID, _ := subjectClaims["sub"].(string)
 				if userID == "" {
@@ -470,21 +491,27 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_user_principal"})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(sharederr.AccessDenied,
+						"resource "+resource.Identifier+" uses a user-consent provider and this call carries no subject")
 					continue
 				}
-				if rerr := s.tryRefreshBrokeredGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID); rerr != nil {
+				if rerr := s.tryRefreshProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID); rerr != nil {
 					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_refresh_failed", &OPAResult{},
 						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": string(rerr.Code)})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(rerr.Code,
+						"provider connection for resource "+resource.Identifier+" is expired and could not be refreshed; reconnect the subject from the provider's Connections panel")
 					continue
 				}
-				grant, gerr := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-				if gerr != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
+				connection, gerr := s.db.GetProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID)
+				if gerr != nil || connection == nil || len(connection.AccessTokenCt) == 0 {
 					if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "credential_not_provisioned", &OPAResult{},
-						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_grant"})); auditErr != nil {
+						mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier, "reason": "no_provider_connection"})); auditErr != nil {
 						return nil, nil, http.StatusInternalServerError, auditErr
 					}
+					providerDenial = sharederr.New(sharederr.AccessDenied,
+						"no provider connection for subject "+userID+" on resource "+resource.Identifier+"; connect the subject from the provider's Connections panel")
 					continue
 				}
 			}
@@ -497,9 +524,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				ID:                 app.ID,
 				ZoneID:             zoneID,
 				RegistrationMethod: app.RegistrationMethod,
-				AgentSessionID:     req.AgentSessionID,
-				Lifecycle:          agentSessionLifecycle(agentSession),
-				Labels:             agentSessionLabels(agentSession),
+				SessionID:          req.SessionID,
+				Lifecycle:          sessionLifecycle(session),
+				Labels:             sessionLabels(session),
 			},
 			Resource: OPAResource{
 				Type:       "Resource",
@@ -507,15 +534,15 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				Identifier: resource.Identifier,
 				Scopes:     resource.Scopes,
 			},
-			Action:         action,
-			Session:        sessionInput(req.SessionID),
-			DelegationEdge: delegationEdgeInput(delegation),
+			Action:          action,
+			AuthorityRecord: sessionInput(req.AuthorityRecordID),
+			DelegationEdge:  delegationEdgeInput(delegation),
 			Context: OPAContext{
 				ActorClaims:       actorClaims,
 				SubjectClaims:     subjectClaims,
 				TraceID:           requestID,
+				AuthorityRecordID: req.AuthorityRecordID,
 				SessionID:         req.SessionID,
-				AgentSessionID:    req.AgentSessionID,
 				DelegationEdgeID:  req.DelegationEdgeID,
 				ChallengeResolved: challengeResolved,
 				RequestedScopes:   scopes,
@@ -534,13 +561,12 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
 			mergeAuditMeta(mergeAuditMeta(mergeAuditMeta(appMeta, map[string]any{
-				"resource":                     resource.Identifier,
-				"requested_scopes":             scopes,
-				"session_id":                   req.SessionID,
-				"agent_session_id":             req.AgentSessionID,
-				"delegation_edge_id":           req.DelegationEdgeID,
-				"runtime_credential_injection": req.RuntimeCredentialInjection,
-			}), agentAuditMeta(agentSession)), delegationMeta), bundle); auditErr != nil {
+				"resource":           resource.Identifier,
+				"requested_scopes":   scopes,
+				"session_id":         req.AuthorityRecordID,
+				"agent_session_id":   req.SessionID,
+				"delegation_edge_id": req.DelegationEdgeID,
+			}), agentAuditMeta(session)), delegationMeta), bundle); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 
@@ -552,9 +578,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		if !challengeResolved {
-			if t := stepUpRequired(result); t != "" {
-				stepUpType = t
-			}
+			gateDecls = append(gateDecls, parseTierDeclarations(result)...)
 		}
 
 		if result.Decision == "allow" {
@@ -563,22 +587,46 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 	}
 
-	if !challengeResolved && stepUpType != "" {
-		c, cErr := s.createChallenge(ctx, zoneID, req.SessionID, principalID, stepUpType, req.Resources, scopes)
-		if cErr != nil {
+	if !challengeResolved && len(gateDecls) > 0 {
+		// The gate is a hold, not a deny: the decision was allow, so the mint waits on
+		// an approval bound to this exact request. Issuance is idempotent per binding,
+		// and a hold an approver has already granted releases the mint right here even
+		// when the retry did not carry the challenge id.
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
-		pendingChallenge = c
-	}
-
-	if pendingChallenge != nil {
-		return nil, pendingChallenge, http.StatusUnauthorized, nil
+		switch challengeLifecycleState(hold, exchangeNow) {
+		case ChallengeStateApproved:
+			approval = hold
+			challengeResolved = true
+		case ChallengeStateRejected:
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
+				mergeAuditMeta(appMeta, stepUpAuditMeta(hold))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected")
+		default:
+			if created {
+				if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_issued", "pending",
+					mergeAuditMeta(appMeta, stepUpAuditMeta(hold))); auditErr != nil {
+					return nil, nil, http.StatusInternalServerError, auditErr
+				}
+			}
+			return nil, challengeWire(hold, exchangeNow), http.StatusUnauthorized, nil
+		}
 	}
 
 	if len(grantedResources) == 0 {
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "exchange_denied", &OPAResult{},
 			mergeAuditMeta(appMeta, map[string]any{"requested": req.Resources})); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
+		}
+		// A missing or dead user-consent credential is an operational condition, not a
+		// policy verdict; surfacing the precise reason lets the caller fix the connection
+		// instead of debugging policy.
+		if providerDenial != nil {
+			return nil, nil, http.StatusForbidden, providerDenial
 		}
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}
@@ -589,7 +637,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	sid, err := uuid.NewV7()
 	if err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate session id")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate authority record id")
 	}
 	sessID := sid.String()
 	now := exchangeNow
@@ -613,49 +661,56 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	sessionType := "application"
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		subjectID = sub
-		sessionType = "user"
+		// The subject class propagates from the presented token: a chain descending
+		// from a federated user subject stays user-typed, while an application chain
+		// re-exchanged through the Gateway stays application-typed. The presence of a
+		// subject token alone proves nothing about the subject being a person.
+		if claimString(subjectClaims, "sub_type") == SubTypeUser {
+			sessionType = "user"
+		}
 	}
 
 	subType := SubTypeApplication
 	if sessionType == "user" {
 		subType = SubTypeUser
 	}
-	// Gateway exchanges mint resource mandates. Exchanges minted without a
-	// subject_token bootstrap a session mandate that the application presents to
-	// Gateway for resource-scoped narrowing.
+	// Gateway exchanges mint resource mandates. A direct delegated mint creates
+	// a one-shot Gateway-ingress mandate. Bootstrap exchanges remain reusable
+	// lifecycle session mandates for Coordinator operations.
 	use := UseResource
 	if req.SubjectToken == "" && !controlKeyExchange {
-		use = UseSession
+		if req.SessionID != "" && req.DelegationEdgeID != "" {
+			use = UseGateway
+		} else {
+			use = UseSession
+		}
 	}
 
-	sess := &Session{
+	record := &AuthorityRecord{
 		ID:              sessID,
 		ZoneID:          zoneID,
 		SessionType:     sessionType,
 		SubjectID:       &subjectID,
-		ParentID:        parentSessionID(req.SessionID, use),
+		ParentID:        parentAuthorityRecordID(req.AuthorityRecordID, use),
 		Status:          "active",
 		ExpiresAt:       now.Add(ttl),
 		AuthenticatedAt: now,
 	}
-	if err := s.db.InsertSession(ctx, sess); err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "session creation failed")
-	}
 
 	mintedScope := mintScope(req, subjectClaims)
 	issueParams := IssueParams{
-		ZoneID:         zoneID,
-		AppID:          app.ID,
-		SubjectID:      subjectID,
-		SubType:        subType,
-		Use:            use,
-		SID:            sessID,
-		RootSID:        rootSessionID(subjectClaims, sessID, use),
-		Scopes:         mintedScope,
-		Resources:      grantedResources,
-		TTL:            ttl,
-		AgentSessionID: req.AgentSessionID,
-		IssuedAt:       now,
+		ZoneID:                zoneID,
+		AppID:                 app.ID,
+		SubjectID:             subjectID,
+		SubType:               subType,
+		Use:                   use,
+		AuthorityRecordID:     sessID,
+		RootAuthorityRecordID: rootAuthorityRecordID(subjectClaims, sessID, use),
+		Scopes:                mintedScope,
+		Resources:             grantedResources,
+		TTL:                   ttl,
+		SessionID:             req.SessionID,
+		IssuedAt:              now,
 	}
 	if req.DelegationEdgeID != "" {
 		issueParams.DelegationEdgeID = req.DelegationEdgeID
@@ -674,13 +729,67 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
 	}
 
-	if req.GatewayAuthenticated || req.RuntimeCredentialInjection {
+	if req.GatewayAuthenticated {
 		for _, identifier := range grantedResources {
-			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated || req.RuntimeCredentialInjection, req.RuntimeCredentialInjection)
+			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated, false)
 			if err != nil {
-				return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "upstream directive build failed")
+				// The mint already passed policy; a failure here is the upstream credential
+				// plumbing (IdP outage, rejected client, circuit open), so the caller gets
+				// the operational reason and the audit trail records the denial.
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_credential_unavailable", &OPAResult{},
+					mergeAuditMeta(appMeta, map[string]any{"resource": identifier, "reason": err.Error()})); auditErr != nil {
+					return nil, nil, http.StatusInternalServerError, auditErr
+				}
+				return nil, nil, http.StatusBadGateway, sharederr.New(sharederr.HTTPRequestFailed,
+					"upstream credential for resource "+identifier+" is unavailable: "+err.Error())
 			}
 			grantedDirectives[identifier] = directive
+		}
+	}
+
+	if delegation != nil {
+		var approvalParams *ConsumeApprovalParams
+		if approval != nil {
+			approvalParams = &ConsumeApprovalParams{
+				ID: approval.ID, ZoneID: zoneID, PrincipalID: principalID,
+				ResourceSetHash: hashApprovalBinding(req.Resources, scopes), Now: now,
+			}
+		}
+		err := s.db.InsertDelegatedAuthorityRecord(ctx, record, delegationIssuanceProof(delegation), approvalParams)
+		if err != nil {
+			if errors.Is(err, ErrChallengeInvalid) {
+				return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it")
+			}
+			if errors.Is(err, ErrDelegationChanged) {
+				return nil, nil, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "delegation changed during issuance")
+			}
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+		}
+	} else if approval == nil {
+		if err := s.db.InsertAuthorityRecord(ctx, record); err != nil {
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+		}
+	} else {
+		err := s.db.InsertAuthorityRecordWithApproval(ctx, record, ConsumeApprovalParams{
+			ID:              approval.ID,
+			ZoneID:          zoneID,
+			PrincipalID:     principalID,
+			ResourceSetHash: hashApprovalBinding(req.Resources, scopes),
+			Now:             now,
+		})
+		if err != nil {
+			if errors.Is(err, ErrChallengeInvalid) {
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
+					mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
+					return nil, nil, http.StatusInternalServerError, auditErr
+				}
+				return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it")
+			}
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+		}
+		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+			mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
+			return nil, nil, http.StatusInternalServerError, auditErr
 		}
 	}
 
@@ -717,7 +826,7 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 	}
 	if runtimeCredentialInjection {
 		kind := derefStr(provider.ProviderKind)
-		if !cfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" {
+		if !cfg.AllowRuntimeInjection || kind == "none" || kind == "caracal_mandate" || kind == "http_basic" {
 			return directive, fmt.Errorf("provider runtime injection not allowed")
 		}
 	}
@@ -733,21 +842,21 @@ func (s *Server) buildUpstreamDirective(ctx context.Context, zoneID string, subj
 		if userID == "" {
 			return directive, fmt.Errorf("provider directive requires subject")
 		}
-		grant, err := s.db.GetProviderGrant(ctx, zoneID, userID, resource.ID, resource.CredentialProviderID)
-		if err != nil || grant == nil || len(grant.AccessTokenCt) == 0 {
-			return directive, fmt.Errorf("provider grant unavailable")
+		connection, err := s.db.GetProviderConnection(ctx, zoneID, userID, resource.CredentialProviderID)
+		if err != nil || connection == nil || len(connection.AccessTokenCt) == 0 {
+			return directive, fmt.Errorf("provider connection unavailable")
 		}
-		if grant.ProviderID == nil || *grant.ProviderID != provider.ID {
-			return directive, fmt.Errorf("provider grant missing provider")
+		if connection.ProviderID == nil || *connection.ProviderID != provider.ID {
+			return directive, fmt.Errorf("provider connection missing provider")
 		}
-		at, err := openZEK(s.keys.zek, grant.AccessTokenCt)
+		at, err := s.keys.keyring.Open(connection.AccessTokenCt, secretstore.AADConnectionAccessToken)
 		if err != nil {
-			return directive, fmt.Errorf("provider grant decrypt failed")
+			return directive, fmt.Errorf("provider connection decrypt failed")
 		}
 		directive.ProviderToken = string(at)
-		directive.GrantID = grant.ID
-		if grant.ExpiresAt != nil {
-			directive.ExpiresAt = grant.ExpiresAt.Unix()
+		directive.ConnectionID = connection.ID
+		if connection.ExpiresAt != nil {
+			directive.ExpiresAt = connection.ExpiresAt.Unix()
 		}
 		return directive, nil
 	}
@@ -772,6 +881,11 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 		directive.AuthScheme = "Bearer"
 	case "api_key":
 		directive.AuthMode = UpstreamAuthProviderAPIKey
+		hosts, err := normalizedProviderHosts(cfg.AllowedTokenHosts)
+		if err != nil {
+			return fmt.Errorf("provider allowed token hosts invalid")
+		}
+		directive.AllowedTokenHosts = hosts
 		location := strings.TrimSpace(cfg.AuthLocation)
 		if location == "" {
 			location = "header"
@@ -826,6 +940,15 @@ func applyProviderDirective(provider *ProviderConfig, directive *UpstreamDirecti
 			}
 			directive.AuthScheme = scheme
 		}
+	case "http_basic":
+		directive.AuthMode = UpstreamAuthProviderOAuth
+		directive.AuthHeader = "Authorization"
+		directive.AuthScheme = "Basic"
+		hosts, err := normalizedProviderHosts(cfg.AllowedTokenHosts)
+		if err != nil {
+			return fmt.Errorf("provider allowed token hosts invalid")
+		}
+		directive.AllowedTokenHosts = hosts
 	case "oauth2_authorization_code", "oauth2_client_credentials":
 		directive.AuthMode = UpstreamAuthProviderOAuth
 		directive.AuthScheme = "Bearer"
@@ -855,7 +978,12 @@ type oauthClientCredentialsConfig struct {
 	TokenEndpoint     string            `json:"token_endpoint"`
 	ClientID          string            `json:"client_id"`
 	ClientAuthMethod  string            `json:"client_auth_method"`
+	GrantType         string            `json:"grant_type"`
+	AssertionSubject  string            `json:"assertion_subject"`
+	AssertionAudience string            `json:"assertion_audience"`
 	KeyID             string            `json:"key_id"`
+	Certificate       string            `json:"certificate"`
+	AuthScheme        string            `json:"auth_scheme"`
 	AllowedTokenHosts []string          `json:"allowed_token_hosts"`
 	Scopes            []string          `json:"scopes"`
 	Audience          string            `json:"audience"`
@@ -870,9 +998,9 @@ type providerServiceTokenCacheEntry struct {
 }
 
 func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderConfig) (string, error) {
-	secretConfig, err := openProviderSecretConfig(s.keys.zek, provider)
+	secretConfig, secretDigest, err := s.providerSecretConfig(ctx, provider)
 	if err != nil {
-		return "", fmt.Errorf("provider secret decrypt failed")
+		return "", fmt.Errorf("provider secret fetch failed")
 	}
 	switch derefStr(provider.ProviderKind) {
 	case "api_key":
@@ -885,12 +1013,21 @@ func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderCon
 			return "", fmt.Errorf("provider bearer token missing")
 		}
 		return secretConfig.BearerToken, nil
+	case "http_basic":
+		cfg, err := providerDirectiveConfig(provider.ConfigJSON)
+		if err != nil || strings.TrimSpace(cfg.Username) == "" {
+			return "", fmt.Errorf("provider basic username missing")
+		}
+		if secretConfig.Password == "" {
+			return "", fmt.Errorf("provider basic password missing")
+		}
+		return base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(cfg.Username) + ":" + secretConfig.Password)), nil
 	case "oauth2_client_credentials":
 		var cfg oauthClientCredentialsConfig
 		if err := json.Unmarshal(provider.ConfigJSON, &cfg); err != nil || cfg.TokenEndpoint == "" || cfg.ClientID == "" {
 			return "", fmt.Errorf("provider oauth2 config invalid")
 		}
-		fingerprint := providerServiceTokenFingerprint(provider)
+		fingerprint := providerServiceTokenFingerprint(provider, secretDigest)
 		if token, ok := s.cachedProviderServiceToken(provider.ID, fingerprint, time.Now()); ok {
 			return token, nil
 		}
@@ -919,27 +1056,44 @@ func (s *Server) providerServiceToken(ctx context.Context, provider *ProviderCon
 }
 
 func (s *Server) fetchProviderServiceToken(ctx context.Context, provider *ProviderConfig, cfg oauthClientCredentialsConfig, secretConfig providerSecretConfig) (string, time.Time, error) {
-	tokenEndpoint, err := validateTokenEndpoint(cfg.TokenEndpoint, cfg.AllowedTokenHosts)
+	tokenEndpoint, err := validateTokenEndpoint(cfg.TokenEndpoint, cfg.AllowedTokenHosts, s.cfg.PrivateEgressHosts)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	if s.providerCircuitOpen(ctx, provider.ID) {
 		return "", time.Time{}, fmt.Errorf("provider token circuit open")
 	}
-	form, err := oauthClientCredentialsForm(cfg)
-	if err != nil {
-		return "", time.Time{}, err
+	var form url.Values
+	if cfg.GrantType == "jwt_bearer" {
+		assertion, err := buildProviderGrantAssertion(cfg, secretConfig.PrivateKey, tokenEndpoint.String(), time.Now().UTC())
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		form = url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}}
+		if err := applyOAuthTokenParams(form, cfg.TokenParams); err != nil {
+			return "", time.Time{}, err
+		}
+	} else {
+		var err error
+		form, err = oauthClientCredentialsForm(cfg)
+		if err != nil {
+			return "", time.Time{}, err
+		}
 	}
-	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod, cfg.KeyID, secretConfig.PrivateKey)
+	body, err := s.refreshProviderToken(ctx, provider.ID, tokenEndpoint, form, cfg.ClientID, secretConfig.ClientSecret, cfg.ClientAuthMethod, cfg.KeyID, secretConfig.PrivateKey, cfg.Certificate)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
 		return "", time.Time{}, fmt.Errorf("provider token response invalid")
+	}
+	if !validProviderTokenType(tokenResp.TokenType, cfg.AuthScheme) {
+		return "", time.Time{}, fmt.Errorf("provider token type unsupported")
 	}
 	return tokenResp.AccessToken, time.Now().Add(providerServiceTokenTTL(tokenResp.ExpiresIn, s.cfg.MaxGrantTTLSeconds)), nil
 }
@@ -968,13 +1122,13 @@ func providerServiceTokenTTL(providerSeconds, maxSeconds int) time.Duration {
 	return capGrantTTL(providerSeconds, maxSeconds)
 }
 
-func providerServiceTokenFingerprint(provider *ProviderConfig) string {
+func providerServiceTokenFingerprint(provider *ProviderConfig, secretDigest string) string {
 	h := sha256.New()
 	h.Write([]byte(derefStr(provider.ProviderKind)))
 	h.Write([]byte{0})
 	h.Write(provider.ConfigJSON)
 	h.Write([]byte{0})
-	h.Write(provider.SecretConfigCt)
+	h.Write([]byte(secretDigest))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -1006,6 +1160,7 @@ type providerForwardingConfig struct {
 	HeaderName             string   `json:"header_name"`
 	QueryParamName         string   `json:"query_param_name"`
 	AuthScheme             string   `json:"auth_scheme"`
+	Username               string   `json:"username"`
 	AllowedTokenHosts      []string `json:"allowed_token_hosts"`
 	ForwardCaracalIdentity bool     `json:"forward_caracal_identity"`
 	AllowRuntimeInjection  bool     `json:"allow_runtime_injection"`
@@ -1202,7 +1357,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 }
 
 func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
-	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(req.Resources) == 0 {
@@ -1234,12 +1389,36 @@ func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
 // from the zone's active + grace-period key set, ensuring tokens signed by a previous
 // key during key rotation are still accepted within the 24h grace window.
 func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
+	return s.validateSubjectTokenUse(ctx, tokenStr, zoneID, UseSession)
+}
+
+func (s *Server) validateGatewaySubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
+	return s.validateSubjectTokenUse(ctx, tokenStr, zoneID, UseGateway)
+}
+
+func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, expectedUse string) (map[string]any, error) {
 	zoneKeys, err := s.keys.getPublicKeysByZone(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("get zone keys: %w", err)
 	}
+	claims, err := s.parseSubjectToken(tokenStr, zoneID, expectedUse, zoneKeys)
+	if err == nil || !strings.Contains(err.Error(), "unknown signing key kid") {
+		return claims, err
+	}
+	// A peer replica may have rotated the zone key after this process populated its
+	// public-key cache. Refresh once on an unknown kid so valid session mandates do
+	// not fail for the full cache TTL.
+	s.keys.Invalidate(zoneID)
+	zoneKeys, refreshErr := s.keys.getPublicKeysByZone(ctx, zoneID)
+	if refreshErr != nil {
+		return nil, fmt.Errorf("refresh zone keys: %w", refreshErr)
+	}
+	return s.parseSubjectToken(tokenStr, zoneID, expectedUse, zoneKeys)
+}
+
+func (s *Server) parseSubjectToken(tokenStr, zoneID, expectedUse string, zoneKeys map[string]*ecdsa.PublicKey) (map[string]any, error) {
 	mc := jwt.MapClaims{}
-	_, err = jwt.NewParser(
+	_, err := jwt.NewParser(
 		jwt.WithValidMethods([]string{"ES256"}),
 		jwt.WithIssuer(s.cfg.IssuerURL),
 		jwt.WithAudience(s.cfg.IssuerURL),
@@ -1263,50 +1442,50 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	if claimString(mc, "zone_id") != zoneID {
 		return nil, errors.New("token zone mismatch")
 	}
-	if claimString(mc, "use") != UseSession {
-		return nil, errors.New("subject_token must be a session mandate")
+	if claimString(mc, "use") != expectedUse {
+		return nil, fmt.Errorf("subject_token must be a %s mandate", expectedUse)
 	}
 	return mc, nil
 }
 
-func (s *Server) validateTokenSession(ctx context.Context, zoneID, appID, sessionID string, claims map[string]any) (string, *sharederr.CaracalError) {
+func (s *Server) validateAuthorityRecord(ctx context.Context, zoneID, appID, authorityRecordID string, claims map[string]any) (string, *sharederr.CaracalError) {
 	sid := claimString(claims, "sid")
 	if sid == "" {
-		return "", sharederr.New(sharederr.InvalidToken, "missing token session")
+		return "", sharederr.New(sharederr.InvalidToken, "missing token authority record")
 	}
-	if sessionID != "" && sessionID != sid {
-		return "", sharederr.New(sharederr.AccessDenied, "session mismatch")
+	if authorityRecordID != "" && authorityRecordID != sid {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record mismatch")
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return "", sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	session, err := s.db.GetSession(ctx, sid)
-	if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
-		return "", sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+	record, err := s.db.GetAuthorityRecord(ctx, sid)
+	if err != nil || record.ZoneID != zoneID || record.Status != "active" || !record.ExpiresAt.After(now) {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record inactive or expired")
 	}
-	// Defense in depth: even with a valid signature, the session row's
+	// Defense in depth: even with a valid signature, the authority record's
 	// subject must match the JWT sub claim. A leaked signing key or any
 	// other path that could mint a structurally-valid token still fails
-	// this bind unless the session row was also tampered with.
+	// this bind unless the authority record was also tampered with.
 	sub := claimString(claims, "sub")
-	if sub == "" || session.SubjectID == nil || *session.SubjectID != sub {
-		return "", sharederr.New(sharederr.AccessDenied, "session subject mismatch")
+	if sub == "" || record.SubjectID == nil || *record.SubjectID != sub {
+		return "", sharederr.New(sharederr.AccessDenied, "authority record subject mismatch")
 	}
 	if clientID := claimString(claims, "client_id"); clientID == "" || clientID != appID {
-		return "", sharederr.New(sharederr.AccessDenied, "session client mismatch")
+		return "", sharederr.New(sharederr.AccessDenied, "authority record client mismatch")
 	}
 	return sid, nil
 }
 
-func parentSessionID(sessionID string, use string) *string {
-	if use != UseResource || sessionID == "" {
+func parentAuthorityRecordID(authorityRecordID string, use string) *string {
+	if use == UseSession || authorityRecordID == "" {
 		return nil
 	}
-	return &sessionID
+	return &authorityRecordID
 }
 
-func rootSessionID(claims map[string]any, sid string, use string) string {
+func rootAuthorityRecordID(claims map[string]any, sid string, use string) string {
 	if use == UseSession {
 		return sid
 	}
@@ -1381,7 +1560,7 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 	if controlExpired(app, now.UTC()) {
 		return false
 	}
-	if req.SubjectToken != "" || req.ActorToken != "" || req.SessionID != "" || req.AgentSessionID != "" || req.DelegationEdgeID != "" {
+	if req.SubjectToken != "" || req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" {
 		return false
 	}
 	if len(scopes) == 0 {
@@ -1404,6 +1583,56 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 
 func (s *Server) emitAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any) *sharederr.CaracalError {
 	return s.emitAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
+}
+
+// emitStepUpAudit records a step-up lifecycle transition (issued, decided, consumed) as
+// a first-class audit event distinct from the token-exchange decision events that
+// surround it, so the full life of an approval hold is reconstructable from the stream.
+func (s *Server) emitStepUpAudit(requestID, zoneID, eventType, decision string, meta map[string]any) *sharederr.CaracalError {
+	event, err := buildAuditEventWithBundle(requestID, zoneID, decision, "complete", &OPAResult{}, meta, ZoneBundleInfo{})
+	if err != nil {
+		s.log.Error().Err(err).Str("request_id", requestID).Str("zone_id", zoneID).Msg("audit event id generation failed")
+		return sharederr.New(sharederr.Internal, "audit event creation failed")
+	}
+	event.EventType = eventType
+	s.auditBuffer.Emit(event)
+	return nil
+}
+
+// stepUpAuditMeta is the challenge context every step-up audit event and step-up deny
+// carries: the authorization facts of the hold, never request business context. The
+// expiry rides along so a downstream consumer (a notification sink, an export) can state
+// the response window without a lookup against a row that may already be swept.
+func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
+	meta := map[string]any{
+		"challenge_id":   c.ID,
+		"tier":           c.Tier,
+		"approver_class": c.ApproverClass,
+		"privacy_mode":   c.PrivacyMode,
+		"binding":        hex.EncodeToString(c.ResourceSetHash),
+		"expires_at":     c.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	if c.ApplicationID != "" {
+		meta["application_id"] = c.ApplicationID
+	}
+	if c.AuthorityRecordID != "" {
+		meta["session_id"] = c.AuthorityRecordID
+	}
+	return meta
+}
+
+// challengeWire converts a stored challenge row to the 401 interaction_required body.
+func challengeWire(c *StepUpChallengePG, now time.Time) *challengeState {
+	return &challengeState{
+		ID:                c.ID,
+		ZoneID:            c.ZoneID,
+		AuthorityRecordID: c.AuthorityRecordID,
+		ChallengeType:     c.ChallengeType,
+		State:             challengeLifecycleState(c, now),
+		Tier:              c.Tier,
+		Binding:           c.ResourceSetHash,
+		ExpiresAt:         c.ExpiresAt,
+	}
 }
 
 func (s *Server) emitAuditEventWithBundle(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any, bundle ZoneBundleInfo) *sharederr.CaracalError {
@@ -1459,7 +1688,7 @@ func delegationAuditMeta(d *delegationProof) map[string]any {
 	for i, h := range d.chain {
 		hops[i] = map[string]any{
 			"application_id":     h.AppID,
-			"agent_session_id":   h.AgentSessionID,
+			"agent_session_id":   h.SessionID,
 			"delegation_edge_id": h.DelegationEdgeID,
 		}
 	}
@@ -1486,43 +1715,34 @@ func mergeAuditMeta(base, extra map[string]any) map[string]any {
 	return merged
 }
 
-func stepUpRequired(result *OPAResult) string {
-	for _, d := range result.Diagnostics {
-		if ct, ok := d["step_up_required"].(string); ok {
-			return ct
-		}
-	}
-	return ""
-}
-
-func sessionInput(sessionID string) *OPASession {
+func sessionInput(sessionID string) *OPAAuthorityRecord {
 	if sessionID == "" {
 		return nil
 	}
-	return &OPASession{ID: sessionID}
+	return &OPAAuthorityRecord{ID: sessionID}
 }
 
-func agentSessionLifecycle(session *AgentSession) string {
+func sessionLifecycle(session *Session) string {
 	if session == nil {
 		return ""
 	}
 	return session.Lifecycle
 }
 
-func agentSessionLabels(session *AgentSession) []string {
+func sessionLabels(session *Session) []string {
 	if session == nil || len(session.Labels) == 0 {
 		return nil
 	}
 	return append([]string(nil), session.Labels...)
 }
 
-func agentAuditMeta(session *AgentSession) map[string]any {
+func agentAuditMeta(session *Session) map[string]any {
 	if session == nil {
 		return nil
 	}
 	meta := map[string]any{
 		"agent_lifecycle": session.Lifecycle,
-		"agent_labels":    agentSessionLabels(session),
+		"agent_labels":    sessionLabels(session),
 		"agent_depth":     session.Depth,
 	}
 	if session.ParentID != nil {
@@ -1539,15 +1759,30 @@ func applicationAuditMeta(app *Application) map[string]any {
 	}
 }
 
-func bindSubjectAgentSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
-	agentSessionID := claimString(claims, "agent_session_id")
-	if agentSessionID == "" {
+func bindGovernedSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
+	sessionID := claimString(claims, "agent_session_id")
+	if sessionID == "" {
 		return nil
 	}
-	if req.AgentSessionID != "" && req.AgentSessionID != agentSessionID {
-		return sharederr.New(sharederr.AccessDenied, "agent session mismatch")
+	if req.SessionID != "" && req.SessionID != sessionID {
+		return sharederr.New(sharederr.AccessDenied, "Session mismatch")
 	}
-	req.AgentSessionID = agentSessionID
+	req.SessionID = sessionID
+	return nil
+}
+
+func bindDelegationEdge(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
+	edgeID := claimString(claims, "delegation_edge_id")
+	if edgeID == "" {
+		if req.DelegationEdgeID != "" {
+			return sharederr.New(sharederr.AccessDenied, "delegation claim missing from subject token")
+		}
+		return nil
+	}
+	if req.DelegationEdgeID != "" && req.DelegationEdgeID != edgeID {
+		return sharederr.New(sharederr.AccessDenied, "delegation mismatch")
+	}
+	req.DelegationEdgeID = edgeID
 	return nil
 }
 
@@ -1588,78 +1823,83 @@ func delegationAllowsResource(proof *delegationProof, resource *Resource) bool {
 	return containsString(proof.constraints.Resources, resource.Identifier)
 }
 
-// validateAgentSessionOwnership binds the asserted agent_session_id to the calling
+// validateSessionOwnership binds the asserted governed Session ID to the calling
 // application: the row must exist, be active in this zone, and be owned by app.ID.
-// This stops two apps in a zone from forging each other's agent identity by passing
-// a peer's agent_session_id.
-func (s *Server) validateAgentSessionOwnership(ctx context.Context, zoneID, appID, agentSessionID string) (*AgentSession, *sharederr.CaracalError) {
+// This stops two apps in a zone from forging each other's execution identity.
+func (s *Server) validateSessionOwnership(ctx context.Context, zoneID, appID, sessionID string) (*Session, *sharederr.CaracalError) {
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	session, err := s.db.GetAgentSession(ctx, agentSessionID)
-	if err != nil || !activeAgentSession(session, zoneID, now) {
-		return nil, sharederr.New(sharederr.AccessDenied, "agent session inactive or expired")
+	session, err := s.db.GetSession(ctx, sessionID)
+	if err != nil || !activeSession(session, zoneID, now) {
+		return nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
 	}
 	if session.ApplicationID != appID {
-		return nil, sharederr.New(sharederr.AccessDenied, "agent session not owned by caller")
+		return nil, sharederr.New(sharederr.AccessDenied, "session not owned by caller")
 	}
 	return session, nil
 }
 
-// validateSessionReferences is the single source of truth for binding a token
-// exchange to user/agent sessions and delegation edges. When a delegation_edge_id
-// is present the receiving target agent session's ownership is verified inside
+// validateSessionReferences binds a token exchange to an authority record, governed
+// Sessions, and Delegations. When a delegation_edge_id is present, the receiving
+// target Session's ownership is verified inside
 // the delegation block (target.ApplicationID == appID); otherwise the calling
-// application's ownership of the asserted agent_session_id is verified directly,
+// application's ownership of the asserted Session ID is verified directly,
 // preventing peer-app forgery through either path.
-func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *AgentSession, *sharederr.CaracalError) {
+func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *Session, *sharederr.CaracalError) {
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
-	if req.SessionID != "" {
-		session, err := s.db.GetSession(ctx, req.SessionID)
+	if req.AuthorityRecordID != "" {
+		session, err := s.db.GetAuthorityRecord(ctx, req.AuthorityRecordID)
 		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
-			return nil, nil, sharederr.New(sharederr.AccessDenied, "session inactive or expired")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record inactive or expired")
 		}
 		// Application-principal flows (no subject_token) must assert a
-		// session owned by the calling app. Without this, peer apps in a
+		// authority record owned by the calling app. Without this, peer apps in a
 		// zone could pass another app's session_id and have OPA evaluate
-		// against a session reputation/state that is not their own.
+		// against authority state that is not their own.
 		if !hasSubjectToken {
 			if session.SessionType != "application" || session.SubjectID == nil || *session.SubjectID != appID {
-				return nil, nil, sharederr.New(sharederr.AccessDenied, "session not owned by caller")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record not owned by caller")
 			}
 		}
 	}
-	if req.AgentSessionID != "" && req.DelegationEdgeID == "" {
-		agentSession, aerr := s.validateAgentSessionOwnership(ctx, zoneID, appID, req.AgentSessionID)
+	if req.SessionID != "" && req.DelegationEdgeID == "" {
+		session, aerr := s.validateSessionOwnership(ctx, zoneID, appID, req.SessionID)
 		if aerr != nil {
 			return nil, nil, aerr
 		}
-		return nil, agentSession, nil
+		if hasSubjectToken && req.AuthorityRecordID != "" && session.SubjectAuthorityRecordID != req.AuthorityRecordID {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
+		}
+		return nil, session, nil
 	}
 	if req.DelegationEdgeID == "" {
 		return nil, nil, nil
 	}
-	if req.AgentSessionID == "" {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge requires target agent session")
+	if req.SessionID == "" {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation requires a target Session")
 	}
 	edge, err := s.db.GetDelegationEdge(ctx, req.DelegationEdgeID)
 	if err != nil || edge.ZoneID != zoneID || edge.Status != "active" || !edge.ExpiresAt.After(now) || edge.RevokedAt != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge inactive or expired")
 	}
-	if edge.TargetSessionID != req.AgentSessionID {
+	if edge.TargetSessionID != req.SessionID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge target mismatch")
 	}
-	source, err := s.db.GetAgentSession(ctx, edge.SourceSessionID)
-	if err != nil || !activeAgentSession(source, zoneID, now) {
+	source, err := s.db.GetSession(ctx, edge.SourceSessionID)
+	if err != nil || !activeSession(source, zoneID, now) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation source inactive or expired")
 	}
-	target, err := s.db.GetAgentSession(ctx, edge.TargetSessionID)
-	if err != nil || !activeAgentSession(target, zoneID, now) || target.ApplicationID != appID {
+	target, err := s.db.GetSession(ctx, edge.TargetSessionID)
+	if err != nil || !activeSession(target, zoneID, now) || target.ApplicationID != appID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation target inactive or unauthorized")
+	}
+	if hasSubjectToken && req.AuthorityRecordID != "" && target.SubjectAuthorityRecordID != req.AuthorityRecordID {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 	}
 	if source.ApplicationID != edge.IssuerAppID || target.ApplicationID != edge.ReceiverAppID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation application mismatch")
@@ -1668,10 +1908,11 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation constraints invalid")
 	}
-	if !scopesAllowed(strings.Fields(req.Scope), edge.Scopes) {
+	requestedScopes := distinctScopes(req.Scope)
+	if !scopesAllowed(requestedScopes, edge.Scopes) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation scopes")
 	}
-	if constraints.Budget > 0 && len(strings.Fields(req.Scope)) > constraints.Budget {
+	if constraints.Budget > 0 && len(requestedScopes) > constraints.Budget {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation budget")
 	}
 	if constraints.TTLSeconds > 0 {
@@ -1685,8 +1926,8 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if s.metrics != nil {
 		s.metrics.GraphTraversals.Add(1)
 	}
-	path, err := s.db.GetDelegationPath(ctx, zoneID, edge.SourceSessionID, edge.TargetSessionID, constraints.MaxHops)
-	if err != nil || len(path) == 0 || len(path) > constraints.MaxHops || !containsString(path, edge.ID) {
+	path, err := s.db.GetDelegationLineage(ctx, zoneID, edge.ID, maxDelegationHops)
+	if err != nil || len(path) == 0 || len(path) > maxDelegationHops || path[len(path)-1] != edge.ID {
 		if s.metrics != nil {
 			s.metrics.GraphTraversalErrors.Add(1)
 		}
@@ -1696,62 +1937,202 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	chain, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
+	chain, edges, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
 	if chainErr != nil {
 		return nil, nil, chainErr
 	}
-	return &delegationProof{edge: edge, constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch}, target, nil
+	return &delegationProof{
+		edge: edge, edges: edges, source: source, target: target,
+		constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch,
+	}, target, nil
 }
 
 // buildDelegationChain resolves each edge id along the path to a chain hop the
 // resource side can audit and authorize against. The chain walks from the
 // originating issuer to the immediate receiver in order.
-func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *AgentSession, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, []*DelegationEdge, *sharederr.CaracalError) {
 	if len(path) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	hops := make([]ChainHop, 0, len(path)+1)
+	edges := make([]*DelegationEdge, 0, len(path))
 	var prevReceiverApp string
-	for _, edgeID := range path {
+	var prevTargetSessionID string
+	var parentEdge *DelegationEdge
+	var parentConstraints delegationConstraints
+	for index, edgeID := range path {
 		var hopEdge *DelegationEdge
 		if edgeID == edge.ID {
 			hopEdge = edge
 		} else {
 			fetched, err := s.db.GetDelegationEdge(ctx, edgeID)
 			if err != nil || fetched == nil {
-				return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
 			}
 			hopEdge = fetched
 		}
-		// Re-validate each path edge against current state. GetDelegationPath
-		// filters in SQL, but a revoke racing the path computation could
-		// otherwise let a stale-but-attested chain hop ship in the JWT.
+		// Every lineage edge must remain active while the auditable chain is built.
+		// The guarded insert repeats the check under the Coordinator mutation lock.
 		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
+		}
+		hopConstraints, err := parseDelegationConstraints(hopEdge.ConstraintsJSON)
+		if err != nil || hopConstraints.MaxHops < len(path)-index {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation hop budget exhausted")
 		}
 		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
 		}
+		if prevTargetSessionID != "" && hopEdge.SourceSessionID != prevTargetSessionID {
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation Session chain discontinuous")
+		}
+		if len(hops) > 0 {
+			previousEdgeID := hops[len(hops)-1].DelegationEdgeID
+			if hopEdge.ParentEdgeID == nil || *hopEdge.ParentEdgeID != previousEdgeID {
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation parent lineage discontinuous")
+			}
+			if err := s.validateAncestorAttenuation(ctx, parentEdge, parentConstraints, hopEdge, hopConstraints); err != nil {
+				return nil, nil, sharederr.New(sharederr.AccessDenied, err.Error())
+			}
+		}
+		edges = append(edges, hopEdge)
 		hops = append(hops, ChainHop{
 			AppID:            hopEdge.IssuerAppID,
-			AgentSessionID:   hopEdge.SourceSessionID,
+			SessionID:        hopEdge.SourceSessionID,
 			DelegationEdgeID: hopEdge.ID,
 		})
 		prevReceiverApp = hopEdge.ReceiverAppID
+		prevTargetSessionID = hopEdge.TargetSessionID
+		parentEdge = hopEdge
+		parentConstraints = hopConstraints
 	}
 	hops = append(hops, ChainHop{
-		AppID:          edge.ReceiverAppID,
-		AgentSessionID: target.ID,
+		AppID:     edge.ReceiverAppID,
+		SessionID: target.ID,
 	})
 	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
-		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
 	}
-	return hops, nil
+	return hops, edges, nil
+}
+
+func delegationIssuanceProof(proof *delegationProof) DelegationIssuanceProof {
+	lineage := make([]DelegationIssuanceEdge, 0, len(proof.edges))
+	for _, edge := range proof.edges {
+		lineage = append(lineage, DelegationIssuanceEdge{
+			ID: edge.ID, ParentEdgeID: edge.ParentEdgeID, EdgeVersion: edge.EdgeVersion,
+			SourceSessionID: edge.SourceSessionID, TargetSessionID: edge.TargetSessionID,
+			IssuerApplicationID: edge.IssuerAppID, ReceiverApplicationID: edge.ReceiverAppID,
+			ExpiresAt: edge.ExpiresAt,
+		})
+	}
+	return DelegationIssuanceProof{
+		Lineage: lineage, SourceSessionID: proof.source.ID, TargetSessionID: proof.target.ID,
+		SourceApplicationID: proof.source.ApplicationID, TargetApplicationID: proof.target.ApplicationID,
+		TargetAuthorityRecord: proof.target.SubjectAuthorityRecordID,
+		GraphEpoch:            proof.graphEpoch,
+	}
+}
+
+func (s *Server) validateAncestorAttenuation(ctx context.Context, parent *DelegationEdge, parentConstraints delegationConstraints, child *DelegationEdge, childConstraints delegationConstraints) error {
+	if parent == nil || !scopesAllowed(child.Scopes, parent.Scopes) {
+		return fmt.Errorf("delegation lineage widens scopes")
+	}
+	if child.ExpiresAt.After(parent.ExpiresAt) {
+		return fmt.Errorf("delegation lineage widens expiry")
+	}
+	parentExpiry, err := constraintExpiry(parentConstraints.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("delegation ancestor constraint expiry invalid")
+	}
+	childExpiry, err := constraintExpiry(childConstraints.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("delegation child constraint expiry invalid")
+	}
+	if !parentExpiry.IsZero() && (childExpiry.IsZero() || childExpiry.After(parentExpiry)) {
+		return fmt.Errorf("delegation lineage widens constraint expiry")
+	}
+	if parentConstraints.TTLSeconds > 0 && (childConstraints.TTLSeconds == 0 || childConstraints.TTLSeconds > parentConstraints.TTLSeconds) {
+		return fmt.Errorf("delegation lineage widens ttl")
+	}
+	if childConstraints.MaxHops > parentConstraints.MaxHops-1 {
+		return fmt.Errorf("delegation lineage widens hop allowance")
+	}
+	if parentConstraints.Budget > 0 {
+		childBudget := childConstraints.Budget
+		if childBudget == 0 {
+			childBudget = len(uniqueStrings(child.Scopes))
+		}
+		if childBudget > parentConstraints.Budget {
+			return fmt.Errorf("delegation lineage widens budget")
+		}
+	}
+	parentResources, err := s.edgeResourceIDs(ctx, parent)
+	if err != nil {
+		return fmt.Errorf("delegation ancestor resources invalid")
+	}
+	childResources, err := s.edgeResourceIDs(ctx, child)
+	if err != nil {
+		return fmt.Errorf("delegation child resources invalid")
+	}
+	if len(parentResources) > 0 && (len(childResources) == 0 || !scopesAllowed(childResources, parentResources)) {
+		return fmt.Errorf("delegation lineage widens resources")
+	}
+	return nil
+}
+
+func (s *Server) edgeResourceIDs(ctx context.Context, edge *DelegationEdge) ([]string, error) {
+	constraints, err := parseDelegationConstraints(edge.ConstraintsJSON)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	if edge.ResourceID != nil {
+		resource, err := s.db.GetResourceByIdentifier(ctx, edge.ZoneID, *edge.ResourceID)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, resource.ID)
+	}
+	for _, identifier := range constraints.Resources {
+		resource, err := s.db.GetResourceByIdentifier(ctx, edge.ZoneID, identifier)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, resource.ID)
+	}
+	return uniqueStrings(ids), nil
+}
+
+func constraintExpiry(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, value)
+}
+
+func distinctScopes(scope string) []string {
+	return uniqueStrings(strings.Fields(scope))
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, error) {
 	var constraints delegationConstraints
 	if len(raw) == 0 {
+		constraints.MaxHops = 1
 		return constraints, nil
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -1780,7 +2161,7 @@ func effectiveTokenTTL(ttl time.Duration, proof *delegationProof, now time.Time)
 	}
 	edgeTTL := proof.edge.ExpiresAt.Sub(now)
 	if edgeTTL <= 0 {
-		return 0, fmt.Errorf("delegation edge inactive or expired")
+		return 0, fmt.Errorf("delegation inactive or expired")
 	}
 	if edgeTTL < ttl {
 		ttl = edgeTTL
@@ -1819,7 +2200,7 @@ func containsString(values []string, wanted string) bool {
 	return false
 }
 
-func activeAgentSession(session *AgentSession, zoneID string, now time.Time) bool {
+func activeSession(session *Session, zoneID string, now time.Time) bool {
 	if session == nil || session.ZoneID != zoneID || session.Status != "active" {
 		return false
 	}
@@ -1829,7 +2210,7 @@ func activeAgentSession(session *AgentSession, zoneID string, now time.Time) boo
 	if session.TTLSeconds <= 0 {
 		return false
 	}
-	return session.SpawnedAt.Add(time.Duration(session.TTLSeconds) * time.Second).After(now)
+	return session.StartedAt.Add(time.Duration(session.TTLSeconds) * time.Second).After(now)
 }
 
 func tokenTTL(ttlSeconds int, sessionMandateAllowed bool) (time.Duration, error) {
@@ -1842,7 +2223,7 @@ func tokenTTL(ttlSeconds int, sessionMandateAllowed bool) (time.Duration, error)
 	ttl := time.Duration(ttlSeconds) * time.Second
 	limit := ttlResourceMandate
 	if sessionMandateAllowed {
-		limit = ttlSessionMandate
+		limit = ttlAuthorityRecordMandate
 	}
 	if ttl > limit {
 		return 0, fmt.Errorf("ttl_seconds exceeds token TTL cap")
@@ -1856,17 +2237,6 @@ func claimString(claims map[string]any, key string) string {
 	}
 	value, _ := claims[key].(string)
 	return value
-}
-
-func sameTokenPrincipal(subjectClaims, actorClaims map[string]any) bool {
-	subject := claimString(subjectClaims, "sub")
-	actor := claimString(actorClaims, "sub")
-	if subject == "" || actor == "" || subject != actor {
-		return false
-	}
-	subjectClient := claimString(subjectClaims, "client_id")
-	actorClient := claimString(actorClaims, "client_id")
-	return subjectClient == "" || actorClient == "" || subjectClient == actorClient
 }
 
 func scopesAllowed(requested, available []string) bool {
@@ -1885,6 +2255,24 @@ func scopesAllowed(requested, available []string) bool {
 	return true
 }
 
+// lifecycleScope is the platform-reserved bootstrap scope. The decision contract owns
+// its doctrine: bootstrap_exchange permits it exactly and alone, delegated_mint forbids
+// it, and the bootstrap allow rule gates on resource ownership rather than declared
+// scopes.
+const lifecycleScope = "agent:lifecycle"
+
+// resourceMintScopes returns the scopes mintable against a resource: its declared
+// business scopes plus the platform-reserved lifecycle bootstrap scope for
+// gateway-routed resources. Declared scopes stay the adopter's business vocabulary,
+// and the lifecycle invariant holds identically for every creation surface instead of
+// depending on clients stamping the scope into the resource row.
+func resourceMintScopes(resource *Resource) []string {
+	if resource.UpstreamURL == nil || slices.Contains(resource.Scopes, lifecycleScope) {
+		return resource.Scopes
+	}
+	return append(append(make([]string, 0, len(resource.Scopes)+1), resource.Scopes...), lifecycleScope)
+}
+
 func derefStr(s *string) string {
 	if s == nil {
 		return ""
@@ -1893,6 +2281,9 @@ func derefStr(s *string) string {
 }
 
 func writeError(w http.ResponseWriter, code int, err *sharederr.CaracalError) {
+	if err.RequestID == "" {
+		err.RequestID = w.Header().Get("X-Request-Id")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(err)
@@ -1904,10 +2295,12 @@ func writeStepUp(w http.ResponseWriter, requestID string, challenge *challengeSt
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(StepUpChallenge{
 		Error:              "interaction_required",
-		ErrorDescription:   "Step-up authorization required for this resource",
+		ErrorDescription:   "Human approval required for this request",
 		ChallengeID:        challenge.ID,
 		ChallengeType:      challenge.ChallengeType,
-		ChallengeSecret:    challenge.Secret,
+		State:              challenge.State,
+		Tier:               challenge.Tier,
+		Binding:            hex.EncodeToString(challenge.Binding),
 		ChallengeExpiresAt: challenge.ExpiresAt.Format(time.RFC3339),
 		RequestID:          requestID,
 	})

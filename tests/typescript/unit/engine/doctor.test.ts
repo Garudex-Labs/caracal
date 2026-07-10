@@ -17,14 +17,14 @@ vi.mock('../../../../packages/engine/src/shared.js', async (orig) => {
   return { ...actual, buildAdminClient: vi.fn() }
 })
 
-vi.mock('@caracalai/core', async (orig) => {
+vi.mock('@caracalai/server-core', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return { ...actual, discoverCoordinatorToken: vi.fn(() => undefined), discoverMetricsBearer: vi.fn(() => undefined) }
 })
 
 import { runDoctorDiagnostics, doctorShouldFail } from '../../../../packages/engine/src/doctor.js'
 import { buildAdminClient } from '../../../../packages/engine/src/shared.js'
-import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/core'
+import { discoverCoordinatorToken, discoverMetricsBearer } from '@caracalai/server-core'
 
 const SAVED = { ...process.env }
 

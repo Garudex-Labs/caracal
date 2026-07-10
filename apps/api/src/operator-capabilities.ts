@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { planProviderConfigError } from './operator-plan-secrets.js'
+import { SECRET_PROVIDER_CONFIG_KEYS } from './provider-config.js'
 
 const IdRef = z.string().min(1).max(128)
 const ScopePattern = /^[A-Za-z][A-Za-z0-9._:-]*$/
@@ -13,17 +14,29 @@ const Scope = z.string().min(1).max(128).regex(ScopePattern)
 // inline to the control plane. Bounded in length so a plan step stays small; the control plane
 // re-validates the Rego on apply, so the catalog only guards shape.
 const PolicyContent = z.string().min(1).max(20000)
-const SchemaVersion = z.string().min(1).max(64)
 
 // The object domain a capability operates on, mirroring the Console's navigation
 // so the Operator reasons in user-visible terms rather than internal endpoints.
 export type CapabilityDomain =
-  'zone' | 'application' | 'provider' | 'resource' | 'policy' | 'grant' | 'session' | 'agent' | 'delegation' | 'audit'
+  | 'zone'
+  | 'application'
+  | 'provider'
+  | 'resource'
+  | 'policy'
+  | 'grant'
+  | 'authority-record'
+  | 'session'
+  | 'agent'
+  | 'delegation'
+  | 'audit'
+  | 'workload'
+  | 'approval'
 
 // A live-state target a preview resolves against. The catalog names the logical noun; the
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
-export type PreviewTarget = 'zones' | 'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants'
+export type PreviewTarget =
+  'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants' | 'workloads' | 'sessions' | 'delegations'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -62,36 +75,36 @@ export interface Capability {
   // How the preview resolves this capability's effect against live state. Co-located here so
   // the single declaration that adds a capability also describes how it previews.
   preview: CapabilityPreview
+  // The output keys the governed apply surfaces for this step, referencable by later steps
+  // through the {{steps.<id>.outputs.<key>}} syntax. Only durable identifiers appear here:
+  // one-time material such as an issued client secret is never persisted, so it is never
+  // referencable. Absent when a capability produces nothing a later step could bind to.
+  outputs?: readonly string[]
 }
 
 const NoArgs = z.object({}).strict()
 
+// Every config key any provider kind seals, plus the client id the credential vault also
+// carries: an update's config may never touch credential material, whatever kind the
+// provider turns out to be at apply time.
+const PROVIDER_CREDENTIAL_KEYS = new Set(['client_id', ...Object.values(SECRET_PROVIDER_CONFIG_KEYS).flatMap((keys) => [...keys])])
+
+// A resource operation route: the method, path, and scope triple the Gateway enforces.
+const ResourceOperationArg = z.object({ method: z.string().min(1).max(16), path: z.string().min(1).max(2048), scope: Scope }).strict()
+
+// A workload credential binding: which environment variable carries which governed
+// resource credential when caracal run launches the workload.
+const WorkloadBindingArg = z
+  .object({
+    env: z.string().min(1).max(200),
+    resource: z.string().min(1).max(500),
+    scopes: z.array(z.string().min(1).max(200)).max(32).optional(),
+    optional: z.boolean().optional(),
+    on_failure: z.enum(['warn', 'error']).optional(),
+  })
+  .strict()
+
 export const CAPABILITIES: Record<string, Capability> = {
-  listZones: {
-    id: 'listZones',
-    title: 'List zones',
-    summary: 'Read the zones in the workspace.',
-    domain: 'zone',
-    mutating: false,
-    args: NoArgs,
-    argsHint: 'no arguments',
-    preview: { kind: 'read' },
-  },
-  createZone: {
-    id: 'createZone',
-    title: 'Create a zone',
-    summary: 'Create a new zone to isolate a set of applications and policy.',
-    domain: 'zone',
-    mutating: true,
-    args: z.object({ name: z.string().min(1).max(200) }).strict(),
-    argsHint: 'name (string)',
-    preview: {
-      kind: 'createByName',
-      target: 'zones',
-      exists: (name) => `A zone named “${name}” already exists.`,
-      create: (name) => `Would create zone “${name}”.`,
-    },
-  },
   listApplications: {
     id: 'listApplications',
     title: 'List applications',
@@ -116,6 +129,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `An application named “${name}” already exists.`,
       create: (name) => `Would register application “${name}”.`,
     },
+    outputs: ['application_id'],
   },
   rotateApplicationSecret: {
     id: 'rotateApplicationSecret',
@@ -133,11 +147,30 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would rotate the secret for application ${id}.`,
       blocked: (id) => `Application ${id} was not found in this zone.`,
     },
+    outputs: ['application_id'],
+  },
+  updateApplication: {
+    id: 'updateApplication',
+    title: 'Rename an application',
+    summary: 'Change the display name of an application registered in the zone.',
+    domain: 'application',
+    mutating: true,
+    args: z.object({ application_id: IdRef, name: z.string().min(1).max(200) }).strict(),
+    argsHint: 'application_id (string), name (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'applications',
+      idArg: 'application_id',
+      effect: 'update',
+      live: (id) => `Would rename application ${id}.`,
+      blocked: (id) => `Application ${id} was not found in this zone.`,
+    },
+    outputs: ['application_id'],
   },
   deleteApplication: {
     id: 'deleteApplication',
     title: 'Delete an application',
-    summary: 'Permanently remove an application identity from the zone.',
+    summary: 'Archive an application identity, removing it from active use in the zone; the record is retained for audit.',
     domain: 'application',
     mutating: true,
     args: z.object({ application_id: IdRef }).strict(),
@@ -187,11 +220,53 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `A provider named \u201c${name}\u201d already exists.`,
       create: (name) => `Would connect provider \u201c${name}\u201d.`,
     },
+    outputs: ['provider_id'],
+  },
+  updateProvider: {
+    id: 'updateProvider',
+    title: 'Update a provider',
+    summary:
+      'Change the display name or non-secret settings of an upstream provider. The provider\u2019s kind and its credentials never change here: credential rotation goes through the console\u2019s secure prompt.',
+    domain: 'provider',
+    mutating: true,
+    args: z
+      .object({
+        provider_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        config: z.record(z.string().max(64), z.unknown()).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (args.name === undefined && args.config === undefined) {
+          ctx.addIssue({ code: 'custom', message: 'update requires name or config' })
+          return
+        }
+        for (const key of Object.keys(args.config ?? {})) {
+          if (PROVIDER_CREDENTIAL_KEYS.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              message: `config must not carry ${key}: credentials are entered through the console's secure prompt`,
+              path: ['config'],
+            })
+          }
+        }
+      }),
+    argsHint:
+      'provider_id (string), name (string, optional), config (object, optional: the kind\u2019s non-secret settings - never a client id, secret, key, or token, and never the kind itself)',
+    preview: {
+      kind: 'mutateById',
+      target: 'providers',
+      idArg: 'provider_id',
+      effect: 'update',
+      live: (id) => `Would update provider ${id}.`,
+      blocked: (id) => `Provider ${id} was not found in this zone.`,
+    },
+    outputs: ['provider_id'],
   },
   deleteProvider: {
     id: 'deleteProvider',
     title: 'Delete a provider',
-    summary: 'Permanently remove an upstream provider from the zone.',
+    summary: 'Archive an upstream provider, removing it from active use in the zone; the record is retained for audit.',
     domain: 'provider',
     mutating: true,
     args: z.object({ provider_id: IdRef }).strict(),
@@ -209,7 +284,7 @@ export const CAPABILITIES: Record<string, Capability> = {
     id: 'defineResource',
     title: 'Define a resource',
     summary:
-      'Describe a protected resource, the scopes it exposes, and its Gateway binding: the upstream URL, the managed Gateway application, and the provider whose credential the Gateway attaches.',
+      'Describe a protected resource, the scopes it exposes, and its Gateway routing: the upstream URL and the provider whose credential the Gateway attaches.',
     domain: 'resource',
     mutating: true,
     args: z
@@ -217,21 +292,18 @@ export const CAPABILITIES: Record<string, Capability> = {
         name: z.string().min(1).max(200),
         scopes: z.array(Scope).min(1).max(64),
         upstream_url: z.string().min(1).max(2048).url(),
-        gateway_application_id: IdRef,
         credential_provider_id: IdRef,
       })
       .strict(),
     argsHint:
-      'name (string), scopes (array of scope strings), upstream_url (string: the upstream API base URL the Gateway forwards to), gateway_application_id (string: the id of an existing managed application the Gateway exchanges as), credential_provider_id (string: the id of an existing provider whose credential the Gateway attaches)',
+      'name (string), scopes (array of scope strings), upstream_url (string: the upstream API base URL the Gateway forwards to), credential_provider_id (string: the id of an existing provider whose credential the Gateway attaches)',
     preview: {
       kind: 'requireLiveThenCreate',
-      requires: [
-        { target: 'applications', idArg: 'gateway_application_id', blocked: (id) => `Application ${id} was not found in this zone.` },
-        { target: 'providers', idArg: 'credential_provider_id', blocked: (id) => `Provider ${id} was not found in this zone.` },
-      ],
+      requires: [{ target: 'providers', idArg: 'credential_provider_id', blocked: (id) => `Provider ${id} was not found in this zone.` }],
       create: (args) =>
         `Would define resource “${String(args.name)}” exposing ${(Array.isArray(args.scopes) ? (args.scopes as string[]) : []).join(', ')}, routed to ${String(args.upstream_url)}.`,
     },
+    outputs: ['resource_id'],
   },
   listResources: {
     id: 'listResources',
@@ -243,10 +315,44 @@ export const CAPABILITIES: Record<string, Capability> = {
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
+  updateResource: {
+    id: 'updateResource',
+    title: 'Update a resource',
+    summary:
+      'Change a protected resource\u2019s name, scopes, or Gateway routing: the upstream URL, the credential provider, or its operation routes.',
+    domain: 'resource',
+    mutating: true,
+    args: z
+      .object({
+        resource_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        scopes: z.array(Scope).min(1).max(64).optional(),
+        upstream_url: z.string().min(1).max(2048).url().optional(),
+        credential_provider_id: IdRef.optional(),
+        operations: z.array(ResourceOperationArg).max(64).optional(),
+        operation_enforcement: z.enum(['enforced', 'transport_uniform']).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (Object.keys(args).length <= 1)
+          ctx.addIssue({ code: 'custom', message: 'update requires at least one field beyond resource_id' })
+      }),
+    argsHint:
+      'resource_id (string), then at least one of: name (string), scopes (array of scope strings), upstream_url (string), credential_provider_id (string), operations (array of {method, path, scope}), operation_enforcement (enforced or transport_uniform)',
+    preview: {
+      kind: 'mutateById',
+      target: 'resources',
+      idArg: 'resource_id',
+      effect: 'update',
+      live: (id) => `Would update resource ${id}.`,
+      blocked: (id) => `Resource ${id} was not found in this zone.`,
+    },
+    outputs: ['resource_id'],
+  },
   deleteResource: {
     id: 'deleteResource',
     title: 'Delete a resource',
-    summary: 'Permanently remove a protected resource from the zone.',
+    summary: 'Archive a protected resource, removing it from active use in the zone; the record is retained for audit.',
     domain: 'resource',
     mutating: true,
     args: z.object({ resource_id: IdRef }).strict(),
@@ -296,6 +402,7 @@ export const CAPABILITIES: Record<string, Capability> = {
           args.application_id,
         )} on resource ${String(args.resource_id)}.`,
     },
+    outputs: ['grant_id'],
   },
   revokeGrant: {
     id: 'revokeGrant',
@@ -314,14 +421,15 @@ export const CAPABILITIES: Record<string, Capability> = {
       blocked: (id) => `Grant ${id} was not found in this zone.`,
     },
   },
-  explainAccess: {
-    id: 'explainAccess',
-    title: 'Explain access',
-    summary: 'Read why an application can or cannot reach a resource. Changes nothing.',
+  explainRequest: {
+    id: 'explainRequest',
+    title: 'Explain a request',
+    summary:
+      'Read the full decision trace for one request id: every recorded event, the final decision, and which policies determined any denial. Changes nothing.',
     domain: 'audit',
     mutating: false,
-    args: z.object({ application_id: IdRef.optional(), resource_id: IdRef.optional() }).strict(),
-    argsHint: 'application_id (string, optional), resource_id (string, optional)',
+    args: z.object({ request_id: IdRef }).strict(),
+    argsHint: 'request_id (string)',
     preview: { kind: 'read' },
   },
   listPolicies: {
@@ -334,10 +442,30 @@ export const CAPABILITIES: Record<string, Capability> = {
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
+  validatePolicy: {
+    id: 'validatePolicy',
+    title: 'Validate a policy document',
+    summary: 'Check an authored Rego data document against the control plane\u2019s validator without creating anything. Changes nothing.',
+    domain: 'policy',
+    mutating: false,
+    args: z.object({ content: PolicyContent }).strict(),
+    argsHint: 'content (Rego data document)',
+    preview: { kind: 'read' },
+  },
+  listPolicySets: {
+    id: 'listPolicySets',
+    title: 'List policy sets',
+    summary: 'Read the policy sets composed in the zone and their activation state.',
+    domain: 'policy',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
   deletePolicy: {
     id: 'deletePolicy',
     title: 'Delete a policy',
-    summary: 'Permanently remove a policy from the zone.',
+    summary: 'Archive a policy, removing it from active use in the zone; the record is retained for audit.',
     domain: 'policy',
     mutating: true,
     args: z.object({ policy_id: IdRef }).strict(),
@@ -362,16 +490,16 @@ export const CAPABILITIES: Record<string, Capability> = {
         name: z.string().min(1).max(200),
         description: z.string().max(500).optional(),
         content: PolicyContent,
-        schema_version: SchemaVersion.optional(),
       })
       .strict(),
-    argsHint: 'name (string), description (string, optional), content (Rego data document), schema_version (string, optional)',
+    argsHint: 'name (string), description (string, optional), content (Rego data document)',
     preview: {
       kind: 'createByName',
       target: 'policies',
       exists: (name) => `A policy named “${name}” already exists.`,
       create: (name) => `Would create policy “${name}” and seal its first version.`,
     },
+    outputs: ['policy_id', 'policy_version_id'],
   },
   versionPolicy: {
     id: 'versionPolicy',
@@ -379,8 +507,8 @@ export const CAPABILITIES: Record<string, Capability> = {
     summary: 'Seal a new immutable version of an existing policy from an authored data document.',
     domain: 'policy',
     mutating: true,
-    args: z.object({ policy_id: IdRef, content: PolicyContent, schema_version: SchemaVersion.optional() }).strict(),
-    argsHint: 'policy_id (string), content (Rego data document), schema_version (string, optional)',
+    args: z.object({ policy_id: IdRef, content: PolicyContent }).strict(),
+    argsHint: 'policy_id (string), content (Rego data document)',
     preview: {
       kind: 'mutateById',
       target: 'policies',
@@ -389,6 +517,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would seal a new version of policy ${id}.`,
       blocked: (id) => `Policy ${id} was not found in this zone.`,
     },
+    outputs: ['policy_id', 'policy_version_id'],
   },
   createPolicySet: {
     id: 'createPolicySet',
@@ -404,6 +533,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       exists: (name) => `A policy set named “${name}” already exists.`,
       create: (name) => `Would create policy set “${name}”.`,
     },
+    outputs: ['policy_set_id'],
   },
   versionPolicySet: {
     id: 'versionPolicySet',
@@ -421,6 +551,7 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would seal a new version of policy set ${id}.`,
       blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
+    outputs: ['policy_set_id', 'policy_set_version_id'],
   },
   activatePolicySet: {
     id: 'activatePolicySet',
@@ -438,42 +569,283 @@ export const CAPABILITIES: Record<string, Capability> = {
       live: (id) => `Would activate a version of policy set ${id} for the whole zone.`,
       blocked: (id) => `Policy set ${id} was not found in this zone.`,
     },
+    outputs: ['policy_set_id', 'policy_set_version_id'],
+  },
+  simulatePolicySet: {
+    id: 'simulatePolicySet',
+    title: 'Simulate a policy set version',
+    summary: 'Evaluate a policy set version against a hypothetical authorization input without activating it. Changes nothing.',
+    domain: 'policy',
+    mutating: false,
+    args: z
+      .object({
+        policy_set_id: IdRef,
+        policy_set_version_id: IdRef,
+        input: z.record(z.string().max(128), z.unknown()).optional(),
+      })
+      .strict(),
+    argsHint: 'policy_set_id (string), policy_set_version_id (string), input (object, optional: the authorization input to evaluate)',
+    preview: { kind: 'read' },
+  },
+  deletePolicySet: {
+    id: 'deletePolicySet',
+    title: 'Delete a policy set',
+    summary: 'Archive a policy set, removing it from active use in the zone; the record is retained for audit.',
+    domain: 'policy',
+    mutating: true,
+    args: z.object({ policy_set_id: IdRef }).strict(),
+    argsHint: 'policy_set_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'policySets',
+      idArg: 'policy_set_id',
+      effect: 'delete',
+      live: (id) => `Would delete policy set ${id} from this zone.`,
+      blocked: (id) => `Policy set ${id} was not found in this zone.`,
+    },
+  },
+  // Runtime authority is governed here like everything else: suspending, resuming, or
+  // terminating a Session and revoking a Delegation ride the same catalog,
+  // preview, approval gate, and governed control-plane apply as zone-topology changes.
+  // The one deliberate exception is deciding a step-up approval: the control plane's
+  // credential carries write capability and never approve, so an agent structurally
+  // cannot decide a challenge that exists to put a human in the loop. The Operator
+  // reads approvals so it can reason about them, and stops there.
+  listAuthorityRecords: {
+    id: 'listAuthorityRecords',
+    title: 'List authority records',
+    summary: 'Read the Authority records in the zone with their subjects and expiry, optionally filtered by subject or status.',
+    domain: 'authority-record',
+    mutating: false,
+    args: z
+      .object({
+        subject: z.string().min(1).max(200).optional(),
+        status: z.string().min(1).max(64).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      })
+      .strict(),
+    argsHint: 'subject (string, optional), status (string, optional), limit (number, optional)',
+    preview: { kind: 'read' },
   },
   listSessions: {
     id: 'listSessions',
     title: 'List sessions',
-    summary: 'Read the authenticated sessions active in the zone with their subjects and expiry.',
+    summary: 'Read the Sessions running in the zone with their lifecycle and status.',
     domain: 'session',
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
-  listAgents: {
-    id: 'listAgents',
-    title: 'List agent sessions',
-    summary: 'Read the agent sessions running in the zone with their lifecycle and status.',
-    domain: 'agent',
-    mutating: false,
-    args: NoArgs,
-    argsHint: 'no arguments',
-    preview: { kind: 'read' },
+  suspendSession: {
+    id: 'suspendSession',
+    title: 'Suspend a session',
+    summary: 'Pause a running Session so it stops acting until resumed; its delegated authority is retained.',
+    domain: 'session',
+    mutating: true,
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'sessions',
+      idArg: 'session_id',
+      effect: 'update',
+      live: (id) => `Would suspend Session ${id}.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
+    },
+    outputs: ['session_id'],
+  },
+  resumeSession: {
+    id: 'resumeSession',
+    title: 'Resume a session',
+    summary: 'Resume a suspended Session so it can act again under its existing authority.',
+    domain: 'session',
+    mutating: true,
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'sessions',
+      idArg: 'session_id',
+      effect: 'update',
+      live: (id) => `Would resume Session ${id}.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
+    },
+    outputs: ['session_id'],
+  },
+  terminateSession: {
+    id: 'terminateSession',
+    title: 'Terminate a session',
+    summary: 'Permanently end a Session and its descendants, revoking the authority delegated to them.',
+    domain: 'session',
+    mutating: true,
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'sessions',
+      idArg: 'session_id',
+      effect: 'delete',
+      live: (id) => `Would terminate Session ${id} and its descendants.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
+    },
   },
   listDelegations: {
     id: 'listDelegations',
     title: 'List delegations',
-    summary: 'Read the active delegation edges in the zone: who delegated which scopes to whom.',
+    summary: 'Read the active Delegations in the zone: who delegated which scopes to whom.',
     domain: 'delegation',
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
+  revokeDelegation: {
+    id: 'revokeDelegation',
+    title: 'Revoke a delegation',
+    summary: 'Revoke a Delegation, withdrawing the scopes it conferred from the receiving Session and its descendants.',
+    domain: 'delegation',
+    mutating: true,
+    args: z.object({ delegation_id: IdRef }).strict(),
+    argsHint: 'delegation_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'delegations',
+      idArg: 'delegation_id',
+      effect: 'delete',
+      live: (id) => `Would revoke delegation ${id}.`,
+      blocked: (id) => `Delegation ${id} is not active in this zone.`,
+    },
+  },
   listAuditEvents: {
     id: 'listAuditEvents',
     title: 'List audit events',
-    summary: 'Read the most recent authorization decisions and control events recorded in the zone.',
+    summary:
+      'Read the most recent authorization decisions and control events recorded in the zone, optionally filtered by time window, decision, event type, or request id.',
     domain: 'audit',
+    mutating: false,
+    args: z
+      .object({
+        since: z.string().min(1).max(64).optional(),
+        until: z.string().min(1).max(64).optional(),
+        decision: z.string().min(1).max(32).optional(),
+        event_type: z.string().min(1).max(128).optional(),
+        request_id: IdRef.optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      })
+      .strict(),
+    argsHint:
+      'since (ISO timestamp, optional), until (ISO timestamp, optional), decision (string, optional), event_type (string, optional), request_id (string, optional), limit (number, optional)',
+    preview: { kind: 'read' },
+  },
+  listAdminActivity: {
+    id: 'listAdminActivity',
+    title: 'List admin activity',
+    summary: 'Read the most recent admin actions recorded in the zone: who changed what, when, and through which surface.',
+    domain: 'audit',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  listWorkloads: {
+    id: 'listWorkloads',
+    title: 'List workloads',
+    summary: 'Read the workload launcher identities defined in the zone and their credential bindings.',
+    domain: 'workload',
+    mutating: false,
+    args: NoArgs,
+    argsHint: 'no arguments',
+    preview: { kind: 'read' },
+  },
+  createWorkload: {
+    id: 'createWorkload',
+    title: 'Create a workload',
+    summary:
+      'Create a workload launcher identity for caracal run. The one-time workload secret is issued at apply and never retrievable again.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ name: z.string().min(1).max(200) }).strict(),
+    argsHint: 'name (string)',
+    preview: {
+      kind: 'createByName',
+      target: 'workloads',
+      exists: (name) => `A workload named \u201c${name}\u201d already exists.`,
+      create: (name) => `Would create workload \u201c${name}\u201d and issue its one-time secret.`,
+    },
+    outputs: ['workload_id'],
+  },
+  updateWorkload: {
+    id: 'updateWorkload',
+    title: 'Update a workload',
+    summary:
+      'Change a workload\u2019s name or replace its credential bindings: which environment variables carry which governed resource credentials.',
+    domain: 'workload',
+    mutating: true,
+    args: z
+      .object({
+        workload_id: IdRef,
+        name: z.string().min(1).max(200).optional(),
+        bindings: z.array(WorkloadBindingArg).max(64).optional(),
+      })
+      .strict()
+      .superRefine((args, ctx) => {
+        if (args.name === undefined && args.bindings === undefined)
+          ctx.addIssue({ code: 'custom', message: 'update requires name or bindings' })
+      }),
+    argsHint:
+      'workload_id (string), then at least one of: name (string), bindings (array of {env, resource, scopes (optional), optional (boolean, optional), on_failure (warn or error, optional)})',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'update',
+      live: (id) => `Would update workload ${id}.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+    outputs: ['workload_id'],
+  },
+  rotateWorkloadSecret: {
+    id: 'rotateWorkloadSecret',
+    title: 'Rotate a workload secret',
+    summary: 'Issue a fresh one-time secret for a workload and retire the old one.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ workload_id: IdRef }).strict(),
+    argsHint: 'workload_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'update',
+      live: (id) => `Would rotate the secret for workload ${id}.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+    outputs: ['workload_id'],
+  },
+  deleteWorkload: {
+    id: 'deleteWorkload',
+    title: 'Delete a workload',
+    summary: 'Permanently delete a workload launcher identity and its credential bindings; its secret stops working immediately.',
+    domain: 'workload',
+    mutating: true,
+    args: z.object({ workload_id: IdRef }).strict(),
+    argsHint: 'workload_id (string)',
+    preview: {
+      kind: 'mutateById',
+      target: 'workloads',
+      idArg: 'workload_id',
+      effect: 'delete',
+      live: (id) => `Would delete workload ${id} from this zone.`,
+      blocked: (id) => `Workload ${id} was not found in this zone.`,
+    },
+  },
+  listApprovals: {
+    id: 'listApprovals',
+    title: 'List approvals',
+    summary:
+      'Read the step-up approval requests recorded in the zone and their state. Deciding an approval stays with humans: the Operator can never approve or reject.',
+    domain: 'approval',
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
@@ -482,11 +854,15 @@ export const CAPABILITIES: Record<string, Capability> = {
 }
 
 // Renders the catalog as a compact, deterministic block for grounding the planner
-// agent: one line per capability with its id, effect, argument shape, and purpose.
+// agent: one line per capability with its id, effect, argument shape, referencable
+// outputs, and purpose.
 export function describeCapabilitiesForPrompt(): string {
   return Object.values(CAPABILITIES)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((c) => `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint} - ${c.summary}`)
+    .map((c) => {
+      const outputs = c.outputs && c.outputs.length > 0 ? ` outputs: ${c.outputs.join(', ')}` : ''
+      return `- ${c.id} [${c.mutating ? 'changes state' : 'read-only'}] args: ${c.argsHint}${outputs} - ${c.summary}`
+    })
     .join('\n')
 }
 
@@ -506,6 +882,40 @@ export function listCapabilities(): CapabilityDescriptor[] {
 
 const PROPOSED_STEP_MAX = 50
 const STEP_ID_PATTERN = /^[A-Za-z0-9_.\-:]{1,128}$/
+
+// A step-output reference: a whole-string argument value of the form
+// {{steps.<stepId>.outputs.<key>}} that binds a later step's argument to an identifier an
+// earlier step produces at apply time. Whole-string only - a reference never embeds inside
+// a longer string - so resolution is a typed value substitution, never text interpolation.
+const STEP_REFERENCE_PATTERN = /^\{\{steps\.([A-Za-z0-9_.\-:]{1,128})\.outputs\.([a-z0-9_]{1,64})\}\}$/
+
+export interface StepReference {
+  stepId: string
+  output: string
+}
+
+export function parseStepReference(value: unknown): StepReference | null {
+  if (typeof value !== 'string') return null
+  const match = STEP_REFERENCE_PATTERN.exec(value)
+  return match ? { stepId: match[1], output: match[2] } : null
+}
+
+// Collects every step-output reference in a step's arguments, walking nested arrays and
+// records so a reference is found wherever the argument schema allows a string.
+export function collectStepReferences(args: Record<string, unknown>): StepReference[] {
+  const refs: StepReference[] = []
+  const walk = (value: unknown): void => {
+    const ref = parseStepReference(value)
+    if (ref) {
+      refs.push(ref)
+      return
+    }
+    if (Array.isArray(value)) for (const item of value) walk(item)
+    else if (value && typeof value === 'object') for (const item of Object.values(value)) walk(item)
+  }
+  for (const value of Object.values(args)) walk(value)
+  return refs
+}
 
 // The per-step risk a planner may declare, ordered low→high. It is the planner's own honest
 // assessment of how consequential a step is; the guardian and the human approver still decide.
@@ -531,7 +941,8 @@ export const ProposedPlan = z
 
 export type ProposedPlanInput = z.infer<typeof ProposedPlan>
 
-export type DiagnosticCode = 'unknown_capability' | 'invalid_args' | 'duplicate_step_id' | 'unknown_dependency' | 'dependency_cycle'
+export type DiagnosticCode =
+  'unknown_capability' | 'invalid_args' | 'duplicate_step_id' | 'unknown_dependency' | 'unknown_reference' | 'dependency_cycle'
 
 export interface PlanDiagnostic {
   step_id: string
@@ -559,9 +970,12 @@ export interface PlanValidation {
 }
 
 // Validates a proposed plan against the catalog. Pure and side-effect free: it
-// resolves each step's capability, checks its arguments, and stamps the
+// resolves each step's capability, checks its arguments, resolves every step-output
+// reference against the producing step's declared outputs, and stamps the
 // authoritative mutating classification from the catalog so a downstream
-// approval can never be granted against a mislabeled or unknown action.
+// approval can never be granted against a mislabeled or unknown action. A
+// reference implies a dependency, so referenced steps fold into depends_on and
+// ride the same cycle check as declared dependencies.
 export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
   const diagnostics: PlanDiagnostic[] = []
   const steps: ValidatedStep[] = []
@@ -598,6 +1012,30 @@ export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
       continue
     }
 
+    const references = collectStepReferences(args.data)
+    const referencedSteps: string[] = []
+    for (const ref of references) {
+      const producer = plan.steps.find((candidate) => candidate.id === ref.stepId)
+      if (!producer) {
+        diagnostics.push({
+          step_id: step.id,
+          code: 'unknown_reference',
+          message: `step '${step.id}' references unknown step '${ref.stepId}'`,
+        })
+        continue
+      }
+      const outputs = CAPABILITIES[producer.capability]?.outputs ?? []
+      if (!outputs.includes(ref.output)) {
+        diagnostics.push({
+          step_id: step.id,
+          code: 'unknown_reference',
+          message: `step '${step.id}' references output '${ref.output}' that step '${ref.stepId}' does not produce`,
+        })
+        continue
+      }
+      referencedSteps.push(ref.stepId)
+    }
+
     steps.push({
       id: step.id,
       capability: capability.id,
@@ -605,7 +1043,7 @@ export function validateProposedPlan(plan: ProposedPlanInput): PlanValidation {
       domain: capability.domain,
       mutating: capability.mutating,
       args: args.data,
-      depends_on: [...new Set(step.depends_on ?? [])],
+      depends_on: [...new Set([...(step.depends_on ?? []), ...referencedSteps])],
       risk: step.risk,
     })
   }

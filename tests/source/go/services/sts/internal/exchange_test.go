@@ -17,29 +17,93 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
+	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/open-policy-agent/opa/rego"
 )
+
+func TestTokenExchangeErrorIncludesGeneratedRequestID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader("%"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	(&Server{}).handleTokenExchange(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	requestID := w.Header().Get("X-Request-Id")
+	if requestID == "" || !strings.Contains(w.Body.String(), `"requestId":"`+requestID+`"`) {
+		t.Fatalf("expected generated request id in header and body, header=%q body=%s", requestID, w.Body.String())
+	}
+}
+
+func TestTokenExchangeRejectsUnsupportedOAuthParameters(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		form url.Values
+	}{
+		{name: "grant", form: url.Values{"grant_type": {"client_credentials"}}},
+		{name: "subject type", form: url.Values{
+			"grant_type":         {tokenExchangeGrantType},
+			"subject_token":      {"token"},
+			"subject_token_type": {"urn:unsupported"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader(tc.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			(&Server{}).handleTokenExchange(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
 
 func strPtr(value string) *string {
 	return &value
 }
 
-func testProviderSecret(t *testing.T, zek []byte, config string) ([]byte, []byte) {
+// testProviderSecret seals a provider credential document the way the control plane
+// does: a CSS1 envelope bound to the provider's Secret Store ref.
+func testProviderSecret(t *testing.T, kek []byte, providerID, config string) map[string][]byte {
 	t.Helper()
-	ct, nonce, err := sharedcrypto.Seal(zek, []byte(config))
+	ref := secretstore.ProviderSecretConfigRef("", providerID)
+	envelope, err := secretstore.Seal(kek, []byte(config), ref)
 	if err != nil {
 		t.Fatalf("seal provider secret: %v", err)
 	}
-	return ct, nonce
+	return map[string][]byte{ref: envelope}
+}
+
+// providerServer wires a Server the way newServer does for provider credential
+// paths: builtin secret backend over the same test double and KEK.
+func providerServer(db *stubDB, kek []byte) *Server {
+	return &Server{
+		db:      db,
+		keys:    &KeyCache{keyring: testKeyring(kek)},
+		secrets: secretstore.Opened(&builtinSecretBackend{db: db}, testKeyring(kek)),
+	}
+}
+
+func sealConnectionToken(t *testing.T, kek []byte, token string) []byte {
+	t.Helper()
+	envelope, err := secretstore.Seal(kek, []byte(token), secretstore.AADConnectionAccessToken)
+	if err != nil {
+		t.Fatalf("seal provider token: %v", err)
+	}
+	return envelope
 }
 
 func TestDerefStr(t *testing.T) {
@@ -52,32 +116,74 @@ func TestDerefStr(t *testing.T) {
 	}
 }
 
-func TestStepUpRequired(t *testing.T) {
+func TestParseTierDeclarations(t *testing.T) {
 	res := &OPAResult{
 		Diagnostics: []map[string]any{
-			{"step_up_required": "mfa"},
+			{"step_up_required": map[string]any{
+				"type": "human_approval",
+				"tiers": []any{
+					map[string]any{"tier": "money", "approver": "operator", "ttl_seconds": float64(600), "privacy": "anonymous"},
+					map[string]any{"tier": "pii"},
+					map[string]any{"approver": "subject"},
+				},
+			}},
 		},
 	}
-	if got := stepUpRequired(res); got != "mfa" {
-		t.Errorf("want mfa, got %s", got)
+	decls := parseTierDeclarations(res)
+	if len(decls) != 2 {
+		t.Fatalf("tierless entries must be skipped, got %+v", decls)
+	}
+	if decls[0].Tier != "money" || decls[0].Approver != "operator" || decls[0].TTLSeconds != 600 || decls[0].Privacy != "anonymous" {
+		t.Fatalf("full declaration mis-parsed: %+v", decls[0])
+	}
+	if decls[1].Tier != "pii" || decls[1].Approver != "" || decls[1].TTLSeconds != 0 {
+		t.Fatalf("minimal declaration mis-parsed: %+v", decls[1])
 	}
 }
 
-func TestStepUpRequiredNone(t *testing.T) {
-	res := &OPAResult{Diagnostics: nil}
-	if got := stepUpRequired(res); got != "" {
-		t.Errorf("want empty, got %s", got)
+func TestParseTierDeclarationsNone(t *testing.T) {
+	if got := parseTierDeclarations(&OPAResult{Diagnostics: nil}); got != nil {
+		t.Errorf("want none, got %+v", got)
+	}
+	if got := parseTierDeclarations(&OPAResult{Diagnostics: []map[string]any{{"other_key": "value"}}}); got != nil {
+		t.Errorf("want none when key absent, got %+v", got)
 	}
 }
 
-func TestStepUpRequiredNoKey(t *testing.T) {
-	res := &OPAResult{
-		Diagnostics: []map[string]any{
-			{"other_key": "value"},
-		},
+func TestResolveApprovalMergesToStrictest(t *testing.T) {
+	got := resolveApproval([]tierDeclaration{
+		{Tier: "money", Approver: "subject", TTLSeconds: 600, Privacy: "identified"},
+		{Tier: "pii", Approver: "operator", TTLSeconds: 7200, Privacy: "anonymous"},
+		{Tier: "money", Approver: "any"},
+	})
+	if got.Tier != "money,pii" {
+		t.Errorf("tiers must join sorted and deduplicated, got %q", got.Tier)
 	}
-	if got := stepUpRequired(res); got != "" {
-		t.Errorf("want empty when key absent, got %s", got)
+	if got.Approver != ApproverClassOperator {
+		t.Errorf("operator demand must win the merge, got %q", got.Approver)
+	}
+	if got.TTL != 600*time.Second {
+		t.Errorf("shortest declared window must win, got %v", got.TTL)
+	}
+	if got.Privacy != PrivacyAnonymous {
+		t.Errorf("most protective privacy must win, got %q", got.Privacy)
+	}
+}
+
+func TestResolveApprovalDefaultsAndClamps(t *testing.T) {
+	got := resolveApproval([]tierDeclaration{{Tier: "money"}})
+	if got.Approver != ApproverClassOperator || got.Privacy != PrivacyIdentified || got.TTL != approvalDefaultTTL {
+		t.Errorf("absent fields must take platform defaults, got %+v", got)
+	}
+	invalid := resolveApproval([]tierDeclaration{{Tier: "money", Approver: "root", Privacy: "secret", TTLSeconds: 1}})
+	if invalid.Approver != ApproverClassOperator || invalid.Privacy != PrivacyIdentified {
+		t.Errorf("invalid enum values must take platform defaults, got %+v", invalid)
+	}
+	if invalid.TTL != approvalMinTTL {
+		t.Errorf("ttl must clamp to the floor, got %v", invalid.TTL)
+	}
+	if ceil := resolveApproval([]tierDeclaration{{Tier: "money", TTLSeconds: int((30 * 24 * time.Hour).Seconds())}}); ceil.TTL != approvalMaxTTL {
+		t.Errorf("ttl must clamp to the ceiling, got %v", ceil.TTL)
 	}
 }
 
@@ -103,7 +209,7 @@ func TestTokenTTL(t *testing.T) {
 	if _, err := tokenTTL(int(ttlResourceMandate.Seconds())+1, false); err == nil {
 		t.Error("want error when TTL exceeds cap")
 	}
-	if got, err := tokenTTL(int(ttlSessionMandate.Seconds()), true); err != nil || got != ttlSessionMandate {
+	if got, err := tokenTTL(int(ttlAuthorityRecordMandate.Seconds()), true); err != nil || got != ttlAuthorityRecordMandate {
 		t.Errorf("want session mandate TTL, got %v err=%v", got, err)
 	}
 	if _, err := tokenTTL(-1, false); err == nil {
@@ -111,25 +217,25 @@ func TestTokenTTL(t *testing.T) {
 	}
 }
 
-func TestRootSessionIDTracksAuthorityRoot(t *testing.T) {
-	if got := rootSessionID(nil, "session-1", UseSession); got != "session-1" {
+func TestRootAuthorityRecordIDTracksAuthorityRoot(t *testing.T) {
+	if got := rootAuthorityRecordID(nil, "session-1", UseSession); got != "session-1" {
 		t.Fatalf("session mandate root should be its own sid, got %q", got)
 	}
 	claims := map[string]any{"sid": "session-1"}
-	if got := rootSessionID(claims, "resource-1", UseResource); got != "session-1" {
+	if got := rootAuthorityRecordID(claims, "resource-1", UseResource); got != "session-1" {
 		t.Fatalf("resource mandate root should default to parent sid, got %q", got)
 	}
 	claims["root_sid"] = "root-1"
-	if got := rootSessionID(claims, "resource-1", UseResource); got != "root-1" {
+	if got := rootAuthorityRecordID(claims, "resource-1", UseResource); got != "root-1" {
 		t.Fatalf("resource mandate root should preserve inherited root, got %q", got)
 	}
 }
 
-func TestParentSessionIDOnlyForDerivedTokens(t *testing.T) {
-	if got := parentSessionID("session-1", UseSession); got != nil {
+func TestParentAuthorityRecordIDOnlyForDerivedTokens(t *testing.T) {
+	if got := parentAuthorityRecordID("session-1", UseSession); got != nil {
 		t.Fatalf("session mandates must not have a parent, got %q", *got)
 	}
-	got := parentSessionID("session-1", UseResource)
+	got := parentAuthorityRecordID("session-1", UseResource)
 	if got == nil || *got != "session-1" {
 		t.Fatalf("resource mandates must link to parent session mandate, got %#v", got)
 	}
@@ -212,32 +318,38 @@ func TestBuildJWKSIncludesP256PublicKeyMetadata(t *testing.T) {
 
 // stubDB satisfies DBQuerier with preset return values for the exchange path.
 type stubDB struct {
-	app           *Application
-	appErr        error
-	appGlobal     *Application
-	appGlobalErr  error
-	resource      *Resource
-	resErr        error
-	grant         *ProviderGrant
-	grantErr      error
-	provider      *ProviderConfig
-	session       *Session
-	sessionErr    error
-	agentSessions []*AgentSession
-	agentIndex    int
-	agentErr      error
-	edge          *DelegationEdge
-	edgeErr       error
-	edgesMap      map[string]*DelegationEdge
-	path          []string
-	pathErr       error
-	graphEpoch    int64
-	epochErr      error
-	sessErr       error
-	secrets       []SecretRow
-	secretsErr    error
-	insertedKey   *SecretRow
-	now           time.Time
+	app                      *Application
+	appErr                   error
+	appGlobal                *Application
+	subjectIssuer            *SubjectIssuer
+	insertedAuthorityRecords []*AuthorityRecord
+	appGlobalErr             error
+	resource                 *Resource
+	resErr                   error
+	grant                    *ProviderConnection
+	grantErr                 error
+	provider                 *ProviderConfig
+	session                  *AuthorityRecord
+	sessionErr               error
+	sessions                 []*Session
+	agentIndex               int
+	agentErr                 error
+	edge                     *DelegationEdge
+	edgeErr                  error
+	edgesMap                 map[string]*DelegationEdge
+	path                     []string
+	pathErr                  error
+	graphEpoch               int64
+	epochErr                 error
+	sessErr                  error
+	secrets                  []SecretRow
+	secretsErr               error
+	insertedKey              *SecretRow
+	storeEnvelopes           map[string][]byte
+	now                      time.Time
+	workload                 *Workload
+	workloadErr              error
+	markedExpired            []string
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -256,10 +368,19 @@ func (s *stubDB) GetApplicationByIDGlobal(_ context.Context, _ string) (*Applica
 	}
 	return s.app, s.appErr
 }
+func (s *stubDB) GetWorkloadByID(_ context.Context, _ string) (*Workload, error) {
+	if s.workloadErr != nil {
+		return nil, s.workloadErr
+	}
+	if s.workload == nil {
+		return nil, errors.New("stub")
+	}
+	return s.workload, nil
+}
 func (s *stubDB) GetResourceByIdentifier(_ context.Context, _, _ string) (*Resource, error) {
 	return s.resource, s.resErr
 }
-func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID *string) (*ProviderGrant, error) {
+func (s *stubDB) GetProviderConnection(_ context.Context, _, _ string, providerID *string) (*ProviderConnection, error) {
 	if s.grantErr != nil {
 		return nil, s.grantErr
 	}
@@ -271,7 +392,11 @@ func (s *stubDB) GetProviderGrant(_ context.Context, _, _, _ string, providerID 
 	}
 	return nil, errors.New("stub")
 }
-func (s *stubDB) UpdateProviderGrantTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+func (s *stubDB) UpdateProviderConnectionTokens(_ context.Context, _ string, _ int, _, _ []byte, _ time.Time) error {
+	return nil
+}
+func (s *stubDB) MarkProviderConnectionExpired(_ context.Context, id string) error {
+	s.markedExpired = append(s.markedExpired, id)
 	return nil
 }
 func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, error) {
@@ -279,6 +404,12 @@ func (s *stubDB) GetProvider(_ context.Context, _ string) (*ProviderConfig, erro
 		return s.provider, nil
 	}
 	return nil, errors.New("stub")
+}
+func (s *stubDB) GetSubjectIssuerByIssuer(_ context.Context, _, issuer string) (*SubjectIssuer, error) {
+	if s.subjectIssuer != nil && s.subjectIssuer.Issuer == issuer {
+		return s.subjectIssuer, nil
+	}
+	return nil, errors.New("stub: issuer not trusted")
 }
 func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdge, error) {
 	if s.edgesMap != nil {
@@ -289,47 +420,66 @@ func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdg
 	}
 	return s.edge, s.edgeErr
 }
-func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
+func (s *stubDB) GetAuthorityRecord(_ context.Context, _ string) (*AuthorityRecord, error) {
 	return s.session, s.sessionErr
 }
-func (s *stubDB) GetAgentSession(_ context.Context, _ string) (*AgentSession, error) {
+func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
 	if s.agentErr != nil {
 		return nil, s.agentErr
 	}
-	if s.agentIndex >= len(s.agentSessions) {
+	if s.agentIndex >= len(s.sessions) {
 		return nil, errors.New("stub")
 	}
-	session := s.agentSessions[s.agentIndex]
+	session := s.sessions[s.agentIndex]
 	s.agentIndex++
 	return session, nil
 }
-func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]string, error) {
+func (s *stubDB) GetDelegationLineage(_ context.Context, _, _ string, _ int) ([]string, error) {
 	return s.path, s.pathErr
 }
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, _ *Session) error     { return s.sessErr }
-func (s *stubDB) RevokeSession(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubDB) InsertAuthorityRecord(_ context.Context, sess *AuthorityRecord) error {
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return s.sessErr
+}
+func (s *stubDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
+}
+func (s *stubDB) InsertDelegatedAuthorityRecord(_ context.Context, sess *AuthorityRecord, _ DelegationIssuanceProof, _ *ConsumeApprovalParams) error {
+	if s.sessErr != nil {
+		return s.sessErr
+	}
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
+	return nil
+}
+func (s *stubDB) RevokeAuthorityRecord(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubDB) InsertStepUpChallenge(_ context.Context, _ *StepUpChallengePG) error {
-	return nil
+func (s *stubDB) GetOrCreateApprovalChallenge(_ context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
+	return c, true, nil
 }
-func (s *stubDB) SatisfyStepUpChallenge(_ context.Context, _ string) error { return nil }
-func (s *stubDB) ConsumeStepUpChallenge(_ context.Context, _ ConsumeStepUpParams) error {
-	return nil
-}
-func (s *stubDB) ApproveStepUpChallenge(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubDB) DecideStepUpChallenge(_ context.Context, _ DecideStepUpParams) error { return nil }
 func (s *stubDB) ConsumeApprovalChallenge(_ context.Context, _ ConsumeApprovalParams) error {
 	return nil
 }
-func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _, _ []byte) (*SecretRow, error) {
+func (s *stubDB) AuthorityRecordsRelated(_ context.Context, _, _, _ string) (bool, error) {
+	return false, nil
+}
+func (s *stubDB) DeleteExpiredStepUpChallenges(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
+}
+func (s *stubDB) EnsureZoneSigningKeySecret(_ context.Context, _ string, _ []byte) (*SecretRow, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubDB) InsertZoneSigningKeySecret(_ context.Context, _ string, ciphertext, nonce []byte) (*SecretRow, error) {
-	row := &SecretRow{ID: "kid-rotated", Ciphertext: ciphertext, Nonce: nonce, DEKID: "zoneKek"}
+func (s *stubDB) InsertZoneSigningKeySecret(_ context.Context, _ string, envelope []byte) (*SecretRow, error) {
+	row := &SecretRow{ID: "kid-rotated", Envelope: envelope}
 	s.insertedKey = row
 	return row, nil
 }
@@ -351,6 +501,12 @@ func (s *stubDB) GetZoneSigningKeySecrets(_ context.Context, _ string) ([]Secret
 	}
 	return nil, errors.New("stub")
 }
+func (s *stubDB) GetSecretStoreEnvelope(_ context.Context, ref string) ([]byte, error) {
+	if envelope, ok := s.storeEnvelopes[ref]; ok {
+		return envelope, nil
+	}
+	return nil, pgx.ErrNoRows
+}
 func (s *stubDB) GetActivePolicySetBinding(_ context.Context, _ string) (*PolicySetBinding, error) {
 	return nil, errors.New("stub")
 }
@@ -365,10 +521,10 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 	return nil
 }
 
-func TestValidateTokenSessionBindsClientID(t *testing.T) {
+func TestValidateTokenAuthorityRecordBindsClientID(t *testing.T) {
 	now := time.Now()
 	subjectID := "user-1"
-	srv := &Server{db: &stubDB{session: &Session{
+	srv := &Server{db: &stubDB{session: &AuthorityRecord{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
@@ -380,18 +536,18 @@ func TestValidateTokenSessionBindsClientID(t *testing.T) {
 		"sub":       subjectID,
 		"client_id": "app1",
 	}
-	if sid, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err != nil || sid != "sess-1" {
+	if sid, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app1", "", claims); err != nil || sid != "sess-1" {
 		t.Fatalf("matching client_id must pass, sid=%q err=%#v", sid, err)
 	}
-	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "session client mismatch" {
+	if _, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "authority record client mismatch" {
 		t.Fatalf("wrong client_id must fail, got %#v", err)
 	}
 }
 
-func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
+func TestValidateTokenAuthorityRecordUsesDatabaseTime(t *testing.T) {
 	now := time.Now()
 	subjectID := "user-1"
-	srv := &Server{db: &stubDB{session: &Session{
+	srv := &Server{db: &stubDB{session: &AuthorityRecord{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
@@ -403,7 +559,7 @@ func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
 		"sub":       subjectID,
 		"client_id": "app1",
 	}
-	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "session inactive or expired" {
+	if _, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "authority record inactive or expired" {
 		t.Fatalf("database-expired session must fail, got %#v", err)
 	}
 }
@@ -648,17 +804,14 @@ func TestBuildUpstreamDirectiveIncludesProviderTokenOnlyForGateway(t *testing.T)
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	expiresAt := time.Now().Add(time.Minute)
 	srv := &Server{
 		db: &stubDB{
-			grant:    &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
+			grant:    &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token, ExpiresAt: &expiresAt},
 			provider: &ProviderConfig{ID: providerID, ProviderKind: strPtr("oauth2_authorization_code")},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
@@ -680,13 +833,10 @@ func TestBuildUpstreamDirectiveBindsGrantToConfiguredProvider(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
-		db:   &stubDB{grant: &ProviderGrant{ProviderID: &otherProviderID, AccessTokenCt: token}},
-		keys: &KeyCache{zek: zek},
+		db:   &stubDB{grant: &ProviderConnection{ProviderID: &otherProviderID, AccessTokenCt: token}},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("gateway directive must reject grants from a different provider")
@@ -703,19 +853,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyProviderShape(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key provider shape: %v", err)
@@ -735,19 +880,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyAuthorizationScheme(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"Authorization","auth_scheme":"Bearer"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"Authorization","auth_scheme":"Bearer"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key auth scheme: %v", err)
@@ -767,19 +907,14 @@ func TestBuildUpstreamDirectiveSupportsAPIKeyQueryParameter(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"auth_location":"query","query_param_name":"api_key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"auth_location":"query","query_param_name":"api_key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support API key query parameter: %v", err)
@@ -820,19 +955,14 @@ func TestBuildUpstreamDirectiveSupportsBearerTokenProviderShape(t *testing.T) {
 				CredentialProviderID: &providerID,
 			}
 			zek := []byte("12345678901234567890123456789012")
-			secretCt, secretNonce := testProviderSecret(t, zek, `{"bearer_token":"provider-bearer-token"}`)
-			srv := &Server{
-				db: &stubDB{
-					provider: &ProviderConfig{
-						ID:                providerID,
-						ProviderKind:      strPtr("bearer_token"),
-						ConfigJSON:        []byte(tc.configJSON),
-						SecretConfigCt:    secretCt,
-						SecretConfigNonce: secretNonce,
-					},
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr("bearer_token"),
+					ConfigJSON:   []byte(tc.configJSON),
 				},
-				keys: &KeyCache{zek: zek},
-			}
+				storeEnvelopes: testProviderSecret(t, zek, providerID, `{"bearer_token":"provider-bearer-token"}`),
+			}, zek)
 			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 			if err != nil {
 				t.Fatalf("gateway directive should support bearer token provider shape: %v", err)
@@ -842,6 +972,56 @@ func TestBuildUpstreamDirectiveSupportsBearerTokenProviderShape(t *testing.T) {
 			}
 			if tc.name == "custom header and scheme" && (len(directive.AllowedTokenHosts) != 1 || directive.AllowedTokenHosts[0] != "api.hooli.example") {
 				t.Fatalf("unexpected bearer token hosts: %#v", directive.AllowedTokenHosts)
+			}
+		})
+	}
+}
+
+func TestBuildUpstreamDirectiveCarriesHostGuardrailForStaticKinds(t *testing.T) {
+	cases := []struct {
+		name       string
+		kind       string
+		configJSON string
+		secretJSON string
+	}{
+		{
+			name:       "api key header",
+			kind:       "api_key",
+			configJSON: `{"header_name":"X-API-Key","allowed_token_hosts":["API.Hooli.Example"]}`,
+			secretJSON: `{"api_key":"api-key-value"}`,
+		},
+		{
+			name:       "http basic",
+			kind:       "http_basic",
+			configJSON: `{"username":"svc-hooli","allowed_token_hosts":["API.Hooli.Example"]}`,
+			secretJSON: `{"password":"basic-password"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			providerID := "provider1"
+			upstreamURL := "https://upstream.example"
+			resource := &Resource{
+				ID:                   "res1",
+				Identifier:           "resource://api",
+				UpstreamURL:          &upstreamURL,
+				CredentialProviderID: &providerID,
+			}
+			zek := []byte("12345678901234567890123456789012")
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr(tc.kind),
+					ConfigJSON:   []byte(tc.configJSON),
+				},
+				storeEnvelopes: testProviderSecret(t, zek, providerID, tc.secretJSON),
+			}, zek)
+			directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
+			if err != nil {
+				t.Fatalf("gateway directive should carry the host guardrail: %v", err)
+			}
+			if len(directive.AllowedTokenHosts) != 1 || directive.AllowedTokenHosts[0] != "api.hooli.example" {
+				t.Fatalf("unexpected %s hosts: %#v", tc.kind, directive.AllowedTokenHosts)
 			}
 		})
 	}
@@ -914,19 +1094,14 @@ func TestBuildUpstreamDirectiveReadsIdentityForwardingOptIn(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key","forward_caracal_identity":true}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false)
 	if err != nil {
 		t.Fatalf("gateway directive should support identity forwarding opt-in: %v", err)
@@ -946,19 +1121,14 @@ func TestBuildUpstreamDirectiveRequiresRuntimeInjectionOptIn(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, true); err == nil {
 		t.Fatal("runtime provider injection must require provider opt-in")
 	}
@@ -974,19 +1144,14 @@ func TestBuildUpstreamDirectiveAllowsRuntimeProviderInjection(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"header_name":"X-Api-Key","allow_runtime_injection":true}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	directive, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, true)
 	if err != nil {
 		t.Fatalf("runtime provider injection should decrypt opted-in provider token: %v", err)
@@ -1006,19 +1171,14 @@ func TestBuildUpstreamDirectiveRejectsAPIKeyWithoutHeader(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("apikey provider directive must require an explicit auth header")
 	}
@@ -1034,19 +1194,14 @@ func TestBuildUpstreamDirectiveRejectsLegacyAPIKeyAuthHeader(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:                providerID,
-				ProviderKind:      strPtr("api_key"),
-				ConfigJSON:        []byte(`{"auth_header":"X-Api-Key"}`),
-				SecretConfigCt:    secretCt,
-				SecretConfigNonce: secretNonce,
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("api_key"),
+			ConfigJSON:   []byte(`{"auth_header":"X-Api-Key"}`),
 		},
-		keys: &KeyCache{zek: zek},
-	}
+		storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+	}, zek)
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("apikey provider directive must use header_name, not auth_header")
 	}
@@ -1085,19 +1240,14 @@ func TestBuildUpstreamDirectiveRejectsInvalidAPIKeyQueryConfig(t *testing.T) {
 				CredentialProviderID: &providerID,
 			}
 			zek := []byte("12345678901234567890123456789012")
-			secretCt, secretNonce := testProviderSecret(t, zek, `{"api_key":"api-key-value"}`)
-			srv := &Server{
-				db: &stubDB{
-					provider: &ProviderConfig{
-						ID:                providerID,
-						ProviderKind:      strPtr("api_key"),
-						ConfigJSON:        []byte(tc.configJSON),
-						SecretConfigCt:    secretCt,
-						SecretConfigNonce: secretNonce,
-					},
+			srv := providerServer(&stubDB{
+				provider: &ProviderConfig{
+					ID:           providerID,
+					ProviderKind: strPtr("api_key"),
+					ConfigJSON:   []byte(tc.configJSON),
 				},
-				keys: &KeyCache{zek: zek},
-			}
+				storeEnvelopes: testProviderSecret(t, zek, providerID, `{"api_key":"api-key-value"}`),
+			}, zek)
 			if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 				t.Fatal("apikey provider directive must reject invalid query config")
 			}
@@ -1114,16 +1264,13 @@ func TestBuildUpstreamDirectiveRejectsBearerTokenWithoutSecret(t *testing.T) {
 		UpstreamURL:          &upstreamURL,
 		CredentialProviderID: &providerID,
 	}
-	srv := &Server{
-		db: &stubDB{
-			provider: &ProviderConfig{
-				ID:           providerID,
-				ProviderKind: strPtr("bearer_token"),
-				ConfigJSON:   []byte(`{}`),
-			},
+	srv := providerServer(&stubDB{
+		provider: &ProviderConfig{
+			ID:           providerID,
+			ProviderKind: strPtr("bearer_token"),
+			ConfigJSON:   []byte(`{}`),
 		},
-		keys: &KeyCache{zek: []byte("12345678901234567890123456789012")},
-	}
+	}, []byte("12345678901234567890123456789012"))
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("bearer token provider directive must require a sealed bearer token")
 	}
@@ -1139,20 +1286,17 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderConfig(t *testing.T) {
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db: &stubDB{
-			grant: &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token},
+			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
 				ID:           providerID,
 				ProviderKind: strPtr("oauth2_authorization_code"),
 				ConfigJSON:   []byte(`{bad json`),
 			},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed provider config")
@@ -1169,20 +1313,17 @@ func TestBuildUpstreamDirectiveRejectsMalformedProviderAuthScheme(t *testing.T) 
 		CredentialProviderID: &providerID,
 	}
 	zek := []byte("12345678901234567890123456789012")
-	token, err := sealZEK(zek, []byte("provider-access-token"))
-	if err != nil {
-		t.Fatalf("seal provider token: %v", err)
-	}
+	token := sealConnectionToken(t, zek, "provider-access-token")
 	srv := &Server{
 		db: &stubDB{
-			grant: &ProviderGrant{ProviderID: &providerID, AccessTokenCt: token},
+			grant: &ProviderConnection{ProviderID: &providerID, AccessTokenCt: token},
 			provider: &ProviderConfig{
 				ID:           providerID,
 				ProviderKind: strPtr("oauth2_authorization_code"),
 				ConfigJSON:   []byte(`{"auth_scheme":"Bearer Token"}`),
 			},
 		},
-		keys: &KeyCache{zek: zek},
+		keys: &KeyCache{keyring: testKeyring(zek)},
 	}
 	if _, err := srv.buildUpstreamDirective(context.Background(), "zone1", map[string]any{"sub": "user1"}, resource, true, false); err == nil {
 		t.Fatal("provider directive must reject malformed auth schemes")
@@ -1221,7 +1362,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic", "", "")
+	basicReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_basic", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1237,7 +1378,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client_secret_basic must not put client_secret in the form body: %s", string(body))
 	}
 
-	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post", "", "")
+	postReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "client-secret", "client_secret_post", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1265,7 +1406,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("marshal client assertion key: %v", err)
 	}
 	pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "private_key_jwt", "key-1", string(pemKey))
+	jwtReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "private_key_jwt", "key-1", string(pemKey), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1303,7 +1444,7 @@ func TestBuildProviderTokenRequestImplementsClientAuthMethods(t *testing.T) {
 		t.Fatalf("client assertion claims mismatch: %#v", claims)
 	}
 
-	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none", "", "")
+	noneReq, err := buildProviderTokenRequest(context.Background(), endpoint, url.Values{"grant_type": {"client_credentials"}}, "client-id", "", "none", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1397,38 +1538,69 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 	}
 }
 
-func TestValidateSessionReferencesRequiresAgentSessionForDelegation(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRequiresSessionForDelegation(t *testing.T) {
 	srv := &Server{db: &stubDB{}}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
 		DelegationEdgeID: "edge1",
 	}, true)
-	if err == nil || err.Description != "delegation edge requires target agent session" {
-		t.Fatalf("want target agent session error, got %#v", err)
+	if err == nil || err.Description != "delegation requires a target Session" {
+		t.Fatalf("want target Session error, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsAgentSubjectBindingMismatch(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	db := &stubDB{
+		now: now,
+		session: &AuthorityRecord{
+			ID:        "subject-session-2",
+			ZoneID:    "zone1",
+			Status:    "active",
+			ExpiresAt: now.Add(time.Minute),
+		},
+		sessions: []*Session{{
+			ID:                       "agent-1",
+			ZoneID:                   "zone1",
+			ApplicationID:            "app1",
+			SubjectAuthorityRecordID: "subject-session-1",
+			Status:                   "active",
+			StartedAt:                now.Add(-time.Minute),
+			TTLSeconds:               600,
+		}},
+	}
+	srv := &Server{db: db}
+	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
+		AuthorityRecordID: "subject-session-2",
+		SessionID:         "agent-1",
+	}, true)
+	if err == nil || err.Description != "session authority record binding mismatch" {
+		t.Fatalf("want subject binding mismatch, got %#v", err)
+	}
+}
+
+func TestValidateAuthorityRecordReferencesAcceptsActiveGraphEdge(t *testing.T) {
+	now := time.Now()
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
-		ID:            "agent-dst",
-		ZoneID:        "zone1",
-		ApplicationID: "app2",
-		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
-		TTLSeconds:    600,
+	target := &Session{
+		ID:                       "agent-dst",
+		ZoneID:                   "zone1",
+		ApplicationID:            "app2",
+		SubjectAuthorityRecordID: "subject-session-1",
+		Status:                   "active",
+		StartedAt:                now.Add(-time.Minute),
+		TTLSeconds:               600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
-		graphEpoch:    7,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge1"},
+		graphEpoch: 7,
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1442,29 +1614,29 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 		},
 	}
 	srv := &Server{db: db}
-	proof, agentSession, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+	proof, session, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
 	if err != nil || proof == nil || proof.edge.ID != "edge1" || proof.graphEpoch != 7 {
 		t.Fatalf("want active delegation proof, got proof=%#v err=%#v", proof, err)
 	}
-	if agentSession == nil || agentSession.ID != target.ID {
-		t.Fatalf("target agent session not returned for policy input: %#v", agentSession)
+	if session == nil || session.ID != target.ID {
+		t.Fatalf("target Session not returned for policy input: %#v", session)
 	}
 }
 
-func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
-	session := &AgentSession{
+func TestSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
+	session := &Session{
 		ID:        "agent-1",
 		Lifecycle: "task",
 		Labels:    []string{"browser", "code"},
 	}
-	if got := agentSessionLifecycle(session); got != "task" {
+	if got := sessionLifecycle(session); got != "task" {
 		t.Fatalf("lifecycle = %q", got)
 	}
-	caps := agentSessionLabels(session)
+	caps := sessionLabels(session)
 	caps[0] = "mutated"
 	if session.Labels[0] != "browser" {
 		t.Fatal("labels must be copied before policy evaluation")
@@ -1531,45 +1703,78 @@ func TestEffectiveTokenTTLCapsAtDelegationConstraint(t *testing.T) {
 	}
 }
 
-func TestBindSubjectAgentSessionCopiesSignedClaim(t *testing.T) {
+func TestBindGovernedSessionCopiesSignedClaim(t *testing.T) {
 	req := TokenExchangeRequest{}
-	err := bindSubjectAgentSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err != nil {
-		t.Fatalf("bind signed agent session: %v", err)
+		t.Fatalf("bind signed Session: %v", err)
 	}
-	if req.AgentSessionID != "agent-1" {
-		t.Fatalf("agent session id = %q, want agent-1", req.AgentSessionID)
+	if req.SessionID != "agent-1" {
+		t.Fatalf("Session id = %q, want agent-1", req.SessionID)
 	}
 }
 
-func TestBindSubjectAgentSessionRejectsMismatch(t *testing.T) {
-	req := TokenExchangeRequest{AgentSessionID: "agent-2"}
-	err := bindSubjectAgentSession(&req, map[string]any{"agent_session_id": "agent-1"})
-	if err == nil || err.Description != "agent session mismatch" {
+func TestBindGovernedSessionRejectsMismatch(t *testing.T) {
+	req := TokenExchangeRequest{SessionID: "agent-2"}
+	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	if err == nil || err.Description != "Session mismatch" {
 		t.Fatalf("want mismatch error, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T) {
+func TestBindDelegationEdgeCopiesSignedClaim(t *testing.T) {
+	req := TokenExchangeRequest{}
+	if err := bindDelegationEdge(&req, map[string]any{"delegation_edge_id": "edge-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if req.DelegationEdgeID != "edge-1" {
+		t.Fatalf("signed delegation claim was not copied: %#v", req)
+	}
+}
+
+func TestBindDelegationEdgeRejectsMismatch(t *testing.T) {
+	req := TokenExchangeRequest{DelegationEdgeID: "edge-explicit"}
+	err := bindDelegationEdge(&req, map[string]any{"delegation_edge_id": "edge-signed"})
+	if err == nil || err.Description != "delegation mismatch" {
+		t.Fatalf("expected delegation mismatch, got %#v", err)
+	}
+}
+
+func TestBindDelegationEdgeRejectsExplicitRequestWithoutSignedClaim(t *testing.T) {
+	req := TokenExchangeRequest{DelegationEdgeID: "edge-explicit"}
+	err := bindDelegationEdge(&req, map[string]any{})
+	if err == nil || err.Description != "delegation claim missing from subject token" {
+		t.Fatalf("expected missing claim denial, got %#v", err)
+	}
+}
+
+func TestDistinctScopesCanonicalizesDuplicates(t *testing.T) {
+	got := distinctScopes("write read write read")
+	if !slices.Equal(got, []string{"read", "write"}) {
+		t.Fatalf("unexpected distinct scopes: %v", got)
+	}
+}
+
+func TestValidateAuthorityRecordReferencesRejectsSourceUsingDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1584,35 +1789,35 @@ func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T)
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
-		AgentSessionID:   source.ID,
+		SessionID:        source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation edge target mismatch" {
-		t.Fatalf("source agent must not consume target delegation edge, got %#v", err)
+	if err == nil || err.Description != "delegation target mismatch" {
+		t.Fatalf("source Session must not consume target Delegation, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsUnrelatedAppUsingDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1627,16 +1832,16 @@ func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *test
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app3", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
 	if err == nil || err.Description != "delegation target inactive or unauthorized" {
-		t.Fatalf("unrelated app must not consume target delegation edge, got %#v", err)
+		t.Fatalf("unrelated app must not consume target Delegation, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsExpiredDelegationEdge(t *testing.T) {
 	now := time.Now()
 	db := &stubDB{
 		edge: &DelegationEdge{
@@ -1653,35 +1858,35 @@ func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   "agent-dst",
+		SessionID:        "agent-dst",
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation edge inactive or expired" {
+	if err == nil || err.Description != "delegation inactive or expired" {
 		t.Fatalf("expired edge must fail, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsScopeOutsideDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1696,7 +1901,7 @@ func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "write",
 	}, true)
@@ -1705,27 +1910,27 @@ func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T
 	}
 }
 
-func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsDelegationBudget(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1741,7 +1946,7 @@ func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read write",
 	}, true)
@@ -1750,27 +1955,27 @@ func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1786,7 +1991,7 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 		TTLSeconds:       60,
@@ -1797,7 +2002,7 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 
 	db.agentIndex = 0
 	proof, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1806,26 +2011,26 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsMalformedDelegationConstraints(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1841,7 +2046,7 @@ func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testi
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1857,20 +2062,20 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 		t.Fatalf("hash client secret: %v", err)
 	}
 	boundResourceID := "res-bound"
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
@@ -1887,9 +2092,9 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 			Identifier: "resource://api/other",
 			Scopes:     []string{"read"},
 		},
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
-		graphEpoch:    9,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge1"},
+		graphEpoch: 9,
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1910,7 +2115,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 		ClientSecret:     "test-secret",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 	}, "req-1")
 	if code != http.StatusForbidden || apiErr == nil || apiErr.Description != "policy denied" {
@@ -1918,27 +2123,27 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"other-edge"},
+		sessions: []*Session{source, target},
+		path:     []string{"other-edge"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1953,7 +2158,7 @@ func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	}
 	srv := &Server{db: db, metrics: &STSMetrics{}}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1965,27 +2170,27 @@ func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge0", "edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge0", "edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -2001,33 +2206,34 @@ func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation path invalid" {
+	if err == nil || err.Description != "delegation hop budget exhausted" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
+func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
+	parentEdgeID := "edge0"
 	mainEdge := &DelegationEdge{
 		ID:              "edge1",
 		ZoneID:          "zone1",
@@ -2035,18 +2241,19 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 		TargetSessionID: target.ID,
 		IssuerAppID:     source.ApplicationID,
 		ReceiverAppID:   target.ApplicationID,
+		ParentEdgeID:    &parentEdgeID,
 		Scopes:          []string{"read"},
 		Status:          "active",
 		ExpiresAt:       now.Add(time.Minute),
-		ConstraintsJSON: []byte(`{"max_hops":3}`),
+		ConstraintsJSON: []byte(`{"max_hops":2}`),
 	}
-	// Build a valid 3-edge chain: app1→app1 (edge0), app1→app2 (edge1), app2→app2 (edge2).
+	// Build a valid 2-edge parent lineage: app1→app1 (edge0), app1→app2 (edge1).
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge0", "edge1", "edge2"},
-		graphEpoch:    12,
-		edge:          mainEdge,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge0", "edge1"},
+		graphEpoch: 12,
+		edge:       mainEdge,
 		edgesMap: map[string]*DelegationEdge{
 			"edge0": {
 				ID:              "edge0",
@@ -2055,30 +2262,41 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 				TargetSessionID: source.ID,
 				IssuerAppID:     "app1",
 				ReceiverAppID:   "app1",
+				Scopes:          []string{"read"},
 				Status:          "active",
 				ExpiresAt:       now.Add(time.Minute),
+				ConstraintsJSON: []byte(`{"max_hops":3}`),
 			},
 			"edge1": mainEdge,
-			"edge2": {
-				ID:              "edge2",
-				ZoneID:          "zone1",
-				SourceSessionID: target.ID,
-				TargetSessionID: target.ID,
-				IssuerAppID:     "app2",
-				ReceiverAppID:   "app2",
-				Status:          "active",
-				ExpiresAt:       now.Add(time.Minute),
-			},
 		},
 	}
 	srv := &Server{db: db}
 	proof, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
+	if err != nil || proof == nil || len(proof.path) != 2 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
+	}
+}
+
+func TestValidateAncestorAttenuationResolvesCanonicalResourceIDs(t *testing.T) {
+	resourceID := "resource-row-id"
+	srv := &Server{db: &stubDB{resource: &Resource{ID: resourceID, ZoneID: "zone1", Identifier: "resource://pipernet"}}}
+	parent := &DelegationEdge{ZoneID: "zone1", Scopes: []string{"read"}, ExpiresAt: time.Now().Add(time.Hour)}
+	child := &DelegationEdge{ZoneID: "zone1", ResourceID: &resourceID, Scopes: []string{"read"}, ExpiresAt: time.Now().Add(time.Minute)}
+
+	err := srv.validateAncestorAttenuation(
+		context.Background(),
+		parent,
+		delegationConstraints{Resources: []string{"resource://pipernet"}, MaxHops: 2},
+		child,
+		delegationConstraints{MaxHops: 1},
+	)
+
+	if err != nil {
+		t.Fatalf("canonical resource id must remain inside the ancestor resource identifier: %v", err)
 	}
 }
 
@@ -2119,7 +2337,7 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 		},
 		Context: OPAContext{
 			ActorClaims:     map[string]any{"sub": "app2"},
-			AgentSessionID:  "agent-dst",
+			SessionID:       "agent-dst",
 			RequestedScopes: []string{"read"},
 		},
 	}
@@ -2143,22 +2361,20 @@ func makeTestSecretRow(t *testing.T, zek []byte, priv *ecdsa.PrivateKey, kid str
 		t.Fatalf("marshal private key: %v", err)
 	}
 	keyBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
-	ciphertext, nonce, err := sharedcrypto.Seal(zek, keyBytes)
+	envelope, err := secretstore.Seal(zek, keyBytes, secretstore.AADZoneSigningKey)
 	if err != nil {
 		t.Fatalf("seal key: %v", err)
 	}
 	return SecretRow{
-		ID:         kid,
-		Ciphertext: ciphertext,
-		Nonce:      nonce,
-		DEKID:      "zoneKek",
+		ID:       kid,
+		Envelope: envelope,
 	}
 }
 
 func TestValidateSubjectTokenGracePeriodAndRotation(t *testing.T) {
 	// Setup keys and environment
 	zek := []byte("12345678901234567890123456789012")
-	keyCache := newKeyCache(nil, zek) // We will supply the db below
+	keyCache := newKeyCache(nil, testKeyring(zek)) // We will supply the db below
 
 	keyA, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -2242,7 +2458,7 @@ func TestValidateSubjectTokenGracePeriodAndRotation(t *testing.T) {
 		}
 		activeOnlySrv := &Server{
 			cfg:  Config{IssuerURL: "https://sts.example.com"},
-			keys: newKeyCache(activeOnlyDB, zek),
+			keys: newKeyCache(activeOnlyDB, testKeyring(zek)),
 			db:   activeOnlyDB,
 		}
 		tok := mintToken(keyA, "key-A", true)

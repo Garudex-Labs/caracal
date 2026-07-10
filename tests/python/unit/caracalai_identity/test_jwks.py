@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest import mock
 
 from caracalai_identity import jwks
 
@@ -21,11 +22,20 @@ class FakeResponse:
     def json(self) -> dict[str, object]:
         return self.body
 
+    @property
+    def content(self) -> bytes:
+        import json
+
+        return json.dumps(self.body).encode()
+
 
 class FakeAsyncClient:
     urls: list[str] = []
     body: dict[str, object] = {"keys": [{"kid": "kid1"}]}
     fetch_delay: float = 0.0
+
+    def __init__(self, **_kwargs: object) -> None:
+        pass
 
     async def __aenter__(self) -> FakeAsyncClient:
         return self
@@ -33,7 +43,7 @@ class FakeAsyncClient:
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
-    async def get(self, url: str) -> FakeResponse:
+    async def get(self, url: str, **_kwargs: object) -> FakeResponse:
         FakeAsyncClient.urls.append(url)
         if FakeAsyncClient.fetch_delay > 0:
             await asyncio.sleep(FakeAsyncClient.fetch_delay)
@@ -106,7 +116,9 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(r, [{"kid": "kid1"}])
         self.assertEqual(len(FakeAsyncClient.urls), 1)
 
-    async def test_concurrent_callers_for_distinct_issuers_each_fetch_once(self) -> None:
+    async def test_concurrent_callers_for_distinct_issuers_each_fetch_once(
+        self,
+    ) -> None:
         FakeAsyncClient.fetch_delay = 0.02
         cache = jwks.JwksCache()
 
@@ -116,6 +128,61 @@ class JwksCacheTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*coros)
 
         self.assertEqual(len(FakeAsyncClient.urls), 3)
+
+    async def test_allows_http_for_loopback_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        for issuer in (
+            "http://localhost:4000",
+            "http://127.0.0.1:4000",
+            "http://[::1]:4000",
+        ):
+            keys = await cache.get_keys(issuer, "zone1")
+            self.assertEqual(keys, [{"kid": "kid1"}])
+
+        self.assertEqual(len(FakeAsyncClient.urls), 3)
+
+    async def test_rejects_http_for_routable_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        with self.assertRaises(ValueError):
+            await cache.get_keys("http://issuer.example", "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_rejects_http_without_a_hostname(self) -> None:
+        cache = jwks.JwksCache()
+
+        with self.assertRaises(ValueError):
+            await cache.get_keys("http:///jwks", "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_rejects_non_http_schemes(self) -> None:
+        cache = jwks.JwksCache()
+
+        for issuer in ("ftp://issuer.example", "issuer.example"):
+            with self.assertRaises(ValueError):
+                await cache.get_keys(issuer, "zone1")
+        self.assertEqual(FakeAsyncClient.urls, [])
+
+    async def test_insecure_override_allows_routable_http_issuers(self) -> None:
+        cache = jwks.JwksCache()
+
+        with mock.patch.dict(
+            "os.environ", {"CARACAL_ALLOW_INSECURE_CONFIG_URLS": "true"}
+        ):
+            keys = await cache.get_keys("http://issuer.example", "zone1")
+
+        self.assertEqual(keys, [{"kid": "kid1"}])
+        self.assertEqual(
+            FakeAsyncClient.urls,
+            ["http://issuer.example/.well-known/jwks.json?zone_id=zone1"],
+        )
+
+    async def test_rejects_oversized_documents(self) -> None:
+        FakeAsyncClient.body = {"keys": [], "padding": "x" * (256 * 1024)}
+
+        with self.assertRaisesRegex(ValueError, "too large"):
+            await jwks.JwksCache().get_keys("https://issuer.example", "zone1")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { X509Certificate } from 'node:crypto'
 import { join } from 'node:path'
-import { discoverRepoRoot, managedSecretDirs } from '@caracalai/core'
+import { discoverRepoRoot, managedSecretDirs } from '@caracalai/server-core'
 
 export interface PreflightCheck {
   check: string
@@ -19,9 +19,10 @@ const KEY_MIN_BYTES = 32
 const TLS_EXPIRY_WARN_DAYS = 30
 const TCP_TIMEOUT_MS = 5000
 const SECRET_FILES: Record<string, string> = {
-  ZONE_KEK: 'zoneKek',
+  SECRET_STORE_KEK: 'secretStoreKek',
   AUDIT_HMAC_KEY: 'auditHmacKey',
   STREAMS_HMAC_KEY: 'streamsHmacKey',
+  IDEMPOTENCY_HMAC_KEY: 'idempotencyHmacKey',
   GATEWAY_STS_HMAC_KEY: 'gatewayStsHmacKey',
   POSTGRES_PASSWORD: 'postgresPassword',
   REDIS_PASSWORD: 'redisPassword',
@@ -302,7 +303,7 @@ async function checkRedis(): Promise<PreflightCheck> {
 export async function runPreflightChecks(): Promise<PreflightCheck[]> {
   const checks: PreflightCheck[] = []
   checks.push(checkMode())
-  checks.push(checkKey('ZONE_KEK', 32, true))
+  checks.push(checkKey('SECRET_STORE_KEK', 32, true))
   checks.push(checkKey('AUDIT_HMAC_KEY', KEY_MIN_BYTES, false))
   checks.push(checkKey('STREAMS_HMAC_KEY', KEY_MIN_BYTES, false))
   checks.push(checkKey('GATEWAY_STS_HMAC_KEY', KEY_MIN_BYTES, false))

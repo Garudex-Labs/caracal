@@ -1,0 +1,393 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Redis-backed revocation store and stream consumer for resource servers.
+
+package revocationredis
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
+	revocation "github.com/garudex-labs/caracal/packages/revocation/go"
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	// RevocationStream is the Redis stream carrying session revocation events.
+	RevocationStream = "caracal.sessions.revoke"
+	// DelegationInvalidationStream is the Redis stream carrying delegation graph epoch bumps.
+	DelegationInvalidationStream = "caracal.delegations.invalidate"
+	// DefaultRevocationTTL is the default duration for cached revoked sessions.
+	DefaultRevocationTTL = 24 * time.Hour
+)
+
+// KeyClient is the Redis key operation subset needed by Store.
+type KeyClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+}
+
+// Store implements revocation.Store using Redis keys.
+type Store struct {
+	redis      KeyClient
+	keyPrefix  string
+	defaultTTL time.Duration
+	timeout    time.Duration
+	failClosed bool
+}
+
+var _ revocation.Store = (*Store)(nil)
+
+var _ revocation.DelegationEpochStore = (*Store)(nil)
+
+// Option configures Store.
+type Option func(*Store)
+
+// WithKeyPrefix sets the Redis key prefix for revoked session ids.
+func WithKeyPrefix(prefix string) Option {
+	return func(s *Store) { s.keyPrefix = prefix }
+}
+
+// WithDefaultTTL sets the revocation TTL used when MarkRevoked receives no TTL.
+func WithDefaultTTL(ttl time.Duration) Option {
+	return func(s *Store) { s.defaultTTL = ttl }
+}
+
+// WithTimeout sets the per-command timeout.
+func WithTimeout(timeout time.Duration) Option {
+	return func(s *Store) { s.timeout = timeout }
+}
+
+// WithFailClosed controls lookup behavior when Redis is unavailable.
+func WithFailClosed(failClosed bool) Option {
+	return func(s *Store) { s.failClosed = failClosed }
+}
+
+// NewStore returns a Redis-backed revocation store.
+func NewStore(redis KeyClient, opts ...Option) *Store {
+	s := &Store{
+		redis:      redis,
+		keyPrefix:  "caracal:revoked:sessions:",
+		defaultTTL: DefaultRevocationTTL,
+		timeout:    2 * time.Second,
+		failClosed: true,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.defaultTTL <= 0 {
+		s.defaultTTL = DefaultRevocationTTL
+	}
+	if s.timeout <= 0 {
+		s.timeout = 2 * time.Second
+	}
+	return s
+}
+
+// IsRevoked reports whether anchorID has an unexpired revocation key.
+func (s *Store) IsRevoked(anchorID string) bool {
+	if anchorID == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	_, err := s.redis.Get(ctx, s.key(anchorID)).Result()
+	if err == nil {
+		return true
+	}
+	if err == redis.Nil {
+		return false
+	}
+	return s.failClosed
+}
+
+// MarkRevoked records anchorID as revoked for ttl.
+func (s *Store) MarkRevoked(anchorID string, ttl time.Duration) error {
+	if anchorID == "" {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = s.defaultTTL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	return s.redis.Set(ctx, s.key(anchorID), "1", ttl).Err()
+}
+
+// CurrentDelegationEpoch returns the recorded delegation graph epoch for zoneID.
+func (s *Store) CurrentDelegationEpoch(zoneID string) int64 {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	value, err := s.redis.Get(ctx, s.delegationEpochKey(zoneID)).Result()
+	if err == redis.Nil {
+		return 0
+	}
+	if err != nil {
+		if s.failClosed {
+			return math.MaxInt64
+		}
+		return 0
+	}
+	epoch, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || epoch <= 0 {
+		return 0
+	}
+	return epoch
+}
+
+// MarkDelegationEpoch records epoch for zoneID when it advances past the current value.
+func (s *Store) MarkDelegationEpoch(zoneID string, epoch int64, ttl time.Duration) error {
+	if zoneID == "" || epoch < 0 {
+		return nil
+	}
+	if epoch <= s.CurrentDelegationEpoch(zoneID) {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = s.defaultTTL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	return s.redis.Set(ctx, s.delegationEpochKey(zoneID), strconv.FormatInt(epoch, 10), ttl).Err()
+}
+
+func (s *Store) key(anchorID string) string {
+	return s.keyPrefix + anchorID
+}
+
+func (s *Store) delegationEpochKey(zoneID string) string {
+	return s.keyPrefix + "delegation-epoch:" + zoneID
+}
+
+// StreamClient is the Redis stream operation subset needed by Consumer.
+type StreamClient interface {
+	KeyClient
+	XAck(ctx context.Context, stream, group string, ids ...string) *redis.IntCmd
+	XAutoClaim(ctx context.Context, a *redis.XAutoClaimArgs) *redis.XAutoClaimCmd
+	XGroupCreateMkStream(ctx context.Context, stream, group, start string) *redis.StatusCmd
+	XReadGroup(ctx context.Context, a *redis.XReadGroupArgs) *redis.XStreamSliceCmd
+}
+
+// Consumer reads signed stream messages and applies them to a Store.
+type Consumer struct {
+	redis            StreamClient
+	store            *Store
+	stream           string
+	group            string
+	consumer         string
+	batchSize        int64
+	block            time.Duration
+	pendingIdle      time.Duration
+	streamHMACKey    []byte
+	requireSignature bool
+	apply            func(values map[string]any) error
+}
+
+// ConsumerOption configures Consumer.
+type ConsumerOption func(*Consumer)
+
+// WithStream sets the stream name.
+func WithStream(stream string) ConsumerOption {
+	return func(c *Consumer) { c.stream = stream }
+}
+
+// WithGroup sets the consumer group name.
+func WithGroup(group string) ConsumerOption {
+	return func(c *Consumer) { c.group = group }
+}
+
+// WithBatchSize sets the maximum number of messages read per poll.
+func WithBatchSize(size int64) ConsumerOption {
+	return func(c *Consumer) { c.batchSize = size }
+}
+
+// WithBlock sets the XREADGROUP block duration.
+func WithBlock(block time.Duration) ConsumerOption {
+	return func(c *Consumer) { c.block = block }
+}
+
+// WithPendingIdle sets the minimum idle time before pending messages are reclaimed.
+func WithPendingIdle(idle time.Duration) ConsumerOption {
+	return func(c *Consumer) { c.pendingIdle = idle }
+}
+
+// WithStreamHMAC configures revocation stream origin verification.
+func WithStreamHMAC(key []byte, require bool) ConsumerOption {
+	return func(c *Consumer) {
+		c.streamHMACKey = key
+		c.requireSignature = require
+	}
+}
+
+// NewConsumer returns a Redis stream consumer that populates store.
+func NewConsumer(redis StreamClient, store *Store, consumer string, opts ...ConsumerOption) (*Consumer, error) {
+	c := &Consumer{
+		redis:       redis,
+		store:       store,
+		stream:      RevocationStream,
+		group:       "resource-revocation",
+		consumer:    consumer,
+		batchSize:   50,
+		pendingIdle: 30 * time.Second,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	if c.consumer == "" {
+		return nil, fmt.Errorf("consumer is required")
+	}
+	if c.store == nil {
+		return nil, fmt.Errorf("store is required")
+	}
+	if c.batchSize <= 0 {
+		c.batchSize = 50
+	}
+	if c.pendingIdle <= 0 {
+		c.pendingIdle = 30 * time.Second
+	}
+	if c.requireSignature && len(c.streamHMACKey) == 0 {
+		return nil, fmt.Errorf("stream hmac key is required when signatures are required")
+	}
+	c.apply = c.applyRevocations
+	return c, nil
+}
+
+// NewDelegationInvalidationConsumer returns a Redis stream consumer that records delegation graph epochs on store.
+func NewDelegationInvalidationConsumer(redis StreamClient, store *Store, consumer string, opts ...ConsumerOption) (*Consumer, error) {
+	defaults := []ConsumerOption{WithStream(DelegationInvalidationStream), WithGroup("resource-delegation-invalidation")}
+	c, err := NewConsumer(redis, store, consumer, append(defaults, opts...)...)
+	if err != nil {
+		return nil, err
+	}
+	c.apply = c.applyDelegationEpoch
+	return c, nil
+}
+
+// EnsureGroup creates the revocation consumer group when needed.
+func (c *Consumer) EnsureGroup(ctx context.Context) error {
+	err := c.redis.XGroupCreateMkStream(ctx, c.stream, c.group, "0").Err()
+	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		return err
+	}
+	return nil
+}
+
+// PollOnce reads and applies one batch of revocation messages.
+func (c *Consumer) PollOnce(ctx context.Context) (int, error) {
+	handled, err := c.replayPending(ctx)
+	if err != nil {
+		return 0, err
+	}
+	streams, err := c.redis.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    c.group,
+		Consumer: c.consumer,
+		Streams:  []string{c.stream, ">"},
+		Count:    c.batchSize,
+		Block:    c.block,
+	}).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return handled, nil
+		}
+		return handled, err
+	}
+	for _, stream := range streams {
+		for _, msg := range stream.Messages {
+			if err := c.processMessage(ctx, msg); err != nil {
+				return handled, err
+			}
+			handled++
+		}
+	}
+	return handled, nil
+}
+
+func (c *Consumer) replayPending(ctx context.Context) (int, error) {
+	start := "0-0"
+	handled := 0
+	for {
+		msgs, next, err := c.redis.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+			Stream:   c.stream,
+			Group:    c.group,
+			Consumer: c.consumer,
+			MinIdle:  c.pendingIdle,
+			Start:    start,
+			Count:    c.batchSize,
+		}).Result()
+		if err != nil {
+			if err == redis.Nil {
+				return handled, nil
+			}
+			return handled, err
+		}
+		if len(msgs) == 0 {
+			return handled, nil
+		}
+		for _, msg := range msgs {
+			if err := c.processMessage(ctx, msg); err != nil {
+				return handled, err
+			}
+			handled++
+		}
+		if next == "" || next == "0-0" {
+			return handled, nil
+		}
+		start = next
+	}
+}
+
+func (c *Consumer) processMessage(ctx context.Context, msg redis.XMessage) error {
+	if !c.verify(msg.Values) {
+		return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
+	}
+	if err := c.apply(msg.Values); err != nil {
+		return err
+	}
+	return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
+}
+
+func (c *Consumer) applyRevocations(values map[string]any) error {
+	for _, anchor := range revocationAnchors(values) {
+		if err := c.store.MarkRevoked(anchor, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Consumer) applyDelegationEpoch(values map[string]any) error {
+	zoneID, _ := values["zone_id"].(string)
+	raw, _ := values["epoch"].(string)
+	epoch, err := strconv.ParseInt(raw, 10, 64)
+	if zoneID == "" || err != nil || epoch < 0 {
+		return nil
+	}
+	return c.store.MarkDelegationEpoch(zoneID, epoch, 0)
+}
+
+func revocationAnchors(values map[string]any) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, name := range []string{"session_id", "sid", "root_sid", "agent_session_id", "delegation_edge_id"} {
+		anchor, _ := values[name].(string)
+		if anchor == "" || seen[anchor] {
+			continue
+		}
+		seen[anchor] = true
+		out = append(out, anchor)
+	}
+	return out
+}
+
+func (c *Consumer) verify(values map[string]any) bool {
+	if !c.requireSignature && len(c.streamHMACKey) == 0 {
+		return true
+	}
+	return sharedcrypto.VerifyStream(c.streamHMACKey, c.stream, values)
+}

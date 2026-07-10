@@ -29,7 +29,16 @@ const TERMINAL_STATES = new Set<MessageRunState>(TERMINAL_MESSAGE_RUN_STATES)
 const TRANSITIONS: Record<MessageRunState, readonly MessageRunState[]> = {
   queued: ['sending', 'cancelled', 'failed', 'timeout'],
   sending: ['waiting_for_model', 'cancelled', 'failed', 'timeout'],
-  waiting_for_model: ['reasoning', 'waiting_for_tool', 'waiting_for_user_approval', 'streaming', 'completed', 'cancelled', 'failed', 'timeout'],
+  waiting_for_model: [
+    'reasoning',
+    'waiting_for_tool',
+    'waiting_for_user_approval',
+    'streaming',
+    'completed',
+    'cancelled',
+    'failed',
+    'timeout',
+  ],
   reasoning: ['waiting_for_tool', 'streaming', 'completed', 'cancelled', 'failed', 'timeout'],
   waiting_for_tool: ['executing', 'waiting_for_user_approval', 'cancelled', 'failed', 'timeout'],
   waiting_for_user_approval: ['executing', 'cancelled', 'failed', 'timeout'],

@@ -98,7 +98,9 @@ export class Authenticator {
           algorithms: ['ES256'],
           requiredClaims: ['exp', 'iat', 'jti', 'sub'],
           clockTolerance: this.clockToleranceSec,
-        }).catch((e) => { throw new AuthError(`invalid token: ${describe(e)}`) }))
+        }).catch((e) => {
+          throw new AuthError(`invalid token: ${describe(e)}`)
+        }))
       } else {
         throw new AuthError(`invalid token: ${describe(err)}`)
       }

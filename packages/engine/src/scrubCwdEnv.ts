@@ -23,10 +23,7 @@ export function scrubCwdEnv(cwd: string, env: NodeJS.ProcessEnv): void {
       const m = line.match(/^\s*(CARACAL_[A-Z0-9_]*)\s*=\s*(.*?)\s*$/)
       if (!m) continue
       let value = m[2]
-      if (
-        value.length >= 2 &&
-        ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
-      ) {
+      if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
         value = value.slice(1, -1)
       }
       if (env[m[1]] === value) delete env[m[1]]

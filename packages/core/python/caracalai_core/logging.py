@@ -55,7 +55,15 @@ _WORD_SECRET_RE = re.compile(
     r"(?:^|[^a-z])(?:" + "|".join(_WORD_SECRET_KEYS) + r")(?:[^a-z]|$)"
 )
 
-_LEVELS = {"debug": 10, "info": 20, "warn": 30, "warning": 30, "error": 40, "fatal": 50, "critical": 50}
+_LEVELS = {
+    "debug": 10,
+    "info": 20,
+    "warn": 30,
+    "warning": 30,
+    "error": 40,
+    "fatal": 50,
+    "critical": 50,
+}
 
 _BEARER_RE = re.compile(r"bearer\s+[A-Za-z0-9._\-+/=]{8,}", re.IGNORECASE)
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}")
@@ -120,7 +128,10 @@ def redact(value: Any) -> Any:
     if isinstance(value, str):
         return truncate_string(redact_string(value))
     if isinstance(value, Mapping):
-        return {k: (REDACT_VALUE if is_secret_key(str(k)) else redact(v)) for k, v in value.items()}
+        return {
+            k: (REDACT_VALUE if is_secret_key(str(k)) else redact(v))
+            for k, v in value.items()
+        }
     if isinstance(value, (list, tuple)):
         seq = [redact(v) for v in value]
         return seq if isinstance(value, list) else tuple(seq)
@@ -132,7 +143,9 @@ _trace_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextV
 )
 
 
-def bind_trace(trace_id: str | None = None, span_id: str | None = None) -> contextvars.Token:
+def bind_trace(
+    trace_id: str | None = None, span_id: str | None = None
+) -> contextvars.Token:
     """Bind trace identifiers to the current async/sync context; returns a token
     that can be passed to reset_trace to restore the previous value."""
     payload: dict[str, str] = {}
@@ -172,7 +185,9 @@ def _process_base_fields(service: str) -> dict[str, Any]:
         "hostname": host,
         "pid": os.getpid(),
         "version": os.environ.get("CARACAL_VERSION", "dev"),
-        "env": os.environ.get("CARACAL_ENV") or os.environ.get("APP_ENV") or "development",
+        "env": os.environ.get("CARACAL_ENV")
+        or os.environ.get("APP_ENV")
+        or "development",
     }
 
 
@@ -218,7 +233,9 @@ def _ensure_listener() -> None:
         return
     handler = _DynamicStderrHandler()
     handler.setFormatter(_JsonFormatter())
-    _listener = logging.handlers.QueueListener(_log_queue, handler, respect_handler_level=True)
+    _listener = logging.handlers.QueueListener(
+        _log_queue, handler, respect_handler_level=True
+    )
     _listener.start()
     atexit.register(_shutdown_listener)
 
@@ -245,12 +262,10 @@ def _shutdown_listener() -> None:
 
 
 def flush_for_test() -> None:
-    """Block until the background queue is drained; intended for tests only."""
-    _log_queue.join() if hasattr(_log_queue, "join") and False else None
-    # QueueListener's internal queue does not support join(); poll instead.
+    """Block until queued records reach the sink; intended for tests only."""
     deadline = time.time() + 1.0
     while time.time() < deadline:
-        if _log_queue.empty():
+        if _log_queue.unfinished_tasks == 0:
             return
         time.sleep(0.005)
 
@@ -276,13 +291,20 @@ class DevLogger:
     stderr writes.
     """
 
-    def __init__(self, service: str, level: str | int = "info", bound: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        service: str,
+        level: str | int = "info",
+        bound: Mapping[str, Any] | None = None,
+    ) -> None:
         self._service = service
         self._bound: dict[str, Any] = dict(bound or {})
         self._base = _process_base_fields(service)
         _ensure_listener()
         self._logger = logging.getLogger(f"caracal.{service}")
-        if not any(isinstance(h, _NonBlockingQueueHandler) for h in self._logger.handlers):
+        if not any(
+            isinstance(h, _NonBlockingQueueHandler) for h in self._logger.handlers
+        ):
             self._logger.handlers.clear()
             self._logger.addHandler(_NonBlockingQueueHandler())
             self._logger.propagate = False
@@ -317,7 +339,9 @@ class DevLogger:
             err = fields.get("err") or fields.get("error") or fields.get("exception")
             if isinstance(err, BaseException):
                 exc_info = (type(err), err, err.__traceback__)
-        record = self._logger.makeRecord(self._logger.name, level, "", 0, msg, (), exc_info)
+        record = self._logger.makeRecord(
+            self._logger.name, level, "", 0, msg, (), exc_info
+        )
         record._caracal_base = self._base  # type: ignore[attr-defined]
         merged_bound = dict(self._bound)
         merged_bound.update(current_trace())
@@ -325,12 +349,23 @@ class DevLogger:
         record._caracal_extra = dict(fields) if fields else None  # type: ignore[attr-defined]
         self._logger.handle(record)
 
-    def debug(self, msg: str, **fields: Any) -> None: self._emit(logging.DEBUG, msg, fields)
-    def info(self, msg: str, **fields: Any) -> None: self._emit(logging.INFO, msg, fields)
-    def warn(self, msg: str, **fields: Any) -> None: self._emit(logging.WARNING, msg, fields)
-    def warning(self, msg: str, **fields: Any) -> None: self._emit(logging.WARNING, msg, fields)
-    def error(self, msg: str, **fields: Any) -> None: self._emit(logging.ERROR, msg, fields)
-    def fatal(self, msg: str, **fields: Any) -> None: self._emit(logging.CRITICAL, msg, fields)
+    def debug(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.DEBUG, msg, fields)
+
+    def info(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.INFO, msg, fields)
+
+    def warn(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.WARNING, msg, fields)
+
+    def warning(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.WARNING, msg, fields)
+
+    def error(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.ERROR, msg, fields)
+
+    def fatal(self, msg: str, **fields: Any) -> None:
+        self._emit(logging.CRITICAL, msg, fields)
 
 
 def shutdown_logging() -> None:
@@ -354,7 +389,9 @@ def dev_log_metrics() -> dict[str, int]:
     }
 
 
-def install_shutdown_handler(extra: Callable[[], None] | None = None, timeout: float = 2.0) -> None:
+def install_shutdown_handler(
+    extra: Callable[[], None] | None = None, timeout: float = 2.0
+) -> None:
     """Wire SIGTERM/SIGINT to flush dev logs (and optionally invoke `extra`,
     typically AuditClient.close) before the process exits."""
 
@@ -372,5 +409,7 @@ def install_shutdown_handler(extra: Callable[[], None] | None = None, timeout: f
 
 def create_logger(service: str, level: str | int | None = None) -> DevLogger:
     if level is None:
-        level = os.environ.get("CARACAL_LOG_LEVEL") or os.environ.get("LOG_LEVEL") or "info"
+        level = (
+            os.environ.get("CARACAL_LOG_LEVEL") or os.environ.get("LOG_LEVEL") or "info"
+        )
     return DevLogger(service, level)

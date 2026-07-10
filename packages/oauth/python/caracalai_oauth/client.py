@@ -8,14 +8,18 @@ RFC 8693 token exchange client with cache isolation and bounded retries.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import secrets
 from hashlib import sha256
 from time import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from .cache import InMemoryTokenCache, TokenCache
-from .types import ExchangeOptions, InteractionRequiredError, TokenExchangeResponse
+from .errors import ApprovalRequired
+from .types import ExchangeOptions, TokenExchangeResponse
 
 
 class OAuthClient:
@@ -39,6 +43,90 @@ class OAuthClient:
         if self._owns_client:
             await self._http_client.aclose()
 
+    async def federate_subject(
+        self,
+        id_token: str,
+        *,
+        client_secret: str | None = None,
+        ttl_seconds: int | None = None,
+        timeout_ms: int = 30_000,
+    ) -> TokenExchangeResponse:
+        """Exchange an end user's identity token from a zone-trusted external
+        issuer for a Caracal Subject authority record.
+
+        The application authenticates itself with its client secret and relays
+        the token verbatim; the minted record is the Subject's identity anchor
+        and carries no resource authority. Never cached: each federation is an
+        explicit identity event.
+        """
+        if not id_token:
+            raise ValueError("federate_subject requires the end user identity token")
+        data = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token": id_token,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+            "zone_id": self._zone_id,
+            "application_id": self._application_id,
+        }
+        _set_value(data, "client_secret", client_secret)
+        if ttl_seconds is not None:
+            data["ttl_seconds"] = str(ttl_seconds)
+        response = await self._http_client.post(
+            f"{self._sts_url}/oauth/2/token",
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=timeout_ms / 1000,
+        )
+        if not response.is_success:
+            body = _read_error_response(response)
+            raise RuntimeError(
+                str(
+                    body.get("error_description") or f"STS error {response.status_code}"
+                )
+            )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("STS response invalid: expected JSON object")
+        return _validate_success(payload)
+
+    async def decide_approval(
+        self,
+        *,
+        subject_token: str,
+        approval_id: str,
+        binding: str,
+        decision: str,
+        reason: str | None = None,
+        timeout_ms: int = 30_000,
+    ) -> None:
+        """Post an end user's decision on a subject-reserved approval hold.
+
+        The subject token is the user's federated session mandate, and the
+        binding must echo the hold exactly - a prompt that does not know the
+        held resource and scope set cannot decide it.
+        """
+        if not subject_token or not approval_id or not binding:
+            raise ValueError(
+                "decide_approval requires subject_token, approval_id, and binding"
+            )
+        body: dict[str, str] = {"decision": decision, "binding": binding}
+        if reason:
+            body["reason"] = reason
+        response = await self._http_client.post(
+            f"{self._sts_url}/step-up/{quote(approval_id, safe='')}/decision",
+            json=body,
+            headers={"Authorization": f"Bearer {subject_token}"},
+            timeout=timeout_ms / 1000,
+        )
+        if not response.is_success:
+            err = _read_error_response(response)
+            raise RuntimeError(
+                str(
+                    err.get("error_description")
+                    or f"approval decision failed: {response.status_code}"
+                )
+            )
+
     async def exchange(
         self,
         subject_token: str,
@@ -50,19 +138,31 @@ class OAuthClient:
         preflight_window = timeout_ms / 1000 + 30
         cache_subject = self._cache_subject(subject_token, opts)
         cache_resource = self._cache_resource(resource, opts)
-        cached = self._cache.get(cache_subject, cache_resource)
-        if cached is not None and cached.issued_at + cached.expires_in - time() > preflight_window:
+        cached = self._cache.get(cache_subject, cache_resource) if opts.cache else None
+        if (
+            cached is not None
+            and cached.issued_at + cached.expires_in - time() > preflight_window
+        ):
             return cached
+
+        if not opts.cache:
+            return await self._do_exchange(
+                subject_token, resource, opts, time() + opts.timeout_ms / 1000
+            )
 
         inflight_key = f"{cache_subject}::{cache_resource}"
         task = self._inflight.get(inflight_key)
         if task is not None:
-            return await task
+            return await asyncio.shield(task)
 
-        task = asyncio.create_task(self._exchange_and_cache(subject_token, resource, opts, cache_subject, cache_resource))
+        task = asyncio.create_task(
+            self._exchange_and_cache(
+                subject_token, resource, opts, cache_subject, cache_resource
+            )
+        )
         self._inflight[inflight_key] = task
         try:
-            return await task
+            return await asyncio.shield(task)
         finally:
             self._inflight.pop(inflight_key, None)
 
@@ -74,7 +174,9 @@ class OAuthClient:
         cache_subject: str,
         cache_resource: str,
     ) -> TokenExchangeResponse:
-        token = await self._do_exchange(subject_token, resource, opts, False, time() + opts.timeout_ms / 1000)
+        token = await self._do_exchange(
+            subject_token, resource, opts, time() + opts.timeout_ms / 1000
+        )
         self._cache.set(cache_subject, cache_resource, token)
         return token
 
@@ -83,20 +185,23 @@ class OAuthClient:
             [
                 f"{self._zone_id}::{self._application_id}",
                 _hash_secret(subject_token),
-                _hash_secret(opts.actor_token),
+                opts.authority_record_id or "",
                 opts.session_id or "",
-                opts.agent_session_id or "",
-                opts.delegation_edge_id or "",
+                opts.delegation_id or "",
                 self._auth_context(opts),
                 _hash_secret(opts.client_assertion),
             ]
         )
 
     def _cache_resource(self, resource: str, opts: ExchangeOptions) -> str:
-        return "::".join([resource, _normalized_scopes(opts.scopes), str(opts.ttl_seconds or "")])
+        return "::".join(
+            [resource, _normalized_scopes(opts.scopes), str(opts.ttl_seconds or "")]
+        )
 
     def _auth_context(self, opts: ExchangeOptions) -> str:
-        secret = f"secret:{_hash_secret(opts.client_secret)}" if opts.client_secret else ""
+        secret = (
+            f"secret:{_hash_secret(opts.client_secret)}" if opts.client_secret else ""
+        )
         assertion = "assertion" if opts.client_assertion else ""
         return ":".join([secret, assertion, opts.client_assertion_type or ""])
 
@@ -105,7 +210,6 @@ class OAuthClient:
         subject_token: str,
         resource: str,
         opts: ExchangeOptions,
-        is_retry: bool,
         deadline: float,
     ) -> TokenExchangeResponse:
         data = {
@@ -119,10 +223,10 @@ class OAuthClient:
         _set_value(data, "client_secret", opts.client_secret)
         _set_value(data, "client_assertion", opts.client_assertion)
         _set_value(data, "client_assertion_type", opts.client_assertion_type)
-        _set_value(data, "actor_token", opts.actor_token)
-        _set_value(data, "session_id", opts.session_id)
-        _set_value(data, "agent_session_id", opts.agent_session_id)
-        _set_value(data, "delegation_edge_id", opts.delegation_edge_id)
+        _set_value(data, "session_id", opts.authority_record_id)
+        _set_value(data, "agent_session_id", opts.session_id)
+        _set_value(data, "delegation_edge_id", opts.delegation_id)
+        _set_value(data, "challenge_id", opts.challenge_id)
         scope = _normalized_scopes(opts.scopes)
         if scope:
             data["scope"] = scope
@@ -155,33 +259,21 @@ class OAuthClient:
         if not response.is_success:
             body = _read_error_response(response)
             if body.get("error") == "interaction_required":
-                raise InteractionRequiredError(
-                    str(body.get("error_description") or "Step-up required"),
+                raise ApprovalRequired(
                     str(body.get("challenge_id") or ""),
-                    resource,
-                    str(body["acr_values"]) if "acr_values" in body else None,
-                )
-            if response.status_code == 401 and not is_retry:
-                return await self._do_exchange(
-                    subject_token,
-                    resource,
-                    ExchangeOptions(
-                        client_secret=opts.client_secret,
-                        client_assertion=opts.client_assertion,
-                        client_assertion_type=opts.client_assertion_type,
-                        actor_token=opts.actor_token,
-                        session_id=opts.session_id,
-                        agent_session_id=opts.agent_session_id,
-                        delegation_edge_id=opts.delegation_edge_id,
-                        scopes=opts.scopes,
-                        timeout_ms=opts.timeout_ms,
-                        retries=0,
-                        ttl_seconds=opts.ttl_seconds,
+                    (
+                        str(body["challenge_expires_at"])
+                        if "challenge_expires_at" in body
+                        else ""
                     ),
-                    True,
-                    deadline,
+                    resource=resource,
+                    binding=str(body["binding"]) if "binding" in body else "",
                 )
-            raise RuntimeError(str(body.get("error_description") or f"STS error {response.status_code}"))
+            raise RuntimeError(
+                str(
+                    body.get("error_description") or f"STS error {response.status_code}"
+                )
+            )
 
         if not _json_response(response.headers.get("content-type")):
             raise RuntimeError("STS response invalid: expected application/json")
@@ -208,9 +300,20 @@ def _validate_success(payload: dict[str, Any]) -> TokenExchangeResponse:
     if token_type is not None and token_type != "Bearer":
         raise RuntimeError("STS response invalid: token_type must be Bearer")
     expires_in = payload.get("expires_in")
-    if isinstance(expires_in, bool) or not isinstance(expires_in, int) or expires_in <= 0:
-        raise RuntimeError("STS response invalid: expires_in must be a positive integer")
-    return TokenExchangeResponse(access_token=access_token, token_type="Bearer", expires_in=expires_in, issued_at=int(time()))
+    if (
+        isinstance(expires_in, bool)
+        or not isinstance(expires_in, int)
+        or expires_in <= 0
+    ):
+        raise RuntimeError(
+            "STS response invalid: expires_in must be a positive integer"
+        )
+    return TokenExchangeResponse(
+        access_token=access_token,
+        token_type="Bearer",
+        expires_in=expires_in,
+        issued_at=int(time()),
+    )
 
 
 def _set_value(data: dict[str, str], name: str, value: str | None) -> None:
@@ -257,4 +360,9 @@ def _json_response(content_type: str | None) -> bool:
 def _hash_secret(value: str | None) -> str:
     if not value:
         return ""
-    return sha256(value.encode()).hexdigest()
+    # Keyed per process so cache keys cannot serve as an offline-crackable
+    # digest of the credential.
+    return hmac.new(_CACHE_KEY_SECRET, value.encode(), sha256).hexdigest()
+
+
+_CACHE_KEY_SECRET = secrets.token_bytes(32)

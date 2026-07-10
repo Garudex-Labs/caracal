@@ -11,7 +11,7 @@ import { useState } from "react";
 import { NavIcon } from "@/components/console/NavIcon";
 import { ProfileMenu } from "@/components/console/ProfileMenu";
 import { cx } from "@/lib/cx";
-import { useSystemZoneView } from "@/platform/api/hooks";
+import { useActiveZone, useApprovalCounts, useSystemZoneView } from "@/platform/api/hooks";
 import { isHideLockedPath } from "@/platform/nav/hideLock";
 import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { useHiddenNavItems } from "@/platform/state/sidebarPrefs";
@@ -50,6 +50,7 @@ function SidebarItem({
   active,
   locked,
   collapsed,
+  badge,
   onNavigate,
 }: {
   to: string;
@@ -58,9 +59,11 @@ function SidebarItem({
   active: boolean;
   locked?: boolean;
   collapsed: boolean;
+  badge?: number;
   onNavigate?: () => void;
 }) {
   const [hover, setHover] = useState(false);
+  const badgeText = badge ? (badge > 99 ? "99+" : String(badge)) : null;
   return (
     <li
       className="relative"
@@ -82,6 +85,11 @@ function SidebarItem({
       >
         <span className="relative flex-shrink-0">
           <NavIcon name={iconName} />
+          {badgeText && collapsed ? (
+            <span className="absolute -right-1.5 -top-1.5 grid min-h-3.5 min-w-3.5 place-items-center rounded-full bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white">
+              {badgeText}
+            </span>
+          ) : null}
           {locked && collapsed ? (
             <span className="absolute -right-1 -top-1 grid h-3 w-3 place-items-center rounded-full bg-background text-muted-foreground">
               <LockGlyph className="h-2.5 w-2.5" />
@@ -91,6 +99,11 @@ function SidebarItem({
         {!collapsed ? (
           <>
             <span className="flex-1 truncate">{label}</span>
+            {badgeText ? (
+              <span className="grid min-h-4 min-w-4 flex-shrink-0 place-items-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white">
+                {badgeText}
+              </span>
+            ) : null}
             {locked ? (
               <LockGlyph className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/70" />
             ) : null}
@@ -129,6 +142,11 @@ export function Sidebar({
   const theme = useTheme();
   const systemView = useSystemZoneView();
   const hidden = useHiddenNavItems();
+  const { activeZone } = useActiveZone();
+  // The pending count rides on the Approvals nav item so a parked Session is visible
+  // from anywhere in the console, not just for someone already on the Approvals page.
+  const approvalCounts = useApprovalCounts(activeZone?.id ?? null);
+  const pendingApprovals = approvalCounts.data?.pending ?? 0;
   const hiddenSet = new Set(hidden);
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
@@ -193,6 +211,7 @@ export function Sidebar({
                     active={isActive(pathname, item.to)}
                     locked={item.locked}
                     collapsed={collapsed}
+                    badge={item.id === "approvals" ? pendingApprovals : undefined}
                     onNavigate={onNavigate}
                   />
                 ))}

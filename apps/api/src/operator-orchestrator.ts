@@ -26,7 +26,7 @@ import {
   type RepairFeedback,
   type SecurityAdvisory,
 } from './operator-agents.js'
-import { CAPABILITIES, validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
+import { CAPABILITIES, collectStepReferences, validateProposedPlan, type ProposedPlanInput } from './operator-capabilities.js'
 import type { Researcher } from './operator-research.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
@@ -73,15 +73,17 @@ export interface SkillRegistry {
 
 // The typed artifact a turn produced, tagged so the route runs the matching deterministic path:
 // a plan is validated, previewed, and stored for approval; an answer is recorded as a note. A
-// plan from a composing tier may carry an advisory security review - informational only, never
-// gating - that the route surfaces to the human alongside the plan. When the guardian judges the
-// plan misaligned with how Caracal is meant to be used, the outcome also carries guidance: the
-// Caracal-correct path the human should take instead, surfaced first so the turn teaches the right
-// approach rather than silently complying. The plan itself is still persisted and remains
-// approvable behind the unchanged human gate - guidance leads, the plan is the secondary option,
-// and a misaligned plan is never auto-approved.
+// plan from a composing tier carries the guardian's review state: reviewed with its advisory, or
+// review_failed with the precise reason the review did not complete, so an unreviewed plan is
+// always distinguishable from a clean one. The advisory and its guidance - the guardian's
+// concrete recommendation when it judged the plan risky or misaligned - are informational only:
+// they are surfaced to whoever decides, but they never gate the plan and never enter the
+// approval decision. Approval is decided solely by the human gate or, when the operator engaged
+// it, the deployment's configured autopilot policy.
+export type PlanReview = { status: 'reviewed'; advisory: SecurityAdvisory } | { status: 'review_failed'; reason: string }
+
 export type OrchestrationOutcome =
-  | { kind: 'plan'; result: AgentResult<ProposedPlanInput>; advisory?: SecurityAdvisory; guidance?: string }
+  | { kind: 'plan'; result: AgentResult<ProposedPlanInput>; review?: PlanReview; guidance?: string }
   | { kind: 'answer'; result: AgentResult<{ text: string; reasoning?: string }>; evidence?: Evidence[] }
   | { kind: 'policy'; result: AgentResult<PolicyDraft> }
 
@@ -225,9 +227,12 @@ async function withEvidence(context: AgentContext, researcher: Researcher | null
   if (!researcher) return { ...context, liveStateUnavailable: true }
   try {
     const blackboard = await researcher.gather(domains)
-    return blackboard.evidence.length > 0 ? { ...context, evidence: blackboard.evidence } : context
+    if (blackboard.evidence.length > 0) return { ...context, evidence: blackboard.evidence }
+    return { ...context, liveStateUnavailable: true }
   } catch {
-    return context
+    // A failed gather leaves the turn blind, and the agents must know it: an unmarked fallback
+    // would let memory masquerade as live state.
+    return { ...context, liveStateUnavailable: true }
   }
 }
 
@@ -267,6 +272,14 @@ async function expandEvidence(context: AgentContext, researcher: Researcher | nu
   }
 }
 
+// Whether a plan's steps are structurally coupled: one step depends on or references another, or
+// the plan is large enough that ordering and completeness need review. Only a coupled plan has the
+// cross-step semantics the correctness critic judges; independent steps have none.
+function planIsCoupled(plan: ProposedPlanInput): boolean {
+  if (plan.steps.length >= 3) return true
+  return plan.steps.some((step) => (step.depends_on?.length ?? 0) > 0 || collectStepReferences(step.args).length > 0)
+}
+
 // Proposes a plan, repairs it once when it fails catalog validation, then critiques the catalog-
 // valid plan for correctness and completeness and revises it once when the critic finds a material
 // defect. It returns the strongest plan it reached: a critic-revised plan when the revision still
@@ -303,7 +316,12 @@ async function deliberatePlan(
   // concrete deficiencies drives one replanning pass, and the revision is adopted only when it
   // still proposes steps and still validates against the catalog. A 'sound' verdict, an empty
   // deficiency list, or a failed critique leaves the plan unchanged, so the critic only ever
-  // sharpens a proposal and never blocks or empties one.
+  // sharpens a proposal and never blocks or empties one. The critique runs only for coupled
+  // plans - ones with declared dependencies, step-output references, or three or more steps -
+  // because its judgement is ordering, completeness, and cross-step fit, which independent steps
+  // have none of. Every skipped plan is still fully governed by catalog validation, preview, the
+  // guardian's review, and the approval gate, so skipping spends no safety, only a model call.
+  if (!planIsCoupled(candidate.value)) return candidate
   emit({ stage: 'critiquing' })
   const critique = await runCritic(gateway, candidate.value, message, context)
   if (critique.ok && critique.value.verdict === 'revise' && critique.value.deficiencies.length > 0) {
@@ -435,16 +453,17 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         }
         if (result.ok && result.value.steps.length > 0) {
           emit({ stage: 'guarding' })
-          const review = await runSecurityAnalyst(gateway, result.value, planContext)
-          const advisory = review.ok ? review.value : undefined
-          // When the guardian judges the plan misaligned with how Caracal is meant to be used, the
-          // outcome leads with the Caracal-correct path instead of silently surfacing the plan: the
-          // guidance is the guardian's concrete recommendation (its summary when it gave none). The
-          // plan stays attached and approvable behind the human gate, so the human can still proceed
-          // deliberately - but the turn teaches the right approach first and the route never
-          // auto-approves a misaligned plan.
-          const guidance = advisory && advisory.alignment === 'misaligned' ? (advisory.recommendation ?? advisory.summary) : undefined
-          return { tier, outcome: { kind: 'plan', result, advisory, guidance } }
+          const reviewed = await runSecurityAnalyst(gateway, result.value, planContext)
+          // The review state is explicit either way: a completed review attaches its advisory, and a
+          // failed one attaches the precise reason, so the plan is never silently unreviewed. The
+          // guidance is the guardian's concrete recommendation when it judged the plan risky or
+          // misaligned - informational teaching for whoever decides, never an input to the approval
+          // decision itself.
+          const review: PlanReview = reviewed.ok
+            ? { status: 'reviewed', advisory: reviewed.value }
+            : { status: 'review_failed', reason: reviewed.error }
+          const guidance = reviewed.ok ? reviewed.value.recommendation : undefined
+          return { tier, outcome: { kind: 'plan', result, review, guidance } }
         }
         return { tier, outcome: { kind: 'plan', result } }
       }

@@ -18,13 +18,13 @@ export const Route = createFileRoute("/enterprise")({
       {
         name: "description",
         content:
-          "Caracal at scale, fully managed: managed multi-tenancy, a hosted control plane, SSO and SCIM, and a fully managed data plane.",
+          "Enterprise-grade agent governance without operating the stack: managed multi-tenancy, hosted control plane, SSO and SCIM, fully managed data plane, and commercial support.",
       },
       { property: "og:title", content: "Caracal for Enterprise" },
       {
         property: "og:description",
         content:
-          "Fully managed Caracal with managed multi-tenancy, hosted control plane, SSO, and support.",
+          "Fully managed Caracal: managed multi-tenancy, hosted control plane, SSO, and commercial support.",
       },
     ],
   }),
@@ -36,7 +36,8 @@ function EnterprisePage() {
     <div className="px-4 py-10 sm:px-6 md:px-10 md:py-14">
       <SectionLabel>Enterprise</SectionLabel>
       <h1 className="mt-6 max-w-3xl text-4xl font-medium leading-[1.05] tracking-tight md:text-6xl">
-        Caracal ships under a <span className="text-muted-foreground">dual-license</span> model.
+        Enterprise-grade agent governance,{" "}
+        <span className="text-muted-foreground">without operating the stack.</span>
       </h1>
 
       <ComparisonTable />
@@ -47,9 +48,9 @@ function EnterprisePage() {
 
 function ComparisonTable() {
   const rows = [
-    ["Core Logic", "Included", "Included"],
+    ["Authority model: mandates, delegation, policy, audit", "Included", "Included"],
     ["SDKs and connectors", "Included", "Included"],
-    ["Zones as a manual isolation d", "Included", "Included"],
+    ["Zones as a manual isolation primitive", "Included", "Included"],
     [
       "Managed multi-tenancy",
       "Self-modeled with zones and the Admin API",

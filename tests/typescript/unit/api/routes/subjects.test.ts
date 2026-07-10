@@ -1,0 +1,199 @@
+// Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+// Caracal, a product of Garudex Labs
+//
+// Subject route unit tests for the per-subject aggregation and investigation overview.
+
+import { describe, it, expect } from 'vitest'
+
+const { subjectsRoutes } = await import('../../../../../apps/api/src/routes/subjects.js')
+const { buildRouteApp } = await import('../../../../shared/test-utils/typescript/fastify.js')
+
+const SUBJECT_ROW = {
+  subject_id: 'auth0|507f1f77bcf86cd799439011',
+  federated: true,
+  application_name: null,
+  total_sessions: 12,
+  active_sessions: 2,
+  revoked_sessions: 1,
+  first_seen: '2026-05-01T00:00:00.000Z',
+  last_seen: '2026-07-01T00:00:00.000Z',
+  last_revoked_at: null,
+  issuer: 'https://login.hooli.example',
+}
+
+describe('GET /v1/zones/:zoneId/subjects', () => {
+  it('aggregates one row per subject with identity resolution', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [SUBJECT_ROW] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/subjects' })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].issuer).toBe('https://login.hooli.example')
+    const sql = String(db.query.mock.calls[0][0])
+    expect(sql).toContain('GROUP BY ar.subject_id')
+    expect(sql).toContain('FROM authority_records ar')
+    expect(sql).toContain('LEFT JOIN applications')
+  })
+
+  it('filters by kind and search with parameterized values', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/subjects?kind=user&search=richard',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const [sql, values] = db.query.mock.calls[0]
+    expect(String(sql)).toContain("BOOL_OR(ar.session_type = 'user')")
+    expect(values).toContain('%richard%')
+    expect(String(sql)).not.toContain('richard')
+  })
+
+  it('rejects a malformed cursor', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValue({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/subjects?cursor=not-a-cursor' })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('GET /v1/zones/:zoneId/subjects/overview', () => {
+  it('bundles identity, governed activity, approvals, and connections', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [SUBJECT_ROW] })
+      .mockResolvedValueOnce({ rows: [{ active: 1, total: 4 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: 'session-1',
+            application_id: 'app-1',
+            application_name: 'Son of Anton',
+            lifecycle: 'task',
+            status: 'active',
+            started_at: '2026-07-01T00:00:00.000Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ pending: 1, total: 3 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'pc-1',
+            provider_id: 'prov-1',
+            provider_name: 'Hooli OIDC',
+            status: 'active',
+            expires_at: null,
+            created_at: '2026-06-01T00:00:00.000Z',
+          },
+        ],
+      })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/subjects/overview?subject_id=${encodeURIComponent(SUBJECT_ROW.subject_id)}`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.subject.subject_id).toBe(SUBJECT_ROW.subject_id)
+    expect(body.governed).toMatchObject({ active: 1, total: 4 })
+    expect(body.governed.recent[0].session_id).toBe('session-1')
+    expect(body.governed.recent[0].application_name).toBe('Son of Anton')
+    expect(body.approvals).toEqual({ pending: 1, total: 3 })
+    expect(body.connections[0].provider_name).toBe('Hooli OIDC')
+  })
+
+  it('404s an unknown subject and requires subject_id', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValue({ rows: [] })
+    await app.ready()
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/subjects/overview?subject_id=ghost',
+    })
+    expect(missing.statusCode).toBe(404)
+    const noParam = await app.inject({ method: 'GET', url: '/v1/zones/z1/subjects/overview' })
+    expect(noParam.statusCode).toBe(400)
+  })
+})
+
+describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
+  it('cuts every authority path and reports counts', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'sess-1' }, { id: 'sess-2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'ag-1', subject_authority_record_id: 'sess-1', parent_id: null }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'edge-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pc-1' }] })
+      .mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'auth0|507f1f77bcf86cd799439011', reason: 'credential compromise' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({
+      subject_id: 'auth0|507f1f77bcf86cd799439011',
+      authority_records: 2,
+      sessions: 1,
+      delegations: 1,
+      connections: 1,
+    })
+    const calls = db.query.mock.calls.map((call) => String(call[0]))
+    expect(calls[1]).toContain("revoked_reason = 'subject_revoked'")
+    expect(calls[1]).toContain('UPDATE authority_records')
+    expect(calls[2]).toContain('WITH RECURSIVE tree')
+    expect(calls[2]).toContain('UPDATE sessions')
+    expect(calls[3]).toContain('UPDATE delegation_edges')
+    expect(calls[4]).toContain('UPDATE provider_connections')
+    const outbox = calls.find((sql) => sql.includes('INSERT INTO event_outbox'))
+    expect(outbox).toBeDefined()
+    const outboxValues = db.query.mock.calls[calls.indexOf(outbox!)][1] as unknown[][]
+    expect(outboxValues[1]).toContain('caracal.sessions.revoke')
+    const audit = calls.find((sql) => sql.includes('admin_audit'))
+    expect(audit).toBeDefined()
+  })
+
+  it('is idempotent: an already cut-off subject reports zero counts', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValue({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'auth0|507f1f77bcf86cd799439011' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ authority_records: 0, sessions: 0, delegations: 0, connections: 0 })
+  })
+
+  it('404s a subject with no recorded sessions and validates the body', async () => {
+    const { app, db } = buildRouteApp(subjectsRoutes)
+    db.query.mockResolvedValue({ rows: [] })
+    await app.ready()
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/subjects/revoke',
+      payload: { subject_id: 'ghost' },
+    })
+    expect(unknown.statusCode).toBe(404)
+    const invalid = await app.inject({ method: 'POST', url: '/v1/zones/z1/subjects/revoke', payload: {} })
+    expect(invalid.statusCode).toBe(400)
+  })
+})

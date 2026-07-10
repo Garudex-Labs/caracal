@@ -8,6 +8,7 @@ CREATE SCHEMA public;
 
 DROP ROLE IF EXISTS caracalapi;
 DROP ROLE IF EXISTS caracalaudit;
+DROP ROLE IF EXISTS caracalauth;
 DROP ROLE IF EXISTS caracalcoordinator;
 DROP ROLE IF EXISTS caracalgateway;
 DROP ROLE IF EXISTS caracalsts;

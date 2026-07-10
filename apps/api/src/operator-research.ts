@@ -3,9 +3,9 @@
 //
 // The ephemeral Operator state researcher: gathers live evidence through governed reads onto a per-turn blackboard so a read answer is grounded in real state, not a guess.
 
-import { CONTROL_CAPABILITIES, type ControlGen } from './operator-control-map.js'
+import { CONTROL_CAPABILITIES } from './operator-control-map.js'
 import { CAPABILITIES } from './operator-capabilities.js'
-import { ControlClientError, type ControlClient } from './control-client.js'
+import { ControlClientError, type ControlClient } from '@caracalai/admin'
 
 // The most rows a single read contributes to the prompt. Evidence carries the full live count
 // but only a bounded list of names, so a large zone never inflates the prompt.
@@ -96,18 +96,23 @@ const DOMAIN_ROW_FIELDS: Record<string, { idField: string; fields: string[] }> =
   application: { idField: 'id', fields: ['name', 'registration_method', 'created_at'] },
   provider: { idField: 'id', fields: ['name', 'identifier', 'kind', 'created_at'] },
   resource: { idField: 'id', fields: ['name', 'identifier', 'upstream_url', 'scopes', 'created_at'] },
-  policy: { idField: 'id', fields: ['name', 'description', 'owner_type', 'created_at'] },
+  policy: { idField: 'id', fields: ['name', 'description', 'created_at'] },
   grant: {
     idField: 'id',
     fields: ['application_name', 'application_id', 'user_id', 'resource_name', 'resource_id', 'scopes', 'status', 'created_at'],
   },
-  session: { idField: 'id', fields: ['session_type', 'subject_id', 'status', 'authenticated_at', 'expires_at'] },
-  agent: { idField: 'agent_session_id', fields: ['application_id', 'lifecycle', 'status', 'depth', 'labels', 'spawned_at'] },
+  'authority-record': {
+    idField: 'authority_record_id',
+    fields: ['authority_record_type', 'subject_id', 'status', 'authenticated_at', 'expires_at'],
+  },
+  session: { idField: 'session_id', fields: ['application_id', 'lifecycle', 'status', 'depth', 'labels', 'started_at'] },
   delegation: {
     idField: 'id',
     fields: ['issuer_application_id', 'receiver_application_id', 'resource_id', 'scopes', 'status', 'expires_at', 'created_at'],
   },
   audit: { idField: 'id', fields: ['event_type', 'decision', 'evaluation_status', 'request_id', 'occurred_at'] },
+  workload: { idField: 'id', fields: ['name', 'created_at', 'updated_at'] },
+  approval: { idField: 'id', fields: ['challenge_type', 'tier', 'approver_class', 'state', 'created_at', 'expires_at'] },
 }
 
 // Flattens one allowlisted field value for a display row: strings pass through, string arrays keep
@@ -208,12 +213,14 @@ function summarizeRows(
 }
 
 // Narrows the governed reads to the object domains a turn actually concerns, so a request about one
-// domain reads only that domain instead of fanning out across every read. An unspecified or empty
-// domain set reads everything, and a domain set that maps to no governed read also falls back to the
-// full set, so a turn can never end up with nothing to ground on because triage named a domain that
-// has no read behind it.
+// domain reads only that domain instead of fanning out across every read. Only reads whose arguments
+// accept an empty call participate - a read that requires an argument (a request id, a policy
+// document) answers a specific question, not a state sweep. An unspecified or empty domain set reads
+// everything, and a domain set that maps to no governed read also falls back to the full set, so a
+// turn can never end up with nothing to ground on because triage named a domain that has no read
+// behind it.
 function selectReads(domains: string[] | undefined): string[] {
-  const all = governedReadCapabilities()
+  const all = governedReadCapabilities().filter((id) => CAPABILITIES[id].args.safeParse({}).success)
   if (!domains || domains.length === 0) return all
   const scoped = all.filter((id) => domains.includes(CAPABILITIES[id].domain))
   return scoped.length > 0 ? scoped : all
@@ -229,12 +236,11 @@ export function createStateResearcher(client: ControlClient): Researcher {
   return {
     async gather(domains?: string[]): Promise<Blackboard> {
       const reads = selectReads(domains)
-      const gen: ControlGen = { secret: '' }
       const evidence = await Promise.all(
         reads.map(async (id): Promise<Evidence> => {
           const capability = CONTROL_CAPABILITIES[id]
           const domain = CAPABILITIES[id].domain
-          const invocation = capability.buildInvocation({}, gen)
+          const invocation = capability.buildInvocation({})
           try {
             const result = await client.invoke(invocation.command, invocation.subcommand, invocation.flags, capability.scopes)
             const { count, names, items, attributes, rows } = summarizeRows(result, domain)

@@ -48,6 +48,10 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg.MaxConnIdleTime = config.DurationEnv("DB_MAX_CONN_IDLE", dbDefaultMaxConnIdle)
 	cfg.HealthCheckPeriod = config.DurationEnv("DB_HEALTH_CHECK_PERIOD", dbDefaultHealthCheck)
 	cfg.ConnConfig.ConnectTimeout = config.DurationEnv("DB_CONNECT_TIMEOUT", dbDefaultConnectTimeout)
+	// The audit writer records events for every zone, so each session carries the
+	// RLS sentinel; row-level security stays a backstop for the per-request zone
+	// scoping in the control plane.
+	cfg.ConnConfig.RuntimeParams["caracal.zone_id"] = "*"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)
@@ -55,8 +59,18 @@ func newPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// auditPool is the pool surface PGWriter uses; *pgxpool.Pool satisfies it.
+type auditPool interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Acquire(ctx context.Context) (*pgxpool.Conn, error)
+	Ping(ctx context.Context) error
+}
+
 type PGWriter struct {
-	db           *pgxpool.Pool
+	db           auditPool
 	auditHMACKey []byte
 	onInsert     func()
 }
@@ -407,13 +421,7 @@ func (w *PGWriter) ConfiguredRetentionDays(ctx context.Context) (int, bool, erro
 func (w *PGWriter) EnsurePartition(ctx context.Context, t time.Time) error {
 	t = t.UTC()
 	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 1, 0)
-	name := fmt.Sprintf("audit_events_y%04dm%02d", start.Year(), int(start.Month()))
-	_, err := w.db.Exec(ctx,
-		fmt.Sprintf(
-			`CREATE TABLE IF NOT EXISTS %s PARTITION OF audit_events
-			 FOR VALUES FROM ('%s') TO ('%s')`,
-			name, start.Format("2006-01-02"), end.Format("2006-01-02")))
+	_, err := w.db.Exec(ctx, `SELECT public.audit_partition_ensure($1)`, start)
 	return err
 }
 
@@ -451,7 +459,7 @@ func (w *PGWriter) DropPartitionsBefore(ctx context.Context, cutoff time.Time) (
 		}
 		end := time.Date(y, time.Month(m)+1, 1, 0, 0, 0, 0, time.UTC)
 		if !end.After(cutoff) {
-			if _, err := w.db.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, n)); err != nil {
+			if _, err := w.db.Exec(ctx, `SELECT public.audit_partition_drop($1)`, n); err != nil {
 				return dropped, err
 			}
 			dropped = append(dropped, n)

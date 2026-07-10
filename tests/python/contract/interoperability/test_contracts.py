@@ -28,13 +28,21 @@ class InteroperabilityContractTests(unittest.TestCase):
         self.assertEqual(claims["use"], "resource")
         self.assertEqual(claims["sub_type"], "user")
         self.assertIn(claims["aud"], claims["target"])
+        self.assertEqual(claims["sid"], "authority-record-1")
+        self.assertEqual(claims["root_sid"], "authority-record-root")
+        self.assertEqual(claims["agent_session_id"], "session-child")
+        self.assertEqual(claims["delegation_edge_id"], "delegation-1")
+        self.assertEqual(claims["source_session_id"], "session-parent")
+        self.assertEqual(claims["target_session_id"], "session-child")
 
     def test_trace_context_fixture_uses_w3c_headers(self) -> None:
         headers = read_fixture("trace-context.headers.valid.json")
 
-        self.assertRegex(str(headers["traceparent"]), r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+        self.assertRegex(
+            str(headers["traceparent"]), r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+        )
         self.assertIn("tracestate", headers)
-        self.assertIn("caracal.agent_session=", str(headers["baggage"]))
+        self.assertIn("caracal.agent_session=session-child", str(headers["baggage"]))
         self.assertIn("caracal.hop=1", str(headers["baggage"]))
 
     def test_gateway_manifest_fixture_declares_enforcement_requirements(self) -> None:
@@ -53,7 +61,7 @@ class InteroperabilityContractTests(unittest.TestCase):
         self.assertIsInstance(execution, dict)
         self.assertEqual(execution["credential_exposure"], "gateway_only")
 
-    def test_agent_connector_manifest_labels_enforcement(self) -> None:
+    def test_agent_framework_connector_manifest_labels_enforcement(self) -> None:
         manifest = read_fixture("agent-connector-manifest.valid.json")
 
         audit = manifest["audit"]

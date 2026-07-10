@@ -5,7 +5,13 @@
 
 import { createHmac } from 'node:crypto'
 import { describe, it, expect, vi } from 'vitest'
-import { buildAuditPayload, newRequestId, RedisSink, type AuditEvent } from '../../../../../apps/api/src/control/audit.js'
+import {
+  buildAuditPayload,
+  newRequestId,
+  AuditUnavailableError,
+  RedisSink,
+  type AuditEvent,
+} from '../../../../../apps/api/src/control/audit.js'
 
 function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
   return {
@@ -14,7 +20,7 @@ function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
     clientId: 'app-1',
     subject: 'user-1',
     jti: 'jti-1',
-    command: 'agent',
+    command: 'session',
     subcommand: 'spawn',
     decision: 'allow',
     reason: 'ok',
@@ -45,7 +51,7 @@ describe('buildAuditPayload', () => {
       subject: 'user-1',
       jti: 'jti-1',
       client_id: 'app-1',
-      command: 'agent',
+      command: 'session',
       subcommand: 'spawn',
       reason: 'ok',
     })
@@ -87,6 +93,15 @@ describe('buildAuditPayload', () => {
       authorized_by: '',
     })
   })
+
+  it('strips NUL bytes from caller-influenced strings so the payload persists', () => {
+    const values = buildAuditPayload(event({ subject: 'user\u0000-1', reason: 'bad\u0000reason', zoneId: 'zone\u0000-1' }), undefined)
+    expect(values.data).not.toContain('\\u0000')
+    const data = JSON.parse(values.data)
+    expect(data.zone_id).toBe('zone-1')
+    expect(data.metadata_json.subject).toBe('user-1')
+    expect(data.metadata_json.reason).toBe('badreason')
+  })
 })
 
 describe('RedisSink', () => {
@@ -104,11 +119,37 @@ describe('RedisSink', () => {
     expect(args).toContain('sig')
   })
 
-  it('logs and swallows errors so emit never throws', async () => {
+  it('falls back to a durable outbox enqueue when the stream write fails', async () => {
+    const warn = vi.fn()
+    const xadd = vi.fn().mockRejectedValue(new Error('redis down'))
+    const query = vi.fn().mockResolvedValue({ rows: [] })
+    const sink = new RedisSink({ xadd } as never, Buffer.from('k'), { warn, error: vi.fn() } as never, 500, { query })
+    await expect(sink.emit(event())).resolves.toBeUndefined()
+    expect(query).toHaveBeenCalledOnce()
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]]
+    expect(sql).toContain('event_outbox')
+    expect(params[1]).toContain('audit')
+    const payload = JSON.parse(params[2] as string) as Record<string, string>
+    expect(payload.id).toBe('req-1')
+    expect(payload.sig).toMatch(/^[0-9a-f]{64}$/)
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it('throws when the stream write fails and no outbox is configured', async () => {
     const error = vi.fn()
     const xadd = vi.fn().mockRejectedValue(new Error('redis down'))
     const sink = new RedisSink({ xadd } as never, undefined, { error } as never)
-    await expect(sink.emit(event())).resolves.toBeUndefined()
+    await expect(sink.emit(event())).rejects.toBeInstanceOf(AuditUnavailableError)
+    expect(error).toHaveBeenCalledOnce()
+    expect(error.mock.calls[0][1]).toMatchObject({ request_id: 'req-1' })
+  })
+
+  it('throws when both the stream write and the outbox enqueue fail', async () => {
+    const error = vi.fn()
+    const xadd = vi.fn().mockRejectedValue(new Error('redis down'))
+    const query = vi.fn().mockRejectedValue(new Error('pg down'))
+    const sink = new RedisSink({ xadd } as never, undefined, { error } as never, 500, { query })
+    await expect(sink.emit(event())).rejects.toBeInstanceOf(AuditUnavailableError)
     expect(error).toHaveBeenCalledOnce()
     expect(error.mock.calls[0][1]).toMatchObject({ request_id: 'req-1' })
   })

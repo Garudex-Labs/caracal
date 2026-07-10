@@ -3,79 +3,90 @@ title: Identity Package
 description: JWT verification packages for mandate claims, scopes, targets, agents, delegation, and hop count.
 ---
 
-The identity packages verify Caracal mandate JWTs. Use them when you are building a connector, transport, or custom resource-server boundary that accepts mandates directly.
+The identity packages verify Caracal mandate JWTs. Use them when you are building an adapter or custom resource-server boundary that accepts mandates directly.
 
 ## Install
 
-| Ecosystem | Package |
-| --- | --- |
-| TypeScript | `npm install @caracalai/identity` |
-| Python | `pip install caracalai-identity` |
-| Go | `go get github.com/garudex-labs/caracal/packages/identity/go` |
+| Ecosystem  | Package                                                       |
+| ---------- | ------------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/identity`                             |
+| Python     | `pip install caracalai-identity`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/identity/go` |
 
 Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 
 ## Verification inputs
 
-| Option | Meaning |
-| --- | --- |
-| `issuer` / `Issuer` | Expected STS issuer. |
-| `audience` / `Audience` | Expected audience for the mandate. |
-| `zoneId` / `expected_zone_id` / `ZoneID` | Zone claim check. When omitted, the verifier reads the unverified `zone_id` claim to select the zone keyset, then proves it through signature verification. |
-| `requiredScopes` / `required_scopes` / `RequiredScopes` | Scopes every accepted mandate must contain. |
-| `requiredTargets` / `required_targets` / `RequiredTargets` | Target resources every accepted mandate must include. |
-| `requiredUse` / `required_use` / `RequiredUse` | Token use, usually `resource`. |
-| `requireAgent` / `require_agent` / `RequireAgent` | Require agent-session claims. |
-| `requireDelegation` / `require_delegation` / `RequireDelegation` | Require a delegation edge. |
-| `requireChainContains` / `require_chain_contains` / `RequireChainContains` | Require an application in the delegation chain. |
-| `maxHopCount` / `max_hop_count` / `MaxHopCount` | Cap delegation chain depth. |
+| Option                                                                     | Meaning                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issuer` / `Issuer`                                                        | Expected STS issuer.                                                                                                                                                                                                                |
+| `audience` / `Audience`                                                    | Expected audience for the mandate.                                                                                                                                                                                                  |
+| `zoneId` / `expected_zone_id` / `ZoneID`                                   | Required zone trust anchor. It fixes which zone's signing keyset verifies the token and must equal the `zone_id` claim, so key selection is never influenced by the unverified token. Verification fails closed when it is missing. |
+| `requiredScopes` / `required_scopes` / `RequiredScopes`                    | Scopes every accepted mandate must contain.                                                                                                                                                                                         |
+| `requiredTargets` / `required_targets` / `RequiredTargets`                 | Target resources every accepted mandate must include.                                                                                                                                                                               |
+| `requiredUse` / `required_use` / `RequiredUse`                             | Token use, usually `resource`.                                                                                                                                                                                                      |
+| `requireSession` / `require_session` / `RequireSession`                    | Require a governed Session identity.                                                                                                                                                                                                   |
+| `requireDelegation` / `require_delegation` / `RequireDelegation`           | Require a Delegation claim (`delegation_edge_id` on the wire).                                                                                                                                                                      |
+| `requireChainContains` / `require_chain_contains` / `RequireChainContains` | Require an application in the delegation chain.                                                                                                                                                                                     |
+| `maxHopCount` / `max_hop_count` / `MaxHopCount`                            | Cap delegation chain depth.                                                                                                                                                                                                         |
 
 ## TypeScript example
 
 ```ts
-import { verify } from "@caracalai/identity";
+import { verify } from '@caracalai/identity'
 
 const claims = await verify(token, {
-  issuer: "https://sts.example.com",
-  audience: "https://api.example.com",
-  zoneId: "zone_prod",
-  requiredScopes: ["tickets:read"],
-  requiredTargets: ["https://api.example.com/tickets"],
-});
+  issuer: 'https://sts.example.com',
+  audience: 'https://api.example.com',
+  zoneId: 'zone_prod',
+  requiredScopes: ['tickets:read'],
+  requiredTargets: ['https://api.example.com/tickets'],
+})
 ```
+
+## Parsed claim names
+
+The identity packages map raw JWT claims to canonical language-level fields:
+
+| Meaning                  | TypeScript              | Python                     | Go                      | Raw JWT claim        |
+| ------------------------ | ----------------------- | -------------------------- | ----------------------- | -------------------- |
+| Authority record ID      | `authorityRecordId`     | `authority_record_id`      | `AuthorityRecordID`     | `sid`                |
+| Root authority record ID | `rootAuthorityRecordId` | `root_authority_record_id` | `RootAuthorityRecordID` | `root_sid`           |
+| Session ID               | `sessionId`             | `session_id`               | `SessionID`             | `agent_session_id`   |
+| Delegation ID            | `delegationId`          | `delegation_id`            | `DelegationID`          | `delegation_edge_id` |
 
 ## JWKS caching
 
 STS signing keysets are zone-scoped: every fetch hits `{issuer}/.well-known/jwks.json?zone_id={zone}` and is cached per issuer and zone. TypeScript verifiers use an in-memory JWKS cache by default. Build a cache explicitly when a resource server wants shorter local-development TTLs, a custom fetch implementation, or warmup during service boot.
 
 ```ts
-import { createJwksCache, verify } from "@caracalai/identity";
+import { createJwksCache, verify } from '@caracalai/identity'
 
-const jwksCache = createJwksCache({ ttlMs: 300_000, fetchTimeoutMs: 5_000 });
-await jwksCache.warm("https://sts.example.com", "zone_prod");
+const jwksCache = createJwksCache({ ttlMs: 300_000, fetchTimeoutMs: 5_000 })
+await jwksCache.warm('https://sts.example.com', 'zone_prod')
 
 const claims = await verify(token, {
-  issuer: "https://sts.example.com",
-  audience: "https://api.example.com",
-  zoneId: "zone_prod",
+  issuer: 'https://sts.example.com',
+  audience: 'https://api.example.com',
+  zoneId: 'zone_prod',
   jwksCache,
-});
+})
 ```
 
-Go and Python identity packages also cache issuer JWKS metadata in memory. Python exposes `warm_jwks(issuer, zone_id)` for service boot; Go callers can warm the cache with `GetJWKSContext(ctx, issuer, zoneID)`.
+Go and Python identity packages also cache issuer JWKS metadata in memory and cap documents at 256 KiB. Python `JwksCache(http_client=...)` accepts an injected async client for private CAs, proxies, or mTLS. Go callers use `NewJWKSCache(httpClient, ttl)` and pass it through `Config.JWKSCache`; `GetJWKSContext` retains the bounded default. Python exposes `warm_jwks(issuer, zone_id)` for service boot.
 
 ## Failure classes
 
-| Error | Meaning |
-| --- | --- |
-| `TokenInvalidError` | Signature, issuer, audience, expiry, use, or claim validation failed. |
-| `ZoneInvalidError` | The token zone did not match the expected zone. |
-| `ScopeInsufficientError` | A required scope is missing. |
-| `AgentIdentityRequiredError` | The verifier requires an agent identity. |
-| `DelegationRequiredError` | The verifier requires delegated authority. |
-| `ChainMismatchError` | The delegation chain is missing a required application. |
-| `HopCountExceededError` | The mandate exceeds the configured hop limit. |
+| Error                        | Meaning                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `TokenInvalidError`          | Signature, issuer, audience, expiry, use, or claim validation failed.                  |
+| `ZoneInvalidError`           | The token zone did not match the expected zone.                                        |
+| `ScopeInsufficientError`     | A required scope is missing.                                                           |
+| `SessionRequiredError`       | The verifier requires a governed Session identity.                                      |
+| `DelegationRequiredError`    | The verifier requires delegated authority.                                             |
+| `ChainMismatchError`         | The delegation chain is missing a required application.                                |
+| `HopCountExceededError`      | The mandate exceeds the configured hop limit.                                          |
 
-## When to Use MCP Auth Transport
+## When to Use Verify Package
 
-Use [MCP Auth Transport](/sdks/transport-mcp/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or connector boundary.
+Use [Verify Package](/sdks/verify/) when you also need revocation checks, reusable verifier defaults, bearer-header parsing, and safe debugging hints. Use the identity package directly when you are composing your own verifier or adapter boundary.

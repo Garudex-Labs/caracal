@@ -5,7 +5,7 @@
 
 ## Architecture Design
 - `api/` is the Fastify control-plane API.
-- `coordinator/` is the Fastify agent lifecycle and delegation coordinator.
+- `coordinator/` is the Fastify Session lifecycle and Delegation coordinator.
 - `runtime/` is the top-level runtime shell.
 - `web/` is the browser-based control plane (web console) and `auth/` its session-guarded backend-for-frontend.
 - Shared execution and API logic belongs in `packages/engine` and `packages/admin`, not in app siblings.

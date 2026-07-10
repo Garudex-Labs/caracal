@@ -2,10 +2,10 @@
 title: Mandates
 description: The short-lived, signed JWT that carries approved session or resource authority.
 sidebar:
-  order: 8
+  order: 9
 ---
 
-A mandate is the token Caracal issues after the STS approves an exchange. It is a short-lived JWT signed with the zone signing key and verified by the Gateway or resource connectors.
+A mandate is the token Caracal issues after the STS approves an exchange. It is a short-lived JWT signed with the zone signing key and verified by the Gateway or resource adapters.
 
 ## What a Mandate Proves
 
@@ -15,50 +15,50 @@ A valid mandate proves:
 - which application and principal are acting;
 - which session anchors are active;
 - which resource targets and scopes were approved;
-- whether authority came from an agent session or delegation edge;
+- which Authority record, Session, and Delegation supplied the authority;
 - when the authority expires.
 
 ## Issuance Path
 
 ```mermaid
 flowchart LR
-  Subject["Subject token or agent context"] --> Exchange["OAuth token exchange"]
+  Subject["Subject token or Session context"] --> Exchange["OAuth token exchange"]
   Exchange --> Policy["Policy evaluation"]
   Policy -->|"allow"| Mandate["Mandate JWT"]
-  Mandate --> Verify["Gateway or connector verification"]
+  Mandate --> Verify["Gateway or adapter verification"]
   Verify --> Resource["Protected resource"]
 ```
 
 ## Mandate Use
 
-| Use | Verification focus |
-| --- | --- |
-| Gateway request | Issuer, audience, zone, resource, scopes, expiry, revocation. |
-| MCP tool call | Bearer token, required scopes, required targets, agent/delegation constraints. |
-| SDK outbound call | Context propagation and mandate header injection. |
-| Delegated exchange | Agent session, delegation edge, scopes, hop count, and constraints. |
+| Use                | Verification focus                                                             |
+| ------------------ | ------------------------------------------------------------------------------ |
+| Gateway request    | Issuer, audience, zone, resource, scopes, expiry, revocation.                  |
+| MCP tool call      | Bearer token, required scopes, required targets, Session and Delegation constraints. |
+| SDK outbound call  | Context propagation and mandate header injection.                              |
+| Delegated exchange | Session, Delegation, scopes, hop count, and constraints.                       |
 
 ## Mandates Are Not API Keys
 
 Mandates are intentionally short lived and context bound. They should not be stored as durable credentials, copied into configuration files, or reused across unrelated resources.
 
-Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation-anchor checks for the session, root session, agent session, and delegation edge when present.
+Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation checks for the Authority record ID, Root authority record ID, Session ID, and Delegation ID when those claims are present. See the [parsed claim mapping](/sdks/identity/#parsed-claim-names) for language-level and raw JWT names.
 
 ## Failure Modes
 
-| Failure | Meaning |
-| --- | --- |
-| `invalid_token` | Signature, issuer, audience, required claim, or expiry validation failed. |
-| `scope_insufficient` | The mandate does not contain a required scope. |
-| `session_revoked` | One of the mandate revocation anchors has been revoked. |
-| `agent_identity_required` | The resource requires an agent mandate. |
-| `delegation_required` | The resource requires delegated authority. |
-| `chain_mismatch` | The delegation chain does not include the required application. |
-| `hop_count_exceeded` | The delegation path exceeds the configured hop limit. |
+| Failure                   | Meaning                                                                   |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `invalid_token`           | Signature, issuer, audience, required claim, or expiry validation failed. |
+| `scope_insufficient`      | The mandate does not contain a required scope.                            |
+| `session_revoked`         | One of the mandate revocation anchors has been revoked.                   |
+| `session_required`        | The resource requires authority from a governed Session.                  |
+| `delegation_required`     | The resource requires delegated authority.                                |
+| `chain_mismatch`          | The delegation chain does not include the required application.           |
+| `hop_count_exceeded`      | The delegation path exceeds the configured hop limit.                     |
 
 ## Next Step
 
-Read [Agent Delegation](/concepts/delegation/) to understand how agent sessions pass bounded authority.
+Read [Session Delegation](/concepts/delegation/) to understand how Sessions pass bounded authority.
 
 ## Related Pages
 

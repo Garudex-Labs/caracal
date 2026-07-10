@@ -3,21 +3,13 @@
 //
 // Zone lifecycle integration tests: create, read, update, and delete sequence.
 
-import { describe, it, expect, vi } from 'vitest'
-import Fastify from 'fastify'
-import type { DB } from '../../../../apps/api/src/db.js'
-import type { RedisClient } from '../../../../apps/api/src/redis.js'
+import { describe, it, expect } from 'vitest'
 import '../../../../apps/api/src/fastify-augmentation.js'
 import { zonesRoutes } from '../../../../apps/api/src/routes/zones.js'
+import { buildRouteApp } from '../../../shared/test-utils/typescript/fastify.js'
 
 function buildApp() {
-  const app = Fastify({ logger: false })
-  const db = { query: vi.fn(), connect: vi.fn() }
-  const redis = { incr: vi.fn(), expire: vi.fn(), xadd: vi.fn() }
-  app.decorate('db', db as unknown as DB)
-  app.decorate('redis', redis as unknown as RedisClient)
-  app.register(zonesRoutes, { prefix: '/v1' })
-  return { app, db, redis }
+  return buildRouteApp(zonesRoutes)
 }
 
 const mockZone = {
@@ -74,7 +66,8 @@ describe('Zone lifecycle: create → list includes zone', () => {
     const listRes = await app.inject({ method: 'GET', url: '/v1/zones' })
     expect(listRes.statusCode).toBe(200)
     const zones = JSON.parse(listRes.body)
-    expect(zones.some((z: { id: string }) => z.id === 'z-lifecycle-1')).toBe(true)
+    expect(zones.next_cursor).toBeNull()
+    expect(zones.items.some((z: { id: string }) => z.id === 'z-lifecycle-1')).toBe(true)
   })
 })
 
@@ -133,7 +126,7 @@ describe('Zone list is ordered by creation date', () => {
 
     const res = await app.inject({ method: 'GET', url: '/v1/zones' })
     expect(res.statusCode).toBe(200)
-    const zones = JSON.parse(res.body)
+    const zones = JSON.parse(res.body).items
     expect(zones[0].id).toBe('z-newer')
     expect(zones[1].id).toBe('z-older')
   })

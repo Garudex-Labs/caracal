@@ -4,7 +4,7 @@ description: Wire app code through the SDK so protected calls carry Caracal auth
 pageType: workflow
 ---
 
-This tutorial connects application code to Caracal. The examples use a runtime profile, open one agent session, and call a Gateway-protected resource.
+This tutorial connects application code to Caracal. The examples use a runtime profile, open one Session, and call a Gateway-protected resource.
 
 ## 1. Confirm the App and Profile
 
@@ -42,22 +42,22 @@ npm install @caracalai/sdk
 ```
 
 ```typescript
-import { Caracal } from "@caracalai/sdk";
+import { Caracal } from '@caracalai/sdk'
 
-const caracal = new Caracal();
-const resourceId = process.env.CARACAL_RESOURCE_ID!;
-const resourcePath = process.env.CARACAL_RESOURCE_PATH!;
+const caracal = new Caracal()
+const resourceId = process.env.CARACAL_RESOURCE_ID!
+const resourcePath = process.env.CARACAL_RESOURCE_PATH!
 
-await caracal.spawn(async () => {
-  const request = caracal.gatewayRequest(resourceId, resourcePath);
+await caracal.session(async () => {
+  const request = caracal.gatewayRequest(resourceId, resourcePath)
   const response = await caracal.transport()(request.url, {
-    method: "POST",
-    headers: { ...request.headers, "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { ...request.headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount: 1200 }),
-  });
+  })
 
-  console.log(await response.text());
-});
+  console.log(await response.text())
+})
 ```
 
 ### Python
@@ -77,7 +77,7 @@ resource_id = os.environ["CARACAL_RESOURCE_ID"]
 resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
-    async with caracal.spawn():
+    async with caracal.session():
         request = caracal.gateway_request(resource_id, resource_path)
         async with caracal.transport() as client:
             response = await client.post(
@@ -105,7 +105,7 @@ if err != nil {
 resourceID := os.Getenv("CARACAL_RESOURCE_ID")
 resourcePath := os.Getenv("CARACAL_RESOURCE_PATH")
 
-err = c.Spawn(context.Background(), func(ctx context.Context) error {
+err = c.Session(context.Background(), func(ctx context.Context) error {
     target, err := c.GatewayRequest(resourceID, resourcePath)
     if err != nil {
         return err
@@ -132,18 +132,18 @@ if err != nil {
 
 ## 3. Understand the Runtime Behavior
 
-| SDK call | What happens |
-| --- | --- |
-| `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange. |
-| `spawn()` / `Spawn()` | Creates an agent session, binds context, and tears it down after the block returns. |
-| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header. |
-| `transport()` / `Transport()` | Injects Authorization, trace, baggage, and Gateway routing behavior. |
+| SDK call                                | What happens                                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange.                                    |
+| `session()` / `Session()`               | Creates a Session, binds context, and tears it down after the block returns.                   |
+| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header.                                        |
+| `transport()` / `Transport()`           | Injects trace and baggage context, Gateway routing, and Authorization on Gateway-routed calls. |
 
-`spawn()` is the session boundary. If the function exits or raises, the SDK terminates the agent session and active authority for that session is revoked.
+`session()` is the session boundary. If the function exits or raises, the SDK terminates the Session and active authority for that session is revoked.
 
-One application credential backs every agent session you spawn. A workload registers one application, then opens an agent session per unit of work - you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
+One application credential backs every Session you start. A workload registers one application, then opens a Session per unit of work - you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
-If your app spawns child agents or delegates work, continue to [Implement Multi-Agent Delegation](/guides/delegation/) after this tutorial path.
+If your app starts a Session for each child agent or delegates work, continue to [Implement Multi-Agent Delegation](/guides/delegation/) after this tutorial path.
 
 ## 4. Verify Audit
 

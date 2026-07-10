@@ -10,57 +10,62 @@ The repository threat model covers the current open-source Caracal runtime, serv
 
 Caracal's security requirements are met under an explicit assurance case maintained in [`governance/THREAT_MODEL.md`](https://github.com/Garudex-Labs/caracal/blob/main/governance/THREAT_MODEL.md). It argues the claim from four pillars:
 
-- **Threat model:** threats T1–T12 each carry an owner, a required mitigation, and a verification step.
+- **Threat model:** threats T1–T14 each carry an owner, a required mitigation, and a verification step.
 - **Trust boundaries:** every boundary names what is untrusted and where mediation happens (see [Enforce Boundaries](/architecture/trust-boundaries/)).
 - **Secure design principles:** deny-by-default, complete mediation, least privilege, defense in depth, and separation of privilege are enforced in STS, gateway, control, and the data layer.
 - **Implementation weaknesses countered:** input validation, token-confusion prevention, SSRF blocking, secret redaction, audit/stream integrity, and a signed, provenance-attested release path, each backed by tests and scanners.
 
 ## In-Scope Areas
 
-| Area | Scope |
-| --- | --- |
-| API | Control-plane routes, admin auth, product state, step-up APIs, admin audit. |
-| Coordinator | Agent lifecycle, delegation, invocation, TTL, retention, outbox. |
-| STS | OAuth token exchange, signing, JWKS, policy decisions, replay, revocation, step-up, audit emission. |
-| Gateway | Proxy enforcement, upstream safety, STS exchange, bindings, replay, revocation checks. |
-| Audit | Redis stream consumption, append-only ledger, HMAC chain, tamper sweeps, retention, export. |
-| Control | Optional invoke endpoint, engine catalog enforcement, JTI replay, rate limits, audit. |
-| Relay and streams | Coordinator lifecycle relay, Redis Streams signatures, dedupe, pending-entry handling. |
-| Packages and infra | SDKs, transports, connectors, Docker, Helm, migrations, installers, release artifacts. |
+| Area                     | Scope                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| API                      | Control-plane routes, admin auth, product state, step-up APIs, admin audit, AI Operator routes.     |
+| Coordinator              | Session lifecycle, Delegation, invocation, TTL, retention, outbox.                                  |
+| STS                      | OAuth token exchange, signing, JWKS, policy decisions, replay, revocation, step-up, audit emission. |
+| Gateway                  | Proxy enforcement, upstream safety, STS exchange, bindings, replay, revocation checks.              |
+| Audit                    | Redis stream consumption, append-only ledger, HMAC chain, tamper sweeps, retention, export.         |
+| Control                  | Optional invoke endpoint, engine catalog enforcement, JTI replay, rate limits, audit.               |
+| Web console and auth BFF | Sign-in, session cookies, origin enforcement, proxied admin calls, derived tokens.                  |
+| Relay and streams        | Coordinator lifecycle relay, Redis Streams signatures, dedupe, pending-entry handling.              |
+| Packages and infra       | SDKs, adapters, backends, Docker, Helm, migrations, installers, release artifacts.                  |
 
 Enterprise-only code and customer deployments outside the provided deployment model are out of scope for this open-source threat model.
 
 ## Assets
 
-| Asset | Why it matters |
-| --- | --- |
-| Agent and application authority | Controls what autonomous agents can access and do. |
-| Policies, grants, zones, resource bindings | Define authorization and proxy destinations. |
-| Signing keys, KEKs, admin tokens, client secrets, database/Redis credentials | Compromise enables impersonation or service takeover. |
-| Tokens, sessions, JTIs, revocations, step-up state | Enforce identity, replay prevention, expiry, and emergency denial. |
-| Audit events and chain state | Provide evidence for incidents and tamper detection. |
-| Redis Streams and outboxes | Carry lifecycle, invalidation, audit, and revocation events. |
-| Images, installers, releases, lockfiles | Define what users execute. |
+| Asset                                                                        | Why it matters                                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Agent and application authority                                              | Controls what autonomous agents can access and do.                 |
+| Policies, grants, zones, resource bindings                                   | Define authorization and proxy destinations.                       |
+| Signing keys, KEKs, admin tokens, client secrets, database/Redis credentials | Compromise enables impersonation or service takeover.              |
+| Tokens, sessions, JTIs, revocations, step-up state                           | Enforce identity, replay prevention, expiry, and emergency denial. |
+| Audit events and chain state                                                 | Provide evidence for incidents and tamper detection.               |
+| Redis Streams and outboxes                                                   | Carry lifecycle, invalidation, audit, and revocation events.       |
+| Images, installers, releases, lockfiles                                      | Define what users execute.                                         |
 
 ## Threats and Mitigations
 
-| Threat | Required mitigation |
-| --- | --- |
-| Control-plane mutation bypass | Mandatory auth hooks, schemas, zone guards, and admin audit. |
-| STS over-issues authority | Deny-by-default policy, grant/session validation, step-up, replay, revocation, and signing checks. |
-| Gateway forwards unsafely | Per-request STS exchange, upstream bindings, SSRF guard, header stripping, timeouts, replay and revocation checks. |
-| Agent/delegation state races | Transactions, locks, outbox events, dedupe, bounded relay retry. |
-| Secrets leak | File-secret resolution, redaction, no plaintext key material in responses/logs/audit/examples. |
-| Agent reads operator secrets | Operator secrets outside source workspaces, private operator directories, no secret mounts in agent containers, workload-only token injection, and separate users/containers for untrusted agents. |
-| Audit evidence is missing or forgeable | Append-only audit role, HMAC signing, DLQ, replay, tamper checks. |
-| Stream messages are forged or replayed | HMAC signatures, dedupe, pending-entry reclaim, ack only after durable handling. |
-| Control becomes unsafe command execution | Gate file, JWT auth, scope checks, engine dispatch only, no shelling out, audit. |
-| Release artifact compromise | Lockfile review, trusted workflows, image/archive validation, installer secret scans. |
-| Product boundary drift | Update threat model and reject OSS changes that depend on enterprise-only code. |
+| Threat                                      | Required mitigation                                                                                                                                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Control-plane mutation bypass               | Mandatory auth hooks, schemas, zone guards, and admin audit.                                                                                                                                       |
+| STS over-issues authority                   | Deny-by-default policy, grant/session validation, step-up, replay, revocation, and signing checks.                                                                                                 |
+| Gateway forwards unsafely                   | Per-request STS exchange, upstream bindings, SSRF guard, header stripping, timeouts, replay and revocation checks.                                                                                 |
+| Agent/delegation state races                | Transactions, locks, outbox events, dedupe, bounded relay retry.                                                                                                                                   |
+| Secrets leak                                | File-secret resolution, redaction, no plaintext key material in responses/logs/audit/examples.                                                                                                     |
+| Agent reads operator secrets                | Operator secrets outside source workspaces, private operator directories, no secret mounts in agent containers, workload-only token injection, and separate users/containers for untrusted agents. |
+| Audit evidence is missing or forgeable      | Append-only audit role, HMAC signing, DLQ, replay, tamper checks.                                                                                                                                  |
+| Stream messages are forged or replayed      | HMAC signatures, dedupe, pending-entry reclaim, ack only after durable handling.                                                                                                                   |
+| Availability loss disables enforcement      | Bounded request bodies, timeouts, rate limits, health and readiness gates, restart policies; readiness fails when PostgreSQL, Redis, or STS is down.                                               |
+| Control becomes unsafe command execution    | Gate file, JWT auth, scope checks, engine dispatch only, no shelling out, audit.                                                                                                                   |
+| Release artifact compromise                 | Lockfile review, trusted workflows, image/archive validation, installer secret scans.                                                                                                              |
+| Product boundary drift                      | Update threat model and reject OSS changes that depend on enterprise-only code.                                                                                                                    |
+| Admin foothold expands or hides its tracks  | Intent derived from authenticated identity instead of headers, authenticated metrics, fail-closed tamper-evident admin audit, read-only and zone-scoped admin tokens, row-level security backstop. |
+| Browser session riding against the web tier | Same-origin serving, origin allowlist on writes, strict security headers, hardened cookies, allowlisted registration, derived read/write tokens, rate-limited credential endpoints.                |
+| AI Operator misuse or prompt injection      | Plans require explicit approval, per-step authority re-checks, role-bounded reserved identities, opt-in zone reach, server-side plan secrets, capped model calls.                                  |
 
 ## Validation
 
-Use targeted suites for the changed boundary: API/Coordinator TypeScript tests, STS/Gateway/Audit Go tests, Control/Engine tests, stream consumer tests, release checks, and broader `pnpm run ci` when shared packages, crypto, config, release, or infra change.
+Use targeted suites for the changed boundary: API/Coordinator TypeScript tests, auth and web BFF tests, STS/Gateway/Audit Go tests, Control/Engine tests, stream consumer tests, release checks, and broader `pnpm run ci` when shared packages, crypto, config, release, or infra change.
 
 ## Next Step
 
