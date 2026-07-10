@@ -77,7 +77,7 @@ These helpers propagate session and delegation context so later token exchanges 
 
 ## Where You Interact With Delegation
 
-Delegation is authored **at runtime through the SDK**. There is no Console form for creating one. Call `session(authority=…)` or `delegate(to=…)`; Coordinator records and enforces the graph edge. Audit records the Delegation ID, hop chain, and scopes. The raw audit and Coordinator protocols name the ID `delegation_edge_id`.
+Delegation is authored **at runtime through the SDK**. There is no Console form for creating one. Call `session(authority=…)` or `delegate(to=…)`; Coordinator records and enforces the Delegation. Audit records the Delegation ID, hop chain, and scopes. See the [Coordinator protocol table](/api/coordinator/#delegation) for retained wire names.
 
 ## Next Step
 

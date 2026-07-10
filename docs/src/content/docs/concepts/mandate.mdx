@@ -34,7 +34,7 @@ flowchart LR
 | Use                | Verification focus                                                             |
 | ------------------ | ------------------------------------------------------------------------------ |
 | Gateway request    | Issuer, audience, zone, resource, scopes, expiry, revocation.                  |
-| MCP tool call      | Bearer token, required scopes, required targets, agent/delegation constraints. |
+| MCP tool call      | Bearer token, required scopes, required targets, Session and Delegation constraints. |
 | SDK outbound call  | Context propagation and mandate header injection.                              |
 | Delegated exchange | Session, Delegation, scopes, hop count, and constraints.                       |
 
@@ -42,7 +42,7 @@ flowchart LR
 
 Mandates are intentionally short lived and context bound. They should not be stored as durable credentials, copied into configuration files, or reused across unrelated resources.
 
-Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation checks for the Authority record ID (`sid`), Root authority record ID (`root_sid`), Session ID (`agent_session_id`), and Delegation ID (`delegation_edge_id`) when those raw JWT claims are present.
+Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation checks for the Authority record ID, Root authority record ID, Session ID, and Delegation ID when those claims are present. See the [parsed claim mapping](/sdks/identity/#parsed-claim-names) for language-level and raw JWT names.
 
 ## Failure Modes
 
@@ -51,7 +51,7 @@ Resource servers should always verify a mandate at request time. Verification in
 | `invalid_token`           | Signature, issuer, audience, required claim, or expiry validation failed. |
 | `scope_insufficient`      | The mandate does not contain a required scope.                            |
 | `session_revoked`         | One of the mandate revocation anchors has been revoked.                   |
-| `agent_identity_required` | The resource requires an agent mandate.                                   |
+| `session_required`        | The resource requires authority from a governed Session.                  |
 | `delegation_required`     | The resource requires delegated authority.                                |
 | `chain_mismatch`          | The delegation chain does not include the required application.           |
 | `hop_count_exceeded`      | The delegation path exceeds the configured hop limit.                     |

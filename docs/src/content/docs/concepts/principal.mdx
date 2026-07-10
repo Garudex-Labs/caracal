@@ -55,8 +55,8 @@ Coordinator records each Session's `lifecycle`: `task` for a block-scoped Sessio
 
 The Session topology enforces two structural rules so a child can never outlast or out-scope what its position allows:
 
-- A `task` parent cannot start a `service` child. The protocol error remains `task_agent_cannot_spawn_service`. A `service` parent may start either lifecycle.
-- A DCR Session is a **leaf**: it cannot parent or be a child Session. The protocol errors remain `dcr_application_cannot_spawn` and `dcr_application_cannot_be_child`.
+- A `task` parent cannot start a `service` child. The protocol reports `task_session_cannot_start_service`. A `service` parent may start either lifecycle.
+- A DCR Session is a **leaf**: it cannot parent or be a child Session. The protocol reports `dcr_application_cannot_start_child` and `dcr_application_cannot_be_child`.
 
 A **short-lived worker is not a separate lifecycle** - it is an ordinary `task` session created with a TTL. The mainstream tree of a long-lived orchestrator, mid-tier managers, and disposable task workers is modelled under **one managed application**:
 
@@ -64,7 +64,7 @@ A **short-lived worker is not a separate lifecycle** - it is an ordinary `task` 
 - each manager is a plain `session()` that inherits the application's authority,
 - each task worker is `session(authority=Authority.narrow([...]), ttl_seconds=…)` - least-privilege and auto-terminated on block exit, with the TTL sweeper as a backstop.
 
-Every node in that tree is a `task` Session under one managed application, distinguished by its Session ID, labels, and delegation context. On the Coordinator wire, Session ID is named `agent_session_id`. "Disposable worker" is expressed by TTL and narrowed authority, not a separate lifecycle.
+Every node in that tree is a `task` Session under one managed application, distinguished by its Session ID, labels, and Delegation context. "Disposable worker" is expressed by TTL and narrowed authority, not a separate lifecycle.
 
 DCR is therefore for credential isolation, not Session fan-out: it gives a unit of work an independently revocable, auto-expiring **application** identity.
 
@@ -76,15 +76,15 @@ A DCR application is reached by **authenticating as it**, not by starting it as 
 
 Disabling DCR on a zone always stops future dynamic registration. If live DCR applications exist, operators choose whether those identities continue until expiry or are revoked immediately. Revocation archives the applications, revokes their Authority records and Delegations, and terminates their Sessions.
 
-Policies receive protocol fields `input.principal.registration_method`, `input.principal.agent_session_id`, `input.principal.lifecycle`, and `input.principal.labels`. Here `agent_session_id` is the Session ID. Audit metadata records the application, registration method, Session ID, parent and Delegation context, requested scopes, and resource.
+Policies receive registration method, Session ID, lifecycle, and labels through the documented [policy input contract](/concepts/policy/#policy-input-contract). Audit metadata records the application, registration method, Session ID, parent and Delegation context, requested scopes, and resource.
 
 ## Telling Sessions Apart
 
-Every Session has one canonical Session ID. The Coordinator protocol calls it `agent_session_id`; SDK context exposes it as `sessionId`, `session_id`, or `SessionID`. It is returned when `session()` or `startSession()` starts the Session and is stamped onto its token exchanges and audit events.
+Every Session has one canonical Session ID. SDK context exposes it as `sessionId`, `session_id`, or `SessionID`. It is returned when `session()` or `startSession()` starts the Session and is stamped onto its token exchanges and audit events.
 
 `labels` are descriptors, not identity. Many Sessions under one application can intentionally share labels. Use labels, metadata, or a trace ID for business correlation; use Session ID for exact attribution.
 
-The Admin API audit protocol filters by `agent_session_id` for one Session or `label` for a role across many Sessions.
+The Admin API audit endpoint filters by `session_id` for one Session or `label` for a role across many Sessions.
 
 ## Sessions Bind Identity to Time
 

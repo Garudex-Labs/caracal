@@ -19,7 +19,7 @@ Checks run in five phases:
 | configuration | Provider configuration | Kind-required fields are present and `allowed_token_hosts` covers the token endpoint.                                  |
 | configuration | Scope coverage         | Every requested scope is declared on the resource.                                                                     |
 | configuration | Runtime injection      | Runtime-injection eligibility is enabled when required.                                                                |
-| connectivity  | Token endpoint host    | OAuth token endpoints are HTTPS and publicly routable.                                                                 |
+| connectivity  | Token endpoint host    | OAuth token endpoints are HTTPS and publicly routable, or explicitly granted as private egress.                        |
 | connectivity  | Callback reachability  | Authorization-code callback origins are HTTPS and reachable.                                                           |
 | connectivity  | Upstream reachability  | The protected upstream is reachable, with a warning when it resolves to a private address.                             |
 | authorization | Policy authorization   | Simulating the active policy set with the input shape STS uses for real token exchanges returns `allow`.               |

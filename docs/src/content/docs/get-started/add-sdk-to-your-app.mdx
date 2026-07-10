@@ -15,14 +15,14 @@ First Protected Call leaves you with a zone ID, an application ID, a client secr
 ```toml
 zone_id = "zone_prod"
 application_id = "app_agent"
+app_client_secret_file = "/path/to/caracal-client-secret"
 
 [[credentials]]
-env = "EXAMPLE_API_TOKEN"
 resource = "resource://example-api"
 upstream_prefix = "http://caracalDemoUpstream:80"
 ```
 
-On the local stack this is the whole file: the SDK defaults cover the STS, Coordinator, and Gateway URLs, and the client secret is read from the owner-only file you create at `<Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret`, holding the secret from when the application was created - retrievable any time from the application's detail panel, with every reveal audited. For cloud or custom deployments add `zone_url`, `coordinator_url`, `gateway_url`, and `app_client_secret_file`; see [Configuration File](/runtime-console/config-file/) for the full schema.
+On the local stack the SDK defaults cover the STS, Coordinator, and Gateway URLs. The profile must name the owner-only client-secret file explicitly; the SDK never searches local credential directories. The secret comes from application creation and can be revealed from the application's detail panel, with every reveal audited. For cloud or custom deployments add `sts_url`, `coordinator_url`, and `gateway_url`; see [Configuration File](/runtime-console/config-file/) for the full schema.
 
 The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every Session the SDK starts executes under that application identity, so one profile serves all the agents your workload creates.
 
@@ -66,7 +66,7 @@ if (!resourcePath) throw new Error('CARACAL_RESOURCE_PATH is required')
 
 await caracal.session(async () => {
   const ctx = caracal.current()
-  console.log('Session:', ctx?.agentSessionId)
+  console.log('Session:', ctx?.sessionId)
 
   const response = await caracal.fetch(resourceId, resourcePath, {
     method: 'GET',
@@ -131,7 +131,7 @@ func main() {
 
     err = c.Session(context.Background(), func(ctx context.Context) error {
         cc, _ := c.Current(ctx)
-        fmt.Println("Session:", cc.AgentSessionID)
+        fmt.Println("Session:", cc.SessionID)
 
         resp, err := c.Fetch(ctx, http.MethodGet, resourceID, resourcePath)
         if err != nil {

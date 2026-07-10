@@ -57,7 +57,7 @@ flowchart TB
 | STS         | OAuth token exchange, mandate issuance, policy evaluation, JWKS, step-up status, policy simulation, signing-key rotation internals. |
 | Gateway     | Protected reverse proxy, inbound mandate verification, per-request STS exchange, SSRF guard, revocation checks, audit replay.       |
 | Audit       | Redis audit ingestion, DLQ, tamper checks, retention, search, metrics.                                                              |
-| Coordinator | Sessions, agent services, delegations, invocations, sweeper jobs, Coordinator outbox.                                               |
+| Coordinator | Sessions, long-lived Session services, Delegations, invocations, sweeper jobs, Coordinator outbox.                                  |
 | Control     | Optional remote management invoke endpoint gated by token auth, replay protection, rate limiting, and runtime gate file.            |
 
 ## Deployment Shapes
