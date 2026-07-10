@@ -150,17 +150,20 @@ func TestParseTierDeclarationsNone(t *testing.T) {
 	}
 }
 
-func TestResolveApprovalMergesToStrictest(t *testing.T) {
-	got := resolveApproval([]tierDeclaration{
+func TestResolveApprovalMergesCompatibleDeclarations(t *testing.T) {
+	got, err := resolveApproval([]tierDeclaration{
 		{Tier: "money", Approver: "subject", TTLSeconds: 600, Privacy: "identified"},
-		{Tier: "pii", Approver: "operator", TTLSeconds: 7200, Privacy: "anonymous"},
+		{Tier: "pii", Approver: "any", TTLSeconds: 7200, Privacy: "anonymous"},
 		{Tier: "money", Approver: "any"},
 	})
+	if err != nil {
+		t.Fatalf("resolve compatible declarations: %v", err)
+	}
 	if got.Tier != "money,pii" {
 		t.Errorf("tiers must join sorted and deduplicated, got %q", got.Tier)
 	}
-	if got.Approver != ApproverClassOperator {
-		t.Errorf("operator demand must win the merge, got %q", got.Approver)
+	if got.Approver != ApproverClassSubject {
+		t.Errorf("subject demand must win over any, got %q", got.Approver)
 	}
 	if got.TTL != 600*time.Second {
 		t.Errorf("shortest declared window must win, got %v", got.TTL)
@@ -170,19 +173,39 @@ func TestResolveApprovalMergesToStrictest(t *testing.T) {
 	}
 }
 
+func TestResolveApprovalRejectsIndependentApproverClasses(t *testing.T) {
+	_, err := resolveApproval([]tierDeclaration{
+		{Tier: "money", Approver: "subject"},
+		{Tier: "operations", Approver: "operator"},
+	})
+	if !errors.Is(err, ErrApprovalClassConflict) {
+		t.Fatalf("want approver class conflict, got %v", err)
+	}
+}
+
 func TestResolveApprovalDefaultsAndClamps(t *testing.T) {
-	got := resolveApproval([]tierDeclaration{{Tier: "money"}})
+	got, err := resolveApproval([]tierDeclaration{{Tier: "money"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.Approver != ApproverClassOperator || got.Privacy != PrivacyIdentified || got.TTL != approvalDefaultTTL {
 		t.Errorf("absent fields must take platform defaults, got %+v", got)
 	}
-	invalid := resolveApproval([]tierDeclaration{{Tier: "money", Approver: "root", Privacy: "secret", TTLSeconds: 1}})
+	invalid, err := resolveApproval([]tierDeclaration{{Tier: "money", Approver: "root", Privacy: "secret", TTLSeconds: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if invalid.Approver != ApproverClassOperator || invalid.Privacy != PrivacyIdentified {
 		t.Errorf("invalid enum values must take platform defaults, got %+v", invalid)
 	}
 	if invalid.TTL != approvalMinTTL {
 		t.Errorf("ttl must clamp to the floor, got %v", invalid.TTL)
 	}
-	if ceil := resolveApproval([]tierDeclaration{{Tier: "money", TTLSeconds: int((30 * 24 * time.Hour).Seconds())}}); ceil.TTL != approvalMaxTTL {
+	ceil, err := resolveApproval([]tierDeclaration{{Tier: "money", TTLSeconds: int((30 * 24 * time.Hour).Seconds())}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ceil.TTL != approvalMaxTTL {
 		t.Errorf("ttl must clamp to the ceiling, got %v", ceil.TTL)
 	}
 }
@@ -1910,48 +1933,9 @@ func TestValidateAuthorityRecordReferencesRejectsScopeOutsideDelegationEdge(t *t
 	}
 }
 
-func TestValidateAuthorityRecordReferencesRejectsDelegationBudget(t *testing.T) {
-	now := time.Now()
-	source := &Session{
-		ID:            "agent-src",
-		ZoneID:        "zone1",
-		ApplicationID: "app1",
-		Status:        "active",
-		StartedAt:     now.Add(-time.Minute),
-		TTLSeconds:    600,
-	}
-	target := &Session{
-		ID:            "agent-dst",
-		ZoneID:        "zone1",
-		ApplicationID: "app2",
-		Status:        "active",
-		StartedAt:     now.Add(-time.Minute),
-		TTLSeconds:    600,
-	}
-	db := &stubDB{
-		sessions: []*Session{source, target},
-		path:     []string{"edge1"},
-		edge: &DelegationEdge{
-			ID:              "edge1",
-			ZoneID:          "zone1",
-			SourceSessionID: source.ID,
-			TargetSessionID: target.ID,
-			IssuerAppID:     source.ApplicationID,
-			ReceiverAppID:   target.ApplicationID,
-			Scopes:          []string{"read", "write"},
-			Status:          "active",
-			ExpiresAt:       now.Add(time.Minute),
-			ConstraintsJSON: []byte(`{"budget":1,"max_hops":1}`),
-		},
-	}
-	srv := &Server{db: db}
-	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		SessionID:        target.ID,
-		DelegationEdgeID: "edge1",
-		Scope:            "read write",
-	}, true)
-	if err == nil || err.Description != "requested scopes exceed delegation budget" {
-		t.Fatalf("want budget error, got %#v", err)
+func TestParseDelegationConstraintsRejectsRetiredBudget(t *testing.T) {
+	if _, err := parseDelegationConstraints([]byte(`{"budget":1,"max_hops":1}`)); err == nil {
+		t.Fatal("retired budget constraint must be rejected")
 	}
 }
 
@@ -2210,7 +2194,7 @@ func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
-	if err == nil || err.Description != "delegation hop budget exhausted" {
+	if err == nil || err.Description != "delegation hop allowance exhausted" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
 }

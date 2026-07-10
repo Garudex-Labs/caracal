@@ -210,8 +210,10 @@ func TestStepUpAuditMetaOptionalFields(t *testing.T) {
 	}
 	base.ApplicationID = "app1"
 	base.AuthorityRecordID = "sess-1"
+	base.MetadataJSON = []byte(`{"agent_session_id":"agent-1","delegation_edge_id":"edge-1"}`)
 	meta = stepUpAuditMeta(base)
-	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" {
+	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" ||
+		meta["agent_session_id"] != "agent-1" || meta["delegation_edge_id"] != "edge-1" {
 		t.Fatalf("populated meta = %#v", meta)
 	}
 }

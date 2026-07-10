@@ -169,6 +169,38 @@ approval_tiers := [{"approver": "operator"}]
 	}
 }
 
+func TestDecisionContractInvalidApprovalShapeDenies(t *testing.T) {
+	for name, declaration := range map[string]string{
+		"approver": `{"tier":"money","approver":"root"}`,
+		"privacy":  `{"tier":"money","privacy":"secret"}`,
+		"ttl":      `{"tier":"money","ttl_seconds":"soon"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			policy := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope":"nucleus:pay","tier":"money"}]
+approval_tiers := [` + declaration + `]
+`
+			res := simulateContract(t, OPAInput{
+				Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+				Resource:       OPAResource{Identifier: "resource://nucleus"},
+				Action:         OPAAction{ID: "token_exchange"},
+				DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+				Context: OPAContext{
+					SessionID:       "agent-1",
+					RequestedScopes: []string{"nucleus:pay"},
+					ActorClaims:     map[string]any{},
+				},
+			}, dataModules(OPAPolicyModule{ID: "risk", Content: policy}))
+			if res.Decision != "deny" {
+				t.Fatalf("invalid %s declaration must fail closed, got %q", name, res.Decision)
+			}
+		})
+	}
+}
+
 func TestDecisionContractRiskClassifiedWithoutGate(t *testing.T) {
 	risk := `package caracal.authz
 

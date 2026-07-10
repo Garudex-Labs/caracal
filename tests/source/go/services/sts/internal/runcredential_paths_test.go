@@ -170,15 +170,18 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 func runCredentialApprovalChallenge(t *testing.T) *StepUpChallengePG {
 	t.Helper()
 	return &StepUpChallengePG{
-		ID:              "b3b8f7ce-0000-4000-8000-00000000f001",
-		ZoneID:          "z1",
-		ChallengeType:   humanApprovalChallengeType,
-		PrincipalID:     "wl-1",
-		Tier:            "money",
-		ApproverClass:   ApproverClassOperator,
-		PrivacyMode:     PrivacyIdentified,
-		ResourceSetHash: hashApprovalBinding([]string{"resource://pipernet"}, []string{"pipernet:read"}),
-		ExpiresAt:       time.Now().Add(time.Hour),
+		ID:            "b3b8f7ce-0000-4000-8000-00000000f001",
+		ZoneID:        "z1",
+		ChallengeType: humanApprovalChallengeType,
+		PrincipalID:   "wl-1",
+		Tier:          "money",
+		ApproverClass: ApproverClassOperator,
+		PrivacyMode:   PrivacyIdentified,
+		ResourceSetHash: hashApprovalBinding([]string{"resource://pipernet"}, []string{"pipernet:read"}, approvalBindingContext{
+			PrincipalID: "wl-1",
+			Bundle:      bundleInfoForState(&opaZoneState{}),
+		}),
+		ExpiresAt: time.Now().Add(time.Hour),
 	}
 }
 
