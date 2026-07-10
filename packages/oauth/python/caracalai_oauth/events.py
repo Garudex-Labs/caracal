@@ -31,6 +31,8 @@ class CaracalEvent:
     cached: bool = False
     status: int = 0
     code: str = ""
+    request_id: str = ""
+    replayed: bool = False
     method: str = ""
     path: str = ""
     approval_id: str = ""

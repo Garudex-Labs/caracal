@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 # DEFAULT_MAX_HOP_COUNT caps delegation chain depth when verifier callers leave
 # JwtConfig.max_hop_count unset. Matches the coordinator's MAX_DEPTH so a token
-# that would have been blocked at spawn time cannot pass a permissive resource
+# that would have been blocked when a Session starts cannot pass a permissive resource
 # server.
 DEFAULT_MAX_HOP_COUNT = 10
 MANDATE_USE_SESSION = "session"
@@ -30,7 +30,7 @@ class JwtConfig:
     required_scopes: list[str] = field(default_factory=list)
     required_targets: list[str] = field(default_factory=list)
     required_use: str | None = None
-    require_agent: bool = False
+    require_session: bool = False
     require_delegation: bool = False
     require_chain_contains: list[str] = field(default_factory=list)
     max_hop_count: int | None = None
@@ -39,8 +39,8 @@ class JwtConfig:
 @dataclass
 class ChainHop:
     application_id: str
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
+    session_id: str | None = None
+    delegation_id: str | None = None
 
 
 @dataclass
@@ -48,8 +48,8 @@ class Claims:
     sub: str
     zone_id: str
     client_id: str
-    sid: str
-    root_sid: str
+    authority_record_id: str
+    root_authority_record_id: str
     use: str
     sub_type: str
     jti: str
@@ -57,8 +57,8 @@ class Claims:
     issued_at: int
     expires_at: int
     target_resources: list[str] = field(default_factory=list)
-    agent_session_id: str | None = None
-    delegation_edge_id: str | None = None
+    session_id: str | None = None
+    delegation_id: str | None = None
     source_session_id: str | None = None
     target_session_id: str | None = None
     delegation_path: list[str] = field(default_factory=list)

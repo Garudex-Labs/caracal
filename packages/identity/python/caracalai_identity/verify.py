@@ -46,9 +46,9 @@ class ScopeInsufficientError(CaracalError):
         self.missing_scope = missing_scope
 
 
-class AgentIdentityRequiredError(CaracalError):
-    def __init__(self, description: str = "Agent identity required") -> None:
-        super().__init__(ErrorCode.AGENT_IDENTITY_REQUIRED, description)
+class SessionRequiredError(CaracalError):
+    def __init__(self, description: str = "Session required") -> None:
+        super().__init__("session_required", description)
 
 
 class DelegationRequiredError(CaracalError):
@@ -84,8 +84,8 @@ def _read_chain(raw: object) -> list[ChainHop]:
         out.append(
             ChainHop(
                 application_id=application_id,
-                agent_session_id=_optional_str(item, "agent_session_id"),
-                delegation_edge_id=_optional_str(item, "delegation_edge_id"),
+                session_id=_optional_str(item, "agent_session_id"),
+                delegation_id=_optional_str(item, "delegation_edge_id"),
             )
         )
     return out
@@ -240,13 +240,13 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         required_use=config.required_use,
     )
 
-    agent_session_id = _optional_str(decoded, "agent_session_id")
-    delegation_edge_id = _optional_str(decoded, "delegation_edge_id")
+    session_id = _optional_str(decoded, "agent_session_id")
+    delegation_id = _optional_str(decoded, "delegation_edge_id")
     delegation_chain = _read_chain(decoded.get("delegation_chain"))
 
-    if config.require_agent and not agent_session_id:
-        raise AgentIdentityRequiredError("Agent identity required")
-    if config.require_delegation and not delegation_edge_id:
+    if config.require_session and not session_id:
+        raise SessionRequiredError("Session required")
+    if config.require_delegation and not delegation_id:
         raise DelegationRequiredError("Delegation required")
     for expected in config.require_chain_contains:
         present = any(hop.application_id == expected for hop in delegation_chain)
@@ -275,8 +275,8 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         sub=_required_str(decoded, "sub"),
         zone_id=_required_str(decoded, "zone_id"),
         client_id=_required_str(decoded, "client_id"),
-        sid=_required_str(decoded, "sid"),
-        root_sid=_required_str(decoded, "root_sid"),
+        authority_record_id=_required_str(decoded, "sid"),
+        root_authority_record_id=_required_str(decoded, "root_sid"),
         use=_required_str(decoded, "use"),
         sub_type=_required_str(decoded, "sub_type"),
         jti=_required_str(decoded, "jti"),
@@ -284,8 +284,8 @@ async def verify_config(token: str, config: JwtConfig) -> Claims:
         expires_at=_required_int(decoded, "exp"),
         scope=scope,
         target_resources=target_resources,
-        agent_session_id=agent_session_id,
-        delegation_edge_id=delegation_edge_id,
+        session_id=session_id,
+        delegation_id=delegation_id,
         source_session_id=_optional_str(decoded, "source_session_id"),
         target_session_id=_optional_str(decoded, "target_session_id"),
         delegation_path=delegation_path,

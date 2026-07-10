@@ -51,3 +51,4 @@ class ExchangeOptions:
     timeout_ms: int = 30_000
     retries: int = 3
     ttl_seconds: int | None = None
+    cache: bool = True

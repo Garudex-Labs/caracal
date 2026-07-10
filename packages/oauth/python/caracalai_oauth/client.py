@@ -138,12 +138,17 @@ class OAuthClient:
         preflight_window = timeout_ms / 1000 + 30
         cache_subject = self._cache_subject(subject_token, opts)
         cache_resource = self._cache_resource(resource, opts)
-        cached = self._cache.get(cache_subject, cache_resource)
+        cached = self._cache.get(cache_subject, cache_resource) if opts.cache else None
         if (
             cached is not None
             and cached.issued_at + cached.expires_in - time() > preflight_window
         ):
             return cached
+
+        if not opts.cache:
+            return await self._do_exchange(
+                subject_token, resource, opts, False, time() + opts.timeout_ms / 1000
+            )
 
         inflight_key = f"{cache_subject}::{cache_resource}"
         task = self._inflight.get(inflight_key)
@@ -281,6 +286,7 @@ class OAuthClient:
                         timeout_ms=opts.timeout_ms,
                         retries=0,
                         ttl_seconds=opts.ttl_seconds,
+                        cache=opts.cache,
                     ),
                     True,
                     deadline,

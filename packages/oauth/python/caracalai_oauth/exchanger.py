@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hmac
 import json
 import random
+import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -35,6 +37,7 @@ DEFAULT_RETRIES = 3
 MANDATE_CACHE_CAP = 10_000
 BACKOFF_BASE_SECONDS = 0.25
 BACKOFF_CAP_SECONDS = 5.0
+_CREDENTIAL_KEY = secrets.token_bytes(32)
 
 
 TokenSource = Callable[[], str]
@@ -162,6 +165,7 @@ class ClientSecretExchanger:
         self._token: str | None = None
         self._exp: float | None = None
         self._token_identity: tuple[str, str] | None = None
+        self._credential_fingerprint: bytes | None = None
         self._token_leeway = MAX_LEEWAY_SECONDS
         self._mandates: OrderedDict[_MandateKey, tuple[str, float, float]] = (
             OrderedDict()
@@ -181,6 +185,18 @@ class ClientSecretExchanger:
             creds.zone_id and creds.application_id and creds.client_secret
         ):
             raise CredentialsUnavailableError()
+        fingerprint = hmac.digest(
+            _CREDENTIAL_KEY, creds.client_secret.encode(), "sha256"
+        )
+        with self._lock:
+            if self._credential_fingerprint is not None and not hmac.compare_digest(
+                self._credential_fingerprint, fingerprint
+            ):
+                self._token = None
+                self._exp = None
+                self._token_identity = None
+                self._mandates.clear()
+            self._credential_fingerprint = fingerprint
         return creds
 
     def identity(self) -> tuple[str, str]:
@@ -188,6 +204,12 @@ class ClientSecretExchanger:
         fails closed when no usable credential is available."""
         creds = self._resolve()
         return (creds.zone_id, creds.application_id)
+
+    def credential_generation(self) -> str:
+        """Opaque process-local generation for credential-derived cache keys."""
+        self._resolve()
+        with self._lock:
+            return (self._credential_fingerprint or b"").hex()
 
     def close(self) -> None:
         """Release the owned HTTP client. Idempotent; injected clients stay
@@ -313,6 +335,7 @@ class ClientSecretExchanger:
         delegation_edge_id: str | None = None,
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
+        cache: bool = True,
     ) -> MintedMandate:
         """Exchange the application credential for a resource mandate audienced
         to one resource and narrowed to the requested scopes. Pass the calling
@@ -336,34 +359,125 @@ class ClientSecretExchanger:
             delegation_edge_id,
             ttl_seconds,
         )
-        cached = self._cached_mandate(key)
+        cached = self._cached_mandate(key) if cache else None
         if cached is not None:
             return cached
+        if not cache:
+            data = self._mandate_data(
+                creds,
+                resource,
+                scope_set,
+                agent_session_id,
+                delegation_edge_id,
+                ttl_seconds,
+                approval_id,
+            )
+            token, exp = self._exchange(data)
+            return MintedMandate(
+                token=token, expires_in_seconds=max(0, int(exp - time.time()))
+            )
         with self._mandate_lock(key):
             cached = self._cached_mandate(key)
             if cached is not None:
                 return cached
-            data: dict[str, str | list[str]] = {
-                "grant_type": GRANT_TYPE,
-                "zone_id": creds.zone_id,
-                "application_id": creds.application_id,
-                "client_secret": creds.client_secret,
-                "scope": " ".join(sorted(scope_set)),
-                "resource": resource,
-            }
-            if agent_session_id:
-                data["agent_session_id"] = agent_session_id
-            if delegation_edge_id:
-                data["delegation_edge_id"] = delegation_edge_id
-            if ttl_seconds is not None:
-                data["ttl_seconds"] = str(ttl_seconds)
-            if approval_id:
-                data["challenge_id"] = approval_id
+            data = self._mandate_data(
+                creds,
+                resource,
+                scope_set,
+                agent_session_id,
+                delegation_edge_id,
+                ttl_seconds,
+                approval_id,
+            )
             token, exp = self._exchange(data)
             self._store_mandate(key, token, exp)
             return MintedMandate(
                 token=token, expires_in_seconds=max(0, int(exp - time.time()))
             )
+
+    def _mandate_data(
+        self,
+        creds: ClientCredentials,
+        resource: str,
+        scopes: frozenset[str],
+        agent_session_id: str | None,
+        delegation_edge_id: str | None,
+        ttl_seconds: int | None,
+        approval_id: str | None,
+    ) -> dict[str, str | list[str]]:
+        data: dict[str, str | list[str]] = {
+            "grant_type": GRANT_TYPE,
+            "zone_id": creds.zone_id,
+            "application_id": creds.application_id,
+            "client_secret": creds.client_secret,
+            "scope": " ".join(sorted(scopes)),
+            "resource": resource,
+        }
+        if agent_session_id:
+            data["agent_session_id"] = agent_session_id
+        if delegation_edge_id:
+            data["delegation_edge_id"] = delegation_edge_id
+        if ttl_seconds is not None:
+            data["ttl_seconds"] = str(ttl_seconds)
+        if approval_id:
+            data["challenge_id"] = approval_id
+        return data
+
+    async def await_approval(
+        self, approval_id: str, *, timeout_seconds: float = 300.0
+    ) -> ApprovalState:
+        """Asynchronously long-poll an approval with cancellation propagated
+        into the active HTTP request."""
+        if not approval_id:
+            raise ValueError("await_approval requires an approval_id")
+        self._resolve()
+        start = time.monotonic()
+        deadline = time.monotonic() + timeout_seconds
+        transport = getattr(self._http, "_transport", None)
+        async with httpx.AsyncClient(transport=transport) as client:
+            try:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        state: ApprovalState = "pending"
+                        break
+                    wait = max(1, min(25, int(remaining)))
+                    response = await client.get(
+                        f"{self._sts_url}/step-up/{approval_id}?wait={wait}",
+                        timeout=min(remaining, wait + 10.0),
+                    )
+                    response.raise_for_status()
+                    value = str(response.json().get("state", ""))
+                    if value and value != "pending":
+                        if value not in APPROVAL_STATES:
+                            raise RuntimeError(
+                                f"step-up status returned an unknown challenge state: {value}"
+                            )
+                        state = value  # type: ignore[assignment]
+                        break
+            except BaseException:
+                emit_event(
+                    self.on_event,
+                    CaracalEvent(
+                        type="approval.wait",
+                        ok=False,
+                        duration_ms=(time.monotonic() - start) * 1000.0,
+                        approval_id=approval_id,
+                        state="",
+                    ),
+                )
+                raise
+        emit_event(
+            self.on_event,
+            CaracalEvent(
+                type="approval.wait",
+                ok=True,
+                duration_ms=(time.monotonic() - start) * 1000.0,
+                approval_id=approval_id,
+                state=state,
+            ),
+        )
+        return state
 
     def federate_subject(
         self, id_token: str, *, ttl_seconds: int | None = None
