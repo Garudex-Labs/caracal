@@ -190,7 +190,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', zone_id: 'z1', application_id: 'app-1', last_active_at: new Date() }] })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1', zone_id: 'z1', application_id: 'app-1' }] })
@@ -219,7 +219,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockRejectedValueOnce(new Error('update failed')),
       release: vi.fn(),
@@ -238,7 +238,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(client.release).toHaveBeenCalled()
   })
 
-  it('rebinds the Session to the fresh authenticated Authority record', async () => {
+  it('renews the lease without replacing the Session Authority record', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
@@ -262,12 +262,9 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('subject_authority_record_id = $4'), [
-      'agent-1',
-      'z1',
-      expect.any(Number),
-      'authority-fresh',
-    ])
+    const updateCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE sessions'))
+    expect(updateCall?.[0]).not.toContain('subject_authority_record_id')
+    expect(updateCall?.[1]).toEqual(['agent-1', 'z1', expect.any(Number)])
   })
 })
 
@@ -363,13 +360,35 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
-  it('returns 404 when the referenced service is missing', async () => {
+  it('rejects heartbeat attachment to a task Session', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_not_service' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('returns 404 when the referenced service is missing', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
         .mockResolvedValueOnce({ rows: [] })

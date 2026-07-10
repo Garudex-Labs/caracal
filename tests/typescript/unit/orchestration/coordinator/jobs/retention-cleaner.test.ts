@@ -19,6 +19,28 @@ function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
 }
 
 describe('runRetentionCleanup', () => {
+  it('prunes only published outbox rows so dead rows remain recoverable', async () => {
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ acquired: true }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    const db = { connect: vi.fn().mockResolvedValue(client) }
+
+    await runRetentionCleanup(db as never)
+
+    const outboxQuery = client.query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM caracal_outbox'))
+    expect(String(outboxQuery?.[0])).toContain("status = 'published'")
+    expect(String(outboxQuery?.[0])).not.toContain("'dead'")
+  })
+
   afterEach(() => {
     vi.useRealTimers()
   })
