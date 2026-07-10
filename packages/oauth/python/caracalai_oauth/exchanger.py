@@ -374,6 +374,8 @@ class ClientSecretExchanger:
             raise ValueError("mint_mandate requires a resource")
         if not scopes:
             raise ValueError("mint_mandate requires at least one scope")
+        if approval_id:
+            cache = False
         creds = self._resolve()
         scope_set = frozenset(scopes)
         key = (

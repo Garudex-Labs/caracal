@@ -1074,7 +1074,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         async def handler(request):
             if "/delegations/inbound/" in str(request.url):
-                return httpx.Response(200, json={"items": items})
+                return httpx.Response(200, json=items[0])
             return httpx.Response(204)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))

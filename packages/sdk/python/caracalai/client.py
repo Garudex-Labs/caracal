@@ -51,7 +51,8 @@ from .coordinator import (
     DelegationConstraints,
     DelegationRequest,
     StartSessionRequest,
-    list_inbound_delegations,
+    get_inbound_delegation,
+    revoke_delegation,
     sync_create_delegation,
     sync_start_coordinator_session,
     sync_terminate_session,
@@ -978,6 +979,7 @@ class Caracal:
         )
 
         subject_token = await self.config.asubject_token()
+        zone_id, application_id = self.identity()
         invalidate = (
             self.config.exchanger.invalidate
             if self.config.exchanger is not None
@@ -986,8 +988,8 @@ class Caracal:
 
         async with session(
             coordinator=self.config.coordinator,
-            zone_id=self.config.zone_id,
-            application_id=self.config.application_id,
+            zone_id=zone_id,
+            application_id=application_id,
             subject_token=subject_token,
             token_source=self.config._token_source,
             invalidate=invalidate,
@@ -1052,6 +1054,7 @@ class Caracal:
         )
 
         subject_token = await self.config.asubject_token()
+        zone_id, application_id = self.identity()
         invalidate = (
             self.config.exchanger.invalidate
             if self.config.exchanger is not None
@@ -1060,8 +1063,8 @@ class Caracal:
 
         return await start_session(
             coordinator=self.config.coordinator,
-            zone_id=self.config.zone_id,
-            application_id=self.config.application_id,
+            zone_id=zone_id,
+            application_id=application_id,
             subject_token=subject_token,
             token_source=self.config._token_source,
             invalidate=invalidate,
@@ -1146,6 +1149,19 @@ class Caracal:
             ttl_seconds=ttl_seconds,
         )
 
+    async def revoke_delegation(self, delegation_id: str) -> None:
+        """Revoke a Delegation issued by this application."""
+        ctx = current()
+        zone_id, _ = self.identity()
+        await revoke_delegation(
+            self.config.coordinator,
+            ctx.subject_token
+            if ctx is not None
+            else await self.config.asubject_token(),
+            zone_id,
+            delegation_id,
+        )
+
     @asynccontextmanager
     async def accept_delegation(
         self, delegation_id: str, *, validate: bool = False
@@ -1178,11 +1194,22 @@ class Caracal:
                 raise RuntimeError(
                     "accept_delegation validation requires an active session in context"
                 )
-            inbound = await list_inbound_delegations(
-                self.config.coordinator, ctx.subject_token, ctx.zone_id, ctx.session_id
-            )
-            match = next((d for d in inbound if d.delegation_id == delegation_id), None)
-            if match is None or match.status != "active":
+            try:
+                match = await get_inbound_delegation(
+                    self.config.coordinator,
+                    ctx.subject_token,
+                    ctx.zone_id,
+                    ctx.session_id,
+                    delegation_id,
+                )
+            except Exception as err:
+                emit(False)
+                raise RuntimeError(
+                    f"accept_delegation: delegation {delegation_id} is not live for "
+                    f"session {ctx.session_id}; confirm the issuer created it for "
+                    "this session and it has not been revoked"
+                ) from err
+            if match.status != "active":
                 emit(False)
                 raise RuntimeError(
                     f"accept_delegation: delegation {delegation_id} is not live for "
@@ -1887,14 +1914,20 @@ class Caracal:
         fixed buffer.
 
         Requires client-secret credentials."""
+        auth = self._app_auth(
+            resource_id,
+            scopes=scopes,
+            labels=labels,
+            mandate_ttl_seconds=mandate_ttl_seconds,
+            label="application_transport",
+        )
+        if not self.config.gateway_url:
+            raise RuntimeError(
+                "Caracal.application_transport requires gateway_url so mandates "
+                "are sent only to the Gateway"
+            )
         return httpx.AsyncClient(
-            auth=self._app_auth(
-                resource_id,
-                scopes=scopes,
-                labels=labels,
-                mandate_ttl_seconds=mandate_ttl_seconds,
-                label="application_transport",
-            ),
+            auth=auth,
             **kwargs,
         )
 
@@ -1911,14 +1944,20 @@ class Caracal:
         httpx.Client authorizing every request with a mandate minted under the
         application's own identity. See :meth:`application_transport` for the
         cycle, caching, and routing semantics."""
+        auth = self._app_auth(
+            resource_id,
+            scopes=scopes,
+            labels=labels,
+            mandate_ttl_seconds=mandate_ttl_seconds,
+            label="sync_application_transport",
+        )
+        if not self.config.gateway_url:
+            raise RuntimeError(
+                "Caracal.sync_application_transport requires gateway_url so mandates "
+                "are sent only to the Gateway"
+            )
         return httpx.Client(
-            auth=self._app_auth(
-                resource_id,
-                scopes=scopes,
-                labels=labels,
-                mandate_ttl_seconds=mandate_ttl_seconds,
-                label="sync_application_transport",
-            ),
+            auth=auth,
             **kwargs,
         )
 

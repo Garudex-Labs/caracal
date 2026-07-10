@@ -216,6 +216,12 @@ def _sync_call(
 
 @dataclass
 class DelegationConstraints:
+    """Typed Delegation limits. ``budget`` is the maximum distinct requested
+    scopes per token exchange; repeated exchanges do not consume it.
+
+    ``policy_approved`` and ``broad_reason`` are audit and display metadata.
+    """
+
     resources: list[str] | None = None
     max_depth: int | None = None
     max_hops: int | None = None
@@ -484,6 +490,17 @@ async def create_delegation(
     return _parse_delegation(resp.json())
 
 
+async def revoke_delegation(
+    client: CoordinatorClient, bearer: str, zone_id: str, delegation_id: str
+) -> None:
+    await _call(
+        client,
+        "PATCH",
+        f"/zones/{quote(zone_id, safe='')}/delegations/{quote(delegation_id, safe='')}/revoke",
+        bearer,
+    )
+
+
 async def list_inbound_delegations(
     client: CoordinatorClient, bearer: str, zone_id: str, session_id: str
 ) -> list[InboundDelegation]:
@@ -505,6 +522,38 @@ async def list_inbound_delegations(
         for item in items
         if item.get("id")
     ]
+
+
+async def get_inbound_delegation(
+    client: CoordinatorClient,
+    bearer: str,
+    zone_id: str,
+    session_id: str,
+    delegation_id: str,
+) -> InboundDelegation:
+    resp = await _call(
+        client,
+        "GET",
+        f"/zones/{quote(zone_id, safe='')}/delegations/inbound/{quote(session_id, safe='')}/{quote(delegation_id, safe='')}",
+        bearer,
+    )
+    item = resp.json()
+    if not item.get("id"):
+        item = next(
+            (
+                candidate
+                for candidate in item.get("items", [])
+                if candidate.get("id") == delegation_id
+            ),
+            {},
+        )
+    if not item.get("id"):
+        raise ValueError("coordinator inbound delegation response missing id")
+    return InboundDelegation(
+        delegation_id=str(item["id"]),
+        status=str(item.get("status") or ""),
+        expires_at=item.get("expires_at"),
+    )
 
 
 def sync_create_delegation(
