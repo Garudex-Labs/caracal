@@ -77,7 +77,9 @@ async with caracal.bind(parent.context):
 
 The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeat_interval` to fix the cadence, or `0` to disable the background task and call `heartbeat()` yourself. Because renewal runs on an independent task, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
-Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone, the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `on_state_change`.
+The handle exposes `heartbeat_deadline_at` and `lease_generation`. Every heartbeat and `aclose()` sends that monotonic ownership token, so a process holding an earlier generation cannot renew or terminate the Session after another process takes ownership.
+
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone or the generation has been fenced by a new holder, the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `on_state_change`.
 
 The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `on_state_change` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attach_session()` to restart lease renewal. `on_lease_lost` remains reserved for terminal loss.
 
@@ -90,7 +92,7 @@ svc = await caracal.start_session(
 
 A renewal cannot run while the event loop is blocked synchronously (CPU-bound work with no `await`); in that case the lease correctly lapses, which is the liveness signal working as intended.
 
-A worker that restarts does not need a fresh session: persist `svc.session_id` and re-attach with `attach_session()`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `CoordinatorError`, telling the worker to start a new one - and returns the same handle `start_session()` does:
+A worker that restarts does not need a fresh session: persist `svc.session_id` and re-attach with `attach_session()`. Attach atomically acquires a new lease generation and renews the deadline, fencing every older handle. A Session the Coordinator no longer holds live fails with `CoordinatorError`; a suspended Session must be resumed through the control plane before attachment. The returned handle behaves like one from `start_session()`:
 
 ```python
 svc = await caracal.attach_session(

@@ -14,6 +14,7 @@ Treat incidents involving audit tamper evidence, stale revocation state, STS/Gat
 | Gateway revocation snapshot stale or propagation lag | Critical access-safety incident.                       |
 | Gateway STS circuit open during protected traffic    | Critical availability/access incident.                 |
 | Audit DLQ growth or replay backlog aging             | Critical evidence pipeline incident when sustained.    |
+| `CaracalGatewayAuditEvidenceLost` or `CaracalSTSAuditEvidenceLost` | Critical evidence-loss incident. |
 | Secret exposure                                      | Critical until rotated and blast radius is understood. |
 | Policy activation causes unexpected broad allow      | Critical authorization incident.                       |
 
@@ -34,6 +35,7 @@ flowchart TD
 | Symptom            | Severity | Contain                                                   | Preserve                                                    | Validate recovery                                                |
 | ------------------ | -------- | --------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
 | Audit tamper alert | Critical | Freeze changes and stop destructive cleanup.              | Audit tables, exports, DLQ, service logs.                   | Tamper sweep result, audit ingestion, and timeline are recorded. |
+| STS/Gateway audit evidence lost | Critical | Stop risky traffic through the affected pod; keep liveness available for evidence collection. | Pod logs, dropped metric, replay volume, Redis health, request timeline. | Missing-event window is scoped, evidence is preserved, and the affected process is replaced. |
 | Revocation stale   | Critical | Fail closed at Gateway or resource servers.               | Redis streams, revocation snapshots, session IDs.           | Revoked sessions are denied and readiness is stable.             |
 | Bad policy allow   | Critical | Activate last known-good policy set.                      | Policy set version, request IDs, audit/explain output.      | Canary allow/deny decisions match expected policy.               |
 | Secret exposure    | Critical | Rotate exposed material and invalidate affected sessions. | Secret location, key IDs, affected services, audit records. | Old material no longer authenticates.                            |

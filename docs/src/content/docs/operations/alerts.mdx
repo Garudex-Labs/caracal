@@ -19,6 +19,8 @@ The Helm chart can render PrometheusRule alerts for policy freshness, audit heal
 | `CaracalAuditConsumerLagHigh` | warning | Scale Audit or restore Postgres/Redis performance. |
 | `CaracalGatewayAuditReplayBacklogOld` | warning | Recover Redis/Audit and confirm Gateway replay drains. |
 | `CaracalSTSAuditReplayBacklogOld` | warning | Recover Redis/Audit and confirm STS replay drains. |
+| `CaracalGatewayAuditEvidenceLost` | critical | Stop risky Gateway traffic and preserve evidence for the affected pod. |
+| `CaracalSTSAuditEvidenceLost` | critical | Stop token issuance through the affected STS pod and preserve evidence. |
 | `CaracalAuditTamperDetected` | critical | Treat as a security incident. |
 | `CaracalAPIOutboxDeadMessages` | critical | Reconcile outbox rows and Redis consumers before continuing rollouts. |
 | `CaracalAPIOutboxPendingOldest` | warning | Check Redis health, API outbox workers, DB pool, and stream memory. |
@@ -65,6 +67,14 @@ Gateway has audit replay files waiting on disk beyond the configured threshold. 
 ## CaracalSTSAuditReplayBacklogOld
 
 STS has audit replay files waiting on disk beyond the configured threshold. Recover Redis or Audit and confirm STS replay drains before continuing risky rollouts.
+
+## CaracalGatewayAuditEvidenceLost
+
+Gateway irrecoverably lost at least one audit event after both Redis delivery and durable replay persistence failed. The process latches the loss counter and remains NotReady with reason `audit_evidence_lost`; a replay-path-only failure uses `audit_replay_unavailable`. Preserve pod logs and replay-volume state, stop risky traffic through the affected pod, determine the missing-event window, and replace the pod only after the incident scope is recorded.
+
+## CaracalSTSAuditEvidenceLost
+
+STS irrecoverably lost at least one audit event after both Redis delivery and durable replay persistence failed. The process latches the loss counter and remains NotReady with reason `audit_evidence_lost`; a replay-path-only failure uses `audit_replay_unavailable`. Preserve pod logs and replay-volume state, stop token issuance through the affected pod, determine the missing-event window, and replace the pod only after the incident scope is recorded.
 
 ## CaracalAuditTamperDetected
 

@@ -15,6 +15,7 @@ Caracal is designed to fail closed for access-safety boundaries. Recovery should
 | STS unavailable       | Token exchange and Gateway exchanges fail.                                       | Restore STS readiness, policy bundle freshness, JWKS, and HMAC config.                                         |
 | Gateway unhealthy     | Protected upstream traffic fails before provider dispatch.                       | Check bindings, STS exchange, revocation snapshot, upstream allowlist, and audit replay.                       |
 | Audit unhealthy       | Evidence ingestion delayed; DLQ or replay grows.                                 | Recover Audit/Postgres/Redis, replay DLQ, verify tamper chain.                                                 |
+| STS/Gateway audit loss | The affected process becomes NotReady; liveness remains healthy for investigation. | Preserve logs and replay storage, stop risky traffic, scope missing evidence, then replace the affected pod. |
 | Coordinator unhealthy | Session and Delegation views and lifecycle management fail.                       | Restore Coordinator readiness, token, DB, Redis, and sweeper health.                                           |
 | Control unhealthy     | Automation dispatch unavailable.                                                 | Use Console/Admin SDK directly if appropriate; restore Control gate, token, JWKS, Redis, and API reachability. |
 
@@ -36,6 +37,8 @@ flowchart TD
 3. Check API and Coordinator outbox tables.
 4. Check Audit DLQ and audit replay directories.
 5. Check Gateway revocation snapshot freshness.
+
+An `audit_replay_unavailable` readiness reason indicates that replay storage cannot currently accept durable spills. An `audit_evidence_lost` reason is process-lifetime definitive: Redis delivery and durable persistence both failed for one or more events. Restoring the replay path does not clear that loss latch; preserve evidence and replace the process after incident scoping.
 
 ## Troubleshooting
 

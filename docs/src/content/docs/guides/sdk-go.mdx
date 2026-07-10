@@ -64,9 +64,9 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 
 The transport mints the scoped Gateway-ingress mandate and injects Caracal envelope headers from `context.Context`. For explicit routing metadata, use `GatewayRequest()` and send the resulting request through the scoped transport; the helper alone does not authenticate it.
 
-## Long-lived long-lived Sessions
+## Long-lived Sessions
 
-Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. A long-lived Session is reaped if it stops heartbeating before its lease expires; its stored protocol lifecycle is `service`.
+Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination; its stored protocol lifecycle is `service`.
 
 ```go
 svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
@@ -82,11 +82,11 @@ for running {
 }
 ```
 
-The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. `LeaseGeneration()` exposes the monotonic ownership token sent by every heartbeat and `Close`, so an earlier holder cannot renew or terminate the Session after another process takes ownership. Transient renewal errors are logged and retried on the next tick; if the Coordinator reports the Session permanently gone or fenced, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
 
 `Status()` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `OnStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `AttachSession` to restart lease renewal. `OnLeaseLost` remains reserved for terminal loss.
 
-A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `*CoordinatorError`, telling the worker to start a new one - and returns the same handle `StartSession` does:
+A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. Attach atomically acquires a new lease generation and renews the deadline, fencing every older handle. A Session the Coordinator no longer holds live fails with `*CoordinatorError`; a suspended Session must be resumed through the control plane before attachment. The returned handle behaves like one from `StartSession`:
 
 ```go
 svc, err := client.AttachSession(ctx, persistedSessionID, caracal.AttachSessionOptions{
