@@ -123,9 +123,11 @@ func governedEcho() *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"presented": r.Header.Get("Authorization"),
-			"resource":  r.Header.Get("X-Caracal-Resource"),
-			"target":    r.URL.RequestURI(),
+			"presented":   r.Header.Get("Authorization"),
+			"resource":    r.Header.Get("X-Caracal-Resource"),
+			"target":      r.URL.RequestURI(),
+			"traceparent": r.Header.Get("Traceparent"),
+			"baggage":     r.Header.Get("Baggage"),
 		})
 	}))
 }
@@ -207,6 +209,12 @@ func TestGovernedTransportRunsOwnAuthorityCycle(t *testing.T) {
 	}
 	if echo["target"] != "/tasks?x=1" {
 		t.Fatalf("unexpected rewritten target: %s", echo["target"])
+	}
+	if !strings.HasPrefix(echo["traceparent"], "00-") {
+		t.Fatalf("missing traceparent: %s", echo["traceparent"])
+	}
+	if !strings.Contains(echo["baggage"], "caracal.agent_session=agent-2") || !strings.Contains(echo["baggage"], "caracal.delegation_edge=edge-1") {
+		t.Fatalf("missing application authority baggage: %s", echo["baggage"])
 	}
 
 	platform.mu.Lock()

@@ -92,6 +92,27 @@ func TestCoordinatorUsesInjectedHTTPClient(t *testing.T) {
 	}
 }
 
+func TestCoordinatorSendsSubjectProofWithoutReplacingBearer(t *testing.T) {
+	var body map[string]any
+	var authorization string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+	}))
+	defer srv.Close()
+	_, err := sdk.StartCoordinatorSession(context.Background(), &sdk.CoordinatorClient{BaseURL: srv.URL}, "application-mandate", sdk.StartSessionRequest{
+		ZoneID: "z", ApplicationID: "app", SubjectAuthorityRecordID: "subject-record", SubjectAuthorityRecordToken: "subject-mandate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "Bearer application-mandate" || body["subject_session_id"] != "subject-record" || body["subject_token"] != "subject-mandate" {
+		t.Fatalf("unexpected Subject proof request: auth=%q body=%#v", authorization, body)
+	}
+}
+
 func TestCoordinatorResponsesRequireIdentifiers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

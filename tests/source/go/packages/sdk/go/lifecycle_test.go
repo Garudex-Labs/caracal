@@ -149,7 +149,7 @@ func TestServiceCloseSurfacesBearerAndEndHookErrors(t *testing.T) {
 	}
 }
 
-func TestSessionRetireBearerFailureDoesNotMaskResult(t *testing.T) {
+func TestSessionRetireBearerFailureSurfacesAfterSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
@@ -167,8 +167,8 @@ func TestSessionRetireBearerFailureDoesNotMaskResult(t *testing.T) {
 		SubjectToken:  "tok",
 		TokenSource:   func(context.Context) (string, error) { return "", errors.New("sts down") },
 	}, func(context.Context) error { return nil })
-	if err != nil {
-		t.Fatalf("cleanup bearer failure must not mask the callback result: %v", err)
+	if err == nil || err.Error() != "sts down" {
+		t.Fatalf("cleanup bearer failure must be returned after callback success: %v", err)
 	}
 }
 

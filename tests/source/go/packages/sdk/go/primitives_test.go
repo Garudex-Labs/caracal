@@ -69,6 +69,26 @@ func TestSessionRunsCallbackWithBoundContext(t *testing.T) {
 	if seen.ZoneID != "z" {
 		t.Errorf("expected z, got %q", seen.ZoneID)
 	}
+	if len(seen.TraceID) != 32 {
+		t.Errorf("expected a 32-character trace ID, got %q", seen.TraceID)
+	}
+}
+
+func TestSessionRejectsMismatchedExplicitParent(t *testing.T) {
+	srv, calls := makeCoordinatorServer(t)
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken: "parent-token", ZoneID: "z", ApplicationID: "app", SessionID: "parent-session",
+	})
+	err := sdk.Session(ctx, sdk.SessionInput{
+		Coordinator: &sdk.CoordinatorClient{BaseURL: srv.URL}, ZoneID: "z", ApplicationID: "app",
+		SubjectToken: "tok", ParentSessionID: "other-session",
+	}, func(context.Context) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "must match the Session bound") {
+		t.Fatalf("expected parent mismatch error, got %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("parent mismatch must fail before network I/O, got %v", *calls)
+	}
 }
 
 func TestSessionTerminatesOnExit(t *testing.T) {
@@ -310,6 +330,65 @@ func TestSessionServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) 
 	}
 	if len(lost) != 0 {
 		t.Error("OnLeaseLost must fire exactly once")
+	}
+	if err := svc.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionServiceLeaseExpiryIsResumable(t *testing.T) {
+	var mu sync.Mutex
+	heartbeats := 0
+	state := make(chan string, 1)
+	lost := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
+			mu.Lock()
+			heartbeats++
+			beat := heartbeats
+			mu.Unlock()
+			if beat == 1 {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"error":"session_lease_expired"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"agent":{"status":"suspended"}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	svc, err := sdk.StartSession(context.Background(), sdk.StartSessionInput{
+		Coordinator: &sdk.CoordinatorClient{BaseURL: srv.URL}, ZoneID: "z", ApplicationID: "app", SubjectToken: "tok",
+		HeartbeatInterval: 5 * time.Millisecond,
+		OnLeaseLost:       func(err error) { lost <- err },
+		OnStateChange:     func(status string) { state <- status },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-state:
+		if got != "suspended" {
+			t.Fatalf("state = %q, want suspended", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("suspended state was not reported")
+	}
+	select {
+	case err := <-lost:
+		t.Fatalf("resumable lease expiry reported as terminal: %v", err)
+	default:
+	}
+	mu.Lock()
+	beats := heartbeats
+	mu.Unlock()
+	if beats != 2 {
+		t.Fatalf("heartbeats = %d, want 2", beats)
 	}
 	if err := svc.Close(context.Background()); err != nil {
 		t.Fatal(err)

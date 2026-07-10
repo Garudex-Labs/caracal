@@ -665,7 +665,6 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 		sdk.BaggageHop + "=1",
 	}, ","))
 
-	hop := 4
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
 			return &sdk.VerifiedClaims{
@@ -675,7 +674,7 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 				DelegationID:             "proved-edge",
 				ParentDelegationID:       "proved-parent",
 				SubjectAuthorityRecordID: "proved-subject",
-				Hop:                      &hop,
+				Hop:                      4,
 			}, nil
 		},
 	})
@@ -695,12 +694,37 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 		t.Fatal("inbound token must stay pinned")
 	}
 
+	ctx, err = c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
+			return &sdk.VerifiedClaims{ZoneID: "proved-zone", ApplicationID: "proved-app", Hop: 0}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, _ = sdk.Current(ctx)
+	if cur.SessionID != "" || cur.DelegationID != "" || cur.ParentDelegationID != "" || cur.SubjectAuthorityRecordID != "" || cur.Hop != 0 {
+		t.Fatalf("omitted verified claims must clear envelope authority: %#v", cur)
+	}
+
 	bare := httptest.NewRequest(http.MethodGet, "/", nil)
 	if _, err := c.BindFromRequest(context.Background(), bare); err == nil {
 		t.Fatal("missing bearer without AllowRoot must be rejected")
 	}
 	if _, err := c.BindFromRequest(context.Background(), bare, sdk.CallOptions{AsApplication: true}); err == nil {
 		t.Fatal("root fallback without a token source must surface the error")
+	}
+
+	root := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "root-token"}
+	trusted := httptest.NewRequest(http.MethodGet, "/", nil)
+	trusted.Header.Set(sdk.HeaderBaggage, sdk.BaggageAgentSession+"=forged,"+sdk.BaggageDelegationEdge+"=forged-edge,"+sdk.BaggageHop+"=9")
+	trustedCtx, err := root.BindFromRequest(context.Background(), trusted, sdk.CallOptions{AsApplication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedCur, _ := sdk.Current(trustedCtx)
+	if trustedCur.SessionID != "" || trustedCur.DelegationID != "" || trustedCur.Hop != 0 || !trustedCur.OwnToken {
+		t.Fatalf("application ingress must clear caller authority baggage: %#v", trustedCur)
 	}
 }
 

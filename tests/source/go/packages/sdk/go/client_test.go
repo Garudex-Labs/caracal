@@ -23,6 +23,11 @@ import (
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
+func tokenWithUse(use string) string {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"use":%q}`, use)))
+	return "eyJhbGciOiJFUzI1NiJ9." + payload + ".signature"
+}
+
 func TestFromEnvMissing(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "")
 	t.Setenv("CARACAL_ZONE_ID", "")
@@ -499,6 +504,91 @@ func TestGatewayRequestBuildsExplicitGatewayTarget(t *testing.T) {
 	}
 }
 
+func TestTransportRejectsLifecycleMandateAtGateway(t *testing.T) {
+	var calls int
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: tokenWithUse("session"), GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/events", nil)
+	req.Header.Set("X-Caracal-Resource", "resource://calendar")
+
+	_, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	if err == nil || !strings.Contains(err.Error(), "use=gateway") || !strings.Contains(err.Error(), "use=session") {
+		t.Fatalf("expected token-use rejection, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Gateway received %d requests", calls)
+	}
+}
+
+func TestTransportRequiresResourceForScopes(t *testing.T) {
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/events", nil)
+
+	_, err := c.Transport(nil, sdk.CallOptions{AsApplication: true, Scopes: []string{"events:read"}}).Do(req)
+	if err == nil || !strings.Contains(err.Error(), "scopes require X-Caracal-Resource") {
+		t.Fatalf("expected missing resource rejection, got %v", err)
+	}
+}
+
+func TestTransportContainsGatewayAuthorityToBasePath(t *testing.T) {
+	var headers []http.Header
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = append(headers, r.Header.Clone())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+
+	for _, path := range []string{"/unrelated", "/proxy/%252e%252e/admin"} {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+path, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	for _, header := range headers {
+		if header.Get(sdk.HeaderAuthorization) != "" || header.Get(sdk.HeaderTraceparent) != "" {
+			t.Fatalf("authority escaped Gateway base path: %v", header)
+		}
+	}
+}
+
+func TestTransportDoesNotReplayMandateAcrossRedirect(t *testing.T) {
+	var calls int
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path == "/proxy/start" {
+			w.Header().Set("Location", "/proxy/next")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/start", nil)
+	req.Header.Set("X-Caracal-Resource", "resource://calendar")
+
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTemporaryRedirect || calls != 1 {
+		t.Fatalf("expected one surfaced redirect, status=%d calls=%d", resp.StatusCode, calls)
+	}
+}
+
 func TestFetchComposesGatewayRequestAndTransport(t *testing.T) {
 	c := &sdk.Caracal{
 		ZoneID:        "z",
@@ -648,6 +738,12 @@ func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	if _, err := c.GatewayRequest("resource://calendar", "./events"); err == nil || !strings.Contains(err.Error(), "dot segments") {
 		t.Fatalf("expected dot segment rejection, got %v", err)
 	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events/%252e%252e/admin"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected encoded dot segment rejection, got %v", err)
+	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events#fragment"); err == nil || !strings.Contains(err.Error(), "fragment") {
+		t.Fatalf("expected fragment rejection, got %v", err)
+	}
 }
 
 func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
@@ -698,7 +794,7 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(_ context.Context, token string) (*sdk.VerifiedClaims, error) {
 			seen = token
-			return nil, nil
+			return &sdk.VerifiedClaims{ZoneID: "z", ApplicationID: "a", Hop: 0}, nil
 		},
 	})
 	if err != nil {
@@ -709,6 +805,18 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	}
 	if cur, ok := sdk.Current(ctx); !ok || cur.SubjectToken != "inbound" {
 		t.Fatalf("unexpected bound context: %#v", cur)
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, nil },
+	}); err == nil {
+		t.Fatal("empty verified projection must reject the bind")
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) {
+			return &sdk.VerifiedClaims{ZoneID: "z", ApplicationID: "a", Hop: sdk.MaxHop + 1}, nil
+		},
+	}); err == nil {
+		t.Fatal("invalid verified hop must reject the bind")
 	}
 
 	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
