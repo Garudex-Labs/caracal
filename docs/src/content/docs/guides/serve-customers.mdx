@@ -70,7 +70,7 @@ When policy must confine the work itself - a billing sweep, a dunning cycle, any
 
 ```python
 async with caracal.session(
-    authority=Authority.narrow(["billing:collect"]),
+  authority=Authority.narrow(["billing:collect"], ttl_seconds=600),
     labels=[role, f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:

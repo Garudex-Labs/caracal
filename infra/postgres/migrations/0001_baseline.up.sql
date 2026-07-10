@@ -2427,7 +2427,7 @@ ALTER TABLE ONLY public.delegated_grants
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_zone_parent_fk FOREIGN KEY (zone_id, parent_edge_id) REFERENCES public.delegation_edges(zone_id, id);
+    ADD CONSTRAINT delegation_edges_zone_parent_fk FOREIGN KEY (zone_id, parent_edge_id) REFERENCES public.delegation_edges(zone_id, id) ON DELETE SET NULL (parent_edge_id);
 
 
 --

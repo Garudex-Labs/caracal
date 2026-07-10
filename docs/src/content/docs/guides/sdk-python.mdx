@@ -64,7 +64,11 @@ Service handles take the same `grant=` as `session()`: pass `Authority.narrow(..
 ```python
 svc = await caracal.start_session(
     labels=["billing-worker"],
-    authority=Authority.narrow(["ledger:read"], resource_id="resource://ledger"),
+    authority=Authority.narrow(
+        ["ledger:read"],
+        ttl_seconds=600,
+        resource_id="resource://ledger",
+    ),
 )
 ```
 

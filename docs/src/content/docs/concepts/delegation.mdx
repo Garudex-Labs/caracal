@@ -41,6 +41,7 @@ flowchart LR
 ## Rules
 
 - Delegation should narrow authority, not expand it.
+- Every Delegation must have a positive TTL; unbounded edges are rejected before creation.
 - Delegation paths must not cycle.
 - Hop count should be bounded.
 - Revoking an upstream Delegation should invalidate downstream authority.
