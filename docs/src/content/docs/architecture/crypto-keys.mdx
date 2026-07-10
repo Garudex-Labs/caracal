@@ -8,14 +8,14 @@ Caracal uses separate keys for encryption, mandate signing, audit integrity, str
 
 ## Key Map
 
-| Material | Used by | Purpose |
-| --- | --- | --- |
-| Zone signing keys | STS | Sign mandate JWTs and publish public keys through JWKS. |
-| `SECRET_STORE_KEK` | API and STS | Root key that seals Secret Store envelopes: provider credentials, zone signing material, connection tokens, and sink secrets. |
-| `AUDIT_HMAC_KEY` | API, STS, Gateway, Audit, Control | Protect audit event integrity. |
-| `STREAMS_HMAC_KEY` | API, STS, Gateway, Coordinator, Audit/consumers | Sign Redis stream messages in published modes. |
-| `GATEWAY_STS_HMAC_KEY` | Gateway and STS | Authenticate Gateway token-exchange requests to STS. |
-| Admin and Coordinator tokens | API, Coordinator, Console, Control | Authenticate management and agent/delegation operations. |
+| Material                     | Used by                                         | Purpose                                                                                                                       |
+| ---------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Zone signing keys            | STS                                             | Sign mandate JWTs and publish public keys through JWKS.                                                                       |
+| `SECRET_STORE_KEK`           | API and STS                                     | Root key that seals Secret Store envelopes: provider credentials, zone signing material, connection tokens, and sink secrets. |
+| `AUDIT_HMAC_KEY`             | API, STS, Gateway, Audit, Control               | Protect audit event integrity.                                                                                                |
+| `STREAMS_HMAC_KEY`           | API, STS, Gateway, Coordinator, Audit/consumers | Sign Redis stream messages in published modes.                                                                                |
+| `GATEWAY_STS_HMAC_KEY`       | Gateway and STS                                 | Authenticate Gateway token-exchange requests to STS.                                                                          |
+| Admin and Coordinator tokens | API, Coordinator, Console, Control              | Authenticate management and agent/delegation operations.                                                                      |
 
 ## Secret Envelopes
 

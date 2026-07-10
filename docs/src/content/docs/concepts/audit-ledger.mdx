@@ -9,14 +9,14 @@ The audit ledger records what Caracal decided, why it decided it, and which requ
 
 ## What Gets Audited
 
-| Event area | Examples |
-| --- | --- |
-| Token exchange | Allow, deny, step-up required, policy diagnostics. |
+| Event area              | Examples                                                              |
+| ----------------------- | --------------------------------------------------------------------- |
+| Token exchange          | Allow, deny, step-up required, policy diagnostics.                    |
 | Gateway and adapter use | Resource decision, mandate verification failure, request correlation. |
-| Policy lifecycle | Policy creation, validation, policy-set activation, simulation. |
-| Delegation | Edge creation, traversal, impact, revocation cascade. |
-| Sessions | Spawn, terminate, revoke, expire. |
-| Administration | Zone, application, resource, provider, grant, and challenge changes. |
+| Policy lifecycle        | Policy creation, validation, policy-set activation, simulation.       |
+| Delegation              | Creation, traversal, impact, and revocation cascade.                  |
+| Sessions                | Start, terminate, revoke, expire.                                     |
+| Administration          | Zone, application, resource, provider, grant, and challenge changes.  |
 
 ## Audit Flow
 
@@ -33,13 +33,13 @@ flowchart LR
 
 ## How to Use Audit
 
-| Question | Where to look |
-| --- | --- |
-| Why was a request denied? | Console `request trace` or Admin API explain endpoint by request ID. |
-| Which policy caused the decision? | Determining policies and diagnostics. |
-| Did revocation propagate? | Session, delegation, and resource decision events. |
-| Which run made a request? | Request ID, session ID, agent session ID, and trace context. |
-| Was an approval required, and who decided it? | Step-up issuance, decision, and consumption events. |
+| Question                                      | Where to look                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| Why was a request denied?                     | Console `request trace` or Admin API explain endpoint by request ID. |
+| Which policy caused the decision?             | Determining policies and diagnostics.                                |
+| Did revocation propagate?                     | Session, delegation, and resource decision events.                   |
+| Which run made a request?                     | Request ID, Authority record ID, Session ID, and trace context.      |
+| Was an approval required, and who decided it? | Step-up issuance, decision, and consumption events.                  |
 
 ## Request IDs
 

@@ -8,33 +8,33 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 
 ## Public Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/oauth/2/token` | OAuth token exchange for resource, session, Gateway, or delegated mandates. |
-| `GET` | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone. |
-| `GET` | `/step-up/{id}` | Step-up hold state; `?wait={seconds}` long-polls until the state changes. |
-| `POST` | `/step-up/{id}/decision` | Subject-plane approval decision, authenticated with a federated user session mandate. |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Readiness check. |
-| `GET` | `/metrics` | Prometheus metrics. |
-| `GET` | `/metrics.json` | JSON metrics. |
+| Method | Path                                    | Purpose                                                                               |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST` | `/oauth/2/token`                        | OAuth token exchange for resource, session, Gateway, or delegated mandates.           |
+| `GET`  | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone.                        |
+| `GET`  | `/step-up/{id}`                         | Step-up hold state; `?wait={seconds}` long-polls until the state changes.             |
+| `POST` | `/step-up/{id}/decision`                | Subject-plane approval decision, authenticated with a federated user session mandate. |
+| `GET`  | `/health`                               | Liveness check.                                                                       |
+| `GET`  | `/ready`                                | Readiness check.                                                                      |
+| `GET`  | `/metrics`                              | Prometheus metrics.                                                                   |
+| `GET`  | `/metrics.json`                         | JSON metrics.                                                                         |
 
 ## Token Exchange Request
 
 `POST /oauth/2/token` accepts form-encoded parameters.
 
-| Parameter | Purpose |
-| --- | --- |
-| `grant_type` | OAuth grant type. |
-| `subject_token`, `subject_token_type` | Existing authority to exchange: a session mandate this STS issued. |
-| `resource` | One or more target resource identifiers. |
-| `scope` | Requested scopes. |
-| `zone_id` | Zone boundary. |
-| `application_id` | Calling application. |
-| `client_secret`, `client_assertion`, `client_assertion_type` | Application authentication. |
-| `session_id`, `agent_session_id`, `delegation_edge_id` | Session and delegation anchors. |
-| `ttl_seconds` | Requested TTL. |
-| `challenge_id` | Consumes an approved step-up hold during retry. |
+| Parameter                                                    | Purpose                                                                                               |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `grant_type`                                                 | OAuth grant type.                                                                                     |
+| `subject_token`, `subject_token_type`                        | Existing authority to exchange: a session mandate this STS issued.                                    |
+| `resource`                                                   | One or more target resource identifiers.                                                              |
+| `scope`                                                      | Requested scopes.                                                                                     |
+| `zone_id`                                                    | Zone boundary.                                                                                        |
+| `application_id`                                             | Calling application.                                                                                  |
+| `client_secret`, `client_assertion`, `client_assertion_type` | Application authentication.                                                                           |
+| `session_id`, `agent_session_id`, `delegation_edge_id`       | Protocol names for Authority record ID, Session ID, and Delegation ID. They are distinct identifiers. |
+| `ttl_seconds`                                                | Requested TTL.                                                                                        |
+| `challenge_id`                                               | Consumes an approved step-up hold during retry.                                                       |
 
 RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. The acting application authenticates with its own client credentials, and its identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
 
@@ -43,21 +43,23 @@ RFC 8693 `actor_token` is not supported: a request that carries one is rejected 
 STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. Two subject token classes are accepted:
 
 - `urn:ietf:params:oauth:token-type:access_token` - a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
-- `urn:ietf:params:oauth:token-type:id_token` - **subject federation**: an end user's identity token from an external issuer the zone has registered as a subject issuer. The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS (exact issuer match, configured audience, asymmetric signature) and mints a **user subject session** whose `sub` is copied verbatim. A federation exchange names no resources and mints no scopes: the session is an identity anchor, never authority.
+- `urn:ietf:params:oauth:token-type:id_token` - **subject federation**: an end user's identity token from a registered Subject issuer. The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS and creates an Authority record whose `sub` is copied verbatim. A federation exchange names no resources and mints no scopes: the record is an identity and revocation anchor, not resource authority.
 
-The subject identifier is opaque to Caracal. It does not matter whether it names a user id, a UUID, an employee id, or a customer id - STS requires only that the same identity always presents the same value, because that `sub` is the key everything downstream attaches to: the session record and its revocation state, derived sessions and delegations, provider connections, approval bindings, and every audit event. Scope authority itself is decided by application bindings, resource grants, delegation narrowing, and label confinement in the platform decision contract - not by the subject identifier.
+The Subject identifier is opaque to Caracal. It may be a user ID, UUID, employee ID, or customer ID. STS requires only that the same identity always presents the same value. The Authority record stores that `sub`; provider connections, approval bindings, revocation, and audit can attribute activity to it. Scope authority is decided by application bindings, resource grants, Delegation narrowing, and label confinement - not by the Subject identifier.
+
+When an SDK starts a Session with `subjectSessionId`, `subject_session_id`, or `SubjectSessionID`, that compatibility field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's federated `sub`.
 
 ### Subject Identifier Guarantees
 
 Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails, numeric ids, prefixed ids such as `auth0|507f...`, URIs, ARNs, or unicode names. Caracal never parses, normalizes, case-folds, or trims the value: it is compared byte-for-byte everywhere, so two byte-distinct values are two subjects, and the recorded value is always byte-identical to what the issuer signed. A federation exchange rejects only values that are unsafe to store, index, log, or display:
 
-| Rejected | Reason |
-| --- | --- |
-| Empty, or longer than 512 bytes | Bounded storage, indexing, and display. |
-| Invalid UTF-8, or containing U+FFFD | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
-| Control characters (including NUL, newlines, escapes) | Log forging and storage safety. |
-| Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text. |
-| Leading or trailing whitespace | Rejected rather than trimmed, preserving the byte-exact identity. |
+| Rejected                                                         | Reason                                                                                                 |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Empty, or longer than 512 bytes                                  | Bounded storage, indexing, and display.                                                                |
+| Invalid UTF-8, or containing U+FFFD                              | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
+| Control characters (including NUL, newlines, escapes)            | Log forging and storage safety.                                                                        |
+| Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text.                                                              |
+| Leading or trailing whitespace                                   | Rejected rather than trimmed, preserving the byte-exact identity.                                      |
 
 ## Responses
 
@@ -65,11 +67,11 @@ Successful exchanges return an OAuth-style token response with `access_token`, `
 
 ## Internal Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/internal/policy/simulate` | Simulate policy input. |
-| `GET` | `/internal/policy/status/{zoneID}` | Inspect policy load status. |
-| `POST` | `/internal/zones/{zoneID}/signing-key/rotate` | Rotate zone signing key. |
+| Method | Path                                          | Purpose                     |
+| ------ | --------------------------------------------- | --------------------------- |
+| `POST` | `/internal/policy/simulate`                   | Simulate policy input.      |
+| `GET`  | `/internal/policy/status/{zoneID}`            | Inspect policy load status. |
+| `POST` | `/internal/zones/{zoneID}/signing-key/rotate` | Rotate zone signing key.    |
 
 Internal endpoints are for service/admin integration, not normal application traffic.
 
