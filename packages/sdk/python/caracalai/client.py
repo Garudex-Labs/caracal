@@ -852,6 +852,7 @@ class Caracal:
         self._app_provision = threading.Semaphore(1)
         self._app_mandate_guard = threading.Lock()
         self._app_generation = 0
+        self._closed = False
 
     @classmethod
     def from_client_secret(
@@ -929,10 +930,15 @@ class Caracal:
     def identity(self) -> tuple[str, str]:
         """The zone and application this client acts as. Useful for logging
         and metric labels."""
+        self._ensure_open()
         if self.config.zone_id and self.config.application_id:
             return self.config.zone_id, self.config.application_id
         assert self.config.exchanger is not None
         return self.config.exchanger.identity()
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("Caracal client is closed")
 
     def _emit_event(self, event: CaracalEvent) -> None:
         for h in self._event_hooks:
@@ -1142,6 +1148,7 @@ class Caracal:
         The caller is the issuer and its own context is unchanged; hand the
         returned ``delegation_id`` to the receiving session, which presents
         the delegation with :meth:`accept_delegation`."""
+        self._ensure_open()
         return await delegate(
             coordinator=self.config.coordinator,
             to_session_id=to_session_id,
@@ -1174,6 +1181,7 @@ class Caracal:
         ``validate=True`` to confirm with the coordinator that the delegation
         is live for the bound session before presenting it, at the cost of
         one control-plane call."""
+        self._ensure_open()
         ctx = current()
         if ctx is None:
             raise RuntimeError(
@@ -1238,6 +1246,7 @@ class Caracal:
         `asyncio.create_task`): the contextvar from the parent task is not
         visible there, so the receiving coroutine must reattach explicitly.
         """
+        self._ensure_open()
         token = _ctx_var.set(ctx)
         try:
             yield ctx
@@ -1263,6 +1272,7 @@ class Caracal:
         (un-delegated) identity. Bind a child context explicitly with
         :meth:`bind` before fan-out to keep delegation semantics intact.
         """
+        self._ensure_open()
         if ctx is None:
             ctx = current()
         if ctx is None:
@@ -1294,6 +1304,7 @@ class Caracal:
     ) -> dict[str, str]:
         """Async counterpart to :meth:`headers`: resolves refreshable tokens on
         a worker thread so an STS exchange never blocks the event loop."""
+        self._ensure_open()
         if ctx is None:
             ctx = current()
         if ctx is None or (ctx.own_token and self.config._token_source is not None):
@@ -1326,6 +1337,7 @@ class Caracal:
         verifier: TokenVerifier | None = None,
         trusted_propagation: bool = False,
     ) -> AsyncGenerator[CaracalContext, None]:
+        self._ensure_open()
         if verifier is not None and trusted_propagation:
             raise ValueError(
                 "Caracal.bind_from_headers(): choose either verifier or "
@@ -1408,20 +1420,24 @@ class Caracal:
         return current()
 
     async def aclose(self) -> None:
-        """Release pooled fetch clients, the credential exchanger's HTTP
+        """Terminally release pooled fetch clients, the credential exchanger's HTTP
         client, and the coordinator's HTTP client, and drop cached application
         mandates so nothing stale is served after shutdown. The sessions
         backing released application transports are terminated best-effort -
-        any that termination misses retire on their own TTL. Idempotent."""
-        for client in self._fetch_clients.values():
-            if not client.is_closed:
-                await client.aclose()
-        self._fetch_clients.clear()
+        any that termination misses retire on their own TTL. Idempotent;
+        operations after close fail."""
         with self._app_mandate_guard:
+            if self._closed:
+                return
+            self._closed = True
             self._app_generation += 1
             entries = [e for e in self._app_mandates.values() if e.sessions]
             self._app_mandates.clear()
             locks = [record[0] for record in self._app_mandate_locks.values()]
+        for client in self._fetch_clients.values():
+            if not client.is_closed:
+                await client.aclose()
+        self._fetch_clients.clear()
         for lock in locks:
             await asyncio.to_thread(lock.acquire)
             lock.release()
@@ -1507,6 +1523,7 @@ class Caracal:
 
             app.add_middleware(caracal.context_middleware(verifier=verify))
         """
+        self._ensure_open()
         from .http import CaracalASGIMiddleware
 
         outer = self
@@ -1554,6 +1571,7 @@ class Caracal:
         The client keeps httpx's default 5-second timeout; pass ``timeout=`` to
         size it for the upstream being called.
         """
+        self._ensure_open()
         if kwargs.get("follow_redirects"):
             raise ValueError(
                 "Caracal.transport(): Gateway redirects cannot be followed with a single-use mandate"
@@ -1589,6 +1607,7 @@ class Caracal:
             def _begin(
                 self, request: httpx.Request
             ) -> tuple[CaracalContext | None, str | None, bool]:
+                outer._ensure_open()
                 rewritten = outer._route_through_gateway(
                     request.url, request.headers.get("X-Caracal-Resource")
                 )
@@ -1719,6 +1738,7 @@ class Caracal:
         return _targets_gateway_path(str(url), gw)
 
     def gateway_request(self, resource_id: str, path: str = "/") -> GatewayTarget:
+        self._ensure_open()
         if not self.config.gateway_url:
             raise RuntimeError("Caracal.gateway_request: gateway_url is not configured")
         if not resource_id.strip():
@@ -1753,6 +1773,7 @@ class Caracal:
 
         Requires client-secret credentials (:meth:`from_client_secret`,
         :meth:`from_config`, or ``CARACAL_APP_CLIENT_SECRET``)."""
+        self._ensure_open()
         exchanger = self.config.exchanger
         if exchanger is None:
             raise RuntimeError(
@@ -1784,6 +1805,7 @@ class Caracal:
         Never cached: each federation is an explicit identity event, recorded
         in the audit stream. Requires client-secret credentials and a subject
         issuer registered on the zone."""
+        self._ensure_open()
         exchanger = self.config.exchanger
         if exchanger is None:
             raise RuntimeError(
@@ -1816,6 +1838,7 @@ class Caracal:
         no decision.
 
         Requires client-secret credentials."""
+        self._ensure_open()
         exchanger = self.config.exchanger
         if exchanger is None:
             raise RuntimeError(
@@ -1848,6 +1871,7 @@ class Caracal:
                 )
             )
         """
+        self._ensure_open()
         try:
             return await fn(None)
         except ApprovalRequired as err:
@@ -1890,6 +1914,7 @@ class Caracal:
         httpx's default 5-second timeout applies; pass ``timeout=`` per request
         to size it for the upstream.
         """
+        self._ensure_open()
         request = self.gateway_request(resource_id, path)
         merged = {**(headers or {}), **request.headers}
         if transport is not None:
@@ -1940,6 +1965,7 @@ class Caracal:
         See :meth:`transport` for the ``as_application``, ``ctx``, ``scopes``,
         and ``propagation`` semantics.
         """
+        self._ensure_open()
         if kwargs.get("follow_redirects"):
             raise ValueError(
                 "Caracal.sync_transport(): Gateway redirects cannot be followed with a single-use mandate"
@@ -1962,6 +1988,7 @@ class Caracal:
         resource_id: str,
         *,
         scopes: list[str],
+        approval_id: str | None = None,
         labels: list[str] | None = None,
         mandate_ttl_seconds: int | None = None,
         **kwargs: Any,
@@ -1984,9 +2011,11 @@ class Caracal:
         fixed buffer.
 
         Requires client-secret credentials."""
+        self._ensure_open()
         auth = self._app_auth(
             resource_id,
             scopes=scopes,
+            approval_id=approval_id,
             labels=labels,
             mandate_ttl_seconds=mandate_ttl_seconds,
             label="application_transport",
@@ -2011,6 +2040,7 @@ class Caracal:
         resource_id: str,
         *,
         scopes: list[str],
+        approval_id: str | None = None,
         labels: list[str] | None = None,
         mandate_ttl_seconds: int | None = None,
         **kwargs: Any,
@@ -2019,9 +2049,11 @@ class Caracal:
         httpx.Client authorizing every request with a mandate minted under the
         application's own identity. See :meth:`application_transport` for the
         cycle, caching, and routing semantics."""
+        self._ensure_open()
         auth = self._app_auth(
             resource_id,
             scopes=scopes,
+            approval_id=approval_id,
             labels=labels,
             mandate_ttl_seconds=mandate_ttl_seconds,
             label="sync_application_transport",
@@ -2046,6 +2078,7 @@ class Caracal:
         resource_id: str,
         *,
         scopes: list[str],
+        approval_id: str | None,
         labels: list[str] | None,
         mandate_ttl_seconds: int | None,
         label: str,
@@ -2096,12 +2129,14 @@ class Caracal:
                 authority = outer._app_mandate(
                     resource_id, granted, labels, mandate_ttl
                 )
+                outer._ensure_open()
                 mandate = outer.config.exchanger.mint_mandate(
                     resource=resource_id,
                     scopes=granted,
                     session_id=authority.target_session_id,
                     delegation_id=authority.delegation_id,
                     ttl_seconds=mandate_ttl,
+                    approval_id=approval_id,
                     cache=False,
                 ).token
                 self._finish(request, mandate, authority)
@@ -2111,6 +2146,7 @@ class Caracal:
                 authority = await asyncio.to_thread(
                     outer._app_mandate, resource_id, granted, labels, mandate_ttl
                 )
+                outer._ensure_open()
                 mandate = (
                     await asyncio.to_thread(
                         outer.config.exchanger.mint_mandate,
@@ -2119,6 +2155,7 @@ class Caracal:
                         session_id=authority.target_session_id,
                         delegation_id=authority.delegation_id,
                         ttl_seconds=mandate_ttl,
+                        approval_id=approval_id,
                         cache=False,
                     )
                 ).token
@@ -2140,6 +2177,7 @@ class Caracal:
 
     def _app_mandate_lock(self, key: str) -> threading.Lock:
         with self._app_mandate_guard:
+            self._ensure_open()
             record = self._app_mandate_locks.get(key)
             lock = record[0] if record is not None else threading.Lock()
             self._app_mandate_locks[key] = (lock, (record[1] if record else 0) + 1)
@@ -2162,6 +2200,7 @@ class Caracal:
         labels: list[str] | None,
         mandate_ttl: int,
     ) -> _AppAuthority:
+        self._ensure_open()
         exchanger = self.config.exchanger
         assert exchanger is not None
         zone_id, application_id = exchanger.identity()
@@ -2169,6 +2208,7 @@ class Caracal:
         session_labels = labels if labels else [application_id]
         encoded_labels = json.dumps(session_labels, separators=(",", ":"))
         with self._app_mandate_guard:
+            self._ensure_open()
             generation = self._app_generation
             now = time.time()
             stale_keys = [
@@ -2196,6 +2236,7 @@ class Caracal:
         lock = self._app_mandate_lock(key)
         try:
             with lock:
+                self._ensure_open()
                 cached = self._app_mandate_cached(key)
                 if cached is not None:
                     return cached

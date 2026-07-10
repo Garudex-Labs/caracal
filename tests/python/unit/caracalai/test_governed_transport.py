@@ -188,6 +188,19 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(mint["resource"], [RESOURCE])
         self.assertNotIn("subject_token", mint)
 
+    def test_application_transport_consumes_an_approved_challenge(self) -> None:
+        platform = _Platform()
+        c = _client(platform)
+        with c.sync_application_transport(
+            RESOURCE,
+            scopes=["data:read"],
+            approval_id="approval-1",
+            transport=httpx.MockTransport(_gateway_echo),
+        ) as client:
+            self.assertEqual(client.get(f"{UPSTREAM}/tasks").status_code, 200)
+
+        self.assertEqual(platform.mint_forms()[-1]["challenge_id"], ["approval-1"])
+
     def test_gateway_targeted_requests_pass_through(self) -> None:
         platform = _Platform()
         c = _client(platform)
@@ -326,27 +339,20 @@ class GovernedCycleTests(unittest.TestCase):
             client.get(f"{UPSTREAM}/tasks")
 
         asyncio.run(c.aclose())
+        asyncio.run(c.aclose())
         self.assertEqual(sorted(platform.deletes), ["agent-1", "agent-2"])
+        with self.assertRaisesRegex(RuntimeError, "Caracal client is closed"):
+            c.gateway_request(RESOURCE, "/tasks")
 
-    def test_aclose_separates_authority_provisioning_generations(self) -> None:
+    def test_aclose_rejects_inflight_and_subsequent_requests(self) -> None:
         platform = _Platform()
-        delegation_guard = threading.Lock()
         first_delegation = threading.Event()
         release_first = threading.Event()
-        second_delegation = threading.Event()
-        delegation_count = 0
 
         def handler(request: httpx.Request) -> httpx.Response:
-            nonlocal delegation_count
             if request.method == "POST" and request.url.path.endswith("/delegations"):
-                with delegation_guard:
-                    delegation_count += 1
-                    current = delegation_count
-                if current == 1:
-                    first_delegation.set()
-                    release_first.wait()
-                elif current == 2:
-                    second_delegation.set()
+                first_delegation.set()
+                release_first.wait()
             return platform.handler(request)
 
         c = _client(
@@ -371,9 +377,6 @@ class GovernedCycleTests(unittest.TestCase):
                         self.assertEqual(c._app_generation, 1)
                     second = asyncio.create_task(client.get("http://gateway/second"))
                     release_first.set()
-                    self.assertTrue(await asyncio.to_thread(second_delegation.wait, 5))
-                    self.assertEqual(platform.spawns, 4)
-                    self.assertEqual((await second).status_code, 200)
                 finally:
                     release_first.set()
                     results = await asyncio.gather(
@@ -382,12 +385,14 @@ class GovernedCycleTests(unittest.TestCase):
                         *([closing] if closing is not None else []),
                         return_exceptions=True,
                     )
-                for result in results:
-                    if isinstance(result, BaseException):
-                        raise result
+                self.assertIsInstance(results[0], RuntimeError)
+                self.assertIn("Caracal client is closed", str(results[0]))
+                self.assertIsInstance(results[1], RuntimeError)
+                self.assertIn("Caracal client is closed", str(results[1]))
+                self.assertIsNone(results[2])
 
         asyncio.run(run())
-        self.assertEqual(platform.spawns, 4)
+        self.assertEqual(platform.spawns, 2)
         self.assertEqual(platform.deletes, ["agent-1", "agent-2"])
 
 

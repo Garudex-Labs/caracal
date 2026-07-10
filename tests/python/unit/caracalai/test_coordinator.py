@@ -18,6 +18,9 @@ from caracalai.coordinator import (
     acquire_session_lease,
     create_delegation,
     heartbeat_session,
+    sync_create_delegation,
+    sync_start_coordinator_session,
+    sync_terminate_session,
     start_coordinator_session,
     terminate_session,
 )
@@ -29,6 +32,66 @@ def _client(handler) -> CoordinatorClient:
         base_url="http://coordinator.test",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
+
+
+class SyncTraceTests(unittest.TestCase):
+    def test_propagates_one_trace_with_fresh_spans(self) -> None:
+        captured: list[httpx.Request] = []
+        trace_id = "1" * 32
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            if str(req.url).endswith("/delegations"):
+                return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
+            if req.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(200, json={"agent_session_id": "session-1"})
+
+        client = CoordinatorClient(base_url="http://coordinator.test")
+        with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+            sync_start_coordinator_session(
+                client,
+                http,
+                "tok",
+                StartSessionRequest(
+                    zone_id="z",
+                    application_id="app",
+                    trace_id=trace_id,
+                    trace_state="vendor=value",
+                ),
+            )
+            sync_create_delegation(
+                client,
+                http,
+                "tok",
+                DelegationRequest(
+                    zone_id="z",
+                    issuer_application_id="app",
+                    source_session_id="session-1",
+                    target_session_id="session-2",
+                    receiver_application_id="receiver",
+                    scopes=["read"],
+                    trace_id=trace_id,
+                    trace_state="vendor=value",
+                ),
+            )
+            sync_terminate_session(
+                client,
+                http,
+                "tok",
+                "z",
+                "session-1",
+                trace_id=trace_id,
+                trace_state="vendor=value",
+            )
+
+        traceparents = [request.headers["traceparent"] for request in captured]
+        self.assertTrue(all(value.split("-")[1] == trace_id for value in traceparents))
+        self.assertEqual(len({value.split("-")[2] for value in traceparents}), 3)
+        self.assertEqual(
+            [request.headers["tracestate"] for request in captured],
+            ["vendor=value", "vendor=value", "vendor=value"],
+        )
 
 
 class StartSessionTests(unittest.IsolatedAsyncioTestCase):

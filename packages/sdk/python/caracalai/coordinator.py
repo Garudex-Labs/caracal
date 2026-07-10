@@ -417,7 +417,10 @@ async def start_coordinator_session(
 def sync_start_coordinator_session(
     client: CoordinatorClient, http: httpx.Client, bearer: str, req: StartSessionRequest
 ) -> StartSessionResponse:
-    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+    headers = {
+        **({"idempotency-key": req.idempotency_key} if req.idempotency_key else {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
 
     resp = _sync_call(
         client,
@@ -465,6 +468,9 @@ def sync_terminate_session(
     zone_id: str,
     session_id: str,
     lease_generation: int | None = None,
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
 ) -> None:
     _sync_call(
         client,
@@ -477,6 +483,7 @@ def sync_terminate_session(
             if lease_generation is not None
             else None
         ),
+        headers=_trace_headers(trace_id, trace_flags, trace_state),
     )
 
 
@@ -670,7 +677,10 @@ async def get_inbound_delegation(
 def sync_create_delegation(
     client: CoordinatorClient, http: httpx.Client, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
-    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+    headers = {
+        **({"idempotency-key": req.idempotency_key} if req.idempotency_key else {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
     resp = _sync_call(
         client,
         http,
