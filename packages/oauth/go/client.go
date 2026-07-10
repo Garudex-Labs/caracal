@@ -114,7 +114,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	cacheResource := c.cacheResource(resources, opts)
 	eventResources := resourceList(resources)
 	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
-	if !opts.ForceRefresh {
+	if !opts.OneShot && !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
 			// The preflight window is capped at half the token lifetime so
 			// short-lived tokens are still served from cache instead of
@@ -125,6 +125,23 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 				return cached, nil
 			}
 		}
+	}
+
+	if opts.OneShot {
+		start := time.Now()
+		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+		event := Event{Type: "token.exchange", Ok: err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
+		if err != nil {
+			var caracalErr *CaracalError
+			var approvalErr *ApprovalRequiredError
+			if errors.As(err, &caracalErr) {
+				event.Code, event.Status = caracalErr.Code, caracalErr.HTTPStatus
+			} else if errors.As(err, &approvalErr) {
+				event.Code, event.Status = "interaction_required", approvalErr.HTTPStatus
+			}
+		}
+		c.emit(event)
+		return token, err
 	}
 
 	inflightKey := cacheSubject + "::" + cacheResource
@@ -411,9 +428,9 @@ type FederateSubjectOptions struct {
 }
 
 // FederateSubject exchanges an end user's identity token from a zone-trusted
-// external issuer for a Caracal user subject session. The application
+// external issuer for a Caracal Subject authority record. The application
 // authenticates itself with its client secret and relays the token verbatim;
-// the minted session is the subject's identity anchor and carries no resource
+// the minted record is the Subject's identity anchor and carries no resource
 // authority. Never cached: each federation is an explicit identity event.
 func (c *Client) FederateSubject(ctx context.Context, idToken string, opts FederateSubjectOptions) (TokenExchangeResponse, error) {
 	if idToken == "" {

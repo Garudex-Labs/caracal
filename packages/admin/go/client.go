@@ -54,7 +54,7 @@ func (e *AdminAPIError) Error() string {
 
 // AdminClientOptions configures an AdminClient. Retries 0 means the default
 // of 3; a negative value disables retries. CoordinatorURL and
-// CoordinatorToken are required only for coordinator-backed surfaces (agents
+// CoordinatorToken are required only for coordinator-backed surfaces (sessions
 // and delegations).
 type AdminClientOptions struct {
 	APIURL           string
@@ -68,7 +68,7 @@ type AdminClientOptions struct {
 
 // AdminClient is an admin API client covering provisioning (zones,
 // applications, resources, providers, policies, policy sets, policy
-// templates, grants) and operations (sessions, audit, step-up, agents,
+// templates, grants) and operations (authority records, sessions, audit, approvals,
 // delegations) surfaces. Only idempotent (GET/HEAD) requests are retried, on
 // transient statuses with jittered backoff honoring Retry-After.
 type AdminClient struct {
@@ -91,13 +91,12 @@ type AdminClient struct {
 	SubjectIssuers      *SubjectIssuersService
 	ProviderConnections *ProviderConnectionsService
 	Workloads           *WorkloadsService
-	Sessions            *SessionsService
+	AuthorityRecords    *AuthorityRecordsService
 	Subjects            *SubjectsService
-	AgentSessions       *AgentSessionsService
+	Sessions            *SessionsService
 	Audit               *AuditService
 	AdminAudit          *AdminAuditService
 	StepUpChallenges    *StepUpChallengesService
-	Agents              *AgentsService
 	Delegations         *DelegationsService
 }
 
@@ -135,13 +134,12 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	client.SubjectIssuers = &SubjectIssuersService{client}
 	client.ProviderConnections = &ProviderConnectionsService{client}
 	client.Workloads = &WorkloadsService{client}
-	client.Sessions = &SessionsService{client}
+	client.AuthorityRecords = &AuthorityRecordsService{client}
 	client.Subjects = &SubjectsService{client}
-	client.AgentSessions = &AgentSessionsService{client}
+	client.Sessions = &SessionsService{client}
 	client.Audit = &AuditService{client}
 	client.AdminAudit = &AdminAuditService{client}
 	client.StepUpChallenges = &StepUpChallengesService{client}
-	client.Agents = &AgentsService{client}
 	client.Delegations = &DelegationsService{client}
 	return client
 }

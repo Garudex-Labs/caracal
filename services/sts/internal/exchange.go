@@ -284,7 +284,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if req.AuthorityRecordID == "" {
 			req.AuthorityRecordID = sid
 		}
-		if aerr := bindSubjectSession(&req, subjectClaims); aerr != nil {
+		if aerr := bindGovernedSession(&req, subjectClaims); aerr != nil {
 			return nil, nil, http.StatusForbidden, aerr
 		}
 	}
@@ -1668,7 +1668,7 @@ func applicationAuditMeta(app *Application) map[string]any {
 	}
 }
 
-func bindSubjectSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
+func bindGovernedSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
 	sessionID := claimString(claims, "agent_session_id")
 	if sessionID == "" {
 		return nil

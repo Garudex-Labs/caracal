@@ -21,8 +21,8 @@ var ErrTokenInvalid = errors.New("token validation failed")
 // ErrZoneInvalid signals the zone_id claim is missing or did not match Config.ZoneID.
 var ErrZoneInvalid = errors.New("token zone validation failed")
 
-// ErrAgentIdentityRequired signals the token has no agent_session_id.
-var ErrAgentIdentityRequired = errors.New("agent identity required")
+// ErrSessionRequired signals the token has no governed Session identity.
+var ErrSessionRequired = errors.New("session required")
 
 // ErrDelegationRequired signals the token has no delegation_edge_id.
 var ErrDelegationRequired = errors.New("delegation required")
@@ -66,15 +66,15 @@ func readChain(raw any) ([]ChainHop, bool) {
 		if !ok || appID == "" {
 			return nil, false
 		}
-		session, ok := optionalString(m, "agent_session_id")
+		sessionID, ok := optionalString(m, "agent_session_id")
 		if !ok {
 			return nil, false
 		}
-		edge, ok := optionalString(m, "delegation_edge_id")
+		delegationID, ok := optionalString(m, "delegation_edge_id")
 		if !ok {
 			return nil, false
 		}
-		out = append(out, ChainHop{ApplicationID: appID, AgentSessionID: session, DelegationEdgeID: edge})
+		out = append(out, ChainHop{ApplicationID: appID, SessionID: sessionID, DelegationID: delegationID})
 	}
 	return out, true
 }
@@ -223,11 +223,11 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	sid, ok := requiredString(mapClaims, "sid")
+	authorityRecordID, ok := requiredString(mapClaims, "sid")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	rootSid, ok := requiredString(mapClaims, "root_sid")
+	rootAuthorityRecordID, ok := requiredString(mapClaims, "root_sid")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
@@ -270,11 +270,11 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		}
 	}
 
-	agentSessionID, ok := optionalString(mapClaims, "agent_session_id")
+	sessionID, ok := optionalString(mapClaims, "agent_session_id")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
-	delegationEdgeID, ok := optionalString(mapClaims, "delegation_edge_id")
+	delegationID, ok := optionalString(mapClaims, "delegation_edge_id")
 	if !ok {
 		return Claims{}, ErrTokenInvalid
 	}
@@ -302,10 +302,10 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 		return Claims{}, ErrTokenInvalid
 	}
 
-	if cfg.RequireAgent && agentSessionID == "" {
-		return Claims{}, ErrAgentIdentityRequired
+	if cfg.RequireSession && sessionID == "" {
+		return Claims{}, ErrSessionRequired
 	}
-	if cfg.RequireDelegation && delegationEdgeID == "" {
+	if cfg.RequireDelegation && delegationID == "" {
 		return Claims{}, ErrDelegationRequired
 	}
 	maxHops := cfg.MaxHopCount
@@ -329,26 +329,26 @@ func VerifyContext(ctx context.Context, tokenStr string, cfg Config) (Claims, er
 	}
 
 	return Claims{
-		Sub:              sub,
-		ZoneID:           zoneID,
-		ClientID:         clientID,
-		Sid:              sid,
-		RootSid:          rootSid,
-		Use:              use,
-		SubType:          subType,
-		JTI:              jti,
-		IssuedAt:         issuedAt,
-		ExpiresAt:        expiresAt,
-		Scope:            scope,
-		TargetResources:  targetResources,
-		AgentSessionID:   agentSessionID,
-		DelegationEdgeID: delegationEdgeID,
-		SourceSessionID:  sourceSessionID,
-		TargetSessionID:  targetSessionID,
-		DelegationPath:   path,
-		DelegationChain:  chain,
-		GraphEpoch:       graphEpoch,
-		HopCount:         hopCount,
+		Sub:                   sub,
+		ZoneID:                zoneID,
+		ClientID:              clientID,
+		AuthorityRecordID:     authorityRecordID,
+		RootAuthorityRecordID: rootAuthorityRecordID,
+		Use:                   use,
+		SubType:               subType,
+		JTI:                   jti,
+		IssuedAt:              issuedAt,
+		ExpiresAt:             expiresAt,
+		Scope:                 scope,
+		TargetResources:       targetResources,
+		SessionID:             sessionID,
+		DelegationID:          delegationID,
+		SourceSessionID:       sourceSessionID,
+		TargetSessionID:       targetSessionID,
+		DelegationPath:        path,
+		DelegationChain:       chain,
+		GraphEpoch:            graphEpoch,
+		HopCount:              hopCount,
 	}, nil
 }
 

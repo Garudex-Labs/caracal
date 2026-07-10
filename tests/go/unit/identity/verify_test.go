@@ -274,13 +274,13 @@ func TestVerifyRejectsMissingRequiredTarget(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsAgentRequired(t *testing.T) {
+func TestVerifyRejectsSessionRequired(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, nil)
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireAgent: true})
-	if err != identity.ErrAgentIdentityRequired {
-		t.Fatalf("expected ErrAgentIdentityRequired, got %v", err)
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireSession: true})
+	if err != identity.ErrSessionRequired {
+		t.Fatalf("expected ErrSessionRequired, got %v", err)
 	}
 }
 
@@ -298,7 +298,7 @@ func TestVerifyRejectsMalformedAgentClaim(t *testing.T) {
 	token, issuer, closeServer := mintToken(t, jwt.MapClaims{"agent_session_id": []string{"agent-1"}})
 	defer closeServer()
 
-	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireAgent: true})
+	_, err := identity.Verify(token, identity.Config{Issuer: issuer, Audience: "resource://api", ZoneID: "zone-1", RequireSession: true})
 	if err != identity.ErrTokenInvalid {
 		t.Fatalf("expected ErrTokenInvalid, got %v", err)
 	}

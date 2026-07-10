@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Admin operations services and row types for policy templates, grants, sessions, audit, step-up, agents, and delegations.
+// Admin operation services and row types for authority records, sessions, approvals, audit, and delegations.
 
 package admin
 
@@ -134,24 +134,71 @@ type Workload struct {
 	UpdatedAt          string            `json:"updated_at"`
 }
 
-// Session is the admin API subject session row.
-type Session struct {
-	ID              string  `json:"id"`
-	ZoneID          string  `json:"zone_id"`
-	SessionType     string  `json:"session_type"`
-	SubjectID       string  `json:"subject_id"`
-	ParentID        *string `json:"parent_id"`
-	Status          string  `json:"status"`
-	ExpiresAt       string  `json:"expires_at"`
-	AuthenticatedAt string  `json:"authenticated_at"`
-	CreatedAt       string  `json:"created_at"`
+// AuthorityRecord is an STS authority record.
+type AuthorityRecord struct {
+	AuthorityRecordID       string  `json:"authority_record_id"`
+	ZoneID                  string  `json:"zone_id"`
+	AuthorityRecordType     string  `json:"authority_record_type"`
+	SubjectID               string  `json:"subject_id"`
+	ParentAuthorityRecordID *string `json:"parent_authority_record_id"`
+	Status                  string  `json:"status"`
+	ExpiresAt               string  `json:"expires_at"`
+	AuthenticatedAt         string  `json:"authenticated_at"`
+	CreatedAt               string  `json:"created_at"`
 }
 
-// SessionQuery filters session listings.
+// AuthorityRecordQuery filters authority record listings.
+type AuthorityRecordQuery struct {
+	AuthorityRecordID string
+	Status            string
+	SubjectID         string
+	Cursor            string
+	Limit             int
+}
+
+func (q *AuthorityRecordQuery) values() url.Values {
+	if q == nil {
+		return nil
+	}
+	values := url.Values{}
+	setParam(values, "authority_record_id", q.AuthorityRecordID)
+	setParam(values, "status", q.Status)
+	setParam(values, "subject_id", q.SubjectID)
+	setParam(values, "cursor", q.Cursor)
+	setLimit(values, q.Limit)
+	return values
+}
+
+// Session is a governed execution session.
+type Session struct {
+	SessionID           string         `json:"session_id"`
+	ZoneID              string         `json:"zone_id,omitempty"`
+	ApplicationID       string         `json:"application_id"`
+	ParentSessionID     *string        `json:"parent_session_id"`
+	Status              string         `json:"status"`
+	Lifecycle           string         `json:"lifecycle"`
+	Labels              []string       `json:"labels"`
+	Depth               int            `json:"depth"`
+	ChildCount          int            `json:"child_count"`
+	StartedAt           string         `json:"started_at"`
+	LastActiveAt        string         `json:"last_active_at"`
+	TerminatedAt        *string        `json:"terminated_at"`
+	TTLSeconds          *int           `json:"ttl_seconds"`
+	AuthorityRecordID   string         `json:"authority_record_id,omitempty"`
+	Metadata            map[string]any `json:"metadata,omitempty"`
+	LastHeartbeatAt     *string        `json:"last_heartbeat_at,omitempty"`
+	HeartbeatDeadlineAt *string        `json:"heartbeat_deadline_at,omitempty"`
+}
+
+// SessionQuery filters governed session listings.
 type SessionQuery struct {
-	Status    string
-	SubjectID string
-	Limit     int
+	Status          string
+	Lifecycle       string
+	ApplicationID   string
+	ParentSessionID string
+	Label           string
+	Cursor          string
+	Limit           int
 }
 
 func (q *SessionQuery) values() url.Values {
@@ -160,47 +207,9 @@ func (q *SessionQuery) values() url.Values {
 	}
 	values := url.Values{}
 	setParam(values, "status", q.Status)
-	setParam(values, "subject_id", q.SubjectID)
-	setLimit(values, q.Limit)
-	return values
-}
-
-// AgentSessionRow is the admin API agent session listing row.
-type AgentSessionRow struct {
-	ID            string   `json:"id"`
-	ApplicationID string   `json:"application_id"`
-	ParentID      *string  `json:"parent_id"`
-	Status        string   `json:"status"`
-	Lifecycle     string   `json:"lifecycle"`
-	Labels        []string `json:"labels"`
-	Depth         int      `json:"depth"`
-	ChildCount    int      `json:"child_count"`
-	SpawnedAt     string   `json:"spawned_at"`
-	LastActiveAt  string   `json:"last_active_at"`
-	TerminatedAt  *string  `json:"terminated_at"`
-	TTLSeconds    *int     `json:"ttl_seconds"`
-}
-
-// AgentSessionQuery filters agent session listings.
-type AgentSessionQuery struct {
-	Status        string
-	Lifecycle     string
-	ApplicationID string
-	ParentID      string
-	Label         string
-	Cursor        string
-	Limit         int
-}
-
-func (q *AgentSessionQuery) values() url.Values {
-	if q == nil {
-		return nil
-	}
-	values := url.Values{}
-	setParam(values, "status", q.Status)
 	setParam(values, "lifecycle", q.Lifecycle)
 	setParam(values, "application_id", q.ApplicationID)
-	setParam(values, "parent_id", q.ParentID)
+	setParam(values, "parent_session_id", q.ParentSessionID)
 	setParam(values, "label", q.Label)
 	setParam(values, "cursor", q.Cursor)
 	setLimit(values, q.Limit)
@@ -252,15 +261,16 @@ type DecisionTrace struct {
 
 // AuditQuery filters audit trail listings.
 type AuditQuery struct {
-	Since          string
-	Until          string
-	RequestID      string
-	Decision       string
-	EventType      string
-	AgentSessionID string
-	Label          string
-	Cursor         string
-	Limit          int
+	Since             string
+	Until             string
+	RequestID         string
+	Decision          string
+	EventType         string
+	SessionID         string
+	AuthorityRecordID string
+	Label             string
+	Cursor            string
+	Limit             int
 }
 
 func (q *AuditQuery) values() url.Values {
@@ -273,7 +283,8 @@ func (q *AuditQuery) values() url.Values {
 	setParam(values, "request_id", q.RequestID)
 	setParam(values, "decision", q.Decision)
 	setParam(values, "event_type", q.EventType)
-	setParam(values, "agent_session_id", q.AgentSessionID)
+	setParam(values, "session_id", q.SessionID)
+	setParam(values, "authority_record_id", q.AuthorityRecordID)
 	setParam(values, "label", q.Label)
 	setParam(values, "cursor", q.Cursor)
 	setLimit(values, q.Limit)
@@ -359,53 +370,10 @@ type StepUpDecision struct {
 	ApproverSubjectID string  `json:"approver_subject_id"`
 }
 
-// AgentSession is the coordinator agent session detail.
-type AgentSession struct {
-	AgentSessionID      string         `json:"agent_session_id"`
-	ZoneID              string         `json:"zone_id"`
-	ApplicationID       string         `json:"application_id"`
-	ParentID            *string        `json:"parent_id"`
-	SubjectSessionID    string         `json:"subject_session_id"`
-	Lifecycle           string         `json:"lifecycle"`
-	Labels              []string       `json:"labels"`
-	Status              string         `json:"status"`
-	Depth               int            `json:"depth"`
-	TTLSeconds          *int           `json:"ttl_seconds"`
-	Metadata            map[string]any `json:"metadata"`
-	SpawnedAt           string         `json:"spawned_at"`
-	TerminatedAt        *string        `json:"terminated_at"`
-	LastHeartbeatAt     *string        `json:"last_heartbeat_at"`
-	HeartbeatDeadlineAt *string        `json:"heartbeat_deadline_at"`
-}
-
-// AgentListQuery filters coordinator agent listings.
-type AgentListQuery struct {
-	Status        string
-	Lifecycle     string
-	ApplicationID string
-	Label         string
-	Cursor        string
-	Limit         int
-}
-
-func (q *AgentListQuery) values() url.Values {
-	if q == nil {
-		return nil
-	}
-	values := url.Values{}
-	setParam(values, "status", q.Status)
-	setParam(values, "lifecycle", q.Lifecycle)
-	setParam(values, "application_id", q.ApplicationID)
-	setParam(values, "label", q.Label)
-	setParam(values, "cursor", q.Cursor)
-	setLimit(values, q.Limit)
-	return values
-}
-
-// EffectiveAuthority is the computed authority for one agent session.
+// EffectiveAuthority is the computed authority for one governed session.
 type EffectiveAuthority struct {
-	AgentSessionID               string   `json:"agent_session_id"`
-	InboundEdges                 []string `json:"inbound_edges"`
+	SessionID                    string   `json:"session_id"`
+	InboundDelegations           []string `json:"inbound_delegations"`
 	EffectiveScopes              []string `json:"effective_scopes"`
 	EffectiveResourceIDs         []string `json:"effective_resource_ids"`
 	EffectiveResources           []string `json:"effective_resources"`
@@ -415,15 +383,15 @@ type EffectiveAuthority struct {
 	EarliestExpiresAt            *string  `json:"earliest_expires_at"`
 }
 
-// DelegationEdge is one delegation graph edge.
-type DelegationEdge struct {
-	ID                    string         `json:"id"`
+// Delegation is one bounded authority transfer between sessions.
+type Delegation struct {
+	DelegationID          string         `json:"delegation_id"`
 	ZoneID                string         `json:"zone_id"`
 	SourceSessionID       string         `json:"source_session_id"`
 	TargetSessionID       string         `json:"target_session_id"`
 	IssuerApplicationID   string         `json:"issuer_application_id"`
 	ReceiverApplicationID string         `json:"receiver_application_id"`
-	ParentEdgeID          *string        `json:"parent_edge_id"`
+	ParentDelegationID    *string        `json:"parent_delegation_id"`
 	ResourceID            *string        `json:"resource_id"`
 	Scopes                []string       `json:"scopes"`
 	ConstraintsJSON       map[string]any `json:"constraints_json"`
@@ -434,9 +402,9 @@ type DelegationEdge struct {
 	CreatedAt             string         `json:"created_at"`
 }
 
-// TraverseNode is one node in a delegation subtree traversal.
-type TraverseNode struct {
-	ID              string `json:"id"`
+// DelegationTraversal is one node in a delegation subtree traversal.
+type DelegationTraversal struct {
+	DelegationID    string `json:"delegation_id"`
 	SourceSessionID string `json:"source_session_id"`
 	TargetSessionID string `json:"target_session_id"`
 	Depth           int    `json:"depth"`
@@ -444,22 +412,22 @@ type TraverseNode struct {
 
 // DelegationImpact is the blast radius preview for revoking one edge.
 type DelegationImpact struct {
-	EdgeID                  string         `json:"edge_id"`
-	AffectedEdges           []TraverseNode `json:"affected_edges"`
-	AffectedAgents          []string       `json:"affected_agents"`
-	AffectedSubjectSessions []string       `json:"affected_subject_sessions"`
+	DelegationID            string                `json:"delegation_id"`
+	AffectedDelegations     []DelegationTraversal `json:"affected_delegations"`
+	AffectedSessions        []string              `json:"affected_sessions"`
+	AffectedAuthorityRecords []string              `json:"affected_subject_sessions"`
 }
 
 // ActiveDelegations is one page of active delegation edges.
 type ActiveDelegations struct {
-	Items      []DelegationEdge `json:"items"`
-	NextCursor *string          `json:"next_cursor"`
+	Items      []Delegation `json:"items"`
+	NextCursor *string      `json:"next_cursor"`
 }
 
 // DelegationRevocation is the result of a cascading edge revocation.
 type DelegationRevocation struct {
-	RevokedEdges     int `json:"revoked_edges"`
-	AffectedSessions int `json:"affected_sessions"`
+	RevokedDelegations int `json:"revoked_delegations"`
+	AffectedSessions   int `json:"affected_sessions"`
 }
 
 // PolicyTemplatesService covers /v1/policy-templates.
@@ -659,19 +627,18 @@ func (s *WorkloadsService) Delete(ctx context.Context, zoneID, workloadID string
 	return s.client.do(ctx, http.MethodDelete, "/v1/zones/"+zoneID+"/workloads/"+workloadID, nil, nil, true)
 }
 
-// SessionsService covers /v1/zones/{zone}/sessions reads; revocation is a
-// side effect of grant revoke or agent terminate.
-type SessionsService struct{ client *AdminClient }
+// AuthorityRecordsService covers /v1/zones/{zone}/authority-records reads.
+type AuthorityRecordsService struct{ client *AdminClient }
 
-func (s *SessionsService) List(ctx context.Context, zoneID string, query *SessionQuery) ([]Session, error) {
+func (s *AuthorityRecordsService) List(ctx context.Context, zoneID string, query *AuthorityRecordQuery) ([]AuthorityRecord, error) {
 	var out struct {
-		Items []Session `json:"items"`
+		Items []AuthorityRecord `json:"items"`
 	}
-	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/sessions", query.values(), nil, &out, false); err != nil {
+	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/authority-records", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
 	if out.Items == nil {
-		return nil, errors.New("sessions response missing items")
+		return nil, errors.New("authority-records response missing items")
 	}
 	return out.Items, nil
 }
@@ -685,11 +652,11 @@ type SubjectsService struct{ client *AdminClient }
 
 // SubjectRevokeResult reports what one revoke call cut off.
 type SubjectRevokeResult struct {
-	SubjectID   string `json:"subject_id"`
-	Sessions    int    `json:"sessions"`
-	Agents      int    `json:"agents"`
-	Delegations int    `json:"delegations"`
-	Connections int    `json:"connections"`
+	SubjectID        string `json:"subject_id"`
+	AuthorityRecords int    `json:"authority_records"`
+	Sessions         int    `json:"sessions"`
+	Delegations      int    `json:"delegations"`
+	Connections      int    `json:"connections"`
 }
 
 func (s *SubjectsService) Revoke(ctx context.Context, zoneID string, body map[string]any) (*SubjectRevokeResult, error) {
@@ -700,19 +667,19 @@ func (s *SubjectsService) Revoke(ctx context.Context, zoneID string, body map[st
 	return &out, nil
 }
 
-// AgentSessionsService covers /v1/zones/{zone}/agent-sessions reads; CSV
-// export is available directly from the API endpoint with format=csv.
-type AgentSessionsService struct{ client *AdminClient }
+// SessionsService reads governed sessions through the Admin API and manages
+// lifecycle through retained Coordinator wire routes.
+type SessionsService struct{ client *AdminClient }
 
-func (s *AgentSessionsService) List(ctx context.Context, zoneID string, query *AgentSessionQuery) ([]AgentSessionRow, error) {
+func (s *SessionsService) List(ctx context.Context, zoneID string, query *SessionQuery) ([]Session, error) {
 	var out struct {
-		Items []AgentSessionRow `json:"items"`
+		Items []Session `json:"items"`
 	}
-	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/agent-sessions", query.values(), nil, &out, false); err != nil {
+	if err := s.client.request(ctx, baseAPI, http.MethodGet, "/v1/zones/"+zoneID+"/sessions", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
 	if out.Items == nil {
-		return nil, errors.New("agent-sessions response missing items")
+		return nil, errors.New("sessions response missing items")
 	}
 	return out.Items, nil
 }
@@ -809,64 +776,131 @@ func (s *StepUpChallengesService) decide(ctx context.Context, zoneID, challengeI
 	return &out, nil
 }
 
-// AgentsService covers the coordinator /zones/{zone}/agents surface.
-type AgentsService struct{ client *AdminClient }
-
-func (s *AgentsService) List(ctx context.Context, zoneID string, query *AgentListQuery) ([]AgentSession, error) {
-	var out struct {
-		Items []AgentSession `json:"items"`
-	}
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents", query.values(), nil, &out, false); err != nil {
-		return nil, err
-	}
-	if out.Items == nil {
-		return nil, errors.New("agents response missing items")
-	}
-	return out.Items, nil
+type sessionWire struct {
+	SessionID           string         `json:"agent_session_id"`
+	ZoneID              string         `json:"zone_id"`
+	ApplicationID       string         `json:"application_id"`
+	ParentSessionID     *string        `json:"parent_id"`
+	AuthorityRecordID   string         `json:"subject_authority_record_id"`
+	Lifecycle           string         `json:"lifecycle"`
+	Labels              []string       `json:"labels"`
+	Status              string         `json:"status"`
+	Depth               int            `json:"depth"`
+	TTLSeconds          *int           `json:"ttl_seconds"`
+	Metadata            map[string]any `json:"metadata"`
+	StartedAt           string         `json:"started_at"`
+	TerminatedAt        *string        `json:"terminated_at"`
+	LastHeartbeatAt     *string        `json:"last_heartbeat_at"`
+	HeartbeatDeadlineAt *string        `json:"heartbeat_deadline_at"`
 }
 
-func (s *AgentsService) Get(ctx context.Context, zoneID, agentID string) (*AgentSession, error) {
-	var out AgentSession
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+agentID, nil, nil, &out, false); err != nil {
+func (wire sessionWire) session() Session {
+	return Session{
+		SessionID:           wire.SessionID,
+		ZoneID:              wire.ZoneID,
+		ApplicationID:       wire.ApplicationID,
+		ParentSessionID:     wire.ParentSessionID,
+		Status:              wire.Status,
+		Lifecycle:           wire.Lifecycle,
+		Labels:              wire.Labels,
+		Depth:               wire.Depth,
+		StartedAt:           wire.StartedAt,
+		TerminatedAt:        wire.TerminatedAt,
+		TTLSeconds:          wire.TTLSeconds,
+		AuthorityRecordID:   wire.AuthorityRecordID,
+		Metadata:            wire.Metadata,
+		LastHeartbeatAt:     wire.LastHeartbeatAt,
+		HeartbeatDeadlineAt: wire.HeartbeatDeadlineAt,
+	}
+}
+
+type delegationWire struct {
+	DelegationID          string         `json:"id"`
+	ZoneID                string         `json:"zone_id"`
+	SourceSessionID       string         `json:"source_session_id"`
+	TargetSessionID       string         `json:"target_session_id"`
+	IssuerApplicationID   string         `json:"issuer_application_id"`
+	ReceiverApplicationID string         `json:"receiver_application_id"`
+	ParentDelegationID    *string        `json:"parent_edge_id"`
+	ResourceID            *string        `json:"resource_id"`
+	Scopes                []string       `json:"scopes"`
+	ConstraintsJSON       map[string]any `json:"constraints_json"`
+	Status                string         `json:"status"`
+	ExpiresAt             string         `json:"expires_at"`
+	EdgeVersion           int            `json:"edge_version"`
+	RevokedAt             *string        `json:"revoked_at"`
+	CreatedAt             string         `json:"created_at"`
+}
+
+func (wire delegationWire) delegation() Delegation {
+	return Delegation(wire)
+}
+
+type delegationTraversalWire struct {
+	DelegationID    string `json:"id"`
+	SourceSessionID string `json:"source_session_id"`
+	TargetSessionID string `json:"target_session_id"`
+	Depth           int    `json:"depth"`
+}
+
+func (wire delegationTraversalWire) traversal() DelegationTraversal {
+	return DelegationTraversal(wire)
+}
+
+func (s *SessionsService) Get(ctx context.Context, zoneID, sessionID string) (*Session, error) {
+	var wire sessionWire
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+sessionID, nil, nil, &wire, false); err != nil {
 		return nil, err
 	}
+	out := wire.session()
 	return &out, nil
 }
 
-func (s *AgentsService) Children(ctx context.Context, zoneID, agentID string, query *AgentListQuery) ([]AgentSession, error) {
+func (s *SessionsService) Children(ctx context.Context, zoneID, sessionID string, query *SessionQuery) ([]Session, error) {
 	var out struct {
-		Items []AgentSession `json:"items"`
+		Items []sessionWire `json:"items"`
 	}
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+agentID+"/children", query.values(), nil, &out, false); err != nil {
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+sessionID+"/children", query.values(), nil, &out, false); err != nil {
 		return nil, err
 	}
 	if out.Items == nil {
-		return nil, errors.New("agent children response missing items")
+		return nil, errors.New("session children response missing items")
 	}
-	return out.Items, nil
+	items := make([]Session, len(out.Items))
+	for index, wire := range out.Items {
+		items[index] = wire.session()
+	}
+	return items, nil
 }
 
-func (s *AgentsService) Suspend(ctx context.Context, zoneID, agentID string) (map[string]any, error) {
+func (s *SessionsService) Suspend(ctx context.Context, zoneID, sessionID string) (map[string]any, error) {
 	var out map[string]any
-	err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/agents/"+agentID+"/suspend", nil, nil, &out, false)
+	err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/agents/"+sessionID+"/suspend", nil, nil, &out, false)
 	return out, err
 }
 
-func (s *AgentsService) Resume(ctx context.Context, zoneID, agentID string) (map[string]any, error) {
+func (s *SessionsService) Resume(ctx context.Context, zoneID, sessionID string) (map[string]any, error) {
 	var out map[string]any
-	err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/agents/"+agentID+"/resume", nil, nil, &out, false)
+	err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/agents/"+sessionID+"/resume", nil, nil, &out, false)
 	return out, err
 }
 
-func (s *AgentsService) Terminate(ctx context.Context, zoneID, agentID string) error {
-	return s.client.request(ctx, baseCoordinator, http.MethodDelete, "/zones/"+zoneID+"/agents/"+agentID, nil, nil, nil, true)
+func (s *SessionsService) Terminate(ctx context.Context, zoneID, sessionID string) error {
+	return s.client.request(ctx, baseCoordinator, http.MethodDelete, "/zones/"+zoneID+"/agents/"+sessionID, nil, nil, nil, true)
 }
 
-func (s *AgentsService) EffectiveAuthority(ctx context.Context, zoneID, agentID string) (*EffectiveAuthority, error) {
-	var out EffectiveAuthority
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+agentID+"/effective-authority", nil, nil, &out, false); err != nil {
+func (s *SessionsService) EffectiveAuthority(ctx context.Context, zoneID, sessionID string) (*EffectiveAuthority, error) {
+	var wire struct {
+		EffectiveAuthority
+		SessionID          string   `json:"agent_session_id"`
+		InboundDelegations []string `json:"inbound_edges"`
+	}
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/agents/"+sessionID+"/effective-authority", nil, nil, &wire, false); err != nil {
 		return nil, err
 	}
+	out := wire.EffectiveAuthority
+	out.SessionID = wire.SessionID
+	out.InboundDelegations = wire.InboundDelegations
 	return &out, nil
 }
 
@@ -874,43 +908,84 @@ func (s *AgentsService) EffectiveAuthority(ctx context.Context, zoneID, agentID 
 type DelegationsService struct{ client *AdminClient }
 
 func (s *DelegationsService) Active(ctx context.Context, zoneID string) (*ActiveDelegations, error) {
-	var out ActiveDelegations
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/active", nil, nil, &out, false); err != nil {
+	var wire struct {
+		Items      []delegationWire `json:"items"`
+		NextCursor *string          `json:"next_cursor"`
+	}
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/active", nil, nil, &wire, false); err != nil {
 		return nil, err
+	}
+	out := ActiveDelegations{Items: make([]Delegation, len(wire.Items)), NextCursor: wire.NextCursor}
+	for index, item := range wire.Items {
+		out.Items[index] = item.delegation()
 	}
 	return &out, nil
 }
 
-func (s *DelegationsService) Inbound(ctx context.Context, zoneID, sessionID string) ([]DelegationEdge, error) {
-	var out []DelegationEdge
-	err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/inbound/"+sessionID, nil, nil, &out, false)
-	return out, err
-}
-
-func (s *DelegationsService) Outbound(ctx context.Context, zoneID, sessionID string) ([]DelegationEdge, error) {
-	var out []DelegationEdge
-	err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/outbound/"+sessionID, nil, nil, &out, false)
-	return out, err
-}
-
-func (s *DelegationsService) Traverse(ctx context.Context, zoneID, edgeID string) ([]TraverseNode, error) {
-	var out []TraverseNode
-	err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+edgeID+"/traverse", nil, nil, &out, false)
-	return out, err
-}
-
-func (s *DelegationsService) Impact(ctx context.Context, zoneID, edgeID string) (*DelegationImpact, error) {
-	var out DelegationImpact
-	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+edgeID+"/impact", nil, nil, &out, false); err != nil {
+func (s *DelegationsService) Inbound(ctx context.Context, zoneID, sessionID string) ([]Delegation, error) {
+	var wire []delegationWire
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/inbound/"+sessionID, nil, nil, &wire, false); err != nil {
 		return nil, err
 	}
+	out := make([]Delegation, len(wire))
+	for index, item := range wire {
+		out[index] = item.delegation()
+	}
+	return out, nil
+}
+
+func (s *DelegationsService) Outbound(ctx context.Context, zoneID, sessionID string) ([]Delegation, error) {
+	var wire []delegationWire
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/outbound/"+sessionID, nil, nil, &wire, false); err != nil {
+		return nil, err
+	}
+	out := make([]Delegation, len(wire))
+	for index, item := range wire {
+		out[index] = item.delegation()
+	}
+	return out, nil
+}
+
+func (s *DelegationsService) Traverse(ctx context.Context, zoneID, delegationID string) ([]DelegationTraversal, error) {
+	var wire []delegationTraversalWire
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+delegationID+"/traverse", nil, nil, &wire, false); err != nil {
+		return nil, err
+	}
+	out := make([]DelegationTraversal, len(wire))
+	for index, item := range wire {
+		out[index] = item.traversal()
+	}
+	return out, nil
+}
+
+func (s *DelegationsService) Impact(ctx context.Context, zoneID, delegationID string) (*DelegationImpact, error) {
+	var wire struct {
+		DelegationImpact
+		DelegationID        string                    `json:"edge_id"`
+		AffectedDelegations []delegationTraversalWire `json:"affected_edges"`
+		AffectedSessions    []string                  `json:"affected_agents"`
+	}
+	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+delegationID+"/impact", nil, nil, &wire, false); err != nil {
+		return nil, err
+	}
+	out := wire.DelegationImpact
+	out.DelegationID = wire.DelegationID
+	out.AffectedDelegations = make([]DelegationTraversal, len(wire.AffectedDelegations))
+	for index, item := range wire.AffectedDelegations {
+		out.AffectedDelegations[index] = item.traversal()
+	}
+	out.AffectedSessions = wire.AffectedSessions
 	return &out, nil
 }
 
-func (s *DelegationsService) Revoke(ctx context.Context, zoneID, edgeID string) (*DelegationRevocation, error) {
-	var out DelegationRevocation
-	if err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/delegations/"+edgeID+"/revoke", nil, nil, &out, false); err != nil {
+func (s *DelegationsService) Revoke(ctx context.Context, zoneID, delegationID string) (*DelegationRevocation, error) {
+	var wire struct {
+		RevokedDelegations int `json:"revoked_edges"`
+		AffectedSessions   int `json:"affected_sessions"`
+	}
+	if err := s.client.request(ctx, baseCoordinator, http.MethodPatch, "/zones/"+zoneID+"/delegations/"+delegationID+"/revoke", nil, nil, &wire, false); err != nil {
 		return nil, err
 	}
+	out := DelegationRevocation(wire)
 	return &out, nil
 }

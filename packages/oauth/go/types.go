@@ -26,6 +26,8 @@ type ExchangeOptions struct {
 	// ForceRefresh skips the cached token and mints a fresh one; the result
 	// still refills the cache.
 	ForceRefresh bool
+	// OneShot mints without reading, writing, or joining the token cache.
+	OneShot bool
 }
 
 // TokenExchangeResponse is a validated STS token exchange result.
@@ -141,6 +143,8 @@ type Event struct {
 	Cached       bool
 	Status       int
 	Code         string
+	RequestID    string
+	Replayed     bool
 	Method       string
 	Path         string
 	ApprovalID   string

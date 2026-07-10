@@ -90,14 +90,14 @@ func NewStore(redis KeyClient, opts ...Option) *Store {
 	return s
 }
 
-// IsRevoked reports whether sid has an unexpired revocation key.
-func (s *Store) IsRevoked(sid string) bool {
-	if sid == "" {
+// IsRevoked reports whether anchorID has an unexpired revocation key.
+func (s *Store) IsRevoked(anchorID string) bool {
+	if anchorID == "" {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	_, err := s.redis.Get(ctx, s.key(sid)).Result()
+	_, err := s.redis.Get(ctx, s.key(anchorID)).Result()
 	if err == nil {
 		return true
 	}
@@ -107,9 +107,9 @@ func (s *Store) IsRevoked(sid string) bool {
 	return s.failClosed
 }
 
-// MarkRevoked records sid as revoked for ttl.
-func (s *Store) MarkRevoked(sid string, ttl time.Duration) error {
-	if sid == "" {
+// MarkRevoked records anchorID as revoked for ttl.
+func (s *Store) MarkRevoked(anchorID string, ttl time.Duration) error {
+	if anchorID == "" {
 		return nil
 	}
 	if ttl <= 0 {
@@ -117,7 +117,7 @@ func (s *Store) MarkRevoked(sid string, ttl time.Duration) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	return s.redis.Set(ctx, s.key(sid), "1", ttl).Err()
+	return s.redis.Set(ctx, s.key(anchorID), "1", ttl).Err()
 }
 
 // CurrentDelegationEpoch returns the recorded delegation graph epoch for zoneID.
@@ -157,8 +157,8 @@ func (s *Store) MarkDelegationEpoch(zoneID string, epoch int64, ttl time.Duratio
 	return s.redis.Set(ctx, s.delegationEpochKey(zoneID), strconv.FormatInt(epoch, 10), ttl).Err()
 }
 
-func (s *Store) key(sid string) string {
-	return s.keyPrefix + sid
+func (s *Store) key(anchorID string) string {
+	return s.keyPrefix + anchorID
 }
 
 func (s *Store) delegationEpochKey(zoneID string) string {

@@ -7,10 +7,10 @@ package revocation
 
 import "time"
 
-// Store reports whether a session id has been revoked and accepts new revocations.
+// Store reports whether an authority, Session, or Delegation anchor has been revoked.
 type Store interface {
-	IsRevoked(sid string) bool
-	MarkRevoked(sid string, ttl time.Duration) error
+	IsRevoked(anchorID string) bool
+	MarkRevoked(anchorID string, ttl time.Duration) error
 }
 
 // DelegationEpochStore is implemented by stores that track the delegation graph epoch per zone.
