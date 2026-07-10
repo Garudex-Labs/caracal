@@ -435,6 +435,7 @@ func TestDelegateRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
+		TTLSeconds:      60,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -467,6 +468,7 @@ func TestDelegateDoesNotRetryPolicyRejection(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
+		TTLSeconds:      60,
 	}); err == nil {
 		t.Fatal("expected policy rejection to surface")
 	}
@@ -556,6 +558,7 @@ func TestDelegateReturnsEdgeWithoutRebindingIssuer(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
+		TTLSeconds:      60,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -611,7 +614,7 @@ func TestSessionNarrowRequiresActiveParent(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app-child",
 		SubjectToken:  "tok",
-		Authority:     sdk.AuthorityNarrow([]string{"tool:call"}),
+		Authority:     sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{TTLSeconds: 60}),
 	}, func(ctx context.Context) error { return nil })
 	if err == nil {
 		t.Fatal("expected error without active parent")
@@ -629,7 +632,7 @@ func TestSessionNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	}, func(parentCtx context.Context) error {
 		return sdk.Session(parentCtx, sdk.SessionInput{
 			Coordinator: coord, ZoneID: "z", ApplicationID: "app-child",
-			SubjectToken: "tok", Authority: sdk.AuthorityNarrow([]string{"tool:call"}),
+			SubjectToken: "tok", Authority: sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{TTLSeconds: 60}),
 		}, func(ctx context.Context) error {
 			c, _ := sdk.Current(ctx)
 			child = c

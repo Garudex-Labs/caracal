@@ -61,17 +61,18 @@ type NarrowOptions struct {
 	TTLSeconds  int
 }
 
-// AuthorityNarrow issues a bounded delegation limited to scopes. A narrowing
-// delegation defaults to a hop budget of 1; pass Constraints with MaxHops 2
-// (or more) when the child must re-delegate or sub-narrow.
-func AuthorityNarrow(scopes []string, opts ...NarrowOptions) Authority {
-	g := Authority{Mode: AuthorityModeNarrow, Scopes: scopes}
-	if len(opts) > 0 {
-		g.ResourceID = opts[0].ResourceID
-		g.Constraints = opts[0].Constraints
-		g.TTLSeconds = opts[0].TTLSeconds
+// AuthorityNarrow issues a bounded delegation limited to scopes. TTLSeconds
+// must be positive. A narrowing delegation defaults to a hop budget of 1;
+// pass Constraints with MaxHops 2 (or more) when the child must re-delegate
+// or sub-narrow.
+func AuthorityNarrow(scopes []string, opts NarrowOptions) Authority {
+	return Authority{
+		Mode:        AuthorityModeNarrow,
+		Scopes:      scopes,
+		ResourceID:  opts.ResourceID,
+		Constraints: opts.Constraints,
+		TTLSeconds:  opts.TTLSeconds,
 	}
-	return g
 }
 
 // SessionInput controls governed Session creation.
@@ -164,6 +165,9 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	authority := in.authority
 	if authority.Mode == "" {
 		authority.Mode = AuthorityModeInherit
+	}
+	if authority.Mode == AuthorityModeNarrow && authority.TTLSeconds <= 0 {
+		return nil, errors.New("caracal: AuthorityNarrow TTLSeconds must be a positive integer")
 	}
 	parent, hasParent := Current(ctx)
 	parentID := in.parentID
@@ -398,6 +402,9 @@ type Delegation struct {
 // is retried once under an idempotency key, so the coordinator replays the
 // already-created edge instead of issuing a duplicate.
 func Delegate(ctx context.Context, opts DelegateInput) (Delegation, error) {
+	if opts.TTLSeconds <= 0 {
+		return Delegation{}, errors.New("caracal: Delegate TTLSeconds must be a positive integer")
+	}
 	c, ok := Current(ctx)
 	if !ok || c.SessionID == "" {
 		return Delegation{}, errors.New("caracal: Delegate requires an active session in context")
@@ -476,7 +483,6 @@ type StartSessionInput struct {
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
 	Authority       Authority
-	TTLSeconds      int
 	Metadata        map[string]any
 	Labels          []string
 	TraceID         string
@@ -699,7 +705,7 @@ func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, 
 		subjectAuthorityRecordID: opts.SubjectAuthorityRecordID,
 		parentID:                 opts.ParentSessionID,
 		authority:                opts.Authority,
-		ttlSeconds:               opts.TTLSeconds,
+		ttlSeconds:               0,
 		metadata:                 opts.Metadata,
 		labels:                   opts.Labels,
 		traceID:                  opts.TraceID,

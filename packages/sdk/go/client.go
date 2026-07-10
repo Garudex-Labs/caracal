@@ -1296,8 +1296,7 @@ func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, o
 // negative value disables the background renewal. OnLeaseLost fires once if
 // the coordinator reports the session permanently gone.
 type StartSessionOptions struct {
-	Authority  Authority
-	TTLSeconds int
+	Authority Authority
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
 	// Session to parent under; defaults to the session bound on the calling context.
@@ -1347,7 +1346,6 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 		SubjectAuthorityRecordID: o.SubjectAuthorityRecordID,
 		ParentSessionID:          o.ParentSessionID,
 		Authority:                o.Authority,
-		TTLSeconds:               o.TTLSeconds,
 		Metadata:                 taskMetadata(o.Task, o.Metadata),
 		Labels:                   o.Labels,
 		TraceID:                  o.TraceID,
@@ -1433,6 +1431,9 @@ func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...A
 // unchanged; hand the delegation id to the receiving session, which presents
 // it with AcceptDelegation.
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegation, error) {
+	if opts.TTLSeconds <= 0 {
+		return Delegation{}, errors.New("caracal: Delegate TTLSeconds must be a positive integer")
+	}
 	return Delegate(ctx, DelegateInput{
 		Coordinator:     c.Coordinator,
 		ToSessionID:     opts.ToSessionID,

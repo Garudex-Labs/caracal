@@ -82,8 +82,11 @@ type DBQuerier interface {
 	GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error)
 	GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityRecord, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
+	GetDelegationLineage(ctx context.Context, zoneID, edgeID string, maxHops int) ([]string, error)
 	GetDelegationGraphEpoch(ctx context.Context, zoneID string) (int64, error)
 	InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) error
+	InsertAuthorityRecordWithApproval(ctx context.Context, s *AuthorityRecord, p ConsumeApprovalParams) error
+	InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRecord, proof DelegationIssuanceProof, approval *ConsumeApprovalParams) error
 	RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
@@ -291,12 +294,27 @@ type DelegationEdge struct {
 	RevokedAt       *time.Time
 }
 
-// DelegationIssuanceProof is the graph version rechecked under the Coordinator mutation lock.
+// DelegationIssuanceEdge is one validated lineage edge rechecked under the Coordinator mutation lock.
+type DelegationIssuanceEdge struct {
+	ID                    string    `json:"id"`
+	ParentEdgeID          *string   `json:"parent_edge_id"`
+	EdgeVersion           int       `json:"edge_version"`
+	SourceSessionID       string    `json:"source_session_id"`
+	TargetSessionID       string    `json:"target_session_id"`
+	IssuerApplicationID   string    `json:"issuer_application_id"`
+	ReceiverApplicationID string    `json:"receiver_application_id"`
+	ExpiresAt             time.Time `json:"expires_at"`
+}
+
+// DelegationIssuanceProof is the complete graph state rechecked under the Coordinator mutation lock.
 type DelegationIssuanceProof struct {
-	EdgeID          string
-	EdgeVersion     int
-	TargetSessionID string
-	GraphEpoch      int64
+	Lineage               []DelegationIssuanceEdge
+	SourceSessionID       string
+	TargetSessionID       string
+	SourceApplicationID   string
+	TargetApplicationID   string
+	TargetAuthorityRecord string
+	GraphEpoch            int64
 }
 
 // Session holds coordinator graph node fields needed by STS.
@@ -472,6 +490,10 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 	if len(claims) == 0 {
 		claims = nil
 	}
+	lineage, err := json.Marshal(proof.Lineage)
+	if err != nil || len(proof.Lineage) == 0 {
+		return ErrDelegationChanged
+	}
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -486,17 +508,53 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 	}
 	var live bool
 	err = tx.QueryRow(ctx,
-		`SELECT EXISTS (
-		   SELECT 1 FROM delegation_edges e
-		   JOIN sessions target ON target.id = e.target_session_id AND target.zone_id = e.zone_id
-		   WHERE e.id = $1 AND e.zone_id = $2 AND e.edge_version = $3
-		     AND e.target_session_id = $4 AND e.status = 'active' AND e.revoked_at IS NULL AND e.expires_at > now()
-		     AND target.status = 'active'
-		     AND ((target.lifecycle = 'service' AND target.heartbeat_deadline_at > now())
-		       OR (target.lifecycle = 'task' AND target.ttl_seconds > 0
-		         AND target.started_at + (target.ttl_seconds * interval '1 second') > now()))
-		 )`,
-		proof.EdgeID, s.ZoneID, proof.EdgeVersion, proof.TargetSessionID,
+		`WITH expected AS (
+		   SELECT id, parent_edge_id, edge_version, source_session_id, target_session_id,
+		          issuer_application_id, receiver_application_id, expires_at
+		   FROM jsonb_to_recordset($1::jsonb) AS x(
+		     id text, parent_edge_id text, edge_version int, source_session_id text, target_session_id text,
+		     issuer_application_id text, receiver_application_id text, expires_at timestamptz
+		   )
+		 ), matched AS (
+		   SELECT e.id
+		   FROM expected x
+		   JOIN delegation_edges e ON e.id = x.id AND e.zone_id = $2
+		   WHERE e.parent_edge_id IS NOT DISTINCT FROM x.parent_edge_id
+		     AND e.edge_version = x.edge_version
+		     AND e.source_session_id = x.source_session_id
+		     AND e.target_session_id = x.target_session_id
+		     AND e.issuer_application_id = x.issuer_application_id
+		     AND e.receiver_application_id = x.receiver_application_id
+		     AND e.expires_at = x.expires_at
+		     AND e.status = 'active' AND e.revoked_at IS NULL AND e.expires_at > now()
+		 ), expected_sessions AS (
+		   SELECT source_session_id AS id, issuer_application_id AS application_id FROM expected
+		   UNION
+		   SELECT target_session_id, receiver_application_id FROM expected
+		 ), matched_sessions AS (
+		   SELECT session.id
+		   FROM sessions session
+		   JOIN expected_sessions x ON x.id = session.id AND x.application_id = session.application_id
+		   WHERE session.zone_id = $2
+		     AND session.status = 'active'
+		     AND ((session.lifecycle = 'service' AND session.heartbeat_deadline_at > now())
+		       OR (session.lifecycle = 'task' AND session.ttl_seconds > 0
+		         AND session.started_at + (session.ttl_seconds * interval '1 second') > now()))
+		 )
+		 SELECT (SELECT COUNT(*) FROM expected) = $8
+		    AND (SELECT COUNT(*) FROM matched) = $8
+		    AND (SELECT COUNT(*) FROM matched_sessions) = (SELECT COUNT(*) FROM expected_sessions)
+		    AND EXISTS (
+		      SELECT 1 FROM sessions target
+		      WHERE target.id = $4 AND target.zone_id = $2 AND target.application_id = $6
+		        AND target.subject_authority_record_id = $7
+		    )
+		    AND EXISTS (
+		      SELECT 1 FROM sessions source
+		      WHERE source.id = $3 AND source.zone_id = $2 AND source.application_id = $5
+		    )`,
+		lineage, s.ZoneID, proof.SourceSessionID, proof.TargetSessionID,
+		proof.SourceApplicationID, proof.TargetApplicationID, proof.TargetAuthorityRecord, len(proof.Lineage),
 	).Scan(&live)
 	if err != nil || !live {
 		return ErrDelegationChanged

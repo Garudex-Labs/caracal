@@ -53,6 +53,9 @@ const (
 
 type delegationProof struct {
 	edge        *DelegationEdge
+	edges       []*DelegationEdge
+	source      *Session
+	target      *Session
 	constraints delegationConstraints
 	path        []string
 	chain       []ChainHop
@@ -744,16 +747,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				ResourceSetHash: hashApprovalBinding(req.Resources, scopes), Now: now,
 			}
 		}
-		guard, ok := s.db.(interface {
-			InsertDelegatedAuthorityRecord(context.Context, *AuthorityRecord, DelegationIssuanceProof, *ConsumeApprovalParams) error
-		})
-		if !ok {
-			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "delegated authority persistence unavailable")
-		}
-		err := guard.InsertDelegatedAuthorityRecord(ctx, record, DelegationIssuanceProof{
-			EdgeID: delegation.edge.ID, EdgeVersion: delegation.edge.EdgeVersion,
-			TargetSessionID: delegation.edge.TargetSessionID, GraphEpoch: delegation.graphEpoch,
-		}, approvalParams)
+		err := s.db.InsertDelegatedAuthorityRecord(ctx, record, delegationIssuanceProof(delegation), approvalParams)
 		if err != nil {
 			if errors.Is(err, ErrChallengeInvalid) {
 				return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it")
@@ -768,13 +762,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 		}
 	} else {
-		store, ok := s.db.(interface {
-			InsertAuthorityRecordWithApproval(context.Context, *AuthorityRecord, ConsumeApprovalParams) error
-		})
-		if !ok {
-			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "approval persistence unavailable")
-		}
-		err := store.InsertAuthorityRecordWithApproval(ctx, record, ConsumeApprovalParams{
+		err := s.db.InsertAuthorityRecordWithApproval(ctx, record, ConsumeApprovalParams{
 			ID:              approval.ID,
 			ZoneID:          zoneID,
 			PrincipalID:     principalID,
@@ -1922,22 +1910,8 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if s.metrics != nil {
 		s.metrics.GraphTraversals.Add(1)
 	}
-	lineage, ok := s.db.(interface {
-		GetDelegationLineage(context.Context, string, string, int) ([]string, error)
-	})
-	var path []string
-	legacyPath := false
-	if ok {
-		path, err = lineage.GetDelegationLineage(ctx, zoneID, edge.ID, maxDelegationHops)
-	} else if legacy, legacyOK := s.db.(interface {
-		GetDelegationPath(context.Context, string, string, string, int) ([]string, error)
-	}); legacyOK {
-		legacyPath = true
-		path, err = legacy.GetDelegationPath(ctx, zoneID, edge.SourceSessionID, edge.TargetSessionID, maxDelegationHops)
-	} else {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path unavailable")
-	}
-	if err != nil || len(path) == 0 || len(path) > maxDelegationHops || (!legacyPath && path[len(path)-1] != edge.ID) {
+	path, err := s.db.GetDelegationLineage(ctx, zoneID, edge.ID, maxDelegationHops)
+	if err != nil || len(path) == 0 || len(path) > maxDelegationHops || path[len(path)-1] != edge.ID {
 		if s.metrics != nil {
 			s.metrics.GraphTraversalErrors.Add(1)
 		}
@@ -1947,64 +1921,25 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation graph epoch unavailable")
 	}
-	var chain []ChainHop
-	var chainErr *sharederr.CaracalError
-	if legacyPath {
-		chain, chainErr = s.buildLegacyDelegationChain(ctx, path, edge, source, target, now)
-	} else {
-		chain, chainErr = s.buildDelegationChain(ctx, path, edge, source, target, now)
-	}
+	chain, edges, chainErr := s.buildDelegationChain(ctx, path, edge, source, target, now)
 	if chainErr != nil {
 		return nil, nil, chainErr
 	}
-	return &delegationProof{edge: edge, constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch}, target, nil
-}
-
-func (s *Server) buildLegacyDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
-	if constraints, err := parseDelegationConstraints(edge.ConstraintsJSON); err != nil || constraints.MaxHops < len(path) {
-		return nil, sharederr.New(sharederr.AccessDenied, "delegation path invalid")
-	}
-	hops := make([]ChainHop, 0, len(path)+1)
-	var receiver string
-	for _, edgeID := range path {
-		if edgeID == edge.TargetSessionID {
-			continue
-		}
-		hopEdge, err := s.db.GetDelegationEdge(ctx, edgeID)
-		if err != nil || hopEdge == nil || hopEdge.ID != edgeID {
-			if s.metrics != nil {
-				s.metrics.GraphTraversalErrors.Add(1)
-			}
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path invalid")
-		}
-		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
-		}
-		_, err = parseDelegationConstraints(hopEdge.ConstraintsJSON)
-		if err != nil {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path invalid")
-		}
-		if receiver != "" && hopEdge.IssuerAppID != receiver {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
-		}
-		hops = append(hops, ChainHop{AppID: hopEdge.IssuerAppID, SessionID: hopEdge.SourceSessionID, DelegationEdgeID: hopEdge.ID})
-		receiver = hopEdge.ReceiverAppID
-	}
-	hops = append(hops, ChainHop{AppID: edge.ReceiverAppID, SessionID: target.ID})
-	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
-		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
-	}
-	return hops, nil
+	return &delegationProof{
+		edge: edge, edges: edges, source: source, target: target,
+		constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch,
+	}, target, nil
 }
 
 // buildDelegationChain resolves each edge id along the path to a chain hop the
 // resource side can audit and authorize against. The chain walks from the
 // originating issuer to the immediate receiver in order.
-func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, *sharederr.CaracalError) {
+func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *DelegationEdge, source, target *Session, now time.Time) ([]ChainHop, []*DelegationEdge, *sharederr.CaracalError) {
 	if len(path) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	hops := make([]ChainHop, 0, len(path)+1)
+	edges := make([]*DelegationEdge, 0, len(path))
 	var prevReceiverApp string
 	var parentEdge *DelegationEdge
 	var parentConstraints delegationConstraints
@@ -2015,7 +1950,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		} else {
 			fetched, err := s.db.GetDelegationEdge(ctx, edgeID)
 			if err != nil || fetched == nil {
-				return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge unavailable")
 			}
 			hopEdge = fetched
 		}
@@ -2023,24 +1958,25 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		// filters in SQL, but a revoke racing the path computation could
 		// otherwise let a stale-but-attested chain hop ship in the JWT.
 		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation path edge inactive or revoked")
 		}
 		hopConstraints, err := parseDelegationConstraints(hopEdge.ConstraintsJSON)
 		if err != nil || hopConstraints.MaxHops < len(path)-index {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation hop budget exhausted")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation hop budget exhausted")
 		}
 		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
-			return nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
 		}
 		if len(hops) > 0 {
 			previousEdgeID := hops[len(hops)-1].DelegationEdgeID
 			if hopEdge.ParentEdgeID == nil || *hopEdge.ParentEdgeID != previousEdgeID {
-				return nil, sharederr.New(sharederr.AccessDenied, "delegation parent lineage discontinuous")
+				return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation parent lineage discontinuous")
 			}
 			if err := s.validateAncestorAttenuation(ctx, parentEdge, parentConstraints, hopEdge, hopConstraints); err != nil {
-				return nil, sharederr.New(sharederr.AccessDenied, err.Error())
+				return nil, nil, sharederr.New(sharederr.AccessDenied, err.Error())
 			}
 		}
+		edges = append(edges, hopEdge)
 		hops = append(hops, ChainHop{
 			AppID:            hopEdge.IssuerAppID,
 			SessionID:        hopEdge.SourceSessionID,
@@ -2055,9 +1991,27 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		SessionID: target.ID,
 	})
 	if hops[0].AppID != source.ApplicationID || hops[len(hops)-1].AppID != target.ApplicationID {
-		return nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain endpoints mismatch")
 	}
-	return hops, nil
+	return hops, edges, nil
+}
+
+func delegationIssuanceProof(proof *delegationProof) DelegationIssuanceProof {
+	lineage := make([]DelegationIssuanceEdge, 0, len(proof.edges))
+	for _, edge := range proof.edges {
+		lineage = append(lineage, DelegationIssuanceEdge{
+			ID: edge.ID, ParentEdgeID: edge.ParentEdgeID, EdgeVersion: edge.EdgeVersion,
+			SourceSessionID: edge.SourceSessionID, TargetSessionID: edge.TargetSessionID,
+			IssuerApplicationID: edge.IssuerAppID, ReceiverApplicationID: edge.ReceiverAppID,
+			ExpiresAt: edge.ExpiresAt,
+		})
+	}
+	return DelegationIssuanceProof{
+		Lineage: lineage, SourceSessionID: proof.source.ID, TargetSessionID: proof.target.ID,
+		SourceApplicationID: proof.source.ApplicationID, TargetApplicationID: proof.target.ApplicationID,
+		TargetAuthorityRecord: proof.target.SubjectAuthorityRecordID,
+		GraphEpoch:            proof.graphEpoch,
+	}
 }
 
 func (s *Server) validateAncestorAttenuation(ctx context.Context, parent *DelegationEdge, parentConstraints delegationConstraints, child *DelegationEdge, childConstraints delegationConstraints) error {
