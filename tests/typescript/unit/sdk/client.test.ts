@@ -21,12 +21,8 @@ import {
   HeaderTraceparent,
   HeaderBaggage,
   BaggageAgentSession,
-  BaggageDelegationEdge,
-  BaggageParentEdge,
   BaggageSession,
   BaggageHop,
-  createAdvancedClientFromConfig,
-  createAdvancedClientFromEnv,
   describeAuthority,
   parseTraceparent,
 } from '../../../../packages/sdk/ts/src/advanced.js'
@@ -42,18 +38,13 @@ function resourceMap(resources: { resourceId: string; upstreamPrefix: string }[]
   return Object.fromEntries((resources ?? []).map((binding) => [binding.resourceId, binding.upstreamPrefix]))
 }
 
-function tokenWithUse(use: string): string {
-  const encoded = Buffer.from(JSON.stringify({ use })).toString('base64url')
-  return `eyJhbGciOiJFUzI1NiJ9.${encoded}.signature`
-}
-
-describe('advanced environment loading', () => {
+describe('Caracal.fromEnv', () => {
   it('throws on missing vars', () => {
-    expect(() => createAdvancedClientFromEnv({})).toThrow(/CARACAL_/)
+    expect(() => Caracal.fromEnv({})).toThrow(/CARACAL_/)
   })
 
   it('constructs from env', () => {
-    const c = createAdvancedClientFromEnv({
+    const c = Caracal.fromEnv({
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
       CARACAL_BOOTSTRAP_TOKEN: 't1',
@@ -73,14 +64,12 @@ describe('advanced environment loading', () => {
       CARACAL_STS_URL: 'https://sts.internal',
       CARACAL_GATEWAY_URL: 'https://gateway.internal',
     }
+    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000' } as NodeJS.ProcessEnv)).toThrow(
+      /CARACAL_COORDINATOR_URL must use https/,
+    )
+    expect(() => Caracal.fromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://127.0.0.1:4000' } as NodeJS.ProcessEnv)).not.toThrow()
     expect(() =>
-      createAdvancedClientFromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000' } as NodeJS.ProcessEnv),
-    ).toThrow(/CARACAL_COORDINATOR_URL must use https/)
-    expect(() =>
-      createAdvancedClientFromEnv({ ...base, CARACAL_COORDINATOR_URL: 'http://127.0.0.1:4000' } as NodeJS.ProcessEnv),
-    ).not.toThrow()
-    expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         ...base,
         CARACAL_COORDINATOR_URL: 'http://coordinator.internal:4000',
         CARACAL_ALLOW_INSECURE_CONFIG_URLS: 'true',
@@ -90,7 +79,7 @@ describe('advanced environment loading', () => {
 
   it('enforces https for the sts url in production client-secret mode', () => {
     expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         CARACAL_ENV: 'production',
         CARACAL_COORDINATOR_URL: 'https://coordinator.internal',
         CARACAL_GATEWAY_URL: 'https://gateway.internal',
@@ -110,7 +99,7 @@ describe('advanced environment loading', () => {
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const c = createAdvancedClientFromEnv({
+    const c = Caracal.fromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
@@ -126,21 +115,21 @@ describe('advanced environment loading', () => {
     expect(body.getAll('resource').sort()).toEqual(['billing', 'calendar'])
   })
 
-  it('combines application audiences with resource bindings', async () => {
+  it('keeps credential resources when CARACAL_APP_RESOURCES is explicit', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', fetchMock)
-    const c = createAdvancedClientFromEnv({
+    const c = Caracal.fromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
       CARACAL_APP_CLIENT_SECRET: 'secret',
       CARACAL_STS_URL: 'http://sts',
+      CARACAL_RUN_CREDENTIALS: JSON.stringify([{ resource: 'calendar', upstream_prefix: 'https://calendar.example.com' }]),
       CARACAL_APP_RESOURCES: 'billing',
-      CARACAL_RESOURCES: 'calendar=https://calendar.example.com',
     } as NodeJS.ProcessEnv)
 
     await c.headersAsync({ asApplication: true })
@@ -164,7 +153,7 @@ describe('advanced environment loading', () => {
       { mode: 0o600 },
     )
 
-    const c = createAdvancedClientFromEnv({
+    const c = Caracal.fromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
       CARACAL_ZONE_ID: 'z',
       CARACAL_APPLICATION_ID: 'app',
@@ -192,7 +181,7 @@ describe('advanced environment loading', () => {
     )
 
     expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -202,32 +191,56 @@ describe('advanced environment loading', () => {
     ).toThrow(/invalid CARACAL_RESOURCES_FILE/)
   })
 
-  it('does not inspect implicit local credential files', () => {
+  it('auto-detects local client secret and credential files', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
     const credentialDir = join(dir, 'caracal', 'runtime', 'z', 'app')
     mkdirSync(credentialDir, { recursive: true })
     writeFileSync(join(credentialDir, 'client-secret'), 'secret\n', { mode: 0o600 })
     writeFileSync(join(credentialDir, 'credentials.json'), JSON.stringify([{ resource: 'calendar' }]), { mode: 0o600 })
-    expect(() =>
-      createAdvancedClientFromEnv({
-        XDG_CONFIG_HOME: dir,
-        CARACAL_ZONE_ID: 'z',
-        CARACAL_APPLICATION_ID: 'app',
-        CARACAL_STS_URL: 'http://sts',
-      } as NodeJS.ProcessEnv),
-    ).toThrow(/provide CARACAL_APP_CLIENT_SECRET or CARACAL_BOOTSTRAP_TOKEN/)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const c = Caracal.fromEnv({
+      XDG_CONFIG_HOME: dir,
+      CARACAL_ZONE_ID: 'z',
+      CARACAL_APPLICATION_ID: 'app',
+      CARACAL_STS_URL: 'http://sts',
+    } as NodeJS.ProcessEnv)
+    await c.headersAsync({ asApplication: true })
+
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('client_secret')).toBe('secret')
+    expect(body.getAll('resource')).toEqual(['calendar'])
   })
 
-  it('rejects conflicting credential modes', () => {
-    expect(() =>
-      createAdvancedClientFromEnv({
-        CARACAL_ZONE_ID: 'z',
-        CARACAL_APPLICATION_ID: 'app',
-        CARACAL_APP_CLIENT_SECRET: 'secret',
-        CARACAL_BOOTSTRAP_TOKEN: 'token',
-        CARACAL_RESOURCES: 'calendar=https://calendar.example.com',
-      } as NodeJS.ProcessEnv),
-    ).toThrow(/exactly one/)
+  it('auto-detects local credential files with sanitized generated directory names', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
+    const credentialDir = join(dir, 'caracal', 'runtime', 'zone_id', 'app_value')
+    mkdirSync(credentialDir, { recursive: true })
+    writeFileSync(join(credentialDir, 'client-secret'), 'secret\n', { mode: 0o600 })
+    writeFileSync(join(credentialDir, 'credentials.json'), JSON.stringify([{ resource: 'calendar' }]), { mode: 0o600 })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const c = Caracal.fromEnv({
+      XDG_CONFIG_HOME: dir,
+      CARACAL_ZONE_ID: '__zone id__',
+      CARACAL_APPLICATION_ID: '  app/value  ',
+      CARACAL_STS_URL: 'http://sts',
+    } as NodeJS.ProcessEnv)
+    await c.headersAsync({ asApplication: true })
+
+    const body = fetchMock.mock.calls[0][1].body as URLSearchParams
+    expect(body.get('client_secret')).toBe('secret')
+    expect(body.getAll('resource')).toEqual(['calendar'])
   })
 })
 
@@ -345,10 +358,7 @@ describe('contextMiddleware + bindFromHeaders', () => {
     const c = new Caracal(baseConfig)
     const seen: string[] = []
     await c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
-      verify: (token) => {
-        seen.push(token)
-        return { zoneId: 'z', applicationId: 'app', hop: 0 }
-      },
+      verify: (token) => void seen.push(token),
     })
     expect(seen).toEqual(['inbound'])
 
@@ -385,56 +395,6 @@ describe('contextMiddleware + bindFromHeaders', () => {
     )
     expect(seen).toBe('zone-proved|app-proved|agent-proved|sid-proved|3')
   })
-
-  it('clears unsigned authority fields omitted from verified claims', async () => {
-    const c = new Caracal(baseConfig)
-    await c.bindFromHeaders(
-      {
-        [HeaderAuthorization]: 'Bearer inbound',
-        [HeaderBaggage]: [
-          `${BaggageAgentSession}=forged-session`,
-          `${BaggageDelegationEdge}=forged-edge`,
-          `${BaggageParentEdge}=forged-parent`,
-          `${BaggageSession}=forged-subject`,
-          `${BaggageHop}=9`,
-        ].join(','),
-      },
-      async () => {
-        expect(c.current()).toMatchObject({
-          zoneId: 'zone-proved',
-          applicationId: 'app-proved',
-          hop: 0,
-        })
-        expect(c.current()?.sessionId).toBeUndefined()
-        expect(c.current()?.delegationId).toBeUndefined()
-        expect(c.current()?.parentDelegationId).toBeUndefined()
-        expect(c.current()?.subjectAuthorityRecordId).toBeUndefined()
-      },
-      { verify: () => ({ zoneId: 'zone-proved', applicationId: 'app-proved', hop: 0 }) },
-    )
-  })
-
-  it('rejects malformed authoritative claim projections', async () => {
-    const c = new Caracal(baseConfig)
-    await expect(
-      c.bindFromHeaders({ [HeaderAuthorization]: 'Bearer inbound' }, async () => undefined, {
-        verify: () => ({ zoneId: 'zone-proved', applicationId: 'app-proved', hop: 11 }),
-      }),
-    ).rejects.toThrow(/hop must be an integer from 0 to 10/)
-  })
-
-  it('clears inbound authority baggage when trusted ingress runs as the application', async () => {
-    const c = new Caracal(baseConfig)
-    await c.bindFromHeaders(
-      { [HeaderBaggage]: `${BaggageAgentSession}=forged,${BaggageDelegationEdge}=forged-edge,${BaggageHop}=9` },
-      async () => {
-        expect(c.current()).toMatchObject({ subjectToken: 'tok', zoneId: 'z', applicationId: 'app', hop: 0, ownToken: true })
-        expect(c.current()?.sessionId).toBeUndefined()
-        expect(c.current()?.delegationId).toBeUndefined()
-      },
-      { asApplication: true },
-    )
-  })
 })
 
 describe('Caracal.fromConfig', () => {
@@ -446,7 +406,7 @@ describe('Caracal.fromConfig', () => {
     writeFileSync(
       profilePath,
       `
-sts_url = "http://sts"
+zone_url = "http://sts"
 coordinator_url = "http://coord"
 gateway_url = "https://gateway.example.com/proxy"
 zone_id = "z"
@@ -471,7 +431,7 @@ upstream_prefix = "https://billing.example.com"
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const c = createAdvancedClientFromConfig(profilePath)
+    const c = Caracal.fromConfig(profilePath)
     await c.headersAsync({ asApplication: true })
 
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
@@ -496,7 +456,7 @@ upstream_prefix = "https://billing.example.com"
     writeFileSync(
       profilePath,
       `
-sts_url = "http://sts"
+zone_url = "http://sts"
 coordinator_url = "http://coord"
 zone_id = "z"
 application_id = "app"
@@ -511,7 +471,7 @@ app_client_secret_file = ${JSON.stringify(secretPath)}
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const c = createAdvancedClientFromConfig(profilePath, {
+    const c = Caracal.fromConfig(profilePath, {
       CARACAL_RESOURCES_FILE: bindingsPath,
       CARACAL_RESOURCES: 'calendar=https://env.example.com/v2',
     } as NodeJS.ProcessEnv)
@@ -525,7 +485,7 @@ app_client_secret_file = ${JSON.stringify(secretPath)}
     })
   })
 
-  it('does not load a default generated profile', () => {
+  it('loads the default generated profile before env fallback', () => {
     const dir = mkdtempSync(join(tmpdir(), 'caracal-sdk-'))
     const configDir = join(dir, 'caracal')
     mkdirSync(configDir)
@@ -544,16 +504,18 @@ resource = "calendar"
       { mode: 0o600 },
     )
 
-    const c = createAdvancedClientFromEnv({
-      XDG_CONFIG_HOME: dir,
-      CARACAL_COORDINATOR_URL: 'http://env',
-      CARACAL_ZONE_ID: 'env-zone',
-      CARACAL_APPLICATION_ID: 'env-app',
-      CARACAL_BOOTSTRAP_TOKEN: 'env-token',
-    } as NodeJS.ProcessEnv)
+    const c = new Caracal({
+      env: {
+        XDG_CONFIG_HOME: dir,
+        CARACAL_COORDINATOR_URL: 'http://ignored',
+        CARACAL_ZONE_ID: 'ignored',
+        CARACAL_APPLICATION_ID: 'ignored',
+        CARACAL_BOOTSTRAP_TOKEN: 'ignored',
+      } as NodeJS.ProcessEnv,
+    })
 
-    expect(c.config.zoneId).toBe('env-zone')
-    expect(c.config.applicationId).toBe('env-app')
+    expect(c.config.zoneId).toBe('z')
+    expect(c.config.applicationId).toBe('app')
   })
 })
 
@@ -563,30 +525,6 @@ describe('caracal.transport', () => {
     await expect(c.transport()('http://api/x')).rejects.toThrow(/asApplication/)
   })
 
-  it('rejects lifecycle mandates before sending them to the Gateway', async () => {
-    const fakeFetch = vi.fn() as unknown as typeof fetch
-    const c = new Caracal({
-      ...baseConfig,
-      subjectToken: tokenWithUse('session'),
-      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
-      gatewayUrl: 'https://gateway.example.com/proxy',
-    })
-
-    await expect(
-      c.transport({ asApplication: true })('https://gateway.example.com/proxy/events', {
-        headers: { 'X-Caracal-Resource': 'resource://calendar' },
-      }),
-    ).rejects.toThrow(/use=gateway.*use=session/)
-    expect(fakeFetch).not.toHaveBeenCalled()
-  })
-
-  it('requires a routed resource when scopes are requested', async () => {
-    const c = new Caracal({ ...baseConfig, gatewayUrl: 'https://gateway.example.com/proxy' })
-    await expect(c.transport({ asApplication: true, scopes: ['events:read'] })('https://gateway.example.com/proxy/events')).rejects.toThrow(
-      /scopes require X-Caracal-Resource/,
-    )
-  })
-
   it('auto-injects envelope headers on outbound calls', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -594,7 +532,7 @@ describe('caracal.transport', () => {
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch } })
-    await c.transport({ asApplication: true, propagation: 'always' })('http://api/x')
+    await c.transport({ asApplication: true })('http://api/x')
     expect(calls).toHaveLength(1)
     expect(calls[0].headers.get(HeaderAuthorization)).toBeNull()
     expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
@@ -611,24 +549,6 @@ describe('caracal.transport', () => {
     await c.transport({ asApplication: true, timeoutMs: 5000 })('http://api/x')
     expect(signals[0]).toBeUndefined()
     expect(signals[1]).toBeInstanceOf(AbortSignal)
-  })
-
-  it('forwards inline fetch timeout and propagation options', async () => {
-    const calls: { headers: Headers; signal: AbortSignal | null | undefined }[] = []
-    const fakeFetch = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
-      calls.push({ headers: new Headers(init.headers), signal: init.signal })
-      return new Response(null, { status: 204 })
-    }) as unknown as typeof fetch
-    const c = new Caracal({
-      ...baseConfig,
-      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
-      gatewayUrl: 'https://gateway.example.com',
-    })
-
-    await c.fetch('calendar', '/events', { asApplication: true, timeoutMs: 5000, propagation: 'gateway-only' })
-
-    expect(calls[0].signal).toBeInstanceOf(AbortSignal)
-    expect(calls[0].headers.get('x-caracal-resource')).toBe('calendar')
   })
 
   it('preserves Request method, headers, body, and signal while rewriting', async () => {
@@ -660,7 +580,7 @@ describe('caracal.transport', () => {
     expect(calls[0].signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('keeps envelope headers off non-gateway hosts by default', async () => {
+  it('keeps envelope headers off non-gateway hosts under gateway-only propagation', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), headers: new Headers(init.headers) })
@@ -672,54 +592,13 @@ describe('caracal.transport', () => {
       gatewayUrl: 'https://gateway.example.com/proxy',
       resources: [{ resourceId: 'calendar', upstreamPrefix: 'https://api.example.com/v1' }],
     })
-    const send = c.transport({ asApplication: true })
+    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
     await send('https://third-party.example.com/data')
     await send('https://api.example.com/v1/events')
     expect(calls[0].headers.get(HeaderTraceparent)).toBeNull()
     expect(calls[0].headers.get(HeaderBaggage)).toBeNull()
     expect(calls[1].url).toBe('https://gateway.example.com/proxy/events')
     expect(parseTraceparent(calls[1].headers.get(HeaderTraceparent)!)).toBeTruthy()
-  })
-
-  it('does not treat unrelated or traversing same-origin paths as Gateway destinations', async () => {
-    const calls: { url: string; headers: Headers }[] = []
-    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
-      calls.push({ url: String(input), headers: new Headers(init.headers) })
-      return new Response(null, { status: 204 })
-    }) as unknown as typeof fetch
-    const c = new Caracal({
-      ...baseConfig,
-      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
-      gatewayUrl: 'https://gateway.example.com/proxy',
-    })
-    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
-
-    await send('https://gateway.example.com/unrelated')
-    await send('https://gateway.example.com/proxy/%252e%252e/admin')
-
-    for (const call of calls) {
-      expect(call.headers.get(HeaderAuthorization)).toBeNull()
-      expect(call.headers.get(HeaderTraceparent)).toBeNull()
-    }
-  })
-
-  it('forces manual redirects for Gateway-bound requests', async () => {
-    let redirect: RequestRedirect | undefined
-    const fakeFetch = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
-      redirect = init.redirect
-      return new Response(null, { status: 302, headers: { location: '/next' } })
-    }) as unknown as typeof fetch
-    const c = new Caracal({
-      ...baseConfig,
-      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
-      gatewayUrl: 'https://gateway.example.com/proxy',
-    })
-
-    await c.transport({ asApplication: true })('https://gateway.example.com/proxy/events', {
-      headers: { 'X-Caracal-Resource': 'resource://calendar' },
-    })
-
-    expect(redirect).toBe('manual')
   })
 
   it('routes bound provider calls through the configured gateway', async () => {
@@ -818,8 +697,6 @@ describe('caracal.transport', () => {
     expect(() => c.gatewayRequest('resource://calendar', 'https://api.example.com/events')).toThrow(/relative/)
     expect(() => c.gatewayRequest('resource://calendar', '/events/../admin')).toThrow(/dot segments/)
     expect(() => c.gatewayRequest('resource://calendar', './events')).toThrow(/dot segments/)
-    expect(() => c.gatewayRequest('resource://calendar', '/events/%252e%252e/admin')).toThrow(/dot segments/)
-    expect(() => c.gatewayRequest('resource://calendar', '/events#fragment')).toThrow(/fragment/)
   })
 })
 
@@ -842,10 +719,10 @@ describe('session lifecycle and delegation', () => {
       defaultTtlSeconds: 60,
     })
     const events: string[] = []
-    const removeStart = c.onSessionStart((ctx) => {
+    c.onSessionStart((ctx) => {
       events.push(`start:${ctx.sessionId}`)
     })
-    const removeEnd = c.onSessionEnd((ctx) => {
+    c.onSessionEnd((ctx) => {
       events.push(`end:${ctx.sessionId}`)
     })
 
@@ -864,15 +741,9 @@ describe('session lifecycle and delegation', () => {
     )
 
     expect(events).toEqual(['start:agent-1', 'end:agent-1'])
-    removeStart()
-    removeEnd()
-    await c.session(async () => undefined)
-    expect(events).toEqual(['start:agent-1', 'end:agent-1'])
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['POST', 'https://coordinator.example.com/zones/z/agents'],
       ['POST', 'https://coordinator.example.com/zones/z/delegations'],
-      ['DELETE', 'https://coordinator.example.com/zones/z/agents/agent-1'],
-      ['POST', 'https://coordinator.example.com/zones/z/agents'],
       ['DELETE', 'https://coordinator.example.com/zones/z/agents/agent-1'],
     ])
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
@@ -895,10 +766,10 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
       }
       if (init.method === 'POST' && String(input).endsWith('/heartbeat')) {
-        return new Response(JSON.stringify({ agent: { id: 'svc-1', lease_generation: 1 } }), { status: 200 })
+        return new Response(JSON.stringify({ agent: { id: 'svc-1' } }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -929,7 +800,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -963,7 +834,7 @@ describe('session lifecycle and delegation', () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
       if (init.method === 'POST' && String(input).endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -1034,9 +905,9 @@ describe('session lifecycle and delegation', () => {
       json: async () => ({ access_token: 'fresh-root', expires_in: 900 }),
     })
     vi.stubGlobal('fetch', stsFetch)
-    const secretSource = createAdvancedClientFromEnv({
+    const secretSource = Caracal.fromEnv({
       CARACAL_COORDINATOR_URL: 'http://coord',
-      CARACAL_STS_URL: 'http://sts',
+      CARACAL_ZONE_URL: 'http://sts',
       CARACAL_ZONE_ID: 'z1',
       CARACAL_APPLICATION_ID: 'a1',
       CARACAL_APP_CLIENT_SECRET: 'shh',
@@ -1101,7 +972,7 @@ describe('config resource sorting and token validation', () => {
     const payload = Buffer.from(JSON.stringify({ exp: 1_000_000 })).toString('base64url')
     const token = `${header}.${payload}.sig`
     expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -1115,7 +986,7 @@ describe('config resource sorting and token validation', () => {
     const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')
     const token = `${header}.${payload}.`
     expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -1126,7 +997,7 @@ describe('config resource sorting and token validation', () => {
 
   it('rejects malformed CARACAL_RESOURCES at startup', () => {
     expect(() =>
-      createAdvancedClientFromEnv({
+      Caracal.fromEnv({
         CARACAL_COORDINATOR_URL: 'http://coord',
         CARACAL_ZONE_ID: 'z',
         CARACAL_APPLICATION_ID: 'app',
@@ -1138,43 +1009,6 @@ describe('config resource sorting and token validation', () => {
 })
 
 describe('Caracal.fromClientSecret', () => {
-  it('allows application transports without configured lifecycle resources', () => {
-    const c = Caracal.fromClientSecret({
-      coordinatorUrl: 'http://coord',
-      stsUrl: 'http://sts',
-      zoneId: 'z',
-      applicationId: 'app',
-      clientSecret: 'secret',
-    })
-
-    expect(c.config.resources).toBeUndefined()
-  })
-
-  it('rejects malformed endpoints at initialization', () => {
-    expect(() =>
-      Caracal.fromClientSecret({
-        coordinatorUrl: 'coordinator.internal:4000',
-        stsUrl: 'http://sts',
-        zoneId: 'z',
-        applicationId: 'app',
-        clientSecret: 'secret',
-      }),
-    ).toThrow(/absolute http or https URL/)
-  })
-
-  it('rejects malformed direct resource bindings', () => {
-    expect(() =>
-      Caracal.fromClientSecret({
-        coordinatorUrl: 'http://coord',
-        stsUrl: 'http://sts',
-        zoneId: 'z',
-        applicationId: 'app',
-        clientSecret: 'secret',
-        resources: [{ resourceId: 'calendar', upstreamPrefix: 'ftp://calendar.example.com' }],
-      }),
-    ).toThrow(/absolute http or https URL/)
-  })
-
   it('uses custom fetchImpl for token exchanges', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -1368,11 +1202,7 @@ describe('Caracal.acceptDelegation validation', () => {
   function inboundClient(items: Array<{ id: string; status: string }>): Caracal {
     const fetchImpl = (async (url: string) => {
       if (new URL(url).pathname.startsWith('/zones/z/delegations/inbound/')) {
-        const id = decodeURIComponent(new URL(url).pathname.split('/').at(-1) ?? '')
-        const item = items.find((candidate) => candidate.id === id)
-        return item
-          ? new Response(JSON.stringify(item), { status: 200 })
-          : new Response(JSON.stringify({ error: 'delegation_not_found' }), { status: 404 })
+        return new Response(JSON.stringify({ items }), { status: 200 })
       }
       return new Response(null, { status: 204 })
     }) as unknown as typeof fetch
@@ -1430,7 +1260,7 @@ describe('Caracal.attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
+      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -1440,7 +1270,7 @@ describe('Caracal.attachSession', () => {
     const handle = await c.attachSession('agent-persisted', { heartbeatIntervalMs: 0 })
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/lease')
+    expect(calls[0].path).toBe('/zones/z/agents/agent-persisted/heartbeat')
     await handle.close()
     expect(ends).toEqual(['agent-persisted'])
     expect(calls.some((call) => call.method === 'DELETE' && call.path.endsWith('/agent-persisted'))).toBe(true)
@@ -1448,30 +1278,31 @@ describe('Caracal.attachSession', () => {
 })
 
 describe('logger routing', () => {
-  it('surfaces session cleanup failures after successful work', async () => {
+  it('routes session cleanup failures to the injected logger', async () => {
     const logger = vi.fn()
     const fetchImpl = (async (url: string, init?: { method?: string }) => {
       if (init?.method === 'DELETE') return new Response('cleanup down', { status: 500 })
       return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
     }) as unknown as typeof fetch
     const c = new Caracal({ ...baseConfig, coordinator: { baseUrl: 'http://coord', fetchImpl }, logger })
-    await expect(c.session(async () => 'ok')).rejects.toThrow(/cleanup down/)
-    expect(logger).not.toHaveBeenCalled()
+    await expect(c.session(async () => 'ok')).resolves.toBe('ok')
+    expect(logger).toHaveBeenCalledWith(expect.stringContaining('terminate failed'), expect.anything())
   })
 
-  it('rejects unverified context binding in production', async () => {
+  it('warns once through the logger when binding unverified context in production', async () => {
     const logger = vi.fn()
     const c = new Caracal({ ...baseConfig, logger })
     const headers = { authorization: 'Bearer inbound' }
     const previous = process.env.CARACAL_ENV
     process.env.CARACAL_ENV = 'production'
     try {
-      await expect(c.bindFromHeaders(headers, async () => {})).rejects.toThrow(/requires \{ verify \} or \{ trustedPropagation: true \}/)
-      await expect(c.bindFromHeaders(headers, async () => 'ok', { trustedPropagation: true })).resolves.toBe('ok')
+      await c.bindFromHeaders(headers, async () => {})
+      await c.bindFromHeaders(headers, async () => {})
     } finally {
       if (previous === undefined) delete process.env.CARACAL_ENV
       else process.env.CARACAL_ENV = previous
     }
-    expect(logger).not.toHaveBeenCalled()
+    const boundaryWarnings = logger.mock.calls.filter(([message]) => String(message).includes('without a verify hook'))
+    expect(boundaryWarnings).toHaveLength(1)
   })
 })

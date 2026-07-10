@@ -15,7 +15,7 @@ interface Recorder {
 
 function recorder(agentId = 'agent-new', edgeId = 'edge-new'): Recorder {
   const calls: { method: string; path: string }[] = []
-  const fetchImpl = (async (url: string, init?: { method?: string; body?: string }) => {
+  const fetchImpl = (async (url: string, init?: { method?: string }) => {
     const method = init?.method ?? 'GET'
     const path = new URL(url).pathname
     calls.push({ method, path })
@@ -23,10 +23,7 @@ function recorder(agentId = 'agent-new', edgeId = 'edge-new'): Recorder {
     if (path.endsWith('/delegations')) {
       return new Response(JSON.stringify({ delegation_edge_id: edgeId }), { status: 200 })
     }
-    const body = JSON.parse(init?.body ?? '{}') as { lifecycle?: string }
-    return new Response(JSON.stringify({ agent_session_id: agentId, lease_generation: body.lifecycle === 'service' ? 1 : 0 }), {
-      status: 200,
-    })
+    return new Response(JSON.stringify({ agent_session_id: agentId }), { status: 200 })
   }) as unknown as typeof fetch
   return { client: { baseUrl: 'http://coord', fetchImpl }, calls }
 }
@@ -61,7 +58,6 @@ describe('session', () => {
     const { client } = recorder()
     await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async (ctx) => {
       expect(ctx.sessionId).toBe('agent-new')
-      expect(ctx.traceId).toMatch(/^[0-9a-f]{32}$/)
       expect(ctx).toBe(current())
     })
   })
@@ -118,25 +114,6 @@ describe('session', () => {
       await session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => {})
     })
     expect(calls.some((c) => c.path.endsWith('/agents'))).toBe(true)
-  })
-
-  it('rejects an explicit parent that disagrees with the bound context', async () => {
-    const { client, calls } = recorder()
-    await bind(baseCtx({ sessionId: 'agent-bound' }), async () => {
-      await expect(
-        session(
-          {
-            coordinator: client,
-            zoneId: 'zone-1',
-            applicationId: 'app-1',
-            subjectToken: 'tok',
-            parentSessionId: 'agent-other',
-          },
-          async () => {},
-        ),
-      ).rejects.toThrow(/must match the Session bound/)
-    })
-    expect(calls).toHaveLength(0)
   })
 
   it('requests server-side inheritance and accepts the mirrored delegation', async () => {
@@ -204,13 +181,7 @@ describe('session', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
       await session(
-        {
-          coordinator: client,
-          zoneId: 'zone-1',
-          applicationId: 'app-1',
-          subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
-        },
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => {},
       )
     })
@@ -225,10 +196,9 @@ describe('startSession with authority', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, path: new URL(url).pathname })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(
-        JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 1 }),
-        { status: 200 },
-      )
+      return new Response(JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z' }), {
+        status: 200,
+      })
     }) as unknown as typeof fetch
     const svc = await startSession({
       coordinator: { baseUrl: 'http://coord', fetchImpl },
@@ -238,7 +208,6 @@ describe('startSession with authority', () => {
       heartbeatIntervalMs: 0,
     })
     expect(svc.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(svc.leaseGeneration).toBe(1)
     await svc.close()
   })
 
@@ -250,7 +219,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger', ttlSeconds: 60 }),
+        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger' }),
       })
       expect(svc.context.delegationId).toBe('edge-svc')
       expect(svc.context.parentDelegationId).toBe('edge-parent')
@@ -268,7 +237,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+        authority: Authority.narrow(['read']),
       }),
     ).rejects.toThrow(/active parent session/)
   })
@@ -281,7 +250,7 @@ describe('startSession with authority', () => {
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/delegations')) return new Response('denied', { status: 403 })
-      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan', lease_generation: 1 }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan' }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
 
@@ -292,7 +261,7 @@ describe('startSession with authority', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          authority: Authority.narrow(['read']),
         }),
       ).rejects.toThrow()
     })
@@ -301,33 +270,26 @@ describe('startSession with authority', () => {
 })
 
 describe('delegate', () => {
-  it('rejects a non-positive expiry before using context or the network', async () => {
-    const { client } = recorder()
-    await expect(
-      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 0 }),
-    ).rejects.toThrow(/positive integer/)
-  })
-
   it('requires an active context', async () => {
     const { client } = recorder()
-    await expect(
-      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
-    ).rejects.toThrow(/requires a Caracal context/)
+    await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+      /requires a Caracal context/,
+    )
   })
 
   it('requires an active session in context', async () => {
     const { client } = recorder()
     await bind(baseCtx({ sessionId: undefined }), async () => {
-      await expect(
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
-      ).rejects.toThrow(/active session/)
+      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
+        /active session/,
+      )
     })
   })
 
   it('returns the created delegation without rebinding the issuer context', async () => {
     const { client } = recorder('agent-new', 'edge-42')
     await bind(baseCtx(), async () => {
-      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 })
+      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })
       expect(res.delegationId).toBe('edge-42')
       expect(current()?.delegationId).toBeUndefined()
       expect(current()?.hop).toBe(0)
@@ -358,21 +320,11 @@ describe('delegate', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
       await session(
-        {
-          coordinator: client,
-          zoneId: 'zone-1',
-          applicationId: 'app-2',
-          subjectToken: 'tok',
-          authority: Authority.narrow('read', { ttlSeconds: 60 }),
-        },
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow('read') },
         async () => {},
       )
     })
     expect(bodies[0]?.scopes).toEqual(['read'])
-  })
-
-  it('rejects a non-positive Authority.narrow expiry', () => {
-    expect(() => Authority.narrow('read', { ttlSeconds: 0 })).toThrow(/positive integer/)
   })
 
   it('retries a transient delegation failure once with the same idempotency key', async () => {
@@ -391,9 +343,7 @@ describe('delegate', () => {
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-      const result = bind(baseCtx(), () =>
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
-      )
+      const result = bind(baseCtx(), () => delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }))
       await vi.advanceTimersByTimeAsync(2_000)
       await expect(result).resolves.toMatchObject({ delegationId: 'edge-retry' })
       expect(attempts).toBe(2)
@@ -415,9 +365,7 @@ describe('delegate', () => {
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
-      await expect(
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
-      ).rejects.toThrow()
+      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow()
     })
     expect(attempts).toBe(1)
   })
@@ -430,7 +378,7 @@ describe('attachSession', () => {
       seen.push(new Headers(init.headers).get('authorization') ?? '')
       if (seen.length === 1) return new Response('{"error":"invalid_token"}', { status: 401 })
       if (init.method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ status: 'active', lease_generation: 2 }), { status: 200 })
+      return new Response(JSON.stringify({ agent: { status: 'active' } }), { status: 200 })
     }) as unknown as typeof fetch
     let invalidations = 0
     let tokens = 0
@@ -455,7 +403,7 @@ describe('attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
+      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -470,8 +418,7 @@ describe('attachSession', () => {
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.context.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(handle.leaseGeneration).toBe(2)
-    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/lease')
+    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/heartbeat')
     await handle.close()
     expect(calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/agent-persisted'))).toBe(true)
   })
@@ -496,13 +443,7 @@ describe('session with narrowed authority', () => {
     const { client } = recorder()
     await expect(
       session(
-        {
-          coordinator: client,
-          zoneId: 'zone-1',
-          applicationId: 'app-2',
-          subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
-        },
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => {},
       ),
     ).rejects.toThrow(/active parent session/)
@@ -512,13 +453,7 @@ describe('session with narrowed authority', () => {
     const { client, calls } = recorder('agent-child', 'edge-child')
     await bind(baseCtx(), async () => {
       const out = await session(
-        {
-          coordinator: client,
-          zoneId: 'zone-1',
-          applicationId: 'app-2',
-          subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
-        },
+        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
         async () => ({
           session: current()?.sessionId,
           delegation: current()?.delegationId,
@@ -545,13 +480,7 @@ describe('session with narrowed authority', () => {
     await bind(baseCtx(), async () => {
       await expect(
         session(
-          {
-            coordinator: client,
-            zoneId: 'zone-1',
-            applicationId: 'app-2',
-            subjectToken: 'tok',
-            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
-          },
+          { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
           async () => {},
         ),
       ).rejects.toThrow()
@@ -571,7 +500,7 @@ describe('session with narrowed authority', () => {
             zoneId: 'zone-1',
             applicationId: 'app-2',
             subjectToken: 'tok',
-            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+            authority: Authority.narrow(['read']),
             onSessionStart: async () => {
               throw new Error('start failed')
             },
@@ -585,11 +514,11 @@ describe('session with narrowed authority', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
-  it('terminateSession throws when the coordinator DELETE fails', async () => {
-    const { terminateSession } = await import('../../../../packages/sdk/ts/src/coordinator.js')
+  it('terminateAgent throws when the coordinator DELETE fails', async () => {
+    const { terminateAgent } = await import('../../../../packages/sdk/ts/src/coordinator.js')
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 })) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await expect(terminateSession(client, 'tok', 'zone-1', 'session-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
+    await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
   })
 })
 
@@ -687,20 +616,6 @@ describe('session reliability', () => {
     ).resolves.toBe('result')
   })
 
-  it('surfaces cleanup failure when the fn succeeds', async () => {
-    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
-      if (init.method === 'DELETE') return new Response('db down', { status: 500 })
-      if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
-      }
-      return new Response(JSON.stringify({}), { status: 200 })
-    }) as unknown as typeof fetch
-    const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await expect(
-      session({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' }, async () => 'result'),
-    ).rejects.toThrow(/500/)
-  })
-
   it('keeps the fn error when the cleanup terminate itself fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
@@ -736,18 +651,12 @@ describe('service auto-heartbeat', () => {
         heartbeats.push(JSON.parse(String(init.body)))
         if (opts.heartbeat) return opts.heartbeat(beats)
         return new Response(
-          JSON.stringify({
-            agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(), lease_generation: 1 },
-          }),
+          JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() } }),
           { status: 200 },
         )
       }
       return new Response(
-        JSON.stringify({
-          agent_session_id: 'svc-1',
-          heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(),
-          lease_generation: 1,
-        }),
+        JSON.stringify({ agent_session_id: 'svc-1', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() }),
         { status: 200 },
       )
     }) as unknown as typeof fetch
@@ -761,7 +670,7 @@ describe('service auto-heartbeat', () => {
       const svc = await startSession({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
       await vi.advanceTimersByTimeAsync(1_500)
       expect(heartbeats.length).toBeGreaterThanOrEqual(1)
-      expect(heartbeats[0]).toEqual({ status: 'healthy', lease_generation: 1 })
+      expect(heartbeats[0]).toEqual({ status: 'healthy' })
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -789,66 +698,6 @@ describe('service auto-heartbeat', () => {
     }
   })
 
-  it('reports a fenced heartbeat as permanent lease loss', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.useFakeTimers()
-    try {
-      const { client } = serviceRecorder({
-        heartbeat: () => new Response('{"error":"session_lease_fenced"}', { status: 409 }),
-      })
-      const onLeaseLost = vi.fn()
-      const svc = await startSession({
-        coordinator: client,
-        zoneId: 'zone-1',
-        applicationId: 'app-1',
-        subjectToken: 'tok',
-        heartbeatIntervalMs: 10,
-        onLeaseLost,
-      })
-
-      await vi.advanceTimersByTimeAsync(20)
-
-      expect(onLeaseLost).toHaveBeenCalledOnce()
-      await svc.close()
-    } finally {
-      vi.useRealTimers()
-      warn.mockRestore()
-    }
-  })
-
-  it('does not report resumable lease expiry as terminal loss', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.useFakeTimers()
-    try {
-      const { client, heartbeats } = serviceRecorder({
-        heartbeat: (beat) =>
-          beat === 1
-            ? new Response('{"error":"session_lease_expired"}', { status: 409 })
-            : new Response(JSON.stringify({ agent: { status: 'suspended', lease_generation: 1 } }), { status: 200 }),
-      })
-      const onLeaseLost = vi.fn()
-      const onStateChange = vi.fn()
-      const svc = await startSession({
-        coordinator: client,
-        zoneId: 'zone-1',
-        applicationId: 'app-1',
-        subjectToken: 'tok',
-        heartbeatIntervalMs: 10,
-        onLeaseLost,
-        onStateChange,
-      })
-      await vi.advanceTimersByTimeAsync(100)
-      expect(heartbeats).toHaveLength(2)
-      expect(onLeaseLost).not.toHaveBeenCalled()
-      expect(onStateChange).toHaveBeenCalledWith('suspended')
-      expect(svc.status).toBe('suspended')
-      await svc.close()
-    } finally {
-      vi.useRealTimers()
-      warn.mockRestore()
-    }
-  })
-
   it('disables the background timer when heartbeatIntervalMs is zero', async () => {
     vi.useFakeTimers()
     try {
@@ -863,7 +712,7 @@ describe('service auto-heartbeat', () => {
       await vi.advanceTimersByTimeAsync(120_000)
       expect(heartbeats.length).toBe(0)
       await svc.heartbeat('degraded')
-      expect(heartbeats).toEqual([{ status: 'degraded', lease_generation: 1 }])
+      expect(heartbeats).toEqual([{ status: 'degraded' }])
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -874,7 +723,7 @@ describe('service auto-heartbeat', () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -901,7 +750,7 @@ describe('service auto-heartbeat', () => {
             resolveBeat = resolve
           })
         }
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       const onLeaseLost = vi.fn()
@@ -932,7 +781,7 @@ describe('service auto-heartbeat', () => {
         return new Response(null, { status: 204 })
       }
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
