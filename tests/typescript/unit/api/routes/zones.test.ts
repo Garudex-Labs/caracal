@@ -376,7 +376,7 @@ describe('PATCH /v1/zones/:id', () => {
       [zone],
       [{ id: 'app-1' }],
       [{ id: 'sid-1' }],
-      [{ id: 'agent-1', subject_session_id: 'sid-agent', parent_id: null }],
+      [{ id: 'agent-1', subject_authority_record_id: 'sid-agent', parent_id: null }],
       [{ id: 'edge-1' }],
       [],
       [],
@@ -396,8 +396,8 @@ describe('PATCH /v1/zones/:id', () => {
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE applications'), ['z1', ['app-1'], 'admin:test-admin', false])
     const archiveCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE applications'))
     expect(String(archiveCall?.[0])).toContain('updated_by')
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE authority_records'), ['z1', ['app-1']])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE sessions'), ['z1', ['app-1']])
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE agent_sessions'), ['z1', ['app-1']])
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO event_outbox'))
     expect(outboxCalls).toHaveLength(1)
     expect((outboxCalls[0][1] as unknown[][])[0]).toHaveLength(4)

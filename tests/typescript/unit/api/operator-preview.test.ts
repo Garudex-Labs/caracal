@@ -264,6 +264,7 @@ describe('direct-read conformance', () => {
       agentSessions: "status IN ('active', 'suspended')",
       delegations: "status = 'active'",
     }
+    expect(PREVIEW_TARGETS.agentSessions.table).toBe('sessions')
     expect(Object.keys(PREVIEW_TARGETS).sort()).toEqual(Object.keys(liveness).sort())
     for (const [target, spec] of Object.entries(PREVIEW_TARGETS)) {
       expect(spec.table).toMatch(/^[a-z_]+$/)

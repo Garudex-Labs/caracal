@@ -536,8 +536,8 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
-        { session_id: 'as-2', status: 'terminated', spawned_at: '2026-05-02T00:00:00.000Z' },
-        { session_id: 'as-1', status: 'terminated', spawned_at: '2026-05-01T00:00:00.000Z' },
+        { session_id: 'as-2', status: 'terminated', started_at: '2026-05-02T00:00:00.000Z' },
+        { session_id: 'as-1', status: 'terminated', started_at: '2026-05-01T00:00:00.000Z' },
       ],
     })
 
@@ -551,13 +551,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     const body = JSON.parse(res.body)
     expect(body.items).toHaveLength(2)
     expect(body.next_cursor).toBe(cursor('2026-05-01T00:00:00.000Z', 'as-1'))
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM agent_sessions'), [
-      'z1',
-      'terminated',
-      'service',
-      '{refund-worker}',
-      2,
-    ])
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('FROM sessions'), ['z1', 'terminated', 'service', '{refund-worker}', 2])
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('labels @> $'), expect.any(Array))
   })
 
@@ -574,7 +568,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
           labels: ['voice', 'worker'],
           depth: 1,
           child_count: 0,
-          spawned_at: '2026-05-02T00:00:00.000Z',
+          started_at: '2026-05-02T00:00:00.000Z',
           last_active_at: '2026-05-02T00:01:00.000Z',
           terminated_at: null,
           termination_reason: null,
@@ -594,7 +588,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
     expect(lines[0]).toBe(
-      'session_id,application_id,parent_session_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
+      'session_id,application_id,parent_session_id,status,lifecycle,labels,depth,child_count,started_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
     )
     expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
   })

@@ -47,19 +47,19 @@ describe('AdminClient', () => {
     expect(url).toBe('http://api/v1/zones/z1/audit?decision=deny&limit=50')
   })
 
-  it('unwraps paged audit and session responses', async () => {
+  it('unwraps paged audit and authority record responses', async () => {
     const f = fetchOk({ items: [{ id: 'ev1' }], next_cursor: null })
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: f })
 
     await expect(c.audit.list('z1')).resolves.toEqual([{ id: 'ev1' }])
-    await expect(c.sessions.list('z1')).resolves.toEqual([{ id: 'ev1' }])
+    await expect(c.authorityRecords.list('z1')).resolves.toEqual([{ id: 'ev1' }])
   })
 
-  it('rejects paged audit and session responses without items', async () => {
+  it('rejects paged audit and authority record responses without items', async () => {
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 't', fetchImpl: fetchOk({ next_cursor: null }) })
 
     await expect(c.audit.list('z1')).rejects.toThrow(/audit response missing items/)
-    await expect(c.sessions.list('z1')).rejects.toThrow(/sessions response missing items/)
+    await expect(c.authorityRecords.list('z1')).rejects.toThrow(/authority-records response missing items/)
   })
 
   it('carries the workload secret on create and rotate and reveals the custody copy', async () => {
@@ -181,8 +181,8 @@ describe('AdminClient', () => {
     await expect(c.zones.list()).rejects.toMatchObject({ status: 500, code: 'Server Error' })
   })
 
-  it('routes coordinator calls to the coordinator base with its token', async () => {
-    const f = fetchOk({ items: [], next_cursor: null })
+  it('routes session management calls to the Coordinator base with its token', async () => {
+    const f = fetchOk({ agent_session_id: 'session-1', parent_id: null, subject_authority_record_id: 'record-1' })
     const c = new AdminClient({
       apiUrl: 'http://api',
       coordinatorUrl: 'http://coord',
@@ -190,13 +190,13 @@ describe('AdminClient', () => {
       coordinatorToken: 'jwt',
       fetchImpl: f,
     })
-    await c.agents.list('z1')
+    await c.sessions.get('z1', 'session-1')
     const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
-    expect(url).toBe('http://coord/zones/z1/agents')
+    expect(url).toBe('http://coord/zones/z1/agents/session-1')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer jwt')
   })
 
-  it('forwards agent list filters as query params', async () => {
+  it('forwards governed session list filters as query params', async () => {
     const f = fetchOk({ items: [], next_cursor: null })
     const c = new AdminClient({
       apiUrl: 'http://api',
@@ -205,7 +205,7 @@ describe('AdminClient', () => {
       coordinatorToken: 'jwt',
       fetchImpl: f,
     })
-    await c.agents.list('z1', { status: 'active', lifecycle: 'service', application_id: 'app-1', label: 'worker', limit: 25 })
+    await c.sessions.list('z1', { status: 'active', lifecycle: 'service', application_id: 'app-1', label: 'worker', limit: 25 })
     const [url] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
     expect(url).toContain('status=active')
     expect(url).toContain('lifecycle=service')
@@ -214,22 +214,17 @@ describe('AdminClient', () => {
     expect(url).toContain('limit=25')
   })
 
-  it('parses coordinator agent list responses', async () => {
+  it('maps Coordinator session fields at the transport boundary', async () => {
     const f = fetchOk({
-      items: [
-        {
-          agent_session_id: 'agent-1',
-          zone_id: 'z1',
-          application_id: 'app-1',
-          parent_id: null,
-          subject_session_id: 'subject-1',
-          status: 'active',
-          depth: 0,
-          spawned_at: '2026-01-01T00:00:00Z',
-          terminated_at: null,
-        },
-      ],
-      next_cursor: null,
+      agent_session_id: 'session-1',
+      zone_id: 'z1',
+      application_id: 'app-1',
+      parent_id: null,
+      subject_authority_record_id: 'record-1',
+      status: 'active',
+      depth: 0,
+      started_at: '2026-01-01T00:00:00Z',
+      terminated_at: null,
     })
     const c = new AdminClient({
       apiUrl: 'http://api',
@@ -239,10 +234,12 @@ describe('AdminClient', () => {
       fetchImpl: f,
     })
 
-    await expect(c.agents.list('z1')).resolves.toEqual([expect.objectContaining({ agent_session_id: 'agent-1' })])
+    await expect(c.sessions.get('z1', 'session-1')).resolves.toEqual(
+      expect.objectContaining({ session_id: 'session-1', parent_session_id: null, authority_record_id: 'record-1' }),
+    )
   })
 
-  it('rejects malformed coordinator agent list responses', async () => {
+  it('rejects malformed Coordinator session child responses', async () => {
     const c = new AdminClient({
       apiUrl: 'http://api',
       coordinatorUrl: 'http://coord',
@@ -251,7 +248,7 @@ describe('AdminClient', () => {
       fetchImpl: fetchOk({ next_cursor: null }),
     })
 
-    await expect(c.agents.list('z1')).rejects.toThrow(/agents response missing items/)
+    await expect(c.sessions.children('z1', 'session-1')).rejects.toThrow(/session children response missing items/)
   })
 
   it('marks coordinator response errors with the coordinator target', async () => {
@@ -264,7 +261,7 @@ describe('AdminClient', () => {
       fetchImpl: f,
     })
 
-    await expect(c.agents.list('z1')).rejects.toMatchObject({
+    await expect(c.sessions.get('z1', 'session-1')).rejects.toMatchObject({
       name: 'AdminApiError',
       status: 401,
       code: 'invalid_token',
@@ -274,7 +271,7 @@ describe('AdminClient', () => {
 
   it('throws when coordinator URL is missing', async () => {
     const c = new AdminClient({ apiUrl: 'http://api', adminToken: 'a', fetchImpl: fetchOk([]) })
-    await expect(c.agents.list('z1')).rejects.toThrow(/coordinator_url_not_configured/)
+    await expect(c.sessions.get('z1', 'session-1')).rejects.toThrow(/coordinator_url_not_configured/)
   })
 
   it('throws when coordinator token is missing', async () => {
@@ -284,7 +281,7 @@ describe('AdminClient', () => {
       adminToken: 'a',
       fetchImpl: fetchOk([]),
     })
-    await expect(c.agents.list('z1')).rejects.toThrow(/coordinator_token_not_configured/)
+    await expect(c.sessions.get('z1', 'session-1')).rejects.toThrow(/coordinator_token_not_configured/)
   })
 
   it('hits the audit by-request detail endpoint', async () => {
@@ -315,7 +312,7 @@ describe('AdminClient', () => {
       fetchImpl: f,
     })
     const out = await c.delegations.revoke('z1', 'edge-1')
-    expect(out).toEqual({ revoked_edges: 3, affected_sessions: 2 })
+    expect(out).toEqual({ revoked_delegations: 3, affected_sessions: 2 })
     const [, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
     expect(init.method).toBe('PATCH')
   })
@@ -411,7 +408,10 @@ describe('AdminClient', () => {
     const calls: Array<{ url: string; method: string; body?: string }> = []
     const f = vi.fn().mockImplementation((url: string, init: RequestInit) => {
       calls.push({ url, method: init.method ?? 'GET', body: init.body as string | undefined })
-      const body = { items: [], next_cursor: null }
+      const body =
+        url.includes('/delegations/inbound/') || url.includes('/delegations/outbound/') || url.endsWith('/traverse')
+          ? []
+          : { items: [], next_cursor: null }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -477,7 +477,7 @@ describe('AdminClient', () => {
     await c.workloads.update('z1', 'wl1', { name: 'launcher-2' })
     await c.workloads.rotateSecret('z1', 'wl1')
     await c.workloads.delete('z1', 'wl1')
-    await c.sessions.list('z1', { status: 'active' } as never)
+    await c.authorityRecords.list('z1', { status: 'active' } as never)
     await c.subjects.revoke('z1', { subject_id: 'auth0|507f1f77bcf86cd799439011', reason: 'credential compromise' })
     await c.audit.list('z1', { limit: 5 } as never)
     await c.stepUpChallenges.list('z1')
@@ -485,11 +485,11 @@ describe('AdminClient', () => {
     await c.stepUpChallenges.approve('z1', 'challenge1')
     await c.stepUpChallenges.reject('z1', 'challenge1', 'wrong amount')
 
-    await c.agents.get('z1', 'ag1')
-    await c.agents.children('z1', 'ag1')
-    await c.agents.suspend('z1', 'ag1')
-    await c.agents.resume('z1', 'ag1')
-    await c.agents.terminate('z1', 'ag1')
+    await c.sessions.get('z1', 'ag1')
+    await c.sessions.children('z1', 'ag1')
+    await c.sessions.suspend('z1', 'ag1')
+    await c.sessions.resume('z1', 'ag1')
+    await c.sessions.terminate('z1', 'ag1')
     await c.delegations.active('z1')
     await c.delegations.inbound('z1', 's1')
     await c.delegations.outbound('z1', 's1')
@@ -515,7 +515,7 @@ describe('AdminClient', () => {
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/reject' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/delegations/d1/revoke' && x.method === 'PATCH')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/sessions?status=active')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/authority-records?status=active')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/subjects/revoke' && x.method === 'POST')).toBe(true)
   })
 
@@ -529,14 +529,13 @@ describe('AdminClient', () => {
       (c) => c.policySets.list('z1'),
       (c) => c.policySets.listVersions('z1', 'ps1'),
       (c) => c.grants.list('z1'),
+      (c) => c.authorityRecords.list('z1'),
       (c) => c.sessions.list('z1'),
-      (c) => c.agentSessions.list('z1'),
       (c) => c.audit.list('z1'),
       (c) => c.adminAudit.list('z1'),
       (c) => c.stepUpChallenges.list('z1'),
       (c) => c.workloads.list('z1'),
-      (c) => c.agents.list('z1'),
-      (c) => c.agents.children('z1', 'ag1'),
+      (c) => c.sessions.children('z1', 'ag1'),
     ]
     const good = new AdminClient({
       apiUrl: 'http://api',
@@ -546,7 +545,7 @@ describe('AdminClient', () => {
       fetchImpl: fetchOk({ items: [{ id: 'row-1' }], next_cursor: null }),
     })
     for (const call of listCalls) {
-      expect(await call(good)).toEqual([{ id: 'row-1' }])
+      expect(await call(good)).toEqual([expect.objectContaining({ id: 'row-1' })])
     }
     const malformed = new AdminClient({
       apiUrl: 'http://api',
@@ -584,14 +583,14 @@ describe('AdminClient', () => {
     })
     await c.zones.create({ name: 'Pied Piper Production' } as never)
     await c.zones.patch('z1', { name: 'Hooli Staging' } as never)
-    await c.agents.effectiveAuthority('z1', 'ag1')
+    await c.sessions.effectiveAuthority('z1', 'ag1')
     await c.adminAudit.list('z1', { actor_id: 'monica' } as never)
-    await c.agentSessions.list('z1', { status: 'active' } as never)
+    await c.authorityRecords.list('z1', { status: 'active' } as never)
     expect(calls.some((x) => x.url === 'http://api/v1/zones' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/effective-authority')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/admin-audit?actor_id=monica')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/agent-sessions?status=active')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/authority-records?status=active')).toBe(true)
   })
 
   it('merges derived default headers under per-call headers', async () => {

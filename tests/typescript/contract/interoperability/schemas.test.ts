@@ -173,7 +173,36 @@ describe('public interoperability schemas', () => {
     expect(fixture).toMatchObject({
       traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/),
       tracestate: expect.any(String),
-      baggage: expect.stringContaining('caracal.agent_session='),
+      baggage: expect.stringContaining('caracal.agent_session=session-child'),
+    })
+  })
+
+  it('keeps authority, Session, and Delegation fixture identifiers distinct', () => {
+    const claims = readJson(resolve(fixtureDir, 'jwt-claims.resource.valid.json'))
+    expect(claims).toMatchObject({
+      sid: 'authority-record-1',
+      root_sid: 'authority-record-root',
+      agent_session_id: 'session-child',
+      delegation_edge_id: 'delegation-1',
+      source_session_id: 'session-parent',
+      target_session_id: 'session-child',
+    })
+
+    const input = readJson(resolve(fixtureDir, 'policy-input.sts.valid.json'))
+    expect(input).toMatchObject({
+      principal: { type: 'Application', id: 'app-1', agent_session_id: 'session-child' },
+      session: { id: 'authority-record-1' },
+      delegation_edge: {
+        id: 'delegation-1',
+        source_session_id: 'session-parent',
+        target_session_id: 'session-child',
+      },
+      context: {
+        actor_claims: { caracal_client_id: 'app-1' },
+        session_id: 'authority-record-1',
+        agent_session_id: 'session-child',
+        delegation_edge_id: 'delegation-1',
+      },
     })
   })
 })

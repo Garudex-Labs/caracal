@@ -108,14 +108,15 @@ describe('DCR garbage collection job', () => {
   })
 })
 
-describe('sessions reaper job', () => {
-  it('expires active sessions whose zones no longer exist', async () => {
+describe('authority-record reaper job', () => {
+  it('expires active authority records whose zones no longer exist', async () => {
     const client = new FakeClient([{ rows: [{ acquired: true }] }, { rowCount: 3 }, { rowCount: 1 }])
     const db = dbWithClient(client)
 
     await expect(runSessionsReap(db)).resolves.toBe(3)
     expect(client.query).toHaveBeenCalledTimes(3)
     expect(client.query.mock.calls[1][0]).toContain("s.status = 'active'")
+    expect(client.query.mock.calls[1][0]).toContain('FROM authority_records')
     expect(client.query.mock.calls[1][1]).toEqual([500])
     expect(client.query.mock.calls[2][0]).toContain('pg_advisory_unlock')
     expect(client.release).toHaveBeenCalledTimes(1)

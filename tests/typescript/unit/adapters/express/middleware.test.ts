@@ -13,7 +13,7 @@ import { authenticate } from '@caracalai/verify'
 vi.mock('@caracalai/verify', async () => ({
   authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
   httpStatusForAuthError: (code: string) =>
-    ['insufficient_scope', 'agent_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'].includes(code) ? 403 : 401,
+    ['insufficient_scope', 'session_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'].includes(code) ? 403 : 401,
   authErrorBody: (err: { code: string; description: string; hint?: string }) => ({
     error: err.code,
     error_description: err.description,
@@ -83,8 +83,8 @@ describe('caracalAuth middleware', () => {
           sub: 'user-1',
           zoneId: 'zone-1',
           clientId: 'app-1',
-          sid: 'sid-1',
-          rootSid: 'root-1',
+          authorityRecordId: 'sid-1',
+          rootAuthorityRecordId: 'root-1',
           use: 'resource',
           subType: 'user',
           jti: 'jti-1',
@@ -116,8 +116,8 @@ describe('caracalAuth middleware', () => {
       principal: {
         sub: 'user-1',
         clientId: 'app-1',
-        sid: 'sid-1',
-        rootSid: 'root-1',
+        authorityRecordId: 'sid-1',
+        rootAuthorityRecordId: 'root-1',
         use: 'resource',
         subType: 'user',
         jti: 'jti-1',
@@ -161,16 +161,16 @@ describe('caracalAuth middleware', () => {
       principal: {
         sub: 'user-1',
         clientId: 'app-1',
-        sid: 'sid-1',
-        rootSid: 'root-1',
+        authorityRecordId: 'sid-1',
+        rootAuthorityRecordId: 'root-1',
         use: 'resource',
         subType: 'user',
         jti: 'jti-1',
         issuedAt: 1,
         expiresAt: 2,
         scope: 'tickets:read',
-        agentSessionId: 'agent-claim',
-        delegationEdgeId: 'edge-claim',
+        sessionId: 'agent-claim',
+        delegationId: 'edge-claim',
         hopCount: 1,
       },
     })
@@ -201,7 +201,7 @@ describe('caracalAuth middleware', () => {
   })
 
   it('maps insufficient scope and agent/delegation failures to forbidden responses', async () => {
-    for (const code of ['insufficient_scope', 'agent_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'] as const) {
+    for (const code of ['insufficient_scope', 'session_required', 'delegation_required', 'chain_mismatch', 'hop_count_exceeded'] as const) {
       const verifier: MandateVerifier = {
         defaults: { issuer: 'https://sts.zone1', audience: 'resource://api', revocations },
         authenticate: vi.fn().mockResolvedValue({

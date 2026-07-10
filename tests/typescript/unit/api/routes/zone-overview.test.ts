@@ -21,7 +21,7 @@ function mockOverviewQueries(db: { query: ReturnType<typeof import('vitest').vi.
     if (sql.includes('FROM policy_sets')) {
       return { rows: [{ total: 2, enforcing: 1, active_name: 'PiperNet baseline v3' }] }
     }
-    if (sql.includes('FROM sessions')) {
+    if (sql.includes('FROM authority_records')) {
       return { rows: [{ active: 5 }] }
     }
     if (sql.includes('occurred_at >= now()')) {
@@ -103,7 +103,7 @@ describe('GET /v1/zones/:zoneId/overview', () => {
     await app.inject({ method: 'GET', url: '/v1/zones/z1/overview' })
 
     const sqls = db.query.mock.calls.map((call) => call[0] as string)
-    expect(sqls.find((sql) => sql.includes('FROM sessions'))).toContain("status = 'active' AND expires_at > now()")
+    expect(sqls.find((sql) => sql.includes('FROM authority_records'))).toContain("status = 'active' AND expires_at > now()")
     const decisions = sqls.find((sql) => sql.includes("decision = 'deny'"))
     expect(decisions).toContain("occurred_at >= now() - interval '24 hours'")
   })

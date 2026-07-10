@@ -14,7 +14,6 @@ describe('researcherRoleScopes', () => {
   it('is exactly the governed read scopes and no write scope', () => {
     const scopes = researcherRoleScopes()
     expect([...scopes].sort()).toEqual([
-      'control:agent:read',
       'control:app:read',
       'control:approval:read',
       'control:audit:read',
@@ -42,8 +41,8 @@ describe('executorRoleScopes', () => {
     expect(scopes.has('control:resource:delete')).toBe(true)
     expect(scopes.has('control:identity-provider:delete')).toBe(true)
     expect(scopes.has('control:policy:delete')).toBe(true)
-    expect(scopes.has('control:agent:write')).toBe(true)
-    expect(scopes.has('control:agent:delete')).toBe(true)
+    expect(scopes.has('control:session:write')).toBe(true)
+    expect(scopes.has('control:session:delete')).toBe(true)
     expect(scopes.has('control:delegation:delete')).toBe(true)
     expect(scopes.has('control:workload:write')).toBe(true)
     expect(scopes.has('control:workload:delete')).toBe(true)

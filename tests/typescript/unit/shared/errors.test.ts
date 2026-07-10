@@ -4,9 +4,14 @@
 // TypeScript shared error tests for canonical JSON response shape.
 
 import { describe, expect, it } from 'vitest'
-import { CaracalError } from '../../../../packages/core/ts/src/errors.js'
+import { CaracalError, type WellKnownErrorCode } from '../../../../packages/core/ts/src/errors.js'
 
 describe('CaracalError', () => {
+  it('exposes the canonical session-required code', () => {
+    const code: WellKnownErrorCode = 'session_required'
+    expect(new CaracalError(code, 'Session required').code).toBe('session_required')
+  })
+
   it('serializes code, description, and request id', () => {
     const err = new CaracalError('invalid_token', 'bad token', 'req-1')
 
