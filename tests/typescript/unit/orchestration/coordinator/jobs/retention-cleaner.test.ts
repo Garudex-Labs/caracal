@@ -30,6 +30,7 @@ describe('runRetentionCleanup', () => {
       expiredEdges: 0,
       deletedEdges: 0,
       deletedOutbox: 0,
+      deletedIdempotencyReceipts: 0,
     })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
     expect(client.query).not.toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges'), expect.anything())
@@ -49,6 +50,7 @@ describe('runRetentionCleanup', () => {
       { rows: [] },
       { rowCount: 3 },
       { rowCount: 4 },
+      { rowCount: 5 },
       { rows: [] },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
@@ -56,6 +58,7 @@ describe('runRetentionCleanup', () => {
       expiredEdges: 2,
       deletedEdges: 3,
       deletedOutbox: 4,
+      deletedIdempotencyReceipts: 5,
     })
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'expired'"), [500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('RETURNING epoch'), ['z1'])
@@ -75,6 +78,7 @@ describe('runRetentionCleanup', () => {
     )
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges d'), [90, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM caracal_outbox o'), [7, 500])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM coordinator_idempotency_receipts r'), [500])
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 

@@ -94,7 +94,7 @@ describe('POST /v1/end', () => {
 
   it('forwards non-empty errors from the underlying terminate route', async () => {
     const app = buildFacadeWithRoutes({
-      deleteAgent: async (_req, reply) => reply.code(404).send({ error: 'agent_not_found' }),
+      deleteAgent: async (_req, reply) => reply.code(404).send({ error: 'session_not_found' }),
     })
     await app.ready()
     const res = await app.inject({
@@ -103,7 +103,7 @@ describe('POST /v1/end', () => {
       payload: { zone_id: 'z1', agent_session_id: 'missing', reason: 'operator requested' },
     })
     expect(res.statusCode).toBe(404)
-    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(res.json()).toEqual({ error: 'session_not_found' })
   })
 })
 

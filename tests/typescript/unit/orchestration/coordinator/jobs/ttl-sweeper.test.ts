@@ -48,19 +48,19 @@ describe('runTTLSweep', () => {
       { id: 'agent-3', zone_id: 'z2' },
     ]
     const terminatedZ1 = [
-      { id: 'agent-1', subject_session_id: 'sid-1', parent_id: null },
-      { id: 'agent-2', subject_session_id: 'sid-2', parent_id: 'agent-1' },
+      { id: 'agent-1', subject_authority_record_id: 'sid-1', parent_id: null },
+      { id: 'agent-2', subject_authority_record_id: 'sid-2', parent_id: 'agent-1' },
     ]
-    const terminatedZ2 = [{ id: 'agent-3', subject_session_id: 'sid-3', parent_id: null }]
+    const terminatedZ2 = [{ id: 'agent-3', subject_authority_record_id: 'sid-3', parent_id: null }]
     let subtreeCall = 0
     const client = clientFromSteps([
       { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
-      { match: /FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/, rows: expired },
+      { match: /FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/, rows: expired },
     ])
     client.query = vi.fn(async (sql: string, params?: unknown[]) => {
       client.calls.push([sql, params])
       if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-      if (/FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) return { rows: expired }
+      if (/FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) return { rows: expired }
       if (/WITH RECURSIVE tree[\s\S]*FROM terminated/.test(sql)) {
         subtreeCall += 1
         return { rows: subtreeCall === 1 ? terminatedZ1 : terminatedZ2 }
@@ -92,7 +92,7 @@ describe('runTTLSweep', () => {
     const client = clientFromSteps([{ match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] }])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await runTTLSweep(db as never)
-    const select = client.calls.find(([sql]) => /FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql))
+    const select = client.calls.find(([sql]) => /FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql))
     expect(select).toBeDefined()
     expect(select?.[0]).toMatch(/lifecycle <> 'service'/)
   })
@@ -111,7 +111,7 @@ describe('runTTLSweep', () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-        if (/FROM agent_sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) throw err
+        if (/FROM sessions[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) throw err
         return { rows: [] }
       }),
       release: vi.fn(),

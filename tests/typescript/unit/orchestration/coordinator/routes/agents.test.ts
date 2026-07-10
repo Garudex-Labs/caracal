@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Agent spawn, limits, and cascade termination unit tests.
+// Session start, limits, and cascade termination unit tests.
 
 import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
 import { agentsRoutes, suspendSubtree, terminateSubtree } from '../../../../../../apps/coordinator/src/routes/agents.js'
+import { requestDigest } from '../../../../../../apps/coordinator/src/idempotency.js'
 
 function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
   const app = Fastify({ logger: false })
@@ -28,7 +29,7 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
       scopes,
       subject: 'test',
       clientId,
-      sessionId: 'sid-test',
+      authorityRecordId: 'sid-test',
     }
   })
   app.register(agentsRoutes, { prefix: '/v1' })
@@ -36,7 +37,7 @@ function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
 }
 
 interface SpawnStage {
-  refs?: { application_exists: boolean; session_exists: boolean; registration_method?: 'managed' | 'dcr' }
+  refs?: { application_exists: boolean; authority_record_exists: boolean; registration_method?: 'managed' | 'dcr' }
   count?: { app_n: string; zone_n: string }
   parent?: {
     depth: number
@@ -99,7 +100,7 @@ function spawnClient(stages: SpawnStage): { query: ReturnType<typeof vi.fn>; rel
 describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('rejects applications outside the zone', async () => {
     const { app, db } = buildApp()
-    db.connect.mockResolvedValueOnce(spawnClient({ refs: { application_exists: false, session_exists: true } }))
+    db.connect.mockResolvedValueOnce(spawnClient({ refs: { application_exists: false, authority_record_exists: true } }))
     await app.ready()
     const res = await app.inject({
       method: 'POST',
@@ -112,7 +113,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
 
   it('rejects inactive sessions', async () => {
     const { app, db } = buildApp()
-    db.connect.mockResolvedValueOnce(spawnClient({ refs: { application_exists: true, session_exists: false } }))
+    db.connect.mockResolvedValueOnce(spawnClient({ refs: { application_exists: true, authority_record_exists: false } }))
     await app.ready()
     const res = await app.inject({
       method: 'POST',
@@ -127,7 +128,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true },
+        refs: { application_exists: true, authority_record_exists: true },
         count: { app_n: '200', zone_n: '200' },
       }),
     )
@@ -138,14 +139,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(429)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_zone_limit_exceeded' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'session_zone_limit_exceeded' })
   })
 
   it('returns 404 when parent not found', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true },
+        refs: { application_exists: true, authority_record_exists: true },
         count: { app_n: '0', zone_n: '0' },
         parent: null,
       }),
@@ -164,7 +165,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp(['coordinator.admin'])
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true },
+        refs: { application_exists: true, authority_record_exists: true },
         count: { app_n: '0', zone_n: '0' },
         parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'parent-app' },
       }),
@@ -183,7 +184,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true },
+        refs: { application_exists: true, authority_record_exists: true },
         count: { app_n: '1', zone_n: '1' },
         parent: { depth: 1, child_count: 10, max_children: 10, application_id: 'app-1' },
       }),
@@ -195,14 +196,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
     })
     expect(res.statusCode).toBe(429)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_children_limit_exceeded' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'session_children_limit_exceeded' })
   })
 
   it('rejects when max depth is exceeded', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true },
+        refs: { application_exists: true, authority_record_exists: true },
         count: { app_n: '1', zone_n: '1' },
         parent: { depth: 10, child_count: 0, max_children: 10, application_id: 'app-1' },
       }),
@@ -214,14 +215,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
     })
     expect(res.statusCode).toBe(429)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_depth_limit_exceeded' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'session_depth_limit_exceeded' })
   })
 
   it('rejects service lifecycle on DCR applications', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+        refs: { application_exists: true, authority_record_exists: true, registration_method: 'dcr' },
       }),
     )
     await app.ready()
@@ -238,7 +239,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+        refs: { application_exists: true, authority_record_exists: true, registration_method: 'dcr' },
         count: { app_n: '1', zone_n: '1' },
       }),
     )
@@ -256,7 +257,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+        refs: { application_exists: true, authority_record_exists: true, registration_method: 'dcr' },
       }),
     )
     await app.ready()
@@ -273,7 +274,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+        refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
         count: { app_n: '0', zone_n: '0' },
         parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'dcr' },
       }),
@@ -285,14 +286,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1' },
     })
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_spawn' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_start_child' })
   })
 
   it('rejects a task parent spawning a more-durable service child', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
-        refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+        refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
         count: { app_n: '0', zone_n: '0' },
         parent: { depth: 0, child_count: 0, max_children: 10, application_id: 'app-1', lifecycle: 'task', registration_method: 'managed' },
       }),
@@ -304,13 +305,13 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', lifecycle: 'service' },
     })
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'task_agent_cannot_spawn_service' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'task_session_cannot_start_service' })
   })
 
   it('serializes the spawn cap with a per-zone advisory lock and enqueues lifecycle outbox', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true },
+      refs: { application_exists: true, authority_record_exists: true },
       count: { app_n: '0', zone_n: '0' },
       insert: { rows: [{ agent_session_id: 'agent-new', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
       outbox: true,
@@ -324,7 +325,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [
-      expect.stringContaining('coordinator:agent_spawn:z1'),
+      expect.stringContaining('coordinator:session_start:z1'),
     ])
     const countCall = client.query.mock.calls.find((call) => String(call[0]).includes('COUNT(*) FILTER'))
     expect(String(countCall?.[0])).toContain("CASE WHEN lifecycle = 'service'")
@@ -336,7 +337,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('records topology and increments the parent child count when spawning under a parent', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true },
+      refs: { application_exists: true, authority_record_exists: true },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -352,13 +353,13 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO agent_topology'), ['parent-1', expect.any(String)])
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE agent_sessions SET child_count'), ['parent-1'])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE sessions SET child_count'), ['parent-1'])
   })
 
   it('mirrors the parent narrowing edge onto an inherit child without an explicit edge id', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -391,7 +392,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('mirrors the explicitly requested parent edge onto an inherit child', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -418,7 +419,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('fails closed with 409 when the requested inherit parent edge is not active', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -442,7 +443,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('fails closed with 409 when the parent narrowing has lapsed', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -463,7 +464,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('demands an explicit edge id when several parent edges are live', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -484,7 +485,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
   it('skips edge inheritance entirely when parent_authority is none', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       parent: { depth: 1, child_count: 0, max_children: 10, application_id: 'app-1', registration_method: 'managed' },
       insert: { rows: [{ agent_session_id: 'agent-child', zone_id: 'z1', application_id: 'app-1', parent_id: 'parent-1' }] },
@@ -511,7 +512,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_exists: true, session_exists: true }] })
+        .mockResolvedValueOnce({ rows: [{ application_exists: true, authority_record_exists: true }] })
         .mockResolvedValueOnce({ rows: [{ app_n: '0', zone_n: '0' }] })
         .mockRejectedValueOnce(new Error('insert failed'))
         .mockResolvedValue({ rows: [] }),
@@ -529,12 +530,29 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(client.release).toHaveBeenCalled()
   })
 
-  it('replays the session stored under the supplied idempotency key', async () => {
+  it('replays the durable receipt under the supplied idempotency key', async () => {
     const { app, db } = buildApp()
+    const response = { agent_session_id: 'agent-replay', zone_id: 'z1', application_id: 'app-1' }
+    const digest = requestDigest({
+      principal: { client_id: 'app-1', subject: 'test' },
+      application_id: 'app-1',
+      subject_authority_record_id: 'sid-test',
+      parent_id: null,
+      lifecycle: 'task',
+      labels: [],
+      ttl_seconds: 3600,
+      parent_authority: 'inherit',
+      inherit_parent_edge_id: null,
+      metadata: {},
+    })
     const query = vi.fn()
     query.mockResolvedValueOnce({ rows: [] })
     query.mockResolvedValueOnce({ rows: [] })
-    query.mockResolvedValueOnce({ rows: [{ agent_session_id: 'agent-replay', zone_id: 'z1', application_id: 'app-1' }] })
+    query.mockResolvedValueOnce({ rows: [], rowCount: 0 })
+    query.mockResolvedValueOnce({
+      rows: [{ request_digest: digest, response_status: 201, response_json: response, resource_id: 'agent-replay' }],
+    })
+    query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
     query.mockResolvedValueOnce({ rows: [] })
     db.connect.mockResolvedValueOnce({ query, release: vi.fn() })
     await app.ready()
@@ -544,16 +562,83 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       headers: { 'idempotency-key': 'spawn-key-1' },
       payload: { application_id: 'app-1' },
     })
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(201)
+    expect(res.headers['idempotency-replayed']).toBe('true')
     expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-replay' })
-    const lookup = query.mock.calls.find((call) => String(call[0]).includes('idempotency_key'))
-    expect(lookup?.[1]).toEqual(['z1', 'app-1', 'spawn-key-1'])
+    const lookup = query.mock.calls.find((call) => String(call[0]).includes('coordinator_idempotency_receipts'))
+    expect(lookup).toBeDefined()
   })
 
-  it('defaults subject_session_id from the verified bearer and returns the agent session id', async () => {
+  it('rejects reuse of an idempotency key with a changed spawn request', async () => {
+    const { app, db } = buildApp()
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ request_digest: Buffer.alloc(32, 7), response_status: 201, response_json: {}, resource_id: 'agent-1' }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+    db.connect.mockResolvedValueOnce({ query, release: vi.fn() })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      headers: { 'idempotency-key': 'spawn-key-1' },
+      payload: { application_id: 'app-1', metadata: { task: 'different work' } },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'idempotency_key_conflict' })
+  })
+
+  it('does not replay a receipt whose governed session is no longer active', async () => {
+    const { app, db } = buildApp()
+    const request = {
+      principal: { client_id: 'app-1', subject: 'test' },
+      application_id: 'app-1',
+      subject_authority_record_id: 'sid-test',
+      parent_id: null,
+      lifecycle: 'task',
+      labels: [],
+      ttl_seconds: 3600,
+      parent_authority: 'inherit',
+      inherit_parent_edge_id: null,
+      metadata: {},
+    }
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            request_digest: requestDigest(request),
+            response_status: 201,
+            response_json: { agent_session_id: 'agent-finished' },
+            resource_id: 'agent-finished',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+    db.connect.mockResolvedValueOnce({ query, release: vi.fn() })
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      headers: { 'idempotency-key': 'finished-work' },
+      payload: { application_id: 'app-1' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'idempotency_result_inactive' })
+  })
+
+  it('defaults the authority record from the verified bearer and returns the Session id', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true },
+      refs: { application_exists: true, authority_record_exists: true },
       count: { app_n: '0', zone_n: '0' },
       insert: { rows: [{ agent_session_id: 'agent-sdk', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
       outbox: true,
@@ -567,14 +652,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body)).toMatchObject({ agent_session_id: 'agent-sdk' })
-    const refsCall = client.query.mock.calls.find((call) => String(call[0]).includes('session_exists'))
+    const refsCall = client.query.mock.calls.find((call) => String(call[0]).includes('authority_record_exists'))
     expect(refsCall?.[1]).toEqual(['z1', 'app-1', 'sid-test'])
   })
 
   it('defaults lifecycle to task for managed applications when none is supplied', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       insert: { rows: [{ agent_session_id: 'agent-managed', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
       outbox: true,
@@ -587,14 +672,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(201)
-    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
     expect(insertCall?.[1]?.[5]).toBe('task')
   })
 
   it('defaults lifecycle to task for DCR applications when none is supplied', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'dcr' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'dcr' },
       count: { app_n: '0', zone_n: '0' },
       insert: { rows: [{ agent_session_id: 'agent-dcr', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
       outbox: true,
@@ -607,14 +692,14 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(201)
-    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
     expect(insertCall?.[1]?.[5]).toBe('task')
   })
 
   it('passes through service lifecycle for managed applications', async () => {
     const { app, db } = buildApp()
     const client = spawnClient({
-      refs: { application_exists: true, session_exists: true, registration_method: 'managed' },
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
       insert: { rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
       outbox: true,
@@ -627,7 +712,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service' },
     })
     expect(res.statusCode).toBe(201)
-    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO agent_sessions'))
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
     expect(insertCall?.[1]?.[5]).toBe('service')
   })
 
@@ -679,8 +764,8 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({
           rows: [
-            { id: 'agent-root', subject_session_id: 'sid-root', parent_id: null },
-            { id: 'agent-child', subject_session_id: 'sid-child', parent_id: 'agent-root' },
+            { id: 'agent-root', subject_authority_record_id: 'sid-root', parent_id: null },
+            { id: 'agent-child', subject_authority_record_id: 'sid-child', parent_id: 'agent-root' },
           ],
         })
         .mockResolvedValue({ rows: [] }),
@@ -723,12 +808,12 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
         .mockResolvedValueOnce({ rows: [{ application_id: 'app-1' }] })
         .mockResolvedValueOnce({
           rows: [
-            { id: 'agent-root', subject_session_id: 'sid-shared', parent_id: null },
-            { id: 'agent-child', subject_session_id: 'sid-own', parent_id: 'agent-root' },
+            { id: 'agent-root', subject_authority_record_id: 'sid-shared', parent_id: null },
+            { id: 'agent-child', subject_authority_record_id: 'sid-own', parent_id: 'agent-root' },
           ],
         })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ subject_session_id: 'sid-shared' }] })
+        .mockResolvedValueOnce({ rows: [{ subject_authority_record_id: 'sid-shared' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -888,7 +973,7 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/suspend', () => {
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/missing/suspend' })
     expect(res.statusCode).toBe(404)
-    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(res.json()).toEqual({ error: 'session_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
@@ -899,7 +984,7 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/suspend', () => {
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/suspend' })
     expect(res.statusCode).toBe(409)
-    expect(res.json()).toEqual({ error: 'agent_not_found_or_not_active' })
+    expect(res.json()).toEqual({ error: 'session_not_found_or_not_active' })
   })
 
   it('suspends the subtree and commits', async () => {
@@ -939,7 +1024,7 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/missing/resume' })
     expect(res.statusCode).toBe(404)
-    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(res.json()).toEqual({ error: 'session_not_found' })
   })
 
   it('returns 409 when nothing is suspended', async () => {
@@ -949,7 +1034,7 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
     await app.ready()
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
     expect(res.statusCode).toBe(409)
-    expect(res.json()).toEqual({ error: 'agent_not_found_or_not_suspended' })
+    expect(res.json()).toEqual({ error: 'session_not_found_or_not_suspended' })
   })
 
   it('resumes the subtree and enqueues lifecycle events', async () => {
@@ -998,7 +1083,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: guard rails', () => {
     await app.ready()
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/agents/a1' })
     expect(res.statusCode).toBe(404)
-    expect(res.json()).toEqual({ error: 'agent_not_found' })
+    expect(res.json()).toEqual({ error: 'session_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 })

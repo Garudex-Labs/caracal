@@ -179,7 +179,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       payload: { status: 'healthy' },
     })
     expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'agent_not_found' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'session_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
@@ -292,7 +292,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
       payload: { status: 'healthy' },
     })
     expect(res.statusCode).toBe(409)
-    expect(res.json()).toEqual({ error: 'agent_not_live' })
+    expect(res.json()).toEqual({ error: 'session_not_live' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
@@ -324,7 +324,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
       payload: { status: 'healthy' },
     })
     expect(res.statusCode).toBe(409)
-    expect(res.json()).toEqual({ error: 'agent_lease_expired' })
+    expect(res.json()).toEqual({ error: 'session_lease_expired' })
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 

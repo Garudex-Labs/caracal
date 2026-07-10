@@ -279,7 +279,7 @@ describe('contextMiddleware + bindFromHeaders', () => {
           try {
             const ctx = c.current()
             if (!ctx) throw new Error('no context bound')
-            seen = `${ctx.subjectToken}|${ctx.sessionId}|${ctx.subjectSessionId}|${ctx.hop}`
+            seen = `${ctx.subjectToken}|${ctx.sessionId}|${ctx.subjectAuthorityRecordId}|${ctx.hop}`
             resolve()
           } catch (e) {
             reject(e)
@@ -328,7 +328,7 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
       async () => {
         const authority = describeAuthority()
-        summary = `${authority?.applicationId}|${authority?.subjectSessionId}|${authority?.sessionId}|${authority?.chain.join('>')}`
+        summary = `${authority?.applicationId}|${authority?.subjectAuthorityRecordId}|${authority?.sessionId}|${authority?.chain.join('>')}`
         expect(JSON.stringify(authority)).not.toContain('inbound')
       },
     )
@@ -381,14 +381,14 @@ describe('contextMiddleware + bindFromHeaders', () => {
       },
       async () => {
         const ctx = c.current()!
-        seen = `${ctx.zoneId}|${ctx.applicationId}|${ctx.sessionId}|${ctx.subjectSessionId}|${ctx.hop}`
+        seen = `${ctx.zoneId}|${ctx.applicationId}|${ctx.sessionId}|${ctx.subjectAuthorityRecordId}|${ctx.hop}`
       },
       {
         verify: () => ({
           zoneId: 'zone-proved',
           applicationId: 'app-proved',
           sessionId: 'agent-proved',
-          subjectSessionId: 'sid-proved',
+          subjectAuthorityRecordId: 'sid-proved',
           hop: 3,
         }),
       },
@@ -783,13 +783,13 @@ describe('session lifecycle and delegation', () => {
       async () => {
         return
       },
-      { subjectSessionId: 'sid-1', parentSessionId: 'parent-1' },
+      { subjectAuthorityRecordId: 'sid-1', parentSessionId: 'parent-1' },
     )
     await c.session(
       async () => {
         return
       },
-      { subjectSessionId: 'sid-1', parentSessionId: 'parent-1' },
+      { subjectAuthorityRecordId: 'sid-1', parentSessionId: 'parent-1' },
     )
     const agentPosts = calls.filter((call) => call.init.method === 'POST' && call.url.endsWith('/agents'))
     expect(agentPosts.length).toBeGreaterThanOrEqual(2)
@@ -826,7 +826,7 @@ describe('session lifecycle and delegation', () => {
     expect(JSON.parse(String(agentPosts[1].init.body)).metadata).toEqual({ task: 'Nightly PiperNet reconciliation' })
   })
 
-  it('reuses a caller-supplied idempotency key so trigger redelivery cannot mint duplicates', async () => {
+  it('reuses a caller-supplied operation id across separate creation calls', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       calls.push({ url: String(input), init })
@@ -849,6 +849,19 @@ describe('session lifecycle and delegation', () => {
       .map((post) => new Headers(post.init.headers as HeadersInit).get('idempotency-key'))
     expect(keys).toEqual(['queue-msg-77', 'queue-msg-77'])
   })
+
+  it.each(['', ' key', 'key ', 'key\nvalue', 'x'.repeat(256)])(
+    'rejects an unsafe explicit idempotency key before network I/O',
+    async (key) => {
+      const fakeFetch = vi.fn() as unknown as typeof fetch
+      const c = new Caracal({
+        ...baseConfig,
+        coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
+      })
+      await expect(c.session(async () => undefined, { idempotencyKey: key })).rejects.toThrow(/idempotencyKey must be/)
+      expect(fakeFetch).not.toHaveBeenCalled()
+    },
+  )
 
   it('forwards coordinator and token exchange events to onEvent hooks', async () => {
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -1140,7 +1153,7 @@ describe('Caracal.federateSubject', () => {
     })
     const c = exchangerClient(exchanger)
     await expect(c.federateSubject('id-token', { ttlSeconds: 600 })).resolves.toEqual({
-      subjectSessionId: 'sess-42',
+      subjectAuthorityRecordId: 'sess-42',
       token,
       expiresInSeconds: 600,
     })
@@ -1152,7 +1165,7 @@ describe('Caracal.federateSubject', () => {
       federateSubject: vi.fn().mockResolvedValue({ token: subjectMandate({ sub: 'user' }), expiresInSeconds: 600 }),
     })
     const c = exchangerClient(exchanger)
-    await expect(c.federateSubject('id-token')).rejects.toThrow('carries no session id')
+    await expect(c.federateSubject('id-token')).rejects.toThrow('carries no authority record ID')
   })
 })
 

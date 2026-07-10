@@ -51,14 +51,14 @@ describe('runServiceLeaseSweep', () => {
       { id: 'agent-2', zone_id: 'z1' },
     ]
     const suspended = [
-      { id: 'agent-1', subject_session_id: 'sid-1', parent_id: null },
-      { id: 'agent-2', subject_session_id: 'sid-2', parent_id: 'agent-1' },
+      { id: 'agent-1', subject_authority_record_id: 'sid-1', parent_id: null },
+      { id: 'agent-2', subject_authority_record_id: 'sid-2', parent_id: 'agent-1' },
     ]
     const client = clientFromSteps([])
     client.query = vi.fn(async (sql: string, params?: unknown[]) => {
       client.calls.push([sql, params])
       if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-      if (/FROM agent_sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) {
+      if (/FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/.test(sql)) {
         return { rows: expired }
       }
       if (/WITH RECURSIVE tree[\s\S]*FROM suspended/.test(sql)) {
@@ -82,7 +82,7 @@ describe('runServiceLeaseSweep', () => {
   it('commits without subtree work when no leases expired', async () => {
     const client = clientFromSteps([
       { match: /pg_try_advisory_xact_lock/, rows: [{ acquired: true }] },
-      { match: /FROM agent_sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/, rows: [] },
+      { match: /FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)[\s\S]*FOR UPDATE SKIP LOCKED/, rows: [] },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
 
@@ -97,7 +97,7 @@ describe('runServiceLeaseSweep', () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (/pg_try_advisory_xact_lock/.test(sql)) return { rows: [{ acquired: true }] }
-        if (/FROM agent_sessions[\s\S]*heartbeat_deadline_at < now\(\)/.test(sql)) throw err
+        if (/FROM sessions[\s\S]*heartbeat_deadline_at < now\(\)/.test(sql)) throw err
         return { rows: [] }
       }),
       release: vi.fn(),

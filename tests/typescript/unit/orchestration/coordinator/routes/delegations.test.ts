@@ -7,6 +7,7 @@ import { describe, it, expect, vi } from 'vitest'
 import Fastify from 'fastify'
 import '../../../../../shared/test-utils/typescript/coordinatorEnv.js'
 import { delegationsRoutes } from '../../../../../../apps/coordinator/src/routes/delegations.js'
+import { requestDigest } from '../../../../../../apps/coordinator/src/idempotency.js'
 
 function buildApp(scopes = ['coordinator.admin'], clientIdOverride?: string) {
   const app = Fastify({ logger: false })
@@ -119,7 +120,7 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('replays the existing delegation for a repeated idempotency key', async () => {
+  it('replays a durable delegation receipt for a repeated idempotency key', async () => {
     const { app, db } = buildApp()
     const existing = {
       delegation_edge_id: 'edge-replayed',
@@ -135,7 +136,31 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [existing] }),
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              request_digest: requestDigest({
+                principal: { client_id: 'issuer-1', subject: 'test' },
+                source_session_id: 'src-1',
+                target_session_id: 'dst-1',
+                issuer_application_id: 'issuer-1',
+                receiver_application_id: 'receiver-1',
+                parent_edge_id: null,
+                resource_id: null,
+                scopes: ['read'],
+                constraints: { broad_reason: 'resource_null_delegation', policy_approved: true },
+                expires_at: '2027-03-16T00:00:00.000Z',
+                ttl_seconds: null,
+              }),
+              response_status: 201,
+              response_json: existing,
+              resource_id: 'edge-replayed',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
+        .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     }
     db.connect.mockResolvedValueOnce(client)
@@ -148,12 +173,10 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
       payload: delegationBody,
     })
 
-    expect(res.statusCode).toBe(200)
+    expect(res.statusCode).toBe(201)
+    expect(res.headers['idempotency-replayed']).toBe('true')
     expect(res.json()).toMatchObject({ delegation_edge_id: 'edge-replayed' })
-    const replay = client.query.mock.calls[2]
-    expect(String(replay[0])).toContain('idempotency_key = $3')
-    expect(replay[1]).toEqual(['z1', 'issuer-1', 'retry-key-1'])
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 
   it('rejects self delegation', async () => {
@@ -732,14 +755,14 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
           source_session_id: 'agent-1',
           target_session_id: 'agent-2',
           depth: 1,
-          subject_session_id: 'sid-2',
+          subject_authority_record_id: 'sid-2',
         },
         {
           id: 'edge-2',
           source_session_id: 'agent-2',
           target_session_id: 'agent-3',
           depth: 2,
-          subject_session_id: 'sid-3',
+          subject_authority_record_id: 'sid-3',
         },
       ],
     })
@@ -753,7 +776,7 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
       edge_id: 'edge-1',
-      affected_agents: ['agent-2', 'agent-3'],
+      affected_sessions: ['agent-2', 'agent-3'],
       affected_subject_sessions: ['sid-2', 'sid-3'],
       affected_edges: [
         { id: 'edge-1', source_session_id: 'agent-1', target_session_id: 'agent-2', depth: 1 },
@@ -952,14 +975,14 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
         })
         .mockResolvedValueOnce({
           rows: [
-            { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
-            { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
+            { id: 'agent-2', subject_authority_record_id: 'sid-shared', parent_id: null },
+            { id: 'agent-3', subject_authority_record_id: 'sid-shared', parent_id: 'agent-2' },
           ],
         })
         .mockResolvedValueOnce({
           rows: [
-            { id: 'agent-2', subject_session_id: 'sid-shared', parent_id: null },
-            { id: 'agent-3', subject_session_id: 'sid-shared', parent_id: 'agent-2' },
+            { id: 'agent-2', subject_authority_record_id: 'sid-shared', parent_id: null },
+            { id: 'agent-3', subject_authority_record_id: 'sid-shared', parent_id: 'agent-2' },
           ],
         })
         .mockResolvedValueOnce({ rows: [] })
@@ -979,7 +1002,7 @@ describe('PATCH /v1/zones/:zoneId/delegations/:id/revoke', () => {
     expect(res.json()).toEqual({
       revoked_edges: 2,
       affected_sessions: 1,
-      terminated_agents: 2,
+      terminated_sessions: 2,
     })
     expect(client.query).toHaveBeenCalledWith('COMMIT')
     const outboxCalls = client.query.mock.calls.filter((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
