@@ -8,23 +8,23 @@ The API service owns product-management state and route handlers for zones, appl
 
 ## Runtime
 
-| Property | Value |
-| --- | --- |
-| Port | `3000` |
-| Health | `GET /health` |
-| Readiness | `GET /ready` |
-| Metrics | `GET /metrics` |
-| Main route prefix | `/v1` |
+| Property            | Value                             |
+| ------------------- | --------------------------------- |
+| Port                | `3000`                            |
+| Health              | `GET /health`                     |
+| Readiness           | `GET /ready`                      |
+| Metrics             | `GET /metrics`                    |
+| Main route prefix   | `/v1`                             |
 | Optional docs route | `/docs` when API docs are enabled |
 
 ## Dependencies
 
-| Dependency | Purpose |
-| --- | --- |
-| Postgres | Product state, admin tokens, policy versions, grants, sessions, outbox, audit admin events. |
-| Redis | Event streams and outbox dispatch. |
-| STS | Service URL used by management flows that need STS coordination. |
-| Runtime secrets | Admin token, zone KEK, stream HMAC, audit HMAC, Gateway-STS HMAC, database and Redis URLs. |
+| Dependency      | Purpose                                                                                     |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| Postgres        | Product state, admin tokens, policy versions, grants, sessions, outbox, audit admin events. |
+| Redis           | Event streams and outbox dispatch.                                                          |
+| STS             | Service URL used by management flows that need STS coordination.                            |
+| Runtime secrets | Admin token, zone KEK, stream HMAC, audit HMAC, Gateway-STS HMAC, database and Redis URLs.  |
 
 ## Event Output
 
@@ -32,16 +32,16 @@ API writes `event_outbox` rows in the same transaction as product-state changes.
 
 ## Operational Signals
 
-| Signal | Meaning |
-| --- | --- |
-| API readiness | Database, Redis, outbox dead rows, and service config are healthy enough for management operations. |
-| `API_READY_OUTBOX_DEAD_MAX` | Readiness threshold for dead outbox rows. |
-| Admin auth failures | Token, scope, or rate-limit issue for Console/Admin clients. |
-| Outbox age/dead metrics | Redis or dispatcher is not draining management events. |
+| Signal                      | Meaning                                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------- |
+| API readiness               | Database, Redis, outbox dead rows, and service config are healthy enough for management operations. |
+| `API_READY_OUTBOX_DEAD_MAX` | Readiness threshold for dead outbox rows.                                                           |
+| Admin auth failures         | Token, scope, or rate-limit issue for Console/Admin clients.                                        |
+| Outbox age/dead metrics     | Redis or dispatcher is not draining management events.                                              |
 
 ## Next Step
 
-Use [Coordinate Agent State](/services/coordinator/) to understand agent sessions, invocations, and delegation runtime state.
+Use [Coordinate Session State](/services/coordinator/) to understand Sessions, invocations, and delegation runtime state.
 
 ## Related Pages
 

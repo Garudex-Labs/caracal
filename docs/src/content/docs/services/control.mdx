@@ -13,14 +13,14 @@ Control has no separate deployable or port. The plugin is mounted inside API whe
 (`CONTROL_GATE_FILE`) is the instant on/off switch: when the file is absent the
 endpoint returns `503` without a restart.
 
-| Property | Value |
-| --- | --- |
-| Host | API service (port `3000`) |
-| Health | `GET /health` |
-| Readiness | `GET /ready` |
-| Invoke | `POST /v1/control/invoke` |
-| Enablement | `CARACAL_CONTROL_ENABLED=true` |
-| Runtime gate | `CONTROL_GATE_FILE` present |
+| Property     | Value                              |
+| ------------ | ---------------------------------- |
+| Host         | API service (port `3000`)          |
+| Health       | `GET /health`                      |
+| Readiness    | `GET /ready`                       |
+| Invoke       | `POST /v1/control/invoke`          |
+| Enablement   | `CARACAL_CONTROL_ENABLED=true`     |
+| Runtime gate | `CONTROL_GATE_FILE` present        |
 | Helm default | disabled (`control.enabled=false`) |
 
 ## Invoke Flow
@@ -41,14 +41,14 @@ sequenceDiagram
 
 ## Required Config
 
-| Variable | Purpose |
-| --- | --- |
-| `CARACAL_CONTROL_ENABLED` | Mounts the control plugin inside API. |
-| `STS_JWKS_URL` | JWT verification keys. |
-| `STS_ISSUER_URL` | Expected issuer. |
-| `CONTROL_AUDIENCE` | Expected token audience. |
-| `CONTROL_API_TOKEN` | API token used for downstream dispatch. |
-| `CONTROL_GATE_FILE` | Runtime gate file that must exist before invoke is available. |
+| Variable                  | Purpose                                                       |
+| ------------------------- | ------------------------------------------------------------- |
+| `CARACAL_CONTROL_ENABLED` | Mounts the control plugin inside API.                         |
+| `STS_JWKS_URL`            | JWT verification keys.                                        |
+| `STS_ISSUER_URL`          | Expected issuer.                                              |
+| `CONTROL_AUDIENCE`        | Expected token audience.                                      |
+| `CONTROL_API_TOKEN`       | API token used for downstream dispatch.                       |
+| `CONTROL_GATE_FILE`       | Runtime gate file that must exist before invoke is available. |
 
 ## Non-Interactive Automation
 
@@ -103,11 +103,11 @@ Three operations cover the full lifecycle, all keyed on each object's stable
 identity (application `name`, provider and resource `identifier`, policy and
 policy-set `name`):
 
-| Command | Subcommand | Effect |
-| --- | --- | --- |
-| `ensure` | `application`, `identity-provider`, `resource`, `policy`, `policy-set` | Create-or-patch a single object from its `--spec`. Safe to repeat. |
-| `state` | `apply` | Reconcile a whole zone toward a desired-state `--document`: create missing objects, patch drifted ones, publish a new policy version on content change, and optionally `--prune` objects not in the document. |
-| `state` | `plan` / `verify` | Read-only. Return the same reconciliation report without writing. `verify` is the CI gate: the report's `drift` field is `true` when the live zone does not match the document. |
+| Command  | Subcommand                                                             | Effect                                                                                                                                                                                                        |
+| -------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ensure` | `application`, `identity-provider`, `resource`, `policy`, `policy-set` | Create-or-patch a single object from its `--spec`. Safe to repeat.                                                                                                                                            |
+| `state`  | `apply`                                                                | Reconcile a whole zone toward a desired-state `--document`: create missing objects, patch drifted ones, publish a new policy version on content change, and optionally `--prune` objects not in the document. |
+| `state`  | `plan` / `verify`                                                      | Read-only. Return the same reconciliation report without writing. `verify` is the CI gate: the report's `drift` field is `true` when the live zone does not match the document.                               |
 
 A desired-state document is a flat object set. Pass it as the JSON-encoded
 `document` flag:
@@ -115,7 +115,15 @@ A desired-state document is a flat object set. Pass it as the JSON-encoded
 ```json
 {
   "objects": [
-    { "kind": "identity-provider", "spec": { "identifier": "provider://pipernet-mandate", "name": "PiperNet Mandate", "kind": "oidc", "config": { "issuer": "https://login.hooli.example" } } },
+    {
+      "kind": "identity-provider",
+      "spec": {
+        "identifier": "provider://pipernet-mandate",
+        "name": "PiperNet Mandate",
+        "kind": "oidc",
+        "config": { "issuer": "https://login.hooli.example" }
+      }
+    },
     { "kind": "resource", "spec": { "identifier": "resource://pipernet", "name": "PiperNet", "scopes": ["pipernet.read"] } },
     { "kind": "policy", "spec": { "name": "pipernet-baseline", "content": "package pipernet\nallow := true" } }
   ],
@@ -140,9 +148,7 @@ The result is a reconciliation report:
     "dryRun": false,
     "prune": false,
     "zoneId": "<zone>",
-    "outcomes": [
-      { "kind": "resource", "identity": "resource://pipernet", "action": "create", "applied": true, "id": "..." }
-    ],
+    "outcomes": [{ "kind": "resource", "identity": "resource://pipernet", "action": "create", "applied": true, "id": "..." }],
     "summary": { "created": 1, "updated": 0, "unchanged": 2, "pruned": 0, "failed": 0 },
     "drift": true
   }
@@ -224,20 +230,20 @@ branch on a stable `code` and surface the operator-facing `remediation`:
 }
 ```
 
-| `code` | HTTP | Meaning |
-| --- | --- | --- |
-| `denied` | `403` | The key lacks the scope, or policy denied the operation. |
-| `invalid` | `400` | The request or a flag (for example a malformed `document`) is not well-formed. |
-| `zone_mismatch` | `409` | A `spec` targets a zone other than the credential's bound zone. |
-| `conflict` | `409` | The object collides with existing state. |
-| `not_found` | `404` | A referenced object does not exist. |
-| `unsupported` | `501` | The command or subcommand is not exposed remotely. |
-| `upstream` | `502` | A downstream dependency failed. |
-| `control_disabled` | `503` | The runtime gate is off; control is not accepting invokes. |
-| `unauthorized` | `401` | The token is missing, malformed, or failed verification. |
-| `token_replay` | `401` | The token was already used; mint a fresh token per invoke. |
-| `rate_limited` | `429` | The subject or source address exceeded the invoke rate limit. |
-| `audit_unavailable` | `500` | The invoke could not be durably audited, so it was not executed. |
+| `code`              | HTTP  | Meaning                                                                        |
+| ------------------- | ----- | ------------------------------------------------------------------------------ |
+| `denied`            | `403` | The key lacks the scope, or policy denied the operation.                       |
+| `invalid`           | `400` | The request or a flag (for example a malformed `document`) is not well-formed. |
+| `zone_mismatch`     | `409` | A `spec` targets a zone other than the credential's bound zone.                |
+| `conflict`          | `409` | The object collides with existing state.                                       |
+| `not_found`         | `404` | A referenced object does not exist.                                            |
+| `unsupported`       | `501` | The command or subcommand is not exposed remotely.                             |
+| `upstream`          | `502` | A downstream dependency failed.                                                |
+| `control_disabled`  | `503` | The runtime gate is off; control is not accepting invokes.                     |
+| `unauthorized`      | `401` | The token is missing, malformed, or failed verification.                       |
+| `token_replay`      | `401` | The token was already used; mint a fresh token per invoke.                     |
+| `rate_limited`      | `429` | The subject or source address exceeded the invoke rate limit.                  |
+| `audit_unavailable` | `500` | The invoke could not be durably audited, so it was not executed.               |
 
 The successful shape is unchanged: `{ "ok": true, "result": ... }`. Correlate any
 response with the `x-request-id` response header in the web console **Audit** decision trace.
@@ -284,8 +290,6 @@ Run `state verify` and fail the job when the report's `drift` field is `true`.
 Grants are not part of the declarative object set; express access through `policy`
 objects in the document. Manage grants with the dedicated grant operations when you
 need them directly.
-
-
 
 ## Manage Control Keys
 

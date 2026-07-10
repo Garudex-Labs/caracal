@@ -1,40 +1,40 @@
 ---
-title: Coordinate Agent State
-description: Service reference for agent sessions, delegation edges, invocations, and lifecycle events.
+title: Coordinate Session State
+description: Service reference for Sessions, Delegations, invocations, and lifecycle events.
 pageType: reference
 ---
 
-Coordinator owns agent and delegation runtime state. SDKs and Console use it to create, inspect, suspend, resume, terminate, traverse, and revoke agent/delegation state.
+Coordinator owns Session and Delegation runtime state. SDKs and Console use it to start, inspect, suspend, resume, terminate, traverse, and revoke that state.
 
 ## Runtime
 
-| Property | Value |
-| --- | --- |
-| Port | `4000` |
-| Health | `GET /health` |
-| Readiness | `GET /ready` |
-| Metrics | `GET /metrics` |
+| Property   | Value                                                                        |
+| ---------- | ---------------------------------------------------------------------------- |
+| Port       | `4000`                                                                       |
+| Health     | `GET /health`                                                                |
+| Readiness  | `GET /ready`                                                                 |
+| Metrics    | `GET /metrics`                                                               |
 | Auth scope | `AGENT_COORDINATOR_SCOPE`, default `agent:lifecycle` in deployment templates |
 
 ## Dependencies
 
-| Dependency | Purpose |
-| --- | --- |
-| Postgres | Agent sessions, service leases, invocations, delegation edges, graph epochs, Coordinator outbox. |
-| Redis | Lifecycle, invocation, delegation, and revocation streams. |
-| STS/JWKS | Token validation and authority alignment. |
-| Coordinator token | Console/operator access to agent and delegation views. |
+| Dependency        | Purpose                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Postgres          | Sessions, service leases, invocations, Delegations, graph epochs, Coordinator outbox. |
+| Redis             | Lifecycle, invocation, delegation, and revocation streams.                            |
+| STS/JWKS          | Token validation and authority alignment.                                             |
+| Coordinator token | Console and operator access to Session and Delegation views.                          |
 
 ## Jobs
 
-| Job | Purpose |
-| --- | --- |
-| TTL sweeper | Expires stale sessions and delegation state. |
-| Service lease sweeper | Marks stale service agents unhealthy. |
-| Deadline enforcer | Handles invocation deadlines. |
-| Retention cleaner | Removes expired historical coordination records. |
-| Outbox publisher | Publishes Coordinator outbox messages to Redis. |
-| Lifecycle relay | Observes `caracal.agents.lifecycle` delivery with HMAC origin verification and dedupe. |
+| Job                   | Purpose                                                                                |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| TTL sweeper           | Expires stale sessions and delegation state.                                           |
+| Service lease sweeper | Marks stale long-lived Sessions unhealthy.                                             |
+| Deadline enforcer     | Handles invocation deadlines.                                                          |
+| Retention cleaner     | Removes expired historical coordination records.                                       |
+| Outbox publisher      | Publishes Coordinator outbox messages to Redis.                                        |
+| Lifecycle relay       | Observes `caracal.agents.lifecycle` delivery with HMAC origin verification and dedupe. |
 
 ## Event Topics
 
@@ -42,10 +42,10 @@ Coordinator publishes `caracal.agents.lifecycle`, `caracal.invocations.lifecycle
 
 ## Next Step
 
-Use [Issue Mandates](/services/sts/) to understand how STS validates sessions and delegation edges during token exchange.
+Use [Issue Mandates](/services/sts/) to understand how STS validates sessions and Delegations during token exchange.
 
 ## Related Pages
 
 - [Use Coordinator API](/api/coordinator/)
-- [Coordinate Agents](/architecture/delegation-flow/)
+- [Coordinate Sessions](/architecture/delegation-flow/)
 - [Manage Sessions and Delegation](/runtime-console/agents/)

@@ -12,46 +12,46 @@ STS federates subject identity rather than managing it: it never authenticates e
 
 STS listens on port `8080`.
 
-| Method and path | Purpose |
-| --- | --- |
-| `POST /oauth/2/token` | Token exchange that issues mandates. |
-| `POST /v1/run/manifest` | Binding manifest for `caracal run` workloads. |
-| `POST /v1/run/credential` | Credential minting for `caracal run` workloads. |
-| `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys. |
-| `GET /step-up/{id}` | Step-up hold status. |
-| `POST /step-up/{id}/decision` | Subject-plane step-up decision (federated user session mandate required). |
-| `GET /health`, `GET /ready` | Liveness and readiness. |
-| `GET /metrics`, `GET /metrics.json` | Service metrics. |
+| Method and path                             | Purpose                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| `POST /oauth/2/token`                       | Token exchange that issues mandates.                                      |
+| `POST /v1/run/manifest`                     | Binding manifest for `caracal run` workloads.                             |
+| `POST /v1/run/credential`                   | Credential minting for `caracal run` workloads.                           |
+| `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys.                                                      |
+| `GET /step-up/{id}`                         | Step-up hold status.                                                      |
+| `POST /step-up/{id}/decision`               | Subject-plane step-up decision (federated user session mandate required). |
+| `GET /health`, `GET /ready`                 | Liveness and readiness.                                                   |
+| `GET /metrics`, `GET /metrics.json`         | Service metrics.                                                          |
 
 ### Internal Endpoints
 
 Only other Caracal services call these routes. Do not expose them to workloads or the public network.
 
-| Method and path | Purpose |
-| --- | --- |
-| `POST /internal/policy/simulate` | Policy-set simulation for the API service. |
-| `GET /internal/policy/status/{zoneID}` | Policy activation status for the API service. |
+| Method and path                                    | Purpose                                        |
+| -------------------------------------------------- | ---------------------------------------------- |
+| `POST /internal/policy/simulate`                   | Policy-set simulation for the API service.     |
+| `GET /internal/policy/status/{zoneID}`             | Policy activation status for the API service.  |
 | `POST /internal/zones/{zoneID}/signing-key/rotate` | Zone signing-key rotation for the API service. |
 
 ## Dependencies
 
-| Dependency | Purpose |
-| --- | --- |
-| Postgres | Applications, grants, resources, policies, sessions, step-up challenges, signing keys. |
-| Redis | Policy/key invalidation, revocation, provider coordination, audit emission. |
-| Zone KEK | Decrypt signing and secret material. |
-| Gateway HMAC key | Verify Gateway-authenticated exchanges. |
-| Audit replay dir | Persist audit events while Redis/Audit is unavailable. |
+| Dependency       | Purpose                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Postgres         | Applications, grants, resources, policies, sessions, step-up challenges, signing keys. |
+| Redis            | Policy/key invalidation, revocation, provider coordination, audit emission.            |
+| Zone KEK         | Decrypt signing and secret material.                                                   |
+| Gateway HMAC key | Verify Gateway-authenticated exchanges.                                                |
+| Audit replay dir | Persist audit events while Redis/Audit is unavailable.                                 |
 
 ## Issuance Rules
 
-| Rule | Behavior |
-| --- | --- |
-| Resource mandate TTL | Capped at 15 minutes. |
-| Session mandate TTL | Capped at 60 minutes. |
-| `MAX_GRANT_TTL_SECONDS` | Defaults to `3600`. |
-| `OPA_POLL_SECONDS` | Defaults to `60`, capped at `300`. |
-| Published modes | Require `GATEWAY_STS_HMAC_KEY` and audit/stream keys where configured. |
+| Rule                    | Behavior                                                               |
+| ----------------------- | ---------------------------------------------------------------------- |
+| Resource mandate TTL    | Capped at 15 minutes.                                                  |
+| Session mandate TTL     | Capped at 60 minutes.                                                  |
+| `MAX_GRANT_TTL_SECONDS` | Defaults to `3600`.                                                    |
+| `OPA_POLL_SECONDS`      | Defaults to `60`, capped at `300`.                                     |
+| Published modes         | Require `GATEWAY_STS_HMAC_KEY` and audit/stream keys where configured. |
 
 ## Failure Posture
 
