@@ -538,7 +538,12 @@ export class Caracal {
    */
   async attachSession(
     sessionId: string,
-    opts: { heartbeatIntervalMs?: number; onLeaseLost?: (err: unknown) => void } = {},
+    opts: {
+      heartbeatIntervalMs?: number
+      onLeaseLost?: (err: unknown) => void
+      onStateChange?: (status: string) => void
+      signal?: AbortSignal
+    } = {},
   ): Promise<SessionHandle> {
     const identity = await this.identity()
     return await attachSessionPrimitive({
@@ -551,6 +556,8 @@ export class Caracal {
       sessionId,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       onLeaseLost: opts.onLeaseLost,
+      onStateChange: opts.onStateChange,
+      signal: opts.signal,
       warn: this.config.logger,
       onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     })
@@ -560,12 +567,20 @@ export class Caracal {
     return bind(ctx, fn)
   }
 
-  onSessionStart(cb: LifecycleHook): void {
+  onSessionStart(cb: LifecycleHook): () => void {
     this.sessionStartHooks.push(cb)
+    return () => {
+      const index = this.sessionStartHooks.indexOf(cb)
+      if (index !== -1) this.sessionStartHooks.splice(index, 1)
+    }
   }
 
-  onSessionEnd(cb: LifecycleHook): void {
+  onSessionEnd(cb: LifecycleHook): () => void {
     this.sessionEndHooks.push(cb)
+    return () => {
+      const index = this.sessionEndHooks.indexOf(cb)
+      if (index !== -1) this.sessionEndHooks.splice(index, 1)
+    }
   }
 
   /**
@@ -913,11 +928,11 @@ export class Caracal {
    * is applied; pass `signal` (e.g. AbortSignal.timeout) to bound a call.
    */
   fetch(resourceId: string, path: string = '/', init: RequestInit & TransportOptions = {}): Promise<Response> {
-    const { scopes, asApplication, ...rest } = init
+    const { scopes, asApplication, timeoutMs, propagation, ...rest } = init
     const request = this.gatewayRequest(resourceId, path)
     const headers = new Headers(rest.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
-    return this.transport({ scopes, asApplication })(request.url, { ...rest, headers })
+    return this.transport({ scopes, asApplication, timeoutMs, propagation })(request.url, { ...rest, headers })
   }
 
   /**

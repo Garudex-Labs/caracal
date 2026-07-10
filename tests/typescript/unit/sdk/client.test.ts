@@ -529,6 +529,24 @@ describe('caracal.transport', () => {
     expect(signals[1]).toBeInstanceOf(AbortSignal)
   })
 
+  it('forwards inline fetch timeout and propagation options', async () => {
+    const calls: { headers: Headers; signal: AbortSignal | null | undefined }[] = []
+    const fakeFetch = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ headers: new Headers(init.headers), signal: init.signal })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com',
+    })
+
+    await c.fetch('calendar', '/events', { asApplication: true, timeoutMs: 5000, propagation: 'gateway-only' })
+
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal)
+    expect(calls[0].headers.get('x-caracal-resource')).toBe('calendar')
+  })
+
   it('preserves Request method, headers, body, and signal while rewriting', async () => {
     const calls: Request[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -697,10 +715,10 @@ describe('session lifecycle and delegation', () => {
       defaultTtlSeconds: 60,
     })
     const events: string[] = []
-    c.onSessionStart((ctx) => {
+    const removeStart = c.onSessionStart((ctx) => {
       events.push(`start:${ctx.sessionId}`)
     })
-    c.onSessionEnd((ctx) => {
+    const removeEnd = c.onSessionEnd((ctx) => {
       events.push(`end:${ctx.sessionId}`)
     })
 
@@ -719,9 +737,15 @@ describe('session lifecycle and delegation', () => {
     )
 
     expect(events).toEqual(['start:agent-1', 'end:agent-1'])
+    removeStart()
+    removeEnd()
+    await c.session(async () => undefined)
+    expect(events).toEqual(['start:agent-1', 'end:agent-1'])
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['POST', 'https://coordinator.example.com/zones/z/agents'],
       ['POST', 'https://coordinator.example.com/zones/z/delegations'],
+      ['DELETE', 'https://coordinator.example.com/zones/z/agents/agent-1'],
+      ['POST', 'https://coordinator.example.com/zones/z/agents'],
       ['DELETE', 'https://coordinator.example.com/zones/z/agents/agent-1'],
     ])
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({

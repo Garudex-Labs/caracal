@@ -478,6 +478,7 @@ export interface AttachSessionInput {
   heartbeatIntervalMs?: number
   onLeaseLost?: (err: unknown) => void
   onStateChange?: (status: string) => void
+  signal?: AbortSignal
   warn?: WarnSink
   onSessionEnd?: (ctx: CaracalContext) => void | Promise<void>
 }
@@ -496,11 +497,13 @@ export async function attachSession(input: AttachSessionInput): Promise<SessionH
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : input.subjectToken)
   let first
   try {
+    if (input.signal?.aborted) throw input.signal.reason
     first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
   } catch (err) {
     if (!(err instanceof CoordinatorError) || err.status !== 401 || !input.invalidate || !input.tokenSource) throw err
     input.invalidate()
     token = await input.tokenSource()
+    if (input.signal?.aborted) throw input.signal.reason
     first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
   }
   const ctx: CaracalContext = {

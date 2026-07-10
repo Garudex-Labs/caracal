@@ -892,11 +892,23 @@ class Caracal:
             )
         )
 
-    def on_session_start(self, cb: LifecycleHook) -> None:
+    def on_session_start(self, cb: LifecycleHook) -> Callable[[], None]:
         self._session_start_hooks.append(cb)
 
-    def on_session_end(self, cb: LifecycleHook) -> None:
+        def remove() -> None:
+            with suppress(ValueError):
+                self._session_start_hooks.remove(cb)
+
+        return remove
+
+    def on_session_end(self, cb: LifecycleHook) -> Callable[[], None]:
         self._session_end_hooks.append(cb)
+
+        def remove() -> None:
+            with suppress(ValueError):
+                self._session_end_hooks.remove(cb)
+
+        return remove
 
     def on_event(self, cb: EventHook) -> Callable[[], None]:
         """Subscribe to control-plane operation events: token exchanges (with
