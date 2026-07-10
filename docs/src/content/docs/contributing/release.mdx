@@ -36,6 +36,34 @@ Go-based service container builds strip debug symbols by default (`GO_LDFLAGS` d
 
 Protected GitHub workflows publish npm and PyPI packages. Every release publishes all publishable packages at the shared version; `package=<name>` exists only to resume a partially failed publish. Local stable publishing requires explicit approval and environment override.
 
+## Documentation Versions
+
+Open Source documentation is versioned by product minor release:
+
+- `v0.2`, `v0.3`, `v0.4`, and `v1.0` are documentation versions.
+- Patch releases such as `v0.2.1` and `v0.2.2` update the existing `v0.2` documentation; they never create new documentation versions.
+- Release candidates never create documentation versions.
+- The latest stable minor is the default at `https://docs.caracal.run/`. The unversioned source is available at `/next/` after the first stable documentation release.
+- Superseded minors remain available at `/vX.Y/`, lose their edit link, and are protected by a committed SHA-256 digest.
+
+`v0.2.0` is the first versioned documentation release. Until that stable release is cut, continue editing `docs/src/content/docs/`; do not create `docs/src/content/docs/v0.2/` manually. The stable release command snapshots that exact source as `v0.2`, marks it current, and enables the version selector.
+
+After `v0.2.0`, patch documentation changes for the active release line go directly into `docs/src/content/docs/v0.2/`. Work intended for the next minor continues in the unversioned source. When `v0.3.0` is published, release automation performs one transaction:
+
+1. Archive the unversioned source as `v0.3` and preserve its sidebar and referenced assets.
+2. Make `v0.3` the default stable documentation.
+3. Lock `v0.2` and record its content digest.
+4. Leave the unversioned source in place as the starting point for `/next/`.
+
+The same process repeats for every later minor. `scripts/release.sh stable` and `scripts/release.sh promote` invoke it automatically. Maintainers can inspect the decision without changing files:
+
+```bash
+node scripts/docsVersion.mjs plan 0.3.0
+node scripts/docsVersion.mjs verify
+```
+
+Do not edit `docs/versions.json` to bypass the release command. CI compares every previously locked entry and snapshot with the base branch, so replacing both a historical page and its digest is rejected.
+
 ## Rollback Rule
 
 Do not delete published tags. Roll forward with a new SemVer tag. Pinned `vX.Y.Z` tags are immutable; the floating `vX.Y` series tag moves with the new cut.

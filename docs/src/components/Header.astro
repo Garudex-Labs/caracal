@@ -8,7 +8,7 @@
 import Default from '@astrojs/starlight/components/Header.astro'
 import ThemeSelect from './ThemeSelect.astro'
 import VersionSelect from './VersionSelect.astro'
-import { docsHref, docsVersionState } from '../../versioning.mjs'
+import { docsHref } from '../../versioning.mjs'
 
 const route = (Astro.locals as any)?.starlightRoute
 const isLanding = route?.entry?.data?.template === 'splash'
@@ -22,7 +22,7 @@ const isLanding = route?.entry?.data?.template === 'splash'
         <span>Caracal</span>
       </a>
       <div class="site-nav__end">
-        {docsVersionState.current && <VersionSelect />}
+        <VersionSelect />
         <details class="edition-menu">
           <summary class="edition-menu__button">
             <span>Open Source</span>

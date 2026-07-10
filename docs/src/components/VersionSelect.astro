@@ -11,17 +11,22 @@ import { docsRouteVersion, docsVersionState, logicalDocId, switchDocsVersionPath
 
 const docs = await getCollection('docs')
 const ids = new Set(docs.map((entry) => entry.id))
-const routeVersion = docsRouteVersion(Astro.url.pathname) ?? docsVersionState.current
+const routeVersion = docsVersionState.current
+  ? docsRouteVersion(Astro.url.pathname) ?? docsVersionState.current
+  : docsVersionState.target
 const routeId = logicalDocId(Astro.locals.starlightRoute.entry.id)
-const versions = [
-  ...docsVersionState.versions.map((version) => ({
-    version: version.version,
-    label: version.version === docsVersionState.current ? `${version.version} (stable)` : version.version,
-  })),
-  { version: 'next', label: 'Next (unreleased)' },
-]
+const versions = docsVersionState.current
+  ? [
+      ...docsVersionState.versions.map((version) => ({
+        version: version.version,
+        label: version.version === docsVersionState.current ? `${version.version} (stable)` : version.version,
+      })),
+      { version: 'next', label: 'Next (unreleased)' },
+    ]
+  : [{ version: docsVersionState.target, label: `${docsVersionState.target} (unreleased)` }]
 
 function versionHref(version: string) {
+  if (!docsVersionState.current) return Astro.url.pathname
   const id = routeId === 'index' ? version : `${version}/${routeId}`
   return ids.has(id) ? switchDocsVersionPath(Astro.url.pathname, version) : `/${version}/`
 }
