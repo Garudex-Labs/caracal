@@ -36,14 +36,14 @@ flowchart TD
 | `401` or `403` from API       | Admin token, scope, Control token, or workload credential source.                                        |
 | STS exchange fails            | Zone ID, application ID, grant, policy, client secret, step-up, or STS readiness.                        |
 | Gateway fails before upstream | Mandate verification, STS exchange, binding, revocation snapshot, or upstream allowlist.                 |
-| Agent views fail              | Coordinator URL/token, selected zone, or Coordinator readiness.                                          |
+| Session views fail            | Coordinator URL/token, selected zone, or Coordinator readiness.                                          |
 | Audit event missing           | Redis stream health, Audit readiness, DLQ, replay backlog, or request never reaching protected boundary. |
 
 ## Request Investigation
 
 1. Capture request ID, zone ID, subject, resource, and timestamp.
 2. Open Console `audit` or `request trace`.
-3. Confirm policy decision, scopes, target resource, session, Session, and Delegation.
+3. Confirm policy decision, scopes, target resource, Authority record, Session, and Delegation.
 4. Compare token claims with resource-server verifier settings.
 5. Check revocation and step-up state when authority appears valid but access fails.
 

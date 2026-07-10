@@ -8,7 +8,7 @@ This page turns the [Choose a Cloud Profile](/operations/cloud-native-profiles/)
 
 The reference artifacts live in `infra/helm/caracal/examples`:
 
-- `values.cloud-managed.yaml` - production overlay with externalized state, cert-manager TLS web ingress, ServiceMonitor, and tightened egress.
+- `values.cloud-managed.yaml` - production overlay with externalized state, cert-manager TLS Web/STS/API/Gateway ingress, ServiceMonitor, and tightened egress.
 - `external-secrets/` - External Secrets Operator stores for AWS, GCP, and Azure plus one cloud-agnostic `ExternalSecret`.
 
 ## Prerequisites
@@ -18,7 +18,7 @@ The reference artifacts live in `infra/helm/caracal/examples`:
 | Managed Postgres                                          | Authoritative product, policy, audit, and delegation state.                                  |
 | Managed Redis                                             | Streams for audit, revocation, policy invalidation, and coordination.                        |
 | [External Secrets Operator](https://external-secrets.io/) | Provisions `caracal-runtime` from your secret manager so no plaintext secret is rendered.    |
-| [cert-manager](https://cert-manager.io/)                  | Issues TLS certificates for the web console ingress and any optional API or Gateway ingress. |
+| [cert-manager](https://cert-manager.io/)                  | Issues TLS certificates for Web, STS, and any optional API or Gateway ingress.                |
 | Prometheus Operator                                       | Consumes the chart `ServiceMonitor` and `PrometheusRule`.                                    |
 
 ## 1. Store Secret Material
@@ -30,7 +30,7 @@ Load the Caracal secret material into your secret manager under the keys the `Ex
 | `caracal/postgres`                                                                   | `username`, `password`, `host`, `port`, `database`, and `authDatabase` naming the dedicated web session database (`caracal_auth`). |
 | `caracal/redis`                                                                      | `password`, `host`, `port`, `database`.                                                                                            |
 | `caracal/zone-kek`                                                                   | Zone key-encryption key.                                                                                                           |
-| `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity keys.                                                                                                                    |
+| `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/idempotency-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity and idempotency keys.                                                                                                    |
 | `caracal/admin-token`, `caracal/coordinator-token`                                   | Control-plane tokens held by services and the web BFF.                                                                             |
 | `caracal/auth-secret`                                                                | Better Auth signing secret; the `ExternalSecret` composes the web session database URL from `caracal/postgres`.                    |
 | `caracal/sts-admin-token`, `caracal/audit-admin-token`, `caracal/metrics-bearer`     | Optional service tokens.                                                                                                           |
@@ -45,7 +45,7 @@ kubectl apply -f external-secrets/secretstore-aws.yaml
 kubectl apply -f external-secrets/externalsecret-runtime.yaml
 ```
 
-The `ExternalSecret` composes `databaseUrl`, `redisUrl`, and the per-service connection strings - each service connects as its own least-privilege database role, with passwords derived from the administrative password and provisioned by the migration job - and materializes the exact keys the chart mounts, so `secrets.create` stays `false`.
+The `ExternalSecret` composes `databaseUrl`, `redisUrl`, and the per-service connection strings - each service connects as its own least-privilege database role, with passwords derived from the administrative password and provisioned by the migration job - and materializes every chart key, including `idempotencyHmacKey`, so `secrets.create` stays `false`.
 
 ## 3. Install the Chart with the Overlay
 
@@ -85,10 +85,10 @@ Caracal ships standardized, portable interfaces - External Secrets Operator, cer
 1. Confirm the `ExternalSecret` reports `SecretSynced` and `caracal-runtime` exists.
 2. Render manifests and confirm no plaintext secret is present.
 3. Confirm cert-manager issued the web console TLS certificate.
-4. Confirm the web Ingress loads the console at the `services.web.publicUrl` origin and API/Gateway Ingress are disabled unless explicitly required.
+4. Confirm Web and STS load over HTTPS, `services.sts.issuerUrl` equals the public STS origin, and API/Gateway exposure matches the environment's client topology.
 5. Confirm the `ServiceMonitor` is scraped and `PrometheusRule` alerts are loaded.
 6. Run a canary token exchange and a Gateway-protected request, then confirm audit evidence.
 
 ## Next Step
 
-Use [Harden Production](/operations/tls-hardening/) before opening the web console or any optional API/Gateway ingress to production traffic.
+Use [Harden Production](/operations/tls-hardening/) before opening Web, STS, API, or Gateway ingress to production traffic.
