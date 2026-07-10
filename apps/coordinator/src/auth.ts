@@ -5,7 +5,7 @@
 
 import { pathOnly } from '@caracalai/server-core'
 import { timingSafeEqual } from 'node:crypto'
-import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose'
+import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTPayload } from 'jose'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import type { Pool } from 'pg'
 import { cfg } from './config.js'
@@ -78,6 +78,44 @@ const BEARER_PREFIX = 'Bearer '
 const MAX_BEARER_BYTES = 4096
 const OPERATOR_SUBJECT = 'caracal-operator'
 
+export type SubjectProofResult =
+  | { ok: true; authorityRecordId: string; subject: string }
+  | { ok: false; status: 401 | 403; error: 'invalid_subject_proof' | 'subject_proof_application_mismatch' }
+
+export function validateSubjectProofClaims(payload: JWTPayload, applicationId: string): SubjectProofResult {
+  if (payload['client_id'] !== applicationId) {
+    return { ok: false, status: 403, error: 'subject_proof_application_mismatch' }
+  }
+  const subject = payload.sub
+  const authorityRecordId = payload['sid']
+  const rootAuthorityRecordId = payload['root_sid']
+  const target = payload['target']
+  const delegationPath = payload['delegation_path']
+  const emptyArray = (value: unknown): boolean => value === undefined || (Array.isArray(value) && value.length === 0)
+  if (
+    typeof subject !== 'string' ||
+    subject === '' ||
+    typeof authorityRecordId !== 'string' ||
+    authorityRecordId === '' ||
+    rootAuthorityRecordId !== authorityRecordId ||
+    payload['use'] !== 'session' ||
+    payload['sub_type'] !== 'user' ||
+    (payload.scope !== undefined && payload.scope !== '') ||
+    !emptyArray(target) ||
+    !emptyArray(delegationPath) ||
+    payload['agent_session_id'] !== undefined ||
+    payload['delegation_edge_id'] !== undefined ||
+    payload['source_session_id'] !== undefined ||
+    payload['target_session_id'] !== undefined ||
+    typeof payload.iat !== 'number' ||
+    typeof payload.jti !== 'string' ||
+    payload.jti === ''
+  ) {
+    return { ok: false, status: 401, error: 'invalid_subject_proof' }
+  }
+  return { ok: true, authorityRecordId, subject }
+}
+
 function classifyError(err: unknown): string {
   const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined
   switch (code) {
@@ -130,6 +168,9 @@ function operatorZone(method: string, path: string): string | undefined {
   if (parts[2] === 'invocations') {
     if (method === 'GET' && parts.length === 3) return parts[1]
   }
+  if (parts[2] === 'outbox') {
+    if (method === 'POST' && parts.length === 5 && parts[4] === 'requeue') return parts[1]
+  }
   return undefined
 }
 
@@ -156,6 +197,31 @@ async function validateRuntimeIdentity(
   )
   const row = rows[0]
   return Boolean(row?.session_active)
+}
+
+export async function verifySubjectProof(
+  req: FastifyRequest,
+  token: string,
+  zoneId: string,
+  applicationId: string,
+): Promise<SubjectProofResult> {
+  if (!token || token.length > MAX_BEARER_BYTES) {
+    return { ok: false, status: 401, error: 'invalid_subject_proof' }
+  }
+  try {
+    const decoded = decodeJwt(token)
+    if (decoded['zone_id'] !== zoneId) return { ok: false, status: 401, error: 'invalid_subject_proof' }
+    const { payload } = await jwtVerify(token, jwksForZone(zoneId), {
+      issuer: cfg.issuerUrl,
+      audience: cfg.audience,
+      algorithms: ['ES256'],
+      clockTolerance: 60,
+    })
+    return validateSubjectProofClaims(payload, applicationId)
+  } catch (err) {
+    req.log.warn({ errorClass: classifyError(err) }, 'subject_proof_verify_failed')
+    return { ok: false, status: 401, error: 'invalid_subject_proof' }
+  }
 }
 
 export async function verifyBearer(req: FastifyRequest, reply: FastifyReply): Promise<void> {

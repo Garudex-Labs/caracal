@@ -133,7 +133,7 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
          SELECT id
          FROM caracal_outbox
          WHERE producer = 'coordinator'
-           AND status IN ('published', 'dead')
+           AND status = 'published'
            AND updated_at < now() - ($1::int * interval '1 day')
          ORDER BY updated_at
          LIMIT $2

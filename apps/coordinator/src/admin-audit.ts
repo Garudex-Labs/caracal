@@ -13,7 +13,7 @@ function entityFromUrl(url: string): { type: string | null; id: string | null } 
   for (let i = segments.length - 2; i >= 0; i--) {
     const candidate = segments[i]
     const next = segments[i + 1]
-    if (candidate && next && /^(agents|agent-services|delegations|invocations|applications)$/.test(candidate)) {
+    if (candidate && next && /^(agents|agent-services|delegations|invocations|applications|outbox)$/.test(candidate)) {
       return { type: candidate, id: next }
     }
   }

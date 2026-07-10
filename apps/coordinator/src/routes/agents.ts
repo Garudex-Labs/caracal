@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import type { PoolClient } from 'pg'
 import { enqueue, enqueueMany, Topics, type OutboxItem, type Queryable } from '../outbox.js'
-import { ownsApplication, requireScope } from '../auth.js'
+import { ownsApplication, requireScope, verifySubjectProof } from '../auth.js'
 import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
@@ -29,6 +29,7 @@ export const SessionLabels = z.array(z.string().trim().min(1).max(MAX_SESSION_LA
 const StartBody = z.object({
   application_id: z.string().min(1),
   subject_session_id: z.string().min(1).optional(),
+  subject_token: z.string().min(1).max(4096).optional(),
   parent_id: z.string().nullable().default(null),
   lifecycle: Lifecycle.optional(),
   labels: SessionLabels,
@@ -98,7 +99,7 @@ async function inheritParentEdge(
   const maxHops = typeof constraints.max_hops === 'number' ? constraints.max_hops : 1
   if (maxHops <= 1) return { conflict: 'inherit_parent_edge_not_active' }
   constraints.max_hops = maxHops - 1
-  if (typeof constraints.max_depth === 'number') constraints.max_depth = maxHops - 1
+  if (typeof constraints.max_depth === 'number') constraints.max_depth -= 1
   const edgeId = uuidv7()
   await client.query(
     `INSERT INTO delegation_edges
@@ -137,7 +138,20 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId } = params
     const body = StartBody.parse(req.body)
-    const subjectAuthorityRecordId = body.subject_session_id ?? req.caracalAuth?.authorityRecordId
+    let subjectProof: { authorityRecordId: string; subject: string } | undefined
+    if (body.subject_token) {
+      const verified = await verifySubjectProof(req, body.subject_token, zoneId, body.application_id)
+      if (!verified.ok) return reply.code(verified.status).send({ error: verified.error })
+      subjectProof = verified
+      if (body.subject_session_id && body.subject_session_id !== verified.authorityRecordId) {
+        return reply.code(400).send({ error: 'subject_proof_mismatch' })
+      }
+    }
+    const bearerAuthorityRecordId = req.caracalAuth?.authorityRecordId
+    if (body.subject_session_id && !subjectProof && body.subject_session_id !== bearerAuthorityRecordId) {
+      return reply.code(401).send({ error: 'subject_proof_required' })
+    }
+    const subjectAuthorityRecordId = subjectProof?.authorityRecordId ?? bearerAuthorityRecordId
     if (!subjectAuthorityRecordId) {
       return reply.code(400).send({ error: 'subject_session_id_required' })
     }
@@ -226,8 +240,9 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
            EXISTS (
               SELECT 1 FROM authority_records
               WHERE id = $3 AND zone_id = $1 AND status = 'active' AND expires_at > now()
+                AND ($4::text IS NULL OR (session_type = 'user' AND subject_id = $4))
             ) AS authority_record_exists`,
-        [zoneId, body.application_id, subjectAuthorityRecordId],
+        [zoneId, body.application_id, subjectAuthorityRecordId, subjectProof?.subject ?? null],
       )
       if (!refs[0]?.application_exists) {
         await client.query('ROLLBACK')

@@ -168,6 +168,10 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'session_not_live' })
       }
+      if (own[0].lifecycle !== 'service') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_not_service' })
+      }
       if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
         await client.query('COMMIT')
@@ -192,15 +196,11 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE sessions
          SET last_active_at = now(),
              last_heartbeat_at = now(),
-           subject_authority_record_id = $4,
-             heartbeat_deadline_at = CASE
-               WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
-               ELSE heartbeat_deadline_at
-             END,
+             heartbeat_deadline_at = now() + ($3::int * interval '1 second'),
              updated_at = now()
          WHERE id = $1 AND zone_id = $2
           RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, cfg.serviceSessionLeaseSeconds, authorityRecordId],
+        [id, zoneId, cfg.serviceSessionLeaseSeconds],
       )
       let service = null
       if (body.service_id) {
