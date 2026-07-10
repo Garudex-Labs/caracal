@@ -52,10 +52,10 @@ class OAuthClient:
         timeout_ms: int = 30_000,
     ) -> TokenExchangeResponse:
         """Exchange an end user's identity token from a zone-trusted external
-        issuer for a Caracal user subject session.
+        issuer for a Caracal Subject authority record.
 
         The application authenticates itself with its client secret and relays
-        the token verbatim; the minted session is the subject's identity anchor
+        the token verbatim; the minted record is the Subject's identity anchor
         and carries no resource authority. Never cached: each federation is an
         explicit identity event.
         """

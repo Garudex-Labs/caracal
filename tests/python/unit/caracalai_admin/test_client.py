@@ -575,7 +575,7 @@ class AdminOperationsTests(unittest.TestCase):
                             {
                                 "agent_session_id": "a2",
                                 "parent_id": "a1",
-                                "subject_session_id": "record-1",
+                                "subject_authority_record_id": "record-1",
                             }
                         ]
                     },

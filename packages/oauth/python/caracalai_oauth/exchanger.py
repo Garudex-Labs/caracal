@@ -483,9 +483,9 @@ class ClientSecretExchanger:
         self, id_token: str, *, ttl_seconds: int | None = None
     ) -> MintedMandate:
         """Exchange an end user's identity token from a zone-trusted external
-        issuer for the user's Caracal subject session mandate. The application
+        issuer for the user's Caracal Subject mandate. The application
         authenticates itself with its client secret and relays the token
-        verbatim; the minted session is the subject's identity anchor and
+        verbatim; the minted authority record is the Subject's identity anchor and
         carries no resource authority. Never cached: each federation is an
         explicit identity event."""
         if not id_token:

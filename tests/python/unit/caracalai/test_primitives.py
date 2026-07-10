@@ -305,6 +305,41 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refreshes_initial_heartbeat_once_after_401(self) -> None:
+        seen: list[str] = []
+        tokens = iter(("token-1", "token-2", "token-3"))
+        invalidations = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal invalidations
+            seen.append(request.headers.get("authorization", ""))
+            if len(seen) == 1:
+                return httpx.Response(401, json={"error": "invalid_token"})
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(200, json={"agent": {"status": "active"}})
+
+        def invalidate() -> None:
+            nonlocal invalidations
+            invalidations += 1
+
+        handle = await attach_session(
+            coordinator=CoordinatorClient(
+                base_url="http://coord",
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            ),
+            zone_id="z",
+            application_id="app",
+            subject_token="stale",
+            session_id="svc-1",
+            token_source=lambda: next(tokens),
+            invalidate=invalidate,
+            heartbeat_interval=0,
+        )
+        self.assertEqual(invalidations, 1)
+        self.assertEqual(seen[:2], ["Bearer token-1", "Bearer token-2"])
+        await handle.aclose()
+
     async def test_validates_lease_and_returns_live_handle(self) -> None:
         requests: list[httpx.Request] = []
 

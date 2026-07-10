@@ -9,10 +9,10 @@ from typing import Protocol, runtime_checkable
 
 
 class RevocationStore(Protocol):
-    def is_revoked(self, sid: str) -> bool:
+    def is_revoked(self, anchor_id: str) -> bool:
         pass
 
-    def mark_revoked(self, sid: str, ttl_ms: int | None = None) -> None:
+    def mark_revoked(self, anchor_id: str, ttl_ms: int | None = None) -> None:
         pass
 
 

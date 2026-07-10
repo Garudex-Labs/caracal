@@ -11,6 +11,9 @@ from caracalai_core.errors import CaracalError, ErrorCode
 
 
 class CaracalErrorTests(unittest.TestCase):
+    def test_session_required_code_is_canonical(self) -> None:
+        self.assertEqual(ErrorCode.SESSION_REQUIRED, "session_required")
+
     def test_string_and_json_include_optional_fields(self) -> None:
         err = CaracalError(
             ErrorCode.ACCESS_DENIED,
