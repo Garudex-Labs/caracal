@@ -11,12 +11,12 @@ Provider recipes live in the documentation, not the web console. The Console sta
 
 The most common mistake is treating these four boundaries as interchangeable. They are not - they differ in where enforcement happens, who writes the action-result audit, and who holds the upstream credential.
 
-| Boundary | Enforcement point | Credential holder | Action-result audit | Use when |
-| --- | --- | --- | --- | --- |
-| Gateway-mediated | Caracal Gateway | Gateway (sealed provider secret) | Gateway | The upstream is HTTP-routable and you want Caracal to broker the credential and enforce every call. |
-| Adapter-verified | Your service process | Your service | Your service after adapter verification | You own the service and must enforce mandates in process. |
-| Application-managed call | Your application code | Your application | Your application | You call the provider directly and only attach Caracal context for attribution. Not Caracal-enforced. |
-| Runtime token injection | Your runtime, eligibility gated by Caracal | Your runtime process | Your application | An existing client or CLI must receive a brokered token at runtime, and the provider sets `allow_runtime_injection=true`. |
+| Boundary                 | Enforcement point                          | Credential holder                | Action-result audit                     | Use when                                                                                                                  |
+| ------------------------ | ------------------------------------------ | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Gateway-mediated         | Caracal Gateway                            | Gateway (sealed provider secret) | Gateway                                 | The upstream is HTTP-routable and you want Caracal to broker the credential and enforce every call.                       |
+| Adapter-verified         | Your service process                       | Your service                     | Your service after adapter verification | You own the service and must enforce mandates in process.                                                                 |
+| Application-managed call | Your application code                      | Your application                 | Your application                        | You call the provider directly and only attach Caracal context for attribution. Not Caracal-enforced.                     |
+| Runtime token injection  | Your runtime, eligibility gated by Caracal | Your runtime process             | Your application                        | An existing client or CLI must receive a brokered token at runtime, and the provider sets `allow_runtime_injection=true`. |
 
 Prefer **Gateway-mediated** unless you have a specific reason to enforce elsewhere. The recipes below note which boundary they use.
 
@@ -24,15 +24,15 @@ Prefer **Gateway-mediated** unless you have a specific reason to enforce elsewhe
 
 Broker an OpenAI key so the agent never holds it.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `api_key` |
-| `header_name` | `Authorization` |
-| `auth_scheme` | `Bearer` |
-| `api_key` | Your OpenAI secret key (sealed at creation). |
-| Resource identifier | `resource://openai` |
-| Resource upstream URL | `https://api.openai.com` |
-| Resource scopes | `openai:chat`, `openai:embeddings` |
+| Field                 | Value                                        |
+| --------------------- | -------------------------------------------- |
+| Provider kind         | `api_key`                                    |
+| `header_name`         | `Authorization`                              |
+| `auth_scheme`         | `Bearer`                                     |
+| `api_key`             | Your OpenAI secret key (sealed at creation). |
+| Resource identifier   | `resource://openai`                          |
+| Resource upstream URL | `https://api.openai.com`                     |
+| Resource scopes       | `openai:chat`, `openai:embeddings`           |
 
 The Gateway forwards `Authorization: Bearer <sealed key>` upstream and strips caller auth. The agent calls the Caracal resource, not OpenAI directly.
 
@@ -40,17 +40,17 @@ The Gateway forwards `Authorization: Bearer <sealed key>` upstream and strips ca
 
 Delegated user consent for a Google API, refreshed inside STS.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `oauth2_authorization_code` |
-| `authorization_endpoint` | `https://accounts.google.com/o/oauth2/v2/auth` |
-| `token_endpoint` | `https://oauth2.googleapis.com/token` |
-| `redirect_uri` | Your exact Caracal callback, e.g. `https://api.example.com/v1/zones/<zone>/provider-connections/oauth/callback` |
-| `client_id` / `client_secret` | From the Google Cloud OAuth client. |
-| `scopes` | e.g. `https://www.googleapis.com/auth/drive.readonly` |
-| `allowed_token_hosts` | `oauth2.googleapis.com` |
-| `authorization_params` (Advanced) | `access_type=offline`, `prompt=consent` for refresh tokens. |
-| Resource upstream URL | `https://www.googleapis.com` |
+| Field                             | Value                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Provider kind                     | `oauth2_authorization_code`                                                                                     |
+| `authorization_endpoint`          | `https://accounts.google.com/o/oauth2/v2/auth`                                                                  |
+| `token_endpoint`                  | `https://oauth2.googleapis.com/token`                                                                           |
+| `redirect_uri`                    | Your exact Caracal callback, e.g. `https://api.example.com/v1/zones/<zone>/provider-connections/oauth/callback` |
+| `client_id` / `client_secret`     | From the Google Cloud OAuth client.                                                                             |
+| `scopes`                          | e.g. `https://www.googleapis.com/auth/drive.readonly`                                                           |
+| `allowed_token_hosts`             | `oauth2.googleapis.com`                                                                                         |
+| `authorization_params` (Advanced) | `access_type=offline`, `prompt=consent` for refresh tokens.                                                     |
+| Resource upstream URL             | `https://www.googleapis.com`                                                                                    |
 
 Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `connect` action to mint the consent URL for a user and resource.
 
@@ -62,16 +62,16 @@ Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `c
 
 Machine access to Google APIs - Vertex AI, Cloud Storage, and every other `googleapis.com` surface - signed with a service-account key instead of user consent.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `oauth2_client_credentials` |
-| `grant_type` | `jwt_bearer` |
-| `token_endpoint` | `https://oauth2.googleapis.com/token` |
-| `client_id` | The service account email, e.g. `agent@project.iam.gserviceaccount.com` |
-| `private_key` | The service account's PEM private key (sealed). |
-| `scopes` | e.g. `https://www.googleapis.com/auth/cloud-platform` |
-| `assertion_subject` (Advanced) | A user email, only for domain-wide delegation. |
-| Resource upstream URL | e.g. `https://aiplatform.googleapis.com` |
+| Field                          | Value                                                                   |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| Provider kind                  | `oauth2_client_credentials`                                             |
+| `grant_type`                   | `jwt_bearer`                                                            |
+| `token_endpoint`               | `https://oauth2.googleapis.com/token`                                   |
+| `client_id`                    | The service account email, e.g. `agent@project.iam.gserviceaccount.com` |
+| `private_key`                  | The service account's PEM private key (sealed).                         |
+| `scopes`                       | e.g. `https://www.googleapis.com/auth/cloud-platform`                   |
+| `assertion_subject` (Advanced) | A user email, only for domain-wide delegation.                          |
+| Resource upstream URL          | e.g. `https://aiplatform.googleapis.com`                                |
 
 STS signs the RFC 7523 assertion with the sealed key, carries the scopes inside the assertion's `scope` claim as Google expects, and caches the returned access token. The same shape covers Salesforce's JWT bearer flow: set `client_id` to the consumer key, `assertion_subject` to the Salesforce username, and `assertion_audience` to `https://login.salesforce.com`.
 
@@ -79,14 +79,14 @@ STS signs the RFC 7523 assertion with the sealed key, carries the scopes inside 
 
 Jira Cloud REST authenticates with an email and API token as a Basic pair.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `http_basic` |
-| `username` | The Atlassian account email. |
-| `password` | The Atlassian API token (sealed). |
-| Resource identifier | `resource://jira` |
-| Resource upstream URL | `https://your-site.atlassian.net` |
-| Resource scopes | `jira:issues-read`, `jira:issues-write` |
+| Field                 | Value                                   |
+| --------------------- | --------------------------------------- |
+| Provider kind         | `http_basic`                            |
+| `username`            | The Atlassian account email.            |
+| `password`            | The Atlassian API token (sealed).       |
+| Resource identifier   | `resource://jira`                       |
+| Resource upstream URL | `https://your-site.atlassian.net`       |
+| Resource scopes       | `jira:issues-read`, `jira:issues-write` |
 
 Gateway composes `Authorization: Basic ...` at forward time; callers never see the pair. The same recipe covers Twilio (Account SID as username, auth token as password), Elasticsearch, Zendesk, and other Basic-authenticated REST APIs.
 
@@ -94,14 +94,14 @@ Gateway composes `Authorization: Basic ...` at forward time; callers never see t
 
 For automation, the simplest path is a pre-issued token.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `bearer_token` |
-| `bearer_token` | A GitHub fine-grained personal access token (sealed). |
-| `allowed_token_hosts` | `api.github.com` |
-| Resource identifier | `resource://github` |
-| Resource upstream URL | `https://api.github.com` |
-| Resource scopes | `github:repo-read`, `github:issues-write` |
+| Field                 | Value                                                 |
+| --------------------- | ----------------------------------------------------- |
+| Provider kind         | `bearer_token`                                        |
+| `bearer_token`        | A GitHub fine-grained personal access token (sealed). |
+| `allowed_token_hosts` | `api.github.com`                                      |
+| Resource identifier   | `resource://github`                                   |
+| Resource upstream URL | `https://api.github.com`                              |
+| Resource scopes       | `github:repo-read`, `github:issues-write`             |
 
 For a delegated, consented account instead of a shared token, use `oauth2_authorization_code` with `authorization_endpoint=https://github.com/login/oauth/authorize` and `token_endpoint=https://github.com/login/oauth/access_token`.
 
@@ -109,14 +109,14 @@ For a delegated, consented account instead of a shared token, use `oauth2_author
 
 For a Slack bot token that does not expire, use a bearer provider.
 
-| Field | Value |
-| --- | --- |
-| Provider kind | `bearer_token` |
-| `bearer_token` | The Slack bot/user OAuth token (sealed). |
-| `allowed_token_hosts` | `slack.com` |
-| Resource identifier | `resource://slack` |
-| Resource upstream URL | `https://slack.com/api` |
-| Resource scopes | `slack:chat-write`, `slack:channels-read` |
+| Field                 | Value                                     |
+| --------------------- | ----------------------------------------- |
+| Provider kind         | `bearer_token`                            |
+| `bearer_token`        | The Slack bot/user OAuth token (sealed).  |
+| `allowed_token_hosts` | `slack.com`                               |
+| Resource identifier   | `resource://slack`                        |
+| Resource upstream URL | `https://slack.com/api`                   |
+| Resource scopes       | `slack:chat-write`, `slack:channels-read` |
 
 For rotating machine tokens, use `oauth2_client_credentials` with Slack's token endpoint and `scopes`.
 
@@ -124,16 +124,16 @@ For rotating machine tokens, use `oauth2_client_credentials` with Slack's token 
 
 For services you own, you usually do not need an upstream credential.
 
-| Setup | Provider kind | Use when |
-| --- | --- | --- |
-| Mandate-aware | `caracal_mandate` | The internal service verifies Caracal tokens directly (issuer, audience, scopes, expiry, revocation). The Gateway forwards the resource mandate as `Authorization: Bearer ...`. |
-| No upstream credential | `none` | The Gateway is the enforcement point and the upstream expects no credential. |
+| Setup                  | Provider kind     | Use when                                                                                                                                                                        |
+| ---------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mandate-aware          | `caracal_mandate` | The internal service verifies Caracal tokens directly (issuer, audience, scopes, expiry, revocation). The Gateway forwards the resource mandate as `Authorization: Bearer ...`. |
+| No upstream credential | `none`            | The Gateway is the enforcement point and the upstream expects no credential.                                                                                                    |
 
-| Field | Value |
-| --- | --- |
-| Resource identifier | `resource://internal-billing` |
+| Field                 | Value                              |
+| --------------------- | ---------------------------------- |
+| Resource identifier   | `resource://internal-billing`      |
 | Resource upstream URL | `https://billing.internal.example` |
-| Resource scopes | `billing:read`, `billing:submit` |
+| Resource scopes       | `billing:read`, `billing:submit`   |
 
 ## Runtime token injection
 
@@ -149,17 +149,17 @@ export CARACAL_RESOURCES="resource://openai=https://api.openai.com"
 
 Bindings can also live in the runtime profile as `[[credentials]]` entries; see [Configuration File](/runtime-console/config-file/). Provider clients still require an API key argument at construction - pass a placeholder such as `caracal-gateway`. The transport replaces the `Authorization` header on Gateway-routed calls, so the placeholder never reaches the provider.
 
-Each recipe below assumes a constructed SDK client (`const caracal = new Caracal()`, `caracal = Caracal()`, `client, _ := caracal.New()`) and runs inside a spawned agent context.
+Each recipe below assumes a constructed SDK client (`const caracal = new Caracal()`, `caracal = Caracal()`, `client, _ := caracal.New()`) and runs inside a governed Session context.
 
 ### OpenAI
 
 ```ts
-import OpenAI from "openai";
+import OpenAI from 'openai'
 
 const openai = new OpenAI({
-  apiKey: "caracal-gateway",
+  apiKey: 'caracal-gateway',
   fetch: caracal.transport(),
-});
+})
 ```
 
 ```python
@@ -185,12 +185,12 @@ openaiClient := openai.NewClient(
 Binding: `resource://anthropic=https://api.anthropic.com`.
 
 ```ts
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic({
-  apiKey: "caracal-gateway",
+  apiKey: 'caracal-gateway',
   fetch: caracal.transport(),
-});
+})
 ```
 
 ```python
@@ -256,12 +256,12 @@ Bind one resource per upstream LiteLLM reaches, or govern a self-hosted LiteLLM 
 Binding: `resource://ollama=http://ollama.internal.example:11434`.
 
 ```ts
-import { Ollama } from "ollama";
+import { Ollama } from 'ollama'
 
 const ollama = new Ollama({
-  host: "http://ollama.internal.example:11434",
+  host: 'http://ollama.internal.example:11434',
   fetch: caracal.transport(),
-});
+})
 ```
 
 ```go

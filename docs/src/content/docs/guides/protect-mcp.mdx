@@ -12,28 +12,28 @@ npm install @caracalai/verify @caracalai/revocation
 ```
 
 ```ts
-import { createMandateVerifier } from "@caracalai/verify";
-import { InMemoryRevocationStore } from "@caracalai/revocation";
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: "https://sts.example.com",
-  audience: "https://mcp.example.com",
-  zoneId: "zone_prod",
+  issuer: 'https://sts.example.com',
+  audience: 'https://mcp.example.com',
+  zoneId: 'zone_prod',
   revocations: new InMemoryRevocationStore(),
-});
+})
 
 export async function verifyToolRequest(authorization: string | undefined) {
   const result = await verifier.authorization(authorization, {
-    requiredScopes: ["mcp:tool:call"],
-    requiredTargets: ["https://mcp.example.com"],
+    requiredScopes: ['mcp:tool:call'],
+    requiredTargets: ['https://mcp.example.com'],
     requireAgent: true,
-  });
+  })
 
   if (!result.ok) {
-    throw new Error(`${result.error.code}: ${result.error.description}`);
+    throw new Error(`${result.error.code}: ${result.error.description}`)
   }
 
-  return result.principal;
+  return result.principal
 }
 ```
 
@@ -68,13 +68,13 @@ async def verify_tool_request(authorization: str | None):
 
 ## Verification checklist
 
-| Check | Why it matters |
-| --- | --- |
-| Issuer and audience | Prevents accepting mandates from the wrong zone or target. |
-| Required scopes | Enforces tool-level authority. |
-| Required targets | Prevents cross-resource token reuse. |
-| Agent or delegation requirements | Keeps user-root and delegated calls separate. |
-| Revocation store | Rejects revoked sessions and delegation edges. |
+| Check                            | Why it matters                                             |
+| -------------------------------- | ---------------------------------------------------------- |
+| Issuer and audience              | Prevents accepting mandates from the wrong zone or target. |
+| Required scopes                  | Enforces tool-level authority.                             |
+| Required targets                 | Prevents cross-resource token reuse.                       |
+| Agent or delegation requirements | Keeps user-root and delegated calls separate.              |
+| Revocation store                 | Rejects revoked sessions and Delegations.                  |
 
 ## Production revocation
 

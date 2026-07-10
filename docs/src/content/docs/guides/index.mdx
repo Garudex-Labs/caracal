@@ -7,19 +7,19 @@ Use Guides after [Get Started](/get-started/) or the [Tutorials](/tutorials/) wh
 
 ## Choose by Task
 
-| Task | Start with |
-| --- | --- |
-| Map your architecture onto Caracal | [Model Your Application in Caracal](/guides/modeling-recipes/) |
-| Serve many of your own customers from one deployment | [Serve Your Own Customers](/guides/serve-customers/) |
-| Define protected targets and upstream credentials | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/) |
-| Write and activate authorization logic | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/) |
-| Debug an authorization result | [Debug Authorization Decisions](/guides/authorize-access/) |
-| Add Caracal to app code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
-| Run an existing process with Caracal tokens | [Run an Agent with caracal run](/guides/runtime-run/) |
-| Protect a Gateway-routed HTTP upstream | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
-| Protect a resource server in process | [Express](/guides/protect-express/), [FastAPI](/guides/protect-fastapi/), [FastMCP](/guides/protect-fastmcp/), [Go net/http](/guides/protect-nethttp/), or [MCP server](/guides/protect-mcp/) |
-| Add delegation, audit export, or step-up | [Delegation](/guides/delegation/), [Audit Stream](/guides/audit-stream/), or [Human Approval](/guides/step-up/) |
-| Plan a production integration | [Production Integration Patterns](/guides/enterprise-runtime-patterns/) |
+| Task                                                 | Start with                                                                                                                                                                                    |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Map your architecture onto Caracal                   | [Model Your Application in Caracal](/guides/modeling-recipes/)                                                                                                                                |
+| Serve many of your own customers from one deployment | [Serve Your Own Customers](/guides/serve-customers/)                                                                                                                                          |
+| Define protected targets and upstream credentials    | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/)                                                                              |
+| Write and activate authorization logic               | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/)                                                                                        |
+| Debug an authorization result                        | [Debug Authorization Decisions](/guides/authorize-access/)                                                                                                                                    |
+| Add Caracal to app code                              | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/)                                                                                    |
+| Run an existing process with Caracal tokens          | [Run an Agent with caracal run](/guides/runtime-run/)                                                                                                                                         |
+| Protect a Gateway-routed HTTP upstream               | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)                                                                                                                            |
+| Protect a resource server in process                 | [Express](/guides/protect-express/), [FastAPI](/guides/protect-fastapi/), [FastMCP](/guides/protect-fastmcp/), [Go net/http](/guides/protect-nethttp/), or [MCP server](/guides/protect-mcp/) |
+| Add delegation, audit export, or step-up             | [Delegation](/guides/delegation/), [Audit Stream](/guides/audit-stream/), or [Human Approval](/guides/step-up/)                                                                               |
+| Plan a production integration                        | [Production Integration Patterns](/guides/enterprise-runtime-patterns/)                                                                                                                       |
 
 ## Recommended Order
 
@@ -40,12 +40,12 @@ flowchart LR
 
 Use the right surface for each task:
 
-| Surface | Use for |
-| --- | --- |
-| `caracal up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, `run`, `web` | Local runtime lifecycle, Console sign-in admission, and subprocess injection. |
-| Console | Human-facing zone, application, provider, resource, policy, session, audit, explanation, delegation, and diagnostic workflows. |
-| Admin API and `@caracalai/admin` | Automation for the same control-plane objects. |
-| SDKs and adapters | Application integration, context propagation, mandate exchange, and mandate verification. |
+| Surface                                                                       | Use for                                                                                                                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `caracal up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, `run`, `web` | Local runtime lifecycle, Console sign-in admission, and subprocess injection.                                                  |
+| Console                                                                       | Human-facing zone, application, provider, resource, policy, session, audit, explanation, delegation, and diagnostic workflows. |
+| Admin API and `@caracalai/admin`                                              | Automation for the same control-plane objects.                                                                                 |
+| SDKs and adapters                                                             | Application integration, context propagation, mandate exchange, and mandate verification.                                      |
 
 ## Before You Start
 

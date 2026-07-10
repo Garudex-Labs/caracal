@@ -36,21 +36,21 @@ app.add_middleware(
 @app.post("/payouts/create")
 async def create_payout(request: Request):
     principal = request.state.caracal
-    return {"actor": principal.sub, "agent": principal.agent_session_id}
+    return {"subject": principal.sub}
 ```
 
 With `CARACAL_STS_URL` and `CARACAL_ZONE_ID` set - the standard Caracal workload variables - the middleware resolves the issuer and zone itself; you state only your own audience and revocation store. Requests reach your handlers only after the mandate's signature, issuer, audience, zone, token use, scopes, and revocation anchors all verify.
 
 ## Enforce the right boundary
 
-| Option | Use it for |
-| --- | --- |
-| `required_scopes` | Route-level scope checks. |
-| `required_targets` | Resource-target checks. |
-| `require_agent` | Reject non-agent mandates. |
-| `require_delegation` | Require delegated authority. |
-| `max_hop_count` | Limit delegation depth. |
-| `routes` | Apply any of the above per path prefix; the longest matching prefix wins. |
+| Option               | Use it for                                                                |
+| -------------------- | ------------------------------------------------------------------------- |
+| `required_scopes`    | Route-level scope checks.                                                 |
+| `required_targets`   | Resource-target checks.                                                   |
+| `require_agent`      | Reject non-agent mandates.                                                |
+| `require_delegation` | Require delegated authority.                                              |
+| `max_hop_count`      | Limit delegation depth.                                                   |
+| `routes`             | Apply any of the above per path prefix; the longest matching prefix wins. |
 
 ## Validate
 
