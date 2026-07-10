@@ -12,11 +12,28 @@ export interface TokenExchangeRequest {
   resource: string | string[]
   clientId: string
   clientSecret?: string
-  authorityRecordId?: string
+  clientAssertion?: string
+  clientAssertionType?: string
   sessionId?: string
-  delegationId?: string
+  agentSessionId?: string
+  delegationEdgeId?: string
   scopes?: string[]
   ttlSeconds?: number
+}
+
+export interface UpstreamDirective {
+  url?: string
+  authMode?: string
+  authLocation?: string
+  authHeader?: string
+  queryParamName?: string
+  authScheme?: string
+  allowedTokenHosts?: string[]
+  providerToken?: string
+  providerId?: string
+  grantId?: string
+  forwardCaracalIdentity?: boolean
+  expiresAt?: number
 }
 
 export interface TokenExchangeResponse {
@@ -25,22 +42,26 @@ export interface TokenExchangeResponse {
   expiresIn: number
   issuedAt: number
   targetResources?: string[]
+  upstreams?: Record<string, UpstreamDirective>
 }
 
 export interface ExchangeOptions {
   clientSecret?: string
-  authorityRecordId?: string
+  clientAssertion?: string
+  clientAssertionType?: string
   sessionId?: string
-  delegationId?: string
+  agentSessionId?: string
+  delegationEdgeId?: string
   scopes?: string[]
   timeoutMs?: number
+  retries?: number
   ttlSeconds?: number
   challengeId?: string
   /** Skip the cached token and mint a fresh one; the result still refills the cache. */
   forceRefresh?: boolean
   /** Mint without reading, writing, or joining the token cache. */
   cache?: boolean
-  /** Aborts the exchange request. */
+  /** Aborts the exchange, including retries and backoff waits. */
   signal?: AbortSignal
 }
 

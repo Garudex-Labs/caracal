@@ -66,7 +66,7 @@ function randomHex(byteLen: number): string {
   return s
 }
 
-export function genTraceId(): string {
+function genTraceId(): string {
   return randomHex(16)
 }
 
