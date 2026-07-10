@@ -36,7 +36,7 @@ const fixtureDir = resolve(here, '../../../shared/fixtures/interoperability')
 
 const contracts = [
   ['caracal-jwt-claims-2026-05-21.schema.json', 'jwt-claims.resource.valid.json'],
-  ['caracal-token-response-2026-05-21.schema.json', 'token-response.gateway.valid.json'],
+  ['caracal-token-response-2026-05-21.schema.json', 'token-response.valid.json'],
   ['caracal-policy-input-2026-05-20.schema.json', 'policy-input.sts.valid.json'],
   ['caracal-policy-result-2026-05-20.schema.json', 'policy-result.allow.valid.json'],
   ['caracal-audit-event-2026-05-21.schema.json', 'audit-event.allow.valid.json'],

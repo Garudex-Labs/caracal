@@ -649,7 +649,7 @@ describe('account assertion binding', () => {
   }
 
   it('binds req.account from a valid assertion when the key is configured', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret' }), undefined, { accountAssertionKey: 'secret' })
+    const app = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'env-derived' }), undefined, { accountAssertionKey: 'secret' })
     const exp = Math.floor(Date.now() / 1000) + 60
     const res = await app.inject({
       method: 'GET',
@@ -674,37 +674,43 @@ describe('account assertion binding', () => {
     await app.close()
   })
 
-  it('binds no account when the assertion is missing', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret' }), undefined, { accountAssertionKey: 'secret' })
+  it('rejects a derived Console credential when the assertion is missing', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'env-derived' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const res = await app.inject({ method: 'GET', url: '/v1/zones', headers: { authorization: 'Bearer secret' } })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().account).toBeNull()
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'invalid_account_assertion' })
     await app.close()
   })
 
-  it('does not bind an account from a forged assertion (wrong key)', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret' }), undefined, { accountAssertionKey: 'secret' })
+  it('rejects a derived Console credential with a forged assertion', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'env-derived-write' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const exp = Math.floor(Date.now() / 1000) + 60
     const res = await app.inject({
       method: 'GET',
       url: '/v1/zones',
       headers: { authorization: 'Bearer secret', 'x-caracal-account': bind('attacker-key', 'acct-evil', exp) },
     })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().account).toBeNull()
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'invalid_account_assertion' })
     await app.close()
   })
 
-  it('does not bind an account from an expired assertion', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret' }), undefined, { accountAssertionKey: 'secret' })
+  it('rejects a derived Console credential with an expired assertion', async () => {
+    const app = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'env-derived-approve' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const exp = Math.floor(Date.now() / 1000) - 1
     const res = await app.inject({
       method: 'GET',
       url: '/v1/zones',
       headers: { authorization: 'Bearer secret', 'x-caracal-account': bind('secret', 'acct-7', exp) },
     })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().account).toBeNull()
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({ error: 'invalid_account_assertion' })
     await app.close()
   })
 })
@@ -715,14 +721,18 @@ describe('per-account zone isolation', () => {
   }
 
   it('allows an account to reach a zone it owns', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a' }), undefined, { accountAssertionKey: 'secret' })
+    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a', createdBy: 'env-derived' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/things', headers: withAccount('acct-a') })
     expect(res.statusCode).toBe(200)
     await app.close()
   })
 
   it('forbids an account from reaching a zone owned by another account', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a' }), undefined, { accountAssertionKey: 'secret' })
+    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a', createdBy: 'env-derived' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/things', headers: withAccount('acct-b') })
     expect(res.statusCode).toBe(403)
     expect(res.json()).toEqual({ error: 'zone_forbidden' })
@@ -730,7 +740,9 @@ describe('per-account zone isolation', () => {
   })
 
   it('forbids mutations on another account-owned zone too', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a' }), undefined, { accountAssertionKey: 'secret' })
+    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: 'acct-a', createdBy: 'env-derived-write' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1', headers: withAccount('acct-b') })
     expect(res.statusCode).toBe(403)
     expect(res.json()).toEqual({ error: 'zone_forbidden' })
@@ -738,7 +750,9 @@ describe('per-account zone isolation', () => {
   })
 
   it('fail-closed: forbids an account on an unowned (orphan/admin) zone', async () => {
-    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: null }), undefined, { accountAssertionKey: 'secret' })
+    const app = await buildPluginApp(makeDb({ token: 'secret', zoneOwner: null, createdBy: 'env-derived' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/things', headers: withAccount('acct-b') })
     expect(res.statusCode).toBe(403)
     expect(res.json()).toEqual({ error: 'zone_forbidden' })
@@ -746,11 +760,13 @@ describe('per-account zone isolation', () => {
   })
 
   it('allows any account to read the reserved system zone but not mutate it', async () => {
-    const read = await buildPluginApp(makeDb({ token: 'secret', zoneReserved: true }), undefined, { accountAssertionKey: 'secret' })
+    const read = await buildPluginApp(makeDb({ token: 'secret', zoneReserved: true, createdBy: 'env-derived' }), undefined, {
+      accountAssertionKey: 'secret',
+    })
     const ok = await read.inject({ method: 'GET', url: '/v1/zones/z1/things', headers: withAccount('acct-b') })
     expect(ok.statusCode).toBe(200)
     await read.close()
-    const write = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'admin:x', zoneReserved: true }), undefined, {
+    const write = await buildPluginApp(makeDb({ token: 'secret', createdBy: 'env-derived-write', zoneReserved: true }), undefined, {
       accountAssertionKey: 'secret',
     })
     const blocked = await write.inject({ method: 'DELETE', url: '/v1/zones/z1', headers: withAccount('acct-b') })
