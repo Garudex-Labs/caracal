@@ -66,9 +66,11 @@ type Caracal struct {
 	Resources         []ResourceBinding
 	DefaultTTLSeconds int
 
-	sessionStartHooks []LifecycleHook
-	sessionEndHooks   []LifecycleHook
-	eventHooks        []func(oauth.Event)
+	hookMu            sync.Mutex
+	nextHookID        uint64
+	sessionStartHooks map[uint64]LifecycleHook
+	sessionEndHooks   map[uint64]LifecycleHook
+	eventHooks        map[uint64]func(oauth.Event)
 	exchanger         *clientSecretExchanger
 
 	appMandateMu  sync.Mutex
@@ -629,7 +631,7 @@ func (e *clientSecretExchanger) invalidate() {
 	}
 }
 
-func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, sessionID, delegationID string, opts MandateOptions) (oauth.TokenExchangeResponse, error) {
+func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID string, scopes []string, sessionID, delegationID string, opts mandateOptions) (oauth.TokenExchangeResponse, error) {
 	creds, client, err := e.resolve(ctx)
 	if err != nil {
 		return oauth.TokenExchangeResponse{}, err
@@ -831,7 +833,7 @@ func (c *Caracal) closeSessions(ctx context.Context, entries []appMandateEntry) 
 	if err != nil {
 		return err
 	}
-	boot, err := c.exchanger.mintMandate(ctx, entries[0].resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
+	boot, err := c.exchanger.mintMandate(ctx, entries[0].resourceID, []string{lifecycleScope}, "", "", mandateOptions{})
 	if err != nil {
 		return err
 	}
@@ -1127,13 +1129,37 @@ func compactStrings(values []string) []string {
 }
 
 // OnSessionStart registers a hook fired when Session binds a new session.
-func (c *Caracal) OnSessionStart(h LifecycleHook) {
-	c.sessionStartHooks = append(c.sessionStartHooks, h)
+func (c *Caracal) OnSessionStart(h LifecycleHook) func() {
+	c.hookMu.Lock()
+	c.nextHookID++
+	id := c.nextHookID
+	if c.sessionStartHooks == nil {
+		c.sessionStartHooks = map[uint64]LifecycleHook{}
+	}
+	c.sessionStartHooks[id] = h
+	c.hookMu.Unlock()
+	return func() {
+		c.hookMu.Lock()
+		delete(c.sessionStartHooks, id)
+		c.hookMu.Unlock()
+	}
 }
 
 // OnSessionEnd registers a hook fired when Session unwinds a session.
-func (c *Caracal) OnSessionEnd(h LifecycleHook) {
-	c.sessionEndHooks = append(c.sessionEndHooks, h)
+func (c *Caracal) OnSessionEnd(h LifecycleHook) func() {
+	c.hookMu.Lock()
+	c.nextHookID++
+	id := c.nextHookID
+	if c.sessionEndHooks == nil {
+		c.sessionEndHooks = map[uint64]LifecycleHook{}
+	}
+	c.sessionEndHooks[id] = h
+	c.hookMu.Unlock()
+	return func() {
+		c.hookMu.Lock()
+		delete(c.sessionEndHooks, id)
+		c.hookMu.Unlock()
+	}
 }
 
 // OnEvent subscribes to control-plane operation events: token exchanges (with
@@ -1142,8 +1168,14 @@ func (c *Caracal) OnSessionEnd(h LifecycleHook) {
 // panics is ignored and never disturbs the operation that emitted the event.
 // The returned func removes the hook.
 func (c *Caracal) OnEvent(h func(oauth.Event)) func() {
-	c.eventHooks = append(c.eventHooks, h)
-	index := len(c.eventHooks) - 1
+	c.hookMu.Lock()
+	c.nextHookID++
+	id := c.nextHookID
+	if c.eventHooks == nil {
+		c.eventHooks = map[uint64]func(oauth.Event){}
+	}
+	c.eventHooks[id] = h
+	c.hookMu.Unlock()
 	if c.Coordinator != nil {
 		c.Coordinator.OnEvent = c.emitEvent
 	}
@@ -1151,17 +1183,20 @@ func (c *Caracal) OnEvent(h func(oauth.Event)) func() {
 		c.exchanger.setOnEvent(c.emitEvent)
 	}
 	return func() {
-		if index < len(c.eventHooks) && c.eventHooks[index] != nil {
-			c.eventHooks[index] = nil
-		}
+		c.hookMu.Lock()
+		delete(c.eventHooks, id)
+		c.hookMu.Unlock()
 	}
 }
 
 func (c *Caracal) emitEvent(event oauth.Event) {
+	c.hookMu.Lock()
+	hooks := make([]func(oauth.Event), 0, len(c.eventHooks))
 	for _, h := range c.eventHooks {
-		if h == nil {
-			continue
-		}
+		hooks = append(hooks, h)
+	}
+	c.hookMu.Unlock()
+	for _, h := range hooks {
 		func() {
 			defer func() {
 				// The observability sink must never break the operation path.
@@ -1172,8 +1207,14 @@ func (c *Caracal) emitEvent(event oauth.Event) {
 	}
 }
 
-func (c *Caracal) fire(hooks []LifecycleHook, ctx context.Context, cc CaracalContext) error {
+func (c *Caracal) fire(hooks map[uint64]LifecycleHook, ctx context.Context, cc CaracalContext) error {
+	c.hookMu.Lock()
+	snapshot := make([]LifecycleHook, 0, len(hooks))
 	for _, h := range hooks {
+		snapshot = append(snapshot, h)
+	}
+	c.hookMu.Unlock()
+	for _, h := range snapshot {
 		if err := h(ctx, cc); err != nil {
 			return err
 		}
@@ -1219,13 +1260,8 @@ func (c *Caracal) Session(ctx context.Context, fn func(context.Context) error, o
 	if ttl == 0 {
 		ttl = c.DefaultTTLSeconds
 	}
-	var onStart, onEnd LifecycleHook
-	if len(c.sessionStartHooks) > 0 {
-		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
-	}
-	if len(c.sessionEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
-	}
+	onStart := func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
+	onEnd := func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
 	subjectToken, err := c.rootToken(ctx)
 	if err != nil {
 		return err
@@ -1274,6 +1310,7 @@ type StartSessionOptions struct {
 	IdempotencyKey    string
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
+	OnStateChange     func(string)
 }
 
 // StartSession starts a long-lived Session and returns a handle the caller
@@ -1286,13 +1323,8 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	var onStart, onEnd LifecycleHook
-	if len(c.sessionStartHooks) > 0 {
-		onStart = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
-	}
-	if len(c.sessionEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
-	}
+	onStart := func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionStartHooks, cx, cc) }
+	onEnd := func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
 	subjectToken, err := c.rootToken(ctx)
 	if err != nil {
 		return nil, err
@@ -1314,6 +1346,7 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 		IdempotencyKey:           o.IdempotencyKey,
 		HeartbeatInterval:        o.HeartbeatInterval,
 		OnLeaseLost:              o.OnLeaseLost,
+		OnStateChange:            o.OnStateChange,
 		OnSessionStart:           onStart,
 		OnSessionEnd:             onEnd,
 	})
@@ -1323,6 +1356,7 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 type DelegateOptions struct {
 	ToSessionID     string
 	ToApplicationID string
+	ResourceID      string
 	Scopes          []string
 	Constraints     *DelegationConstraints
 	TTLSeconds      int
@@ -1347,6 +1381,7 @@ func (c *Caracal) Identity(ctx context.Context) (zoneID, applicationID string, e
 type AttachSessionOptions struct {
 	HeartbeatInterval time.Duration
 	OnLeaseLost       func(error)
+	OnStateChange     func(string)
 }
 
 // AttachSession re-attaches to a service session that already exists -
@@ -1361,10 +1396,7 @@ func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...A
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	var onEnd LifecycleHook
-	if len(c.sessionEndHooks) > 0 {
-		onEnd = func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
-	}
+	onEnd := func(cx context.Context, cc CaracalContext) error { return c.fire(c.sessionEndHooks, cx, cc) }
 	zoneID, applicationID, err := c.Identity(ctx)
 	if err != nil {
 		return nil, err
@@ -1383,6 +1415,7 @@ func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...A
 		SessionID:         sessionID,
 		HeartbeatInterval: o.HeartbeatInterval,
 		OnLeaseLost:       o.OnLeaseLost,
+		OnStateChange:     o.OnStateChange,
 		OnSessionEnd:      onEnd,
 	})
 }
@@ -1396,6 +1429,7 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegatio
 		Coordinator:     c.Coordinator,
 		ToSessionID:     opts.ToSessionID,
 		ToApplicationID: opts.ToApplicationID,
+		ResourceID:      opts.ResourceID,
 		Scopes:          opts.Scopes,
 		Constraints:     opts.Constraints,
 		TTLSeconds:      opts.TTLSeconds,
@@ -1459,7 +1493,11 @@ func (c *Caracal) AcceptDelegation(ctx context.Context, delegationID string, opt
 type MandateOptions struct {
 	TTLSeconds int
 	ApprovalID string
-	OneShot    bool
+}
+
+type mandateOptions struct {
+	MandateOptions
+	OneShot bool
 }
 
 // MintMandate mints a resource mandate for the current session: a short-lived
@@ -1483,7 +1521,7 @@ func (c *Caracal) MintMandate(ctx context.Context, resourceID string, scopes []s
 		o = opts[0]
 	}
 	cur, _ := Current(ctx)
-	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.SessionID, cur.DelegationID, o)
+	token, err := c.exchanger.mintMandate(ctx, resourceID, scopes, cur.SessionID, cur.DelegationID, mandateOptions{MandateOptions: o})
 	if err != nil {
 		return oauth.MintedMandate{}, lifecycleAuthorityHint(err, cur)
 	}
@@ -1908,7 +1946,7 @@ func (t *caracalTransport) gatewayToken(ctx context.Context, resourceID string, 
 		if t.client.exchanger == nil {
 			return "", fmt.Errorf("caracal: Transport scopes require a client-secret configuration")
 		}
-		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.SessionID, cur.DelegationID, MandateOptions{OneShot: true})
+		token, err := t.client.exchanger.mintMandate(ctx, resourceID, t.scopes, cur.SessionID, cur.DelegationID, mandateOptions{OneShot: true})
 		if err != nil {
 			return "", lifecycleAuthorityHint(err, cur)
 		}
@@ -1950,7 +1988,7 @@ func (t *applicationTransport) RoundTrip(req *http.Request) (*http.Response, err
 	if err != nil {
 		return nil, err
 	}
-	token, err := t.client.exchanger.mintMandate(req.Context(), t.resourceID, t.scopes, authority.targetSessionID, authority.delegationID, MandateOptions{TTLSeconds: t.mandateTTL, OneShot: true})
+	token, err := t.client.exchanger.mintMandate(req.Context(), t.resourceID, t.scopes, authority.targetSessionID, authority.delegationID, mandateOptions{MandateOptions: MandateOptions{TTLSeconds: t.mandateTTL}, OneShot: true})
 	if err != nil {
 		return nil, err
 	}
@@ -2129,7 +2167,7 @@ func appMandateKey(zoneID, applicationID, generation, resourceID string, scopes,
 // per-request mandates and are retired by Close, eviction, or their own TTL.
 func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, credentialKey, resourceID string, scopes, labels []string, mandateTTL int) (appMandateEntry, error) {
 	sessionTTL := mandateTTL + appSessionTTLBuffer
-	boot, err := c.exchanger.mintMandate(ctx, resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
+	boot, err := c.exchanger.mintMandate(ctx, resourceID, []string{lifecycleScope}, "", "", mandateOptions{})
 	if err != nil {
 		return appMandateEntry{}, err
 	}
@@ -2199,7 +2237,7 @@ func (c *Caracal) appMandateCycle(ctx context.Context, zoneID, applicationID, cr
 func (c *Caracal) retireAppAuthority(entry appMandateEntry) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	boot, err := c.exchanger.mintMandate(ctx, entry.resourceID, []string{lifecycleScope}, "", "", MandateOptions{})
+	boot, err := c.exchanger.mintMandate(ctx, entry.resourceID, []string{lifecycleScope}, "", "", mandateOptions{})
 	if err != nil {
 		slog.Warn("caracal: could not retire application-transport sessions; the coordinator TTL sweeper will", "err", err)
 		return
