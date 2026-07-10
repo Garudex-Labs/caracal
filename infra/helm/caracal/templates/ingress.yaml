@@ -47,6 +47,7 @@ spec:
 {{- end }}
 {{- end -}}
 
+{{ include "caracal.ingress" (dict "root" . "name" "sts") }}
 {{ include "caracal.ingress" (dict "root" . "name" "gateway") }}
 {{ include "caracal.ingress" (dict "root" . "name" "api") }}
 {{ include "caracal.ingress" (dict "root" . "name" "web") }}

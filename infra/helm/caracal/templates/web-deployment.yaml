@@ -95,9 +95,9 @@ spec:
               value: "true"
             # Internal control-plane endpoints, never exposed to the browser.
             - name: CARACAL_API_URL
-              value: {{ printf "http://%s-api:%v" $fullname $root.Values.services.api.port | quote }}
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "api") | quote }}
             - name: CARACAL_COORDINATOR_URL
-              value: {{ printf "http://%s-coordinator:%v" $fullname $root.Values.services.coordinator.port | quote }}
+              value: {{ include "caracal.serviceUrl" (dict "root" $root "name" "coordinator") | quote }}
             - name: CARACAL_AUTH_DATABASE_SSL
               value: {{ $service.databaseSsl | quote }}
             - name: CARACAL_AUTH_AUTO_MIGRATE

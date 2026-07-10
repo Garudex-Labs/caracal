@@ -59,7 +59,7 @@ bootstrap_exchange if {
 }
 
 # A governed Session minting its resource mandate. The exchange must reference the Session
-# session and its delegation edge, must not carry a subject token, and every requested
+# Session and its Delegation, must not carry a subject token, and every requested
 # scope must sit inside the edge's narrowed grant. This subset check is the delegation
 # narrowing floor: removing it would let an agent mint authority its parent never held.
 delegated_mint if {
@@ -129,24 +129,35 @@ workload_mint if {
 
 # A governed Session presenting its minted mandate at the Gateway. The mandate must be
 # delegation-bound and name this resource in its target audience, and the Gateway
-# exchange requests no scopes: authority rides in the mandate claims. Per-operation
-# scope authority is enforced natively by the Gateway and STS against the resource's
-# declared operations, so this rule decides delegation and view binding only.
+# exchange requests no scopes: authority rides in the mandate claims. Every carried
+# scope is rechecked against the current role grant, so policy narrowing takes effect
+# before an unexpired mandate can reach the upstream.
 mandate_use if {
 	input.context.subject_claims.delegation_edge_id != ""
 	some target in input.context.subject_claims.target
 	target == input.resource.identifier
 	not requested_scopes_present
+	count(presented_scopes) > 0
 }
 
 requested_scopes_present if {
 	count(input.context.requested_scopes) > 0
 }
 
-# The presenting Session must carry a role label granted on this resource.
+presented_scopes := {scope |
+	is_string(input.context.subject_claims.scope)
+	some scope in split(input.context.subject_claims.scope, " ")
+	scope != ""
+}
+
+# The presenting Session must carry a role whose current grant still contains every
+# scope in the mandate. Role existence alone is insufficient after a policy narrows.
 use_role_allowed if {
 	some role in input.principal.labels
-	resource_grant.roles[role]
+	scopes := resource_grant.roles[role]
+	every scope in presented_scopes {
+		scope in scopes
+	}
 }
 
 # Deny-only extensibility. An adopter may publish restriction reasons as a data
@@ -188,12 +199,41 @@ requested_risk := [{"scope": scope, "tier": scope_tier(scope)} |
 	some scope in risk_scopes
 ]
 
-# A declaration without a tier name can never match a scope, which would silently
-# drop the gate it was meant to add. Malformed approval data therefore fails closed:
-# scope mints deny until the data document is repaired.
+# A malformed risk rule can silently remove classification, and a declaration without
+# a tier can silently remove its gate. Both documents therefore fail closed until the
+# data is repaired.
+valid_risk_rule(rule) if {
+	is_object(rule)
+	is_string(rule.scope)
+	rule.scope != ""
+	is_string(rule.tier)
+	rule.tier != ""
+}
+
+malformed_risk_rules if {
+	not is_array(risk_rules)
+}
+
+malformed_risk_rules if {
+	is_array(risk_rules)
+	some rule in risk_rules
+	not valid_risk_rule(rule)
+}
+
+valid_approval_declaration(decl) if {
+	is_object(decl)
+	is_string(decl.tier)
+	decl.tier != ""
+}
+
 malformed_approval_declarations if {
+	not is_array(approval_declarations)
+}
+
+malformed_approval_declarations if {
+	is_array(approval_declarations)
 	some decl in approval_declarations
-	not decl.tier
+	not valid_approval_declaration(decl)
 }
 
 matched_declarations := sort({decl |
@@ -231,6 +271,7 @@ result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 	delegated_mint
 	mint_role_allowed
 	not restriction_denied
+	not malformed_risk_rules
 	not malformed_approval_declarations
 }
 
@@ -239,6 +280,7 @@ result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
 result := mint_allow("caracal-workload-mint") if {
 	workload_mint
 	not restriction_denied
+	not malformed_risk_rules
 	not malformed_approval_declarations
 }
 
