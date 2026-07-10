@@ -3,7 +3,7 @@ title: Integrate the Go SDK
 description: Install the Go SDK, load a runtime profile, run governed sessions with context.Context, delegate authority, and inject Caracal headers.
 ---
 
-Use the Go SDK in services and agents that need Caracal context propagation, agent sessions, delegation, and Gateway-aware HTTP clients.
+Use the Go SDK in services and agents that need Caracal context propagation, Sessions, delegation, and Gateway-aware HTTP clients.
 
 ## Install
 
@@ -61,9 +61,9 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 
 The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
 
-## Long-lived service agents
+## Long-lived long-lived Sessions
 
-Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the session with `Close`. A service session is reaped by the coordinator if it stops heartbeating before its lease expires.
+Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. A long-lived Session is reaped if it stops heartbeating before its lease expires; its stored protocol lifecycle is `service`.
 
 ```go
 svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
@@ -89,9 +89,9 @@ svc, err := client.AttachSession(ctx, persistedSessionID, caracal.AttachSessionO
 })
 ```
 
-The rebuilt context carries the session identity only; delegations bound by the previous holder are re-presented with `AcceptDelegation`.
+The rebuilt context carries the Session identity only; Delegations bound by the previous holder are re-presented with `AcceptDelegation`.
 
-## Spawn a narrowed child
+## Start a narrowed child
 
 ```go
 err := client.Session(context.Background(), func(ctx context.Context) error {
@@ -107,15 +107,15 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 })
 ```
 
-A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to an agent session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Missing config error | Confirm the runtime profile or required environment variables. |
-| `Headers` without context fails | Call inside `Spawn`, `Delegate`, or pass `CallOptions{AsApplication: true}` intentionally. |
-| Delegation fails | Ensure delegation runs from a context with an active agent session. |
-| Gateway URL error | Confirm the runtime profile includes `gateway_url`. |
+| Symptom                         | Check                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| Missing config error            | Confirm the runtime profile or required environment variables.                               |
+| `Headers` without context fails | Call inside `Session`, `Delegate`, or pass `CallOptions{AsApplication: true}` intentionally. |
+| Delegation fails                | Ensure delegation runs from a context with an active Session.                                |
+| Gateway URL error               | Confirm the runtime profile includes `gateway_url`.                                          |
 
-Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Agent Delegation](/concepts/delegation/).
+Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Session Delegation](/concepts/delegation/).

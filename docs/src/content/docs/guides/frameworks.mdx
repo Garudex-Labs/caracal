@@ -10,7 +10,7 @@ The pattern is always the same:
 1. Bind the provider upstream to a Caracal resource.
 2. Build the provider client with `caracal.transport()` (or the language equivalent).
 3. Hand that client to the framework.
-4. Run framework work inside `session()` so each agent gets its own session identity.
+4. Run framework work inside `session()` so each agent execution gets its own Session ID.
 
 ## LangChain
 
@@ -31,23 +31,23 @@ llm = ChatOpenAI(
 ```
 
 ```ts
-import { Caracal } from "@caracalai/sdk";
-import { ChatOpenAI } from "@langchain/openai";
+import { Caracal } from '@caracalai/sdk'
+import { ChatOpenAI } from '@langchain/openai'
 
-const caracal = new Caracal();
+const caracal = new Caracal()
 
 const llm = new ChatOpenAI({
-  model: "gpt-4o",
-  apiKey: "caracal-gateway",
+  model: 'gpt-4o',
+  apiKey: 'caracal-gateway',
   configuration: { fetch: caracal.transport() },
-});
+})
 ```
 
 The `configuration` object forwards to the OpenAI SDK, so the governed `fetch` carries every LangChain invocation. Anthropic and Gemini model classes take the corresponding hooks from their provider recipes.
 
 ## LangGraph
 
-LangGraph nodes call whatever model client the graph was built with, so a governed client governs the whole graph. What LangGraph adds is concurrency: parallel branches and subgraphs fan out, and each logical agent should be distinguishable in policy and audit. Spawn a labeled session around each run - or around each branch that represents a distinct agent:
+LangGraph nodes call whatever model client the graph was built with, so a governed client governs the whole graph. What LangGraph adds is concurrency: parallel branches and subgraphs fan out, and each logical agent should be distinguishable in policy and audit. Start a labeled Session around each run, or around each branch that represents a distinct agent:
 
 ```python
 from langgraph.prebuilt import create_react_agent
@@ -58,7 +58,7 @@ async with caracal.session(labels=["research-agent"]):
     result = await agent.ainvoke({"messages": [("user", question)]})
 ```
 
-Every model call and every governed tool call inside the run carries that session's identity. To narrow a subagent below its parent's authority, spawn the child with a reduced grant; see [Implement Multi-Agent Delegation](/guides/delegation/).
+Every model call and governed tool call inside the run carries that Session's identity. To narrow a subagent below its parent, start its Session with reduced authority; see [Implement Multi-Agent Session Delegation](/guides/delegation/).
 
 ## CrewAI
 

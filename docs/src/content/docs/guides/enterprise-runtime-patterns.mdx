@@ -7,13 +7,13 @@ Production deployments usually combine the Gateway, adapters, SDKs, revocation c
 
 ## Pick an Enforcement Pattern
 
-| Pattern | Use when | Primary guide |
-| --- | --- | --- |
-| Gateway-routed HTTP | You can route traffic through Caracal before it reaches the upstream. | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
-| In-process adapter | The resource server owns verification inside its framework. | [Protect an Express App](/guides/protect-express/), [Protect a FastMCP App](/guides/protect-fastmcp/), [Protect a Go net/http Service](/guides/protect-nethttp/) |
-| Verify engine | You need framework-neutral bearer verification. | [Protect an MCP Server](/guides/protect-mcp/) |
-| SDK transport injection | Provider SDK accepts custom fetch, transport, or HTTP client hooks. | [SDK guides](/guides/) |
-| Batch or queue worker | Work runs outside request/response but still needs scoped mandates. | [Run an Agent with caracal run](/guides/runtime-run/) |
+| Pattern                 | Use when                                                              | Primary guide                                                                                                                                                    |
+| ----------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gateway-routed HTTP     | You can route traffic through Caracal before it reaches the upstream. | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)                                                                                               |
+| In-process adapter      | The resource server owns verification inside its framework.           | [Protect an Express App](/guides/protect-express/), [Protect a FastMCP App](/guides/protect-fastmcp/), [Protect a Go net/http Service](/guides/protect-nethttp/) |
+| Verify engine           | You need framework-neutral bearer verification.                       | [Protect an MCP Server](/guides/protect-mcp/)                                                                                                                    |
+| SDK transport injection | Provider SDK accepts custom fetch, transport, or HTTP client hooks.   | [SDK guides](/guides/)                                                                                                                                           |
+| Batch or queue worker   | Work runs outside request/response but still needs scoped mandates.   | [Run an Agent with caracal run](/guides/runtime-run/)                                                                                                            |
 
 ## Reference Architecture
 
@@ -36,15 +36,15 @@ flowchart LR
 
 ## Production Checklist
 
-| Area | Requirement |
-| --- | --- |
-| Zones | Separate production, staging, and customer trust boundaries. |
-| Keys | Rotate zone signing keys and verify JWKS refresh behavior. |
-| Workload launch | Author launch bindings on the console's Launcher page; keep workload-secret files locked down. |
-| Revocation | Use shared revocation stores and stream consumers, not process-local memory. |
-| Policy | Validate, simulate, version, activate, and audit policy-set changes. |
-| Audit | Export decisions and diagnostics to operational monitoring or SIEM. |
-| Step-up | Route gated mints to the zone's approvers through the Console Approvals queue or the Admin API decision routes. |
+| Area            | Requirement                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Zones           | Separate production, staging, and customer trust boundaries.                                                    |
+| Keys            | Rotate zone signing keys and verify JWKS refresh behavior.                                                      |
+| Workload launch | Author launch bindings on the console's Launcher page; keep workload-secret files locked down.                  |
+| Revocation      | Use shared revocation stores and stream consumers, not process-local memory.                                    |
+| Policy          | Validate, simulate, version, activate, and audit policy-set changes.                                            |
+| Audit           | Export decisions and diagnostics to operational monitoring or SIEM.                                             |
+| Step-up         | Route gated mints to the zone's approvers through the Console Approvals queue or the Admin API decision routes. |
 
 ## Run Many Applications on One Host
 
@@ -115,27 +115,24 @@ The span your APM shows for that call and the audit ledger entry the Gateway wro
 The Caracal envelope is plain metadata, so gRPC needs no dedicated package: project the SDK's header helpers into call metadata with a client interceptor, and verify at the service edge with the verify engine, as in [Protect an MCP Server](/guides/protect-mcp/).
 
 ```ts
-import * as grpc from "@grpc/grpc-js";
-import { Caracal } from "@caracalai/sdk";
+import * as grpc from '@grpc/grpc-js'
+import { Caracal } from '@caracalai/sdk'
 
-const caracal = new Caracal();
+const caracal = new Caracal()
 
 const caracalCreds = grpc.credentials.createFromMetadataGenerator((_params, callback) => {
   caracal.headersAsync().then((headers) => {
-    const metadata = new grpc.Metadata();
-    for (const [key, value] of Object.entries(headers)) metadata.set(key.toLowerCase(), value);
-    callback(null, metadata);
-  }, callback);
-});
+    const metadata = new grpc.Metadata()
+    for (const [key, value] of Object.entries(headers)) metadata.set(key.toLowerCase(), value)
+    callback(null, metadata)
+  }, callback)
+})
 
-const channelCreds = grpc.credentials.combineChannelCredentials(
-  grpc.credentials.createSsl(),
-  caracalCreds,
-);
-const client = new OrdersClient("orders.example.com:443", channelCreds);
+const channelCreds = grpc.credentials.combineChannelCredentials(grpc.credentials.createSsl(), caracalCreds)
+const client = new OrdersClient('orders.example.com:443', channelCreds)
 ```
 
-Metadata generators run per call on the caller's async context, so each RPC carries the spawning session's mandate. They require a secure channel.
+Metadata generators run per call on the caller's async context, so each RPC carries the originating Session's mandate. They require a secure channel.
 
 ```python
 import grpc

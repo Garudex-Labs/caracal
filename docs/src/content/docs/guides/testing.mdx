@@ -9,44 +9,44 @@ Caracal integrations test cleanly because every control-plane dependency enters 
 
 A governed session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly:
 
-| Call | Respond with |
-| --- | --- |
-| `POST /zones/{zone}/agents` | `{"agent_session_id": "agent-1"}` (add `heartbeat_deadline_at` for service sessions) |
-| `POST /zones/{zone}/delegations` | `{"delegation_edge_id": "edge-1"}` |
-| `POST .../agents/{id}/heartbeat` | `{"agent": {"status": "active", "heartbeat_deadline_at": "..."}}` |
-| `DELETE .../agents/{id}` | `204` |
-| `POST /oauth/2/token` | `{"access_token": "tok", "token_type": "Bearer", "expires_in": 900}` |
+| Call                             | Respond with                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST /zones/{zone}/agents`      | Protocol Session-start response `{"agent_session_id": "agent-1"}`; add `heartbeat_deadline_at` for long-lived Sessions. |
+| `POST /zones/{zone}/delegations` | Protocol Delegation response `{"delegation_edge_id": "edge-1"}`.                                                        |
+| `POST .../agents/{id}/heartbeat` | `{"agent": {"status": "active", "heartbeat_deadline_at": "..."}}`                                                       |
+| `DELETE .../agents/{id}`         | `204`                                                                                                                   |
+| `POST /oauth/2/token`            | `{"access_token": "tok", "token_type": "Bearer", "expires_in": 900}`                                                    |
 
-Return an error status to exercise failure paths: a `503` drives the idempotent spawn retry, `429` with `Retry-After` drives hinted backoff, and a `401` from an `interaction_required` body raises the approval hold.
+Return an error status to exercise failure paths: a `503` drives the idempotent Session-start retry, `429` with `Retry-After` drives hinted backoff, and a `401` from an `interaction_required` body raises the approval hold.
 
 ## TypeScript
 
 ```ts
-import { describe, expect, it, vi } from "vitest";
-import { Caracal } from "@caracalai/sdk";
+import { describe, expect, it, vi } from 'vitest'
+import { Caracal } from '@caracalai/sdk'
 
-it("runs work inside a governed session", async () => {
-  const calls: { url: string; method: string }[] = [];
+it('runs work inside a governed session', async () => {
+  const calls: { url: string; method: string }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
-    calls.push({ url: String(input), method: init.method ?? "GET" });
-    if (init.method === "POST" && String(input).endsWith("/agents")) {
-      return new Response(JSON.stringify({ agent_session_id: "agent-1" }), { status: 200 });
+    calls.push({ url: String(input), method: init.method ?? 'GET' })
+    if (init.method === 'POST' && String(input).endsWith('/agents')) {
+      return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
     }
-    return new Response(null, { status: 204 });
-  }) as typeof fetch;
+    return new Response(null, { status: 204 })
+  }) as typeof fetch
 
   const caracal = new Caracal({
-    coordinator: { baseUrl: "http://coord.test", fetchImpl },
-    zoneId: "z",
-    applicationId: "app",
-    subjectToken: "test-token",
-  });
+    coordinator: { baseUrl: 'http://coord.test', fetchImpl },
+    zoneId: 'z',
+    applicationId: 'app',
+    subjectToken: 'test-token',
+  })
 
-  const result = await caracal.session(async (ctx) => ctx.sessionId);
+  const result = await caracal.session(async (ctx) => ctx.sessionId)
 
-  expect(result).toBe("agent-1");
-  expect(calls.at(-1)?.method).toBe("DELETE"); // the session was retired
-});
+  expect(result).toBe('agent-1')
+  expect(calls.at(-1)?.method).toBe('DELETE') // the session was retired
+})
 ```
 
 ## Python
@@ -116,7 +116,7 @@ func TestRunsWorkInsideAGovernedSession(t *testing.T) {
 
 ## Assert on behavior, not internals
 
-Two seams make assertions precise without reaching into SDK state. The fake transport records every request, so you can assert the wire contract your integration depends on - an `idempotency-key` header on spawns, the delegation body, the terminate on session exit. And `onEvent` reports every control-plane operation as data, so a test can subscribe and assert that a flow produced exactly the expected `coordinator.call`, `token.exchange`, or `delegation.accept` events, the same way production observability consumes them.
+Two seams make assertions precise without reaching into SDK state. The fake transport records every request, so you can assert the wire contract: an `idempotency-key` header on Session starts, the Delegation body, and termination on Session exit. `onEvent` reports control-plane operations as data, so tests can assert the expected `coordinator.call`, `token.exchange`, or `delegation.accept` events.
 
 Client-secret flows need the STS stub too: answer `POST /oauth/2/token` with a bearer and `expires_in`, and mint distinct tokens per call when the test asserts caching (a second exchange means a cache miss). For approval flows, return the `interaction_required` error body once and a token on the retry - `withApproval` completes end to end against the fake.
 

@@ -1,18 +1,18 @@
 ---
-title: Implement Multi-Agent Delegation
-description: Spawn child agents, attach typed constraints, inspect graph impact, and revoke safely.
+title: Implement Multi-Agent Session Delegation
+description: Start child Sessions, attach typed constraints, inspect graph impact, and revoke safely.
 ---
 
-Use delegation when one agent needs to hand a narrower slice of authority to another agent. The SDK creates the edge and carries the context; the web console shows the graph and impact.
+Use Delegation when one Session needs to hand a narrower slice of authority to another Session. The SDK creates the Delegation and carries the context; the web console shows the graph and impact.
 
-`session()` always creates the child under the **same application** as the parent - `session()` never moves a child into a different application. Narrow the child's authority only when it should hold *less* than the parent. To hand authority across applications, use `delegate()` against a peer session that already exists under that other application: it returns the edge, and the receiving session presents it with `acceptDelegation()`.
+`session()` always starts the child under the **same application** as the parent. Narrow the child's authority only when it should hold less than the parent. To hand authority across applications, use `delegate()` with a peer Session under the other application; it returns the Delegation, and the receiver presents it with `acceptDelegation()`.
 
 ## Implementation flow
 
 ```mermaid
 flowchart LR
-  Parent["Parent agent session"] --> Spawn["Start child with narrowed authority"]
-  Spawn --> Edge["Bounded delegation edge"]
+  Parent["Parent Session"] --> Spawn["Start child with narrowed authority"]
+  Spawn --> Edge["Bounded Delegation"]
   Edge --> Child["Run child with delegated context"]
   Child --> Exchange["Exchange for resource mandate"]
   Exchange --> Audit["Inspect audit and graph"]
@@ -21,22 +21,25 @@ flowchart LR
 ## TypeScript example
 
 ```ts
-import { Caracal, Authority } from "@caracalai/sdk";
+import { Caracal, Authority } from '@caracalai/sdk'
 
-const caracal = new Caracal();
+const caracal = new Caracal()
 
 await caracal.session(async () => {
-  await caracal.session(async () => {
-    const headers = await caracal.headersAsync();
-    await fetch("https://api.example.com/tickets", { headers });
-  }, {
-    authority: Authority.narrow(["tickets:read"], {
-      resourceId: "https://api.example.com/tickets",
-      constraints: { maxHops: 1, budget: 5 },
-      ttlSeconds: 600,
-    }),
-  });
-});
+  await caracal.session(
+    async () => {
+      const headers = await caracal.headersAsync()
+      await fetch('https://api.example.com/tickets', { headers })
+    },
+    {
+      authority: Authority.narrow(['tickets:read'], {
+        resourceId: 'https://api.example.com/tickets',
+        constraints: { maxHops: 1, budget: 5 },
+        ttlSeconds: 600,
+      }),
+    },
+  )
+})
 ```
 
 ## Review the graph
@@ -47,27 +50,27 @@ await caracal.session(async () => {
 4. Use impact before revoking an edge.
 5. Check **Audit** for the delegated exchange and resource decision.
 
-## Hand over the delegation id safely
+## Hand Over the Delegation ID Safely
 
-The issuer and receiver share the delegation id over whatever channel the two agents already use - a queue message, an RPC field, a task payload. The id is a reference, not a bearer credential: the STS binds every mint to the receiving session's own identity, so an intercepted id is useless to any other session. The channel still matters for *integrity* - an attacker who can swap the id can steer the receiver onto a different edge than the issuer intended - so keep the handoff on the same authenticated channel as the work itself, and have the receiver present with `acceptDelegation(delegationId, fn, { validate: true })` when the channel allows retries or replays: the pre-flight confirms the edge is live for this session before any call runs under it. Every presentation also emits a `delegation.accept` event, so acceptance is auditable client-side.
+The issuer and receiver share the Delegation ID over their authenticated work channel, such as a queue message, RPC field, or task payload. The ID is a reference, not a bearer credential: STS binds every mint to the receiving Session. Use `acceptDelegation(delegationId, fn, { validate: true })` when the channel allows retries or replays so the receiver confirms the Delegation is live before work runs under it. Every presentation emits a `delegation.accept` event.
 
 ## Safe constraints
 
-| Constraint | Good default |
-| --- | --- |
-| Scopes | Small subset of parent authority. |
-| TTL | Minutes, not days. |
-| Hop count | `1` unless a deeper graph is intentional. |
-| Budget | Explicit request or work limit. |
-| Resource | Single resource whenever possible. |
+| Constraint | Good default                              |
+| ---------- | ----------------------------------------- |
+| Scopes     | Small subset of parent authority.         |
+| TTL        | Minutes, not days.                        |
+| Hop count  | `1` unless a deeper graph is intentional. |
+| Budget     | Explicit request or work limit.           |
+| Resource   | Single resource whenever possible.        |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `Delegate requires an active agent session` | Call delegation inside `session()` or a bound Caracal context. |
-| Resource denies delegated request | Confirm policy accepts the edge constraints and required scopes. |
-| Chain validation fails | Confirm the expected application appears in the delegation path. |
-| Revocation did not affect child | Confirm cascade revocation and resource-server revocation consumers. |
+| Symptom                               | Check                                                                |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `Delegate requires an active Session` | Call delegation inside `session()` or a bound Caracal context.       |
+| Resource denies delegated request     | Confirm policy accepts the edge constraints and required scopes.     |
+| Chain validation fails                | Confirm the expected application appears in the delegation path.     |
+| Revocation did not affect child       | Confirm cascade revocation and resource-server revocation consumers. |
 
-Related pages: [Agent Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).
+Related pages: [Session Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).
