@@ -118,7 +118,6 @@ CREATE TABLE public.agent_invocations (
     service_id text NOT NULL,
     source_session_id text,
     target_session_id text,
-    idempotency_key text NOT NULL,
     method text NOT NULL,
     params_json jsonb DEFAULT '{}'::jsonb NOT NULL,
     metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -163,33 +162,58 @@ CREATE TABLE public.agent_services (
 
 
 --
--- Name: agent_sessions; Type: TABLE; Schema: public; Owner: -
+-- Name: coordinator_idempotency_receipts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.agent_sessions (
+CREATE TABLE public.coordinator_idempotency_receipts (
+    id text NOT NULL,
+    operation text NOT NULL,
+    zone_id text NOT NULL,
+    scope_id text NOT NULL,
+    key_digest bytea NOT NULL,
+    request_digest bytea NOT NULL,
+    resource_type text NOT NULL,
+    resource_id text NOT NULL,
+    response_status smallint NOT NULL,
+    response_json jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT coordinator_idempotency_operation_check CHECK ((operation = ANY (ARRAY['session.start.v2'::text, 'delegation.create.v2'::text, 'invocation.create.v2'::text]))),
+    CONSTRAINT coordinator_idempotency_key_digest_check CHECK ((octet_length(key_digest) = 32)),
+    CONSTRAINT coordinator_idempotency_request_digest_check CHECK ((octet_length(request_digest) = 32)),
+    CONSTRAINT coordinator_idempotency_response_status_check CHECK (((response_status >= 200) AND (response_status <= 299))),
+    CONSTRAINT coordinator_idempotency_response_size_check CHECK ((octet_length((response_json)::text) <= 65536)),
+    CONSTRAINT coordinator_idempotency_expiry_check CHECK ((expires_at > created_at))
+);
+
+
+--
+-- Name: sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sessions (
     id text NOT NULL,
     zone_id text NOT NULL,
     application_id text NOT NULL,
     parent_id text,
-    subject_session_id text CONSTRAINT agent_sessions_session_sid_not_null NOT NULL,
+    subject_authority_record_id text CONSTRAINT sessions_authority_record_id_not_null NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
     depth integer DEFAULT 0 NOT NULL,
-    labels text[] DEFAULT '{}'::text[] CONSTRAINT agent_sessions_capabilities_not_null NOT NULL,
+    labels text[] DEFAULT '{}'::text[] CONSTRAINT sessions_labels_not_null NOT NULL,
     max_children integer DEFAULT 10 NOT NULL,
     child_count integer DEFAULT 0 NOT NULL,
-    spawned_at timestamp with time zone DEFAULT now() NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
     last_active_at timestamp with time zone DEFAULT now() NOT NULL,
     terminated_at timestamp with time zone,
     ttl_seconds integer DEFAULT 3600,
     metadata_json jsonb,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    lifecycle text DEFAULT 'task'::text CONSTRAINT agent_sessions_agent_kind_not_null NOT NULL,
+    lifecycle text DEFAULT 'task'::text CONSTRAINT sessions_lifecycle_not_null NOT NULL,
     last_heartbeat_at timestamp with time zone,
     heartbeat_deadline_at timestamp with time zone,
-    idempotency_key text,
     termination_reason text,
-    CONSTRAINT agent_sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
-    CONSTRAINT agent_sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
+    CONSTRAINT sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
 );
 
 
@@ -417,7 +441,6 @@ CREATE TABLE public.delegation_edges (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     parent_edge_id text,
-    idempotency_key text,
     CONSTRAINT delegation_edges_check CHECK ((source_session_id <> target_session_id)),
     CONSTRAINT delegation_edges_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
@@ -841,10 +864,10 @@ CREATE TABLE public.secrets (
 
 
 --
--- Name: sessions; Type: TABLE; Schema: public; Owner: -
+-- Name: authority_records; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.sessions (
+CREATE TABLE public.authority_records (
     id text NOT NULL,
     zone_id text NOT NULL,
     session_type text NOT NULL,
@@ -857,8 +880,8 @@ CREATE TABLE public.sessions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     revoked_at timestamp with time zone,
     revoked_reason text,
-    CONSTRAINT sessions_session_type_check CHECK ((session_type = ANY (ARRAY['user'::text, 'application'::text]))),
-    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+    CONSTRAINT authority_records_session_type_check CHECK ((session_type = ANY (ARRAY['user'::text, 'application'::text]))),
+    CONSTRAINT authority_records_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
 
@@ -1000,11 +1023,19 @@ ALTER TABLE ONLY public.agent_invocations
 
 
 --
--- Name: agent_invocations agent_invocations_zone_id_service_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: coordinator_idempotency_receipts coordinator_idempotency_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_invocations
-    ADD CONSTRAINT agent_invocations_zone_id_service_id_idempotency_key_key UNIQUE (zone_id, service_id, idempotency_key);
+ALTER TABLE ONLY public.coordinator_idempotency_receipts
+    ADD CONSTRAINT coordinator_idempotency_receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: coordinator_idempotency_receipts coordinator_idempotency_scope_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.coordinator_idempotency_receipts
+    ADD CONSTRAINT coordinator_idempotency_scope_unique UNIQUE (operation, zone_id, scope_id, key_digest);
 
 
 --
@@ -1032,19 +1063,19 @@ ALTER TABLE ONLY public.agent_services
 
 
 --
--- Name: agent_sessions agent_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
 
 
 --
--- Name: agent_sessions agent_sessions_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sessions sessions_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_zone_id_id_unique UNIQUE (zone_id, id);
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_id_id_unique UNIQUE (zone_id, id);
 
 
 --
@@ -1384,19 +1415,19 @@ ALTER TABLE ONLY public.secrets
 
 
 --
--- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: authority_records authority_records_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.authority_records
+    ADD CONSTRAINT authority_records_pkey PRIMARY KEY (id);
 
 
 --
--- Name: sessions sessions_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: authority_records authority_records_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_zone_id_id_unique UNIQUE (zone_id, id);
+ALTER TABLE ONLY public.authority_records
+    ADD CONSTRAINT authority_records_zone_id_id_unique UNIQUE (zone_id, id);
 
 
 --
@@ -1531,45 +1562,38 @@ CREATE INDEX agent_services_zone_id_health_idx ON public.agent_services USING bt
 
 
 --
--- Name: agent_sessions_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: coordinator_idempotency_expiry_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX agent_sessions_idempotency_key_idx ON public.agent_sessions USING btree (zone_id, application_id, idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = ANY (ARRAY['active'::text, 'suspended'::text])));
-
-
---
--- Name: delegation_edges_idempotency_key_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX delegation_edges_idempotency_key_idx ON public.delegation_edges USING btree (zone_id, issuer_application_id, idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = 'active'::text));
+CREATE INDEX coordinator_idempotency_expiry_idx ON public.coordinator_idempotency_receipts USING btree (expires_at, id);
 
 
 --
--- Name: agent_sessions_last_active_at_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sessions_last_active_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX agent_sessions_last_active_at_idx ON public.agent_sessions USING btree (last_active_at) WHERE (status = 'active'::text);
-
-
---
--- Name: agent_sessions_service_heartbeat_deadline_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX agent_sessions_service_heartbeat_deadline_idx ON public.agent_sessions USING btree (heartbeat_deadline_at) WHERE ((status = 'active'::text) AND (lifecycle = 'service'::text));
+CREATE INDEX sessions_last_active_at_idx ON public.sessions USING btree (last_active_at) WHERE (status = 'active'::text);
 
 
 --
--- Name: agent_sessions_subject_session_id_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sessions_service_heartbeat_deadline_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX agent_sessions_subject_session_id_idx ON public.agent_sessions USING btree (subject_session_id);
+CREATE INDEX sessions_service_heartbeat_deadline_idx ON public.sessions USING btree (heartbeat_deadline_at) WHERE ((status = 'active'::text) AND (lifecycle = 'service'::text));
 
 
 --
--- Name: agent_sessions_zone_id_parent_id_status_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sessions_subject_authority_record_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX agent_sessions_zone_id_parent_id_status_idx ON public.agent_sessions USING btree (zone_id, parent_id, status);
+CREATE INDEX sessions_subject_authority_record_id_idx ON public.sessions USING btree (subject_authority_record_id);
+
+
+--
+-- Name: sessions_zone_id_parent_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_zone_id_parent_id_status_idx ON public.sessions USING btree (zone_id, parent_id, status);
 
 
 --
@@ -2007,38 +2031,38 @@ CREATE INDEX secrets_zone_id_entity_id_idx ON public.secrets USING btree (zone_i
 
 
 --
--- Name: sessions_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: authority_records_expires_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX sessions_expires_at_idx ON public.sessions USING btree (expires_at) WHERE (status = 'active'::text);
-
-
---
--- Name: sessions_zone_active_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX sessions_zone_active_idx ON public.sessions USING btree (zone_id, expires_at) WHERE (status = 'active'::text);
+CREATE INDEX authority_records_expires_at_idx ON public.authority_records USING btree (expires_at) WHERE (status = 'active'::text);
 
 
 --
--- Name: sessions_zone_created_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: authority_records_zone_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX sessions_zone_created_idx ON public.sessions USING btree (zone_id, created_at DESC, id DESC);
-
-
---
--- Name: sessions_zone_id_subject_id_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX sessions_zone_id_subject_id_status_idx ON public.sessions USING btree (zone_id, subject_id, status);
+CREATE INDEX authority_records_zone_active_idx ON public.authority_records USING btree (zone_id, expires_at) WHERE (status = 'active'::text);
 
 
 --
--- Name: sessions_zone_subject_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: authority_records_zone_created_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX sessions_zone_subject_idx ON public.sessions USING btree (zone_id, subject_id);
+CREATE INDEX authority_records_zone_created_idx ON public.authority_records USING btree (zone_id, created_at DESC, id DESC);
+
+
+--
+-- Name: authority_records_zone_id_subject_id_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX authority_records_zone_id_subject_id_status_idx ON public.authority_records USING btree (zone_id, subject_id, status);
+
+
+--
+-- Name: authority_records_zone_subject_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX authority_records_zone_subject_idx ON public.authority_records USING btree (zone_id, subject_id);
 
 
 --
@@ -2209,7 +2233,7 @@ ALTER TABLE ONLY public.agent_invocations
 --
 
 ALTER TABLE ONLY public.agent_invocations
-    ADD CONSTRAINT agent_invocations_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.agent_sessions(id) ON DELETE SET NULL;
+    ADD CONSTRAINT agent_invocations_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.sessions(id) ON DELETE SET NULL;
 
 
 --
@@ -2217,7 +2241,7 @@ ALTER TABLE ONLY public.agent_invocations
 --
 
 ALTER TABLE ONLY public.agent_invocations
-    ADD CONSTRAINT agent_invocations_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.agent_sessions(id) ON DELETE SET NULL;
+    ADD CONSTRAINT agent_invocations_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.sessions(id) ON DELETE SET NULL;
 
 
 --
@@ -2241,7 +2265,7 @@ ALTER TABLE ONLY public.agent_invocations
 --
 
 ALTER TABLE ONLY public.agent_invocations
-    ADD CONSTRAINT agent_invocations_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.agent_sessions(zone_id, id);
+    ADD CONSTRAINT agent_invocations_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.sessions(zone_id, id);
 
 
 --
@@ -2249,7 +2273,7 @@ ALTER TABLE ONLY public.agent_invocations
 --
 
 ALTER TABLE ONLY public.agent_invocations
-    ADD CONSTRAINT agent_invocations_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.agent_sessions(zone_id, id);
+    ADD CONSTRAINT agent_invocations_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.sessions(zone_id, id);
 
 
 --
@@ -2277,35 +2301,43 @@ ALTER TABLE ONLY public.agent_services
 
 
 --
--- Name: agent_sessions agent_sessions_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: coordinator_idempotency_receipts coordinator_idempotency_receipts_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.agent_sessions(id);
-
-
---
--- Name: agent_sessions agent_sessions_zone_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_zone_application_fk FOREIGN KEY (zone_id, application_id) REFERENCES public.applications(zone_id, id);
+ALTER TABLE ONLY public.coordinator_idempotency_receipts
+    ADD CONSTRAINT coordinator_idempotency_receipts_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id) ON DELETE CASCADE;
 
 
 --
--- Name: agent_sessions agent_sessions_zone_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: sessions sessions_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_zone_parent_fk FOREIGN KEY (zone_id, parent_id) REFERENCES public.agent_sessions(zone_id, id);
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.sessions(id);
 
 
 --
--- Name: agent_sessions agent_sessions_zone_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: sessions sessions_zone_application_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.agent_sessions
-    ADD CONSTRAINT agent_sessions_zone_session_fk FOREIGN KEY (zone_id, subject_session_id) REFERENCES public.sessions(zone_id, id);
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_application_fk FOREIGN KEY (zone_id, application_id) REFERENCES public.applications(zone_id, id);
+
+
+--
+-- Name: sessions sessions_zone_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_parent_fk FOREIGN KEY (zone_id, parent_id) REFERENCES public.sessions(zone_id, id);
+
+
+--
+-- Name: sessions sessions_zone_authority_record_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_zone_authority_record_fk FOREIGN KEY (zone_id, subject_authority_record_id) REFERENCES public.authority_records(zone_id, id);
 
 
 --
@@ -2313,7 +2345,7 @@ ALTER TABLE ONLY public.agent_sessions
 --
 
 ALTER TABLE ONLY public.agent_topology
-    ADD CONSTRAINT agent_topology_child_id_fkey FOREIGN KEY (child_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+    ADD CONSTRAINT agent_topology_child_id_fkey FOREIGN KEY (child_id) REFERENCES public.sessions(id) ON DELETE CASCADE;
 
 
 --
@@ -2321,7 +2353,7 @@ ALTER TABLE ONLY public.agent_topology
 --
 
 ALTER TABLE ONLY public.agent_topology
-    ADD CONSTRAINT agent_topology_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+    ADD CONSTRAINT agent_topology_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.sessions(id) ON DELETE CASCADE;
 
 
 --
@@ -2393,7 +2425,7 @@ ALTER TABLE ONLY public.delegation_edges
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+    ADD CONSTRAINT delegation_edges_source_session_id_fkey FOREIGN KEY (source_session_id) REFERENCES public.sessions(id) ON DELETE CASCADE;
 
 
 --
@@ -2401,7 +2433,7 @@ ALTER TABLE ONLY public.delegation_edges
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.agent_sessions(id) ON DELETE CASCADE;
+    ADD CONSTRAINT delegation_edges_target_session_id_fkey FOREIGN KEY (target_session_id) REFERENCES public.sessions(id) ON DELETE CASCADE;
 
 
 --
@@ -2433,7 +2465,7 @@ ALTER TABLE ONLY public.delegation_edges
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.agent_sessions(zone_id, id) ON DELETE CASCADE;
+    ADD CONSTRAINT delegation_edges_zone_source_fk FOREIGN KEY (zone_id, source_session_id) REFERENCES public.sessions(zone_id, id) ON DELETE CASCADE;
 
 
 --
@@ -2441,7 +2473,7 @@ ALTER TABLE ONLY public.delegation_edges
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.agent_sessions(zone_id, id) ON DELETE CASCADE;
+    ADD CONSTRAINT delegation_edges_zone_target_fk FOREIGN KEY (zone_id, target_session_id) REFERENCES public.sessions(zone_id, id) ON DELETE CASCADE;
 
 
 --
@@ -2629,19 +2661,19 @@ ALTER TABLE ONLY public.secrets
 
 
 --
--- Name: sessions sessions_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: authority_records authority_records_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.sessions(id);
+ALTER TABLE ONLY public.authority_records
+    ADD CONSTRAINT authority_records_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.authority_records(id);
 
 
 --
--- Name: sessions sessions_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: authority_records authority_records_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
+ALTER TABLE ONLY public.authority_records
+    ADD CONSTRAINT authority_records_zone_id_fkey FOREIGN KEY (zone_id) REFERENCES public.zones(id);
 
 
 --
@@ -2701,10 +2733,16 @@ ALTER TABLE public.agent_invocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_services ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: agent_sessions; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: coordinator_idempotency_receipts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.agent_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coordinator_idempotency_receipts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: applications; Type: ROW SECURITY; Schema: public; Owner: -
@@ -2821,10 +2859,10 @@ ALTER TABLE public.secret_store ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.secrets ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: authority_records; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.authority_records ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: step_up_challenges; Type: ROW SECURITY; Schema: public; Owner: -
@@ -2867,10 +2905,17 @@ CREATE POLICY zone_isolation ON public.agent_services USING (((current_setting('
 
 
 --
--- Name: agent_sessions zone_isolation; Type: POLICY; Schema: public; Owner: -
+-- Name: coordinator_idempotency_receipts zone_isolation; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY zone_isolation ON public.agent_sessions USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+CREATE POLICY zone_isolation ON public.coordinator_idempotency_receipts USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+
+
+--
+-- Name: sessions zone_isolation; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY zone_isolation ON public.sessions USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -3007,10 +3052,10 @@ CREATE POLICY zone_isolation ON public.secrets USING (((current_setting('caracal
 
 
 --
--- Name: sessions zone_isolation; Type: POLICY; Schema: public; Owner: -
+-- Name: authority_records zone_isolation; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY zone_isolation ON public.sessions USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
+CREATE POLICY zone_isolation ON public.authority_records USING (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true)))) WITH CHECK (((current_setting('caracal.zone_id'::text, true) = '*'::text) OR (zone_id = current_setting('caracal.zone_id'::text, true))));
 
 
 --
@@ -3046,11 +3091,18 @@ GRANT SELECT ON TABLE public.agent_services TO caracalsts;
 
 
 --
--- Name: TABLE agent_sessions; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE coordinator_idempotency_receipts; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.agent_sessions TO caracalcoordinator;
-GRANT SELECT,UPDATE ON TABLE public.agent_sessions TO caracalapi;
+GRANT SELECT,INSERT,DELETE ON TABLE public.coordinator_idempotency_receipts TO caracalcoordinator;
+
+
+--
+-- Name: TABLE sessions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.sessions TO caracalcoordinator;
+GRANT SELECT,UPDATE ON TABLE public.sessions TO caracalapi;
 
 
 --
@@ -3275,12 +3327,12 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.secrets TO caracalapi;
 
 
 --
--- Name: TABLE sessions; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE authority_records; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.sessions TO caracalsts;
-GRANT SELECT,UPDATE ON TABLE public.sessions TO caracalapi;
-GRANT SELECT ON TABLE public.sessions TO caracalcoordinator;
+GRANT SELECT,INSERT,UPDATE ON TABLE public.authority_records TO caracalsts;
+GRANT SELECT,UPDATE ON TABLE public.authority_records TO caracalapi;
+GRANT SELECT ON TABLE public.authority_records TO caracalcoordinator;
 
 
 --
@@ -3312,9 +3364,9 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_ai_providers TO carac
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_conversation_counters TO caracalapi;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.workloads TO caracalapi;
 GRANT SELECT ON TABLE public.workloads TO caracalsts;
-GRANT SELECT ON TABLE public.agent_sessions TO caracalsts;
+GRANT SELECT ON TABLE public.sessions TO caracalsts;
+GRANT SELECT ON TABLE public.authority_records TO caracalgateway;
 GRANT SELECT ON TABLE public.sessions TO caracalgateway;
-GRANT SELECT ON TABLE public.agent_sessions TO caracalgateway;
 GRANT SELECT ON TABLE public.delegation_edges TO caracalgateway;
 
 -- The audit retention worker maintains the monthly partition window through

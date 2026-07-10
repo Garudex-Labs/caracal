@@ -30,16 +30,10 @@ spec:
   serviceName: {{ include "caracal.fullname" $root }}-{{ $name }}
   {{- else }}
   strategy:
-    {{- if eq $name "coordinator" }}
-    # Coordinator creation idempotency is a wire-plus-storage contract. Recreate
-    # prevents old plaintext-key replicas from overlapping receipt-aware replicas.
-    type: Recreate
-    {{- else }}
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
-    {{- end }}
   {{- end }}
   replicas: {{ $service.replicas }}
   selector:

@@ -18,7 +18,7 @@ TABLES=(
   admin_tokens
   agent_invocations
   agent_services
-  agent_sessions
+  sessions
   agent_topology
   applications
   audit_events
@@ -26,6 +26,7 @@ TABLES=(
   audit_export_watermark
   audit_ingest_alerts
   caracal_outbox
+  coordinator_idempotency_receipts
   delegated_grants
   delegation_edges
   delegation_graph_epochs
@@ -38,7 +39,7 @@ TABLES=(
   providers
   resources
   secrets
-  sessions
+  authority_records
   step_up_challenges
   zones
 )
@@ -94,7 +95,7 @@ echo "=== RLS: zone-scoped tables are fail-closed ==="
 RLS_TABLES=(
   providers
   applications
-  sessions
+  authority_records
   secrets
   delegated_grants
   policies
@@ -102,7 +103,7 @@ RLS_TABLES=(
   policy_set_bindings
   resources
   audit_events
-  agent_sessions
+  sessions
   delegation_edges
   agent_services
   agent_invocations
@@ -110,6 +111,7 @@ RLS_TABLES=(
   admin_audit_events
   admin_tokens
   delegation_graph_epochs
+  coordinator_idempotency_receipts
 )
 for t in "${RLS_TABLES[@]}"; do
   if [ "$(scalar "SELECT relrowsecurity FROM pg_class WHERE oid = 'public.$t'::regclass;")" != "t" ]; then

@@ -225,7 +225,7 @@ function SessionRow({ row }: { row: EvidenceRowView }) {
       trail={
         <>
           {text(row, "depth") ? <span>depth {text(row, "depth")}</span> : null}
-          <span>{when(row, "spawned_at")}</span>
+          <span>{when(row, "started_at")}</span>
         </>
       }
     />

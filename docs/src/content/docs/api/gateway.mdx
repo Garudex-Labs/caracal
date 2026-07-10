@@ -8,21 +8,21 @@ Gateway is served on port `8081`. It is not a CRUD API; it is a protected revers
 
 ## Operator Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/ready` | Readiness check. |
-| `GET` | `/metrics` | Prometheus metrics. |
-| `GET` | `/metrics.json` | JSON metrics. |
+| Method | Path                           | Purpose                     |
+| ------ | ------------------------------ | --------------------------- |
+| `GET`  | `/health`                      | Liveness check.             |
+| `GET`  | `/ready`                       | Readiness check.            |
+| `GET`  | `/metrics`                     | Prometheus metrics.         |
+| `GET`  | `/metrics.json`                | JSON metrics.               |
 | `POST` | `/internal/revocations/reload` | Reload revocation snapshot. |
 
 ## Request Requirements
 
-| Input | Required | Purpose |
-| --- | --- | --- |
-| `Authorization: Bearer ...` | yes | Inbound Caracal mandate. |
-| `X-Caracal-Resource` | yes | Resource identifier STS resolves to the routed upstream. |
-| Request path | yes | Forwarded to the configured upstream after traversal checks. |
+| Input                       | Required | Purpose                                                      |
+| --------------------------- | -------- | ------------------------------------------------------------ |
+| `Authorization: Bearer ...` | yes      | Inbound Caracal mandate.                                     |
+| `X-Caracal-Resource`        | yes      | Resource identifier STS resolves to the routed upstream.     |
+| Request path                | yes      | Forwarded to the configured upstream after traversal checks. |
 
 Gateway rejects any request that sets `X-Caracal-Client-ID`; the caller's application identity derives from the verified mandate's `client_id` claim.
 
@@ -30,12 +30,12 @@ Gateway rejects any request that sets `X-Caracal-Client-ID`; the caller's applic
 
 Gateway rejects before upstream dispatch. Treat these checks as the safety gate in front of every protected upstream.
 
-| Stage | Checks |
-| --- | --- |
-| Request preflight | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal. |
-| Token validation | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
-| Resource resolution | STS resolves `(zone_id, resource)` to a gateway-routed resource, and the returned upstream passes host safety checks. |
-| STS exchange | Gateway’s STS circuit is closed and the signed exchange succeeds; STS enforces the resource’s declared scopes on the mandate. |
+| Stage               | Checks                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Request preflight   | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal.                      |
+| Token validation    | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
+| Resource resolution | STS resolves `(zone_id, resource)` to a gateway-routed resource, and the returned upstream passes host safety checks.            |
+| STS exchange        | Gateway’s STS circuit is closed and the signed exchange succeeds; STS enforces the resource’s declared scopes on the mandate.    |
 
 ## Forwarding Behavior
 

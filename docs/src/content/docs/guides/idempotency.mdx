@@ -45,8 +45,6 @@ The default receipt window is seven days for explicit stable identifiers (`IDEMP
 
 Each application and operation can retain at most 10,000 live receipts by default (`IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE`), preventing a compromised workload from growing the receipt index without bound. The Coordinator also caps request bodies at 256 KiB (`COORDINATOR_BODY_LIMIT_BYTES`).
 
-The migration from Caracal's earlier mutable-row keys to durable receipts requires Coordinator replicas to restart without mixed old/new overlap. The Helm chart therefore uses the `Recreate` strategy for Coordinator. Existing runtime stacks already restart Coordinator as one Compose service during upgrade. Expect a brief pause in Coordinator mutations while the replacement becomes ready; runtime mandates and Gateway enforcement continue independently.
-
 ## When an Explicit Key Helps
 
 Supply a key only when the system delivering work already has a stable identifier that survives process restart:
