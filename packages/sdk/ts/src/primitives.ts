@@ -20,6 +20,7 @@ import {
   DelegationConstraints,
 } from './coordinator.js'
 import type { JsonObject } from './json.js'
+import { genTraceId } from './envelope.js'
 
 const SESSION_RETRIES = 2
 const MIN_AUTO_HEARTBEAT_MS = 1_000
@@ -35,7 +36,11 @@ function defaultWarn(message: string, err?: unknown): void {
 
 /** A session the coordinator no longer holds live (terminated or reaped) counts as retired. */
 function isGone(e: unknown): boolean {
-  return e instanceof CoordinatorError && (e.status === 404 || e.status === 409)
+  return (
+    e instanceof CoordinatorError &&
+    (e.status === 404 ||
+      (e.status === 409 && ['already_terminated', 'session_not_live', 'session_not_found_or_not_active'].includes(e.code ?? '')))
+  )
 }
 
 // A server-requested Retry-After wins over the default backoff, capped so a
@@ -96,7 +101,7 @@ export const Authority = {
     return { mode: 'none' }
   },
   /**
-   * A narrowing delegation defaults to a hop budget of 1; pass
+   * A narrowing delegation defaults to a hop allowance of 1; pass
    * `constraints: { maxHops: 2 }` (or more) when the child must re-delegate or
    * sub-narrow its slice further down the tree. A single scope may be passed
    * as a bare string.
@@ -118,6 +123,8 @@ export interface SessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -142,6 +149,7 @@ interface EstablishInput {
   tokenSource?: () => string | Promise<string>
   invalidate?: () => void
   subjectAuthorityRecordId?: string
+  subjectAuthorityRecordToken?: string
   parentSessionId?: string
   authority?: Authority
   ttlSeconds?: number
@@ -169,6 +177,9 @@ interface Established {
 async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): Promise<Established> {
   const authority = input.authority ?? Authority.inherit()
   const parent = current()
+  if (input.parentSessionId && parent?.sessionId && input.parentSessionId !== parent.sessionId) {
+    throw new Error('parentSessionId must match the Session bound on the calling context')
+  }
   const parentId = input.parentSessionId ?? parent?.sessionId
   let token = input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
@@ -178,6 +189,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     subjectAuthorityRecordId: input.subjectAuthorityRecordId,
+    subjectAuthorityRecordToken: input.subjectAuthorityRecordToken,
     parentId,
     lifecycle,
     ttlSeconds: input.ttlSeconds,
@@ -245,7 +257,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       hop = parent.hop + 1
     }
   } catch (e) {
-    await retire(input.coordinator, bearer, input.zoneId, res.sessionId, input.warn)
+    await retireAfterFailure(input.coordinator, bearer, input.zoneId, res.sessionId, input.warn)
     throw e
   }
 
@@ -257,7 +269,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     delegationId,
     parentDelegationId: parent?.delegationId,
     subjectAuthorityRecordId: input.subjectAuthorityRecordId ?? parent?.subjectAuthorityRecordId,
-    traceId: input.traceId ?? parent?.traceId,
+    traceId: input.traceId ?? parent?.traceId ?? genTraceId(),
     traceFlags: parent?.traceFlags,
     traceState: parent?.traceState,
     baggage: cloneBaggage(parent?.baggage),
@@ -278,11 +290,19 @@ function validateIdempotencyKey(key: string): void {
 
 /**
  * Terminate a session on a cleanup path. A session the coordinator already
- * retired counts as success; any other failure is reported to the warn sink
- * rather than thrown so cleanup never masks the caller's primary outcome —
- * the coordinator's TTL sweeper retires whatever this misses.
+ * retired counts as success; any other failure is returned to the caller so a
+ * successful callback cannot conceal a leaked server-side Session.
  */
-async function retire(
+async function retire(coordinator: CoordinatorClient, bearer: () => Promise<string>, zoneId: string, sessionId: string): Promise<void> {
+  try {
+    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
+  } catch (e) {
+    if (isGone(e)) return
+    throw e
+  }
+}
+
+async function retireAfterFailure(
   coordinator: CoordinatorClient,
   bearer: () => Promise<string>,
   zoneId: string,
@@ -290,10 +310,9 @@ async function retire(
   warn: WarnSink = defaultWarn,
 ): Promise<void> {
   try {
-    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
-  } catch (e) {
-    if (isGone(e)) return
-    warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, e)
+    await retire(coordinator, bearer, zoneId, sessionId)
+  } catch (err) {
+    warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, err)
   }
 }
 
@@ -309,18 +328,46 @@ async function retire(
 export async function session<T>(input: SessionInput, fn: (ctx: CaracalContext) => Promise<T>): Promise<T> {
   const established = await establishSession(input)
   const { ctx, sessionId, bearer } = established
+  const warn = input.warn ?? defaultWarn
   let started = false
+  let failed = false
+  let primary: unknown
+  let result!: T
   try {
     if (input.onSessionStart) await input.onSessionStart(ctx)
     started = true
-    return await bind(ctx, () => fn(ctx))
-  } finally {
+    result = await bind(ctx, () => fn(ctx))
+  } catch (err) {
+    failed = true
+    primary = err
+  }
+  let endError: unknown
+  if (started && input.onSessionEnd) {
     try {
-      if (started && input.onSessionEnd) await input.onSessionEnd(ctx)
-    } finally {
-      await retire(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
+      await input.onSessionEnd(ctx)
+    } catch (err) {
+      endError = err
     }
   }
+  let cleanupError: unknown
+  try {
+    await retire(input.coordinator, bearer, input.zoneId, sessionId)
+  } catch (err) {
+    cleanupError = err
+  }
+  if (failed) {
+    if (endError !== undefined) warn(`caracal: onSessionEnd failed for session ${sessionId} after the callback failed`, endError)
+    if (cleanupError !== undefined)
+      warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, cleanupError)
+    throw primary
+  }
+  if (endError !== undefined) {
+    if (cleanupError !== undefined)
+      warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, cleanupError)
+    throw endError
+  }
+  if (cleanupError !== undefined) throw cleanupError
+  return result
 }
 
 export interface DelegateInput {
@@ -412,6 +459,8 @@ export interface StartSessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -465,7 +514,7 @@ export async function startSession(input: StartSessionInput): Promise<SessionHan
     try {
       await input.onSessionStart(ctx)
     } catch (e) {
-      await retire(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
+      await retireAfterFailure(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
       throw e
     }
   }

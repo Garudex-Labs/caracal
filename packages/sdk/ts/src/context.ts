@@ -6,7 +6,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { Envelope } from './envelope.js'
+import { Envelope, MaxHop } from './envelope.js'
 
 export interface CaracalContext {
   /**
@@ -53,18 +53,18 @@ export interface AuthoritySummary {
 }
 
 /**
- * Attribution a verify hook proved from the token itself. Fields returned here
- * override the caller-supplied envelope when binding inbound context, so
- * attribution comes from verified claims rather than forgeable headers.
+ * Complete attribution a verify hook proved from the token itself. Optional
+ * fields are authoritatively absent when omitted; they never fall back to the
+ * caller-supplied envelope after verification.
  */
 export interface VerifiedClaims {
-  zoneId?: string
-  applicationId?: string
+  zoneId: string
+  applicationId: string
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
   subjectAuthorityRecordId?: string
-  hop?: number
+  hop: number
 }
 
 export function cloneBaggage(baggage: Record<string, string> | undefined): Record<string, string> | undefined {
@@ -129,6 +129,26 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     baggage: cloneBaggage(env.baggage),
     hop: env.hop,
   }
+}
+
+export function fromVerifiedEnvelope(env: Envelope, claims: VerifiedClaims): CaracalContext {
+  if (!claims.zoneId || !claims.applicationId) {
+    throw new Error('verified claims require zoneId and applicationId')
+  }
+  if (!Number.isInteger(claims.hop) || claims.hop < 0 || claims.hop > MaxHop) {
+    throw new Error(`verified claims hop must be an integer from 0 to ${MaxHop}`)
+  }
+  return fromEnvelope(
+    {
+      ...env,
+      sessionId: claims.sessionId,
+      delegationId: claims.delegationId,
+      parentDelegationId: claims.parentDelegationId,
+      subjectAuthorityRecordId: claims.subjectAuthorityRecordId,
+      hop: claims.hop,
+    },
+    { zoneId: claims.zoneId, applicationId: claims.applicationId },
+  )
 }
 
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {

@@ -5,11 +5,28 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, contextBearer, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
+import {
+  bind,
+  contextBearer,
+  fromEnvelope,
+  fromVerifiedEnvelope,
+  toEnvelope,
+  current,
+  type CaracalContext,
+  type VerifiedClaims,
+} from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHmac, randomBytes } from 'node:crypto'
 import { parse } from 'smol-toml'
-import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
+import {
+  decodeEnvelope,
+  encodeEnvelope,
+  fromHeaders,
+  toHeaders,
+  HeaderAuthorization,
+  type Envelope,
+  type HeaderGetter,
+} from './envelope.js'
 import {
   session as sessionPrimitive,
   startSession as startSessionPrimitive,
@@ -149,6 +166,8 @@ export interface SessionOptions {
   ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -172,6 +191,8 @@ export interface StartSessionOptions {
   authority?: Authority
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -235,9 +256,9 @@ export interface CallOptions {
 }
 
 /**
- * Transport behavior options. `scopes` switches gateway-routed requests from
- * the raw subject token to a scoped resource mandate minted for the routed
- * resource and the bound session identity; requires a client-secret
+ * Transport behavior options. `scopes` mints the scoped `use=gateway`
+ * mandate required by gateway-routed requests for the routed resource and
+ * bound session identity; requires a client-secret
  * configuration. `timeoutMs` bounds every request the transport sends when
  * the caller supplies no signal of its own (combined when both are present).
  * `propagation` controls where the context envelope (traceparent, baggage)
@@ -247,6 +268,7 @@ export interface CallOptions {
  */
 export interface TransportOptions extends CallOptions {
   scopes?: string[]
+  approvalId?: string
   timeoutMs?: number
   propagation?: 'always' | 'gateway-only'
 }
@@ -266,16 +288,18 @@ export interface MandateOptions {
  * application id, the same default role `ensureGrants` authors, so a grant
  * and its transport align without either naming a role; `mandateTtlSeconds`
  * bounds each minted mandate (the backing sessions outlive it by a small
- * buffer).
+ * buffer). `timeoutMs` bounds provisioning, the final mint, and dispatch.
  */
 export interface ApplicationTransportOptions {
   scopes: string[]
+  approvalId?: string
   labels?: string[]
   mandateTtlSeconds?: number
+  timeoutMs?: number
 }
 
 export interface BindOptions extends CallOptions {
-  verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
+  verify?: (token: string) => VerifiedClaims | Promise<VerifiedClaims>
 }
 
 interface ClientOptions {
@@ -432,6 +456,7 @@ export class Caracal {
       authority: opts.authority,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       metadata: taskMetadata(opts),
       labels: opts.labels,
@@ -459,6 +484,7 @@ export class Caracal {
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       authority: opts.authority,
       metadata: taskMetadata(opts),
@@ -705,16 +731,7 @@ export class Caracal {
         ? decodeEnvelope(headers)
         : headers instanceof Headers
           ? decodeEnvelope((n) => headers.get(n) ?? undefined)
-          : decodeEnvelope((n) => {
-              const lower = n.toLowerCase()
-              for (const k of Object.keys(headers)) {
-                if (k.toLowerCase() === lower) {
-                  const v = (headers as Record<string, string | string[] | undefined>)[k]
-                  return Array.isArray(v) ? v[0] : v
-                }
-              }
-              return undefined
-            })
+          : fromHeaders(headers)
     let claims: VerifiedClaims | undefined
     let rootInjected = false
     if (!env.subjectToken) {
@@ -724,23 +741,18 @@ export class Caracal {
         )
       }
       env.subjectToken = await this.rootToken()
+      env.sessionId = undefined
+      env.delegationId = undefined
+      env.parentDelegationId = undefined
+      env.subjectAuthorityRecordId = undefined
+      env.hop = 0
       rootInjected = true
     } else if (opts.verify) {
       const verified = await opts.verify(env.subjectToken)
-      if (verified) claims = verified
+      if (!verified) throw new Error('Caracal.bindFromHeaders(): verify must return complete VerifiedClaims')
+      claims = verified
     }
-    if (claims) {
-      if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
-      if (claims.delegationId !== undefined) env.delegationId = claims.delegationId
-      if (claims.parentDelegationId !== undefined) env.parentDelegationId = claims.parentDelegationId
-      if (claims.subjectAuthorityRecordId !== undefined) env.subjectAuthorityRecordId = claims.subjectAuthorityRecordId
-      if (claims.hop !== undefined) env.hop = claims.hop
-    }
-    const own = claims?.zoneId !== undefined && claims?.applicationId !== undefined ? undefined : await this.identity()
-    const ctx = fromEnvelope(env as Envelope, {
-      zoneId: claims?.zoneId ?? own!.zoneId,
-      applicationId: claims?.applicationId ?? own!.applicationId,
-    })
+    const ctx = claims ? fromVerifiedEnvelope(env as Envelope, claims) : fromEnvelope(env as Envelope, await this.identity())
     return await bind(rootInjected ? { ...ctx, ownToken: true } : ctx, fn)
   }
 
@@ -749,10 +761,11 @@ export class Caracal {
    * (traceparent, tracestate, baggage) onto outbound requests, merging with any
    * headers the caller or an OpenTelemetry SDK already set. The bearer is
    * attached only to gateway-routed calls, where the Gateway terminates it at
-   * the trust boundary: a scoped mandate when `scopes` is set, otherwise the
-   * context's subject token. No default timeout is applied unless `timeoutMs`
-   * is set; a caller-supplied `init.signal` still applies (combined when both
-   * are present). Pass to any provider SDK that accepts a custom fetch.
+   * the trust boundary: a scoped mandate when `scopes` is set, or an already
+   * gateway-class context token. Lifecycle and resource tokens fail locally.
+   * No default timeout is applied unless `timeoutMs` is set; a caller-supplied
+   * `init.signal` still applies (combined when both are present). Pass to any
+   * provider SDK that accepts a custom fetch.
    *
    * @example Hand the transport to a provider SDK
    * ```ts
@@ -795,14 +808,14 @@ export class Caracal {
         const timeout = AbortSignal.timeout(opts.timeoutMs)
         signal = signal ? AbortSignal.any([signal, timeout]) : timeout
       }
-      const bounded = { ...init, signal, headers: merged }
+      const bounded = { ...init, signal, headers: merged, ...(gatewayBound ? { redirect: 'manual' as const } : {}) }
       if (rewritten) {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes, opts.approvalId, signal)}`)
         return fetchImpl(request ? new Request(rewritten.url, new Request(request, bounded)) : rewritten.url, bounded)
       }
       if (gatewayBound) {
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes, opts.approvalId, signal)}`)
       }
       return fetchImpl(request ? new Request(request, bounded) : (input as URL), request ? undefined : bounded)
     }) as typeof fetch
@@ -811,16 +824,19 @@ export class Caracal {
 
   /**
    * Resolves the bearer for a gateway-bound request: a scoped mandate when
-   * scopes are set and the routed resource is known, a fresh token from the
-   * token source for contexts this process established from its own
-   * credentials, the pinned context token for inbound-bound contexts, or the
-   * application token when running as the application itself.
+   * scopes are set and the routed resource is known, or an existing
+   * gateway-class context token. Other token classes fail before dispatch.
    */
   private async gatewayToken(
     ctx: CaracalContext | undefined,
     resourceId: string | undefined,
     scopes: string[] | undefined,
+    approvalId?: string,
+    signal?: AbortSignal,
   ): Promise<string> {
+    if (scopes?.length && !resourceId) {
+      throw new Error('Caracal.transport(): scopes require X-Caracal-Resource or a configured resource binding')
+    }
     if (scopes?.length && resourceId) {
       const exchanger = this.config.exchanger
       if (!exchanger) throw new Error('Caracal.transport(): scopes require a client-secret configuration')
@@ -828,6 +844,8 @@ export class Caracal {
         const minted = await exchanger.mintMandate(resourceId, scopes, {
           sessionId: ctx?.sessionId,
           delegationId: ctx?.delegationId,
+          approvalId,
+          signal,
           cache: false,
         })
         return minted.token
@@ -835,9 +853,18 @@ export class Caracal {
         throw lifecycleAuthorityHint(err, ctx)
       }
     }
-    if (!ctx) return this.rootToken()
-    if (ctx.ownToken && this.config.tokenSource) return await this.config.tokenSource()
-    return ctx.subjectToken
+    const token = !ctx
+      ? await this.rootToken()
+      : ctx.ownToken && this.config.tokenSource
+        ? await this.config.tokenSource()
+        : ctx.subjectToken
+    const use = decodeJwtPayload(token)?.use
+    if (typeof use === 'string' && use !== 'gateway') {
+      throw new Error(
+        `Caracal.transport(): Gateway calls require a scoped use=gateway mandate; received use=${use}. Pass scopes with a delegated session, or use applicationTransport() for application-owned work.`,
+      )
+    }
+    return token
   }
 
   /**
@@ -950,11 +977,11 @@ export class Caracal {
    * is applied; pass `signal` (e.g. AbortSignal.timeout) to bound a call.
    */
   fetch(resourceId: string, path: string = '/', init: RequestInit & TransportOptions = {}): Promise<Response> {
-    const { scopes, asApplication, timeoutMs, propagation, ...rest } = init
+    const { scopes, approvalId, asApplication, timeoutMs, propagation, ...rest } = init
     const request = this.gatewayRequest(resourceId, path)
     const headers = new Headers(rest.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
-    return this.transport({ scopes, asApplication, timeoutMs, propagation })(request.url, { ...rest, headers })
+    return this.transport({ scopes, approvalId, asApplication, timeoutMs, propagation })(request.url, { ...rest, headers })
   }
 
   /**
@@ -995,22 +1022,33 @@ export class Caracal {
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : undefined
       if (request?.bodyUsed) throw new TypeError('Caracal.applicationTransport(): cannot send a Request whose body was already consumed')
-      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, init?.signal ?? request?.signal)
+      let signal = init?.signal ?? request?.signal
+      if (opts.timeoutMs) {
+        const timeout = AbortSignal.timeout(opts.timeoutMs)
+        signal = signal ? AbortSignal.any([signal, timeout]) : timeout
+      }
+      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, signal)
       const minted = await exchanger.mintMandate(resourceId, scopes, {
         sessionId: authority.targetSessionId,
         delegationId: authority.delegationId,
         ttlSeconds: opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS,
+        approvalId: opts.approvalId,
         cache: false,
-        signal: init?.signal ?? request?.signal,
+        signal,
       })
       const merged = new Headers(request?.headers)
       if (init?.headers) new Headers(init.headers).forEach((value, key) => merged.set(key, value))
       merged.set('Authorization', `Bearer ${minted.token}`)
       merged.set('X-Caracal-Resource', resourceId)
+      encodeEnvelope(
+        { sessionId: authority.targetSessionId, delegationId: authority.delegationId, hop: 0 },
+        (key, value) => merged.set(key, value),
+        (key) => merged.get(key) ?? undefined,
+      )
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
       const rewritten = outer.routeThroughGateway(input, resourceId)
       if (!rewritten) throw new Error('Caracal.applicationTransport(): request could not be pinned to the configured Gateway')
-      const requestInit = { ...init, headers: merged, signal: init?.signal ?? request?.signal }
+      const requestInit = { ...init, headers: merged, signal, redirect: 'manual' as const }
       return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
     }) as typeof fetch
     return fn
@@ -1054,7 +1092,9 @@ export class Caracal {
     if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.withAppProvisioning(signal, () => this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts))
+        const fresh = await this.withAppProvisioning(signal, () =>
+          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts, signal),
+        )
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
           return fresh
@@ -1127,10 +1167,11 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
+    signal?: AbortSignal,
   ): Promise<AppAuthorityEntry> {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
-    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
+    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE], { signal })).token
     const sessionRequest = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
@@ -1140,23 +1181,38 @@ export class Caracal {
     const sessions: string[] = []
     try {
       const source = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(
+          this.config.coordinator,
+          bootstrap,
+          { ...sessionRequest, idempotencyKey: crypto.randomUUID() },
+          signal,
+        )
       ).sessionId
       sessions.push(source)
       const target = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(
+          this.config.coordinator,
+          bootstrap,
+          { ...sessionRequest, idempotencyKey: crypto.randomUUID() },
+          signal,
+        )
       ).sessionId
       sessions.push(target)
-      const edge = await createDelegation(this.config.coordinator, bootstrap, {
-        zoneId: identity.zoneId,
-        issuerApplicationId: identity.applicationId,
-        sourceSessionId: source,
-        targetSessionId: target,
-        receiverApplicationId: identity.applicationId,
-        scopes,
-        constraints: { resources: [resourceId] },
-        ttlSeconds: sessionTtl,
-      })
+      const edge = await createDelegation(
+        this.config.coordinator,
+        bootstrap,
+        {
+          zoneId: identity.zoneId,
+          issuerApplicationId: identity.applicationId,
+          sourceSessionId: source,
+          targetSessionId: target,
+          receiverApplicationId: identity.applicationId,
+          scopes,
+          constraints: { resources: [resourceId] },
+          ttlSeconds: sessionTtl,
+        },
+        signal,
+      )
       return {
         resourceId,
         zoneId: identity.zoneId,
@@ -1195,7 +1251,8 @@ export class Caracal {
     } catch {
       return null
     }
-    if (sameOrigin(parsed, gw)) return { url: raw, resourceId: explicitResource ?? '' }
+    if (pathContainsTraversal(parsed.pathname)) return null
+    if (targetsGatewayPath(parsed, gw)) return { url: raw, resourceId: explicitResource ?? '' }
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
@@ -1215,13 +1272,13 @@ export class Caracal {
     return { url: target, resourceId: binding?.resourceId ?? explicitResource! }
   }
 
-  /** Reports whether the request is already addressed to the Gateway origin, where the subject token terminates. */
+  /** Reports whether the request is inside the configured Gateway origin and base path. */
   private targetsGateway(input: RequestInfo | URL): boolean {
     const gw = this.config.gatewayUrl
     if (!gw) return false
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
     try {
-      return sameOrigin(new URL(raw), gw)
+      return targetsGatewayPath(new URL(raw), gw)
     } catch {
       return false
     }
@@ -1747,10 +1804,39 @@ function sameOrigin(a: URL, b: string): boolean {
   }
 }
 
+function targetsGatewayPath(target: URL, gatewayUrl: string): boolean {
+  let gateway: URL
+  try {
+    gateway = new URL(gatewayUrl)
+  } catch {
+    return false
+  }
+  if (!sameOrigin(target, gatewayUrl) || pathContainsTraversal(target.pathname)) return false
+  const base = gateway.pathname.replace(/\/+$/, '') || '/'
+  return base === '/' || target.pathname === base || target.pathname.startsWith(`${base}/`)
+}
+
+function pathContainsTraversal(pathname: string): boolean {
+  let decoded = pathname
+  for (let depth = 0; depth < 8; depth++) {
+    if (decoded.includes('\\') || decoded.split('/').some((segment) => segment === '.' || segment === '..')) return true
+    let next: string
+    try {
+      next = decodeURIComponent(decoded)
+    } catch {
+      return true
+    }
+    if (next === decoded) return false
+    decoded = next
+  }
+  return true
+}
+
 function joinGatewayPath(gatewayUrl: string, path: string): string {
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path)) {
     throw new Error('Caracal.gatewayRequest(): path must be relative to the configured gateway')
   }
+  if (path.includes('#')) throw new Error('Caracal.gatewayRequest(): path must not contain a fragment')
   const gateway = new URL(gatewayUrl)
   const normalized = path.startsWith('/') ? path : `/${path}`
   const queryIndex = normalized.indexOf('?')
@@ -1758,7 +1844,7 @@ function joinGatewayPath(gatewayUrl: string, path: string): string {
   const query = queryIndex === -1 ? '' : normalized.slice(queryIndex + 1)
   // Dot segments could climb out of a base-pathed gateway once the URL
   // normalizes, so the path must arrive already resolved.
-  if (pathname.split('/').some((segment) => segment === '.' || segment === '..')) {
+  if (pathContainsTraversal(pathname)) {
     throw new Error('Caracal.gatewayRequest(): path must not contain dot segments')
   }
   const base = gateway.origin + gateway.pathname.replace(/\/$/, '')

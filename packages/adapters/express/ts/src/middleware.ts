@@ -15,7 +15,7 @@ import {
   type AuthOverrides,
   type MandateVerifier,
 } from '@caracalai/verify'
-import { bind, fromHeaders, type CaracalContext } from '@caracalai/sdk/advanced'
+import { bind, fromHeaders, fromVerifiedEnvelope, type CaracalContext } from '@caracalai/sdk/advanced'
 
 export interface MiddlewareOptions extends AuthDeps {
   bindContext?: boolean
@@ -52,20 +52,17 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
     req.caracalClaims = result.principal
 
     const env = fromHeaders(req.headers as Record<string, string | string[] | undefined>)
-    const baseCtx: CaracalContext = {
-      subjectToken: token,
-      zoneId: result.principal.zoneId ?? middlewareZone(opts) ?? '',
-      applicationId: result.principal.clientId ?? '',
-      sessionId: result.principal.sessionId ?? env.sessionId,
-      delegationId: result.principal.delegationId ?? env.delegationId,
-      parentDelegationId: env.parentDelegationId,
-      subjectAuthorityRecordId: result.principal.authorityRecordId,
-      traceId: env.traceId,
-      traceFlags: env.traceFlags,
-      traceState: env.traceState,
-      baggage: env.baggage,
-      hop: result.principal.hopCount ?? env.hop,
-    }
+    const baseCtx: CaracalContext = fromVerifiedEnvelope(
+      { ...env, subjectToken: token },
+      {
+        zoneId: result.principal.zoneId,
+        applicationId: result.principal.clientId,
+        sessionId: result.principal.sessionId,
+        delegationId: result.principal.delegationId,
+        subjectAuthorityRecordId: result.principal.authorityRecordId,
+        hop: result.principal.hopCount ?? 0,
+      },
+    )
     req.caracalContext = baseCtx
 
     if (opts.bindContext === false) {
@@ -81,8 +78,4 @@ export function caracalAuth(opts: MiddlewareOptions | VerifierMiddlewareOptions,
 
 function mapError(err: AuthError): { status: number; body: { error: string; error_description: string; error_hint?: string } } {
   return { status: httpStatusForAuthError(err.code), body: authErrorBody(err) }
-}
-
-function middlewareZone(opts: MiddlewareOptions | VerifierMiddlewareOptions): string | undefined {
-  return 'verifier' in opts ? opts.verifier.defaults.zoneId : opts.zoneId
 }

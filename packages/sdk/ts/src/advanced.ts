@@ -29,7 +29,16 @@ export {
   toHeaders,
 } from './envelope.js'
 export type { Envelope, HeaderGetter, HeaderSetter } from './envelope.js'
-export { current, captureContext, bind, withOverrides, toEnvelope, fromEnvelope, describeAuthority } from './context.js'
+export {
+  current,
+  captureContext,
+  bind,
+  withOverrides,
+  toEnvelope,
+  fromEnvelope,
+  fromVerifiedEnvelope,
+  describeAuthority,
+} from './context.js'
 export type { CaracalContext, AuthoritySummary, VerifiedClaims } from './context.js'
 export {
   CoordinatorError,

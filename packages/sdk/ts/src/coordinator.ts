@@ -84,8 +84,6 @@ export interface DelegationConstraints {
   maxDepth?: number
   maxHops?: number
   ttlSeconds?: number
-  /** Maximum distinct requested scopes in each token exchange; repeated exchanges do not consume it. */
-  budget?: number
   /** Audit and display metadata; it does not itself authorize the Delegation. */
   policyApproved?: boolean
   expiresAt?: string
@@ -97,6 +95,7 @@ export interface StartSessionRequest {
   zoneId: string
   applicationId: string
   subjectAuthorityRecordId?: string
+  subjectAuthorityRecordToken?: string
   parentId?: string
   lifecycle?: Lifecycle
   ttlSeconds?: number
@@ -221,6 +220,7 @@ export async function startCoordinatorSession(
     {
       application_id: req.applicationId,
       subject_session_id: req.subjectAuthorityRecordId,
+      subject_token: req.subjectAuthorityRecordToken,
       parent_id: req.parentId,
       lifecycle: req.lifecycle,
       ttl_seconds: req.ttlSeconds,
@@ -255,7 +255,6 @@ export async function createDelegation(
         max_depth: req.constraints.maxDepth,
         max_hops: req.constraints.maxHops,
         ttl_seconds: req.constraints.ttlSeconds,
-        budget: req.constraints.budget,
         policy_approved: req.constraints.policyApproved,
         expires_at: req.constraints.expiresAt,
         broad_reason: req.constraints.broadReason,
