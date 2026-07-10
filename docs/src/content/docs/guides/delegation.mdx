@@ -1,5 +1,5 @@
 ---
-title: Implement Multi-Agent Session Delegation
+title: Implement Multi-Agent Delegation
 description: Start child Sessions, attach typed constraints, inspect graph impact, and revoke safely.
 ---
 
@@ -11,9 +11,9 @@ Use Delegation when one Session needs to hand a narrower slice of authority to a
 
 ```mermaid
 flowchart LR
-  Parent["Parent Session"] --> Spawn["Start child with narrowed authority"]
-  Spawn --> Edge["Bounded Delegation"]
-  Edge --> Child["Run child with delegated context"]
+  Parent["Parent Session"] --> Start["Start child with narrowed authority"]
+  Start --> Delegation["Bounded Delegation"]
+  Delegation --> Child["Run child with delegated context"]
   Child --> Exchange["Exchange for resource mandate"]
   Exchange --> Audit["Inspect audit and graph"]
 ```

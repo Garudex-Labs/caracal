@@ -30,7 +30,7 @@ auth = CaracalAuth(
     required_scopes=["mcp:tool:call"],
     required_targets=["https://mcp.example.com"],
     revocations=InMemoryRevocationStore(),
-    require_agent=True,
+    require_session=True,
 )
 
 async def startup():
@@ -78,7 +78,7 @@ async function handleToolCall(authorization: string, payload: unknown) {
     const context = await verifyFastMcpToken(token, verifier, {
       requiredScopes: ['mcp:tool:call'],
       requiredTargets: ['https://mcp.example.com'],
-      requireAgent: true,
+      requireSession: true,
     })
     return { subject: context.sub, result: await runTool(payload) }
   } catch (err) {
@@ -98,6 +98,6 @@ The boundary is the same in both languages: verify the mandate before the tool h
 | Wrong audience                                                   | `invalid_token`.                  |
 | Missing scope                                                    | `insufficient_scope`.             |
 | Revoked session                                                  | `session_revoked`.                |
-| Non-agent token with `require_agent=True` / `requireAgent: true` | `agent_required`.                 |
+| Mandate without a Session with `require_session=True` / `requireSession: true` | `session_required`.               |
 
 Related pages: [FastMCP Adapter](/sdks/adapters/fastmcp/), [Protect an MCP Server](/guides/protect-mcp/), and [Human Approval](/guides/step-up/).

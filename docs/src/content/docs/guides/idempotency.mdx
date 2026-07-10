@@ -9,7 +9,7 @@ This guide explains the exceptional case: work delivered by a queue, webhook pro
 
 ## What Idempotency Means
 
-An operation is **idempotent** when repeating the same request has the same effect as performing it once. For example, asking Caracal twice to create the same governed session should not create two session records.
+An operation is **idempotent** when repeating the same request has the same effect as performing it once. For example, asking Caracal twice to create the same governed Session should not create two Session records.
 
 Idempotency does not mean that arbitrary application code runs exactly once. A process can call an external API successfully and crash before recording success. After restart, no generic SDK can determine whether the external API committed the change.
 
@@ -83,7 +83,7 @@ With the same key and the same request fields, Caracal replays the original **Co
 
 With the same key and different fields, Caracal returns `409 idempotency_key_conflict`. This includes changes to the Subject authority record ID, parent Session, application, lifecycle, labels, task or metadata, authority mode, TTL, Delegation endpoints, resource, scopes, constraints, or invocation parameters.
 
-If the receipt's governed session or delegation has already terminated, expired, or been revoked, Caracal returns `409 idempotency_result_inactive` instead of replaying an unusable identity. This prevents a delayed sequential redelivery from entering the callback. Use a newly versioned operation id only for an intentional rerun.
+If the receipt's governed Session or Delegation has already terminated, expired, or been revoked, Caracal returns `409 idempotency_result_inactive` instead of replaying an unusable identity. This prevents a delayed sequential redelivery from entering the callback. Use a newly versioned operation id only for an intentional rerun.
 
 While the original session remains active, a valid replay still enters your callback. The key does not claim a queue message, serialize consumers, cache the callback result, or make downstream effects exactly once. Two concurrent consumers can both execute application code. Use the queue's own visibility/lease mechanism to prevent concurrent delivery.
 
@@ -123,7 +123,7 @@ Only the destination, a shared transaction, or a durable workflow engine can clo
 
 Caracal does not derive stable keys from payload hashes, task descriptions, trace ids, timestamps, user ids, URLs, or handler arguments. Those values are not reliable operation identities: identical payloads can represent legitimate separate work, and descriptions can change between retries.
 
-Framework adapters do not guess provider-specific message ids. When an integration has a verified stable source id, map it explicitly at the queue, webhook, workflow, or scheduler boundary. Ordinary HTTP resource-server adapters only verify authority and bind context; they do not create governed sessions or deduplicate handlers.
+Framework adapters do not guess provider-specific message ids. When an integration has a verified stable source id, map it explicitly at the queue, webhook, workflow, or scheduler boundary. Ordinary HTTP resource-server adapters only verify authority and bind context; they do not create governed Sessions or deduplicate handlers.
 
 ## Validation and Security
 

@@ -20,7 +20,7 @@ curl -X POST "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/notification-sinks" \
   }'
 ```
 
-Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses during local development, and URLs may never embed credentials - authentication is the signature, not the URL. A zone holds at most 20 sinks.
+Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses during local development, and URLs may never embed credentials. Delivery resolves and pins DNS for each connection and rejects loopback, private, metadata, link-local, CGNAT, multicast, mapped, and NAT64-embedded restricted addresses. Authentication is the signature, not the URL. A zone holds at most 20 sinks.
 
 | Event type         | Fires when                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |

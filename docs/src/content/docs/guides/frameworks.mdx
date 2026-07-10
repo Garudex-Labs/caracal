@@ -58,7 +58,7 @@ async with caracal.session(labels=["research-agent"]):
     result = await agent.ainvoke({"messages": [("user", question)]})
 ```
 
-Every model call and governed tool call inside the run carries that Session's identity. To narrow a subagent below its parent, start its Session with reduced authority; see [Implement Multi-Agent Session Delegation](/guides/delegation/).
+Every model call and governed tool call inside the run carries that Session's identity. To narrow a subagent below its parent, start its Session with reduced authority; see [Implement Multi-Agent Delegation](/guides/delegation/).
 
 ## CrewAI
 

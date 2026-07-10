@@ -55,13 +55,11 @@ Each service keeps its own application identity, even when several share a VM, n
 zone_id = "zone_prod"
 application_id = "app_reporting"
 app_client_secret_file = "/etc/caracal/reporting.secret"
-zone_url = "https://sts.example.com"
+sts_url = "https://sts.example.com"
 gateway_url = "https://gateway.example.com"
 
 [[credentials]]
-env = "OPENAI_API_KEY"
 resource = "resource://openai"
-credential_type = "provider_token"
 upstream_prefix = "https://api.openai.com/v1"
 ```
 
@@ -71,12 +69,12 @@ upstream_prefix = "https://api.openai.com/v1"
 Environment=CARACAL_CONFIG=/etc/caracal/reporting.toml
 ```
 
-Repeat per service with a distinct `application_id` and secret file. Do not share one application identity across services: policy decisions and audit attribution both key on the application, and a shared identity collapses them into one indistinguishable actor. The [config file reference](/runtime-console/config-file/) documents the full schema.
+Repeat per service with a distinct `application_id` and secret file. One SDK client represents one `(zone, application)` identity during concurrent use. A process that legitimately acts as several Applications keeps one client per Application in a language-native map or dependency-injection container and selects the client before starting a Session or transport. Close each client independently. Do not share one application identity across services: policy decisions and audit attribution both key on the application, and a shared identity collapses them into one indistinguishable actor. The [config file reference](/runtime-console/config-file/) documents the full schema.
 
-When identity must be resolved at runtime instead of from a file - a vault-issued secret, per-tenant identities, or rotation without restarts - construct the client with a credentials resolver. All three SDKs export `CredentialsResolver`, and the resolver runs on each token exchange, so a rotated secret takes effect on the next mint:
+When one Application's identity must be resolved at runtime instead of from a file - a vault-issued secret, reprovisioning, or rotation without restarts - use the advanced credentials resolver. The resolver runs on each token exchange, so a rotated secret takes effect on the next mint. Do not alternate a resolver among concurrently active Applications; create one client per Application instead.
 
 ```python
-from caracalai import Caracal, ClientCredentials
+from caracalai.advanced import ClientCredentials, from_credentials
 
 
 def resolve() -> ClientCredentials:
@@ -88,7 +86,7 @@ def resolve() -> ClientCredentials:
     )
 
 
-caracal = Caracal.from_client_secret(
+caracal = from_credentials(
     coordinator_url="https://coordinator.example.com",
     sts_url="https://sts.example.com",
     credentials=resolve,

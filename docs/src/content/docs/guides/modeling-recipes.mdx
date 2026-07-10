@@ -53,7 +53,7 @@ Separate production, staging, and development so a policy or key change in one c
 
 Trade-off: clean blast-radius isolation and independent key rotation, at the cost of registering resources and activating policy in each zone. Automate this with the Admin API so environments stay consistent.
 
-In application code, zones stay isolated at the client boundary: one SDK client binds exactly one `(zone, application)` identity, and its token, mandate, and session caches never cross zones. A workload that talks to several zones - a control-plane job spanning environments, a shared service authenticating into per-customer zones - constructs one `Caracal` per zone with that zone's credentials and routes work to the matching client. Do not multiplex zones through one client by swapping configuration; the isolation the zones exist for ends where a shared cache begins.
+In application code, identities stay isolated at the client boundary: one SDK client binds exactly one `(zone, application)` identity during concurrent use. A workload that acts as several Applications in one Zone or talks to several Zones constructs one `Caracal` per `(zone, application)` with that identity's credentials and routes work to the matching client. Do not multiplex active identities through one client by swapping resolver output; token, mandate, Session, hook, and shutdown state belong to one identity boundary.
 
 ## Multiple Customers or Workspaces
 
@@ -89,7 +89,7 @@ The principal is always your application; Sessions carry its labels and delegati
 | Consent             | None - the zone operator configures the credential once.                                           | A human completes the provider's consent screen once per subject and provider.                                            |
 | Audit attribution   | Application, Session, and delegation chain.                                                        | The same, plus the provider connection the exchange used.                                                                 |
 
-Policy tells work apart with `input.principal.registration_method`, protocol Session ID field `input.principal.agent_session_id`, and `input.principal.labels`. Authorization inputs are the application, labels, roles, Delegation, and confinement - never the Subject identifier. See [Identities and Applications](/concepts/principal/).
+Policy tells work apart with the principal registration method, Session ID, and labels documented in the [policy input contract](/concepts/policy/#policy-input-contract). Authorization inputs are the application, labels, roles, Delegation, and confinement - never the Subject identifier. See [Identities and Applications](/concepts/principal/).
 
 ## Connected Account or Shared Credential
 
