@@ -8,8 +8,6 @@
 import { bind, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHmac, randomBytes } from 'node:crypto'
-import { homedir, platform } from 'node:os'
-import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
 import {
@@ -28,7 +26,7 @@ import {
   createDelegation,
   listInboundDelegations,
   startCoordinatorSession,
-  terminateAgent,
+  terminateSession,
   type CoordinatorCallEvent,
   type CoordinatorClient,
   type DelegationConstraints,
@@ -42,15 +40,17 @@ const DEFAULT_GATEWAY_URL = 'http://localhost:8081'
 const LIFECYCLE_SCOPE = 'agent:lifecycle'
 const APP_MANDATE_TTL_SECONDS = 900
 const APP_AUTHORITY_REFRESH_MARGIN_SECONDS = 60
-// Each authority entry owns two coordinator sessions. Twenty entries reserve
-// ten of the coordinator's default fifty-session capacity for ordinary work.
-const APP_AUTHORITY_CACHE_CAP = 20
+// Each authority entry owns two coordinator sessions. Nineteen entries leave
+// room for ten ordinary sessions and the next two-session provisioning cycle.
+const APP_AUTHORITY_CACHE_CAP = 19
 const APP_SESSION_TTL_BUFFER_SECONDS = 120
 const CREDENTIAL_FINGERPRINT_KEY = randomBytes(32)
 
 interface AppAuthorityEntry {
   resourceId: string
   zoneId: string
+  applicationId: string
+  credentialGeneration: string
   targetSessionId: string
   delegationId: string
   expiresAt: number
@@ -278,14 +278,12 @@ export interface BindOptions extends CallOptions {
   verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
 
-export interface ClientSecretOptions {
+interface ClientOptions {
   coordinatorUrl: string
   stsUrl: string
-  /** Static credential triple; pass `credentials` instead when the credential is rotated or provisioned at runtime. */
   zoneId?: string
   applicationId?: string
   clientSecret?: string
-  /** Dynamic credential source, resolved per operation; exactly one of this or the static triple is required. */
   credentials?: CredentialsResolver
   /**
    * Resources this client mints lifecycle tokens for and routes through the
@@ -300,10 +298,16 @@ export interface ClientSecretOptions {
   fetchImpl?: typeof fetch
 }
 
-export interface CaracalOptions {
-  env?: NodeJS.ProcessEnv
-  configPath?: string
-  clientSecret?: Partial<ClientSecretOptions>
+export interface ClientSecretOptions {
+  coordinatorUrl: string
+  stsUrl: string
+  zoneId: string
+  applicationId: string
+  clientSecret: string
+  resources?: Array<string | ResourceBinding>
+  gatewayUrl?: string
+  defaultTtlSeconds?: number
+  fetchImpl?: typeof fetch
 }
 
 export interface GatewayTarget {
@@ -319,16 +323,14 @@ export class Caracal {
   private appAuthorities = new Map<string, AppAuthorityEntry>()
   private appInflight = new Map<string, Promise<AppAuthorityEntry>>()
   private appGeneration = 0
+  private appProvisionTail: Promise<void> = Promise.resolve()
   private unverifiedBoundaryWarned = false
 
   /**
-   * Creates a Caracal client. With no arguments, credentials are
-   * auto-detected from `CARACAL_CONFIG`, the default generated profile, or
-   * environment variables. Pass `CaracalOptions` to steer detection or a
-   * `CaracalConfig` for full programmatic control.
+   * Creates a Caracal client from `CARACAL_CONFIG` when set, otherwise from
+   * `CARACAL_*` environment variables. No implicit profile paths are read.
    */
-  constructor(opts: CaracalConfig | CaracalOptions = {}) {
-    const config = 'coordinator' in opts ? opts : detectConfig(opts)
+  constructor(config: CaracalConfig = detectConfig(process.env)) {
     if ((config.subjectToken === undefined) === (config.tokenSource === undefined)) {
       throw new Error('CaracalConfig requires exactly one of subjectToken or tokenSource')
     }
@@ -343,16 +345,8 @@ export class Caracal {
     this.config.exchanger?.onEvent((e) => this.emitEvent(e))
   }
 
-  static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
-    return new Caracal(configFromEnv(env))
-  }
-
   static fromClientSecret(opts: ClientSecretOptions): Caracal {
     return new Caracal(configFromClientSecret(opts))
-  }
-
-  static fromConfig(path = defaultProfilePath(), env: NodeJS.ProcessEnv = process.env): Caracal {
-    return new Caracal(configFromProfile(path, env))
   }
 
   /**
@@ -364,24 +358,18 @@ export class Caracal {
    * simply mints fresh state.
    */
   async close(): Promise<void> {
-    const generation = ++this.appGeneration
+    ++this.appGeneration
     const pending = [...this.appInflight.values()]
     const entries = [...this.appAuthorities.values()].filter((entry) => entry.sessions.length)
     this.appAuthorities.clear()
-    if (pending.length) {
-      const settled = await Promise.allSettled(pending)
-      for (const result of settled) {
-        if (result.status === 'fulfilled' && result.value.sessions.length) entries.push(result.value)
-      }
-    }
-    if (generation !== this.appGeneration) return
+    if (pending.length) await Promise.allSettled(pending)
     const exchanger = this.config.exchanger
     if (exchanger && entries.length) {
       try {
         const identity = await exchanger.identity()
         const bootstrap = (await exchanger.mintMandate(entries[0].resourceId, [LIFECYCLE_SCOPE])).token
         const sessions = entries.flatMap((entry) => entry.sessions)
-        await Promise.allSettled(sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
+        await Promise.allSettled(sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, identity.zoneId, id)))
       } catch (err) {
         this.warnLog('caracal: close could not retire application-transport sessions; the coordinator TTL sweeper will', err)
       }
@@ -946,7 +934,7 @@ export class Caracal {
    * ApprovalRequiredError. Requires a client-secret configuration.
    *
    * Provisioning costs four control-plane calls (bootstrap mint, two session
-   * spawns, one delegation) roughly once per TTL. Every Gateway request then
+   * Session starts, one Delegation) roughly once per TTL. Every Gateway request then
    * performs one uncached final mint so its replay-protected JTI is unique.
    *
    * @example Application-identity LLM transport
@@ -968,7 +956,7 @@ export class Caracal {
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : undefined
       if (request?.bodyUsed) throw new TypeError('Caracal.applicationTransport(): cannot send a Request whose body was already consumed')
-      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts)
+      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, init?.signal ?? request?.signal)
       const minted = await exchanger.mintMandate(resourceId, scopes, {
         sessionId: authority.targetSessionId,
         delegationId: authority.delegationId,
@@ -994,23 +982,40 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
+    signal?: AbortSignal,
   ): Promise<AppAuthorityEntry> {
     // The cache key carries the acting identity, so a credential re-provisioned into a
     // different zone or application can never be served a mandate minted for the old one.
     // Labels and TTL also shape the mint cycle, so transports with different
     // attribution or lifetime requirements must not share a cached mandate.
     const identity = await exchanger.identity()
+    const credentialGeneration = identity.credentialGeneration ?? ''
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
-    const key = `${identity.zoneId}::${identity.applicationId}::${identity.credentialGeneration ?? ''}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
+    const stale: AppAuthorityEntry[] = []
+    const now = Date.now() / 1000
+    for (const [cachedKey, entry] of this.appAuthorities) {
+      if (
+        entry.expiresAt <= now ||
+        (entry.zoneId === identity.zoneId &&
+          entry.applicationId === identity.applicationId &&
+          entry.credentialGeneration !== credentialGeneration)
+      ) {
+        this.appAuthorities.delete(cachedKey)
+        stale.push(entry)
+      }
+    }
+    if (stale.length) await this.retireAppAuthorities(exchanger, stale)
+    const key = `${identity.zoneId}::${identity.applicationId}::${credentialGeneration}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
     const cached = this.appAuthorities.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - APP_AUTHORITY_REFRESH_MARGIN_SECONDS) return cached
-    const inflight = this.appInflight.get(key)
-    if (inflight) return inflight
     const generation = this.appGeneration
+    const inflightKey = `${generation}::${key}`
+    const inflight = this.appInflight.get(inflightKey)
+    if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts)
+        const fresh = await this.withAppProvisioning(signal, () => this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts))
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
           return fresh
@@ -1036,16 +1041,50 @@ export class Caracal {
         if (evicted.length) await this.retireAppAuthorities(exchanger, evicted)
         return fresh
       } finally {
-        this.appInflight.delete(key)
+        this.appInflight.delete(inflightKey)
       }
     })()
-    this.appInflight.set(key, pending)
+    this.appInflight.set(inflightKey, pending)
     return pending
+  }
+
+  private async withAppProvisioning<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+    const previous = this.appProvisionTail
+    let release!: () => void
+    this.appProvisionTail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    if (signal?.aborted) {
+      void previous.finally(release)
+      throw signal.reason
+    }
+    let abort: (() => void) | undefined
+    try {
+      if (signal) {
+        await Promise.race([
+          previous,
+          new Promise<never>((_, reject) => {
+            abort = () => reject(signal.reason)
+            signal.addEventListener('abort', abort, { once: true })
+          }),
+        ])
+      } else {
+        await previous
+      }
+      return await fn()
+    } catch (err) {
+      if (signal?.aborted) void previous.finally(release)
+      else release()
+      throw err
+    } finally {
+      if (abort) signal?.removeEventListener('abort', abort)
+      if (!signal?.aborted) release()
+    }
   }
 
   private async appAuthorityCycle(
     exchanger: ClientSecretExchanger,
-    identity: { zoneId: string; applicationId: string },
+    identity: { zoneId: string; applicationId: string; credentialGeneration?: string },
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
@@ -1053,7 +1092,7 @@ export class Caracal {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
     const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
-    const spawnReq = {
+    const sessionRequest = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
       labels: opts.labels ?? [identity.applicationId],
@@ -1062,11 +1101,11 @@ export class Caracal {
     const sessions: string[] = []
     try {
       const source = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
       ).sessionId
       sessions.push(source)
       const target = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
       ).sessionId
       sessions.push(target)
       const edge = await createDelegation(this.config.coordinator, bootstrap, {
@@ -1082,13 +1121,15 @@ export class Caracal {
       return {
         resourceId,
         zoneId: identity.zoneId,
+        applicationId: identity.applicationId,
+        credentialGeneration: identity.credentialGeneration ?? '',
         targetSessionId: target,
         delegationId: edge.delegationId,
         expiresAt: Date.now() / 1000 + sessionTtl,
         sessions,
       }
     } catch (err) {
-      await Promise.allSettled(sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, identity.zoneId, id)))
+      await Promise.allSettled(sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, identity.zoneId, id)))
       throw err
     }
   }
@@ -1098,7 +1139,7 @@ export class Caracal {
     try {
       const bootstrap = (await exchanger.mintMandate(entries[0].resourceId, [LIFECYCLE_SCOPE])).token
       await Promise.allSettled(
-        entries.flatMap((entry) => entry.sessions.map((id) => terminateAgent(this.config.coordinator, bootstrap, entry.zoneId, id))),
+        entries.flatMap((entry) => entry.sessions.map((id) => terminateSession(this.config.coordinator, bootstrap, entry.zoneId, id))),
       )
     } catch (err) {
       this.warnLog('caracal: could not retire application-transport sessions; the coordinator TTL sweeper will', err)
@@ -1199,11 +1240,26 @@ export class Caracal {
   }
 }
 
+export function createAdvancedClient(config: CaracalConfig): Caracal {
+  return new Caracal(config)
+}
+
+export function createAdvancedClientFromEnv(env: NodeJS.ProcessEnv): Caracal {
+  return new Caracal(configFromEnv(env))
+}
+
+export function createAdvancedClientFromConfig(path: string, env: NodeJS.ProcessEnv = process.env): Caracal {
+  return new Caracal(configFromProfile(path, env))
+}
+
+export function createAdvancedClientFromCredentials(
+  opts: Omit<ClientOptions, 'zoneId' | 'applicationId' | 'clientSecret'> & { credentials: CredentialsResolver },
+): Caracal {
+  return new Caracal(configFromClientSecret(opts))
+}
+
 function productionEnv(env: NodeJS.ProcessEnv): boolean {
-  // CARACAL_ENV is the language-neutral gate every Caracal SDK honors; when
-  // unset, Node deployments fall back to NODE_ENV.
-  if (env.CARACAL_ENV) return env.CARACAL_ENV === 'production'
-  return env.NODE_ENV === 'production'
+  return env.CARACAL_ENV === 'production'
 }
 
 let insecureConfigWarned = false
@@ -1236,7 +1292,17 @@ function isLoopbackHost(host: string): boolean {
 }
 
 function assertProductionTransport(name: string, value: string | undefined, env: NodeJS.ProcessEnv): void {
-  if (!value || !productionEnv(env)) return
+  if (!value) return
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`Caracal SDK: ${name} is not a valid URL: ${value}`)
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) {
+    throw new Error(`Caracal SDK: ${name} must be an absolute http or https URL: ${value}`)
+  }
+  if (!productionEnv(env)) return
   if (env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true') {
     // The override disables the https requirement for the whole control
     // plane, so its presence in production must be loud and unmissable.
@@ -1247,12 +1313,6 @@ function assertProductionTransport(name: string, value: string | undefined, env:
       )
     }
     return
-  }
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error(`Caracal SDK: ${name} is not a valid URL: ${value}`)
   }
   if (parsed.protocol === 'https:') return
   if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return
@@ -1269,13 +1329,12 @@ function serviceUrl(env: NodeJS.ProcessEnv, key: string, fallback: string): stri
 }
 
 function stsUrlFromEnv(env: NodeJS.ProcessEnv): string {
-  return env.CARACAL_STS_URL ?? env.CARACAL_ZONE_URL ?? serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
+  return serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
 }
 
 interface ProfileResources {
   resources: Array<string | ResourceBinding>
   bindings?: ResourceBinding[]
-  credentialResources?: Array<string | ResourceBinding>
 }
 
 interface CredentialEntry {
@@ -1283,51 +1342,8 @@ interface CredentialEntry {
   upstream_prefix?: string
 }
 
-function defaultProfilePath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(defaultConfigDir(env), 'caracal.toml')
-}
-
-function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.CARACAL_CONFIG_HOME) return env.CARACAL_CONFIG_HOME
-  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, 'caracal')
-  if (platform() === 'win32') return join(env.APPDATA || env.LOCALAPPDATA || join(homedir(), 'AppData', 'Roaming'), 'Caracal')
-  if (platform() === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Caracal')
-  return join(homedir(), '.config', 'caracal')
-}
-
-function defaultCredentialDir(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
-  return join(defaultConfigDir(env), 'runtime', safePathSegment(zoneId), safePathSegment(applicationId))
-}
-
-function defaultClientSecretPath(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
-  return join(defaultCredentialDir(env, zoneId, applicationId), 'client-secret')
-}
-
-function defaultRunCredentialsPath(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
-  return join(defaultCredentialDir(env, zoneId, applicationId), 'credentials.json')
-}
-
-function safePathSegment(value: string): string {
-  const segment = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_')
-  let start = 0
-  let end = segment.length
-  while (start < end && segment[start] === '_') start += 1
-  while (end > start && segment[end - 1] === '_') end -= 1
-  return segment.slice(start, end) || 'default'
-}
-
-function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undefined {
-  if (productionEnv(env)) return undefined
-  return existsSync(path) ? path : undefined
-}
-
-function detectConfig(opts: CaracalOptions): CaracalConfig {
-  if (opts.clientSecret && Object.keys(opts.clientSecret).length > 0) {
-    return configFromClientSecret(opts.clientSecret as ClientSecretOptions)
-  }
-  const env = opts.env ?? process.env
-  if (opts.configPath) return configFromProfile(opts.configPath, env)
-  const path = resolveProfilePath(env)
+function detectConfig(env: NodeJS.ProcessEnv): CaracalConfig {
+  const path = env.CARACAL_CONFIG
   if (path) return configFromProfile(path, env)
   return configFromEnv(env)
 }
@@ -1349,9 +1365,12 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
     throw new Error(`Caracal.fromEnv: missing ${missing.join(', ')}`)
   }
   const clientSecret = clientSecretFromEnv(env, zoneId!, applicationId!)
-  const profileResources = resourcesFromEnv(env, zoneId!, applicationId!)
+  const profileResources = resourcesFromEnv(env)
   const resources = profileResources.bindings
   const defaultTtlSeconds = defaultTtlFromEnv(env)
+  if (clientSecret && subjectToken) {
+    throw new Error('Caracal: configure exactly one of CARACAL_APP_CLIENT_SECRET and CARACAL_BOOTSTRAP_TOKEN')
+  }
   if (clientSecret) {
     return configFromClientSecret(
       {
@@ -1360,7 +1379,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
         zoneId: zoneId!,
         applicationId: applicationId!,
         clientSecret,
-        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.credentialResources ?? [], profileResources.resources),
+        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.resources),
         gatewayUrl,
         defaultTtlSeconds,
       },
@@ -1394,7 +1413,7 @@ function defaultTtlFromEnv(env: NodeJS.ProcessEnv): number | undefined {
   return value
 }
 
-function configFromClientSecret(opts: ClientSecretOptions, env: NodeJS.ProcessEnv = process.env): CaracalConfig {
+function configFromClientSecret(opts: ClientOptions, env: NodeJS.ProcessEnv = process.env): CaracalConfig {
   const missing = [
     ['coordinatorUrl', opts.coordinatorUrl],
     ['stsUrl', opts.stsUrl],
@@ -1421,6 +1440,13 @@ function configFromClientSecret(opts: ClientSecretOptions, env: NodeJS.ProcessEn
   const credentials: CredentialsResolver =
     opts.credentials ?? (() => ({ zoneId: opts.zoneId!, applicationId: opts.applicationId!, clientSecret: opts.clientSecret! }))
   const resourceValues = opts.resources ?? []
+  for (const value of resourceValues) {
+    const resourceId = typeof value === 'string' ? value : value.resourceId
+    if (!resourceId.trim()) throw new Error('Caracal.fromClientSecret: resource IDs must be non-empty')
+    if (typeof value !== 'string' && !isAbsoluteUrl(value.upstreamPrefix)) {
+      throw new Error(`Caracal.fromClientSecret: upstreamPrefix must be an absolute http or https URL: ${value.upstreamPrefix}`)
+    }
+  }
   const resourceIds = resourceValues.map((value) => (typeof value === 'string' ? value : value.resourceId))
   const bindings = resourceValues.filter((value): value is ResourceBinding => typeof value !== 'string')
   const tokenSource = createClientSecretTokenSource(opts.stsUrl, credentials, resourceIds, opts.scope, opts.fetchImpl)
@@ -1443,19 +1469,9 @@ function configFromProfile(path: string, env: NodeJS.ProcessEnv): CaracalConfig 
   if (!isRecord(value)) throw new Error('Caracal.fromConfig: profile must be a TOML table')
   const zoneId = requiredString(value, 'zone_id', path)
   const applicationId = requiredString(value, 'application_id', path)
-  const stsUrl =
-    stringValue(value, 'sts_url') ??
-    stringValue(value, 'zone_url') ??
-    env.CARACAL_STS_URL ??
-    env.CARACAL_ZONE_URL ??
-    serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
+  const stsUrl = stringValue(value, 'sts_url') ?? env.CARACAL_STS_URL ?? serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
   const coordinatorUrl = stringValue(value, 'coordinator_url') ?? serviceUrl(env, 'CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
-  const resources = resourcesFromProfile(value, path, env, zoneId, applicationId)
-  if (!resources.resources.length) {
-    throw new Error(
-      `Caracal.fromConfig: ${path} requires at least one resource via credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE`,
-    )
-  }
+  const resources = resourcesFromProfile(value, path, env)
   return configFromClientSecret(
     {
       coordinatorUrl,
@@ -1478,15 +1494,6 @@ function profileTtlSeconds(record: Record<string, unknown>, source: string): num
     throw new Error(`${source}: default_ttl_seconds must be a positive integer`)
   }
   return value
-}
-
-function resolveProfilePath(env: NodeJS.ProcessEnv): string | undefined {
-  if (env.CARACAL_CONFIG) {
-    if (!existsSync(env.CARACAL_CONFIG)) throw new Error(`Caracal: profile not found: ${env.CARACAL_CONFIG}`)
-    return env.CARACAL_CONFIG
-  }
-  const path = defaultProfilePath(env)
-  return existsSync(path) ? path : undefined
 }
 
 function assertProfileFileSecure(path: string): void {
@@ -1535,12 +1542,8 @@ function clientSecretFromProfile(
     }
     return inline
   }
-  const localFile = file ?? existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
-  if (!localFile)
-    throw new Error(
-      `${source}: client secret is required; local dev/stable auto-detects ${defaultClientSecretPath(env, zoneId, applicationId)} when it exists`,
-    )
-  return readSecretFile(localFile)
+  if (!file) throw new Error(`${source}: client secret is required via app_client_secret or app_client_secret_file`)
+  return readSecretFile(file)
 }
 
 function clientSecretFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string | undefined {
@@ -1549,8 +1552,6 @@ function clientSecretFromEnv(env: NodeJS.ProcessEnv, zoneId: string, application
   }
   if (env.CARACAL_APP_CLIENT_SECRET_FILE) return readSecretFile(env.CARACAL_APP_CLIENT_SECRET_FILE)
   if (env.CARACAL_APP_CLIENT_SECRET) return env.CARACAL_APP_CLIENT_SECRET
-  const localFile = existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
-  if (localFile) return readSecretFile(localFile)
   return undefined
 }
 
@@ -1562,28 +1563,18 @@ function readSecretFile(path: string): string {
   return secret
 }
 
-function resourcesFromProfile(
-  record: Record<string, unknown>,
-  source: string,
-  env: NodeJS.ProcessEnv,
-  zoneId: string,
-  applicationId: string,
-): ProfileResources {
+function resourcesFromProfile(record: Record<string, unknown>, source: string, env: NodeJS.ProcessEnv): ProfileResources {
   const credentials = [
     ...credentialEntries(record.credentials, `${source}.credentials`),
     ...credentialEntries(record.optional_credentials, `${source}.optional_credentials`),
-    ...credentialManifestFromEnv(env, zoneId, applicationId),
   ]
   const resources = resourcesFromCredentials(credentials)
   const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env)
-  return { ...resolved, credentialResources: resources.resources }
+  return resolved
 }
 
-function resourcesFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): ProfileResources {
-  const credentials = credentialManifestFromEnv(env, zoneId, applicationId)
-  const resources = resourcesFromCredentials(credentials)
-  const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env)
-  return { ...resolved, credentialResources: resources.resources }
+function resourcesFromEnv(env: NodeJS.ProcessEnv): ProfileResources {
+  return resolveProfileResources([], [], env)
 }
 
 function resolveProfileResources(
@@ -1675,26 +1666,10 @@ function mergeResourceBindings(...sources: ResourceBinding[][]): ResourceBinding
 function isAbsoluteUrl(value: string): boolean {
   try {
     const parsed = new URL(value)
-    return Boolean(parsed.protocol && parsed.host)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.host)
   } catch {
     return false
   }
-}
-
-function credentialManifestFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): CredentialEntry[] {
-  const file = env.CARACAL_RUN_CREDENTIALS_FILE
-  const inline = env.CARACAL_RUN_CREDENTIALS
-  if (file && inline) throw new Error('Caracal.fromEnv: set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE')
-  const localFile = !file && !inline ? existingLocalFile(defaultRunCredentialsPath(env, zoneId, applicationId), env) : undefined
-  if (!file && !inline && !localFile) return []
-  const raw = file || localFile ? readSecretFile(file ?? localFile!) : inline!
-  const parsed = JSON.parse(raw) as unknown
-  const manifest = Array.isArray(parsed) ? { credentials: parsed } : parsed
-  if (!isRecord(manifest)) throw new Error('Caracal.fromEnv: credential manifest must be an array or object')
-  return [
-    ...credentialEntries(manifest.credentials, 'CARACAL_RUN_CREDENTIALS.credentials'),
-    ...credentialEntries(manifest.optional_credentials, 'CARACAL_RUN_CREDENTIALS.optional_credentials'),
-  ]
 }
 
 function credentialEntries(value: unknown, source: string): CredentialEntry[] {
@@ -1807,7 +1782,6 @@ function compactResourceValues(values: Array<string | ResourceBinding>): Array<s
 
 function resourceIdsFromEnv(
   raw: string | undefined,
-  first: Array<string | ResourceBinding>,
   resources: Array<string | ResourceBinding> | undefined,
 ): Array<string | ResourceBinding> {
   const explicit =
@@ -1817,11 +1791,7 @@ function resourceIdsFromEnv(
       .filter(Boolean) ?? []
   // Binding-derived ids always join the STS audience set so a routed resource
   // can never be minted without an audience.
-  const values = compactResourceValues([...first, ...explicit, ...(resources ?? [])])
-  if (values.length) return values
-  throw new Error(
-    'Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES, CARACAL_RUN_CREDENTIALS, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE',
-  )
+  return compactResourceValues([...explicit, ...(resources ?? [])])
 }
 
 /**
@@ -1867,6 +1837,7 @@ function createClientSecretTokenSource(
     },
     invalidate: () => {
       force = true
+      active?.client.invalidate()
     },
     identity: async () => {
       const { creds } = await resolve()
@@ -1881,8 +1852,8 @@ function createClientSecretTokenSource(
       const token = await client.exchange('', resourceId, {
         clientSecret: creds.clientSecret,
         scopes: [...new Set(scopes)].sort(),
-        agentSessionId: opts.sessionId,
-        delegationEdgeId: opts.delegationId,
+        sessionId: opts.sessionId,
+        delegationId: opts.delegationId,
         ttlSeconds: opts.ttlSeconds,
         challengeId: opts.approvalId,
         signal: opts.signal,

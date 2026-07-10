@@ -124,7 +124,7 @@ export interface DelegationRequest {
   idempotencyKey?: string
 }
 
-/** The created delegation edge: its id, the scopes it bounds, and when it lapses. */
+/** The created Delegation: its ID, the scopes it bounds, and when it lapses. */
 export interface DelegationResponse {
   delegationId: string
   scopes: string[]
@@ -236,7 +236,7 @@ export async function startCoordinatorSession(
   }
 }
 
-export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
+export async function terminateSession(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
   await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`, bearer)
 }
 
@@ -313,7 +313,7 @@ export async function listInboundDelegations(
   )
 }
 
-export async function heartbeatAgent(
+export async function heartbeatSession(
   client: CoordinatorClient,
   bearer: string,
   zoneId: string,

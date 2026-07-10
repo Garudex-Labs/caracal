@@ -14,9 +14,9 @@ export interface TokenExchangeRequest {
   clientSecret?: string
   clientAssertion?: string
   clientAssertionType?: string
+  authorityRecordId?: string
   sessionId?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
+  delegationId?: string
   scopes?: string[]
   ttlSeconds?: number
 }
@@ -49,9 +49,9 @@ export interface ExchangeOptions {
   clientSecret?: string
   clientAssertion?: string
   clientAssertionType?: string
+  authorityRecordId?: string
   sessionId?: string
-  agentSessionId?: string
-  delegationEdgeId?: string
+  delegationId?: string
   scopes?: string[]
   timeoutMs?: number
   retries?: number

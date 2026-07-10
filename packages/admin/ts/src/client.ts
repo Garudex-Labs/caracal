@@ -115,12 +115,13 @@ function mapEffectiveAuthority(row: Record<string, unknown>): EffectiveAuthority
 }
 
 function mapDelegationImpact(row: Record<string, unknown>): DelegationImpact {
-  const { edge_id, affected_edges, affected_agents, ...rest } = row
+  const { edge_id, affected_edges, affected_sessions, affected_authority_records, ...rest } = row
   return {
     ...rest,
     delegation_id: String(edge_id),
     affected_delegations: Array.isArray(affected_edges) ? affected_edges.map(mapDelegationTraversal) : [],
-    affected_sessions: Array.isArray(affected_agents) ? affected_agents : [],
+    affected_sessions: Array.isArray(affected_sessions) ? affected_sessions : [],
+    affected_authority_records: Array.isArray(affected_authority_records) ? affected_authority_records : [],
   } as unknown as DelegationImpact
 }
 

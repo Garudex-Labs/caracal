@@ -13,8 +13,8 @@ import {
   DelegationResponse,
   StartSessionResponse,
   startCoordinatorSession,
-  terminateAgent,
-  heartbeatAgent,
+  terminateSession,
+  heartbeatSession,
   createDelegation,
   Lifecycle,
   DelegationConstraints,
@@ -286,7 +286,7 @@ async function retire(
   warn: WarnSink = defaultWarn,
 ): Promise<void> {
   try {
-    await terminateAgent(coordinator, await bearer(), zoneId, sessionId)
+    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
   } catch (e) {
     if (isGone(e)) return
     warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, e)
@@ -496,12 +496,12 @@ export async function attachSession(input: AttachSessionInput): Promise<SessionH
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : input.subjectToken)
   let first
   try {
-    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
   } catch (err) {
     if (!(err instanceof CoordinatorError) || err.status !== 401 || !input.invalidate || !input.tokenSource) throw err
     input.invalidate()
     token = await input.tokenSource()
-    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
   }
   const ctx: CaracalContext = {
     subjectToken: token,
@@ -540,19 +540,23 @@ function leaseHandle(
   const heartbeat = async (status?: SessionStatus) => {
     let res
     try {
-      res = await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, status)
     } catch (e) {
       // A cached token can be rejected before its exp (server-side session
       // revocation after a credential rotation); force one refresh and retry
       // so the lease survives the rotation.
       if (!(e instanceof CoordinatorError) || e.status !== 401 || !input.invalidate) throw e
       input.invalidate()
-      res = await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, status)
     }
     deadlineAt = res.heartbeatDeadlineAt ?? deadlineAt
     if (res.status && res.status !== sessionStatus) {
       sessionStatus = res.status
-      input.onStateChange?.(sessionStatus)
+      try {
+        input.onStateChange?.(sessionStatus)
+      } catch (err) {
+        warn(`caracal: state-change callback failed for session ${sessionId}`, err)
+      }
     }
     if (sessionStatus === 'suspended') {
       stopped = true
@@ -612,7 +616,7 @@ function leaseHandle(
           if (input.onSessionEnd) await input.onSessionEnd(ctx)
         } finally {
           try {
-            await terminateAgent(input.coordinator, await bearer(), input.zoneId, sessionId)
+            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId)
           } catch (e) {
             if (!isGone(e)) throw e
           }

@@ -76,6 +76,11 @@ export class OAuthClient {
     }
   }
 
+  /** Drops every cached token derived by this client. In-flight exchanges are not canceled. */
+  invalidate(): void {
+    this.cache.clear()
+  }
+
   async exchange(subjectToken: string, resource: string | string[], opts: ExchangeOptions = {}): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
     const preflightWindow = timeoutMs / 1000 + 30
@@ -119,7 +124,7 @@ export class OAuthClient {
       }
     }
     const existing = this.inflight.get(inflightKey)
-    if (existing) return existing
+    if (existing) return waitForShared(existing, opts.signal)
 
     const start = performance.now()
     const pending = (async () => {
@@ -144,16 +149,16 @@ export class OAuthClient {
       }
     })()
     this.inflight.set(inflightKey, pending)
-    return pending
+    return waitForShared(pending, opts.signal)
   }
 
   private cacheSubject(subjectToken: string, opts: ExchangeOptions): string {
     return [
       this.identityKey,
       secretCacheId(subjectToken),
+      opts.authorityRecordId ?? '',
       opts.sessionId ?? '',
-      opts.agentSessionId ?? '',
-      opts.delegationEdgeId ?? '',
+      opts.delegationId ?? '',
       this.authContext(opts),
       secretCacheId(opts.clientAssertion),
     ].join('::')
@@ -195,9 +200,9 @@ export class OAuthClient {
     if (opts.clientSecret) body.set('client_secret', opts.clientSecret)
     if (opts.clientAssertion) body.set('client_assertion', opts.clientAssertion)
     if (opts.clientAssertionType) body.set('client_assertion_type', opts.clientAssertionType)
-    if (opts.sessionId) body.set('session_id', opts.sessionId)
-    if (opts.agentSessionId) body.set('agent_session_id', opts.agentSessionId)
-    if (opts.delegationEdgeId) body.set('delegation_edge_id', opts.delegationEdgeId)
+    if (opts.authorityRecordId) body.set('session_id', opts.authorityRecordId)
+    if (opts.sessionId) body.set('agent_session_id', opts.sessionId)
+    if (opts.delegationId) body.set('delegation_edge_id', opts.delegationId)
     const scope = this.normalizedScopes(opts.scopes)
     if (scope) body.set('scope', scope)
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
@@ -381,6 +386,16 @@ export class OAuthClient {
   }
 }
 
+async function waitForShared<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending
+  if (signal.aborted) throw signal.reason
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
 /**
  * Long-polls an approval's lifecycle state against STS without any client
  * context: only the approval id and the STS URL are required, so run launches and
@@ -397,7 +412,7 @@ export async function pollStepUpState(
     const remainingMs = deadline - performance.now()
     if (remainingMs <= 0) return 'pending'
     const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
-    const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)))
+    const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(Math.min(remainingMs, (wait + 10) * 1000))))
     const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout
     const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(approvalId)}?wait=${wait}`, { signal })
     if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)

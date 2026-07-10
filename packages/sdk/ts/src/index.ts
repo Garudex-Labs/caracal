@@ -7,11 +7,8 @@
 
 export { Caracal, CredentialsUnavailableError } from './client.js'
 export type {
-  CaracalConfig,
   CaracalEvent,
   DelegationAcceptEvent,
-  ClientCredentials,
-  CredentialsResolver,
   EventHook,
   SessionOptions,
   StartSessionOptions,
@@ -26,17 +23,14 @@ export type {
   MintedMandate,
   FederatedSubject,
   BindOptions,
-  TokenSource,
-  ClientSecretExchanger,
   ClientSecretOptions,
-  CaracalOptions,
 } from './client.js'
 export { CaracalError, ApprovalRequiredError, isApprovalRequired } from '@caracalai/oauth'
 export type { ApprovalState, ApprovalWaitEvent, ApprovalRequiredDetails, OAuthEvent, TokenExchangeEvent } from '@caracalai/oauth'
 export { captureContext, describeAuthority } from './context.js'
 export type { AuthoritySummary, CaracalContext, VerifiedClaims } from './context.js'
 export { CoordinatorError } from './coordinator.js'
-export type { SessionStatus, CoordinatorCallEvent, CoordinatorClient } from './coordinator.js'
+export type { SessionStatus, CoordinatorCallEvent } from './coordinator.js'
 export { Authority } from './primitives.js'
 export type { AuthorityMode, Delegation } from './primitives.js'
 export type { DelegationConstraints } from './coordinator.js'

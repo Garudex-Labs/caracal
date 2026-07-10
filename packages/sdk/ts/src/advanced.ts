@@ -13,7 +13,13 @@ export * from './context.js'
 export * from './coordinator.js'
 export * from './primitives.js'
 export * from './http.js'
-export { Caracal } from './client.js'
+export {
+  Caracal,
+  createAdvancedClient,
+  createAdvancedClientFromConfig,
+  createAdvancedClientFromCredentials,
+  createAdvancedClientFromEnv,
+} from './client.js'
 export type {
   CaracalConfig,
   SessionOptions,
@@ -21,5 +27,7 @@ export type {
   LifecycleHook,
   CallOptions,
   TokenSource,
+  ClientCredentials,
+  CredentialsResolver,
   ClientSecretOptions,
 } from './client.js'

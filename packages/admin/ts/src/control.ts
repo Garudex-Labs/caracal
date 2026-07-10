@@ -5,6 +5,7 @@
 
 const STS_TOKEN_PATH = '/oauth/2/token'
 const CONTROL_INVOKE_PATH = '/v1/control/invoke'
+const DEFAULT_TIMEOUT_MS = 30_000
 
 // The control identity the caller acts as. The client secret is a sealed credential held
 // only for the lifetime of a request and never logged; it leaves this module only in the
@@ -38,6 +39,10 @@ export interface ControlClientOptions {
   // control invoke so the STS log, the control dispatch, and its audit record all correlate
   // back to the request that triggered them.
   requestId?: string
+  // Total wall-clock budget for one invoke, including token mint, its one safe retry,
+  // and the control request. Caller cancellation can shorten this budget.
+  timeoutMs?: number
+  signal?: AbortSignal
   fetchImpl?: typeof fetch
 }
 
@@ -118,18 +123,18 @@ export class ControlClient {
   // widen authority beyond what the identity was granted. A transient failure (a server
   // error or a lost response) is retried once: a failed mint is always definitive - no
   // token exists and nothing was applied - so the retry is safe for every caller.
-  private async mintToken(scopes: readonly string[]): Promise<string> {
+  private async mintToken(scopes: readonly string[], signal: AbortSignal): Promise<string> {
     try {
-      return await this.exchangeToken(scopes)
+      return await this.exchangeToken(scopes, signal)
     } catch (err) {
       if (err instanceof ControlClientError && (err.status >= 500 || err.status === 0)) {
-        return this.exchangeToken(scopes)
+        return this.exchangeToken(scopes, signal)
       }
       throw err
     }
   }
 
-  private async exchangeToken(scopes: readonly string[]): Promise<string> {
+  private async exchangeToken(scopes: readonly string[], signal: AbortSignal): Promise<string> {
     const form = new URLSearchParams({
       grant_type: 'client_credentials',
       application_id: this.options.applicationId,
@@ -140,11 +145,16 @@ export class ControlClient {
     if (this.options.ttlSeconds !== undefined) form.set('ttl_seconds', String(this.options.ttlSeconds))
     const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' }
     if (this.options.requestId) headers['x-request-id'] = this.options.requestId
-    const res = await this.send('token', `${this.stsUrl}${STS_TOKEN_PATH}`, {
-      method: 'POST',
-      headers,
-      body: form.toString(),
-    })
+    const res = await this.send(
+      'token',
+      `${this.stsUrl}${STS_TOKEN_PATH}`,
+      {
+        method: 'POST',
+        headers,
+        body: form.toString(),
+      },
+      signal,
+    )
     const body = await readJson(res)
     if (!res.ok) {
       const { reason, code, remediation } = describeError(body, 'token exchange rejected')
@@ -159,27 +169,36 @@ export class ControlClient {
 
   // Carries a request to the wire, normalizing a thrown network failure into the error
   // taxonomy as status 0 so every failure a caller sees carries a stage and a status.
-  private async send(stage: 'token' | 'invoke', url: string, init: RequestInit): Promise<Response> {
+  private async send(stage: 'token' | 'invoke', url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
     try {
-      return await this.fetchImpl(url, init)
+      return await this.fetchImpl(url, { ...init, signal })
     } catch (err) {
       throw new ControlClientError(stage, 0, err instanceof Error ? err.message : 'network request failed')
     }
   }
 
   async invoke(command: string, subcommand: string, flags: Record<string, unknown>, scopes: readonly string[]): Promise<unknown> {
-    const token = await this.mintToken(scopes)
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('ControlClient timeoutMs must be a positive number')
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const signal = this.options.signal ? AbortSignal.any([timeout, this.options.signal]) : timeout
+    const token = await this.mintToken(scopes, signal)
     const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${token}` }
     if (this.options.zoneScope) headers['x-caracal-zone-scope'] = this.options.zoneScope
     if (this.options.requestId) headers['x-request-id'] = this.options.requestId
     const invokeBody: Record<string, unknown> = { command, subcommand, flags }
     if (this.options.authorizedBy) invokeBody.authorized_by = this.options.authorizedBy
     if (this.options.coAuthorOperator) invokeBody.co_author_operator = true
-    const res = await this.send('invoke', `${this.controlUrl}${CONTROL_INVOKE_PATH}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(invokeBody),
-    })
+    const res = await this.send(
+      'invoke',
+      `${this.controlUrl}${CONTROL_INVOKE_PATH}`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(invokeBody),
+      },
+      signal,
+    )
     const body = await readJson(res)
     if (!res.ok) {
       const { reason, code, remediation } = describeError(body, 'control invoke rejected')
