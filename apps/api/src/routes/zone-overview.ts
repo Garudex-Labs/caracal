@@ -53,7 +53,7 @@ export const zoneOverviewRoutes: FastifyPluginAsync = async (fastify) => {
       ),
       fastify.db.query(
         `SELECT count(*)::int AS active
-           FROM sessions
+           FROM authority_records
            WHERE zone_id = $1 AND status = 'active' AND expires_at > now()`,
         zone,
       ),

@@ -140,7 +140,7 @@ const SESSION_CSV_COLUMNS = [
   'labels',
   'depth',
   'child_count',
-  'spawned_at',
+  'started_at',
   'last_active_at',
   'terminated_at',
   'termination_reason',
@@ -522,7 +522,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT id AS authority_record_id, zone_id, session_type AS authority_record_type, subject_id,
               parent_id AS parent_authority_record_id, status, expires_at,
               authenticated_at, created_at, revoked_at, revoked_reason
-       FROM sessions
+      FROM authority_records
        WHERE ${conds.join(' AND ')}
        ORDER BY created_at DESC, id DESC
        LIMIT $${values.length}`,
@@ -575,16 +575,16 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)
-      conds.push(`(spawned_at, id) < ($${values.length - 1}, $${values.length})`)
+      conds.push(`(started_at, id) < ($${values.length - 1}, $${values.length})`)
     }
     values.push(q.limit)
 
     const { rows } = await fastify.db.query(
       `SELECT id AS session_id, application_id, parent_id AS parent_session_id, status, lifecycle, labels, depth, child_count,
-              spawned_at, last_active_at, terminated_at, termination_reason, ttl_seconds
-       FROM agent_sessions
+          started_at, last_active_at, terminated_at, termination_reason, ttl_seconds
+        FROM sessions
        WHERE ${conds.join(' AND ')}
-       ORDER BY spawned_at DESC, id DESC
+        ORDER BY started_at DESC, id DESC
        LIMIT $${values.length}`,
       values,
     )
@@ -596,7 +596,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const last = rows[rows.length - 1]
-    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.spawned_at).toISOString(), last.session_id) : null
+    const next = rows.length === q.limit && last ? encodeCursor(new Date(last.started_at).toISOString(), last.session_id) : null
     return { items: rows, next_cursor: next }
   })
 }

@@ -78,9 +78,9 @@ interface RevokedSession {
   id: string
 }
 
-interface TerminatedAgent {
+interface TerminatedSession {
   id: string
-  subject_session_id: string
+  subject_authority_record_id: string
   parent_id: string | null
 }
 
@@ -196,48 +196,48 @@ async function revokeDcrIdentities(
     [zoneId, applicationIds, attribution.actor, attribution.viaOperator],
   )
 
-  const { rows: sessions } = await client.query<RevokedSession>(
+  const { rows: authorityRecords } = await client.query<RevokedSession>(
     `WITH RECURSIVE revoked_tree AS (
-       SELECT id FROM sessions
+       SELECT id FROM authority_records
        WHERE zone_id = $1
          AND session_type = 'application'
          AND subject_id = ANY($2::text[])
          AND status = 'active'
        UNION
-       SELECT s.id FROM sessions s
-       JOIN revoked_tree r ON s.parent_id = r.id
-       WHERE s.zone_id = $1 AND s.status = 'active'
+       SELECT ar.id FROM authority_records ar
+       JOIN revoked_tree r ON ar.parent_id = r.id
+       WHERE ar.zone_id = $1 AND ar.status = 'active'
      )
-     UPDATE sessions
+     UPDATE authority_records
      SET status = 'revoked', revoked_at = now(), revoked_reason = 'dcr_shutdown'
      WHERE zone_id = $1 AND id IN (SELECT id FROM revoked_tree)
      RETURNING id`,
     [zoneId, applicationIds],
   )
 
-  const { rows: agents } = await client.query<TerminatedAgent>(
+  const { rows: sessions } = await client.query<TerminatedSession>(
     `WITH RECURSIVE tree AS (
-       SELECT id, subject_session_id, parent_id
-       FROM agent_sessions
+       SELECT id, subject_authority_record_id, parent_id
+       FROM sessions
        WHERE zone_id = $1
          AND application_id = ANY($2::text[])
          AND status IN ('active','suspended')
        UNION
-       SELECT child.id, child.subject_session_id, child.parent_id
-       FROM agent_sessions child
+       SELECT child.id, child.subject_authority_record_id, child.parent_id
+       FROM sessions child
        JOIN tree parent ON child.parent_id = parent.id
        WHERE child.zone_id = $1 AND child.status IN ('active','suspended')
      )
-     UPDATE agent_sessions
+     UPDATE sessions
      SET status = 'terminated', terminated_at = now(), updated_at = now()
      WHERE zone_id = $1 AND id IN (SELECT id FROM tree)
-     RETURNING id, subject_session_id, parent_id`,
+     RETURNING id, subject_authority_record_id, parent_id`,
     [zoneId, applicationIds],
   )
 
-  const agentIds = agents.map((row) => row.id)
+  const sessionIds = sessions.map((row) => row.id)
   const { rows: delegations } =
-    agentIds.length > 0
+    sessionIds.length > 0
       ? await client.query<RevokedDelegation>(
           `UPDATE delegation_edges
        SET status = 'revoked', revoked_at = now(), edge_version = edge_version + 1, updated_at = now()
@@ -245,19 +245,19 @@ async function revokeDcrIdentities(
          AND status = 'active'
          AND (source_session_id = ANY($2::text[]) OR target_session_id = ANY($2::text[]))
        RETURNING id`,
-          [zoneId, agentIds],
+          [zoneId, sessionIds],
         )
       : { rows: [] as RevokedDelegation[] }
 
   const events: EnqueueArgs[] = []
-  for (const row of sessions) {
+  for (const row of authorityRecords) {
     events.push({
       streamName: STREAM_SESSIONS_REVOKE,
       payload: { zone_id: zoneId, session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
-  for (const row of agents) {
+  for (const row of sessions) {
     events.push({
       streamName: STREAM_AGENTS_LIFECYCLE,
       payload: {
@@ -271,7 +271,7 @@ async function revokeDcrIdentities(
     })
     events.push({
       streamName: STREAM_SESSIONS_REVOKE,
-      payload: { zone_id: zoneId, session_id: row.subject_session_id, agent_session_id: row.id, reason: 'dcr_shutdown' },
+      payload: { zone_id: zoneId, session_id: row.subject_authority_record_id, agent_session_id: row.id, reason: 'dcr_shutdown' },
       requestId,
     })
   }
@@ -284,7 +284,7 @@ async function revokeDcrIdentities(
   }
   await enqueueOutboxBatch(client, events)
 
-  return { applications: apps.length, sessions: sessions.length, agents: agents.length, delegations: delegations.length }
+  return { applications: apps.length, sessions: authorityRecords.length, agents: sessions.length, delegations: delegations.length }
 }
 
 async function auditDcrShutdown(

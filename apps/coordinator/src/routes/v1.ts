@@ -66,7 +66,7 @@ const VerifyBody = z.object({
   token: z.string().min(1).optional(),
   zone_id: z.string().min(1),
   required_scope: z.string().min(1).optional(),
-  require_agent: z.boolean().optional(),
+  require_session: z.boolean().optional(),
   require_delegation: z.boolean().optional(),
 })
 
@@ -229,7 +229,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
       audience: cfg.audience,
       zoneId: body.zone_id,
       ...(body.required_scope ? { requiredScopes: [body.required_scope] } : {}),
-      ...(body.require_agent ? { requireAgent: true } : {}),
+      ...(body.require_session ? { requireSession: true } : {}),
       ...(body.require_delegation ? { requireDelegation: true } : {}),
     }
     try {

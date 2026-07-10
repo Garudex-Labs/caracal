@@ -128,19 +128,6 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Idempotency-Replayed', 'true')
         return reply.code(receipt.status).send(receipt.response)
       }
-      const { rows: legacy } = await client.query(
-        `SELECT 1 FROM agent_invocations
-         WHERE zone_id = $1 AND service_id = $2 AND idempotency_key = $3
-         LIMIT 1`,
-        [zoneId, body.service_id, idempotencyKey],
-      )
-      if (legacy[0]) {
-        await client.query('ROLLBACK')
-        return reply.code(409).send({
-          error: 'idempotency_key_legacy_conflict',
-          message: 'idempotency_key belongs to an invocation created before durable receipts; use a new operation identifier',
-        })
-      }
       if (await rateLimited(fastify, req, zoneId)) {
         await client.query('ROLLBACK')
         return reply.code(429).send({ error: 'rate_limited' })
@@ -150,9 +137,9 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
       const retryPolicy = body.retry_policy
       const { rows } = await client.query(
         `INSERT INTO agent_invocations
-         (id, zone_id, service_id, source_session_id, target_session_id, idempotency_key,
+         (id, zone_id, service_id, source_session_id, target_session_id,
           method, params_json, metadata_json, timeout_ms, max_attempts, retry_policy_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ${INVOCATION_RETURNING}`,
         [
           id,
@@ -160,7 +147,6 @@ export const invocationsRoutes: FastifyPluginAsync = async (fastify) => {
           body.service_id,
           body.source_session_id,
           body.target_session_id,
-          id,
           body.method,
           JSON.stringify(body.params),
           JSON.stringify(body.metadata),

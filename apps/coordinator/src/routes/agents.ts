@@ -203,19 +203,6 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           reply.header('Idempotency-Replayed', 'true')
           return reply.code(receipt.status).send(receipt.response)
         }
-        const { rows: legacy } = await client.query(
-          `SELECT 1 FROM sessions
-           WHERE zone_id = $1 AND application_id = $2 AND idempotency_key = $3
-           LIMIT 1`,
-          [zoneId, body.application_id, idempotencyKey],
-        )
-        if (legacy[0]) {
-          await client.query('ROLLBACK')
-          return reply.code(409).send({
-            error: 'idempotency_key_legacy_conflict',
-            message: 'Idempotency-Key belongs to an operation created before durable receipts; use a new operation identifier',
-          })
-        }
       }
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [sessionLockKey(zoneId)])
       const { rows: refs } = await client.query(

@@ -52,21 +52,21 @@ function decodeSubjectCursor(raw: string): SubjectCursor | null {
 // One row per distinct subject: identity resolution (an application's own id renders
 // as the application), standing counts the runtime rule enforces (active means
 // status=active AND unexpired), and the newest recorded issuer provenance. The
-// per-mint session records stay available underneath through /sessions.
+// per-mint authority records stay available underneath through /authority-records.
 const SUBJECT_AGGREGATE = `
-  SELECT s.subject_id,
-         BOOL_OR(s.session_type = 'user') AS federated,
+  SELECT ar.subject_id,
+         BOOL_OR(ar.session_type = 'user') AS federated,
          a.name AS application_name,
          COUNT(*)::int AS total_sessions,
-         COUNT(*) FILTER (WHERE s.status = 'active' AND s.expires_at > now())::int AS active_sessions,
-         COUNT(*) FILTER (WHERE s.status = 'revoked')::int AS revoked_sessions,
-         MIN(s.authenticated_at) AS first_seen,
-         MAX(s.authenticated_at) AS last_seen,
-         MAX(s.revoked_at) AS last_revoked_at,
-         (ARRAY_AGG(s.claims_json->>'iss' ORDER BY s.authenticated_at DESC)
-            FILTER (WHERE s.claims_json->>'iss' IS NOT NULL))[1] AS issuer
-  FROM sessions s
-  LEFT JOIN applications a ON a.zone_id = s.zone_id AND a.id = s.subject_id`
+         COUNT(*) FILTER (WHERE ar.status = 'active' AND ar.expires_at > now())::int AS active_sessions,
+         COUNT(*) FILTER (WHERE ar.status = 'revoked')::int AS revoked_sessions,
+         MIN(ar.authenticated_at) AS first_seen,
+         MAX(ar.authenticated_at) AS last_seen,
+         MAX(ar.revoked_at) AS last_revoked_at,
+         (ARRAY_AGG(ar.claims_json->>'iss' ORDER BY ar.authenticated_at DESC)
+            FILTER (WHERE ar.claims_json->>'iss' IS NOT NULL))[1] AS issuer
+  FROM authority_records ar
+  LEFT JOIN applications a ON a.zone_id = ar.zone_id AND a.id = ar.subject_id`
 
 export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/zones/:zoneId/subjects', async (req, reply) => {
@@ -76,31 +76,31 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
 
-    const conds = ['s.zone_id = $1']
+    const conds = ['ar.zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
     if (q.search) {
       values.push(`%${q.search}%`)
-      conds.push(`(s.subject_id ILIKE $${values.length} OR a.name ILIKE $${values.length})`)
+      conds.push(`(ar.subject_id ILIKE $${values.length} OR a.name ILIKE $${values.length})`)
     }
 
     const having: string[] = []
-    if (q.kind === 'user') having.push(`BOOL_OR(s.session_type = 'user')`)
-    if (q.kind === 'application') having.push(`NOT BOOL_OR(s.session_type = 'user')`)
+    if (q.kind === 'user') having.push(`BOOL_OR(ar.session_type = 'user')`)
+    if (q.kind === 'application') having.push(`NOT BOOL_OR(ar.session_type = 'user')`)
     const cursor = q.cursor ? decodeSubjectCursor(q.cursor) : null
     if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)
-      having.push(`(MAX(s.authenticated_at), s.subject_id) < ($${values.length - 1}::timestamptz, $${values.length})`)
+      having.push(`(MAX(ar.authenticated_at), ar.subject_id) < ($${values.length - 1}::timestamptz, $${values.length})`)
     }
     values.push(q.limit)
 
     const { rows } = await fastify.db.query<{ subject_id: string; last_seen: Date }>(
       `${SUBJECT_AGGREGATE}
        WHERE ${conds.join(' AND ')}
-       GROUP BY s.subject_id, a.name
+      GROUP BY ar.subject_id, a.name
        ${having.length ? `HAVING ${having.join(' AND ')}` : ''}
-       ORDER BY MAX(s.authenticated_at) DESC, s.subject_id DESC
+      ORDER BY MAX(ar.authenticated_at) DESC, ar.subject_id DESC
        LIMIT $${values.length}`,
       values,
     )
@@ -124,25 +124,26 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
     const [identity, governed, recentSessions, approvals, connections] = await Promise.all([
       fastify.db.query(
         `${SUBJECT_AGGREGATE}
-         WHERE s.zone_id = $1 AND s.subject_id = $2
-         GROUP BY s.subject_id, a.name`,
+         WHERE ar.zone_id = $1 AND ar.subject_id = $2
+         GROUP BY ar.subject_id, a.name`,
         [params.zoneId, subjectId],
       ),
       fastify.db.query(
-        `SELECT COUNT(*) FILTER (WHERE ag.status IN ('active', 'suspended'))::int AS active,
+        `SELECT COUNT(*) FILTER (WHERE session.status IN ('active', 'suspended'))::int AS active,
                 COUNT(*)::int AS total
-         FROM agent_sessions ag
-         JOIN sessions s ON s.id = ag.subject_session_id
-         WHERE s.zone_id = $1 AND s.subject_id = $2`,
+         FROM sessions session
+         JOIN authority_records ar ON ar.id = session.subject_authority_record_id
+         WHERE ar.zone_id = $1 AND ar.subject_id = $2`,
         [params.zoneId, subjectId],
       ),
       fastify.db.query(
-        `SELECT ag.id AS session_id, ag.application_id, ap.name AS application_name, ag.lifecycle, ag.status, ag.spawned_at
-         FROM agent_sessions ag
-         JOIN sessions s ON s.id = ag.subject_session_id
-         LEFT JOIN applications ap ON ap.zone_id = ag.zone_id AND ap.id = ag.application_id
-         WHERE s.zone_id = $1 AND s.subject_id = $2
-         ORDER BY ag.spawned_at DESC
+        `SELECT session.id AS session_id, session.application_id, ap.name AS application_name,
+          session.lifecycle, session.status, session.started_at
+         FROM sessions session
+         JOIN authority_records ar ON ar.id = session.subject_authority_record_id
+         LEFT JOIN applications ap ON ap.zone_id = session.zone_id AND ap.id = session.application_id
+         WHERE ar.zone_id = $1 AND ar.subject_id = $2
+         ORDER BY session.started_at DESC
          LIMIT 5`,
         [params.zoneId, subjectId],
       ),
@@ -191,7 +192,7 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
     const reason = parsed.data.reason ?? 'subject_revoked'
 
     return withTransaction(fastify.db, async (client) => {
-      const { rows: known } = await client.query(`SELECT 1 FROM sessions WHERE zone_id = $1 AND subject_id = $2 LIMIT 1`, [
+      const { rows: known } = await client.query(`SELECT 1 FROM authority_records WHERE zone_id = $1 AND subject_id = $2 LIMIT 1`, [
         params.zoneId,
         subjectId,
       ])
@@ -201,15 +202,15 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const events: EnqueueArgs[] = []
-      const revokedSessionIds: string[] = []
-      // Paged so a subject with many active sessions cannot hold a long
+      const revokedAuthorityRecordIds: string[] = []
+      // Paged so a subject with many active authority records cannot hold a long
       // UPDATE lock or flood the outbox in a single batch.
       while (true) {
-        const { rows: sessions } = await client.query<{ id: string }>(
-          `UPDATE sessions SET status = 'revoked',
+        const { rows: authorityRecords } = await client.query<{ id: string }>(
+          `UPDATE authority_records SET status = 'revoked',
                   revoked_at = now(), revoked_reason = 'subject_revoked'
            WHERE id IN (
-             SELECT id FROM sessions
+             SELECT id FROM authority_records
              WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
              ORDER BY created_at
              LIMIT $3
@@ -218,39 +219,43 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
            RETURNING id`,
           [params.zoneId, subjectId, SESSION_REVOKE_BATCH],
         )
-        for (const s of sessions) {
-          revokedSessionIds.push(s.id)
+        for (const record of authorityRecords) {
+          revokedAuthorityRecordIds.push(record.id)
           events.push({
             streamName: STREAM_SESSIONS_REVOKE,
-            payload: { zone_id: params.zoneId, session_id: s.id, reason },
+            payload: { zone_id: params.zoneId, session_id: record.id, reason },
             requestId: req.id,
           })
         }
-        if (sessions.length < SESSION_REVOKE_BATCH) break
+        if (authorityRecords.length < SESSION_REVOKE_BATCH) break
       }
 
-      const { rows: sessionWires } = await client.query<{ id: string; subject_session_id: string; parent_id: string | null }>(
+      const { rows: governedSessions } = await client.query<{
+        id: string
+        subject_authority_record_id: string
+        parent_id: string | null
+      }>(
         `WITH RECURSIVE tree AS (
-           SELECT ag.id, ag.subject_session_id, ag.parent_id
-           FROM agent_sessions ag
-           JOIN sessions s ON s.id = ag.subject_session_id
-           WHERE ag.zone_id = $1
-             AND s.zone_id = $1
-             AND s.subject_id = $2
-             AND ag.status IN ('active','suspended')
+           SELECT session.id, session.subject_authority_record_id, session.parent_id
+           FROM sessions session
+           JOIN authority_records ar ON ar.id = session.subject_authority_record_id
+           WHERE session.zone_id = $1
+             AND ar.zone_id = $1
+             AND ar.subject_id = $2
+             AND session.status IN ('active','suspended')
            UNION
-           SELECT child.id, child.subject_session_id, child.parent_id
-           FROM agent_sessions child
+           SELECT child.id, child.subject_authority_record_id, child.parent_id
+           FROM sessions child
            JOIN tree parent ON child.parent_id = parent.id
            WHERE child.zone_id = $1 AND child.status IN ('active','suspended')
          )
-         UPDATE agent_sessions
+         UPDATE sessions
          SET status = 'terminated', terminated_at = now(), updated_at = now()
          WHERE zone_id = $1 AND id IN (SELECT id FROM tree)
-         RETURNING id, subject_session_id, parent_id`,
+         RETURNING id, subject_authority_record_id, parent_id`,
         [params.zoneId, subjectId],
       )
-      for (const row of sessionWires) {
+      for (const row of governedSessions) {
         events.push({
           streamName: STREAM_AGENTS_LIFECYCLE,
           payload: {
@@ -264,12 +269,12 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         })
         events.push({
           streamName: STREAM_SESSIONS_REVOKE,
-          payload: { zone_id: params.zoneId, session_id: row.subject_session_id, agent_session_id: row.id, reason },
+          payload: { zone_id: params.zoneId, session_id: row.subject_authority_record_id, agent_session_id: row.id, reason },
           requestId: req.id,
         })
       }
 
-      const sessionIds = sessionWires.map((row) => row.id)
+      const sessionIds = governedSessions.map((row) => row.id)
       const { rows: delegations } =
         sessionIds.length > 0
           ? await client.query<{ id: string }>(
@@ -314,8 +319,8 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
         payloadJson: {
           subject_id: subjectId,
           reason,
-          revoked_authority_records: revokedSessionIds.length,
-          terminated_sessions: sessionWires.length,
+          revoked_authority_records: revokedAuthorityRecordIds.length,
+          terminated_sessions: governedSessions.length,
           revoked_delegations: delegations.length,
           revoked_connections: connections.length,
         },
@@ -323,8 +328,8 @@ export const subjectsRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         subject_id: subjectId,
-        authority_records: revokedSessionIds.length,
-        sessions: sessionWires.length,
+        authority_records: revokedAuthorityRecordIds.length,
+        sessions: governedSessions.length,
         delegations: delegations.length,
         connections: connections.length,
       }

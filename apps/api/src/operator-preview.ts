@@ -63,7 +63,7 @@ export const PREVIEW_TARGETS: Record<PreviewTarget, { table: string; live: strin
   workloads: { table: 'workloads', live: 'id IS NOT NULL' },
   // Suspend, resume, and terminate all act on a session that is still running or paused;
   // a terminated or expired session is beyond intervention.
-  agentSessions: { table: 'agent_sessions', live: "status IN ('active', 'suspended')" },
+  agentSessions: { table: 'sessions', live: "status IN ('active', 'suspended')" },
   delegations: { table: 'delegation_edges', live: "status = 'active'" },
 }
 

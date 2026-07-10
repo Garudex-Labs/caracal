@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Sessions reaper: expires active sessions past their TTL or whose zone has been deleted.
+// Authority-record reaper: expires active STS records past their TTL or whose zone has been deleted.
 
 import type { FastifyBaseLogger } from 'fastify'
 import { newTraceContext, runWithTrace } from '@caracalai/core'
@@ -17,9 +17,9 @@ export async function runSessionsReap(db: DB): Promise<number> {
     if (!rows[0]?.acquired) return 0
     try {
       const { rowCount } = await client.query(
-        `WITH reapable_sessions AS (
+        `WITH reapable_authority_records AS (
            SELECT s.id
-           FROM sessions s
+            FROM authority_records s
            WHERE s.status = 'active'
              AND (s.expires_at < now()
                OR NOT EXISTS (SELECT 1 FROM zones z WHERE z.id = s.zone_id))
@@ -27,10 +27,10 @@ export async function runSessionsReap(db: DB): Promise<number> {
            LIMIT $1
            FOR UPDATE SKIP LOCKED
          )
-         UPDATE sessions s
+         UPDATE authority_records s
          SET status = 'expired'
-         FROM reapable_sessions
-         WHERE s.id = reapable_sessions.id`,
+         FROM reapable_authority_records
+         WHERE s.id = reapable_authority_records.id`,
         [REAP_BATCH_SIZE],
       )
       return rowCount ?? 0

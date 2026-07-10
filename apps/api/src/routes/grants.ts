@@ -805,14 +805,14 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
       )
       if (!rows[0]) throw new TxAbort(reply.code(404).send({ error: 'grant_not_found' }))
 
-      // Page session revocation so a grant covering many active sessions cannot
+      // Page authority-record revocation so a grant covering many active records cannot
       // hold a long-running UPDATE lock or flood the outbox in a single batch.
       while (true) {
-        const { rows: sessions } = await client.query<{ id: string }>(
-          `UPDATE sessions SET status = 'revoked',
+        const { rows: authorityRecords } = await client.query<{ id: string }>(
+          `UPDATE authority_records SET status = 'revoked',
                   revoked_at = now(), revoked_reason = 'grant_revoked'
            WHERE id IN (
-             SELECT id FROM sessions
+             SELECT id FROM authority_records
              WHERE zone_id = $1 AND status = 'active' AND subject_id = $2
              ORDER BY created_at
              LIMIT $3
@@ -821,14 +821,14 @@ export const grantsRoutes: FastifyPluginAsync = async (fastify) => {
            RETURNING id`,
           [params.zoneId, rows[0].user_id, SESSION_REVOKE_BATCH],
         )
-        for (const s of sessions) {
+        for (const record of authorityRecords) {
           await enqueueOutbox(client, {
             streamName: STREAM_SESSIONS_REVOKE,
-            payload: { zone_id: params.zoneId, session_id: s.id, reason: 'grant_revoked', grant_id: params.id },
+            payload: { zone_id: params.zoneId, session_id: record.id, reason: 'grant_revoked', grant_id: params.id },
             requestId: req.id,
           })
         }
-        if (sessions.length < SESSION_REVOKE_BATCH) break
+        if (authorityRecords.length < SESSION_REVOKE_BATCH) break
       }
 
       return reply.code(204).send()

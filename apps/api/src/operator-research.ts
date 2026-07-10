@@ -101,8 +101,8 @@ const DOMAIN_ROW_FIELDS: Record<string, { idField: string; fields: string[] }> =
     idField: 'id',
     fields: ['application_name', 'application_id', 'user_id', 'resource_name', 'resource_id', 'scopes', 'status', 'created_at'],
   },
-  session: { idField: 'id', fields: ['session_type', 'subject_id', 'status', 'authenticated_at', 'expires_at'] },
-  agent: { idField: 'agent_session_id', fields: ['application_id', 'lifecycle', 'status', 'depth', 'labels', 'spawned_at'] },
+  session: { idField: 'authority_record_id', fields: ['authority_record_type', 'subject_id', 'status', 'authenticated_at', 'expires_at'] },
+  agent: { idField: 'session_id', fields: ['application_id', 'lifecycle', 'status', 'depth', 'labels', 'started_at'] },
   delegation: {
     idField: 'id',
     fields: ['issuer_application_id', 'receiver_application_id', 'resource_id', 'scopes', 'status', 'expires_at', 'created_at'],

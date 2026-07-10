@@ -110,11 +110,11 @@ import type {
 } from "./types";
 
 interface WireAuthorityRecord {
-  id: string;
+  authority_record_id: string;
   zone_id: string;
-  session_type: string;
+  authority_record_type: string;
   subject_id: string;
-  parent_id: string | null;
+  parent_authority_record_id: string | null;
   status: string;
   expires_at: string;
   authenticated_at: string;
@@ -128,14 +128,14 @@ interface WireSession {
   zone_id: string;
   application_id: string;
   parent_id: string | null;
-  subject_session_id: string | null;
+  subject_authority_record_id: string | null;
   lifecycle: string;
   labels: string[];
   status: Session["status"];
   depth: number;
   ttl_seconds: number | null;
   metadata: Record<string, unknown> | null;
-  spawned_at: string;
+  started_at: string;
   terminated_at: string | null;
   termination_reason: string | null;
   last_heartbeat_at: string | null;
@@ -164,22 +164,26 @@ interface WireSubjectOverview extends Omit<SubjectOverview, "governed"> {
       application_name: string | null;
       lifecycle: string;
       status: string;
-      spawned_at: string;
+      started_at: string;
     }[];
   };
 }
 
-interface WireSubjectRevokeResult extends Omit<SubjectRevokeResult, "governed_sessions"> {
-  agents: number;
+interface WireSubjectRevokeResult {
+  subject_id: string;
+  authority_records: number;
+  sessions: number;
+  delegations: number;
+  connections: number;
 }
 
 function authorityRecord(record: WireAuthorityRecord): AuthorityRecord {
   return {
-    id: record.id,
+    id: record.authority_record_id,
     zoneId: record.zone_id,
-    type: record.session_type,
+    type: record.authority_record_type,
     subjectId: record.subject_id,
-    parentId: record.parent_id,
+    parentId: record.parent_authority_record_id,
     status: record.status,
     expiresAt: record.expires_at,
     authenticatedAt: record.authenticated_at,
@@ -195,14 +199,14 @@ function session(record: WireSession): Session {
     zoneId: record.zone_id,
     applicationId: record.application_id,
     parentId: record.parent_id,
-    subjectAuthorityRecordId: record.subject_session_id,
+    subjectAuthorityRecordId: record.subject_authority_record_id,
     lifecycle: record.lifecycle,
     labels: record.labels,
     status: record.status,
     depth: record.depth,
     ttlSeconds: record.ttl_seconds,
     metadata: record.metadata,
-    startedAt: record.spawned_at,
+    startedAt: record.started_at,
     terminatedAt: record.terminated_at,
     terminationReason: record.termination_reason,
     lastHeartbeatAt: record.last_heartbeat_at,
@@ -839,7 +843,7 @@ export const consoleApi = {
       query: AuthorityRecordQuery = {},
     ): Promise<Paged<AuthorityRecord>> => {
       const res = await request<ListEnvelope<WireAuthorityRecord>>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/sessions${queryString({
+        `/v1/zones/${encodeURIComponent(zoneId)}/authority-records${queryString({
           limit: query.limit ?? 100,
           cursor: query.cursor,
           id: query.id,
@@ -879,7 +883,7 @@ export const consoleApi = {
             application_name: record.application_name,
             lifecycle: record.lifecycle,
             status: record.status,
-            startedAt: record.spawned_at,
+            startedAt: record.started_at,
           })),
         },
       };
@@ -901,8 +905,8 @@ export const consoleApi = {
       );
       return {
         subject_id: result.subject_id,
-        sessions: result.sessions,
-        governed_sessions: result.agents,
+        sessions: result.authority_records,
+        governed_sessions: result.sessions,
         delegations: result.delegations,
         connections: result.connections,
       };
