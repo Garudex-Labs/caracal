@@ -6,6 +6,7 @@
  */
 
 import type { JsonObject } from './json.js'
+import { formatTraceparent } from './envelope.js'
 
 /** One completed coordinator request and its outcome; status 0 means no response arrived. */
 export interface CoordinatorCallEvent {
@@ -79,6 +80,20 @@ export type Lifecycle = (typeof Lifecycle)[keyof typeof Lifecycle]
 
 export type SessionStatus = 'starting' | 'healthy' | 'degraded' | 'unhealthy'
 
+export interface CoordinatorTrace {
+  traceId: string
+  traceFlags?: string
+  traceState?: string
+}
+
+function traceHeaders(trace: CoordinatorTrace | undefined): Record<string, string> | undefined {
+  if (!trace || !/^[0-9a-f]{32}$/.test(trace.traceId) || trace.traceId === '0'.repeat(32)) return undefined
+  return {
+    traceparent: formatTraceparent(trace.traceId, trace.traceFlags),
+    ...(trace.traceState ? { tracestate: trace.traceState } : {}),
+  }
+}
+
 export interface DelegationConstraints {
   resources?: string[]
   maxDepth?: number
@@ -104,6 +119,7 @@ export interface StartSessionRequest {
   idempotencyKey?: string
   idempotencyKeyGenerated?: boolean
   parentAuthority?: 'inherit' | 'none'
+  trace?: CoordinatorTrace
 }
 
 export interface StartSessionResponse {
@@ -125,6 +141,7 @@ export interface DelegationRequest {
   constraints?: DelegationConstraints
   ttlSeconds?: number
   idempotencyKey?: string
+  trace?: CoordinatorTrace
 }
 
 /** The created Delegation: its ID, the scopes it bounds, and when it lapses. */
@@ -208,12 +225,15 @@ export async function startCoordinatorSession(
   req: StartSessionRequest,
   signal?: AbortSignal,
 ): Promise<StartSessionResponse> {
-  const headers = req.idempotencyKey
-    ? {
-        'idempotency-key': req.idempotencyKey,
-        ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
-      }
-    : undefined
+  const headers = {
+    ...(req.idempotencyKey
+      ? {
+          'idempotency-key': req.idempotencyKey,
+          ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
+        }
+      : {}),
+    ...traceHeaders(req.trace),
+  }
   const res = await call<{
     agent_session_id?: string
     delegation_edge_id?: string | null
@@ -239,14 +259,15 @@ export async function startCoordinatorSession(
     signal,
   )
   if (!res?.agent_session_id) throw new Error('coordinator session response missing agent_session_id')
-  if (!Number.isSafeInteger(res.lease_generation) || (req.lifecycle === Lifecycle.Service && res.lease_generation < 1)) {
+  const leaseGeneration = res.lease_generation ?? 0
+  if (!Number.isSafeInteger(leaseGeneration) || leaseGeneration < 0 || (req.lifecycle === Lifecycle.Service && leaseGeneration < 1)) {
     throw new Error('coordinator session response missing valid lease_generation')
   }
   return {
     sessionId: res.agent_session_id,
     delegationId: res.delegation_edge_id ?? undefined,
     heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
-    leaseGeneration: res.lease_generation,
+    leaseGeneration,
   }
 }
 
@@ -256,6 +277,7 @@ export async function terminateSession(
   zoneId: string,
   sessionId: string,
   leaseGeneration?: number,
+  trace?: CoordinatorTrace,
 ): Promise<void> {
   await call<unknown>(
     client,
@@ -263,6 +285,7 @@ export async function terminateSession(
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`,
     bearer,
     leaseGeneration === undefined ? undefined : { lease_generation: leaseGeneration },
+    traceHeaders(trace),
   )
 }
 
@@ -299,7 +322,10 @@ export async function createDelegation(
       constraints,
       ttl_seconds: req.ttlSeconds,
     },
-    req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined,
+    {
+      ...(req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : {}),
+      ...traceHeaders(req.trace),
+    },
     signal,
   )
   if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
@@ -316,6 +342,7 @@ export async function revokeDelegation(
   zoneId: string,
   delegationId: string,
   signal?: AbortSignal,
+  trace?: CoordinatorTrace,
 ): Promise<void> {
   await call<unknown>(
     client,
@@ -323,7 +350,7 @@ export async function revokeDelegation(
     `/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(delegationId)}/revoke`,
     bearer,
     undefined,
-    undefined,
+    traceHeaders(trace),
     signal,
   )
 }
@@ -391,6 +418,7 @@ export async function heartbeatSession(
   sessionId: string,
   leaseGeneration: number,
   status: SessionStatus = 'healthy',
+  trace?: CoordinatorTrace,
 ): Promise<HeartbeatResponse> {
   const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number } }>(
     client,
@@ -398,14 +426,16 @@ export async function heartbeatSession(
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/heartbeat`,
     bearer,
     { status, lease_generation: leaseGeneration },
+    traceHeaders(trace),
   )
-  if (!Number.isSafeInteger(res?.agent?.lease_generation) || (res?.agent?.lease_generation ?? 0) < 1) {
+  const responseLeaseGeneration = res?.agent?.lease_generation
+  if (typeof responseLeaseGeneration !== 'number' || !Number.isSafeInteger(responseLeaseGeneration) || responseLeaseGeneration < 1) {
     throw new Error('coordinator heartbeat response missing valid lease_generation')
   }
   return {
     status: res.agent?.status,
     heartbeatDeadlineAt: res.agent?.heartbeat_deadline_at ?? undefined,
-    leaseGeneration: res.agent.lease_generation,
+    leaseGeneration: responseLeaseGeneration,
   }
 }
 
@@ -414,19 +444,23 @@ export async function acquireSessionLease(
   bearer: string,
   zoneId: string,
   sessionId: string,
+  trace?: CoordinatorTrace,
 ): Promise<HeartbeatResponse> {
   const res = await call<{ status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/lease`,
     bearer,
+    undefined,
+    traceHeaders(trace),
   )
-  if (!Number.isSafeInteger(res.lease_generation) || (res.lease_generation ?? 0) < 1) {
+  const leaseGeneration = res.lease_generation
+  if (typeof leaseGeneration !== 'number' || !Number.isSafeInteger(leaseGeneration) || leaseGeneration < 1) {
     throw new Error('coordinator lease response missing valid lease_generation')
   }
   return {
     status: res.status,
     heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
-    leaseGeneration: res.lease_generation,
+    leaseGeneration,
   }
 }

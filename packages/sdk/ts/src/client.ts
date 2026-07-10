@@ -262,9 +262,9 @@ export interface CallOptions {
  * configuration. `timeoutMs` bounds every request the transport sends when
  * the caller supplies no signal of its own (combined when both are present).
  * `propagation` controls where the context envelope (traceparent, baggage)
- * is written: 'always' (the default) propagates to every host so downstream
- * Caracal-aware services can rebind context; 'gateway-only' keeps the
- * caracal.* correlation ids off third-party hosts.
+ * is written: 'gateway-only' (the default) keeps Caracal correlation ids off
+ * third-party hosts; 'always' explicitly propagates to every host for a known
+ * Caracal-aware service chain.
  */
 export interface TransportOptions extends CallOptions {
   scopes?: string[]
@@ -300,6 +300,8 @@ export interface ApplicationTransportOptions {
 
 export interface BindOptions extends CallOptions {
   verify?: (token: string) => VerifiedClaims | Promise<VerifiedClaims>
+  /** Trust unsigned propagation because an upstream boundary already verified the request. */
+  trustedPropagation?: boolean
 }
 
 interface ClientOptions {
@@ -348,7 +350,6 @@ export class Caracal {
   private appInflight = new Map<string, Promise<AppAuthorityEntry>>()
   private appGeneration = 0
   private appProvisionTail: Promise<void> = Promise.resolve()
-  private unverifiedBoundaryWarned = false
 
   /**
    * Creates a Caracal client from `CARACAL_CONFIG` when set, otherwise from
@@ -720,11 +721,8 @@ export class Caracal {
     fn: () => Promise<T>,
     opts: BindOptions = {},
   ): Promise<T> {
-    if (!opts.verify && !this.unverifiedBoundaryWarned && productionEnv(process.env)) {
-      this.unverifiedBoundaryWarned = true
-      this.warnLog(
-        'caracal: inbound context is being bound without a verify hook in production; the envelope is propagation-only - pass { verify } or keep this boundary behind a verifier such as the Gateway or @caracalai/verify',
-      )
+    if (opts.verify && opts.trustedPropagation) {
+      throw new Error('Caracal.bindFromHeaders(): choose either verify or trustedPropagation, not both')
     }
     const env =
       typeof headers === 'function'
@@ -734,6 +732,11 @@ export class Caracal {
           : fromHeaders(headers)
     let claims: VerifiedClaims | undefined
     let rootInjected = false
+    if (env.subjectToken && !opts.verify && !opts.trustedPropagation && productionEnv(process.env)) {
+      throw new Error(
+        'Caracal.bindFromHeaders(): production ingress requires { verify } or { trustedPropagation: true } when an upstream boundary already verified the request',
+      )
+    }
     if (!env.subjectToken) {
       if (!opts.asApplication) {
         throw new Error(
@@ -795,7 +798,7 @@ export class Caracal {
       const explicitResource = merged.get('X-Caracal-Resource') ?? undefined
       const rewritten = outer.routeThroughGateway(input, explicitResource)
       const gatewayBound = rewritten !== null || outer.targetsGateway(input)
-      if (opts.propagation !== 'gateway-only' || gatewayBound) {
+      if (opts.propagation === 'always' || gatewayBound) {
         const env: Envelope = ctx ? toEnvelope(ctx) : { hop: 0 }
         encodeEnvelope(
           env,

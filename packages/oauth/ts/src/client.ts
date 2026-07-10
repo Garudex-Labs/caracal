@@ -232,13 +232,13 @@ export class OAuthClient {
         clearTimeout(timeout)
       }
       if (!res) {
-        await delayWithinDeadline(jitteredBackoff(attempt), deadlineMs)
+        await delayWithinDeadline(jitteredBackoff(attempt), deadlineMs, opts.signal)
         continue
       }
       const status = res.status
       const transient = status === 408 || status === 425 || status === 429 || (status >= 500 && status < 600)
       if (!transient || attempt === maxRetries) break
-      await delayWithinDeadline(retryDelayMs(res, attempt), deadlineMs)
+      await delayWithinDeadline(retryDelayMs(res, attempt), deadlineMs, opts.signal)
     }
     if (!res) {
       if (lastErr instanceof Error) throw lastErr
@@ -526,10 +526,25 @@ function jitteredBackoff(attempt: number): number {
   return base / 2 + Math.random() * (base / 2)
 }
 
-async function delayWithinDeadline(waitMs: number, deadlineMs: number): Promise<void> {
+async function delayWithinDeadline(waitMs: number, deadlineMs: number, signal?: AbortSignal): Promise<void> {
   const remainingMs = deadlineMs - performance.now()
   if (remainingMs <= 0) throw new Error('STS request timed out')
-  await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, remainingMs)))
+  if (signal?.aborted) throw abortReason(signal)
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      },
+      Math.min(waitMs, remainingMs),
+    )
+    timer.unref?.()
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal ? abortReason(signal) : new Error('aborted'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function isJsonResponse(res: Response): boolean {

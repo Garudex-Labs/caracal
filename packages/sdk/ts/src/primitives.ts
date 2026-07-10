@@ -14,10 +14,12 @@ import {
   StartSessionResponse,
   startCoordinatorSession,
   terminateSession,
+  acquireSessionLease,
   heartbeatSession,
   createDelegation,
   Lifecycle,
   DelegationConstraints,
+  type CoordinatorTrace,
 } from './coordinator.js'
 import type { JsonObject } from './json.js'
 import { genTraceId } from './envelope.js'
@@ -39,7 +41,14 @@ function isGone(e: unknown): boolean {
   return (
     e instanceof CoordinatorError &&
     (e.status === 404 ||
-      (e.status === 409 && ['already_terminated', 'session_not_live', 'session_not_found_or_not_active'].includes(e.code ?? '')))
+      (e.status === 409 &&
+        [
+          'already_terminated',
+          'session_not_live',
+          'session_not_found_or_not_active',
+          'session_lease_fenced',
+          'session_subject_inactive',
+        ].includes(e.code ?? '')))
   )
 }
 
@@ -166,6 +175,7 @@ interface Established {
   ctx: CaracalContext
   bearer: () => Promise<string>
   heartbeatDeadlineAt?: string
+  leaseGeneration: number
 }
 
 /**
@@ -181,6 +191,11 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     throw new Error('parentSessionId must match the Session bound on the calling context')
   }
   const parentId = input.parentSessionId ?? parent?.sessionId
+  const trace: CoordinatorTrace = {
+    traceId: input.traceId ?? parent?.traceId ?? genTraceId(),
+    traceFlags: parent?.traceFlags,
+    traceState: parent?.traceState,
+  }
   let token = input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
   if (input.idempotencyKey !== undefined) validateIdempotencyKey(input.idempotencyKey)
@@ -201,6 +216,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     parentAuthority: (authority.mode === 'inherit' ? 'inherit' : 'none') as 'inherit' | 'none',
     idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
     idempotencyKeyGenerated: generatedIdempotencyKey,
+    trace,
   }
   let res: StartSessionResponse | undefined
   let refreshed = false
@@ -250,6 +266,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
           scopes: authority.scopes ?? [],
           constraints: authority.constraints,
           ttlSeconds: authority.ttlSeconds,
+          trace,
         },
         input.signal,
       )
@@ -257,7 +274,15 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
       hop = parent.hop + 1
     }
   } catch (e) {
-    await retireAfterFailure(input.coordinator, bearer, input.zoneId, res.sessionId, input.warn)
+    await retireAfterFailure(
+      input.coordinator,
+      bearer,
+      input.zoneId,
+      res.sessionId,
+      lifecycle === Lifecycle.Service ? res.leaseGeneration : undefined,
+      trace,
+      input.warn,
+    )
     throw e
   }
 
@@ -269,7 +294,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     delegationId,
     parentDelegationId: parent?.delegationId,
     subjectAuthorityRecordId: input.subjectAuthorityRecordId ?? parent?.subjectAuthorityRecordId,
-    traceId: input.traceId ?? parent?.traceId ?? genTraceId(),
+    traceId: trace.traceId,
     traceFlags: parent?.traceFlags,
     traceState: parent?.traceState,
     baggage: cloneBaggage(parent?.baggage),
@@ -277,7 +302,13 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     ownToken: true,
     tokenSource: input.tokenSource,
   }
-  return { sessionId: res.sessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
+  return {
+    sessionId: res.sessionId,
+    ctx,
+    bearer,
+    heartbeatDeadlineAt: res.heartbeatDeadlineAt,
+    leaseGeneration: res.leaseGeneration,
+  }
 }
 
 function validateIdempotencyKey(key: string): void {
@@ -293,9 +324,15 @@ function validateIdempotencyKey(key: string): void {
  * retired counts as success; any other failure is returned to the caller so a
  * successful callback cannot conceal a leaked server-side Session.
  */
-async function retire(coordinator: CoordinatorClient, bearer: () => Promise<string>, zoneId: string, sessionId: string): Promise<void> {
+async function retire(
+  coordinator: CoordinatorClient,
+  bearer: () => Promise<string>,
+  zoneId: string,
+  sessionId: string,
+  trace?: CoordinatorTrace,
+): Promise<void> {
   try {
-    await terminateSession(coordinator, await bearer(), zoneId, sessionId)
+    await terminateSession(coordinator, await bearer(), zoneId, sessionId, undefined, trace)
   } catch (e) {
     if (isGone(e)) return
     throw e
@@ -307,10 +344,16 @@ async function retireAfterFailure(
   bearer: () => Promise<string>,
   zoneId: string,
   sessionId: string,
+  leaseGeneration: number | undefined,
+  trace: CoordinatorTrace,
   warn: WarnSink = defaultWarn,
 ): Promise<void> {
   try {
-    await retire(coordinator, bearer, zoneId, sessionId)
+    try {
+      await terminateSession(coordinator, await bearer(), zoneId, sessionId, leaseGeneration, trace)
+    } catch (e) {
+      if (!isGone(e)) throw e
+    }
   } catch (err) {
     warn(`caracal: terminate failed for session ${sessionId}; the coordinator TTL sweeper will retire it`, err)
   }
@@ -351,7 +394,11 @@ export async function session<T>(input: SessionInput, fn: (ctx: CaracalContext) 
   }
   let cleanupError: unknown
   try {
-    await retire(input.coordinator, bearer, input.zoneId, sessionId)
+    await retire(input.coordinator, bearer, input.zoneId, sessionId, {
+      traceId: ctx.traceId!,
+      traceFlags: ctx.traceFlags,
+      traceState: ctx.traceState,
+    })
   } catch (err) {
     cleanupError = err
   }
@@ -416,6 +463,7 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
     scopes: input.scopes,
     constraints: input.constraints,
     ttlSeconds: input.ttlSeconds,
+    trace: { traceId: ctx.traceId!, traceFlags: ctx.traceFlags, traceState: ctx.traceState },
     // The key makes retrying a network failure or 5xx safe: the coordinator
     // replays the already-created delegation instead of issuing a duplicate.
     idempotencyKey: crypto.randomUUID(),
@@ -500,6 +548,8 @@ export interface StartSessionInput {
 export interface SessionHandle {
   context: CaracalContext
   sessionId: string
+  /** Monotonic ownership token used to fence previous holders of this service Session. */
+  readonly leaseGeneration: number
   /** The lease deadline the coordinator reported on the last renewal; undefined until the server reports one. */
   readonly deadlineAt: string | undefined
   readonly status: string
@@ -514,11 +564,19 @@ export async function startSession(input: StartSessionInput): Promise<SessionHan
     try {
       await input.onSessionStart(ctx)
     } catch (e) {
-      await retireAfterFailure(input.coordinator, bearer, input.zoneId, sessionId, input.warn)
+      await retireAfterFailure(
+        input.coordinator,
+        bearer,
+        input.zoneId,
+        sessionId,
+        established.leaseGeneration,
+        { traceId: ctx.traceId!, traceFlags: ctx.traceFlags, traceState: ctx.traceState },
+        input.warn,
+      )
       throw e
     }
   }
-  return leaseHandle(input, ctx, sessionId, bearer, established.heartbeatDeadlineAt)
+  return leaseHandle(input, ctx, sessionId, bearer, established.heartbeatDeadlineAt, established.leaseGeneration)
 }
 
 export interface AttachSessionInput {
@@ -550,27 +608,29 @@ export interface AttachSessionInput {
 export async function attachSession(input: AttachSessionInput): Promise<SessionHandle> {
   let token = input.tokenSource ? await input.tokenSource() : input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : input.subjectToken)
+  const trace: CoordinatorTrace = { traceId: genTraceId() }
   let first
   try {
     if (input.signal?.aborted) throw input.signal.reason
-    first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await acquireSessionLease(input.coordinator, token, input.zoneId, input.sessionId, trace)
   } catch (err) {
     if (!(err instanceof CoordinatorError) || err.status !== 401 || !input.invalidate || !input.tokenSource) throw err
     input.invalidate()
     token = await input.tokenSource()
     if (input.signal?.aborted) throw input.signal.reason
-    first = await heartbeatSession(input.coordinator, token, input.zoneId, input.sessionId)
+    first = await acquireSessionLease(input.coordinator, token, input.zoneId, input.sessionId, trace)
   }
   const ctx: CaracalContext = {
     subjectToken: token,
     zoneId: input.zoneId,
     applicationId: input.applicationId,
     sessionId: input.sessionId,
+    traceId: trace.traceId,
     hop: 0,
     ownToken: true,
     tokenSource: input.tokenSource,
   }
-  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt, first.status)
+  return leaseHandle(input, ctx, input.sessionId, bearer, first.heartbeatDeadlineAt, first.leaseGeneration, first.status)
 }
 
 interface LeaseInput {
@@ -590,6 +650,7 @@ function leaseHandle(
   sessionId: string,
   bearer: () => Promise<string>,
   initialDeadlineAt: string | undefined,
+  leaseGeneration: number,
   initialStatus = 'active',
 ): SessionHandle {
   const warn = input.warn ?? defaultWarn
@@ -599,14 +660,22 @@ function leaseHandle(
   const heartbeat = async (status?: SessionStatus) => {
     let res
     try {
-      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, status, {
+        traceId: ctx.traceId!,
+        traceFlags: ctx.traceFlags,
+        traceState: ctx.traceState,
+      })
     } catch (e) {
       // A cached token can be rejected before its exp (server-side session
       // revocation after a credential rotation); force one refresh and retry
       // so the lease survives the rotation.
       if (!(e instanceof CoordinatorError) || e.status !== 401 || !input.invalidate) throw e
       input.invalidate()
-      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, status)
+      res = await heartbeatSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, status, {
+        traceId: ctx.traceId!,
+        traceFlags: ctx.traceFlags,
+        traceState: ctx.traceState,
+      })
     }
     deadlineAt = res.heartbeatDeadlineAt ?? deadlineAt
     if (res.status && res.status !== sessionStatus) {
@@ -660,6 +729,7 @@ function leaseHandle(
   return {
     context: ctx,
     sessionId,
+    leaseGeneration,
     get deadlineAt() {
       return deadlineAt
     },
@@ -675,7 +745,11 @@ function leaseHandle(
           if (input.onSessionEnd) await input.onSessionEnd(ctx)
         } finally {
           try {
-            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId)
+            await terminateSession(input.coordinator, await bearer(), input.zoneId, sessionId, leaseGeneration, {
+              traceId: ctx.traceId!,
+              traceFlags: ctx.traceFlags,
+              traceState: ctx.traceState,
+            })
           } catch (e) {
             if (!isGone(e)) throw e
           }
