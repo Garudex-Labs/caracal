@@ -1,8 +1,8 @@
 {
-  "caracal.agent_session": "agent-session-1",
-  "caracal.delegation_edge": "edge-1",
-  "caracal.parent_edge": "edge-root",
-  "caracal.session": "sid-1",
+  "caracal.agent_session": "session-child",
+  "caracal.delegation_edge": "delegation-1",
+  "caracal.parent_edge": "delegation-root",
+  "caracal.session": "authority-record-1",
   "caracal.hop": "1",
   "tenant": "example"
 }

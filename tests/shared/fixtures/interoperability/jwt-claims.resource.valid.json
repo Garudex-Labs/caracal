@@ -8,21 +8,25 @@
   "zone_id": "zone-1",
   "client_id": "app-1",
   "scope": "read write",
-  "sid": "sid-1",
-  "root_sid": "root-sid-1",
+  "sid": "authority-record-1",
+  "root_sid": "authority-record-root",
   "use": "resource",
   "sub_type": "user",
   "target": ["resource://api"],
-  "agent_session_id": "agent-session-1",
-  "delegation_edge_id": "edge-1",
-  "source_session_id": "sid-parent",
-  "target_session_id": "sid-child",
-  "delegation_path": ["edge-root", "edge-1"],
+  "agent_session_id": "session-child",
+  "delegation_edge_id": "delegation-1",
+  "source_session_id": "session-parent",
+  "target_session_id": "session-child",
+  "delegation_path": ["delegation-1"],
   "delegation_chain": [
     {
       "application_id": "app-parent",
-      "agent_session_id": "agent-parent",
-      "delegation_edge_id": "edge-root"
+      "agent_session_id": "session-parent",
+      "delegation_edge_id": "delegation-1"
+    },
+    {
+      "application_id": "app-1",
+      "agent_session_id": "session-child"
     }
   ],
   "hop_count": 1,
