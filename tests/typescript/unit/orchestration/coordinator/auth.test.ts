@@ -26,6 +26,7 @@ function buildApp() {
   app.get('/zones/:zoneId/invocations', async (req) => ({ auth: req.caracalAuth }))
   app.get('/zones/:zoneId/invocations/:id', async (req) => ({ auth: req.caracalAuth }))
   app.post('/zones/:zoneId/invocations', async () => ({ ok: true }))
+  app.get('/zones/:zoneId/delegations/inbound/:sessionId/:id', async (req) => ({ auth: req.caracalAuth }))
   return app
 }
 
@@ -106,12 +107,15 @@ describe('coordinator bearer authentication', () => {
 
     const services = await app.inject({ method: 'GET', url: `/zones/${zone}/agent-services`, headers: auth })
     const invocations = await app.inject({ method: 'GET', url: `/zones/${zone}/invocations`, headers: auth })
+    const inbound = await app.inject({ method: 'GET', url: `/zones/${zone}/delegations/inbound/s1/e1`, headers: auth })
     const invocationDetail = await app.inject({ method: 'GET', url: `/zones/${zone}/invocations/i1`, headers: auth })
     const invocationCreate = await app.inject({ method: 'POST', url: `/zones/${zone}/invocations`, headers: auth })
 
     expect(services.statusCode).toBe(200)
     expect(invocations.statusCode).toBe(200)
     expect(invocations.json().auth.scopes).toContain('coordinator.admin')
+    expect(inbound.statusCode).toBe(200)
+    expect(inbound.json().auth.scopes).toContain('coordinator.admin')
     expect(invocationDetail.statusCode).toBe(401)
     expect(invocationCreate.statusCode).toBe(401)
   })

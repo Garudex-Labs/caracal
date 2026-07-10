@@ -64,6 +64,7 @@ describe('runRetentionCleanup', () => {
     expect(String(edgeDelete?.[0])).toContain('child.parent_edge_id = delegation_edges.id')
 
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'expired'"), [500])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("pg_advisory_xact_lock(hashtext('delegation:' || zone_id))"), [500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('RETURNING epoch'), ['z1'])
     expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO caracal_outbox'),

@@ -181,7 +181,13 @@ describe('session', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
       await session(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok', authority: Authority.narrow(['read']) },
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-1',
+          subjectToken: 'tok',
+          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+        },
         async () => {},
       )
     })
@@ -219,7 +225,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger' }),
+        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger', ttlSeconds: 60 }),
       })
       expect(svc.context.delegationId).toBe('edge-svc')
       expect(svc.context.parentDelegationId).toBe('edge-parent')
@@ -237,7 +243,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['read']),
+        authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
       }),
     ).rejects.toThrow(/active parent session/)
   })
@@ -261,7 +267,7 @@ describe('startSession with authority', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read']),
+          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
         }),
       ).rejects.toThrow()
     })
@@ -270,26 +276,33 @@ describe('startSession with authority', () => {
 })
 
 describe('delegate', () => {
+  it('rejects a non-positive expiry before using context or the network', async () => {
+    const { client } = recorder()
+    await expect(
+      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 0 }),
+    ).rejects.toThrow(/positive integer/)
+  })
+
   it('requires an active context', async () => {
     const { client } = recorder()
-    await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
-      /requires a Caracal context/,
-    )
+    await expect(
+      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+    ).rejects.toThrow(/requires a Caracal context/)
   })
 
   it('requires an active session in context', async () => {
     const { client } = recorder()
     await bind(baseCtx({ sessionId: undefined }), async () => {
-      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow(
-        /active session/,
-      )
+      await expect(
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+      ).rejects.toThrow(/active session/)
     })
   })
 
   it('returns the created delegation without rebinding the issuer context', async () => {
     const { client } = recorder('agent-new', 'edge-42')
     await bind(baseCtx(), async () => {
-      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })
+      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 })
       expect(res.delegationId).toBe('edge-42')
       expect(current()?.delegationId).toBeUndefined()
       expect(current()?.hop).toBe(0)
@@ -320,11 +333,21 @@ describe('delegate', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
       await session(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow('read') },
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-2',
+          subjectToken: 'tok',
+          authority: Authority.narrow('read', { ttlSeconds: 60 }),
+        },
         async () => {},
       )
     })
     expect(bodies[0]?.scopes).toEqual(['read'])
+  })
+
+  it('rejects a non-positive Authority.narrow expiry', () => {
+    expect(() => Authority.narrow('read', { ttlSeconds: 0 })).toThrow(/positive integer/)
   })
 
   it('retries a transient delegation failure once with the same idempotency key', async () => {
@@ -343,7 +366,9 @@ describe('delegate', () => {
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-      const result = bind(baseCtx(), () => delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] }))
+      const result = bind(baseCtx(), () =>
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+      )
       await vi.advanceTimersByTimeAsync(2_000)
       await expect(result).resolves.toMatchObject({ delegationId: 'edge-retry' })
       expect(attempts).toBe(2)
@@ -365,7 +390,9 @@ describe('delegate', () => {
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
-      await expect(delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'] })).rejects.toThrow()
+      await expect(
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+      ).rejects.toThrow()
     })
     expect(attempts).toBe(1)
   })
@@ -443,7 +470,13 @@ describe('session with narrowed authority', () => {
     const { client } = recorder()
     await expect(
       session(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-2',
+          subjectToken: 'tok',
+          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+        },
         async () => {},
       ),
     ).rejects.toThrow(/active parent session/)
@@ -453,7 +486,13 @@ describe('session with narrowed authority', () => {
     const { client, calls } = recorder('agent-child', 'edge-child')
     await bind(baseCtx(), async () => {
       const out = await session(
-        { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
+        {
+          coordinator: client,
+          zoneId: 'zone-1',
+          applicationId: 'app-2',
+          subjectToken: 'tok',
+          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+        },
         async () => ({
           session: current()?.sessionId,
           delegation: current()?.delegationId,
@@ -480,7 +519,13 @@ describe('session with narrowed authority', () => {
     await bind(baseCtx(), async () => {
       await expect(
         session(
-          { coordinator: client, zoneId: 'zone-1', applicationId: 'app-2', subjectToken: 'tok', authority: Authority.narrow(['read']) },
+          {
+            coordinator: client,
+            zoneId: 'zone-1',
+            applicationId: 'app-2',
+            subjectToken: 'tok',
+            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          },
           async () => {},
         ),
       ).rejects.toThrow()
@@ -500,7 +545,7 @@ describe('session with narrowed authority', () => {
             zoneId: 'zone-1',
             applicationId: 'app-2',
             subjectToken: 'tok',
-            authority: Authority.narrow(['read']),
+            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
             onSessionStart: async () => {
               throw new Error('start failed')
             },

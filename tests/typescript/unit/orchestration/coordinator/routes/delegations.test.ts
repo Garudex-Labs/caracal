@@ -828,6 +828,31 @@ describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => 
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1?limit=2' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ items: [{ id: 'e1' }, { id: 'e2' }], next_cursor: 'e2' })
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('receiver_application_id = $4'), ['z1', 'sess-1', 2, null])
+  })
+
+  it('limits runtime inbound reads to Delegations involving the caller application', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'receiver-1')
+    db.query.mockResolvedValueOnce({ rows: [{ exists: true }] }).mockResolvedValueOnce({ rows: [{ id: 'e1' }] })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1' })
+
+    expect(res.statusCode).toBe(200)
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining('application_id = $3'), ['sess-1', 'z1', 'receiver-1'])
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('receiver_application_id = $4'), ['z1', 'sess-1', 100, 'receiver-1'])
+  })
+
+  it('does not list Delegations for another application Session', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'receiver-1')
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-other' })
+
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'session_not_found' })
+    expect(db.query).toHaveBeenCalledOnce()
   })
 
   it('rejects an invalid query', async () => {
@@ -845,6 +870,22 @@ describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => 
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ id: 'edge-101', status: 'active' })
+  })
+
+  it('binds exact inbound validation to the receiver application', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'receiver-1')
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
+
+    expect(res.statusCode).toBe(404)
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('receiver_application_id = $4'), [
+      'edge-101',
+      'z1',
+      'sess-1',
+      'receiver-1',
+    ])
   })
 
   it('rejects an unknown cursor', async () => {
@@ -881,6 +922,21 @@ describe('GET /v1/zones/:zoneId/delegations/active', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active?cursor=e0&limit=1' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ items: [{ id: 'e1' }], next_cursor: 'e1' })
+  })
+
+  it('limits runtime active reads to Delegations involving the caller application', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'app-1')
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'e1' }] })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/active' })
+
+    expect(res.statusCode).toBe(200)
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('issuer_application_id = $3 OR receiver_application_id = $3'), [
+      'z1',
+      100,
+      'app-1',
+    ])
   })
 })
 
@@ -947,6 +1003,19 @@ describe('GET /v1/zones/:zoneId/agents/:sessionId/effective-authority', () => {
     expect(body.effective_max_hops).toBe(2)
     expect(body.effective_ttl_seconds).toBe(300)
     expect(body.earliest_expires_at).toBe('2026-06-01T00:00:00.000Z')
+  })
+
+  it('does not expose effective authority for another application Session', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'app-1')
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agents/sess-other/effective-authority' })
+
+    expect(res.statusCode).toBe(404)
+    expect(res.json()).toEqual({ error: 'session_not_found' })
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('application_id = $3'), ['sess-other', 'z1', 'app-1'])
+    expect(db.query).toHaveBeenCalledOnce()
   })
 })
 
