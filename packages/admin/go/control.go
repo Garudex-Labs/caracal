@@ -8,7 +8,6 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -135,25 +134,14 @@ func (c *ControlClient) Invoke(ctx context.Context, command, subcommand string, 
 }
 
 // mintToken exchanges the identity's client credentials for a control token
-// scoped to exactly the requested scopes. A transient failure (a server error
-// or a lost response) is retried once: a failed mint is always definitive -
-// no token exists and nothing was applied - so the retry is safe for every
-// caller.
+// scoped to exactly the requested scopes.
 func (c *ControlClient) mintToken(ctx context.Context, scopes []string) (string, error) {
-	token, err := c.exchangeToken(ctx, scopes)
-	if err == nil {
-		return token, nil
-	}
-	var controlErr *ControlClientError
-	if errors.As(err, &controlErr) && (controlErr.Status >= 500 || controlErr.Status == 0) {
-		return c.exchangeToken(ctx, scopes)
-	}
-	return "", err
+	return c.exchangeToken(ctx, scopes)
 }
 
 func (c *ControlClient) exchangeToken(ctx context.Context, scopes []string) (string, error) {
 	form := url.Values{
-		"grant_type":     {"client_credentials"},
+		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"application_id": {c.opts.ApplicationID},
 		"client_secret":  {c.opts.ClientSecret},
 		"resource":       {c.opts.Audience},

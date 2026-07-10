@@ -129,13 +129,12 @@ func runBindings(workload *Workload) ([]RunBinding, error) {
 // handleRunManifest resolves the launch profile for a workload that proves possession
 // of its secret. The lookup is global so launches carry only the workload identity.
 func (s *Server) handleRunManifest(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+	form, _, ok := readFormBody(w, r)
+	if !ok {
 		return
 	}
-	workloadID := strings.TrimSpace(r.FormValue("workload_id"))
-	secret := r.FormValue("secret")
+	workloadID := strings.TrimSpace(form.Get("workload_id"))
+	secret := form.Get("secret")
 	if workloadID == "" || secret == "" {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id and secret are required"))
 		return
