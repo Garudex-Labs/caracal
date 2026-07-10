@@ -20,7 +20,7 @@ import { registerAdminAuditHook } from './admin-audit.js'
 import { MeteredBackend, buildSecretBackend, secretBackendCounters } from './secret-store.js'
 import { controlPlugin } from './control/plugin.js'
 import { AdminClient } from '@caracalai/admin'
-import { createAdvancedClientFromCredentials } from '@caracalai/sdk/advanced'
+import { Caracal } from '@caracalai/sdk/advanced'
 import {
   provisionSystemZone,
   llmResourceIdentifier,
@@ -336,7 +336,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   // holder: the identity is provisioned after the server is listening, rotates on a deadline,
   // and the resolver returning null fails a governed call closed rather than leaking a key.
   const caracal = governanceActive
-    ? createAdvancedClientFromCredentials({
+    ? Caracal.fromClientSecret({
         coordinatorUrl: cfg.coordinatorUrl,
         stsUrl: cfg.stsUrl,
         gatewayUrl: cfg.gatewayUrl,

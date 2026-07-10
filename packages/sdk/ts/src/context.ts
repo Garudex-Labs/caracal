@@ -125,6 +125,27 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
   }
 }
 
+export function fromVerifiedEnvelope(env: Envelope, claims: VerifiedClaims): CaracalContext {
+  if (!env.subjectToken) throw new Error('envelope missing subject token')
+  if (!claims.zoneId || !claims.applicationId || claims.hop === undefined) {
+    throw new Error('verified claims require zoneId, applicationId, and hop')
+  }
+  return {
+    subjectToken: env.subjectToken,
+    zoneId: claims.zoneId,
+    applicationId: claims.applicationId,
+    sessionId: claims.sessionId,
+    delegationId: claims.delegationId,
+    parentDelegationId: claims.parentDelegationId,
+    subjectAuthorityRecordId: claims.subjectAuthorityRecordId,
+    traceId: env.traceId,
+    traceFlags: env.traceFlags,
+    traceState: env.traceState,
+    baggage: cloneBaggage(env.baggage),
+    hop: claims.hop,
+  }
+}
+
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {
   if (!ctx) return undefined
   const chain: string[] = []
