@@ -168,12 +168,14 @@ func TestExchangeGatewaySignedRequestMintsResourceMandate(t *testing.T) {
 		"resource":           {"resource://pipernet"},
 	}
 	requestID := "req-gateway-1"
+	nonce := "nonce-gateway-1"
+	form.Set("gateway_request_id", requestID)
 	now := time.Now().UTC()
-	signature := corests.SignGatewayExchange(key, now, requestID, http.MethodPost, "/oauth/2/token", []byte(form.Encode()))
+	signature := corests.SignGatewayExchange(key, now, nonce, http.MethodPost, "/oauth/2/token", []byte(form.Encode()))
 	header := http.Header{}
 	header.Set("X-Request-Id", requestID)
 	header.Set(corests.GatewayTimestampHeader, strconv.FormatInt(now.Unix(), 10))
-	header.Set(corests.GatewayRequestHeader, requestID)
+	header.Set(corests.GatewayRequestHeader, nonce)
 	header.Set(corests.GatewaySignatureHeader, signature)
 
 	w := exchangeHTTP(t, srv, form, header)

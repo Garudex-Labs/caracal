@@ -156,7 +156,7 @@ func (s *Server) refreshExpiredProviderConnection(ctx context.Context, zoneID, s
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential_expired_not_renewable")
 	}
-	tokenEndpoint, err := validateTokenEndpoint(provCfg.TokenEndpoint, provCfg.AllowedTokenHosts)
+	tokenEndpoint, err := validateTokenEndpoint(provCfg.TokenEndpoint, provCfg.AllowedTokenHosts, s.cfg.PrivateEgressHosts)
 	if err != nil {
 		return sharederr.New(sharederr.CredentialExpired, "credential endpoint not allowed")
 	}
@@ -506,7 +506,7 @@ func applyOAuthTokenParams(form url.Values, params map[string]string) error {
 // allowlist (no implicit "any host" mode), case-insensitive exact host match. The host
 // is also pre-resolved to reject private/loopback/link-local addresses; the dialer
 // re-checks at connect time so DNS rebinding cannot bypass the gate.
-func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) {
+func validateTokenEndpoint(raw string, allowedHosts []string, privateHosts ...[]string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
@@ -534,8 +534,9 @@ func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) 
 	if len(addrs) == 0 {
 		return nil, errors.New("provider token endpoint resolves to no addresses")
 	}
+	privateAllowed := len(privateHosts) > 0 && hostAllowed(u.Hostname(), privateHosts[0])
 	for _, ip := range addrs {
-		if isUnsafeIP(ip) {
+		if isUnsafeIP(ip, privateAllowed) {
 			return nil, errors.New("provider token endpoint resolves to a non-routable address")
 		}
 	}
@@ -544,34 +545,35 @@ func validateTokenEndpoint(raw string, allowedHosts []string) (*url.URL, error) 
 
 // isUnsafeIP returns true for any address class that must not be reachable from STS:
 // loopback, link-local, multicast, unspecified, and RFC 1918 / RFC 4193 private space.
-func isUnsafeIP(ip net.IP) bool {
+func isUnsafeIP(ip net.IP, allowPrivate ...bool) bool {
 	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsMulticast() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
+	privateAllowed := len(allowPrivate) > 0 && allowPrivate[0]
 	if ip4 := ip.To4(); ip4 != nil {
 		switch {
-		case ip4[0] == 10:
+		case ip4[0] == 10 && !privateAllowed:
 			return true
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 && !privateAllowed:
 			return true
-		case ip4[0] == 192 && ip4[1] == 168:
+		case ip4[0] == 192 && ip4[1] == 168 && !privateAllowed:
 			return true
 		case ip4[0] == 169 && ip4[1] == 254:
 			return true
-		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127:
+		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 && !privateAllowed:
 			return true
 		}
 		return false
 	}
-	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
+	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc && !privateAllowed {
 		return true
 	}
 	// NAT64 well-known prefix (RFC 6052) embeds an IPv4 target in the low 32 bits;
 	// re-check the embedded address so 64:ff9b::<private-or-metadata-v4> cannot
 	// tunnel past the guard while genuine NAT64 to public addresses still resolves.
 	if embedded := nat64Embedded(ip); embedded != nil {
-		return isUnsafeIP(embedded)
+		return isUnsafeIP(embedded, privateAllowed)
 	}
 	return false
 }
@@ -599,7 +601,7 @@ func nat64Embedded(ip net.IP) net.IP {
 
 // safeHTTPClient builds a one-shot HTTP client with redirects disabled and a dialer
 // that re-validates the resolved address right before the TCP connect.
-func safeHTTPClient(timeout time.Duration) *http.Client {
+func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Client {
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: timeout}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -611,8 +613,9 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 			if err != nil {
 				return nil, err
 			}
+			privateAllowed := len(privateHosts) > 0 && hostAllowed(host, privateHosts[0])
 			for _, ip := range ips {
-				if isUnsafeIP(ip) {
+				if isUnsafeIP(ip, privateAllowed) {
 					return nil, fmt.Errorf("blocked address %s", ip.String())
 				}
 			}
@@ -629,6 +632,15 @@ func safeHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+func hostAllowed(host string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), host) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) refreshProviderToken(ctx context.Context, providerID string, endpoint *url.URL, form url.Values, clientID, clientSecret, clientAuthMethod, keyID, privateKey, certificate string) ([]byte, error) {
 	method := normalizeOAuthClientAuthMethod(clientAuthMethod)
 	if clientID == "" {
@@ -640,7 +652,7 @@ func (s *Server) refreshProviderToken(ctx context.Context, providerID string, en
 	if method != "none" && method != "private_key_jwt" && clientSecret == "" {
 		return nil, errors.New("provider oauth client_secret missing")
 	}
-	client := safeHTTPClient(providerRefreshTimeout)
+	client := safeHTTPClient(providerRefreshTimeout, s.cfg.PrivateEgressHosts)
 	var lastErr error
 	for attempt := 0; attempt < providerRefreshAttempts; attempt++ {
 		if attempt > 0 {

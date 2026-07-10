@@ -402,7 +402,7 @@ func TestDelegateRequiresActiveSession(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected error when no active agent session")
+		t.Fatal("expected error when no active Session")
 	}
 }
 

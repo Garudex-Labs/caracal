@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Tests for service agent lifecycle edges: heartbeat token refresh, close failure surfacing, and authority constructors.
+// Tests for long-lived Session lifecycle: heartbeat token refresh, close failure surfacing, and authority constructors.
 
 package sdk_test
 

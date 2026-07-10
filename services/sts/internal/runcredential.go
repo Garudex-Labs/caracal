@@ -300,25 +300,6 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if approval != nil {
-		// Consume as the final fallible step before the credential is minted: every
-		// deny above leaves the approval intact for the corrected retry.
-		if cerr := s.consumeApproval(ctx, zoneID, workload.ID, approval.ID, boundResources, scopes); cerr != nil {
-			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
-				mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
-				writeError(w, http.StatusInternalServerError, auditErr)
-				return
-			}
-			writeError(w, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it"))
-			return
-		}
-		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
-			mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
-			writeError(w, http.StatusInternalServerError, auditErr)
-			return
-		}
-	}
-
 	directive, derr := s.buildUpstreamDirective(ctx, zoneID, nil, resource, true, true)
 	if derr != nil || directive.ProviderToken == "" {
 		reason := "provider token missing"
@@ -334,6 +315,23 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, sharederr.New(sharederr.HTTPRequestFailed,
 			"upstream credential for resource "+resource.Identifier+" is unavailable: "+reason))
 		return
+	}
+
+	if approval != nil {
+		if cerr := s.consumeApproval(ctx, zoneID, workload.ID, approval.ID, boundResources, scopes); cerr != nil {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
+				mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
+				writeError(w, http.StatusInternalServerError, auditErr)
+				return
+			}
+			writeError(w, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it"))
+			return
+		}
+		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+			mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -140,7 +140,7 @@ func New(ctx context.Context) (*Server, error) {
 		secrets:        secrets,
 		auditBuffer:    buf,
 		metrics:        metrics,
-		subjectKeys:    newSubjectKeyCache(),
+		subjectKeys:    newSubjectKeyCache(cfg.PrivateEgressHosts),
 		consumersReady: make(chan struct{}),
 		log:            log,
 	}, nil

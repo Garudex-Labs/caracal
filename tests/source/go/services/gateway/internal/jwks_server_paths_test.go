@@ -199,6 +199,8 @@ type readyRedis struct {
 
 func (r *readyRedis) Ping(context.Context) error { return r.pingErr }
 
+func (r *readyRedis) Close() error { return nil }
+
 type fakeAuditStream struct{}
 
 func (fakeAuditStream) XAdd(context.Context, string, map[string]any) error { return nil }

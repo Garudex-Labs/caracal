@@ -75,6 +75,7 @@ func (d *DB) GetSubjectIssuerByIssuer(ctx context.Context, zoneID, issuer string
 
 type subjectKeySet struct {
 	keys      map[string]any
+	jwksURL   string
 	fetchedAt time.Time
 }
 
@@ -82,19 +83,27 @@ type subjectKeySet struct {
 // TTL so a rotated upstream key is picked up promptly and a stale document is
 // never trusted indefinitely; fetch is injectable for tests.
 type subjectKeyCache struct {
-	mu    sync.Mutex
-	byID  map[string]subjectKeySet
-	fetch func(ctx context.Context, jwksURL string) ([]byte, error)
+	mu           sync.Mutex
+	byID         map[string]subjectKeySet
+	privateHosts []string
+	fetch        func(ctx context.Context, jwksURL string) ([]byte, error)
 }
 
-func newSubjectKeyCache() *subjectKeyCache {
-	return &subjectKeyCache{byID: map[string]subjectKeySet{}, fetch: fetchSubjectJWKS}
+func newSubjectKeyCache(privateHosts ...[]string) *subjectKeyCache {
+	cache := &subjectKeyCache{byID: map[string]subjectKeySet{}}
+	if len(privateHosts) > 0 {
+		cache.privateHosts = privateHosts[0]
+	}
+	cache.fetch = func(ctx context.Context, jwksURL string) ([]byte, error) {
+		return fetchSubjectJWKS(ctx, jwksURL, cache.privateHosts)
+	}
+	return cache
 }
 
 // fetchSubjectJWKS retrieves a JWKS document through the SSRF-guarded client:
 // HTTPS only, private and loopback address classes blocked at resolve and at
 // connect, redirects disabled, and the response size capped.
-func fetchSubjectJWKS(ctx context.Context, jwksURL string) ([]byte, error) {
+func fetchSubjectJWKS(ctx context.Context, jwksURL string, privateHosts ...[]string) ([]byte, error) {
 	u, err := url.Parse(jwksURL)
 	if err != nil {
 		return nil, err
@@ -107,7 +116,7 @@ func fetchSubjectJWKS(ctx context.Context, jwksURL string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := safeHTTPClient(subjectJWKSTimeout).Do(req)
+	resp, err := safeHTTPClient(subjectJWKSTimeout, privateHosts...).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +138,7 @@ func (c *subjectKeyCache) keysFor(ctx context.Context, issuer *SubjectIssuer) (m
 	c.mu.Lock()
 	cached, ok := c.byID[issuer.ID]
 	c.mu.Unlock()
-	if ok && time.Since(cached.fetchedAt) < subjectJWKSCacheTTL {
+	if ok && cached.jwksURL == issuer.JWKSURL && time.Since(cached.fetchedAt) < subjectJWKSCacheTTL {
 		return cached.keys, nil
 	}
 	body, err := c.fetch(ctx, issuer.JWKSURL)
@@ -143,7 +152,7 @@ func (c *subjectKeyCache) keysFor(ctx context.Context, issuer *SubjectIssuer) (m
 		return nil, err
 	}
 	c.mu.Lock()
-	c.byID[issuer.ID] = subjectKeySet{keys: keys, fetchedAt: time.Now()}
+	c.byID[issuer.ID] = subjectKeySet{keys: keys, jwksURL: issuer.JWKSURL, fetchedAt: time.Now()}
 	c.mu.Unlock()
 	return keys, nil
 }
