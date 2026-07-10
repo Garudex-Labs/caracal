@@ -42,7 +42,7 @@ func main() {
 }
 ```
 
-`New()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables.
+`New()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths.
 
 ## Use an HTTP client
 

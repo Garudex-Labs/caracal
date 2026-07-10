@@ -3,7 +3,7 @@ title: Integrate the Python SDK
 description: Install caracalai-sdk, load a runtime profile, run governed sessions with async context managers, delegate authority, and use httpx transport injection.
 ---
 
-Use `caracalai-sdk` in Python services and agents that need async session lifecycle, delegation, Gateway routing, or ASGI context propagation.
+Use `caracalai-sdk` in Python services and agents that need async Session lifecycle, Delegation, Gateway routing, or ASGI context propagation.
 
 ## Install
 
@@ -19,7 +19,7 @@ from caracalai import Caracal
 caracal = Caracal()
 ```
 
-`Caracal()` loads `CARACAL_CONFIG`, a `caracal.toml` in the default config path, or environment variables.
+`Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.from_client_secret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `caracalai.advanced`.
 
 ## Start a Session and call a resource
 
@@ -145,7 +145,7 @@ The middleware propagates context. It does not verify JWT signatures or revocati
 
 | Symptom                           | Check                                                                             |
 | --------------------------------- | --------------------------------------------------------------------------------- |
-| `Caracal.from_env: missing ...`   | Confirm profile or required environment variables.                                |
+| `Caracal: missing ...`            | Confirm the named profile or required environment variables.                      |
 | `headers()` refuses root identity | Bind a context or pass `as_application=True` only for trusted service-root calls. |
 | Background task loses context     | Capture the context and rebind with `async with caracal.bind(ctx)`.               |
 | Gateway routing misses            | Confirm resource bindings and `gateway_url`.                                      |

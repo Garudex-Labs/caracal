@@ -91,7 +91,7 @@ confinement := [{
 }]
 ```
 
-Publish this `confinement` document and a worker spawned for one customer can never mint authority outside that surface, even by accident. The [Lynx Capital example](/examples/lynx-capital/) ships this confinement data with tests.
+Publish this `confinement` document and a worker Session started for one customer can never mint authority outside that surface, even by accident. The [Lynx Capital example](/examples/lynx-capital/) ships this confinement data with tests.
 
 ## Step 4: Differentiate Authority per Customer
 
@@ -115,7 +115,7 @@ A Session started for a scale-plan customer carries the `scale-plan` label and m
 
 ## Step 5: Attribute and Revoke per Customer
 
-Every decision is written to the zone audit ledger with the application, session, Session, and delegation chain. The customer id rides in the agent metadata and labels you set in Steps 2 and 3, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
+Every decision is written to the zone audit ledger with the application, Authority record, Session, and Delegation chain. The customer id rides in the Session metadata and labels you set in Steps 2 and 3, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
 
 To build a per-customer read-only view - for an internal support console or a customer-facing activity page - query the shared trail by the convention you already established: filter Sessions on the `customer_id` metadata key (or the `customer:` label), then collect each session's decisions, delegations, and Gateway events. Because every session carries the key from Session start, the view is a filter over one audit trail, not a separate per-customer store. The same filter scopes Console searches and SIEM exports.
 

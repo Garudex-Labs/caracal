@@ -52,7 +52,7 @@ Expose only the endpoints required by your environment:
 | STS                       | Expose only when token exchange clients cannot reach it privately.                                                                                                  |
 | Audit/Coordinator/Control | Keep private.                                                                                                                                                       |
 
-The chart renders Ingress for the web console by default. API and Gateway Ingress templates exist but remain disabled until a deployment opts in.
+The chart renders optional Ingress resources for Web, API, Gateway, and STS. Set `services.sts.issuerUrl` to the public HTTPS STS origin. Leave `services.sts.internalUrl` empty for release-local ClusterIP routing, or set it to an internal cross-cluster endpoint. The issuer and routing URL are separate so tokens retain one stable identity while services use a private route. Production values leave every Ingress disabled until a deployment opts in.
 
 ## Validation
 

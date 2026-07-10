@@ -10,7 +10,7 @@ Backups must preserve both access state and evidence state. A restore that loses
 
 | Asset                            | Why it matters                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Postgres database                | Product state, policies, grants, sessions, audit events, agents, delegations, outboxes.                 |
+| Postgres database                | Product state, policies, grants, Authority records, Sessions, audit events, Delegations, outboxes.      |
 | Runtime secrets                  | Database/Redis credentials, admin token, Coordinator token, zone KEK, HMAC keys, service exchange keys. |
 | STS/Gateway replay volumes       | Audit replay files during Redis/Audit outages.                                                          |
 | Redis snapshot or managed backup | Optional operational recovery for stream pending entries; Postgres remains authoritative.               |
@@ -68,7 +68,7 @@ After restore, verify with `infra/scripts/smokeTest.sh` and the [restore validat
 2. Restore required secrets into the environment secret store.
 3. Run migration verification.
 4. Start services and verify `/ready`.
-5. Confirm audit query, policy-set activation state, resource routing, sessions, agents, and delegation records.
+5. Confirm audit query, policy-set activation state, resource routing, Authority records, Sessions, and Delegations.
 6. Run a canary token exchange and protected Gateway request.
 
 ## Troubleshooting

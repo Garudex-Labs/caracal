@@ -96,7 +96,7 @@ curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
   -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
 ```
 
-The SDKs wrap both steps: `caracal.federateSubject(idToken)` creates the Subject's Authority record and returns its compatibility `subjectSessionId` plus mandate, and the OAuth client's `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly. The Session that raised the hold cannot approve itself, and the deciding Subject must have federated through the application that raised it. Without a registered Subject issuer, a Subject-reserved hold can only expire.
+The SDKs wrap both steps: `caracal.federateSubject(idToken)` creates the Subject's Authority record and returns its `subjectAuthorityRecordId` plus mandate; Python and Go expose `subject_authority_record_id` and `SubjectAuthorityRecordID`. The OAuth client's `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly. The Session that raised the hold cannot approve itself, and the deciding Subject must have federated through the application that raised it. Without a registered Subject issuer, a Subject-reserved hold can only expire.
 
 ## Retry the exchange
 

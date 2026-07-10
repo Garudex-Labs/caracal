@@ -7,7 +7,7 @@ Caracal integrations test cleanly because every control-plane dependency enters 
 
 ## What to stub
 
-A governed session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly:
+A governed Session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly:
 
 | Call                             | Respond with                                                                                                            |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -27,7 +27,7 @@ Make scoped-transport Gateway fakes replay-sensitive: remember each presented be
 import { describe, expect, it, vi } from 'vitest'
 import { Caracal } from '@caracalai/sdk'
 
-it('runs work inside a governed session', async () => {
+it('runs work inside a governed Session', async () => {
   const calls: { url: string; method: string }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     calls.push({ url: String(input), method: init.method ?? 'GET' })

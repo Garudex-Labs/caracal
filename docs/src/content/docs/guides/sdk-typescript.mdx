@@ -13,12 +13,7 @@ npm install @caracalai/sdk
 
 ## Configure
 
-The SDK resolves configuration in this order:
-
-1. `new Caracal({ clientSecret: ... })` explicit options.
-2. `new Caracal({ configPath })`.
-3. `CARACAL_CONFIG` or a `caracal.toml` in the default config path.
-4. Environment variables.
+`new Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.fromClientSecret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `@caracalai/sdk/advanced`.
 
 ## Connect and start a Session
 
@@ -38,7 +33,7 @@ await caracal.session(async () => {
 
 `session()` creates a Session, binds the Caracal context while the callback runs, and terminates the session when the callback exits.
 
-To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and delegation. The session lifecycle is handled for you: `session()` records a `task` session, while `startSession()` records a heartbeat-leased `service`.
+To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and Delegation. The Session lifecycle is handled for you: `session()` records a `task` Session, while `startSession()` records a heartbeat-leased `service` Session.
 
 ```ts
 await caracal.session(
@@ -175,7 +170,7 @@ Two things `close()` deliberately does **not** do. It does not retire `startSess
 
 | Symptom                         | Check                                                                                        |
 | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `Caracal.fromEnv: missing ...`  | Confirm the runtime profile or required `CARACAL_*` variables are present.                   |
+| `Caracal: missing ...`          | Confirm the named profile or required `CARACAL_*` variables are present.                     |
 | Root headers rejected           | Call `headersAsync({ asApplication: true })` only when service-root identity is intentional. |
 | Delegation fails                | Ensure the call runs inside `session()` or another bound context.                            |
 | Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`.                          |
