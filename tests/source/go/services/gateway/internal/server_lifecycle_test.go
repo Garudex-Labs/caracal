@@ -32,6 +32,10 @@ func (f *fakeGatewayRedis) Ping(context.Context) error {
 	return f.pingErr
 }
 
+func (f *fakeGatewayRedis) Close() error {
+	return nil
+}
+
 func (f *fakeGatewayRedis) XAdd(context.Context, string, map[string]any) error {
 	return nil
 }

@@ -22,6 +22,20 @@ type incrErrRedis struct {
 	fakeRevocationRedis
 }
 
+func TestApplyRevocationSnapshotPreservesConcurrentStreamMarks(t *testing.T) {
+	store := newRevocationStore(zerolog.Nop())
+	generation := store.streamGeneration.Load()
+	store.markAuthorityRecord("stream-authority")
+	store.markGovernedSession("stream-session")
+	store.markDelegation("stream-edge")
+
+	applyRevocationSnapshot(store, nil, nil, nil, generation)
+
+	if !store.IsRevoked("stream-authority") || !store.IsSessionRevoked("stream-session") || !store.IsDelegationRevoked("stream-edge") {
+		t.Fatal("snapshot reload must preserve newer stream revocations")
+	}
+}
+
 func (r *incrErrRedis) IncrWithExpiry(context.Context, string, time.Duration) (int64, error) {
 	return 0, errors.New("incr down")
 }
@@ -110,14 +124,14 @@ func TestTrackRevocationFailureToleratesRedisErrors(t *testing.T) {
 	metrics := &GatewayMetrics{}
 
 	incrBroken := &incrErrRedis{}
-	trackRevocationFailure(context.Background(), incrBroken, msg, errors.New("bad message"), metrics, zerolog.Nop())
+	trackRevocationFailure(context.Background(), incrBroken, groupRevoke, msg, errors.New("bad message"), metrics, zerolog.Nop())
 	if len(incrBroken.dead) != 0 {
 		t.Fatal("failed counter must not dead-letter")
 	}
 
 	dlqBroken := &deadLetterErrRedis{}
 	for range maxFailures {
-		trackRevocationFailure(context.Background(), dlqBroken, msg, errors.New("bad message"), metrics, zerolog.Nop())
+		trackRevocationFailure(context.Background(), dlqBroken, groupRevoke, msg, errors.New("bad message"), metrics, zerolog.Nop())
 	}
 	if len(dlqBroken.acked) != 0 || len(dlqBroken.deleted) != 0 {
 		t.Fatal("failed dead-letter must not ack or clear the counter")
@@ -125,7 +139,7 @@ func TestTrackRevocationFailureToleratesRedisErrors(t *testing.T) {
 
 	ackBroken := &ackErrRedis{}
 	for range maxFailures {
-		trackRevocationFailure(context.Background(), ackBroken, msg, errors.New("bad message"), metrics, zerolog.Nop())
+		trackRevocationFailure(context.Background(), ackBroken, groupRevoke, msg, errors.New("bad message"), metrics, zerolog.Nop())
 	}
 	if len(ackBroken.deleted) != 0 {
 		t.Fatal("failed ack must not clear the counter")
@@ -164,7 +178,7 @@ func TestJWTClaimHelpersRejectMalformedPayloads(t *testing.T) {
 
 func TestReplayPendingRevocationsStopsOnClaimError(t *testing.T) {
 	metrics := &GatewayMetrics{}
-	replayPendingRevocations(context.Background(), &claimErrRedis{}, newRevocationStore(zerolog.Nop()), "consumer-1", metrics, zerolog.Nop())
+	replayPendingRevocations(context.Background(), &claimErrRedis{}, newRevocationStore(zerolog.Nop()), groupRevoke, "consumer-1", metrics, zerolog.Nop())
 	if metrics.Snapshot().RevocationPendingReplayed != 0 {
 		t.Fatal("claim failure must not count replayed messages")
 	}
@@ -211,7 +225,7 @@ func TestRunRevocationLoopRetriesAfterReadError(t *testing.T) {
 	defer cancel()
 	rdb := &readErrRedis{cancel: cancel}
 
-	runRevocationLoop(ctx, rdb, newRevocationStore(zerolog.Nop()), "consumer-1", nil, zerolog.Nop())
+	runRevocationLoop(ctx, rdb, newRevocationStore(zerolog.Nop()), groupRevoke, "consumer-1", nil, zerolog.Nop())
 
 	if rdb.calls < 2 {
 		t.Fatalf("read calls = %d, want retry after failure", rdb.calls)

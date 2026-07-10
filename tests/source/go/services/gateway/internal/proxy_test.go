@@ -39,6 +39,10 @@ func (allowTracker) Check(context.Context, string, time.Time, string, string, st
 
 type allowRevocations struct{}
 
+func (allowRevocations) SnapshotFresh(time.Time) bool {
+	return true
+}
+
 func (allowRevocations) IsRevoked(string) bool {
 	return false
 }
@@ -406,6 +410,9 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 		"Authorization":       {"Bearer " + tok},
 		"X-Caracal-Resource":  {"r1"},
 		"X-Caracal-Upstream":  {"shouldnt-leak"},
+		"X-Caracal-Internal":  {"shouldnt-leak"},
+		"Forwarded":           {"for=198.51.100.1"},
+		"X-Real-Ip":           {"198.51.100.1"},
 		"Connection":          {"X-Hop-Custom"},
 		"X-Hop-Custom":        {"drop"},
 		"Proxy-Authorization": {"Bearer leak"},
@@ -422,7 +429,7 @@ func TestProxyHappyPathForwardsAndStripsHeaders(t *testing.T) {
 	if got := seen.Header.Get("Authorization"); got != "Bearer sts-issued-token" {
 		t.Errorf("Authorization not replaced; got %q", got)
 	}
-	for _, drop := range []string{"X-Caracal-Client-ID", "X-Caracal-Resource", "X-Caracal-Upstream", "Connection", "X-Hop-Custom", "Proxy-Authorization"} {
+	for _, drop := range []string{"X-Caracal-Client-ID", "X-Caracal-Resource", "X-Caracal-Upstream", "X-Caracal-Internal", "Forwarded", "X-Real-Ip", "Connection", "X-Hop-Custom", "Proxy-Authorization"} {
 		if seen.Header.Get(drop) != "" {
 			t.Errorf("%s should be stripped, got %q", drop, seen.Header.Get(drop))
 		}

@@ -195,7 +195,7 @@ func TestStepUpDecisionSubjectApproval(t *testing.T) {
 		db := &lineageDB{stepUpDB: decisionStub(t, stepUpDecisionChallenge()), related: true}
 		srv := stepUpDecisionServer(t, db)
 		w := decideStepUp(t, srv, approverMandate(t, srv, SubTypeUser), approvedBody)
-		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "own session lineage") {
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "own authority record lineage") {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 		}
 	})

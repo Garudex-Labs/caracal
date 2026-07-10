@@ -6,6 +6,7 @@
 package internal
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,16 @@ import (
 
 	"github.com/rs/zerolog"
 )
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read([]byte) (int, error) {
+	return 0, errors.New("upstream body failed")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
+}
 
 func TestStreamResponseRecognizesSSEAndUnknownLengthBodies(t *testing.T) {
 	for _, response := range []*http.Response{
@@ -51,6 +62,14 @@ func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type lost in copy, got %q", got)
+	}
+}
+
+func TestCopyResponseReportsBodyReadError(t *testing.T) {
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: failingReadCloser{}}
+	result := copyResponse(httptest.NewRecorder(), resp, newRevocationStore(zerolog.Nop()), tokenRevocationAnchors{})
+	if result.Err == nil {
+		t.Fatal("upstream body read error must be reported")
 	}
 }
 

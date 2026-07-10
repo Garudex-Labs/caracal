@@ -34,6 +34,12 @@ func (denyTracker) Check(context.Context, string, time.Time, string, string, str
 	return false
 }
 
+type staleRevocations struct{ allowRevocations }
+
+func (staleRevocations) SnapshotFresh(time.Time) bool {
+	return false
+}
+
 func proxyHeaders(token string) http.Header {
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+token)
@@ -71,6 +77,21 @@ func TestProxyOversizedBearerRejected(t *testing.T) {
 	}
 	if p.metrics.Snapshot().DenialsBadBearer != 1 {
 		t.Fatalf("bad bearer denials = %d", p.metrics.Snapshot().DenialsBadBearer)
+	}
+}
+
+func TestProxyStaleRevocationStateFailsClosed(t *testing.T) {
+	sts := newFakeSTS(t, "http://127.0.0.1:1", nil)
+	defer sts.Close()
+	p := newProxyForTestWithRevocations(t, sts, staleRevocations{})
+
+	resp := doProxiedRequest(t, p, http.MethodGet, "/x", nil, nil)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	snapshot := p.metrics.Snapshot()
+	if snapshot.RequestsDenied != 1 || snapshot.DenialsRevocationStale != 1 {
+		t.Fatalf("stale revocation denial metrics = %+v", snapshot)
 	}
 }
 

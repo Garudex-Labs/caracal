@@ -60,7 +60,7 @@ func TestStripCaracalBaggage(t *testing.T) {
 }
 
 func TestPathTraversalDetection(t *testing.T) {
-	traversals := []string{"/..", "/../etc", "/a/../b", "/./x", "/foo/../../bar", "/a/b/.."}
+	traversals := []string{"/..", "/../etc", "/a/../b", "/./x", "/foo/../../bar", "/a/b/..", `/a\..\secret`, "/a/%5c..%5csecret", "/a/%255c..%255csecret"}
 	for _, p := range traversals {
 		if !pathContainsTraversal(p) {
 			t.Errorf("missed traversal in %q", p)
