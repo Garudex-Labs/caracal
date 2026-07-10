@@ -7,17 +7,18 @@ Token-exchange client that turns an application client_secret into STS access to
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import hmac
 import json
+import random
 import secrets
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -32,7 +33,10 @@ from .types import APPROVAL_STATES, ApprovalState, MintedMandate
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 MAX_LEEWAY_SECONDS = 60.0
 DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_RETRIES = 3
 MANDATE_CACHE_CAP = 10_000
+BACKOFF_BASE_SECONDS = 0.25
+BACKOFF_CAP_SECONDS = 5.0
 _CREDENTIAL_KEY = secrets.token_bytes(32)
 
 
@@ -93,6 +97,31 @@ def decode_jwt_exp(token: str) -> float | None:
     return None
 
 
+def _transient_status(status: int) -> bool:
+    return status in (408, 425, 429) or status >= 500
+
+
+def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
+    if response is not None:
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                seconds = float(header)
+                if seconds >= 0:
+                    return seconds
+            except ValueError:
+                try:
+                    when = parsedate_to_datetime(header)
+                    delta = when.timestamp() - time.time()
+                    if delta > 0:
+                        return delta
+                except (TypeError, ValueError):
+                    pass
+    delay = min(BACKOFF_BASE_SECONDS * (2**attempt), BACKOFF_CAP_SECONDS)
+    half = delay / 2
+    return half + random.random() * half
+
+
 def _leeway(exp: float, minted_at: float) -> float:
     """Refresh margin for a token: capped at MAX_LEEWAY_SECONDS but never more
     than half the token's lifetime, so short-lived tokens are still served
@@ -103,11 +132,12 @@ def _leeway(exp: float, minted_at: float) -> float:
 class ClientSecretExchanger:
     """Exchanges an application client_secret for STS tokens via RFC 8693
     token exchange: a lifecycle access token for the application itself, and
-    resource mandates bound to a Session and Delegation.
+    per-agent resource mandates bound to an agent session and delegation edge.
     Credentials come from a resolver invoked per exchange, so rotation and
     identity swaps take effect without rebuilding the client; every cached
     result is keyed to the identity that minted it. Results are refreshed on
-    demand as they approach their `exp` claim.
+    demand as they approach their `exp` claim; transient STS failures are
+    retried with jittered backoff inside a per-exchange deadline.
 
     Integrators never construct one: ``from_client_secret`` (and profile or
     environment detection) wires it into the client; the class is public so
@@ -121,6 +151,7 @@ class ClientSecretExchanger:
         resources: list[str],
         scope: str = "agent:lifecycle",
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        retries: int = DEFAULT_RETRIES,
         http_client: httpx.Client | None = None,
     ) -> None:
         self._sts_url = sts_url.rstrip("/")
@@ -128,6 +159,7 @@ class ClientSecretExchanger:
         self._resources = list(resources)
         self._scope = scope
         self._timeout = timeout_seconds
+        self._retries = retries
         self._lock = threading.Lock()
         self._token_lock = threading.Lock()
         self._token: str | None = None
@@ -138,14 +170,13 @@ class ClientSecretExchanger:
         self._mandates: OrderedDict[_MandateKey, tuple[str, float, float]] = (
             OrderedDict()
         )
-        self._mandate_locks: dict[_MandateKey, tuple[threading.Lock, int]] = {}
+        self._mandate_locks: dict[_MandateKey, threading.Lock] = {}
         self._owns_http = http_client is None
         self._http = (
             http_client
             if http_client is not None
             else httpx.Client(timeout=httpx.Timeout(10.0))
         )
-        self._async_http: httpx.AsyncClient | None = None
         self.on_event: EventHook | None = None
 
     def _resolve(self) -> ClientCredentials:
@@ -165,11 +196,6 @@ class ClientSecretExchanger:
                 self._exp = None
                 self._token_identity = None
                 self._mandates.clear()
-                self._mandate_locks = {
-                    key: record
-                    for key, record in self._mandate_locks.items()
-                    if record[1]
-                }
             self._credential_fingerprint = fingerprint
         return creds
 
@@ -190,13 +216,6 @@ class ClientSecretExchanger:
         the caller's responsibility."""
         if self._owns_http:
             self._http.close()
-
-    async def aclose(self) -> None:
-        """Release every owned HTTP pool; injected clients remain caller-owned."""
-        await asyncio.to_thread(self.close)
-        if self._async_http is not None:
-            await self._async_http.aclose()
-            self._async_http = None
 
     def _cached_lifecycle(self, identity: tuple[str, str]) -> str | None:
         with self._lock:
@@ -225,7 +244,7 @@ class ClientSecretExchanger:
         creds = self._resolve()
         if not self._resources:
             raise RuntimeError(
-                "Caracal: this client has no resources configured; Session and "
+                "Caracal: this client has no resources configured; spawn and "
                 "lifecycle paths require at least one"
             )
         identity = (creds.zone_id, creds.application_id)
@@ -262,26 +281,14 @@ class ClientSecretExchanger:
             self._exp = None
             self._token_identity = None
             self._mandates.clear()
-            self._mandate_locks = {
-                key: record for key, record in self._mandate_locks.items() if record[1]
-            }
 
     def _mandate_lock(self, key: _MandateKey) -> threading.Lock:
         with self._lock:
-            record = self._mandate_locks.get(key)
-            lock = record[0] if record is not None else threading.Lock()
-            self._mandate_locks[key] = (lock, (record[1] if record else 0) + 1)
+            lock = self._mandate_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._mandate_locks[key] = lock
             return lock
-
-    def _release_mandate_lock(self, key: _MandateKey, lock: threading.Lock) -> None:
-        with self._lock:
-            record = self._mandate_locks.get(key)
-            if record is None or record[0] is not lock:
-                return
-            if record[1] == 1:
-                del self._mandate_locks[key]
-            else:
-                self._mandate_locks[key] = (lock, record[1] - 1)
 
     def _cached_mandate(self, key: _MandateKey) -> MintedMandate | None:
         minted = None
@@ -324,24 +331,23 @@ class ClientSecretExchanger:
         *,
         resource: str,
         scopes: list[str],
-        session_id: str | None = None,
-        delegation_id: str | None = None,
+        agent_session_id: str | None = None,
+        delegation_edge_id: str | None = None,
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
         cache: bool = True,
     ) -> MintedMandate:
-        """Exchange the application credential for a scoped mandate narrowed
-        to one resource and the requested scopes. Session and Delegation inputs
-        produce an uncached ``use=gateway`` mandate; application lifecycle
-        exchanges produce cacheable ``use=session`` mandates. When a scope is
-        approval-gated the mint raises :class:`ApprovalRequired`; retry with
-        ``approval_id`` once an approver has satisfied it."""
+        """Exchange the application credential for a resource mandate audienced
+        to one resource and narrowed to the requested scopes. Pass the calling
+        agent's session and delegation edge so the STS evaluates policy against
+        that agent's authority and the mandate carries its identity. When a scope
+        is approval-gated the mint raises :class:`ApprovalRequired`; retry with
+        ``approval_id`` set to the returned challenge id once an approver has
+        satisfied it."""
         if not resource:
             raise ValueError("mint_mandate requires a resource")
         if not scopes:
             raise ValueError("mint_mandate requires at least one scope")
-        if approval_id or (session_id and delegation_id):
-            cache = False
         creds = self._resolve()
         scope_set = frozenset(scopes)
         key = (
@@ -349,8 +355,8 @@ class ClientSecretExchanger:
             creds.application_id,
             resource,
             scope_set,
-            session_id,
-            delegation_id,
+            agent_session_id,
+            delegation_edge_id,
             ttl_seconds,
         )
         cached = self._cached_mandate(key) if cache else None
@@ -361,8 +367,8 @@ class ClientSecretExchanger:
                 creds,
                 resource,
                 scope_set,
-                session_id,
-                delegation_id,
+                agent_session_id,
+                delegation_edge_id,
                 ttl_seconds,
                 approval_id,
             )
@@ -370,36 +376,32 @@ class ClientSecretExchanger:
             return MintedMandate(
                 token=token, expires_in_seconds=max(0, int(exp - time.time()))
             )
-        lock = self._mandate_lock(key)
-        try:
-            with lock:
-                cached = self._cached_mandate(key)
-                if cached is not None:
-                    return cached
-                data = self._mandate_data(
-                    creds,
-                    resource,
-                    scope_set,
-                    session_id,
-                    delegation_id,
-                    ttl_seconds,
-                    approval_id,
-                )
-                token, exp = self._exchange(data)
-                self._store_mandate(key, token, exp)
-                return MintedMandate(
-                    token=token, expires_in_seconds=max(0, int(exp - time.time()))
-                )
-        finally:
-            self._release_mandate_lock(key, lock)
+        with self._mandate_lock(key):
+            cached = self._cached_mandate(key)
+            if cached is not None:
+                return cached
+            data = self._mandate_data(
+                creds,
+                resource,
+                scope_set,
+                agent_session_id,
+                delegation_edge_id,
+                ttl_seconds,
+                approval_id,
+            )
+            token, exp = self._exchange(data)
+            self._store_mandate(key, token, exp)
+            return MintedMandate(
+                token=token, expires_in_seconds=max(0, int(exp - time.time()))
+            )
 
     def _mandate_data(
         self,
         creds: ClientCredentials,
         resource: str,
         scopes: frozenset[str],
-        session_id: str | None,
-        delegation_id: str | None,
+        agent_session_id: str | None,
+        delegation_edge_id: str | None,
         ttl_seconds: int | None,
         approval_id: str | None,
     ) -> dict[str, str | list[str]]:
@@ -411,10 +413,10 @@ class ClientSecretExchanger:
             "scope": " ".join(sorted(scopes)),
             "resource": resource,
         }
-        if session_id:
-            data["agent_session_id"] = session_id
-        if delegation_id:
-            data["delegation_edge_id"] = delegation_id
+        if agent_session_id:
+            data["agent_session_id"] = agent_session_id
+        if delegation_edge_id:
+            data["delegation_edge_id"] = delegation_edge_id
         if ttl_seconds is not None:
             data["ttl_seconds"] = str(ttl_seconds)
         if approval_id:
@@ -431,43 +433,40 @@ class ClientSecretExchanger:
         self._resolve()
         start = time.monotonic()
         deadline = time.monotonic() + timeout_seconds
-        if self._async_http is None or self._async_http.is_closed:
-            transport = getattr(self._http, "_transport", None)
-            if not hasattr(transport, "handle_async_request"):
-                transport = None
-            self._async_http = httpx.AsyncClient(transport=transport)
-        try:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    state: ApprovalState = "pending"
-                    break
-                wait = max(1, min(25, int(remaining)))
-                response = await self._async_http.get(
-                    f"{self._sts_url}/step-up/{approval_id}?wait={wait}",
-                    timeout=min(remaining, wait + 10.0),
+        transport = getattr(self._http, "_transport", None)
+        async with httpx.AsyncClient(transport=transport) as client:
+            try:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        state: ApprovalState = "pending"
+                        break
+                    wait = max(1, min(25, int(remaining)))
+                    response = await client.get(
+                        f"{self._sts_url}/step-up/{approval_id}?wait={wait}",
+                        timeout=min(remaining, wait + 10.0),
+                    )
+                    response.raise_for_status()
+                    value = str(response.json().get("state", ""))
+                    if value and value != "pending":
+                        if value not in APPROVAL_STATES:
+                            raise RuntimeError(
+                                f"step-up status returned an unknown challenge state: {value}"
+                            )
+                        state = value  # type: ignore[assignment]
+                        break
+            except BaseException:
+                emit_event(
+                    self.on_event,
+                    CaracalEvent(
+                        type="approval.wait",
+                        ok=False,
+                        duration_ms=(time.monotonic() - start) * 1000.0,
+                        approval_id=approval_id,
+                        state="",
+                    ),
                 )
-                response.raise_for_status()
-                value = str(response.json().get("state", ""))
-                if value and value != "pending":
-                    if value not in APPROVAL_STATES:
-                        raise RuntimeError(
-                            f"step-up status returned an unknown challenge state: {value}"
-                        )
-                    state = value  # type: ignore[assignment]
-                    break
-        except BaseException:
-            emit_event(
-                self.on_event,
-                CaracalEvent(
-                    type="approval.wait",
-                    ok=False,
-                    duration_ms=(time.monotonic() - start) * 1000.0,
-                    approval_id=approval_id,
-                    state="",
-                ),
-            )
-            raise
+                raise
         emit_event(
             self.on_event,
             CaracalEvent(
@@ -543,7 +542,7 @@ class ClientSecretExchanger:
                 return finish("pending", True)
             wait = max(1, min(25, int(remaining)))
             url = f"{self._sts_url}/step-up/{approval_id}?wait={wait}"
-            resp = self._http.get(url, timeout=min(remaining, wait + 10.0))
+            resp = self._http.get(url, timeout=wait + 10.0)
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError:
@@ -564,23 +563,43 @@ class ClientSecretExchanger:
         resources = tuple(resource) if isinstance(resource, list) else (str(resource),)
         scopes = tuple(str(data.get("scope", "")).split())
         start = time.monotonic()
+        deadline = time.time() + self._timeout
+        attempt = 0
         try:
-            response = self._http.post(url, data=data, timeout=self._timeout)
-            if not response.is_success:
-                raise_for_caracal_error(response)
-            token = self._parse_token(response)
-            emit_event(
-                self.on_event,
-                CaracalEvent(
-                    type="token.exchange",
-                    ok=True,
-                    duration_ms=(time.monotonic() - start) * 1000.0,
-                    resources=resources,
-                    scopes=scopes,
-                    status=response.status_code,
-                ),
-            )
-            return token
+            while True:
+                response: httpx.Response | None = None
+                try:
+                    response = self._http.post(url, data=data)
+                except httpx.TransportError:
+                    if attempt >= self._retries or time.time() >= deadline:
+                        raise
+                if response is not None:
+                    if response.is_success:
+                        token = self._parse_token(response)
+                        emit_event(
+                            self.on_event,
+                            CaracalEvent(
+                                type="token.exchange",
+                                ok=True,
+                                duration_ms=(time.monotonic() - start) * 1000.0,
+                                resources=resources,
+                                scopes=scopes,
+                                status=response.status_code,
+                            ),
+                        )
+                        return token
+                    if (
+                        not _transient_status(response.status_code)
+                        or attempt >= self._retries
+                    ):
+                        raise_for_caracal_error(response)
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    if response is not None:
+                        raise_for_caracal_error(response)
+                    raise TimeoutError("STS token exchange timed out")
+                time.sleep(min(_retry_delay(response, attempt), remaining))
+                attempt += 1
         except Exception as exc:
             emit_event(
                 self.on_event,

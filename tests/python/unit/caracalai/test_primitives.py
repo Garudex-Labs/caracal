@@ -30,16 +30,7 @@ def _coord(handler) -> CoordinatorClient:
 
 def _default_handler(req: httpx.Request) -> httpx.Response:
     if req.method == "POST" and str(req.url).endswith("/agents"):
-        import json
-
-        body = json.loads(req.content)
-        return httpx.Response(
-            200,
-            json={
-                "agent_session_id": "agent-1",
-                "lease_generation": 1 if body.get("lifecycle") == "service" else 0,
-            },
-        )
+        return httpx.Response(200, json={"agent_session_id": "agent-1"})
     if req.method == "DELETE":
         return httpx.Response(204)
     if req.method == "POST" and str(req.url).endswith("/delegations"):
@@ -58,7 +49,6 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         ) as ctx:
             self.assertEqual(ctx.session_id, "agent-1")
             self.assertEqual(ctx.zone_id, "z")
-            self.assertRegex(ctx.trace_id or "", r"^[0-9a-f]{32}$")
             self.assertIsNotNone(current())
 
     async def test_sets_ambient_context_and_clears_on_exit(self) -> None:
@@ -89,22 +79,6 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         methods = [r.method for r in requests]
         self.assertIn("DELETE", methods)
-
-    async def test_cleanup_failure_is_raised_after_successful_block(self) -> None:
-        async def handler(req: httpx.Request) -> httpx.Response:
-            if req.method == "POST":
-                return httpx.Response(200, json={"agent_session_id": "agent-1"})
-            return httpx.Response(500, text="db down")
-
-        coord = _coord(handler)
-        with self.assertRaises(CoordinatorError):
-            async with session(
-                coordinator=coord,
-                zone_id="z",
-                application_id="app",
-                subject_token="tok",
-            ):
-                pass
 
     async def test_on_session_start_hook_called(self) -> None:
         events: list[str] = []
@@ -235,16 +209,6 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DelegateTests(unittest.IsolatedAsyncioTestCase):
-    async def test_rejects_non_positive_ttl_before_network(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            await delegate(
-                coordinator=_coord(_default_handler),
-                to_session_id="agent-2",
-                to_application_id="app-2",
-                scopes=["tool:call"],
-                ttl_seconds=0,
-            )
-
     async def test_raises_without_active_agent_session(self) -> None:
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
@@ -253,7 +217,6 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
-                ttl_seconds=60,
             )
 
     async def test_returns_edge_without_rebinding_issuer_context(self) -> None:
@@ -266,7 +229,6 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
-                ttl_seconds=60,
             )
             self.assertEqual(res.delegation_id, "edge-1")
             self.assertEqual(current().session_id, parent.session_id)
@@ -294,10 +256,7 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                     return httpx.Response(503, json={"error": "unavailable"})
                 return httpx.Response(200, json={"delegation_edge_id": "edge-retry"})
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             return httpx.Response(204)
 
         coord = _coord(handler)
@@ -309,7 +268,6 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                 to_session_id="agent-2",
                 to_application_id="app-2",
                 scopes=["tool:call"],
-                ttl_seconds=60,
             )
         self.assertEqual(res.delegation_id, "edge-retry")
         self.assertEqual(len(keys), 2)
@@ -338,20 +296,12 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
                     to_session_id="agent-2",
                     to_application_id="app-2",
                     scopes=["tool:call"],
-                    ttl_seconds=60,
                 )
         self.assertEqual(attempts, 1)
 
     async def test_narrow_accepts_single_scope_string(self) -> None:
-        self.assertEqual(Authority.narrow("read", ttl_seconds=60).scopes, ("read",))
-        self.assertEqual(
-            Authority.narrow(["read", "write"], ttl_seconds=60).scopes,
-            ("read", "write"),
-        )
-
-    def test_narrow_rejects_non_positive_ttl(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            Authority.narrow("read", ttl_seconds=0)
+        self.assertEqual(Authority.narrow("read").scopes, ("read",))
+        self.assertEqual(Authority.narrow(["read", "write"]).scopes, ("read", "write"))
 
 
 class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -367,7 +317,7 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(401, json={"error": "invalid_token"})
             if request.method == "DELETE":
                 return httpx.Response(204)
-            return httpx.Response(200, json={"status": "active", "lease_generation": 2})
+            return httpx.Response(200, json={"agent": {"status": "active"}})
 
         def invalidate() -> None:
             nonlocal invalidations
@@ -400,9 +350,10 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
-                    "status": "active",
-                    "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
-                    "lease_generation": 2,
+                    "agent": {
+                        "status": "active",
+                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    }
                 },
             )
 
@@ -418,9 +369,8 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handle.session_id, "agent-persisted")
         self.assertEqual(handle.context.session_id, "agent-persisted")
         self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
-        self.assertEqual(handle.lease_generation, 2)
         self.assertTrue(
-            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/lease")
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
         )
         await handle.aclose()
         self.assertIn(
@@ -452,7 +402,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+                authority=Authority.narrow(["tool:call"]),
             ):
                 pass  # pragma: no cover
 
@@ -479,7 +429,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app-child",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+                authority=Authority.narrow(["tool:call"]),
             ) as child:
                 self.assertEqual(child.session_id, "child-1")
                 self.assertEqual(child.delegation_id, "edge-9")
@@ -515,7 +465,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+                    authority=Authority.narrow(["tool:call"]),
                 ):
                     pass  # pragma: no cover
 
@@ -559,7 +509,7 @@ class SessionNarrowGrantTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app-child",
                     subject_token="tok",
-                    authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+                    authority=Authority.narrow(["tool:call"]),
                     on_session_start=on_start,
                     on_session_end=on_end,
                 ):
@@ -607,35 +557,6 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.trace_id, "11111111111111111111111111111111")
         self.assertEqual(captured["body"].get("parent_id"), "parent-session")
 
-    async def test_explicit_parent_id_must_match_parent_context(self) -> None:
-        from caracalai.context import CaracalContext
-
-        calls = 0
-
-        def handler(req: httpx.Request) -> httpx.Response:
-            nonlocal calls
-            calls += 1
-            return httpx.Response(500)
-
-        parent = CaracalContext(
-            subject_token="parent-tok",
-            zone_id="z",
-            application_id="parent-app",
-            session_id="parent-session",
-            hop=0,
-        )
-        with self.assertRaisesRegex(ValueError, "must match the Session bound"):
-            async with session(
-                coordinator=_coord(handler),
-                zone_id="z",
-                application_id="child-app",
-                subject_token="tok",
-                parent_ctx=parent,
-                parent_session_id="other-session",
-            ):
-                pass  # pragma: no cover
-        self.assertEqual(calls, 0)
-
     async def test_spawn_narrow_uses_explicit_parent_ctx(self) -> None:
         from caracalai.context import CaracalContext
 
@@ -666,7 +587,7 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             zone_id="z",
             application_id="child-app",
             subject_token="tok",
-            authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+            authority=Authority.narrow(["tool:call"]),
             parent_ctx=parent,
         ) as ctx:
             self.assertEqual(ctx.hop, 2)
@@ -690,7 +611,7 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="child-app",
                 subject_token="tok",
-                authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+                authority=Authority.narrow(["tool:call"]),
                 parent_ctx=bare,
             ):
                 pass
@@ -836,7 +757,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
             application_id="app",
             subject_token="tok",
             parent_ctx=parent,
-            authority=Authority.narrow(["tool:call"], ttl_seconds=60),
+            authority=Authority.narrow(["tool:call"]),
         ) as ctx:
             self.assertEqual(ctx.delegation_id, "edge-n")
         self.assertEqual(captured["body"].get("parent_authority"), "none")
@@ -850,16 +771,10 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         def handler(req: httpx.Request) -> httpx.Response:
             nonlocal heartbeats
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             if req.method == "POST" and str(req.url).endswith("/heartbeat"):
                 heartbeats += 1
-                return httpx.Response(
-                    200,
-                    json={"agent": {"id": "agent-1", "lease_generation": 1}},
-                )
+                return httpx.Response(200, json={"id": "agent-1"})
             return httpx.Response(204)
 
         coord = _coord(handler)
@@ -886,18 +801,12 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         def handler(req: httpx.Request) -> httpx.Response:
             nonlocal calls
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             if req.method == "POST" and str(req.url).endswith("/heartbeat"):
                 calls += 1
                 if calls == 1:
                     return httpx.Response(503)
-                return httpx.Response(
-                    200,
-                    json={"agent": {"id": "agent-1", "lease_generation": 1}},
-                )
+                return httpx.Response(200, json={"id": "agent-1"})
             return httpx.Response(204)
 
         coord = _coord(handler)
@@ -921,16 +830,10 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         def handler(req: httpx.Request) -> httpx.Response:
             nonlocal heartbeats
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             if req.method == "POST" and str(req.url).endswith("/heartbeat"):
                 heartbeats += 1
-                return httpx.Response(
-                    200,
-                    json={"agent": {"id": "agent-1", "lease_generation": 1}},
-                )
+                return httpx.Response(200, json={"id": "agent-1"})
             return httpx.Response(204)
 
         coord = _coord(handler)
@@ -953,10 +856,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
 
         def handler(req: httpx.Request) -> httpx.Response:
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             return httpx.Response(204)
 
         coord = _coord(handler)
@@ -987,7 +887,6 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                     json={
                         "agent_session_id": "agent-1",
                         "heartbeat_deadline_at": deadline.isoformat(),
-                        "lease_generation": 1,
                     },
                 )
             return httpx.Response(204)
@@ -1014,10 +913,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         def handler(req: httpx.Request) -> httpx.Response:
             nonlocal heartbeats
             if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
             if req.method == "POST" and str(req.url).endswith("/heartbeat"):
                 heartbeats += 1
                 return httpx.Response(404, json={"error": "not found"})
@@ -1038,77 +934,6 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(lost[0], CoordinatorError)
         await agent.aclose()
 
-    async def test_fenced_heartbeat_notifies_permanent_lease_loss(self) -> None:
-        import asyncio
-        from caracalai.primitives import start_session
-
-        lost: list[BaseException] = []
-
-        def handler(req: httpx.Request) -> httpx.Response:
-            if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
-            if req.method == "POST" and str(req.url).endswith("/heartbeat"):
-                return httpx.Response(409, json={"error": "session_lease_fenced"})
-            return httpx.Response(204)
-
-        agent = await start_session(
-            coordinator=_coord(handler),
-            zone_id="z",
-            application_id="app",
-            subject_token="tok",
-            heartbeat_interval=0.01,
-            on_lease_lost=lost.append,
-        )
-
-        await asyncio.sleep(0.04)
-
-        self.assertEqual(len(lost), 1)
-        await agent.aclose()
-
-    async def test_lease_expiry_is_resumable_not_terminal_loss(self) -> None:
-        import asyncio
-        from caracalai.primitives import start_session
-
-        heartbeats = 0
-        lost: list[BaseException] = []
-        states: list[str] = []
-
-        def handler(req: httpx.Request) -> httpx.Response:
-            nonlocal heartbeats
-            if req.method == "POST" and str(req.url).endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "agent-1", "lease_generation": 1},
-                )
-            if req.method == "POST" and str(req.url).endswith("/heartbeat"):
-                heartbeats += 1
-                if heartbeats == 1:
-                    return httpx.Response(409, json={"error": "session_lease_expired"})
-                return httpx.Response(
-                    200,
-                    json={"agent": {"status": "suspended", "lease_generation": 1}},
-                )
-            return httpx.Response(204)
-
-        agent = await start_session(
-            coordinator=_coord(handler),
-            zone_id="z",
-            application_id="app",
-            subject_token="tok",
-            heartbeat_interval=0.01,
-            on_lease_lost=lost.append,
-            on_state_change=states.append,
-        )
-        await asyncio.sleep(0.08)
-        self.assertEqual(heartbeats, 2)
-        self.assertEqual(lost, [])
-        self.assertEqual(states, ["suspended"])
-        self.assertEqual(agent.status, "suspended")
-        await agent.aclose()
-
     async def test_narrow_grant_issues_delegation_edge(self) -> None:
         from caracalai.primitives import start_session
 
@@ -1118,10 +943,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         async def handler(req: httpx.Request) -> httpx.Response:
             calls.append((req.method, req.url.path))
             if req.method == "POST" and req.url.path.endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "svc-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
             if req.method == "POST" and req.url.path.endswith("/delegations"):
                 import json
 
@@ -1141,9 +963,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                 application_id="app-worker",
                 subject_token="tok",
                 authority=Authority.narrow(
-                    ["ledger:read"],
-                    ttl_seconds=60,
-                    resource_id="resource://ledger",
+                    ["ledger:read"], resource_id="resource://ledger"
                 ),
             )
             self.assertEqual(agent.context.delegation_id, "edge-svc")
@@ -1162,10 +982,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         async def handler(req: httpx.Request) -> httpx.Response:
             calls.append((req.method, req.url.path))
             if req.method == "POST" and req.url.path.endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "svc-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
             if req.method == "POST" and req.url.path.endswith("/delegations"):
                 return httpx.Response(403)
             if req.method == "DELETE":
@@ -1182,7 +999,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                     zone_id="z",
                     application_id="app",
                     subject_token="tok",
-                    authority=Authority.narrow(["x:y"], ttl_seconds=60),
+                    authority=Authority.narrow(["x:y"]),
                 )
         deletes = [path for method, path in calls if method == "DELETE"]
         self.assertTrue(any("svc-1" in path for path in deletes))
@@ -1197,7 +1014,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_token="tok",
-                authority=Authority.narrow(["x:y"], ttl_seconds=60),
+                authority=Authority.narrow(["x:y"]),
             )
 
     async def test_inherit_grant_carries_parent_edge_forward(self) -> None:
@@ -1216,7 +1033,6 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
                     json={
                         "agent_session_id": "svc-1",
                         "delegation_edge_id": "edge-mirror",
-                        "lease_generation": 1,
                     },
                 )
             if req.method == "DELETE":
@@ -1250,10 +1066,7 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
 
         async def handler(req: httpx.Request) -> httpx.Response:
             if req.method == "POST" and req.url.path.endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "svc-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
             if req.method == "DELETE":
                 order.append("terminate")
                 return httpx.Response(204)
@@ -1291,19 +1104,13 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
 
         def handler(req: httpx.Request) -> httpx.Response:
             if req.method == "POST" and req.url.path.endswith("/agents"):
-                return httpx.Response(
-                    200,
-                    json={"agent_session_id": "svc-1", "lease_generation": 1},
-                )
+                return httpx.Response(200, json={"agent_session_id": "svc-1"})
             if req.method == "POST" and req.url.path.endswith("/heartbeat"):
                 bearer = req.headers["authorization"].removeprefix("Bearer ")
                 bearers.append(bearer)
                 if bearer == "tok-stale":
                     return httpx.Response(401, json={"error": "revoked"})
-                return httpx.Response(
-                    200,
-                    json={"agent": {"id": "svc-1", "lease_generation": 1}},
-                )
+                return httpx.Response(200, json={"id": "svc-1"})
             if req.method == "DELETE":
                 return httpx.Response(204)
             return httpx.Response(404)
