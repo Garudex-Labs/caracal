@@ -57,6 +57,7 @@ type revocationStore struct {
 	governedSessions map[string]time.Time
 	edges            map[string]time.Time
 	snapshotUnix     atomic.Int64
+	streamGeneration atomic.Uint64
 	log              zerolog.Logger
 }
 
@@ -98,31 +99,54 @@ func (s *revocationStore) IsDelegationRevoked(delegationEdgeID string) bool {
 func (s *revocationStore) markAuthorityRecord(anchorID string) {
 	s.mu.Lock()
 	s.authorityRecords[anchorID] = time.Now().Add(revocationTTL)
+	s.streamGeneration.Add(1)
 	s.mu.Unlock()
 }
 
 func (s *revocationStore) markGovernedSession(sessionID string) {
 	s.mu.Lock()
 	s.governedSessions[sessionID] = time.Now().Add(revocationTTL)
+	s.streamGeneration.Add(1)
 	s.mu.Unlock()
 }
 
 func (s *revocationStore) markDelegation(delegationEdgeID string) {
 	s.mu.Lock()
 	s.edges[delegationEdgeID] = time.Now().Add(revocationTTL)
+	s.streamGeneration.Add(1)
 	s.mu.Unlock()
 }
 
-func applyRevocationSnapshot(store *revocationStore, authorityRecords, governedSessions, edges []string) {
+func applyRevocationSnapshot(store *revocationStore, authorityRecords, governedSessions, edges []string, generation uint64) {
+	expiresAt := time.Now().Add(revocationTTL)
+	authoritySnapshot := make(map[string]time.Time, len(authorityRecords))
 	for _, anchorID := range authorityRecords {
-		store.markAuthorityRecord(anchorID)
+		authoritySnapshot[anchorID] = expiresAt
 	}
+	sessionSnapshot := make(map[string]time.Time, len(governedSessions))
 	for _, sessionID := range governedSessions {
-		store.markGovernedSession(sessionID)
+		sessionSnapshot[sessionID] = expiresAt
 	}
+	edgeSnapshot := make(map[string]time.Time, len(edges))
 	for _, delegationEdgeID := range edges {
-		store.markDelegation(delegationEdgeID)
+		edgeSnapshot[delegationEdgeID] = expiresAt
 	}
+	store.mu.Lock()
+	if store.streamGeneration.Load() != generation {
+		for anchorID, liveExpiry := range store.authorityRecords {
+			authoritySnapshot[anchorID] = liveExpiry
+		}
+		for sessionID, liveExpiry := range store.governedSessions {
+			sessionSnapshot[sessionID] = liveExpiry
+		}
+		for delegationEdgeID, liveExpiry := range store.edges {
+			edgeSnapshot[delegationEdgeID] = liveExpiry
+		}
+	}
+	store.authorityRecords = authoritySnapshot
+	store.governedSessions = sessionSnapshot
+	store.edges = edgeSnapshot
+	store.mu.Unlock()
 }
 
 func (s *revocationStore) markSnapshotFresh(now time.Time) {
@@ -190,15 +214,16 @@ func startRevocationConsumer(ctx context.Context, redis revocationRedis, store *
 	if store == nil {
 		return fmt.Errorf("revocation consumer requires store")
 	}
-	if err := redis.EnsureGroup(ctx, streamRevoke, groupRevoke); err != nil {
+	consumer := fmt.Sprintf("gateway-%s-%d", hostname(), os.Getpid())
+	group := groupRevoke + ":" + consumer
+	if err := redis.EnsureGroup(ctx, streamRevoke, group); err != nil {
 		return fmt.Errorf("revocation consumer ensure group: %w", err)
 	}
 	// Redis is reachable here. Warn if its eviction policy could silently drop
 	// revocation entries; never blocks startup.
 	redisguard.WarnIfUnsafeEviction(ctx, redis.EvictionPolicy, log)
-	consumer := fmt.Sprintf("gateway-%s-%d", hostname(), os.Getpid())
-	go runRevocationLoop(ctx, redis, store, consumer, metrics, log)
-	go runRevocationPendingReaper(ctx, redis, store, consumer, metrics, log)
+	go runRevocationLoop(ctx, redis, store, group, consumer, metrics, log)
+	go runRevocationPendingReaper(ctx, redis, store, group, consumer, metrics, log)
 	go runRevocationGC(ctx, store)
 	return nil
 }
@@ -210,6 +235,7 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	if store == nil {
 		return fmt.Errorf("revocation snapshot requires store")
 	}
+	generation := store.streamGeneration.Load()
 	authorityRecords, err := queryRevocationIDs(ctx, pool,
 		`SELECT id FROM authority_records
 		 WHERE status = 'revoked'
@@ -238,7 +264,7 @@ func reloadRevocationSnapshot(ctx context.Context, pool *pgxpool.Pool, store *re
 	if err != nil {
 		return err
 	}
-	applyRevocationSnapshot(store, authorityRecords, governedSessions, edges)
+	applyRevocationSnapshot(store, authorityRecords, governedSessions, edges, generation)
 	store.markSnapshotFresh(time.Now())
 	return nil
 }
@@ -284,13 +310,13 @@ func startRevocationSnapshotPolling(ctx context.Context, pool *pgxpool.Pool, sto
 	}()
 }
 
-func runRevocationLoop(ctx context.Context, redis revocationRedis, store *revocationStore, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
-	replayPendingRevocations(ctx, redis, store, consumer, metrics, log)
+func runRevocationLoop(ctx context.Context, redis revocationRedis, store *revocationStore, group, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
+	replayPendingRevocations(ctx, redis, store, group, consumer, metrics, log)
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		msgs, err := redis.XReadGroup(ctx, groupRevoke, consumer, streamRevoke, 50)
+		msgs, err := redis.XReadGroup(ctx, group, consumer, streamRevoke, 50)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -299,11 +325,11 @@ func runRevocationLoop(ctx context.Context, redis revocationRedis, store *revoca
 			time.Sleep(time.Second)
 			continue
 		}
-		processRevocationMessages(ctx, redis, store, msgs, metrics, log)
+		processRevocationMessages(ctx, redis, store, group, msgs, metrics, log)
 	}
 }
 
-func runRevocationPendingReaper(ctx context.Context, redis revocationRedis, store *revocationStore, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
+func runRevocationPendingReaper(ctx context.Context, redis revocationRedis, store *revocationStore, group, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
 	ticker := time.NewTicker(pendingIdle)
 	defer ticker.Stop()
 	for {
@@ -311,15 +337,15 @@ func runRevocationPendingReaper(ctx context.Context, redis revocationRedis, stor
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			replayPendingRevocations(ctx, redis, store, consumer, metrics, log)
+			replayPendingRevocations(ctx, redis, store, group, consumer, metrics, log)
 		}
 	}
 }
 
-func replayPendingRevocations(ctx context.Context, redis revocationRedis, store *revocationStore, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
+func replayPendingRevocations(ctx context.Context, redis revocationRedis, store *revocationStore, group, consumer string, metrics *GatewayMetrics, log zerolog.Logger) {
 	next := "0-0"
 	for {
-		msgs, start, err := redis.XAutoClaim(ctx, groupRevoke, consumer, streamRevoke, next, pendingIdle, 25)
+		msgs, start, err := redis.XAutoClaim(ctx, group, consumer, streamRevoke, next, pendingIdle, 25)
 		if err != nil {
 			log.Error().Err(err).Msg("revocation claim pending failed")
 			return
@@ -330,24 +356,24 @@ func replayPendingRevocations(ctx context.Context, redis revocationRedis, store 
 		if metrics != nil {
 			metrics.RevocationPendingReplayed.Add(uint64(len(msgs)))
 		}
-		processRevocationMessages(ctx, redis, store, msgs, metrics, log)
+		processRevocationMessages(ctx, redis, store, group, msgs, metrics, log)
 		next = start
 	}
 }
 
-func processRevocationMessages(ctx context.Context, redis revocationRedis, store *revocationStore, msgs []redis.XMessage, metrics *GatewayMetrics, log zerolog.Logger) {
+func processRevocationMessages(ctx context.Context, redis revocationRedis, store *revocationStore, group string, msgs []redis.XMessage, metrics *GatewayMetrics, log zerolog.Logger) {
 	for _, msg := range msgs {
-		processRevocationMessage(ctx, redis, store, msg, metrics, log)
+		processRevocationMessage(ctx, redis, store, group, msg, metrics, log)
 	}
 }
 
-func processRevocationMessage(ctx context.Context, redis revocationRedis, store *revocationStore, msg redis.XMessage, metrics *GatewayMetrics, log zerolog.Logger) {
+func processRevocationMessage(ctx context.Context, redis revocationRedis, store *revocationStore, group string, msg redis.XMessage, metrics *GatewayMetrics, log zerolog.Logger) {
 	if !redis.VerifyStream(streamRevoke, msg.Values) {
 		log.Warn().Str("id", msg.ID).Msg("dropping revocation message with invalid origin signature")
 		if metrics != nil {
 			metrics.RevocationInvalidSignatures.Add(1)
 		}
-		if err := redis.XAck(ctx, streamRevoke, groupRevoke, msg.ID); err != nil {
+		if err := redis.XAck(ctx, streamRevoke, group, msg.ID); err != nil {
 			log.Error().Err(err).Str("id", msg.ID).Msg("revocation xack invalid message failed")
 		}
 		return
@@ -359,7 +385,7 @@ func processRevocationMessage(ctx context.Context, redis revocationRedis, store 
 		delegationEdgeID, _ = msg.Values["edge_id"].(string)
 	}
 	if authorityRecordID == "" && sessionID == "" && delegationEdgeID == "" {
-		trackRevocationFailure(ctx, redis, msg, fmt.Errorf("missing session_id, agent_session_id, or delegation_edge_id"), metrics, log)
+		trackRevocationFailure(ctx, redis, group, msg, fmt.Errorf("missing session_id, agent_session_id, or delegation_edge_id"), metrics, log)
 		return
 	}
 	if authorityRecordID != "" {
@@ -371,7 +397,7 @@ func processRevocationMessage(ctx context.Context, redis revocationRedis, store 
 	if delegationEdgeID != "" {
 		store.markDelegation(delegationEdgeID)
 	}
-	if err := redis.XAck(ctx, streamRevoke, groupRevoke, msg.ID); err != nil {
+	if err := redis.XAck(ctx, streamRevoke, group, msg.ID); err != nil {
 		log.Error().Err(err).Str("id", msg.ID).Msg("revocation xack failed")
 	}
 	if metrics != nil {
@@ -436,8 +462,8 @@ func jwtRootAuthorityRecordID(token string) string {
 	return claims.RootAuthorityRecordID
 }
 
-func trackRevocationFailure(ctx context.Context, redis revocationRedis, msg redis.XMessage, cause error, metrics *GatewayMetrics, log zerolog.Logger) {
-	key := "stream-failure:" + streamRevoke + ":" + msg.ID
+func trackRevocationFailure(ctx context.Context, redis revocationRedis, group string, msg redis.XMessage, cause error, metrics *GatewayMetrics, log zerolog.Logger) {
+	key := "stream-failure:" + streamRevoke + ":" + group + ":" + msg.ID
 	attempts, err := redis.IncrWithExpiry(ctx, key, failureTTL)
 	if err != nil {
 		log.Error().Err(err).Str("id", msg.ID).Msg("track revocation failure failed")
@@ -455,7 +481,7 @@ func trackRevocationFailure(ctx context.Context, redis revocationRedis, msg redi
 		log.Error().Err(err).Str("id", msg.ID).Msg("dead-letter revocation message failed")
 		return
 	}
-	if err := redis.XAck(ctx, streamRevoke, groupRevoke, msg.ID); err != nil {
+	if err := redis.XAck(ctx, streamRevoke, group, msg.ID); err != nil {
 		log.Error().Err(err).Str("id", msg.ID).Msg("revocation xack dead-lettered message failed")
 		return
 	}

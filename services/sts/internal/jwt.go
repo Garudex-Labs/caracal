@@ -58,20 +58,22 @@ func newKeyCache(db DBQuerier, keyring *secretstore.Keyring) *KeyCache {
 
 func (k *KeyCache) getKeyAndKid(ctx context.Context, zoneID string) (*ecdsa.PrivateKey, string, error) {
 	k.mu.RLock()
-	e, ok := k.entries[zoneID]
+	cached, cachedOK := k.entries[zoneID]
 	k.mu.RUnlock()
-	if ok && time.Now().Before(e.expiresAt) {
-		return e.key, e.kid, nil
-	}
-
 	secret, err := k.db.GetZoneSigningKeySecret(ctx, zoneID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			secret, err = k.generateZoneSigningKey(ctx, zoneID)
 		}
 		if err != nil {
+			if cachedOK && time.Now().Before(cached.expiresAt) {
+				return cached.key, cached.kid, nil
+			}
 			return nil, "", fmt.Errorf("load signing key for zone %s: %w", zoneID, err)
 		}
+	}
+	if cachedOK && cached.kid == secret.ID && time.Now().Before(cached.expiresAt) {
+		return cached.key, cached.kid, nil
 	}
 
 	keyBytes, err := k.keyring.Open(secret.Envelope, secretstore.AADZoneSigningKey)

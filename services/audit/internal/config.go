@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/garudex-labs/caracal/packages/core/go/config"
 )
@@ -20,6 +21,7 @@ type Config struct {
 	S3Endpoint         string
 	S3Bucket           string
 	S3Region           string
+	ExportTempDir      string
 	AuditHMACKey       []byte
 	AdminToken         string
 	MetricsBearer      string
@@ -67,6 +69,7 @@ func loadConfig() (Config, error) {
 		S3Endpoint:         config.Getenv("AUDIT_EXPORT_S3_ENDPOINT", ""),
 		S3Bucket:           config.Getenv("AUDIT_EXPORT_S3_BUCKET", ""),
 		S3Region:           config.Getenv("AUDIT_EXPORT_S3_REGION", "us-east-1"),
+		ExportTempDir:      config.Getenv("AUDIT_EXPORT_TMP_DIR", os.TempDir()),
 		AuditHMACKey:       key,
 		AdminToken:         config.Getenv("AUDIT_ADMIN_TOKEN", ""),
 		MetricsBearer:      config.Getenv("METRICS_BEARER", ""),

@@ -7,10 +7,10 @@
 package internal
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -31,6 +31,7 @@ type ParquetExporter struct {
 	pg        parquetStore
 	s3Client  *s3.Client
 	bucket    string
+	tempDir   string
 	log       zerolog.Logger
 	leader    *Leader
 	onExport  func(events int64, durMs int64, failed bool)
@@ -65,6 +66,7 @@ func newParquetExporter(pg parquetStore, cfg Config, leader *Leader, log zerolog
 		pg:       pg,
 		s3Client: s3.NewFromConfig(awsCfg, opts...),
 		bucket:   cfg.S3Bucket,
+		tempDir:  cfg.ExportTempDir,
 		log:      log,
 		leader:   leader,
 	}, nil
@@ -136,8 +138,16 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 	since := hour
 	until := hour.Add(time.Hour)
 
-	var buf bytes.Buffer
-	writer := parquet.NewGenericWriter[OCSFEvent](&buf)
+	file, err := os.CreateTemp(e.tempDir, "caracal-audit-*.parquet")
+	if err != nil {
+		return 0, err
+	}
+	name := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(name)
+	}()
+	writer := parquet.NewGenericWriter[OCSFEvent](file)
 	batch := make([]OCSFEvent, 0, exportWriteBatch)
 	var count int64
 	flush := func() error {
@@ -149,7 +159,7 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 		batch = batch[:0]
 		return err
 	}
-	err := e.pg.QuerySinceFn(ctx, since, until, true, func(r EventRow) error {
+	err = e.pg.QuerySinceFn(ctx, since, until, true, func(r EventRow) error {
 		batch = append(batch, toOCSF(r.Event, r.ContentSHA256, r.ChainHMAC, r.ChainSeq))
 		if len(batch) < exportWriteBatch {
 			return nil
@@ -165,15 +175,21 @@ func (e *ParquetExporter) exportHour(ctx context.Context, hour time.Time) (int64
 	if err := writer.Close(); err != nil {
 		return 0, err
 	}
+	if err := file.Sync(); err != nil {
+		return 0, err
+	}
 	if count == 0 {
 		return 0, nil
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		return 0, err
 	}
 	key := fmt.Sprintf("audit/%s/%s.parquet",
 		hour.Format("2006/01/02"), hour.Format("2006-01-02T15"))
 	_, err = e.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(e.bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(buf.Bytes()),
+		Body:        file,
 		ContentType: aws.String("application/octet-stream"),
 		IfNoneMatch: aws.String("*"),
 	})

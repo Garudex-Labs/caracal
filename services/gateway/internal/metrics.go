@@ -19,6 +19,7 @@ type GatewayMetrics struct {
 	DenialsSignature             atomic.Uint64
 	DenialsJTIReplay             atomic.Uint64
 	DenialsRevoked               atomic.Uint64
+	DenialsRevocationStale       atomic.Uint64
 	STSExchangeErrors            atomic.Uint64
 	STSExchangeLatencyMs         atomic.Uint64
 	STSCircuitOpen               atomic.Uint64
@@ -28,6 +29,12 @@ type GatewayMetrics struct {
 	AuditReplayFiles             atomic.Uint64
 	AuditReplayBytes             atomic.Uint64
 	AuditReplayOldestAge         atomic.Uint64
+	AuditDropped                 atomic.Uint64
+	AuditSinkErrors              atomic.Uint64
+	AuditQueueDepth              atomic.Uint64
+	AuditQueueCap                atomic.Uint64
+	AuditPersisted               atomic.Uint64
+	AuditDrained                 atomic.Uint64
 	RevocationsActive            atomic.Uint64
 	RevocationSnapshotAgeSeconds atomic.Uint64
 	RevocationSnapshotFresh      atomic.Uint64
@@ -52,6 +59,7 @@ type GatewayMetricsSnapshot struct {
 	DenialsSignature             uint64 `json:"denials_signature"`
 	DenialsJTIReplay             uint64 `json:"denials_jti_replay"`
 	DenialsRevoked               uint64 `json:"denials_revoked"`
+	DenialsRevocationStale       uint64 `json:"denials_revocation_stale"`
 	STSExchangeErrors            uint64 `json:"sts_exchange_errors"`
 	STSExchangeLatencyMs         uint64 `json:"sts_exchange_latency_ms"`
 	STSCircuitOpen               uint64 `json:"sts_circuit_open"`
@@ -61,6 +69,12 @@ type GatewayMetricsSnapshot struct {
 	AuditReplayFiles             uint64 `json:"audit_replay_files"`
 	AuditReplayBytes             uint64 `json:"audit_replay_bytes"`
 	AuditReplayOldestAge         uint64 `json:"audit_replay_oldest_age_seconds"`
+	AuditDropped                 uint64 `json:"audit_dropped"`
+	AuditSinkErrors              uint64 `json:"audit_sink_errors"`
+	AuditQueueDepth              uint64 `json:"audit_queue_depth"`
+	AuditQueueCap                uint64 `json:"audit_queue_cap"`
+	AuditPersisted               uint64 `json:"audit_persisted"`
+	AuditDrained                 uint64 `json:"audit_drained"`
 	RevocationsActive            uint64 `json:"revocations_active"`
 	RevocationSnapshotAgeSeconds uint64 `json:"revocation_snapshot_age_seconds"`
 	RevocationSnapshotFresh      uint64 `json:"revocation_snapshot_fresh"`
@@ -86,6 +100,7 @@ func (m *GatewayMetrics) Snapshot() GatewayMetricsSnapshot {
 		DenialsSignature:             m.DenialsSignature.Load(),
 		DenialsJTIReplay:             m.DenialsJTIReplay.Load(),
 		DenialsRevoked:               m.DenialsRevoked.Load(),
+		DenialsRevocationStale:       m.DenialsRevocationStale.Load(),
 		STSExchangeErrors:            m.STSExchangeErrors.Load(),
 		STSExchangeLatencyMs:         m.STSExchangeLatencyMs.Load(),
 		STSCircuitOpen:               m.STSCircuitOpen.Load(),
@@ -95,6 +110,12 @@ func (m *GatewayMetrics) Snapshot() GatewayMetricsSnapshot {
 		AuditReplayFiles:             m.AuditReplayFiles.Load(),
 		AuditReplayBytes:             m.AuditReplayBytes.Load(),
 		AuditReplayOldestAge:         m.AuditReplayOldestAge.Load(),
+		AuditDropped:                 m.AuditDropped.Load(),
+		AuditSinkErrors:              m.AuditSinkErrors.Load(),
+		AuditQueueDepth:              m.AuditQueueDepth.Load(),
+		AuditQueueCap:                m.AuditQueueCap.Load(),
+		AuditPersisted:               m.AuditPersisted.Load(),
+		AuditDrained:                 m.AuditDrained.Load(),
 		RevocationsActive:            m.RevocationsActive.Load(),
 		RevocationSnapshotAgeSeconds: m.RevocationSnapshotAgeSeconds.Load(),
 		RevocationSnapshotFresh:      m.RevocationSnapshotFresh.Load(),

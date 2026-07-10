@@ -50,6 +50,10 @@ func (r *RedisClient) Ping(ctx context.Context) error {
 	return r.c.Ping(ctx).Err()
 }
 
+func (r *RedisClient) Close() error {
+	return r.c.Close()
+}
+
 // EvictionPolicy returns the connected Redis maxmemory-policy for the startup
 // eviction-safety guard.
 func (r *RedisClient) EvictionPolicy(ctx context.Context) (string, error) {
