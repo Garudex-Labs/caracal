@@ -82,9 +82,9 @@ The Subject, Session, and Delegation pages observe distinct identity and executi
 
 | View           | What it shows                                                   | Object                                        |
 | -------------- | --------------------------------------------------------------- | --------------------------------------------- |
-| **Subjects**   | One row per distinct Subject, with its Authority record history | internal `sessions` rows grouped by JWT `sub` |
-| **Sessions**   | A governed execution, its lifecycle, and lease health           | internal `agent_sessions` row                 |
-| **Delegation** | Bounded authority between Sessions                              | internal `delegation_edges` row               |
+| **Subjects**   | One row per distinct Subject, with its Authority record history | `authority_records` rows grouped by JWT `sub` |
+| **Sessions**   | A governed execution, its lifecycle, and lease health           | `sessions` row                                |
+| **Delegation** | Bounded authority between Sessions                              | retained internal `delegation_edges` row      |
 
 A **Subject** is the JWT `sub` identity an application acts for. Each STS exchange creates an **Authority record**, and the Subjects page groups those records by Subject. Its kill switch revokes the Subject's live Authority records, terminates linked Sessions, and revokes Delegations and provider connections. Subjects are not console logins; the application's identity system authenticates them first.
 

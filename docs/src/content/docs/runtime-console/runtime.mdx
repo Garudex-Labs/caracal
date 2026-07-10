@@ -79,7 +79,7 @@ The child process receives only:
 
 Everything else is dropped, including `CARACAL_*` configuration variables: they configure the launcher and do not propagate to the child. `CARACAL_ENV` is the one exception because it names the deployment environment rather than configuring the launcher. Credential entries may not use environment names that alter process loading, such as `NODE_OPTIONS`, `BUN_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*` variables.
 
-SDK-based children resolve their own configuration from the default profile path, which works because `HOME` and `XDG_CONFIG_HOME` are inherited.
+SDK-based children need their own explicit SDK configuration. Because launcher `CARACAL_*` variables are intentionally dropped, set `CARACAL_CONFIG` or the required SDK environment variables in the child deployment rather than relying on an inherited profile path.
 
 ## Signals and Exit Codes
 

@@ -25,7 +25,7 @@ Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 | `requiredScopes` / `required_scopes` / `RequiredScopes`                    | Scopes every accepted mandate must contain.                                                                                                                                                                                         |
 | `requiredTargets` / `required_targets` / `RequiredTargets`                 | Target resources every accepted mandate must include.                                                                                                                                                                               |
 | `requiredUse` / `required_use` / `RequiredUse`                             | Token use, usually `resource`.                                                                                                                                                                                                      |
-| `requireAgent` / `require_agent` / `RequireAgent`                          | Compatibility option that requires a governed Session claim (`agent_session_id` on the wire).                                                                                                                                       |
+| `requireSession` / `require_session` / `RequireSession`                    | Require a governed Session identity.                                                                                                                                                                                                   |
 | `requireDelegation` / `require_delegation` / `RequireDelegation`           | Require a Delegation claim (`delegation_edge_id` on the wire).                                                                                                                                                                      |
 | `requireChainContains` / `require_chain_contains` / `RequireChainContains` | Require an application in the delegation chain.                                                                                                                                                                                     |
 | `maxHopCount` / `max_hop_count` / `MaxHopCount`                            | Cap delegation chain depth.                                                                                                                                                                                                         |
@@ -43,6 +43,17 @@ const claims = await verify(token, {
   requiredTargets: ['https://api.example.com/tickets'],
 })
 ```
+
+## Parsed claim names
+
+The identity packages map raw JWT claims to canonical language-level fields:
+
+| Meaning                  | TypeScript              | Python                     | Go                      | Raw JWT claim        |
+| ------------------------ | ----------------------- | -------------------------- | ----------------------- | -------------------- |
+| Authority record ID      | `authorityRecordId`     | `authority_record_id`      | `AuthorityRecordID`     | `sid`                |
+| Root authority record ID | `rootAuthorityRecordId` | `root_authority_record_id` | `RootAuthorityRecordID` | `root_sid`           |
+| Session ID               | `sessionId`             | `session_id`               | `SessionID`             | `agent_session_id`   |
+| Delegation ID            | `delegationId`          | `delegation_id`            | `DelegationID`          | `delegation_edge_id` |
 
 ## JWKS caching
 
@@ -62,7 +73,7 @@ const claims = await verify(token, {
 })
 ```
 
-Go and Python identity packages also cache issuer JWKS metadata in memory. Python exposes `warm_jwks(issuer, zone_id)` for service boot; Go callers can warm the cache with `GetJWKSContext(ctx, issuer, zoneID)`.
+Go and Python identity packages also cache issuer JWKS metadata in memory and cap documents at 256 KiB. Python `JwksCache(http_client=...)` accepts an injected async client for private CAs, proxies, or mTLS. Go callers use `NewJWKSCache(httpClient, ttl)` and pass it through `Config.JWKSCache`; `GetJWKSContext` retains the bounded default. Python exposes `warm_jwks(issuer, zone_id)` for service boot.
 
 ## Failure classes
 
@@ -71,7 +82,7 @@ Go and Python identity packages also cache issuer JWKS metadata in memory. Pytho
 | `TokenInvalidError`          | Signature, issuer, audience, expiry, use, or claim validation failed.                  |
 | `ZoneInvalidError`           | The token zone did not match the expected zone.                                        |
 | `ScopeInsufficientError`     | A required scope is missing.                                                           |
-| `AgentIdentityRequiredError` | Compatibility error indicating that the verifier requires a governed Session identity. |
+| `SessionRequiredError`       | The verifier requires a governed Session identity.                                      |
 | `DelegationRequiredError`    | The verifier requires delegated authority.                                             |
 | `ChainMismatchError`         | The delegation chain is missing a required application.                                |
 | `HopCountExceededError`      | The mandate exceeds the configured hop limit.                                          |
