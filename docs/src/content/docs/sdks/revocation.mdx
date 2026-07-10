@@ -17,8 +17,8 @@ The revocation packages define the store contract resource servers use to reject
 
 | Operation                                                                    | Meaning                                                                                                                                      |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isRevoked(sid)` / `is_revoked(sid)` / `IsRevoked(sid)`                      | Return whether an identifier used as a revocation anchor is revoked. The compatibility parameter name `sid` accepts any supported anchor ID. |
-| `markRevoked(sid, ttl)` / `mark_revoked(sid, ttl)` / `MarkRevoked(sid, ttl)` | Record an anchor ID as revoked for a TTL; `sid` is a compatibility parameter name, not a claim semantic.                                     |
+| `isRevoked(anchorId)` / `is_revoked(anchor_id)` / `IsRevoked(anchorID)`                      | Return whether an Authority record, Root authority record, Session, or Delegation anchor is revoked. |
+| `markRevoked(anchorId, ttl)` / `mark_revoked(anchor_id, ttl)` / `MarkRevoked(anchorID, ttl)` | Record a revocation anchor for a TTL.                                                                |
 
 ## In-memory stores
 

@@ -214,6 +214,15 @@ scope each requires, and the flags it accepts, plus the declarative `kinds` with
 their identity fields and the desired-state document schema. Any control key can
 call it; it grants no management authority of its own.
 
+Authority records and governed Sessions use distinct canonical command nouns:
+
+| Command            | Purpose                          |
+| ------------------ | -------------------------------- |
+| `authority-record` | List STS Authority records.      |
+| `session`          | Manage governed Sessions.        |
+
+The corresponding Admin SDK namespaces are `authorityRecords` and `sessions` in TypeScript, `authority_records` and `sessions` in Python, and `AuthorityRecords` and `Sessions` in Go.
+
 ## Structured Errors
 
 Every failure returns a typed envelope instead of a bare string, so automation can
@@ -300,7 +309,7 @@ a managed, zone-bound application whose only authority is the
 When you create a key, Console opens a grouped permission picker:
 
 - Each command is a group shown as `control:<command>:*` (for example
-  `control:agent:*`). Toggling a group grants every action under that command.
+  `control:session:*`). Toggling a group grants every action under that command.
 - Reveal a group to expand its branch and grant a single action - `read`,
   `write`, or `delete` - instead of the whole command.
 - Selections are checkboxes that persist while you move through the tree; the key

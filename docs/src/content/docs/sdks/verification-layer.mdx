@@ -25,7 +25,7 @@ Use adapters first when your framework is supported. They reduce boilerplate and
 
 ## Verify Package
 
-[Verify Package](./verify/) is the reusable verification engine under the adapters. Use it when your framework is unsupported or when you need direct control over bearer parsing, verifier defaults, route-level scopes, targets, agent requirements, delegation requirements, hop limits, and safe error hints.
+[Verify Package](./verify/) is the reusable verification engine under the adapters. Use it when your framework is unsupported or when you need direct control over bearer parsing, verifier defaults, route-level scopes, targets, Session requirements, Delegation requirements, hop limits, and safe error hints.
 
 ## Identity Package
 
@@ -42,7 +42,7 @@ All HTTP verification layers should preserve the shared status mapping:
 | Status | Meaning                                                                                            |
 | ------ | -------------------------------------------------------------------------------------------------- |
 | `401`  | The credential was missing, invalid, expired, revoked, or from the wrong zone.                     |
-| `403`  | The mandate verified but lacks required scope, target, agent, delegation, chain, or hop authority. |
+| `403`  | The mandate verified but lacks required scope, target, Session, Delegation, chain, or hop authority. |
 
 ## Related Pages
 

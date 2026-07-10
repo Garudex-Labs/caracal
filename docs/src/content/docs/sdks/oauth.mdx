@@ -21,9 +21,9 @@ The OAuth packages exchange existing subject authority for resource mandates thr
 | Resource                   | Resource identifier or audience requested from STS.                                                                           |
 | Client secret or assertion | Application authentication for client-secret flows.                                                                           |
 | Actor token                | Optional actor authority for delegated exchanges.                                                                             |
-| Session ID                 | OAuth client's compatibility name for an Authority record ID; sent as protocol `session_id`. It is not a governed Session ID. |
-| Session ID                 | Protocol name for the governed Session ID; sent as `agent_session_id`.                                                        |
-| Delegation ID              | Protocol name for Delegation ID; sent as `delegation_edge_id`.                                                                |
+| Authority record ID        | Sent in the STS form field `session_id`. It is distinct from a governed Session ID.                                           |
+| Session ID                 | Sent in the STS form field `agent_session_id`.                                                                                |
+| Delegation ID              | Sent in the STS form field `delegation_edge_id`.                                                                              |
 | Scopes                     | Requested resource scopes.                                                                                                    |
 | TTL seconds                | Requested mandate lifetime.                                                                                                   |
 
@@ -61,7 +61,7 @@ try {
 
 When the zone registers the application's identity system as a Subject issuer, the client exchanges an end user's identity token for a Caracal Authority record and can post that user's decision on a Subject-reserved approval hold:
 
-- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns its compatibility `subjectSessionId` field. Never cached: each federation is an explicit identity event, and the record carries no resource authority.
+- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns the Subject mandate response. Never cached: each federation is an explicit identity event, and the record carries no resource authority. The high-level SDK wrappers also return the Authority record ID as `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`.
 - `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
 
 See [Human Approval](/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.
