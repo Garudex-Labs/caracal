@@ -454,7 +454,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			challengeResolved = true
 		}
 	}
-	delegation, session, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil)
+	delegation, session, refErr := s.validateSessionReferences(ctx, zoneID, app.ID, req, subjectClaims != nil, subjectClaims != nil && claimString(subjectClaims, "use") == UseSession)
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
 	}
@@ -1793,13 +1793,19 @@ func applicationAuditMeta(app *Application) map[string]any {
 
 func bindGovernedSession(req *TokenExchangeRequest, claims map[string]any) *sharederr.CaracalError {
 	sessionID := claimString(claims, "agent_session_id")
-	if sessionID == "" {
-		return nil
-	}
-	if req.SessionID != "" && req.SessionID != sessionID {
+	if sessionID != "" && req.SessionID != "" && req.SessionID != sessionID {
 		return sharederr.New(sharederr.AccessDenied, "Session mismatch")
 	}
-	req.SessionID = sessionID
+	if sessionID != "" {
+		req.SessionID = sessionID
+	}
+	delegationEdgeID := claimString(claims, "delegation_edge_id")
+	if delegationEdgeID != "" && req.DelegationEdgeID != "" && req.DelegationEdgeID != delegationEdgeID {
+		return sharederr.New(sharederr.AccessDenied, "delegation edge mismatch")
+	}
+	if delegationEdgeID != "" {
+		req.DelegationEdgeID = delegationEdgeID
+	}
 	return nil
 }
 
@@ -1864,7 +1870,7 @@ func (s *Server) validateSessionOwnership(ctx context.Context, zoneID, appID, se
 // the delegation block (target.ApplicationID == appID); otherwise the calling
 // application's ownership of the asserted Session ID is verified directly,
 // preventing peer-app forgery through either path.
-func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool) (*delegationProof, *Session, *sharederr.CaracalError) {
+func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID string, req TokenExchangeRequest, hasSubjectToken bool, bindSubjectAuthority bool) (*delegationProof, *Session, *sharederr.CaracalError) {
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
@@ -1889,7 +1895,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		if aerr != nil {
 			return nil, nil, aerr
 		}
-		if hasSubjectToken && req.AuthorityRecordID != "" && session.SubjectAuthorityRecordID != req.AuthorityRecordID {
+		if bindSubjectAuthority && req.AuthorityRecordID != "" && session.SubjectAuthorityRecordID != req.AuthorityRecordID {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 		}
 		return nil, session, nil
@@ -1915,7 +1921,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil || !activeSession(target, zoneID, now) || target.ApplicationID != appID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation target inactive or unauthorized")
 	}
-	if hasSubjectToken && req.AuthorityRecordID != "" && target.SubjectAuthorityRecordID != req.AuthorityRecordID {
+	if bindSubjectAuthority && req.AuthorityRecordID != "" && target.SubjectAuthorityRecordID != req.AuthorityRecordID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 	}
 	if source.ApplicationID != edge.IssuerAppID || target.ApplicationID != edge.ReceiverAppID {

@@ -12,6 +12,7 @@ const site = 'https://docs.caracal.run'
 
 export async function GET() {
   const docs = publishedDocs(await getCollection('docs'))
+  const version = docsVersionState.current ?? docsVersionState.target
 
   const pages = docs
     .filter((d) => logicalDocId(d.id) !== 'index')
@@ -37,8 +38,8 @@ export async function GET() {
     {
       generated: new Date().toISOString(),
       product: 'Caracal',
-      version: docsVersionState.current ?? docsVersionState.target,
-      baseUrl: docsVersionState.current ? `${site}/${docsVersionState.current}/` : `${site}/`,
+      version,
+      baseUrl: version ? `${site}/${version}/` : `${site}/`,
       pages,
     },
     null,

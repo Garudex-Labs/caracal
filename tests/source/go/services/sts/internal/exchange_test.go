@@ -1508,7 +1508,7 @@ func TestValidateAuthorityRecordReferencesRequiresSessionForDelegation(t *testin
 	srv := &Server{db: &stubDB{}}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
 		DelegationEdgeID: "edge1",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation requires a target Session" {
 		t.Fatalf("want target Session error, got %#v", err)
 	}
@@ -1538,7 +1538,7 @@ func TestValidateAuthorityRecordReferencesRejectsAgentSubjectBindingMismatch(t *
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
 		AuthorityRecordID: "subject-session-2",
 		SessionID:         "agent-1",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "session authority record binding mismatch" {
 		t.Fatalf("want subject binding mismatch, got %#v", err)
 	}
@@ -1584,7 +1584,7 @@ func TestValidateAuthorityRecordReferencesAcceptsActiveGraphEdge(t *testing.T) {
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err != nil || proof == nil || proof.edge.ID != "edge1" || proof.graphEpoch != 7 {
 		t.Fatalf("want active delegation proof, got proof=%#v err=%#v", proof, err)
 	}
@@ -1671,12 +1671,15 @@ func TestEffectiveTokenTTLCapsAtDelegationConstraint(t *testing.T) {
 
 func TestBindGovernedSessionCopiesSignedClaim(t *testing.T) {
 	req := TokenExchangeRequest{}
-	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1", "delegation_edge_id": "edge-1"})
 	if err != nil {
 		t.Fatalf("bind signed Session: %v", err)
 	}
 	if req.SessionID != "agent-1" {
 		t.Fatalf("Session id = %q, want agent-1", req.SessionID)
+	}
+	if req.DelegationEdgeID != "edge-1" {
+		t.Fatalf("delegation edge id = %q, want edge-1", req.DelegationEdgeID)
 	}
 }
 
@@ -1685,6 +1688,14 @@ func TestBindGovernedSessionRejectsMismatch(t *testing.T) {
 	err := bindGovernedSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err == nil || err.Description != "Session mismatch" {
 		t.Fatalf("want mismatch error, got %#v", err)
+	}
+}
+
+func TestBindGovernedSessionRejectsDelegationEdgeMismatch(t *testing.T) {
+	req := TokenExchangeRequest{DelegationEdgeID: "edge-2"}
+	err := bindGovernedSession(&req, map[string]any{"delegation_edge_id": "edge-1"})
+	if err == nil || err.Description != "delegation edge mismatch" {
+		t.Fatalf("want delegation edge mismatch error, got %#v", err)
 	}
 }
 
@@ -1725,7 +1736,7 @@ func TestValidateAuthorityRecordReferencesRejectsSourceUsingDelegationEdge(t *te
 		SessionID:        source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation edge target mismatch" {
 		t.Fatalf("source agent must not consume target delegation edge, got %#v", err)
 	}
@@ -1768,7 +1779,7 @@ func TestValidateAuthorityRecordReferencesRejectsUnrelatedAppUsingDelegationEdge
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation target inactive or unauthorized" {
 		t.Fatalf("unrelated app must not consume target delegation edge, got %#v", err)
 	}
@@ -1794,7 +1805,7 @@ func TestValidateAuthorityRecordReferencesRejectsExpiredDelegationEdge(t *testin
 		SessionID:        "agent-dst",
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation edge inactive or expired" {
 		t.Fatalf("expired edge must fail, got %#v", err)
 	}
@@ -1837,7 +1848,7 @@ func TestValidateAuthorityRecordReferencesRejectsScopeOutsideDelegationEdge(t *t
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "write",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "requested scopes exceed delegation scopes" {
 		t.Fatalf("scope outside delegation must fail, got %#v", err)
 	}
@@ -1882,7 +1893,7 @@ func TestValidateAuthorityRecordReferencesRejectsRetiredDelegationBudget(t *test
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read write",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation constraints invalid" {
 		t.Fatalf("want retired-field error, got %#v", err)
 	}
@@ -1928,7 +1939,7 @@ func TestValidateAuthorityRecordReferencesRejectsDelegationTTLConstraint(t *test
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 		TTLSeconds:       60,
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "requested ttl exceeds delegation ttl" {
 		t.Fatalf("want ttl constraint error, got %#v", err)
 	}
@@ -1938,7 +1949,7 @@ func TestValidateAuthorityRecordReferencesRejectsDelegationTTLConstraint(t *test
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err != nil || proof == nil || proof.constraints.TTLSeconds != 30 {
 		t.Fatalf("default ttl should be capped at issuance instead of rejected, proof=%#v err=%#v", proof, err)
 	}
@@ -1982,7 +1993,7 @@ func TestValidateAuthorityRecordReferencesRejectsMalformedDelegationConstraints(
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation constraints invalid" {
 		t.Fatalf("want malformed constraint error, got %#v", err)
 	}
@@ -2094,7 +2105,7 @@ func TestValidateAuthorityRecordReferencesRejectsInvalidDelegationPath(t *testin
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation path invalid" {
 		t.Fatalf("want invalid path error, got %#v", err)
 	}
@@ -2142,7 +2153,7 @@ func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err == nil || err.Description != "delegation path invalid" {
 		t.Fatalf("want max-hop path error, got %#v", err)
 	}
@@ -2214,7 +2225,7 @@ func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T
 		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
-	}, true)
+	}, true, true)
 	if err != nil || proof == nil || len(proof.path) != 3 || proof.graphEpoch != 12 {
 		t.Fatalf("want deep delegation proof, got proof=%#v err=%#v", proof, err)
 	}
