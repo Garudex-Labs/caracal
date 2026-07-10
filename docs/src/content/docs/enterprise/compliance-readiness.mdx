@@ -12,13 +12,18 @@ It is written conservatively and is intended to be verifiable. Read it with the 
 
 - **Caracal is not certified.** This project does not hold, claim, or imply certification or attestation under any framework named on this page. No framework is represented as fully satisfied or guaranteed by Caracal.
 - **Best-effort alignment.** Maintainers implement controls in a best-practice-oriented way and try to keep them aligned with common compliance needs. That alignment is best effort, not a guarantee, and not every requirement of any framework is implemented or verified.
-- **Caracal is a control, not a compliance program.** Caracal is infrastructure that can support specific technical controls inside *your* compliance program. Adopting Caracal does not make an organization compliant with any framework. The control environment, the audit, and the attestation remain the adopter's responsibility.
+- **Caracal is a control, not a compliance program.** Caracal is infrastructure that can support specific technical controls inside _your_ compliance program. Adopting Caracal does not make an organization compliant with any framework. The control environment, the audit, and the attestation remain the adopter's responsibility.
 - **Evidence over assertion.** Every "covered" or "partially covered" statement below cites a path in this repository or docs so you can confirm it against the exact commit you deploy. Where a control depends on settings outside the source tree (organization policy, cloud configuration, operator action), it is marked accordingly and not asserted as implemented.
 - **Status vocabulary.**
-  - <span className="status status-covered">Covered</span> - Caracal implements a relevant control in code, schema, CI, or the release pipeline, verifiable at the cited path.
-  - <span className="status status-partial">Partially covered</span> - Caracal implements part of the control or bounds the risk, but full coverage depends on operator configuration or application behavior.
-  - <span className="status status-none">Not covered</span> - Caracal does not address this item, and it is the adopter's or another system's responsibility within a domain Caracal could otherwise contribute to.
-  - <span className="status status-na">Not applicable</span> - The item does not map to Caracal's function - for example model behavior, model output, an organizational process, or data-subject content. Where Caracal supplies inputs to such an item, that is noted in the row.
+  - <span className="status status-covered">Covered</span> - Caracal implements a relevant control in code, schema, CI, or the release
+    pipeline, verifiable at the cited path.
+  - <span className="status status-partial">Partially covered</span> - Caracal implements part of the control or bounds the risk, but full
+    coverage depends on operator configuration or application behavior.
+  - <span className="status status-none">Not covered</span> - Caracal does not address this item, and it is the adopter's or another
+    system's responsibility within a domain Caracal could otherwise contribute to.
+  - <span className="status status-na">Not applicable</span> - The item does not map to Caracal's function - for example model behavior,
+    model output, an organizational process, or data-subject content. Where Caracal supplies inputs to such an item, that is noted in the
+    row.
 - **Framework labels.** OWASP Agentic AI categories, NIST AI RMF functions, EU AI Act articles, SOC 2 Trust Services Criteria, and the agentic authority controls (AARM R1–R9) are referenced as evaluation lenses. Control titles evolve across framework versions; reconcile the exact wording of each item against your authoritative copy of the framework. The AARM R1–R9 mappings use a working interpretation of agentic-authority control intents and must be reconciled with your authoritative control definitions before use in an audit.
 
 ---
@@ -31,7 +36,7 @@ For a compliance and operations reader, the honest summary is:
 
 - **What Caracal is good at, and can evidence today:** least-privilege machine authority (short-lived signed mandates instead of long-lived credentials), centralized revocation, zone-based isolation and blast-radius containment, and tamper-evident, HMAC-chained audit. These map cleanly to logical-access, traceability, and accountability controls.
 - **What Caracal supports but does not own:** human/administrator identity and SSO (intentionally external to the runtime trust boundary - see [the SSO position](#e-oss-vs-enterprise-edition-boundary)), risk management process, data-subject rights, and the overall control environment. Caracal supplies technical evidence into these; it does not satisfy them.
-- **What Caracal does not address:** model-level agent behavior (prompt injection, hallucination, memory poisoning, goal manipulation). Caracal constrains what an agent is *authorized* to do and records what it *did*; it does not judge whether the agent *should* have wanted to.
+- **What Caracal does not address:** model-level agent behavior (prompt injection, hallucination, memory poisoning, goal manipulation). Caracal constrains what an agent is _authorized_ to do and records what it _did_; it does not judge whether the agent _should_ have wanted to.
 - **Certification posture:** none claimed. No FIPS validation is claimed ([details](/security/enterprise-readiness/#regulated-enterprise-and-fips-readiness)). SOC 2 is an attestation of an operating organization, which the open-source project is not; Caracal provides controls that can support an adopter's SOC 2, not a SOC 2 report.
 
 Adoption recommendation in one line: **suitable as a least-privilege authority, revocation, and audit-evidence control for agentic systems, on the explicit understanding that the adopter owns the surrounding compliance program and the items marked partially covered below.**
@@ -42,73 +47,73 @@ Adoption recommendation in one line: **suitable as a least-privilege authority, 
 
 ### B.1 OWASP Agentic AI Top 10 (ASI01–ASI10) and Agent Traceability
 
-Mapped to the recognized agentic threat categories. Caracal is an authority and audit control, so it addresses the *authority, identity, traceability, and revocation* classes well and the *model-behavior* classes not at all. This is by design.
+Mapped to the recognized agentic threat categories. Caracal is an authority and audit control, so it addresses the _authority, identity, traceability, and revocation_ classes well and the _model-behavior_ classes not at all. This is by design.
 
-| # | Agentic risk category | Status | Caracal control |
-| --- | --- | --- | --- |
-| ASI01 | Memory poisoning | <span className="status status-na">Not applicable</span> | Agent memory and state do not map to Caracal's function. Mitigate in the application. |
-| ASI02 | Tool misuse | <span className="status status-partial">Partially covered</span> | Mandates are scoped per resource and policy-gated before execution; Gateway enforces resource binding and route safety. Caracal cannot prevent misuse *within* legitimately granted scope. |
-| ASI03 | Privilege compromise / excessive agency | <span className="status status-covered">Covered</span> | STS issues least-privilege, short-lived mandates; delegation is re-validated server-side as a subset of parent authority; zones and the application-vs-session ceiling bound escalation; Postgres RLS enforces isolation. |
-| ASI04 | Resource overload | <span className="status status-partial">Partially covered</span> | API rate limiting and a provider rate-limit stream bound request volume; Caracal does not provide general DoS protection or compute quotas. |
-| ASI05 | Cascading hallucination | <span className="status status-na">Not applicable</span> | Model-output correctness does not map to Caracal's function. |
-| ASI06 | Intent breaking / goal manipulation | <span className="status status-partial">Partially covered</span> | Caracal bounds the *authority* an agent can exercise regardless of manipulated intent; it does not detect manipulated reasoning. |
-| ASI07 | Misaligned / deceptive behavior | <span className="status status-partial">Partially covered</span> | Authority bounds + tamper-evident audit constrain and record impact; behavioral alignment is not assessed. |
-| ASI08 | Repudiation / untraceability | <span className="status status-covered">Covered</span> | Append-only, per-zone HMAC-chained audit with a tamper-detection sweep; decisions for STS, Gateway, Coordinator, policy, and admin activity are recorded. |
-| ASI09 | Identity spoofing / impersonation | <span className="status status-covered">Covered</span> | Machine identity: STS is the sole token issuer; mandates are signed; the `identity` package verifies JWT/JWKS, issuer, audience, zone, scope, and delegation claims and fails closed. Human identity is external by design. |
-| ASI10 | Human-in-the-loop manipulation / fatigue | <span className="status status-partial">Partially covered</span> | Step-up re-authentication exists as a policy-driven control; Caracal does not manage approval-fatigue UX. |
-| - | Agent traceability | <span className="status status-covered">Covered</span> | Every decision is attributable to app, session, policy, resource, and result and is preserved as tamper-evident evidence. |
+| #     | Agentic risk category                    | Status                                                           | Caracal control                                                                                                                                                                                                             |
+| ----- | ---------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ASI01 | Memory poisoning                         | <span className="status status-na">Not applicable</span>         | Agent memory and state do not map to Caracal's function. Mitigate in the application.                                                                                                                                       |
+| ASI02 | Tool misuse                              | <span className="status status-partial">Partially covered</span> | Mandates are scoped per resource and policy-gated before execution; Gateway enforces resource binding and route safety. Caracal cannot prevent misuse _within_ legitimately granted scope.                                  |
+| ASI03 | Privilege compromise / excessive agency  | <span className="status status-covered">Covered</span>           | STS issues least-privilege, short-lived mandates; delegation is re-validated server-side as a subset of parent authority; zones and the application-vs-session ceiling bound escalation; Postgres RLS enforces isolation.   |
+| ASI04 | Resource overload                        | <span className="status status-partial">Partially covered</span> | API rate limiting and a provider rate-limit stream bound request volume; Caracal does not provide general DoS protection or compute quotas.                                                                                 |
+| ASI05 | Cascading hallucination                  | <span className="status status-na">Not applicable</span>         | Model-output correctness does not map to Caracal's function.                                                                                                                                                                |
+| ASI06 | Intent breaking / goal manipulation      | <span className="status status-partial">Partially covered</span> | Caracal bounds the _authority_ an agent can exercise regardless of manipulated intent; it does not detect manipulated reasoning.                                                                                            |
+| ASI07 | Misaligned / deceptive behavior          | <span className="status status-partial">Partially covered</span> | Authority bounds + tamper-evident audit constrain and record impact; behavioral alignment is not assessed.                                                                                                                  |
+| ASI08 | Repudiation / untraceability             | <span className="status status-covered">Covered</span>           | Append-only, per-zone HMAC-chained audit with a tamper-detection sweep; decisions for STS, Gateway, Coordinator, policy, and admin activity are recorded.                                                                   |
+| ASI09 | Identity spoofing / impersonation        | <span className="status status-covered">Covered</span>           | Machine identity: STS is the sole token issuer; mandates are signed; the `identity` package verifies JWT/JWKS, issuer, audience, zone, scope, and delegation claims and fails closed. Human identity is external by design. |
+| ASI10 | Human-in-the-loop manipulation / fatigue | <span className="status status-partial">Partially covered</span> | Step-up re-authentication exists as a policy-driven control; Caracal does not manage approval-fatigue UX.                                                                                                                   |
+| -     | Agent traceability                       | <span className="status status-covered">Covered</span>           | Every decision is attributable to app, session, policy, resource, and result and is preserved as tamper-evident evidence.                                                                                                   |
 
 ### B.2 NIST AI RMF 100-1
 
-Caracal is a tool used *within* an organization's RMF, not an implementation of the RMF. It contributes most to **Govern** and **Manage**.
+Caracal is a tool used _within_ an organization's RMF, not an implementation of the RMF. It contributes most to **Govern** and **Manage**.
 
-| RMF function | Status | Caracal contribution |
-| --- | --- | --- |
-| Govern | <span className="status status-partial">Partially covered</span> | Enforceable, version-controlled policy (Rego); accountability via attributable audit; documented threat model and incident response. The governance *process* is the adopter's. |
-| Map | <span className="status status-na">Not applicable</span> | Risk and context mapping is an organizational process, not a Caracal function. Its trust-boundary and resource model are inputs an adopter can map against. |
-| Measure | <span className="status status-partial">Partially covered</span> | Operational and decision metrics, audit lag/tamper metrics, and exportable decision evidence support measurement; Caracal does not measure model risk. |
-| Manage | <span className="status status-partial">Partially covered</span> | Centralized revocation, short-lived authority, alerting, and incident runbooks support active risk management of agent authority. |
+| RMF function | Status                                                           | Caracal contribution                                                                                                                                                            |
+| ------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Govern       | <span className="status status-partial">Partially covered</span> | Enforceable, version-controlled policy (Rego); accountability via attributable audit; documented threat model and incident response. The governance _process_ is the adopter's. |
+| Map          | <span className="status status-na">Not applicable</span>         | Risk and context mapping is an organizational process, not a Caracal function. Its trust-boundary and resource model are inputs an adopter can map against.                     |
+| Measure      | <span className="status status-partial">Partially covered</span> | Operational and decision metrics, audit lag/tamper metrics, and exportable decision evidence support measurement; Caracal does not measure model risk.                          |
+| Manage       | <span className="status status-partial">Partially covered</span> | Centralized revocation, short-lived authority, alerting, and incident runbooks support active risk management of agent authority.                                               |
 
 ### B.3 EU AI Act (Regulation 2024/1689)
 
 Caracal is not an AI system and does not place an AI system on the market. It can supply technical evidence toward specific provider/deployer obligations. It does not make any party compliant.
 
-| Obligation area | Status | Caracal contribution |
-| --- | --- | --- |
-| Art. 9 - Risk management system | <span className="status status-na">Not applicable</span> | A risk-management system is an organizational process, not a Caracal function. Caracal provides enforcement and revocation controls an adopter can reference within it. |
-| Art. 12 - Record-keeping / logging | <span className="status status-partial">Partially covered</span> | Tamper-evident, append-only audit with export to object storage and SIEM provides durable activity records for the authority layer. Scope is Caracal decisions, not full AI-system lifecycle logging. |
-| Art. 14 - Human oversight | <span className="status status-partial">Partially covered</span> | Step-up re-authentication and revocation give operators intervention points; oversight design remains the adopter's. |
-| Art. 15 - Accuracy, robustness, cybersecurity | <span className="status status-partial">Partially covered</span> | Fail-closed enforcement, signed mandates, RLS isolation, supply-chain controls, and tamper detection support the cybersecurity dimension; accuracy/robustness of the AI model is out of scope. |
+| Obligation area                               | Status                                                           | Caracal contribution                                                                                                                                                                                  |
+| --------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Art. 9 - Risk management system               | <span className="status status-na">Not applicable</span>         | A risk-management system is an organizational process, not a Caracal function. Caracal provides enforcement and revocation controls an adopter can reference within it.                               |
+| Art. 12 - Record-keeping / logging            | <span className="status status-partial">Partially covered</span> | Tamper-evident, append-only audit with export to object storage and SIEM provides durable activity records for the authority layer. Scope is Caracal decisions, not full AI-system lifecycle logging. |
+| Art. 14 - Human oversight                     | <span className="status status-partial">Partially covered</span> | Step-up re-authentication and revocation give operators intervention points; oversight design remains the adopter's.                                                                                  |
+| Art. 15 - Accuracy, robustness, cybersecurity | <span className="status status-partial">Partially covered</span> | Fail-closed enforcement, signed mandates, RLS isolation, supply-chain controls, and tamper detection support the cybersecurity dimension; accuracy/robustness of the AI model is out of scope.        |
 
 ### B.4 SOC 2 Type II - Trust Services Criteria
 
-SOC 2 attests an operating organization's controls over a period and requires an independent auditor. The open-source project is not an operating service organization, so **Caracal cannot hold a SOC 2 report**. The mapping below shows which Caracal controls can serve as *evidence* inside an adopter's SOC 2.
+SOC 2 attests an operating organization's controls over a period and requires an independent auditor. The open-source project is not an operating service organization, so **Caracal cannot hold a SOC 2 report**. The mapping below shows which Caracal controls can serve as _evidence_ inside an adopter's SOC 2.
 
-| TSC | Status | Caracal control that can serve as evidence |
-| --- | --- | --- |
-| CC6 - Logical & physical access | <span className="status status-covered">Covered</span> | Sole-issuer STS, signed least-privilege mandates, per-zone RLS, service DB roles with `NOBYPASSRLS`, centralized revocation. |
-| CC7 - System operations / monitoring | <span className="status status-partial">Partially covered</span> | Health/readiness ladders, metrics, alert rules, DLQ and tamper monitoring, incident runbooks. |
-| CC8 - Change management | <span className="status status-partial">Partially covered</span> | Expand/contract migrations with a CI guard, signed reproducible releases, provenance/SBOM attestations, `caracal upgrade`. |
-| A1 - Availability | <span className="status status-partial">Partially covered</span> | HA Helm profile (replicas, PDBs, anti-affinity), Redis durability requirements, backup/retention guidance. Operator owns the SLO. |
-| C1 - Confidentiality | <span className="status status-partial">Partially covered</span> | Per-purpose key separation, zone KEK, RLS, secret files at `0444`, TLS terminated by operator. |
-| PI1 - Processing integrity | <span className="status status-partial">Partially covered</span> | Fail-closed policy evaluation, HMAC-signed streams, append-only audit with continuity checks. |
-| P-series - Privacy | <span className="status status-na">Not applicable</span> | Caracal processes authority metadata, not subject data sets, and does not implement data-subject-rights workflows. |
+| TSC                                  | Status                                                           | Caracal control that can serve as evidence                                                                                        |
+| ------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| CC6 - Logical & physical access      | <span className="status status-covered">Covered</span>           | Sole-issuer STS, signed least-privilege mandates, per-zone RLS, service DB roles with `NOBYPASSRLS`, centralized revocation.      |
+| CC7 - System operations / monitoring | <span className="status status-partial">Partially covered</span> | Health/readiness ladders, metrics, alert rules, DLQ and tamper monitoring, incident runbooks.                                     |
+| CC8 - Change management              | <span className="status status-partial">Partially covered</span> | Expand/contract migrations with a CI guard, signed reproducible releases, provenance/SBOM attestations, `caracal upgrade`.        |
+| A1 - Availability                    | <span className="status status-partial">Partially covered</span> | HA Helm profile (replicas, PDBs, anti-affinity), Redis durability requirements, backup/retention guidance. Operator owns the SLO. |
+| C1 - Confidentiality                 | <span className="status status-partial">Partially covered</span> | Per-purpose key separation, zone KEK, RLS, secret files at `0444`, TLS terminated by operator.                                    |
+| PI1 - Processing integrity           | <span className="status status-partial">Partially covered</span> | Fail-closed policy evaluation, HMAC-signed streams, append-only audit with continuity checks.                                     |
+| P-series - Privacy                   | <span className="status status-na">Not applicable</span>         | Caracal processes authority metadata, not subject data sets, and does not implement data-subject-rights workflows.                |
 
 ### B.5 Agentic Authority Controls (AARM R1–R9)
 
 Mapped using a working interpretation of agentic-authority control intents. **Reconcile each control definition against your authoritative source before audit use.**
 
-| Ctrl | Working interpretation | Status | Caracal control |
-| --- | --- | --- | --- |
-| R1 | Authority is issued by a single, auditable authority | <span className="status status-covered">Covered</span> | STS is the sole mandate issuer. |
-| R2 | Least-privilege, time-bounded authority | <span className="status status-covered">Covered</span> | Short-lived scoped mandates; max-TTL bounds. |
-| R3 | Delegation is constrained and re-validated | <span className="status status-covered">Covered</span> | Delegation edges re-validated server-side as subsets; cross-application delegation requires receiver consent. |
-| R4 | Authority is revocable centrally and promptly | <span className="status status-covered">Covered</span> | Redis-backed revocation propagated to STS and Gateway consumers; short mandate TTLs bound exposure. |
-| R5 | Actions are traceable to an identity | <span className="status status-covered">Covered</span> | Attributable audit per app/session/policy/resource/result. |
-| R6 | Evidence is tamper-evident | <span className="status status-covered">Covered</span> | Per-zone HMAC hash chain + startup and rolling tamper sweep. |
-| R7 | Isolation bounds blast radius | <span className="status status-covered">Covered</span> | Zones + per-zone KEK + Postgres RLS. |
-| R8 | Keys are separated by purpose and rotatable | <span className="status status-partial">Partially covered</span> | Per-purpose keys exist and are documented for rotation; rotation is an operator runbook, not automated verification. |
-| R9 | Operational recoverability | <span className="status status-partial">Partially covered</span> | Backup/retention, incident response, failure drills, and rollback are documented; execution and testing are the operator's. |
+| Ctrl | Working interpretation                               | Status                                                           | Caracal control                                                                                                             |
+| ---- | ---------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| R1   | Authority is issued by a single, auditable authority | <span className="status status-covered">Covered</span>           | STS is the sole mandate issuer.                                                                                             |
+| R2   | Least-privilege, time-bounded authority              | <span className="status status-covered">Covered</span>           | Short-lived scoped mandates; max-TTL bounds.                                                                                |
+| R3   | Delegation is constrained and re-validated           | <span className="status status-covered">Covered</span>           | Delegations re-validated server-side as subsets; cross-application delegation requires receiver consent.                    |
+| R4   | Authority is revocable centrally and promptly        | <span className="status status-covered">Covered</span>           | Redis-backed revocation propagated to STS and Gateway consumers; short mandate TTLs bound exposure.                         |
+| R5   | Actions are traceable to an identity                 | <span className="status status-covered">Covered</span>           | Attributable audit per app/session/policy/resource/result.                                                                  |
+| R6   | Evidence is tamper-evident                           | <span className="status status-covered">Covered</span>           | Per-zone HMAC hash chain + startup and rolling tamper sweep.                                                                |
+| R7   | Isolation bounds blast radius                        | <span className="status status-covered">Covered</span>           | Zones + per-zone KEK + Postgres RLS.                                                                                        |
+| R8   | Keys are separated by purpose and rotatable          | <span className="status status-partial">Partially covered</span> | Per-purpose keys exist and are documented for rotation; rotation is an operator runbook, not automated verification.        |
+| R9   | Operational recoverability                           | <span className="status status-partial">Partially covered</span> | Backup/retention, incident response, failure drills, and rollback are documented; execution and testing are the operator's. |
 
 ---
 
@@ -116,27 +121,27 @@ Mapped using a working interpretation of agentic-authority control intents. **Re
 
 Confirm each item against the commit you deploy.
 
-| Control | Evidence path |
-| --- | --- |
-| STS sole issuer / signed mandates | `services/sts/`, [Token Exchange Flow](/architecture/token-exchange-flow/) |
-| Gateway pre-execution enforcement | `services/gateway/internal/`, [Threat Model](/security/threat-model/) |
-| Identity verification (fail-closed) | `packages/identity/` (`verify.go`, `scope.go`), [Identity Package](/sdks/identity/) |
-| Token exchange (RFC 8693) | `packages/oauth/` (`client.go`), [OAuth Package](/sdks/oauth/) |
-| Zone isolation via RLS | `infra/postgres/migrations/0001_baseline.up.sql` (`ENABLE ROW LEVEL SECURITY`, `CREATE POLICY zone_isolation`, `NOBYPASSRLS` roles) |
-| Append-only, HMAC-chained audit | `services/audit/internal/tamper.go`, `services/audit/internal/rehash.go`, [Audit Ledger](/concepts/audit-ledger/) |
-| Audit export to object store / SIEM | `services/audit/internal/parquet.go`, `services/audit/internal/server.go`, [Export Audit Evidence](/operations/compliance-audit-integration/) |
-| Centralized revocation | `services/gateway/internal/revocations.go`, `packages/revocation/`, [Sessions and Revocation](/concepts/sessions-revocation/) |
-| Redis durability + eviction guard | `packages/core/go/redisguard/redisguard.go`, `infra/redis/redis.conf`, [Operate Redis Streams](/operations/redis/) |
-| Expand/contract migrations + upgrade | `infra/postgres/scripts/migrate.sh`, `infra/postgres/scripts/validateMigrations.sh`, `apps/runtime/src/commands/stack.ts`, [Upgrade Caracal](/operations/upgrade/) |
-| Generated secrets (CSPRNG, file-backed) | `packages/engine/src/secrets.ts`, [Configure Service Environment](/operations/env-vars/) |
-| Key inventory and rotation | [Rotate Keys and Secrets](/operations/key-management/) |
-| Policy engine (Rego) | [Policy](/concepts/policy/), [Author Policy Data](/guides/author-policy/) |
-| Supply-chain controls (CI) | `.github/workflows/{codeql,containerScan,supplyChainScan,scorecard,dependencyReview}.yml`, [Enterprise Security Readiness](/security/enterprise-readiness/) |
-| Release signing / SBOM / provenance | [Verify a Release](/security/verify-releases/), [Enterprise Security Readiness](/security/enterprise-readiness/) |
-| Generated evidence pack | `infra/scripts/evidencePack.sh`, [Generate an Evidence Pack](/security/evidence-pack/) |
-| Threat model | `governance/THREAT_MODEL.md`, [Threat Model](/security/threat-model/) |
-| Incident response | `governance/INCIDENT_RESPONSE.md`, [Incident Response](/operations/incident-response/) |
-| Backup and retention | [Backup and Retention](/operations/backup-retention/) |
+| Control                                 | Evidence path                                                                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| STS sole issuer / signed mandates       | `services/sts/`, [Token Exchange Flow](/architecture/token-exchange-flow/)                                                                                         |
+| Gateway pre-execution enforcement       | `services/gateway/internal/`, [Threat Model](/security/threat-model/)                                                                                              |
+| Identity verification (fail-closed)     | `packages/identity/` (`verify.go`, `scope.go`), [Identity Package](/sdks/identity/)                                                                                |
+| Token exchange (RFC 8693)               | `packages/oauth/` (`client.go`), [OAuth Package](/sdks/oauth/)                                                                                                     |
+| Zone isolation via RLS                  | `infra/postgres/migrations/0001_baseline.up.sql` (`ENABLE ROW LEVEL SECURITY`, `CREATE POLICY zone_isolation`, `NOBYPASSRLS` roles)                                |
+| Append-only, HMAC-chained audit         | `services/audit/internal/tamper.go`, `services/audit/internal/rehash.go`, [Audit Ledger](/concepts/audit-ledger/)                                                  |
+| Audit export to object store / SIEM     | `services/audit/internal/parquet.go`, `services/audit/internal/server.go`, [Export Audit Evidence](/operations/compliance-audit-integration/)                      |
+| Centralized revocation                  | `services/gateway/internal/revocations.go`, `packages/revocation/`, [Sessions and Revocation](/concepts/sessions-revocation/)                                      |
+| Redis durability + eviction guard       | `packages/core/go/redisguard/redisguard.go`, `infra/redis/redis.conf`, [Operate Redis Streams](/operations/redis/)                                                 |
+| Expand/contract migrations + upgrade    | `infra/postgres/scripts/migrate.sh`, `infra/postgres/scripts/validateMigrations.sh`, `apps/runtime/src/commands/stack.ts`, [Upgrade Caracal](/operations/upgrade/) |
+| Generated secrets (CSPRNG, file-backed) | `packages/engine/src/secrets.ts`, [Configure Service Environment](/operations/env-vars/)                                                                           |
+| Key inventory and rotation              | [Rotate Keys and Secrets](/operations/key-management/)                                                                                                             |
+| Policy engine (Rego)                    | [Policy](/concepts/policy/), [Author Policy Data](/guides/author-policy/)                                                                                          |
+| Supply-chain controls (CI)              | `.github/workflows/{codeql,containerScan,supplyChainScan,scorecard,dependencyReview}.yml`, [Enterprise Security Readiness](/security/enterprise-readiness/)        |
+| Release signing / SBOM / provenance     | [Verify a Release](/security/verify-releases/), [Enterprise Security Readiness](/security/enterprise-readiness/)                                                   |
+| Generated evidence pack                 | `infra/scripts/evidencePack.sh`, [Generate an Evidence Pack](/security/evidence-pack/)                                                                             |
+| Threat model                            | `governance/THREAT_MODEL.md`, [Threat Model](/security/threat-model/)                                                                                              |
+| Incident response                       | `governance/INCIDENT_RESPONSE.md`, [Incident Response](/operations/incident-response/)                                                                             |
+| Backup and retention                    | [Backup and Retention](/operations/backup-retention/)                                                                                                              |
 
 ---
 
@@ -144,31 +149,31 @@ Confirm each item against the commit you deploy.
 
 Each gap is classified as a **product**, **documentation**, or **operations** gap so it can be triaged and, where appropriate, fed back to the project to improve it.
 
-| Item | Classification | Statement |
-| --- | --- | --- |
-| FIPS-validated cryptography | Product gap (intentional, documented) | Not claimed. Default artifacts are not built against FIPS-validated modules. Operators with a FIPS mandate must supply a validated runtime/host; not verified by the project. See [FIPS Readiness](/security/enterprise-readiness/#regulated-enterprise-and-fips-readiness). |
-| Human/admin SSO (OIDC/SAML, SCIM) | Boundary (Enterprise Edition) | Intentionally outside the runtime trust boundary. OSS admin access uses an internal admin token that must sit behind an authenticating ingress/proxy. Native SSO/SCIM is Enterprise Edition. |
-| Key rotation verification | Operations gap | Per-purpose keys and a rotation order are documented, but there is no automated rotation-freshness check. Rotation is an operator runbook. |
-| Model reasoning & output threats (ASI01, ASI05; detection aspect of ASI06/07) | Out of scope (by design) | Caracal governs authority and records actions; it does not store agent memory, evaluate model reasoning, or judge output correctness. It still bounds the *authority* an agent can exercise under ASI06/07. |
-| Data-subject-rights / privacy workflows | Out of scope | Caracal processes authority metadata, not subject data sets; privacy obligations are the adopter's. |
-| SOC 2 report | Not applicable to OSS project | The open-source project is not an operating service organization; it cannot hold a SOC 2 report. It provides controls that support an adopter's SOC 2. |
-| HA / availability SLO | Operations gap | HA primitives are shipped (Helm profile); the SLO, capacity, and DR testing are the operator's. |
-| Internal checks | Limitation | CI guards (e.g., the expand-only migration guard) and the tamper sweep are best-effort detections, not guarantees of correctness or compliance. |
+| Item                                                                          | Classification                        | Statement                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FIPS-validated cryptography                                                   | Product gap (intentional, documented) | Not claimed. Default artifacts are not built against FIPS-validated modules. Operators with a FIPS mandate must supply a validated runtime/host; not verified by the project. See [FIPS Readiness](/security/enterprise-readiness/#regulated-enterprise-and-fips-readiness). |
+| Human/admin SSO (OIDC/SAML, SCIM)                                             | Boundary (Enterprise Edition)         | Intentionally outside the runtime trust boundary. OSS admin access uses an internal admin token that must sit behind an authenticating ingress/proxy. Native SSO/SCIM is Enterprise Edition.                                                                                 |
+| Key rotation verification                                                     | Operations gap                        | Per-purpose keys and a rotation order are documented, but there is no automated rotation-freshness check. Rotation is an operator runbook.                                                                                                                                   |
+| Model reasoning & output threats (ASI01, ASI05; detection aspect of ASI06/07) | Out of scope (by design)              | Caracal governs authority and records actions; it does not store agent memory, evaluate model reasoning, or judge output correctness. It still bounds the _authority_ an agent can exercise under ASI06/07.                                                                  |
+| Data-subject-rights / privacy workflows                                       | Out of scope                          | Caracal processes authority metadata, not subject data sets; privacy obligations are the adopter's.                                                                                                                                                                          |
+| SOC 2 report                                                                  | Not applicable to OSS project         | The open-source project is not an operating service organization; it cannot hold a SOC 2 report. It provides controls that support an adopter's SOC 2.                                                                                                                       |
+| HA / availability SLO                                                         | Operations gap                        | HA primitives are shipped (Helm profile); the SLO, capacity, and DR testing are the operator's.                                                                                                                                                                              |
+| Internal checks                                                               | Limitation                            | CI guards (e.g., the expand-only migration guard) and the tamper sweep are best-effort detections, not guarantees of correctness or compliance.                                                                                                                              |
 
 ---
 
 ## E. OSS vs Enterprise Edition Boundary
 
-The enforcement core - STS sole issuance, Gateway enforcement, zones, RLS, revocation, and tamper-evident audit - is identical in both editions. **Enforcement strength is not gated behind Enterprise.** The Enterprise Edition adds *managed and organizational* capabilities, not stronger enforcement.
+The enforcement core - STS sole issuance, Gateway enforcement, zones, RLS, revocation, and tamper-evident audit - is identical in both editions. **Enforcement strength is not gated behind Enterprise.** The Enterprise Edition adds _managed and organizational_ capabilities, not stronger enforcement.
 
-| Capability | Community Edition | Enterprise Edition |
-| --- | --- | --- |
-| Pre-execution enforcement, revocation, audit | Included | Included (identical) |
-| Zones as isolation primitive | Included (manual) | Managed multi-tenancy over the same primitive |
-| Human SSO (SAML/OIDC) + SCIM | Not included (front with your own OIDC proxy) | Included |
-| Organizations, teams, org-level RBAC | Not included | Included |
-| Hosted management UI / managed data plane | Not included | Included |
-| Commercial support / lifecycle | Not included | Included |
+| Capability                                   | Community Edition                             | Enterprise Edition                            |
+| -------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Pre-execution enforcement, revocation, audit | Included                                      | Included (identical)                          |
+| Zones as isolation primitive                 | Included (manual)                             | Managed multi-tenancy over the same primitive |
+| Human SSO (SAML/OIDC) + SCIM                 | Not included (front with your own OIDC proxy) | Included                                      |
+| Organizations, teams, org-level RBAC         | Not included                                  | Included                                      |
+| Hosted management UI / managed data plane    | Not included                                  | Included                                      |
+| Commercial support / lifecycle               | Not included                                  | Included                                      |
 
 The intentional position on identity: **STS remains the sole runtime authority and human identity stays external.** This is a deliberate architectural boundary, not a missing OSS feature; an enterprise fronts the Console/Admin API with its existing OIDC-aware ingress today. Enterprise SSO/SCIM is managed convenience over that same seam. See [Compare Editions](/enterprise/).
 
@@ -192,15 +197,15 @@ Run these against your own copy after adoption. They are designed to be repeatab
 
 ## F.1 Operational Readiness Review
 
-| Domain | Stance | Reference |
-| --- | --- | --- |
-| Secret management | Generated with a CSPRNG, written as `*_FILE` secrets at mode `0444`; derived DB/Redis URLs auto-rewritten. Provision external secrets via your manager; never commit plaintext. | `packages/engine/src/secrets.ts`, [Configure Service Environment](/operations/env-vars/) |
-| Key rotation | Per-purpose keys with a documented inventory, storage boundary, and rotation order. Rotation is an operator runbook; plan windows and dual-key overlap where required. | [Rotate Keys and Secrets](/operations/key-management/) |
-| Redis durability | Correctness-critical store, not a cache. Require `noeviction` + AOF; bundled image is safe, external/managed Redis is the operator's responsibility; startup guard warns on unsafe policy. | [Operate Redis Streams](/operations/redis/) |
-| Migration & upgrade | Expand/contract migrations with a CI guard and `caracal upgrade` for a no-maintenance-window roll. Always run on staging first. | [Upgrade Caracal](/operations/upgrade/) |
-| Observability | Health/readiness ladders, authenticated metrics, alert rules, DLQ/tamper/lag metrics. Wire to your monitoring and SIEM before go-live. | [Observe Caracal](/operations/observability/), [Alerts](/operations/alerts/) |
-| Audit export | Append-only `audit_events` plus object-store/SIEM export; preserve audit HMAC keys for the retention window. | [Export Audit Evidence](/operations/compliance-audit-integration/) |
-| Rollback & incident response | Severity triggers, first-hour runbook, evidence preservation, containment, and Helm rollback. | [Incident Response](/operations/incident-response/), [Failure Drills](/operations/failure-drills/) |
+| Domain                       | Stance                                                                                                                                                                                     | Reference                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Secret management            | Generated with a CSPRNG, written as `*_FILE` secrets at mode `0444`; derived DB/Redis URLs auto-rewritten. Provision external secrets via your manager; never commit plaintext.            | `packages/engine/src/secrets.ts`, [Configure Service Environment](/operations/env-vars/)           |
+| Key rotation                 | Per-purpose keys with a documented inventory, storage boundary, and rotation order. Rotation is an operator runbook; plan windows and dual-key overlap where required.                     | [Rotate Keys and Secrets](/operations/key-management/)                                             |
+| Redis durability             | Correctness-critical store, not a cache. Require `noeviction` + AOF; bundled image is safe, external/managed Redis is the operator's responsibility; startup guard warns on unsafe policy. | [Operate Redis Streams](/operations/redis/)                                                        |
+| Migration & upgrade          | Expand/contract migrations with a CI guard and `caracal upgrade` for a no-maintenance-window roll. Always run on staging first.                                                            | [Upgrade Caracal](/operations/upgrade/)                                                            |
+| Observability                | Health/readiness ladders, authenticated metrics, alert rules, DLQ/tamper/lag metrics. Wire to your monitoring and SIEM before go-live.                                                     | [Observe Caracal](/operations/observability/), [Alerts](/operations/alerts/)                       |
+| Audit export                 | Append-only `audit_events` plus object-store/SIEM export; preserve audit HMAC keys for the retention window.                                                                               | [Export Audit Evidence](/operations/compliance-audit-integration/)                                 |
+| Rollback & incident response | Severity triggers, first-hour runbook, evidence preservation, containment, and Helm rollback.                                                                                              | [Incident Response](/operations/incident-response/), [Failure Drills](/operations/failure-drills/) |
 
 ---
 
@@ -208,11 +213,11 @@ Run these against your own copy after adoption. They are designed to be repeatab
 
 To let your own team reproduce this review against the codebase you adopt, the repository ships copy-pasteable prompts for three coding agents. Each instructs the agent to run the same compliance and operations review against a checked-out Caracal copy and produce a truthful, evidence-cited report with verification steps and an explicit non-claims section.
 
-| Agent | Path |
-| --- | --- |
-| Claude Code | `playbooks/compliance/claude-code/CLAUDE.md` |
-| GitHub Copilot | `playbooks/compliance/github-copilot/AGENTS.md` |
-| OpenAI Codex | `playbooks/compliance/openai-codex/.codex/AGENTS.md` |
+| Agent          | Path                                                 |
+| -------------- | ---------------------------------------------------- |
+| Claude Code    | `playbooks/compliance/claude-code/CLAUDE.md`         |
+| GitHub Copilot | `playbooks/compliance/github-copilot/AGENTS.md`      |
+| OpenAI Codex   | `playbooks/compliance/openai-codex/.codex/AGENTS.md` |
 
 The prompts enforce the same conservatism as this page: no certification claims, evidence paths for every assertion, and clear separation of covered, partially covered, not covered, and not applicable.
 
@@ -222,8 +227,8 @@ The prompts enforce the same conservatism as this page: no certification claims,
 
 **Adopt Caracal Community Edition as a least-privilege authority, revocation, and audit-evidence control for agentic and automated workloads, with a clear-eyed view of its boundary.**
 
-- It is a strong, evidenceable fit for the *authority, identity, isolation, revocation, and traceability* control classes (ASI03, ASI08, ASI09, agent traceability; SOC 2 CC6; AARM R1–R7).
-- It is a *supporting* control - not a solution - for risk-management process, human oversight, availability SLOs, and key-rotation verification (NIST RMF Govern/Manage; EU AI Act Art. 12/14; SOC 2 CC7/CC8/A1; AARM R8–R9). Own these explicitly.
+- It is a strong, evidenceable fit for the _authority, identity, isolation, revocation, and traceability_ control classes (ASI03, ASI08, ASI09, agent traceability; SOC 2 CC6; AARM R1–R7).
+- It is a _supporting_ control - not a solution - for risk-management process, human oversight, availability SLOs, and key-rotation verification (NIST RMF Govern/Manage; EU AI Act Art. 12/14; SOC 2 CC7/CC8/A1; AARM R8–R9). Own these explicitly.
 - It does **not** address model-behavior threats or privacy-rights workflows, and it makes **no** certification claim. Do not represent it as compliance, certification, or FIPS validation to a review board.
 
 The deciding question for an architecture and compliance review board is not whether Caracal is certified - it is not, and says so - but whether its enforced, tamper-evident, least-privilege authority model materially reduces the security, implementation, and audit burden of governing agents versus building the same controls in-house. For organizations that need pre-execution authority and durable decision evidence for agents, it does, provided the partially covered items above are owned by the adopter and the not-applicable items are recognized as outside Caracal's function.

@@ -8,13 +8,13 @@ Control Bootstrap is the canonical Control API automation example in the [Caraca
 
 ## What it demonstrates
 
-| Area | Behavior |
-| --- | --- |
-| Automation surface | Calls `/v1/control/invoke` instead of using a root admin token. |
-| Identity model | Uses scoped, short-lived control keys created in the web console, one scope tier per pipeline stage. |
-| Reconciliation | `apply` creates missing objects, patches drifted ones, and publishes a new policy version on content drift. |
-| CI gating | `verify` is a read-only drift check that exits non-zero when the zone does not match the plan. |
-| Safety model | Uses replay protection, rate limits, scoped control permissions, and audit. |
+| Area               | Behavior                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Automation surface | Calls `/v1/control/invoke` instead of using a root admin token.                                             |
+| Identity model     | Uses scoped, short-lived control keys created in the web console, one scope tier per pipeline stage.        |
+| Reconciliation     | `apply` creates missing objects, patches drifted ones, and publishes a new policy version on content drift. |
+| CI gating          | `verify` is a read-only drift check that exits non-zero when the zone does not match the plan.              |
+| Safety model       | Uses replay protection, rate limits, scoped control permissions, and audit.                                 |
 
 The plan describes the PiperNet reporter agent's environment: the agent application, the `provider://pipernet-mandate` provider, the `resource://pipernet` resource wired to it, and the baseline policy that allows `read`.
 
@@ -52,13 +52,13 @@ npm run teardown
 
 ## Files to study
 
-| File | Purpose |
-| --- | --- |
-| `controlClient.mjs` | Exchanges client credentials at STS and calls the Control API. |
-| `plan.mjs` | Declares the desired environment, drift checks, scope tiers, and env-driven config. |
-| `apply.mjs` | Reconciles the live zone with the plan. |
-| `verify.mjs` | Read-only drift gate for CI. |
-| `teardown.mjs` | Removes the environment in reverse dependency order. |
+| File                | Purpose                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `controlClient.mjs` | Exchanges client credentials at STS and calls the Control API.                      |
+| `plan.mjs`          | Declares the desired environment, drift checks, scope tiers, and env-driven config. |
+| `apply.mjs`         | Reconciles the live zone with the plan.                                             |
+| `verify.mjs`        | Read-only drift gate for CI.                                                        |
+| `teardown.mjs`      | Removes the environment in reverse dependency order.                                |
 
 ## Test
 

@@ -4,7 +4,7 @@ description: Use the runtime profile or environment configuration from your firs
 pageType: workflow
 ---
 
-This page shows the smallest SDK integration in TypeScript, Python, and Go. Each example opens an agent session, calls a Gateway-protected resource, and leaves authorization and action-result audit behind.
+This page shows the smallest SDK integration in TypeScript, Python, and Go. Each example opens a Session, calls a Gateway-protected resource, and leaves authorization and action-result audit behind.
 
 Complete [First Protected Call](/get-started/first-protected-call/) first so you have runtime configuration, a resource ID, and a protected path.
 
@@ -24,7 +24,7 @@ upstream_prefix = "http://caracalDemoUpstream:80"
 
 On the local stack this is the whole file: the SDK defaults cover the STS, Coordinator, and Gateway URLs, and the client secret is read from the owner-only file you create at `<Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret`, holding the secret from when the application was created - retrievable any time from the application's detail panel, with every reveal audited. For cloud or custom deployments add `zone_url`, `coordinator_url`, `gateway_url`, and `app_client_secret_file`; see [Configuration File](/runtime-console/config-file/) for the full schema.
 
-The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every agent session the SDK spawns executes under that application identity, so one profile serves all the agents your workload creates.
+The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every Session the SDK starts executes under that application identity, so one profile serves all the agents your workload creates.
 
 Point the examples at the profile and choose which configured resource and path they call:
 
@@ -46,34 +46,34 @@ $env:CARACAL_RESOURCE_PATH = "/"
 
 Install the package for your application language.
 
-| Language | Install command | Runtime requirement |
-| --- | --- | --- |
-| TypeScript | `npm install @caracalai/sdk` or `pnpm add @caracalai/sdk` | Node.js 22+ |
-| Python | `pip install caracalai-sdk` | Python 3.12+ |
-| Go | `go get github.com/garudex-labs/caracal/packages/sdk/go` | Go 1.26+ |
+| Language   | Install command                                           | Runtime requirement |
+| ---------- | --------------------------------------------------------- | ------------------- |
+| TypeScript | `npm install @caracalai/sdk` or `pnpm add @caracalai/sdk` | Node.js 22+         |
+| Python     | `pip install caracalai-sdk`                               | Python 3.12+        |
+| Go         | `go get github.com/garudex-labs/caracal/packages/sdk/go`  | Go 1.26+            |
 
 ## TypeScript
 
 ```typescript
-import { Caracal } from "@caracalai/sdk";
+import { Caracal } from '@caracalai/sdk'
 
-const caracal = new Caracal();
-const resourceId = process.env.CARACAL_RESOURCE_ID;
-const resourcePath = process.env.CARACAL_RESOURCE_PATH;
+const caracal = new Caracal()
+const resourceId = process.env.CARACAL_RESOURCE_ID
+const resourcePath = process.env.CARACAL_RESOURCE_PATH
 
-if (!resourceId) throw new Error("CARACAL_RESOURCE_ID is required");
-if (!resourcePath) throw new Error("CARACAL_RESOURCE_PATH is required");
+if (!resourceId) throw new Error('CARACAL_RESOURCE_ID is required')
+if (!resourcePath) throw new Error('CARACAL_RESOURCE_PATH is required')
 
 await caracal.session(async () => {
-  const ctx = caracal.current();
-  console.log("Agent session:", ctx?.agentSessionId);
+  const ctx = caracal.current()
+  console.log('Session:', ctx?.agentSessionId)
 
   const response = await caracal.fetch(resourceId, resourcePath, {
-    method: "GET",
-  });
+    method: 'GET',
+  })
 
-  console.log(await response.text());
-});
+  console.log(await response.text())
+})
 ```
 
 ## Python
@@ -90,7 +90,7 @@ resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 
 async def main():
     async with caracal.session() as ctx:
-        print("Agent session:", ctx.agent_session_id)
+        print("Session:", ctx.session_id)
 
         response = await caracal.fetch(
             resource_id,
@@ -131,7 +131,7 @@ func main() {
 
     err = c.Session(context.Background(), func(ctx context.Context) error {
         cc, _ := c.Current(ctx)
-        fmt.Println("Agent session:", cc.AgentSessionID)
+        fmt.Println("Session:", cc.AgentSessionID)
 
         resp, err := c.Fetch(ctx, http.MethodGet, resourceID, resourcePath)
         if err != nil {
@@ -151,15 +151,15 @@ func main() {
 
 ## SDK Calls
 
-| Call | Role |
-| --- | --- |
-| `new Caracal()` / `Caracal()` / `New()` | Loads the runtime profile or environment configuration and prepares token exchange. |
-| `session()` / `Session()` | Creates an agent session, binds context for the work, and terminates the session when the block exits. |
-| `fetch()` / `Fetch()` | Sends one request to a resource through the Gateway with context and authority injected. |
-| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing. |
-| `transport()` / `Transport()` | Injects Caracal trace and baggage context on outbound calls and attaches authorization on Gateway-routed calls. |
+| Call                                    | Role                                                                                                            |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `new Caracal()` / `Caracal()` / `New()` | Loads the runtime profile or environment configuration and prepares token exchange.                             |
+| `session()` / `Session()`               | Creates a Session, binds context for the work, and terminates the session when the block exits.                 |
+| `fetch()` / `Fetch()`                   | Sends one request to a resource through the Gateway with context and authority injected.                        |
+| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing.                           |
+| `transport()` / `Transport()`           | Injects Caracal trace and baggage context on outbound calls and attaches authorization on Gateway-routed calls. |
 
-`session()` creates an agent session under the application from your runtime profile. You reuse that one application for every agent session your workload spawns; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
+`session()` creates a Session under the application from your runtime profile. You reuse that one application for every Session your workload starts; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 If policy denies the exchange, STS returns HTTP 403 and the SDK surfaces an error. Open web console **Audit** or **explain** with the request ID to see the policy and diagnostics that determined the result.
 

@@ -15,20 +15,20 @@ pageType: workflow
 
 ## Choose the Area
 
-| Area | Common sources |
-| --- | --- |
-| Runtime CLI | `apps/runtime`, `packages/engine`, runtime tests. |
-| Web console | `apps/web`, Admin SDK, web console tests. |
-| API | `apps/api`, migrations, Admin package, API tests. |
-| Coordinator | `apps/coordinator`, Coordinator tests, SDK tests. |
-| STS/Gateway/Audit | `services/*`, Go tests, operations docs. |
-| SDKs/adapters | `packages/*`, language-specific tests, interoperability fixtures. |
-| Infra | `infra/docker`, `infra/helm`, Postgres/Redis scripts. |
-| Docs | `docs/src/content/docs`, `docs/astro.config.mjs`, generated docs pages. |
+| Area              | Common sources                                                          |
+| ----------------- | ----------------------------------------------------------------------- |
+| Runtime CLI       | `apps/runtime`, `packages/engine`, runtime tests.                       |
+| Web console       | `apps/web`, Admin SDK, web console tests.                               |
+| API               | `apps/api`, migrations, Admin package, API tests.                       |
+| Coordinator       | `apps/coordinator`, Coordinator tests, SDK tests.                       |
+| STS/Gateway/Audit | `services/*`, Go tests, operations docs.                                |
+| SDKs/adapters     | `packages/*`, language-specific tests, interoperability fixtures.       |
+| Infra             | `infra/docker`, `infra/helm`, Postgres/Redis scripts.                   |
+| Docs              | `docs/src/content/docs`, `docs/astro.config.mjs`, generated docs pages. |
 
 ## Command Boundary
 
-Do not add top-level runtime CLI commands for zones, policies, grants, audit, agents, delegation, or Control. Human workflows belong to the web console; automation belongs to Control/Admin APIs.
+Do not add top-level runtime CLI commands for zones, policies, grants, audit, Sessions, Delegation, or Control. Human workflows belong to the web console; broad automation uses the Admin API, and zone-scoped dispatch uses the Control API.
 
 ## Security Reports
 
