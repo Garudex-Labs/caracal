@@ -7,7 +7,6 @@
 
 import { describe, it, expect } from 'vitest'
 import { Caracal } from '../../../../packages/sdk/ts/src/index.js'
-import { createAdvancedClientFromCredentials } from '../../../../packages/sdk/ts/src/advanced.js'
 
 const STS = 'http://sts.test'
 const COORD = 'http://coord.test'
@@ -345,7 +344,7 @@ describe('Caracal.applicationTransport', () => {
 
 describe('advanced credentials resolver', () => {
   function resolverClient(fetchImpl: typeof fetch, resolve: () => { zoneId: string; applicationId: string; clientSecret: string } | null) {
-    return createAdvancedClientFromCredentials({
+    return Caracal.fromClientSecret({
       coordinatorUrl: COORD,
       stsUrl: STS,
       gatewayUrl: GATEWAY,
@@ -419,7 +418,7 @@ describe('advanced credentials resolver', () => {
   it('keeps the resolver path separate from static credentials, and rejects a session path without resources', async () => {
     const { fetchImpl } = fakeFetch()
     expect(() =>
-      createAdvancedClientFromCredentials({
+      Caracal.fromClientSecret({
         coordinatorUrl: COORD,
         stsUrl: STS,
         zoneId: 'zone-1',

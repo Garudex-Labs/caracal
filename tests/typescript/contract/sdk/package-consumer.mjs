@@ -21,7 +21,7 @@ try {
     resolve(fixture, 'consumer.mjs'),
     `
       import { Authority, Caracal, CoordinatorError, CredentialsUnavailableError } from '@caracalai/sdk'
-      import { bind, captureContext, createAdvancedClientFromEnv, encodeEnvelope } from '@caracalai/sdk/advanced'
+      import { bind, captureContext, Caracal as AdvancedCaracal, encodeEnvelope } from '@caracalai/sdk/advanced'
 
       if (typeof Authority !== 'object' || typeof Authority.narrow !== 'function') {
         throw new Error('Authority is not exported as a helper object')
@@ -32,7 +32,8 @@ try {
         CredentialsUnavailableError,
         bind,
         captureContext,
-        createAdvancedClientFromEnv,
+        AdvancedCaracal,
+        createAdvancedClientFromEnv: AdvancedCaracal.fromEnv,
         encodeEnvelope,
       })) {
         if (typeof value !== 'function') throw new Error(name + ' is not exported as a function')

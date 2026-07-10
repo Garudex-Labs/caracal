@@ -17,6 +17,7 @@ describe('researcherRoleScopes', () => {
       'control:app:read',
       'control:approval:read',
       'control:audit:read',
+      'control:authority-record:read',
       'control:delegation:read',
       'control:explain:read',
       'control:grant:read',
