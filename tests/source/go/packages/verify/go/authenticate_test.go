@@ -62,7 +62,7 @@ func TestVerifierDefaultsRequireAndOverrides(t *testing.T) {
 		RequiredScopes:       []string{"write"},
 		RequiredTargets:      []string{"resource://route"},
 		RequiredUse:          identity.MandateUseSession,
-		RequireAgent:         true,
+		RequireSession:       true,
 		RequireDelegation:    true,
 		RequireChainContains: []string{"app-hop"},
 		MaxHopCount:          3,
@@ -75,7 +75,7 @@ func TestVerifierDefaultsRequireAndOverrides(t *testing.T) {
 	if required.Audience != "resource://route" || required.RequiredUse != identity.MandateUseSession {
 		t.Fatalf("route overrides were not applied: %#v", required)
 	}
-	if !required.RequireAgent || !required.RequireDelegation || required.MaxHopCount != 3 {
+	if !required.RequireSession || !required.RequireDelegation || required.MaxHopCount != 3 {
 		t.Fatalf("boolean and hop overrides were not applied: %#v", required)
 	}
 	if required.Revocations != overrideRevocations || required.RequiredScopes[0] != "write" || required.RequiredTargets[0] != "resource://route" {
@@ -110,7 +110,7 @@ func TestAuthenticateAcceptsValidTokenAndRouteOverrides(t *testing.T) {
 	claims, authErr := verifier.Authorization("Bearer "+token, Options{
 		RequiredScopes:       []string{"write"},
 		RequiredTargets:      []string{"resource://secondary"},
-		RequireAgent:         true,
+		RequireSession:       true,
 		RequireDelegation:    true,
 		RequireChainContains: []string{"app-hop"},
 		MaxHopCount:          2,
@@ -119,7 +119,7 @@ func TestAuthenticateAcceptsValidTokenAndRouteOverrides(t *testing.T) {
 	if authErr != nil {
 		t.Fatalf("authenticate: %v", authErr)
 	}
-	if claims.Sid != "sid-1" || claims.AgentSessionID != "agent-1" || claims.GraphEpoch != 7 {
+	if claims.AuthorityRecordID != "sid-1" || claims.SessionID != "agent-1" || claims.GraphEpoch != 7 {
 		t.Fatalf("unexpected claims: %#v", claims)
 	}
 	if atomic.LoadInt64(&calls) != 1 {
@@ -158,8 +158,8 @@ func TestAuthenticateMapsIdentityAndRevocationFailures(t *testing.T) {
 		{
 			name:  "agent required",
 			token: valid(map[string]any{"scope": "read", "zone_id": "zone-1"}),
-			opts:  Options{RequireAgent: true},
-			code:  ErrAgentRequired,
+			opts:  Options{RequireSession: true},
+			code:  ErrSessionRequired,
 		},
 		{
 			name:  "delegation required",
@@ -240,11 +240,11 @@ func TestAuthenticateRejectsMissingRevocationStoreAndInvalidTokens(t *testing.T)
 func TestCheckActiveAuthorityValidatesExpiryAndEveryAnchor(t *testing.T) {
 	now := time.Unix(1_000, 0)
 	active := identity.Claims{
-		Sid:              "sid-1",
-		RootSid:          "root-1",
-		AgentSessionID:   "agent-1",
-		DelegationEdgeID: "edge-1",
-		ExpiresAt:        now.Add(time.Hour).Unix(),
+		AuthorityRecordID:     "sid-1",
+		RootAuthorityRecordID: "root-1",
+		SessionID:             "agent-1",
+		DelegationID:          "edge-1",
+		ExpiresAt:             now.Add(time.Hour).Unix(),
 	}
 
 	if err := CheckActiveAuthority(active, &fakeRevocations{}, now); err != nil {
@@ -262,7 +262,7 @@ func TestCheckActiveAuthorityValidatesExpiryAndEveryAnchor(t *testing.T) {
 
 	for name, claims := range map[string]identity.Claims{
 		"missing-sid": {ExpiresAt: now.Add(time.Hour).Unix()},
-		"expired":     {Sid: "sid-1", ExpiresAt: now.Unix()},
+		"expired":     {AuthorityRecordID: "sid-1", ExpiresAt: now.Unix()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := CheckActiveAuthority(claims, &fakeRevocations{}, now)
@@ -281,8 +281,8 @@ type fakeRevocations struct {
 	revoked map[string]bool
 }
 
-func (f *fakeRevocations) IsRevoked(sid string) bool {
-	return f.revoked != nil && f.revoked[sid]
+func (f *fakeRevocations) IsRevoked(anchorID string) bool {
+	return f.revoked != nil && f.revoked[anchorID]
 }
 
 func (f *fakeRevocations) MarkRevoked(string, time.Duration) error {

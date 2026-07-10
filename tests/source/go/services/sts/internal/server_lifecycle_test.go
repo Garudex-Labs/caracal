@@ -57,23 +57,23 @@ type lineageDB struct {
 	relatedErr error
 }
 
-func (d *lineageDB) SessionsRelated(context.Context, string, string, string) (bool, error) {
+func (d *lineageDB) AuthorityRecordsRelated(context.Context, string, string, string) (bool, error) {
 	return d.related, d.relatedErr
 }
 
 func stepUpDecisionChallenge() *StepUpChallengePG {
 	return &StepUpChallengePG{
-		ID:              "b3b8f7ce-0000-4000-8000-00000000d001",
-		ZoneID:          "zone1",
-		SessionID:       "sess-hold",
-		ChallengeType:   humanApprovalChallengeType,
-		PrincipalID:     "app1",
-		ApplicationID:   "app1",
-		Tier:            "money",
-		ApproverClass:   ApproverClassSubject,
-		PrivacyMode:     PrivacyIdentified,
-		ResourceSetHash: []byte{0xab},
-		ExpiresAt:       time.Now().Add(time.Hour),
+		ID:                "b3b8f7ce-0000-4000-8000-00000000d001",
+		ZoneID:            "zone1",
+		AuthorityRecordID: "sess-hold",
+		ChallengeType:     humanApprovalChallengeType,
+		PrincipalID:       "app1",
+		ApplicationID:     "app1",
+		Tier:              "money",
+		ApproverClass:     ApproverClassSubject,
+		PrivacyMode:       PrivacyIdentified,
+		ResourceSetHash:   []byte{0xab},
+		ExpiresAt:         time.Now().Add(time.Hour),
 	}
 }
 
@@ -92,7 +92,7 @@ func decisionStub(t *testing.T, challenge *StepUpChallengePG) stepUpDB {
 	return stepUpDB{
 		stubDB: stubDB{
 			secrets: []SecretRow{sealedSecret(t, exchangeFlowZEK(), "kid-zone1", []byte(ecKeyPEM(t, elliptic.P256())))},
-			session: &Session{
+			session: &AuthorityRecord{
 				ID:        "sess-approver",
 				ZoneID:    "zone1",
 				SubjectID: &subject,
@@ -107,14 +107,14 @@ func decisionStub(t *testing.T, challenge *StepUpChallengePG) stepUpDB {
 func approverMandate(t *testing.T, srv *Server, subType string) string {
 	t.Helper()
 	token, _, err := issueToken(context.Background(), IssueParams{
-		ZoneID:    "zone1",
-		AppID:     "app1",
-		SubjectID: "user-1",
-		SubType:   subType,
-		Use:       UseSession,
-		SID:       "sess-approver",
-		RootSID:   "sess-approver",
-		TTL:       time.Hour,
+		ZoneID:                "zone1",
+		AppID:                 "app1",
+		SubjectID:             "user-1",
+		SubType:               subType,
+		Use:                   UseSession,
+		AuthorityRecordID:     "sess-approver",
+		RootAuthorityRecordID: "sess-approver",
+		TTL:                   time.Hour,
 	}, srv.keys, srv.cfg.IssuerURL)
 	if err != nil {
 		t.Fatalf("issue approver mandate: %v", err)

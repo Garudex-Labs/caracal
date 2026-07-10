@@ -23,7 +23,7 @@ func TestHandleRevocationMissingZoneID(t *testing.T) {
 	}
 }
 
-func TestHandleRevocationMissingSessionID(t *testing.T) {
+func TestHandleRevocationMissingAuthorityRecordID(t *testing.T) {
 	s := &Server{db: &stubDB{}}
 	err := s.handleRevocation(context.Background(), streamMessage{
 		ID:     "2-0",
@@ -34,7 +34,7 @@ func TestHandleRevocationMissingSessionID(t *testing.T) {
 	}
 }
 
-func TestHandleRevocationCallsRevokeSession(t *testing.T) {
+func TestHandleRevocationCallsRevokeAuthorityRecord(t *testing.T) {
 	db := &stubDB{}
 	s := &Server{db: db}
 	err := s.handleRevocation(context.Background(), streamMessage{

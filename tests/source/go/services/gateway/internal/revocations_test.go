@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Tests for the gateway's revocation cache and sid extraction.
+// Tests for the gateway's revocation cache and authority-record claim extraction.
 
 package internal
 
@@ -23,19 +23,19 @@ func TestRevocationStoreMarkAndExpire(t *testing.T) {
 	if store.IsRevoked("sid1") {
 		t.Fatalf("fresh store should not report sid1 revoked")
 	}
-	store.markSession("sid1")
+	store.markAuthorityRecord("sid1")
 	if !store.IsRevoked("sid1") {
 		t.Fatalf("sid1 should be revoked after mark")
 	}
 	store.mu.Lock()
-	store.sessions["sid1"] = time.Now().Add(-time.Second)
+	store.authorityRecords["sid1"] = time.Now().Add(-time.Second)
 	store.mu.Unlock()
 	if store.IsRevoked("sid1") {
 		t.Fatalf("expired entry should not report revoked")
 	}
 	store.prune()
 	store.mu.RLock()
-	_, present := store.sessions["sid1"]
+	_, present := store.authorityRecords["sid1"]
 	store.mu.RUnlock()
 	if present {
 		t.Fatalf("prune should drop expired entries")
@@ -45,7 +45,7 @@ func TestRevocationStoreMarkAndExpire(t *testing.T) {
 func TestRevocationStoreEmptySessionNotRevoked(t *testing.T) {
 	store := newRevocationStore(zerolog.New(io.Discard))
 	if store.IsRevoked("") {
-		t.Fatalf("empty session id must report not revoked")
+		t.Fatalf("empty authority-record id must report not revoked")
 	}
 }
 
@@ -101,7 +101,7 @@ func TestProcessRevocationMessageMarksSignedAgent(t *testing.T) {
 
 	processRevocationMessage(context.Background(), redis, store, redisMessage("1-3", map[string]any{"agent_session_id": "agent1"}), nil, zerolog.New(io.Discard))
 
-	if !store.IsAgentRevoked("agent1") {
+	if !store.IsSessionRevoked("agent1") {
 		t.Fatalf("valid revocation message should mark agent revoked")
 	}
 	if len(redis.acked) != 1 || redis.acked[0] != "1-3" {
@@ -129,7 +129,7 @@ func TestApplyRevocationSnapshotMarksAllAuthorityAnchors(t *testing.T) {
 	if !store.IsRevoked("sid1") {
 		t.Fatalf("snapshot should mark session revoked")
 	}
-	if !store.IsAgentRevoked("agent1") {
+	if !store.IsSessionRevoked("agent1") {
 		t.Fatalf("snapshot should mark agent session revoked")
 	}
 	if !store.IsDelegationRevoked("edge1") {
@@ -173,26 +173,26 @@ func TestProcessRevocationMessageDeadLettersPoisonMessage(t *testing.T) {
 	}
 }
 
-func TestJWTSIDReadsSidClaim(t *testing.T) {
+func TestJWTAuthorityRecordIDReadsSidClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtSID(tok); got != "sess-123" {
+	if got := jwtAuthorityRecordID(tok); got != "sess-123" {
 		t.Fatalf("want sess-123, got %q", got)
 	}
 }
 
-func TestJWTSIDRequiresSidClaim(t *testing.T) {
+func TestJWTAuthorityRecordIDRequiresSidClaim(t *testing.T) {
 	payload := `{"agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtSID(tok); got != "" {
+	if got := jwtAuthorityRecordID(tok); got != "" {
 		t.Fatalf("want empty sid, got %q", got)
 	}
 }
 
-func TestJWTAgentSessionIDReadsClaim(t *testing.T) {
+func TestJWTSessionIDReadsClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","agent_session_id":"agent-xyz"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtAgentSessionID(tok); got != "agent-xyz" {
+	if got := jwtSessionID(tok); got != "agent-xyz" {
 		t.Fatalf("want agent-xyz, got %q", got)
 	}
 }
@@ -205,16 +205,16 @@ func TestJWTDelegationEdgeIDReadsClaim(t *testing.T) {
 	}
 }
 
-func TestJWTRootSIDReadsClaim(t *testing.T) {
+func TestJWTRootAuthorityRecordIDReadsClaim(t *testing.T) {
 	payload := `{"sid":"sess-123","root_sid":"root-123"}`
 	tok := "header." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
-	if got := jwtRootSID(tok); got != "root-123" {
+	if got := jwtRootAuthorityRecordID(tok); got != "root-123" {
 		t.Fatalf("want root-123, got %q", got)
 	}
 }
 
-func TestJWTSIDMalformed(t *testing.T) {
-	if got := jwtSID("notajwt"); got != "" {
+func TestJWTAuthorityRecordIDMalformed(t *testing.T) {
+	if got := jwtAuthorityRecordID("notajwt"); got != "" {
 		t.Fatalf("malformed token should return empty sid, got %q", got)
 	}
 }
@@ -324,7 +324,7 @@ func TestReplayPendingRevocationsProcessesClaimedMessages(t *testing.T) {
 
 	replayPendingRevocations(context.Background(), redis, store, "consumer-1", metrics, zerolog.Nop())
 
-	if !store.IsRevoked("sid-1") || !store.IsAgentRevoked("agent-1") {
+	if !store.IsRevoked("sid-1") || !store.IsSessionRevoked("agent-1") {
 		t.Fatal("claimed revocation messages should update the store")
 	}
 	if metrics.Snapshot().RevocationPendingReplayed != 2 {

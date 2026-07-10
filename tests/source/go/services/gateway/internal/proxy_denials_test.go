@@ -259,7 +259,7 @@ func TestCopyResponseWithoutFlusherCopiesBody(t *testing.T) {
 		Header:     http.Header{"Content-Type": []string{"text/plain"}},
 		Body:       io.NopCloser(strings.NewReader("hello")),
 	}
-	result := copyResponse(plainWriter{rec}, resp, allowRevocations{}, tokenRevocationIDs{})
+	result := copyResponse(plainWriter{rec}, resp, allowRevocations{}, tokenRevocationAnchors{})
 	if result.Bytes != 5 || result.Revoked {
 		t.Fatalf("copy result = %+v", result)
 	}

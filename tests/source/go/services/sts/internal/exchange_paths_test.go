@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for exchange helpers: delegation TTLs, agent session liveness, Control traits, and provider value validators.
+// Unit tests for exchange helpers: delegation TTLs, Session liveness, Control traits, and provider value validators.
 
 package internal
 
@@ -47,28 +47,28 @@ func TestEffectiveTokenTTLDelegationBounds(t *testing.T) {
 	}
 }
 
-func TestActiveAgentSessionLifecycles(t *testing.T) {
+func TestActiveSessionLifecycles(t *testing.T) {
 	now := time.Now()
 	heartbeat := now.Add(time.Minute)
 	stale := now.Add(-time.Minute)
 	cases := map[string]struct {
-		session *AgentSession
+		session *Session
 		want    bool
 	}{
 		"nil session":          {nil, false},
-		"wrong zone":           {&AgentSession{ZoneID: "other", Status: "active"}, false},
-		"inactive status":      {&AgentSession{ZoneID: "zone1", Status: "revoked"}, false},
-		"service without beat": {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
-		"service stale beat":   {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
-		"service live beat":    {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
-		"task without ttl":     {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
-		"task expired ttl":     {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
-		"task live ttl":        {&AgentSession{ZoneID: "zone1", Status: "active", Lifecycle: "task", SpawnedAt: now, TTLSeconds: 600}, true},
+		"wrong zone":           {&Session{ZoneID: "other", Status: "active"}, false},
+		"inactive status":      {&Session{ZoneID: "zone1", Status: "revoked"}, false},
+		"service without beat": {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
+		"service stale beat":   {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
+		"service live beat":    {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
+		"task without ttl":     {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
+		"task expired ttl":     {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
+		"task live ttl":        {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now, TTLSeconds: 600}, true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := activeAgentSession(tc.session, "zone1", now); got != tc.want {
-				t.Fatalf("activeAgentSession = %v, want %v", got, tc.want)
+			if got := activeSession(tc.session, "zone1", now); got != tc.want {
+				t.Fatalf("activeSession = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -121,7 +121,7 @@ func TestIsZoneDerivedControlTokenRequest(t *testing.T) {
 	}
 	cases := map[string]TokenExchangeRequest{
 		"subject token":     {SubjectToken: "x", Resources: valid.Resources, Scope: valid.Scope},
-		"session reference": {SessionID: "s", Resources: valid.Resources, Scope: valid.Scope},
+		"session reference": {AuthorityRecordID: "s", Resources: valid.Resources, Scope: valid.Scope},
 		"no resources":      {Scope: valid.Scope},
 		"foreign resource":  {Resources: []string{"resource://pipernet"}, Scope: valid.Scope},
 		"no scopes":         {Resources: valid.Resources},
@@ -209,25 +209,25 @@ func TestStepUpAuditMetaOptionalFields(t *testing.T) {
 		t.Fatal("empty session id must be omitted")
 	}
 	base.ApplicationID = "app1"
-	base.SessionID = "sess-1"
+	base.AuthorityRecordID = "sess-1"
 	meta = stepUpAuditMeta(base)
 	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" {
 		t.Fatalf("populated meta = %#v", meta)
 	}
 }
 
-func TestAgentSessionHelperNilSafety(t *testing.T) {
-	if agentSessionLifecycle(nil) != "" {
+func TestSessionHelperNilSafety(t *testing.T) {
+	if sessionLifecycle(nil) != "" {
 		t.Fatal("nil session lifecycle must be empty")
 	}
-	if agentSessionLabels(nil) != nil || agentSessionLabels(&AgentSession{}) != nil {
+	if sessionLabels(nil) != nil || sessionLabels(&Session{}) != nil {
 		t.Fatal("absent labels must be nil")
 	}
 	if agentAuditMeta(nil) != nil {
 		t.Fatal("nil session audit meta must be nil")
 	}
 	parent := "agent-parent"
-	meta := agentAuditMeta(&AgentSession{Lifecycle: "task", ParentID: &parent, Depth: 2})
+	meta := agentAuditMeta(&Session{Lifecycle: "task", ParentID: &parent, Depth: 2})
 	if meta["agent_parent_id"] != "agent-parent" || meta["agent_depth"] != 2 {
 		t.Fatalf("meta = %#v", meta)
 	}

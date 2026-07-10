@@ -88,7 +88,7 @@ func TestExchangeSurfacesProviderCredentialFailure(t *testing.T) {
 		ConfigJSON:   []byte(`{"token_endpoint":"https://issuer.example/token","client_id":"hooli-client","allowed_token_hosts":["issuer.example"]}`),
 	}
 	db.storeEnvelopes = testProviderSecret(t, exchangeFlowZEK(), providerID, `{}`)
-	db.session = activeUserSession("sess-1")
+	db.session = activeUserAuthorityRecord("sess-1")
 	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 	req := baseExchangeRequest()
 	req.ClientSecret = ""

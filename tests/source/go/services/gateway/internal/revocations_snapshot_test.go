@@ -72,10 +72,10 @@ func TestSnapshotAgeAndSizeHandleNilAndFutureTimestamps(t *testing.T) {
 
 func TestPruneDropsExpiredAgentAndDelegationEntries(t *testing.T) {
 	store := newRevocationStore(zerolog.Nop())
-	store.markAgent("agent1")
+	store.markGovernedSession("agent1")
 	store.markDelegation("edge1")
 	store.mu.Lock()
-	store.agents["agent1"] = time.Now().Add(-time.Second)
+	store.governedSessions["agent1"] = time.Now().Add(-time.Second)
 	store.edges["edge1"] = time.Now().Add(-time.Second)
 	store.mu.Unlock()
 
@@ -139,10 +139,10 @@ func TestJWTClaimHelpersRejectMalformedPayloads(t *testing.T) {
 	badBase64 := "h.!!!.s"
 	badJSON := "h." + base64.RawURLEncoding.EncodeToString([]byte("{")) + ".s"
 	for name, fn := range map[string]func(string) string{
-		"sid":        jwtSID,
-		"agent":      jwtAgentSessionID,
+		"sid":        jwtAuthorityRecordID,
+		"agent":      jwtSessionID,
 		"delegation": jwtDelegationEdgeID,
-		"root":       jwtRootSID,
+		"root":       jwtRootAuthorityRecordID,
 	} {
 		if got := fn(badBase64); got != "" {
 			t.Fatalf("%s: bad base64 = %q", name, got)
@@ -151,13 +151,13 @@ func TestJWTClaimHelpersRejectMalformedPayloads(t *testing.T) {
 			t.Fatalf("%s: bad json = %q", name, got)
 		}
 	}
-	if got := jwtAgentSessionID("notajwt"); got != "" {
+	if got := jwtSessionID("notajwt"); got != "" {
 		t.Fatalf("agent malformed = %q", got)
 	}
 	if got := jwtDelegationEdgeID("notajwt"); got != "" {
 		t.Fatalf("delegation malformed = %q", got)
 	}
-	if got := jwtRootSID("notajwt"); got != "" {
+	if got := jwtRootAuthorityRecordID("notajwt"); got != "" {
 		t.Fatalf("root malformed = %q", got)
 	}
 }

@@ -28,7 +28,7 @@ func TestCopyResponseStripsIdentityHeader(t *testing.T) {
 		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
 	}
 	rec := httptest.NewRecorder()
-	result := copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	result := copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	if result.Bytes == 0 || result.Revoked {
 		t.Fatalf("expected copied bytes without revocation, got %#v", result)
 	}
@@ -54,7 +54,7 @@ func TestCopyResponseStripsServerBanners(t *testing.T) {
 		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
 	}
 	rec := httptest.NewRecorder()
-	copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	for _, banner := range []string{"Server", "X-Powered-By", "X-Aspnet-Version", "X-Aspnetmvc-Version"} {
 		if got := rec.Header().Get(banner); got != "" {
 			t.Fatalf("%s banner must not surface to clients, got %q", banner, got)
@@ -88,7 +88,7 @@ func TestCopyResponseSanitizesRedirectLocation(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader("")),
 			}
 			rec := httptest.NewRecorder()
-			copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+			copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 			got := rec.Header().Get("Location")
 			if tc.wantKept && got != tc.location {
 				t.Fatalf("relative Location must be preserved, got %q", got)
@@ -108,7 +108,7 @@ func TestCopyResponseStripsRefreshHeader(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader("")),
 	}
 	rec := httptest.NewRecorder()
-	copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-1"})
+	copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-1"})
 	if got := rec.Header().Get("Refresh"); got != "" {
 		t.Fatalf("Refresh directive must not surface to clients, got %q", got)
 	}
@@ -149,9 +149,9 @@ func TestCopyResponseEmitsRevocationTrailer(t *testing.T) {
 	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
 	go func() {
 		time.Sleep(15 * time.Millisecond)
-		store.markSession("sid-stream")
+		store.markAuthorityRecord("sid-stream")
 	}()
-	result := copyResponse(rec, resp, store, tokenRevocationIDs{SID: "sid-stream"})
+	result := copyResponse(rec, resp, store, tokenRevocationAnchors{AuthorityRecordID: "sid-stream"})
 	if !result.Revoked {
 		t.Fatalf("expected copy result to record revocation")
 	}

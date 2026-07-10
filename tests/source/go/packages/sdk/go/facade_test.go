@@ -23,7 +23,7 @@ import (
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
-func TestSpawnFiresRegisteredHooksWithDefaultTTL(t *testing.T) {
+func TestSessionFiresRegisteredHooksWithDefaultTTL(t *testing.T) {
 	var bodies []map[string]any
 	srv := newRecordingCoordinator(t, &bodies)
 	c := &sdk.Caracal{
@@ -60,7 +60,7 @@ func TestSpawnFiresRegisteredHooksWithDefaultTTL(t *testing.T) {
 	}
 }
 
-func TestSpawnStartHookErrorSkipsCallback(t *testing.T) {
+func TestSessionStartHookErrorSkipsCallback(t *testing.T) {
 	srv := newRecordingCoordinator(t, nil)
 	c := &sdk.Caracal{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
@@ -102,7 +102,7 @@ func newRecordingCoordinator(t *testing.T, bodies *[]map[string]any) *httptest.S
 	return srv
 }
 
-func TestSpawnRefreshesRejectedCachedToken(t *testing.T) {
+func TestSessionRefreshesRejectedCachedToken(t *testing.T) {
 	var mu sync.Mutex
 	mintN := 0
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -152,7 +152,7 @@ func TestSpawnRefreshesRejectedCachedToken(t *testing.T) {
 	}
 }
 
-func TestSpawnServiceFacadeFiresHooksAndCloseRunsEndHook(t *testing.T) {
+func TestSessionServiceFacadeFiresHooksAndCloseRunsEndHook(t *testing.T) {
 	srv := newRecordingCoordinator(t, nil)
 	c := &sdk.Caracal{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
@@ -184,7 +184,7 @@ func TestSpawnServiceFacadeFiresHooksAndCloseRunsEndHook(t *testing.T) {
 	}
 }
 
-func TestSpawnServiceStartHookErrorTerminatesSession(t *testing.T) {
+func TestSessionServiceStartHookErrorTerminatesSession(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	c := &sdk.Caracal{
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
@@ -313,12 +313,12 @@ func TestSessionTaskOptionRecordedAsMetadataTask(t *testing.T) {
 	for i, expected := range want {
 		got, _ := bodies[i]["metadata"].(map[string]any)
 		if fmt.Sprint(got) != fmt.Sprint(expected) {
-			t.Fatalf("spawn %d metadata = %#v, want %#v", i, got, expected)
+			t.Fatalf("Session start %d metadata = %#v, want %#v", i, got, expected)
 		}
 	}
 }
 
-func TestSessionCallerIdempotencyKeyReused(t *testing.T) {
+func TestSessionCallerOperationIDReusedAcrossCreationCalls(t *testing.T) {
 	var keys []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -352,7 +352,31 @@ func TestSessionCallerIdempotencyKeyReused(t *testing.T) {
 	}
 }
 
-func TestFederateSubjectReturnsSubjectSessionID(t *testing.T) {
+func TestSessionRejectsUnsafeExplicitIdempotencyKeysBeforeNetwork(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	for _, key := range []string{" key", "key ", "key\nvalue", strings.Repeat("x", 256)} {
+		err := c.Session(context.Background(), func(context.Context) error { return nil }, sdk.SessionOptions{IdempotencyKey: key})
+		if err == nil || !strings.Contains(err.Error(), "IdempotencyKey must be") {
+			t.Fatalf("key %q error = %v", key, err)
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("unsafe keys sent %d network requests", requests)
+	}
+}
+
+func TestFederateSubjectReturnsSubjectAuthorityRecordID(t *testing.T) {
 	if _, err := (&sdk.Caracal{SubjectToken: "tok"}).FederateSubject(context.Background(), "id-token"); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
 		t.Fatalf("expected client-secret guard, got %v", err)
 	}
@@ -382,7 +406,7 @@ func TestFederateSubjectReturnsSubjectSessionID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if federated.SubjectSessionID != "sess-42" || federated.Token != mandate || federated.ExpiresInSeconds != 600 {
+	if federated.SubjectAuthorityRecordID != "sess-42" || federated.Token != mandate || federated.ExpiresInSeconds != 600 {
 		t.Fatalf("unexpected federated subject: %+v", federated)
 	}
 	if form.Get("subject_token") != "id-token" || form.Get("subject_token_type") != "urn:ietf:params:oauth:token-type:id_token" {
@@ -393,7 +417,7 @@ func TestFederateSubjectReturnsSubjectSessionID(t *testing.T) {
 	}
 }
 
-func TestFederateSubjectRejectsMandateWithoutSessionID(t *testing.T) {
+func TestFederateSubjectRejectsMandateWithoutAuthorityRecordID(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user"}`))
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -411,8 +435,8 @@ func TestFederateSubjectRejectsMandateWithoutSessionID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.FederateSubject(context.Background(), "id-token"); err == nil || !strings.Contains(err.Error(), "carries no session id") {
-		t.Fatalf("expected missing session id error, got %v", err)
+	if _, err := c.FederateSubject(context.Background(), "id-token"); err == nil || !strings.Contains(err.Error(), "carries no authority record ID") {
+		t.Fatalf("expected missing Authority record ID error, got %v", err)
 	}
 }
 
@@ -645,13 +669,13 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
 			return &sdk.VerifiedClaims{
-				ZoneID:             "proved-zone",
-				ApplicationID:      "proved-app",
-				SessionID:          "proved-session",
-				DelegationID:       "proved-edge",
-				ParentDelegationID: "proved-parent",
-				SubjectSessionID:   "proved-subject",
-				Hop:                &hop,
+				ZoneID:                   "proved-zone",
+				ApplicationID:            "proved-app",
+				SessionID:                "proved-session",
+				DelegationID:             "proved-edge",
+				ParentDelegationID:       "proved-parent",
+				SubjectAuthorityRecordID: "proved-subject",
+				Hop:                      &hop,
 			}, nil
 		},
 	})
@@ -664,7 +688,7 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 	}
 	if cur.ZoneID != "proved-zone" || cur.ApplicationID != "proved-app" ||
 		cur.SessionID != "proved-session" || cur.DelegationID != "proved-edge" ||
-		cur.ParentDelegationID != "proved-parent" || cur.SubjectSessionID != "proved-subject" || cur.Hop != 4 {
+		cur.ParentDelegationID != "proved-parent" || cur.SubjectAuthorityRecordID != "proved-subject" || cur.Hop != 4 {
 		t.Fatalf("claims must override the envelope: %#v", cur)
 	}
 	if cur.OwnToken {

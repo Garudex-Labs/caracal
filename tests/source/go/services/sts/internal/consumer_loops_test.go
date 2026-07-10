@@ -59,7 +59,7 @@ type revocationRecorderDB struct {
 	revoked []string
 }
 
-func (d *revocationRecorderDB) RevokeSession(_ context.Context, zoneID, sid, reason string) error {
+func (d *revocationRecorderDB) RevokeAuthorityRecord(_ context.Context, zoneID, sid, reason string) error {
 	d.mu.Lock()
 	d.revoked = append(d.revoked, zoneID+"|"+sid+"|"+reason)
 	d.mu.Unlock()

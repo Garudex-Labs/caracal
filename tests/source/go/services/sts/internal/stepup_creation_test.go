@@ -44,7 +44,7 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 	if !created || db.stored == nil {
 		t.Fatal("hold was not persisted")
 	}
-	if hold.ID == "" || hold.ZoneID != "zone-1" || hold.SessionID != "session-1" || hold.PrincipalID != "principal-1" || hold.ApplicationID != "app-1" {
+	if hold.ID == "" || hold.ZoneID != "zone-1" || hold.AuthorityRecordID != "session-1" || hold.PrincipalID != "principal-1" || hold.ApplicationID != "app-1" {
 		t.Fatalf("unexpected hold: %+v", hold)
 	}
 	if hold.ChallengeType != humanApprovalChallengeType || hold.Tier != "money" || hold.ApproverClass != ApproverClassSubject || hold.PrivacyMode != PrivacyAnonymous {

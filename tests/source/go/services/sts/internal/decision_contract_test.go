@@ -73,7 +73,7 @@ func TestDecisionContractDelegatedMintAllow(t *testing.T) {
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},
@@ -93,7 +93,7 @@ func TestDecisionContractDelegatedMintNarrowing(t *testing.T) {
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:read"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},
@@ -118,7 +118,7 @@ approval_declarations := [{"tier": "money", "approver": "subject", "ttl_seconds"
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},
@@ -158,7 +158,7 @@ approval_declarations := [{"approver": "operator"}]
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},
@@ -181,7 +181,7 @@ risk := [{"scope": "nucleus:pay", "tier": "sensitive"}]
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},
@@ -222,7 +222,7 @@ func TestDecisionContractConfinementDeny(t *testing.T) {
 		Action:         OPAAction{ID: "token_exchange"},
 		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
 		Context: OPAContext{
-			AgentSessionID:  "agent-1",
+			SessionID:       "agent-1",
 			RequestedScopes: []string{"nucleus:pay"},
 			ActorClaims:     map[string]any{},
 		},

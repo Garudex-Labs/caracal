@@ -168,7 +168,7 @@ func TestTokenTTL(t *testing.T) {
 	if _, err := tokenTTL(int(ttlResourceMandate.Seconds())+1, false); err == nil {
 		t.Error("want error when TTL exceeds cap")
 	}
-	if got, err := tokenTTL(int(ttlSessionMandate.Seconds()), true); err != nil || got != ttlSessionMandate {
+	if got, err := tokenTTL(int(ttlAuthorityRecordMandate.Seconds()), true); err != nil || got != ttlAuthorityRecordMandate {
 		t.Errorf("want session mandate TTL, got %v err=%v", got, err)
 	}
 	if _, err := tokenTTL(-1, false); err == nil {
@@ -176,25 +176,25 @@ func TestTokenTTL(t *testing.T) {
 	}
 }
 
-func TestRootSessionIDTracksAuthorityRoot(t *testing.T) {
-	if got := rootSessionID(nil, "session-1", UseSession); got != "session-1" {
+func TestRootAuthorityRecordIDTracksAuthorityRoot(t *testing.T) {
+	if got := rootAuthorityRecordID(nil, "session-1", UseSession); got != "session-1" {
 		t.Fatalf("session mandate root should be its own sid, got %q", got)
 	}
 	claims := map[string]any{"sid": "session-1"}
-	if got := rootSessionID(claims, "resource-1", UseResource); got != "session-1" {
+	if got := rootAuthorityRecordID(claims, "resource-1", UseResource); got != "session-1" {
 		t.Fatalf("resource mandate root should default to parent sid, got %q", got)
 	}
 	claims["root_sid"] = "root-1"
-	if got := rootSessionID(claims, "resource-1", UseResource); got != "root-1" {
+	if got := rootAuthorityRecordID(claims, "resource-1", UseResource); got != "root-1" {
 		t.Fatalf("resource mandate root should preserve inherited root, got %q", got)
 	}
 }
 
-func TestParentSessionIDOnlyForDerivedTokens(t *testing.T) {
-	if got := parentSessionID("session-1", UseSession); got != nil {
+func TestParentAuthorityRecordIDOnlyForDerivedTokens(t *testing.T) {
+	if got := parentAuthorityRecordID("session-1", UseSession); got != nil {
 		t.Fatalf("session mandates must not have a parent, got %q", *got)
 	}
-	got := parentSessionID("session-1", UseResource)
+	got := parentAuthorityRecordID("session-1", UseResource)
 	if got == nil || *got != "session-1" {
 		t.Fatalf("resource mandates must link to parent session mandate, got %#v", got)
 	}
@@ -277,38 +277,38 @@ func TestBuildJWKSIncludesP256PublicKeyMetadata(t *testing.T) {
 
 // stubDB satisfies DBQuerier with preset return values for the exchange path.
 type stubDB struct {
-	app              *Application
-	appErr           error
-	appGlobal        *Application
-	subjectIssuer    *SubjectIssuer
-	insertedSessions []*Session
-	appGlobalErr     error
-	resource         *Resource
-	resErr           error
-	grant            *ProviderConnection
-	grantErr         error
-	provider         *ProviderConfig
-	session          *Session
-	sessionErr       error
-	agentSessions    []*AgentSession
-	agentIndex       int
-	agentErr         error
-	edge             *DelegationEdge
-	edgeErr          error
-	edgesMap         map[string]*DelegationEdge
-	path             []string
-	pathErr          error
-	graphEpoch       int64
-	epochErr         error
-	sessErr          error
-	secrets          []SecretRow
-	secretsErr       error
-	insertedKey      *SecretRow
-	storeEnvelopes   map[string][]byte
-	now              time.Time
-	workload         *Workload
-	workloadErr      error
-	markedExpired    []string
+	app                      *Application
+	appErr                   error
+	appGlobal                *Application
+	subjectIssuer            *SubjectIssuer
+	insertedAuthorityRecords []*AuthorityRecord
+	appGlobalErr             error
+	resource                 *Resource
+	resErr                   error
+	grant                    *ProviderConnection
+	grantErr                 error
+	provider                 *ProviderConfig
+	session                  *AuthorityRecord
+	sessionErr               error
+	sessions                 []*Session
+	agentIndex               int
+	agentErr                 error
+	edge                     *DelegationEdge
+	edgeErr                  error
+	edgesMap                 map[string]*DelegationEdge
+	path                     []string
+	pathErr                  error
+	graphEpoch               int64
+	epochErr                 error
+	sessErr                  error
+	secrets                  []SecretRow
+	secretsErr               error
+	insertedKey              *SecretRow
+	storeEnvelopes           map[string][]byte
+	now                      time.Time
+	workload                 *Workload
+	workloadErr              error
+	markedExpired            []string
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
@@ -379,17 +379,17 @@ func (s *stubDB) GetDelegationEdge(_ context.Context, id string) (*DelegationEdg
 	}
 	return s.edge, s.edgeErr
 }
-func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
+func (s *stubDB) GetAuthorityRecord(_ context.Context, _ string) (*AuthorityRecord, error) {
 	return s.session, s.sessionErr
 }
-func (s *stubDB) GetAgentSession(_ context.Context, _ string) (*AgentSession, error) {
+func (s *stubDB) GetSession(_ context.Context, _ string) (*Session, error) {
 	if s.agentErr != nil {
 		return nil, s.agentErr
 	}
-	if s.agentIndex >= len(s.agentSessions) {
+	if s.agentIndex >= len(s.sessions) {
 		return nil, errors.New("stub")
 	}
-	session := s.agentSessions[s.agentIndex]
+	session := s.sessions[s.agentIndex]
 	s.agentIndex++
 	return session, nil
 }
@@ -399,11 +399,11 @@ func (s *stubDB) GetDelegationPath(_ context.Context, _, _, _ string, _ int) ([]
 func (s *stubDB) GetDelegationGraphEpoch(_ context.Context, _ string) (int64, error) {
 	return s.graphEpoch, s.epochErr
 }
-func (s *stubDB) InsertSession(_ context.Context, sess *Session) error {
-	s.insertedSessions = append(s.insertedSessions, sess)
+func (s *stubDB) InsertAuthorityRecord(_ context.Context, sess *AuthorityRecord) error {
+	s.insertedAuthorityRecords = append(s.insertedAuthorityRecords, sess)
 	return s.sessErr
 }
-func (s *stubDB) RevokeSession(_ context.Context, _, _, _ string) error { return nil }
+func (s *stubDB) RevokeAuthorityRecord(_ context.Context, _, _, _ string) error { return nil }
 func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
 	return nil, errors.New("stub")
 }
@@ -414,7 +414,7 @@ func (s *stubDB) DecideStepUpChallenge(_ context.Context, _ DecideStepUpParams) 
 func (s *stubDB) ConsumeApprovalChallenge(_ context.Context, _ ConsumeApprovalParams) error {
 	return nil
 }
-func (s *stubDB) SessionsRelated(_ context.Context, _, _, _ string) (bool, error) {
+func (s *stubDB) AuthorityRecordsRelated(_ context.Context, _, _, _ string) (bool, error) {
 	return false, nil
 }
 func (s *stubDB) DeleteExpiredStepUpChallenges(_ context.Context, _ time.Time) (int64, error) {
@@ -466,10 +466,10 @@ func (s *stubDB) UpdateApplicationSecretHash(_ context.Context, _, _, _ string) 
 	return nil
 }
 
-func TestValidateTokenSessionBindsClientID(t *testing.T) {
+func TestValidateTokenAuthorityRecordBindsClientID(t *testing.T) {
 	now := time.Now()
 	subjectID := "user-1"
-	srv := &Server{db: &stubDB{session: &Session{
+	srv := &Server{db: &stubDB{session: &AuthorityRecord{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
@@ -481,18 +481,18 @@ func TestValidateTokenSessionBindsClientID(t *testing.T) {
 		"sub":       subjectID,
 		"client_id": "app1",
 	}
-	if sid, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err != nil || sid != "sess-1" {
+	if sid, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app1", "", claims); err != nil || sid != "sess-1" {
 		t.Fatalf("matching client_id must pass, sid=%q err=%#v", sid, err)
 	}
-	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "session client mismatch" {
+	if _, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app2", "", claims); err == nil || err.Description != "authority record client mismatch" {
 		t.Fatalf("wrong client_id must fail, got %#v", err)
 	}
 }
 
-func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
+func TestValidateTokenAuthorityRecordUsesDatabaseTime(t *testing.T) {
 	now := time.Now()
 	subjectID := "user-1"
-	srv := &Server{db: &stubDB{session: &Session{
+	srv := &Server{db: &stubDB{session: &AuthorityRecord{
 		ID:        "sess-1",
 		ZoneID:    "zone1",
 		Status:    "active",
@@ -504,7 +504,7 @@ func TestValidateTokenSessionUsesDatabaseTime(t *testing.T) {
 		"sub":       subjectID,
 		"client_id": "app1",
 	}
-	if _, err := srv.validateTokenSession(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "session inactive or expired" {
+	if _, err := srv.validateAuthorityRecord(context.Background(), "zone1", "app1", "", claims); err == nil || err.Description != "authority record inactive or expired" {
 		t.Fatalf("database-expired session must fail, got %#v", err)
 	}
 }
@@ -1483,38 +1483,69 @@ result := {"decision": "deny", "evaluation_status": "partial", "determining_poli
 	}
 }
 
-func TestValidateSessionReferencesRequiresAgentSessionForDelegation(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRequiresSessionForDelegation(t *testing.T) {
 	srv := &Server{db: &stubDB{}}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
 		DelegationEdgeID: "edge1",
 	}, true)
-	if err == nil || err.Description != "delegation edge requires target agent session" {
-		t.Fatalf("want target agent session error, got %#v", err)
+	if err == nil || err.Description != "delegation requires a target Session" {
+		t.Fatalf("want target Session error, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsAgentSubjectBindingMismatch(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	db := &stubDB{
+		now: now,
+		session: &AuthorityRecord{
+			ID:        "subject-session-2",
+			ZoneID:    "zone1",
+			Status:    "active",
+			ExpiresAt: now.Add(time.Minute),
+		},
+		sessions: []*Session{{
+			ID:                       "agent-1",
+			ZoneID:                   "zone1",
+			ApplicationID:            "app1",
+			SubjectAuthorityRecordID: "subject-session-1",
+			Status:                   "active",
+			StartedAt:                now.Add(-time.Minute),
+			TTLSeconds:               600,
+		}},
+	}
+	srv := &Server{db: db}
+	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
+		AuthorityRecordID: "subject-session-2",
+		SessionID:         "agent-1",
+	}, true)
+	if err == nil || err.Description != "session authority record binding mismatch" {
+		t.Fatalf("want subject binding mismatch, got %#v", err)
+	}
+}
+
+func TestValidateAuthorityRecordReferencesAcceptsActiveGraphEdge(t *testing.T) {
+	now := time.Now()
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
-		ID:            "agent-dst",
-		ZoneID:        "zone1",
-		ApplicationID: "app2",
-		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
-		TTLSeconds:    600,
+	target := &Session{
+		ID:                       "agent-dst",
+		ZoneID:                   "zone1",
+		ApplicationID:            "app2",
+		SubjectAuthorityRecordID: "subject-session-1",
+		Status:                   "active",
+		StartedAt:                now.Add(-time.Minute),
+		TTLSeconds:               600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
-		graphEpoch:    7,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge1"},
+		graphEpoch: 7,
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1528,29 +1559,29 @@ func TestValidateSessionReferencesAcceptsActiveGraphEdge(t *testing.T) {
 		},
 	}
 	srv := &Server{db: db}
-	proof, agentSession, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+	proof, session, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
 	if err != nil || proof == nil || proof.edge.ID != "edge1" || proof.graphEpoch != 7 {
 		t.Fatalf("want active delegation proof, got proof=%#v err=%#v", proof, err)
 	}
-	if agentSession == nil || agentSession.ID != target.ID {
-		t.Fatalf("target agent session not returned for policy input: %#v", agentSession)
+	if session == nil || session.ID != target.ID {
+		t.Fatalf("target Session not returned for policy input: %#v", session)
 	}
 }
 
-func TestAgentSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
-	session := &AgentSession{
+func TestSessionMetadataIsPolicyAndAuditInput(t *testing.T) {
+	session := &Session{
 		ID:        "agent-1",
 		Lifecycle: "task",
 		Labels:    []string{"browser", "code"},
 	}
-	if got := agentSessionLifecycle(session); got != "task" {
+	if got := sessionLifecycle(session); got != "task" {
 		t.Fatalf("lifecycle = %q", got)
 	}
-	caps := agentSessionLabels(session)
+	caps := sessionLabels(session)
 	caps[0] = "mutated"
 	if session.Labels[0] != "browser" {
 		t.Fatal("labels must be copied before policy evaluation")
@@ -1617,45 +1648,45 @@ func TestEffectiveTokenTTLCapsAtDelegationConstraint(t *testing.T) {
 	}
 }
 
-func TestBindSubjectAgentSessionCopiesSignedClaim(t *testing.T) {
+func TestBindSubjectSessionCopiesSignedClaim(t *testing.T) {
 	req := TokenExchangeRequest{}
-	err := bindSubjectAgentSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	err := bindSubjectSession(&req, map[string]any{"agent_session_id": "agent-1"})
 	if err != nil {
-		t.Fatalf("bind signed agent session: %v", err)
+		t.Fatalf("bind signed Session: %v", err)
 	}
-	if req.AgentSessionID != "agent-1" {
-		t.Fatalf("agent session id = %q, want agent-1", req.AgentSessionID)
+	if req.SessionID != "agent-1" {
+		t.Fatalf("Session id = %q, want agent-1", req.SessionID)
 	}
 }
 
-func TestBindSubjectAgentSessionRejectsMismatch(t *testing.T) {
-	req := TokenExchangeRequest{AgentSessionID: "agent-2"}
-	err := bindSubjectAgentSession(&req, map[string]any{"agent_session_id": "agent-1"})
-	if err == nil || err.Description != "agent session mismatch" {
+func TestBindSubjectSessionRejectsMismatch(t *testing.T) {
+	req := TokenExchangeRequest{SessionID: "agent-2"}
+	err := bindSubjectSession(&req, map[string]any{"agent_session_id": "agent-1"})
+	if err == nil || err.Description != "Session mismatch" {
 		t.Fatalf("want mismatch error, got %#v", err)
 	}
 }
 
-func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsSourceUsingDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1670,7 +1701,7 @@ func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T)
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app1", TokenExchangeRequest{
-		AgentSessionID:   source.ID,
+		SessionID:        source.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1679,26 +1710,26 @@ func TestValidateSessionReferencesRejectsSourceUsingDelegationEdge(t *testing.T)
 	}
 }
 
-func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsUnrelatedAppUsingDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1713,7 +1744,7 @@ func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *test
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app3", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1722,7 +1753,7 @@ func TestValidateSessionReferencesRejectsUnrelatedAppUsingDelegationEdge(t *test
 	}
 }
 
-func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsExpiredDelegationEdge(t *testing.T) {
 	now := time.Now()
 	db := &stubDB{
 		edge: &DelegationEdge{
@@ -1739,7 +1770,7 @@ func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   "agent-dst",
+		SessionID:        "agent-dst",
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1748,26 +1779,26 @@ func TestValidateSessionReferencesRejectsExpiredDelegationEdge(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsScopeOutsideDelegationEdge(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1782,7 +1813,7 @@ func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "write",
 	}, true)
@@ -1791,27 +1822,27 @@ func TestValidateSessionReferencesRejectsScopeOutsideDelegationEdge(t *testing.T
 	}
 }
 
-func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsDelegationBudget(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1827,7 +1858,7 @@ func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read write",
 	}, true)
@@ -1836,27 +1867,27 @@ func TestValidateSessionReferencesRejectsDelegationBudget(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1872,7 +1903,7 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 		TTLSeconds:       60,
@@ -1883,7 +1914,7 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 
 	db.agentIndex = 0
 	proof, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1892,26 +1923,26 @@ func TestValidateSessionReferencesRejectsDelegationTTLConstraint(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsMalformedDelegationConstraints(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
+		sessions: []*Session{source, target},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1927,7 +1958,7 @@ func TestValidateSessionReferencesRejectsMalformedDelegationConstraints(t *testi
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -1943,20 +1974,20 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 		t.Fatalf("hash client secret: %v", err)
 	}
 	boundResourceID := "res-bound"
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
@@ -1973,9 +2004,9 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 			Identifier: "resource://api/other",
 			Scopes:     []string{"read"},
 		},
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge1"},
-		graphEpoch:    9,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge1"},
+		graphEpoch: 9,
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -1996,7 +2027,7 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 		ClientSecret:     "test-secret",
 		Resources:        []string{"resource://api/other"},
 		Scope:            "read",
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 	}, "req-1")
 	if code != http.StatusForbidden || apiErr == nil || apiErr.Description != "policy denied" {
@@ -2004,27 +2035,27 @@ func TestExchangeRejectsResourceOutsideDelegationEdge(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"other-edge"},
+		sessions: []*Session{source, target},
+		path:     []string{"other-edge"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -2039,7 +2070,7 @@ func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	}
 	srv := &Server{db: db, metrics: &STSMetrics{}}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -2051,27 +2082,27 @@ func TestValidateSessionReferencesRejectsInvalidDelegationPath(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
+func TestValidateAuthorityRecordReferencesRejectsMaxHopOverflow(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge0", "edge1"},
+		sessions: []*Session{source, target},
+		path:     []string{"edge0", "edge1"},
 		edge: &DelegationEdge{
 			ID:              "edge1",
 			ZoneID:          "zone1",
@@ -2087,7 +2118,7 @@ func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	_, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -2096,22 +2127,22 @@ func TestValidateSessionReferencesRejectsMaxHopOverflow(t *testing.T) {
 	}
 }
 
-func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
+func TestValidateAuthorityRecordReferencesAcceptsDeepDelegationPath(t *testing.T) {
 	now := time.Now()
-	source := &AgentSession{
+	source := &Session{
 		ID:            "agent-src",
 		ZoneID:        "zone1",
 		ApplicationID: "app1",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
-	target := &AgentSession{
+	target := &Session{
 		ID:            "agent-dst",
 		ZoneID:        "zone1",
 		ApplicationID: "app2",
 		Status:        "active",
-		SpawnedAt:     now.Add(-time.Minute),
+		StartedAt:     now.Add(-time.Minute),
 		TTLSeconds:    600,
 	}
 	mainEdge := &DelegationEdge{
@@ -2129,10 +2160,10 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 	// Build a valid 3-edge chain: app1→app1 (edge0), app1→app2 (edge1), app2→app2 (edge2).
 	// Continuity: each edge's IssuerAppID must equal the previous edge's ReceiverAppID.
 	db := &stubDB{
-		agentSessions: []*AgentSession{source, target},
-		path:          []string{"edge0", "edge1", "edge2"},
-		graphEpoch:    12,
-		edge:          mainEdge,
+		sessions:   []*Session{source, target},
+		path:       []string{"edge0", "edge1", "edge2"},
+		graphEpoch: 12,
+		edge:       mainEdge,
 		edgesMap: map[string]*DelegationEdge{
 			"edge0": {
 				ID:              "edge0",
@@ -2159,7 +2190,7 @@ func TestValidateSessionReferencesAcceptsDeepDelegationPath(t *testing.T) {
 	}
 	srv := &Server{db: db}
 	proof, _, err := srv.validateSessionReferences(context.Background(), "zone1", "app2", TokenExchangeRequest{
-		AgentSessionID:   target.ID,
+		SessionID:        target.ID,
 		DelegationEdgeID: "edge1",
 		Scope:            "read",
 	}, true)
@@ -2205,7 +2236,7 @@ result := {"decision": "allow", "evaluation_status": "complete", "determining_po
 		},
 		Context: OPAContext{
 			ActorClaims:     map[string]any{"sub": "app2"},
-			AgentSessionID:  "agent-dst",
+			SessionID:       "agent-dst",
 			RequestedScopes: []string{"read"},
 		},
 	}

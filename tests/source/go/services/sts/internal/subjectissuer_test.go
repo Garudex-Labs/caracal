@@ -168,7 +168,7 @@ func TestValidateSubjectIdentifierIsFormatAgnostic(t *testing.T) {
 	}
 }
 
-func TestFederateSubjectMintsUserSession(t *testing.T) {
+func TestFederateSubjectMintsUserAuthorityRecord(t *testing.T) {
 	db := trustedIssuerDB(t)
 	key := federationKey(t)
 	srv := federationServer(t, db, federationJWKS(t, key, "ext-kid"))
@@ -186,10 +186,10 @@ func TestFederateSubjectMintsUserSession(t *testing.T) {
 	if claimString(claims, "scope") != "" {
 		t.Fatalf("federated session must carry no scopes, got %q", claimString(claims, "scope"))
 	}
-	if len(db.insertedSessions) != 1 {
-		t.Fatalf("expected one session insert, got %d", len(db.insertedSessions))
+	if len(db.insertedAuthorityRecords) != 1 {
+		t.Fatalf("expected one session insert, got %d", len(db.insertedAuthorityRecords))
 	}
-	sess := db.insertedSessions[0]
+	sess := db.insertedAuthorityRecords[0]
 	if sess.SessionType != "user" || sess.SubjectID == nil || *sess.SubjectID != "user_123" {
 		t.Fatalf("session row not user-typed for the federated sub: %+v", sess)
 	}
@@ -237,7 +237,7 @@ func TestFederateSubjectDenies(t *testing.T) {
 	}
 }
 
-func TestFederatedSessionCannotMintResources(t *testing.T) {
+func TestFederatedAuthorityRecordCannotMintResources(t *testing.T) {
 	db := trustedIssuerDB(t)
 	key := federationKey(t)
 	srv := federationServer(t, db, federationJWKS(t, key, "ext-kid"))
@@ -248,8 +248,8 @@ func TestFederatedSessionCannotMintResources(t *testing.T) {
 	// A federated user session presented as subject_token must not open a direct
 	// resource mint: resource exchanges are Gateway-only, and the platform contract
 	// has no allow rule for a subject-bearing exchange without a delegation edge.
-	sessRow := db.insertedSessions[0]
-	db.session = &Session{ID: sessRow.ID, ZoneID: "zone1", Status: "active", ExpiresAt: time.Now().Add(time.Hour), SubjectID: sessRow.SubjectID}
+	sessRow := db.insertedAuthorityRecords[0]
+	db.session = &AuthorityRecord{ID: sessRow.ID, ZoneID: "zone1", Status: "active", ExpiresAt: time.Now().Add(time.Hour), SubjectID: sessRow.SubjectID}
 	direct := TokenExchangeRequest{
 		GrantType:     "urn:ietf:params:oauth:grant-type:token-exchange",
 		SubjectToken:  resp.AccessToken,

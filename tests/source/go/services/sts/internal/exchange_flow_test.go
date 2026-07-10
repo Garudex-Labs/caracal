@@ -74,15 +74,15 @@ func exchangeFlowServer(t *testing.T, db DBQuerier, policy string) *Server {
 func sessionMandate(t *testing.T, srv *Server, sub, sid, scopes string) string {
 	t.Helper()
 	token, _, err := issueToken(context.Background(), IssueParams{
-		ZoneID:    "zone1",
-		AppID:     "app1",
-		SubjectID: sub,
-		SubType:   SubTypeUser,
-		Use:       UseSession,
-		SID:       sid,
-		RootSID:   sid,
-		Scopes:    scopes,
-		TTL:       time.Hour,
+		ZoneID:                "zone1",
+		AppID:                 "app1",
+		SubjectID:             sub,
+		SubType:               SubTypeUser,
+		Use:                   UseSession,
+		AuthorityRecordID:     sid,
+		RootAuthorityRecordID: sid,
+		Scopes:                scopes,
+		TTL:                   time.Hour,
 	}, srv.keys, srv.cfg.IssuerURL)
 	if err != nil {
 		t.Fatalf("issue session mandate: %v", err)
@@ -90,9 +90,9 @@ func sessionMandate(t *testing.T, srv *Server, sub, sid, scopes string) string {
 	return token
 }
 
-func activeUserSession(sid string) *Session {
+func activeUserAuthorityRecord(sid string) *AuthorityRecord {
 	subject := "user-1"
-	return &Session{
+	return &AuthorityRecord{
 		ID:          sid,
 		ZoneID:      "zone1",
 		SessionType: "user",
@@ -116,7 +116,7 @@ func exchangeHTTP(t *testing.T, srv *Server, form url.Values, header http.Header
 	return w
 }
 
-func TestExchangeMintsSessionMandate(t *testing.T) {
+func TestExchangeMintsAuthorityRecordMandate(t *testing.T) {
 	srv := exchangeFlowServer(t, exchangeFlowDB(t), runCredentialAllowPolicy)
 	w := exchangeHTTP(t, srv, url.Values{
 		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
@@ -149,7 +149,7 @@ func TestExchangeMintsSessionMandate(t *testing.T) {
 
 func TestExchangeGatewaySignedRequestMintsResourceMandate(t *testing.T) {
 	db := exchangeFlowDB(t)
-	db.session = activeUserSession("sess-1")
+	db.session = activeUserAuthorityRecord("sess-1")
 	db.resource.UpstreamURL = strPtr("https://api.pipernet.example")
 	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 	key := make([]byte, 32)
@@ -305,7 +305,7 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 
 	t.Run("resource exchange requires the gateway", func(t *testing.T) {
 		db := exchangeFlowDB(t)
-		db.session = activeUserSession("sess-1")
+		db.session = activeUserAuthorityRecord("sess-1")
 		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 		req := baseExchangeRequest()
 		req.SubjectToken = sessionMandate(t, srv, "user-1", "sess-1", "pipernet:read")
@@ -318,7 +318,7 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 	t.Run("ttl above session cap", func(t *testing.T) {
 		srv := exchangeFlowServer(t, exchangeFlowDB(t), runCredentialAllowPolicy)
 		req := baseExchangeRequest()
-		req.TTLSeconds = int(ttlSessionMandate.Seconds()) + 1
+		req.TTLSeconds = int(ttlAuthorityRecordMandate.Seconds()) + 1
 		_, _, code, _ := srv.exchange(context.Background(), req, "req-1")
 		if code != http.StatusBadRequest {
 			t.Fatalf("code = %d", code)
@@ -431,7 +431,7 @@ func TestExchangeControlResourceRequiresControlKey(t *testing.T) {
 
 func TestExchangeOperationFloor(t *testing.T) {
 	db := exchangeFlowDB(t)
-	db.session = activeUserSession("sess-1")
+	db.session = activeUserAuthorityRecord("sess-1")
 	db.resource.OperationEnforcement = OperationEnforcementEnforced
 	db.resource.Operations = []ResourceOperation{{Method: "GET", Path: "/items", Scope: "pipernet:read"}}
 	srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
@@ -585,36 +585,36 @@ func TestExchangeStepUpGate(t *testing.T) {
 	})
 }
 
-func TestExchangeAgentSessionOwnership(t *testing.T) {
-	agent := func(app, status string) *AgentSession {
-		return &AgentSession{
+func TestExchangeSessionOwnership(t *testing.T) {
+	agent := func(app, status string) *Session {
+		return &Session{
 			ID:            "agent-1",
 			ZoneID:        "zone1",
 			ApplicationID: app,
 			Lifecycle:     "task",
 			Status:        status,
-			SpawnedAt:     time.Now().Add(-time.Minute),
+			StartedAt:     time.Now().Add(-time.Minute),
 			TTLSeconds:    600,
 		}
 	}
-	run := func(t *testing.T, session *AgentSession) (int, *sharederr.CaracalError) {
+	run := func(t *testing.T, session *Session) (int, *sharederr.CaracalError) {
 		t.Helper()
 		db := exchangeFlowDB(t)
-		db.agentSessions = []*AgentSession{session}
+		db.sessions = []*Session{session}
 		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 		req := baseExchangeRequest()
-		req.AgentSessionID = "agent-1"
+		req.SessionID = "agent-1"
 		_, _, code, apiErr := srv.exchange(context.Background(), req, "req-agent")
 		return code, apiErr
 	}
 
 	if code, apiErr := run(t, agent("app1", "active")); code != http.StatusOK || apiErr != nil {
-		t.Fatalf("owned active agent session must mint, code=%d err=%#v", code, apiErr)
+		t.Fatalf("owned active Session must mint, code=%d err=%#v", code, apiErr)
 	}
 	if code, apiErr := run(t, agent("app2", "active")); code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, "not owned") {
-		t.Fatalf("peer-owned agent session must deny, code=%d err=%#v", code, apiErr)
+		t.Fatalf("peer-owned Session must deny, code=%d err=%#v", code, apiErr)
 	}
 	if code, apiErr := run(t, agent("app1", "revoked")); code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, "inactive") {
-		t.Fatalf("revoked agent session must deny, code=%d err=%#v", code, apiErr)
+		t.Fatalf("revoked Session must deny, code=%d err=%#v", code, apiErr)
 	}
 }

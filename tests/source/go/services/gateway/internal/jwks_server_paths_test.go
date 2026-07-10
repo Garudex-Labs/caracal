@@ -125,7 +125,7 @@ func TestGatewayReadyReportsSuccessAndDependencyFailures(t *testing.T) {
 func TestGatewayMetricsAuthorizationAndJSONGauges(t *testing.T) {
 	server := testGatewayServer(t, "http://127.0.0.1:1")
 	server.cfg.MetricsBearer = "secret"
-	server.revocations.markSession("sid-1")
+	server.revocations.markAuthorityRecord("sid-1")
 	server.revocations.markSnapshotFresh(time.Now().Add(-time.Second))
 
 	w := httptest.NewRecorder()

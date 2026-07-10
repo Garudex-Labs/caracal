@@ -32,7 +32,7 @@ func signingKeyCache(t *testing.T) (*KeyCache, *stubDB, string) {
 	return newKeyCache(db, testKeyring(zek)), db, pemKey
 }
 
-func TestIssueTokenSessionAndResourceClaims(t *testing.T) {
+func TestIssueTokenAuthorityRecordAndResourceClaims(t *testing.T) {
 	keys, _, pemKey := signingKeyCache(t)
 	priv, err := jwt.ParseECPrivateKeyFromPEM([]byte(pemKey))
 	if err != nil {
@@ -53,17 +53,17 @@ func TestIssueTokenSessionAndResourceClaims(t *testing.T) {
 
 	issuedAt := time.Now().Truncate(time.Second)
 	signed, jti, err := issueToken(context.Background(), IssueParams{
-		ZoneID:    "zone-1",
-		AppID:     "son-of-anton",
-		SubjectID: "user:richard.hendricks@piedpiper.example",
-		SubType:   SubTypeUser,
-		Use:       UseSession,
-		SID:       "sid-1",
-		RootSID:   "sid-root",
-		Scopes:    "read",
-		Resources: []string{"resource://pipernet"},
-		TTL:       time.Minute,
-		IssuedAt:  issuedAt,
+		ZoneID:                "zone-1",
+		AppID:                 "son-of-anton",
+		SubjectID:             "user:richard.hendricks@piedpiper.example",
+		SubType:               SubTypeUser,
+		Use:                   UseSession,
+		AuthorityRecordID:     "sid-1",
+		RootAuthorityRecordID: "sid-root",
+		Scopes:                "read",
+		Resources:             []string{"resource://pipernet"},
+		TTL:                   time.Minute,
+		IssuedAt:              issuedAt,
 	}, keys, "https://sts.piedpiper.example")
 	if err != nil || jti == "" {
 		t.Fatalf("issue failed: %v", err)
@@ -83,15 +83,15 @@ func TestIssueTokenSessionAndResourceClaims(t *testing.T) {
 	}
 
 	signed, _, err = issueToken(context.Background(), IssueParams{
-		ZoneID:         "zone-1",
-		AppID:          "son-of-anton",
-		SubjectID:      "son-of-anton",
-		SID:            "sid-2",
-		RootSID:        "sid-root",
-		Resources:      []string{"resource://pipernet", "resource://nucleus"},
-		TTL:            time.Minute,
-		DelegationPath: []string{"edge-1", "edge-2"},
-		GraphEpoch:     9,
+		ZoneID:                "zone-1",
+		AppID:                 "son-of-anton",
+		SubjectID:             "son-of-anton",
+		AuthorityRecordID:     "sid-2",
+		RootAuthorityRecordID: "sid-root",
+		Resources:             []string{"resource://pipernet", "resource://nucleus"},
+		TTL:                   time.Minute,
+		DelegationPath:        []string{"edge-1", "edge-2"},
+		GraphEpoch:            9,
 	}, keys, "https://sts.piedpiper.example")
 	if err != nil {
 		t.Fatal(err)

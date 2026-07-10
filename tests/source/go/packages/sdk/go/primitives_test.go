@@ -42,7 +42,7 @@ func makeCoordinatorServer(t *testing.T) (*httptest.Server, *[]string) {
 	return srv, calls
 }
 
-func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
+func TestSessionRunsCallbackWithBoundContext(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -71,7 +71,7 @@ func TestSpawnRunsCallbackWithBoundContext(t *testing.T) {
 	}
 }
 
-func TestSpawnTerminatesOnExit(t *testing.T) {
+func TestSessionTerminatesOnExit(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -89,11 +89,11 @@ func TestSpawnTerminatesOnExit(t *testing.T) {
 		}
 	}
 	if !deleted {
-		t.Errorf("expected DELETE call on spawn exit; calls: %v", *calls)
+		t.Errorf("expected DELETE call on Session exit; calls: %v", *calls)
 	}
 }
 
-func TestSpawnServiceHeartbeatAndClose(t *testing.T) {
+func TestSessionServiceHeartbeatAndClose(t *testing.T) {
 	calls := &[]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*calls = append(*calls, r.Method+" "+r.URL.Path)
@@ -141,7 +141,7 @@ func TestSpawnServiceHeartbeatAndClose(t *testing.T) {
 	}
 }
 
-func TestSpawnOnAgentStartHookCalled(t *testing.T) {
+func TestSessionOnAgentStartHookCalled(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -162,7 +162,7 @@ func TestSpawnOnAgentStartHookCalled(t *testing.T) {
 	}
 }
 
-func TestSpawnOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
+func TestSessionOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -198,7 +198,7 @@ func TestSpawnOnAgentStartErrorAbortsAndTerminates(t *testing.T) {
 	}
 }
 
-func TestSpawnPropagatesCoordinatorError(t *testing.T) {
+func TestSessionPropagatesCoordinatorError(t *testing.T) {
 	attempts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
@@ -223,7 +223,7 @@ func TestSpawnPropagatesCoordinatorError(t *testing.T) {
 	}
 }
 
-func TestSpawnRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
+func TestSessionRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
 	var keys []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -252,14 +252,14 @@ func TestSpawnRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(keys) != 2 {
-		t.Fatalf("expected 2 spawn attempts, got %d", len(keys))
+		t.Fatalf("expected 2 Session-start attempts, got %d", len(keys))
 	}
 	if keys[0] == "" || keys[0] != keys[1] {
 		t.Errorf("retry must reuse the same idempotency key, got %q then %q", keys[0], keys[1])
 	}
 }
 
-func TestSpawnServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) {
+func TestSessionServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) {
 	var mu sync.Mutex
 	heartbeats := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -598,7 +598,7 @@ func TestAdoptDelegationDerivesReceiverContext(t *testing.T) {
 	}
 }
 
-func TestSpawnNarrowRequiresActiveParent(t *testing.T) {
+func TestSessionNarrowRequiresActiveParent(t *testing.T) {
 	srv, _ := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 	err := sdk.Session(context.Background(), sdk.SessionInput{
@@ -613,7 +613,7 @@ func TestSpawnNarrowRequiresActiveParent(t *testing.T) {
 	}
 }
 
-func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
+func TestSessionNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	srv, calls := makeCoordinatorServer(t)
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
 
@@ -654,14 +654,14 @@ func TestSpawnNarrowIssuesSpawnThenDelegation(t *testing.T) {
 		}
 	}
 	if posts != 3 {
-		t.Errorf("expected 3 POSTs (parent spawn, child spawn, delegation), got %d: %v", posts, *calls)
+		t.Errorf("expected 3 POSTs (parent Session start, child Session start, delegation), got %d: %v", posts, *calls)
 	}
 	if !hasDelegation {
 		t.Errorf("delegation call missing: %v", *calls)
 	}
 }
 
-func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
+func TestSessionInheritCarriesParentEdgeForward(t *testing.T) {
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -713,14 +713,14 @@ func TestSpawnInheritCarriesParentEdgeForward(t *testing.T) {
 		t.Errorf("expected hop 2, got %d", child.Hop)
 	}
 	if len(bodies) != 1 || !strings.Contains(bodies[0], `"parent_authority":"inherit"`) {
-		t.Errorf("spawn body missing parent_authority inherit: %v", bodies)
+		t.Errorf("Session-start body missing parent_authority inherit: %v", bodies)
 	}
 	if strings.Contains(bodies[0], "inherit_parent_edge_id") {
-		t.Errorf("spawn body should not carry a client-resolved edge id: %v", bodies)
+		t.Errorf("Session-start body should not carry a client-resolved edge id: %v", bodies)
 	}
 }
 
-func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
+func TestSessionInheritSkipsEdgeCrossApp(t *testing.T) {
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -766,7 +766,7 @@ func TestSpawnInheritSkipsEdgeCrossApp(t *testing.T) {
 		t.Errorf("expected no child edge cross-app, got %q", child.DelegationID)
 	}
 	if len(bodies) != 1 || !strings.Contains(bodies[0], `"parent_authority":"inherit"`) {
-		t.Errorf("spawn body missing parent_authority inherit: %v", bodies)
+		t.Errorf("Session-start body missing parent_authority inherit: %v", bodies)
 	}
 	if strings.Contains(bodies[0], "inherit_parent_edge_id") {
 		t.Errorf("cross-app spawn should not resolve an edge client-side: %v", bodies)

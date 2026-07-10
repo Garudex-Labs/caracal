@@ -42,7 +42,7 @@ func (allowRevocations) IsRevoked(string) bool {
 	return false
 }
 
-func (allowRevocations) IsAgentRevoked(string) bool {
+func (allowRevocations) IsSessionRevoked(string) bool {
 	return false
 }
 
@@ -160,15 +160,15 @@ func makeJWTWithDelegation(t *testing.T, offset time.Duration, edgeID string) st
 	return header + "." + body + ".sig"
 }
 
-func makeJWTWithRoot(t *testing.T, offset time.Duration, rootSID string) string {
+func makeJWTWithRoot(t *testing.T, offset time.Duration, rootAuthorityRecordID string) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payload, _ := json.Marshal(struct {
-		Exp      int64  `json:"exp"`
-		ZoneID   string `json:"zone_id"`
-		ClientID string `json:"client_id"`
-		RootSID  string `json:"root_sid"`
-	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", RootSID: rootSID})
+		Exp                   int64  `json:"exp"`
+		ZoneID                string `json:"zone_id"`
+		ClientID              string `json:"client_id"`
+		RootAuthorityRecordID string `json:"root_sid"`
+	}{Exp: time.Now().Add(offset).Unix(), ZoneID: "z", ClientID: "a", RootAuthorityRecordID: rootAuthorityRecordID})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + body + ".sig"
 }
@@ -1318,7 +1318,7 @@ func TestStreamCopyStopsOnRootRevocationDuringExecution(t *testing.T) {
 		revoked: revoked,
 	}
 	var out strings.Builder
-	n, hit := streamCopy(&out, src, testFlusher{}, streamingRootRevoked{revoked: revoked}, tokenRevocationIDs{RootSID: "root-stream"})
+	n, hit := streamCopy(&out, src, testFlusher{}, streamingRootRevoked{revoked: revoked}, tokenRevocationAnchors{RootAuthorityRecordID: "root-stream"})
 	if !hit {
 		t.Fatal("expected stream to stop after root revocation")
 	}

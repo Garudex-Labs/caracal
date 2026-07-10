@@ -149,7 +149,7 @@ func TestServiceCloseSurfacesBearerAndEndHookErrors(t *testing.T) {
 	}
 }
 
-func TestSpawnRetireBearerFailureDoesNotMaskResult(t *testing.T) {
+func TestSessionRetireBearerFailureDoesNotMaskResult(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
@@ -172,7 +172,7 @@ func TestSpawnRetireBearerFailureDoesNotMaskResult(t *testing.T) {
 	}
 }
 
-func TestSpawnTreatsRetired409AsSuccess(t *testing.T) {
+func TestSessionTreatsRetired409AsSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
