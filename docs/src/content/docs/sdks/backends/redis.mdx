@@ -54,7 +54,9 @@ await consumer.start()
 
 Stream events can revoke multiple anchors. Resource servers should treat Redis or signature failures according to their risk posture; high-risk resources should fail closed.
 
-Each independently deployed resource instance uses a unique consumer name under a deployment-specific consumer group. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
+Delegated verification also needs the `caracal.delegations.invalidate` stream. Start `RedisDelegationInvalidationConsumer` beside `RedisRevocationConsumer` so the shared store receives the zone's current graph epoch; without it, signature and revocation-anchor checks still run, but `delegation_stale` cannot detect a mandate issued against an older graph epoch. The Python and Go Redis packages expose the equivalent delegation-invalidation consumer.
+
+Each independently deployed resource instance uses a unique consumer name under deployment-specific groups for both streams. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
 
 ## Related pages
 

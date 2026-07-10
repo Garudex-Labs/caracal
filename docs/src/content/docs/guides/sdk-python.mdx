@@ -46,35 +46,38 @@ async with caracal.session(labels=["refund-agent"]):
 
 See [If many agents share one managed application, can policy and audit still tell them apart?](/reference/faq/#faq-008).
 
-## Long-lived long-lived Sessions
+## Long-lived Sessions
 
-Daemons and workers that outlive a single request use `start_session()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the Session with `aclose()`. A long-lived Session is reaped only if it stops heartbeating before its lease expires. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
+Daemons and workers that outlive a single request use `start_session()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the Session with `aclose()`. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
 
 ```python
 svc = await caracal.start_session(labels=["billing-worker"])
 try:
     while running:
-        await do_work(caracal.headers())   # lease renews in the background
+        async with caracal.bind(svc.context):
+            await do_work(caracal.headers())
 finally:
     await svc.aclose()
 ```
 
-Service handles take the same `grant=` as `session()`: pass `Authority.narrow(...)` to issue a Delegation that bounds the service's authority for its whole lifetime, exactly as a narrowed task child. The handle's context carries the edge, and closing the handle retires the session.
+Narrowing requires an active parent. For a long-lived hierarchy, bind a parent service handle while starting its narrowed service child. The child context carries the edge, and closing each handle retires its own Session.
 
 ```python
-svc = await caracal.start_session(
-    labels=["billing-worker"],
-    authority=Authority.narrow(
-        ["ledger:read"],
-        ttl_seconds=600,
-        resource_id="resource://ledger",
-    ),
-)
+parent = await caracal.start_session(labels=["billing-orchestrator"])
+async with caracal.bind(parent.context):
+    svc = await caracal.start_session(
+        labels=["billing-worker"],
+        authority=Authority.narrow(
+            ["ledger:read"],
+            ttl_seconds=600,
+            resource_id="resource://ledger",
+        ),
+    )
 ```
 
 The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeat_interval` to fix the cadence, or `0` to disable the background task and call `heartbeat()` yourself. Because renewal runs on an independent task, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
-Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning:
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone, the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `on_state_change`.
 
 The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `on_state_change` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attach_session()` to restart lease renewal. `on_lease_lost` remains reserved for terminal loss.
 
@@ -109,7 +112,7 @@ async with caracal.session() as parent:
         authority=Authority.narrow(
             ["tickets:read"],
             resource_id="https://api.example.com/tickets",
-            constraints=DelegationConstraints(max_hops=1, budget=5),
+            constraints=DelegationConstraints(max_hops=1),
             ttl_seconds=600,
         ),
     ):
@@ -124,11 +127,13 @@ Use `async with caracal.bind(ctx)` before handing a captured context to a backgr
 
 ```python
 async with caracal.session():
-    async with caracal.transport() as client:
+    async with caracal.transport(
+        scopes=["tickets:read"], propagation="gateway-only"
+    ) as client:
         await client.get("https://api.example.com/tickets")
 ```
 
-The transport injects Caracal envelope headers and rewrites configured resource-bound URLs through the Gateway.
+The transport mints the scoped Gateway-ingress mandate, injects Caracal envelope headers, and rewrites configured resource-bound URLs through the Gateway. Calls without `scopes` require an already Gateway-class bound token.
 
 ## ASGI propagation
 

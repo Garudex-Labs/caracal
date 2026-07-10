@@ -25,7 +25,7 @@ pageType: reference
 | STS `MAX_GRANT_TTL_SECONDS`                  | `3600`                                                      |
 | DCR application lifetime default and maximum | 3600 seconds                                                |
 | `caracal run` injected credential TTL        | 900 seconds                                                 |
-| Runtime approval wait                        | long-polls the hold for up to 5 minutes                     |
+| Runtime approval wait                        | until the hold expires; 5-minute fallback when expiry is unavailable |
 | Step-up hold TTL                             | 1800 seconds default, clamped between 60 seconds and 7 days |
 | Step-up decision reason                      | 500 characters maximum                                      |
 | Gateway expiring-token preflight window      | 35 seconds                                                  |
@@ -59,7 +59,7 @@ The SDKs share one timeout philosophy: **control-plane calls are always bounded,
 | Session start             | up to 2 retries                      | 5xx/network only. The SDK generates one operation id before the first attempt; Coordinator durably replays the same creation response and rejects changed inputs. This protects Session creation, not callback execution or downstream effects. |
 | Delegation create         | 1 retry                              | Same durable creation-replay contract.                                                                                                                                                                                                          |
 | Retry backoff             | 250 ms escalating, jittered          | A server `Retry-After` wins, capped at 10 seconds.                                                                                                                                                                                              |
-| STS token exchange        | 30-second budget, up to 3 attempts   | Transient statuses only; policy denials never retry.                                                                                                                                                                                            |
+| STS token exchange        | 30-second budget, up to 4 attempts   | One initial attempt plus up to three retries for transient statuses; policy denials never retry.                                                                                                                                                 |
 | TypeScript Control invoke | 30-second total budget               | Covers token mint, its one safe retry, and invoke; mutating invoke timeouts are outcome-ambiguous and never auto-retried.                                                                                                                       |
 | Approval wait             | 300-second default                   | Long-polls in chunks; `pending` on timeout means waiting again is safe.                                                                                                                                                                         |
 | Heartbeat renewal         | 10-second bound per tick             | Failures retry on the next tick; a session reported gone stops the timer and fires `onLeaseLost`.                                                                                                                                               |

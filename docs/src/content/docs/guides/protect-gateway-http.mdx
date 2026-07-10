@@ -62,9 +62,11 @@ Gateway-routed requests include:
 
 SDKs can build the Gateway request and inject headers for you:
 
-- TypeScript: `caracal.gatewayRequest()` and `caracal.transport()`
-- Python: `caracal.gateway_request()` and `caracal.transport()`
-- Go: `GatewayRequest()` and `Transport()`
+- TypeScript: `caracal.gatewayRequest()` plus `caracal.transport({ scopes })`
+- Python: `caracal.gateway_request()` plus `caracal.transport(scopes=[...])`
+- Go: `GatewayRequest()` plus `Transport(nil, CallOptions{Scopes: ...})`
+
+The request helper supplies only the Gateway URL and `X-Caracal-Resource`; the scoped transport mints and attaches the required `use=gateway` mandate. Do not combine the helper with raw lifecycle headers.
 
 ## Verify Authorization and Audit
 

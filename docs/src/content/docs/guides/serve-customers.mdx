@@ -5,7 +5,7 @@ description: Run one Caracal deployment that serves many of your customers, with
 
 [Model Your Application in Caracal](/guides/modeling-recipes/) compares the isolation models at a high level. This page is the end-to-end pattern for the most common case: your application is a single product that serves many of _its own_ customers, and you want clean per-customer authority without standing up infrastructure for each customer.
 
-The short answer: run **one zone for your deployment** and carry **each customer on the work itself** - a `customer:` label that policy confines and a `customer_id` metadata key that audit filters. Customer separation lives below the zone - in sessions, labels, and delegation - which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
+The short answer: run **one zone for your deployment** and carry **each customer on the work itself** through a `customer:` label that policy confines and audit can filter. Keep `customer_id` metadata only when Coordinator inspection needs an additional business key. Customer separation lives below the zone - in Sessions, labels, and Delegation - which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
 
 :::note[FAQ]
 [What should a zone represent?](/reference/faq/#faq-003) and [does the open-source edition include managed multi-tenancy?](/reference/faq/#faq-004)
@@ -17,7 +17,7 @@ The short answer: run **one zone for your deployment** and carry **each customer
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | Zone                        | Signing keys, policy set, resources, providers, audit trail                                                                 | No - one per deployment        |
 | Application                 | Your product's service identity                                                                                             | No - shared by all customers   |
-| Customer label and metadata | The customer the work is for: a `customer:<id>` label policy can restrict and a `customer_id` metadata key audit can filter | Yes - stamped on every session |
+| Customer label and metadata | The customer the work is for: a `customer:<id>` label policy and audit can filter; optional `customer_id` metadata remains Coordinator inspection data | Yes - stamped on every Session |
 | Session                     | One agent run, labeled and attributed to one customer                                                                       | Yes - one per customer task    |
 | Delegation                  | The scoped authority that agent holds for one resource                                                                      | Yes - least privilege per task |
 
@@ -41,14 +41,15 @@ Caracal does not authenticate your customers, does not own your user directory, 
 
 Choose an id that never changes for the life of the account - an account UUID, not an email or display name - so audit history stays attributable even after profile changes. Do not reuse one identifier across two customers: separation is only as strong as your identifier discipline.
 
-The identifier enters Caracal on every session your application starts for that customer: as a `customer:<id>` label when policy must restrict the work, and as the `customer_id` metadata key for attribution. The `sub` recorded on the underlying STS sessions is your application's identity from the client-credentials chain; the customer rides on the work itself.
+The identifier enters Caracal on every Session your application starts for that customer as a `customer:<id>` label. Policy and audit consume that label. Add a `customer_id` metadata key only for direct Coordinator inspection; Session metadata is not STS policy or audit input. The `sub` recorded on the underlying STS Authority record is your application's identity from the client-credentials chain; the customer rides on the work itself.
 
 ## Step 3: Start a per-Customer Session with a Correlation Key
 
-Start the session for a customer's request inside the one zone and stamp the customer id into the session's metadata. The metadata travels with the Session and makes per-customer attribution a direct lookup instead of a guess.
+Start the Session for a customer's request inside the one zone and stamp the customer ID into a label. The label travels into policy and audit, making per-customer attribution a direct lookup instead of a guess. Optional metadata can support direct Coordinator inspection but is not copied into decision audit events.
 
 ```python
 async with caracal.session(
+  labels=[f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:
     # Every gateway and provider call in this block carries a scoped,
@@ -56,10 +57,10 @@ async with caracal.session(
     await do_work(ctx)
 ```
 
-The session's STS record is the authority anchor; the customer id in `metadata` is the business correlation key. Use a single, consistent metadata key - `customer_id` is the recommended convention - so audit queries and dashboards can filter by customer without per-app special cases.
+The Session ID and Authority record are the exact authority anchors; the `customer:` label is the business correlation key exposed to policy and audit. Keep the optional `customer_id` metadata key aligned with that label when Coordinator inspection needs the raw value.
 
 :::caution[Attribution is not enforcement]
-Agent metadata travels with the session and lands in audit, but it is **not** part of policy input. The platform decision contract decides from the agent's labels (`input.principal.labels`) and the Delegation - never from the metadata map. Use metadata to _find_ a customer's activity; use labels when policy must _restrict_ it.
+Session metadata is stored by Coordinator but does not enter STS policy or decision audit. The platform decision contract decides from Session labels (`input.principal.labels`) and the Delegation. Use the `customer:` label to restrict and find customer activity; use metadata only for direct Session inspection.
 :::
 
 For fan-out work, give each child agent the least authority it needs with [delegation](/guides/delegation/), keeping one customer's blast radius contained even though all customers share the zone.
@@ -115,11 +116,11 @@ A Session started for a scale-plan customer carries the `scale-plan` label and m
 
 ## Step 5: Attribute and Revoke per Customer
 
-Every decision is written to the zone audit ledger with the application, Authority record, Session, and Delegation chain. The customer id rides in the Session metadata and labels you set in Steps 2 and 3, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
+Every decision is written to the zone audit ledger with the application, Authority record, Session, labels, and Delegation chain. The customer ID rides in the `customer:` label set in Steps 2 and 3, so you can answer "what did this customer do, with what authority" from the audit trail. See [Audit and Request Traces](/concepts/audit-ledger/).
 
-To build a per-customer read-only view - for an internal support console or a customer-facing activity page - query the shared trail by the convention you already established: filter Sessions on the `customer_id` metadata key (or the `customer:` label), then collect each session's decisions, delegations, and Gateway events. Because every session carries the key from Session start, the view is a filter over one audit trail, not a separate per-customer store. The same filter scopes Console searches and SIEM exports.
+To build a per-customer read-only view - for an internal support console or a customer-facing activity page - filter the shared Session and audit surfaces by the `customer:` label, then collect each Session's decisions, Delegations, and Gateway events by Session ID. This remains a filter over one audit trail, not a separate per-customer store.
 
-To cut a customer off, terminate that customer's sessions and revoke their Delegations - find them by the `customer_id` metadata key or the `customer:` label; cascade revocation tears down the chain beneath them. There is no single "purge everything for a customer" call, so iterate the customer's sessions and agents. See [Sessions and Revocation](/concepts/sessions-revocation/).
+To cut a customer off, find Sessions by the `customer:` label, terminate them, and revoke their Delegations; cascade revocation tears down the chain beneath them. There is no single "purge everything for a customer" call, so iterate the matching Sessions. See [Sessions and Revocation](/concepts/sessions-revocation/).
 
 ## Limits to Plan For
 
@@ -136,7 +137,7 @@ In the open-source edition you provision and automate those zones yourself throu
 
 ## Validate the Pattern
 
-- Sign in as two different customers, run the same workflow, and confirm each produces a distinct subject and Session in the web console.
+- Sign in as two different customers, run the same workflow, and confirm each produces a distinct Session carrying the correct `customer:` label in the web console.
 - Author grant data that gives one customer's role a resource and withholds it from another, then confirm both decisions in the audit trail.
 - Revoke one customer's session and confirm its in-flight agents lose authority while the other customer is unaffected.
 

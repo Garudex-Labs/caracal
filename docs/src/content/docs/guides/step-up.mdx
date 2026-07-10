@@ -42,13 +42,13 @@ approval_tiers := [
 | `ttl_seconds` | How long the hold stays decidable, clamped between 60 seconds and 7 days. Defaults to 1800.                                                                        |
 | `privacy`     | How much approver identity the decision record retains: `identified`, `pseudonymous`, or `anonymous`. Defaults to `identified`.                                    |
 
-When one mint matches several tiers, the hold merges them strictly: the most trusted approver class, the shortest window, and the most protective privacy mode win.
+When one mint matches several compatible tiers, the shortest window and most protective privacy mode win, and a specific `operator` or `subject` requirement wins over `any`. A request that combines an operator-only tier with a subject-only tier is denied and must be split into separate mints: one decision cannot satisfy two independent approver roles. Invalid approver, privacy, or TTL declarations fail the mint closed.
 
 Tune `ttl_seconds` to the tier's real decision window: it bounds how long an approved-but-unconsumed hold stays spendable, so a shorter TTL shrinks the window in which a leaked approval could be consumed, while a TTL shorter than your approvers' actual response time just converts legitimate requests into expiries. High-value, rarely exercised operations warrant minutes; routine operator flows can keep the 30-minute default.
 
 ## Handle the hold in the agent
 
-The `interaction_required` error carries the approval id, the tier, the expiry, and a `binding` - a hash of the exact resource and scope set held. The SDK runs the whole flow - catch the hold, wait for the decision, retry with the approval id so the retried mint consumes it - in one call:
+The `interaction_required` error carries the approval id, tier, expiry, and an opaque `binding`. The binding covers the principal, Authority record, governed Session, Delegation, application, canonical resource and scope sets, active policy-set manifest, and platform decision contract. A retry after policy or execution context changes cannot spend an earlier decision. The SDK runs the whole flow - catch the hold, wait for the decision, retry with the approval id so the retried mint consumes it - in one call:
 
 ```ts
 import { Caracal } from '@caracalai/sdk'
@@ -100,7 +100,7 @@ The SDKs wrap both steps: `caracal.federateSubject(idToken)` creates the Subject
 
 ## Retry the exchange
 
-Retry with `challenge_id` once the hold is approved. The STS verifies the approval matches the same session, principal, and binding, then consumes it: an approval releases exactly one mandate for exactly the held resource and scope set and can never be replayed. Every issuance, decision, and consumption lands in the zone audit stream.
+Retry with `challenge_id` once the hold is approved. STS verifies the complete binding against the current execution and policy context, then consumes it: an approval releases at most one mandate for the held capability and cannot be replayed. STS emits issuance, decision, and consumption lifecycle events to the zone audit pipeline.
 
 ## Troubleshooting
 
@@ -110,6 +110,6 @@ Retry with `challenge_id` once the hold is approved. The STS verifies the approv
 | `subject_approval_required` on approve | The tier declares `"approver": "subject"`: only the application's own federated end user can decide it. Relay the hold to the user, or redeclare the tier as `operator` or `any`. |
 | `challenge_not_decidable`              | The hold was already decided, consumed, or expired; the response names its current state.                                                                                         |
 | `approve_capability_required`          | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability.                                                                                       |
-| Retry still denied                     | The approval may have expired before consumption, or the retry changed the resource or scope set - the binding must match the original request exactly.                           |
+| Retry still denied                     | The approval may have expired, or the retry changed its principal, Authority record, Session, Delegation, application, resource, scopes, policy set, or decision contract. Request a fresh approval for the current context. |
 
 Related pages: [Step-Up Challenges](/concepts/step-up/), [Approval Notifications](/guides/approval-notifications/), and [Author Policy Data](/guides/author-policy/).

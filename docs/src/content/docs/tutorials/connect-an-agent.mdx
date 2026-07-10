@@ -50,7 +50,7 @@ const resourcePath = process.env.CARACAL_RESOURCE_PATH!
 
 await caracal.session(async () => {
   const request = caracal.gatewayRequest(resourceId, resourcePath)
-  const response = await caracal.transport()(request.url, {
+    const response = await caracal.transport({ scopes: ['billing:submit'], propagation: 'gateway-only' })(request.url, {
     method: 'POST',
     headers: { ...request.headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ amount: 1200 }),
@@ -79,7 +79,9 @@ resource_path = os.environ["CARACAL_RESOURCE_PATH"]
 async def main():
     async with caracal.session():
         request = caracal.gateway_request(resource_id, resource_path)
-        async with caracal.transport() as client:
+        async with caracal.transport(
+            scopes=["billing:submit"], propagation="gateway-only"
+        ) as client:
             response = await client.post(
                 request.url,
                 headers=request.headers,
@@ -118,7 +120,10 @@ err = c.Session(context.Background(), func(ctx context.Context) error {
     req.Header = target.Header.Clone()
     req.Header.Set("Content-Type", "application/json")
 
-    resp, err := c.Transport(nil).Do(req)
+    resp, err := c.Transport(nil, caracal.CallOptions{
+        Scopes: []string{"billing:submit"},
+        Propagation: caracal.PropagationGatewayOnly,
+    }).Do(req)
     if err != nil {
         return err
     }
@@ -137,7 +142,7 @@ if err != nil {
 | `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange.                                    |
 | `session()` / `Session()`               | Creates a Session, binds context, and tears it down after the block returns.                   |
 | `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header.                                        |
-| `transport()` / `Transport()`           | Injects trace and baggage context, Gateway routing, and Authorization on Gateway-routed calls. |
+| `transport()` / `Transport()`           | Mints scoped Gateway authority, injects trace and baggage context, and applies routing.         |
 
 `session()` is the session boundary. If the function exits or raises, the SDK terminates the Session and active authority for that session is revoked.
 

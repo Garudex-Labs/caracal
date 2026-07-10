@@ -43,10 +43,10 @@ The constructor never searches home directories or default profile paths. Multip
 | `headers(options?)`                            | Project the current bound context into HTTP headers synchronously.                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `headersAsync(options?)`                       | Project headers when a root token may require async refresh.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `bindFromHeaders(headers, fn, options?)`       | Bind inbound Caracal envelope headers to the current async context.                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `transport(options?)`                          | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to authorize gateway calls with a scoped resource mandate instead of the raw subject token, `timeoutMs` to bound every call, and `propagation: "gateway-only"` to keep the context envelope off third-party hosts.                                                                                                                                                                          |
-| `applicationTransport(resourceId, options)`    | Return a fetch pinned to one resource, calling as the application's own identity. Provisioning starts one source/target Session pair and one narrowed Delegation per cache key; every request performs an uncached final mint, so sequential and concurrent calls carry distinct replay-protected JTIs. Provisioning costs four control-plane calls roughly once per mandate TTL, then each request costs one STS mint. `close()` retires cached and in-flight backing Sessions best-effort. |
+| `transport(options?)`                          | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to mint the `use=gateway` mandate required at Gateway ingress, `timeoutMs` to bound the mint and request, and `propagation: "gateway-only"` to keep the context envelope off third-party hosts. Gateway redirects are surfaced without automatic replay.                                                                                                                                       |
+| `applicationTransport(resourceId, options)`    | Return a fetch pinned to one resource, calling as the application's own identity. Provisioning starts one source/target Session pair and one narrowed Delegation per cache key; every request performs an uncached final mint and emits trace and authority-correlation headers. A cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange; a warm call still performs both per-request STS exchanges. `close()` retires backing Sessions best-effort. |
 | `mintMandate(resourceId, scopes, options?)`    | Mint a cached resource mandate carrying the bound Session and Delegation; returns `{ token, expiresInSeconds }` so callers can schedule refresh. Requires client-secret credentials.                                                                                                                                                                                                                                                                                                           |
-| `federateSubject(idToken, options?)`           | Exchange an end user's identity token for an Authority record and return `{ subjectAuthorityRecordId, token, expiresInSeconds }`. Passing `subjectAuthorityRecordId` when starting a Session links attribution and lifecycle only; it does not by itself propagate the federated `sub` into later resource mandates. The returned mandate is the Subject's credential for supported approval and exchange paths.                                                                               |
+| `federateSubject(idToken, options?)`           | Exchange an end user's identity token for an Authority record and return `{ subjectAuthorityRecordId, token, expiresInSeconds }`. Start attributed work with both `subjectAuthorityRecordId` and `subjectAuthorityRecordToken: token`; Coordinator verifies the signed proof before binding the record. This does not by itself propagate the federated `sub` into later resource mandates. The returned mandate also remains the Subject's credential for supported approval and exchange paths. |
 | `waitForApproval(approvalId, options?)`        | Long-poll an approval raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`).                                                                                                                                                                                                                                                                                                                                       |
 | `withApproval(fn, options?)`                   | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                          |
 | `gatewayRequest(resourceId, path?)`            | Build a Gateway URL and `X-Caracal-Resource` header.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -70,7 +70,6 @@ await caracal.session(
       resourceId: 'https://api.example.com/tickets',
       constraints: {
         maxHops: 1,
-        budget: 5,
         policyApproved: true,
       },
       ttlSeconds: 600,
@@ -79,17 +78,41 @@ await caracal.session(
 )
 ```
 
-`DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `budget`, `policyApproved`, `expiresAt`, and `broadReason`.
+`DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `policyApproved`, `expiresAt`, and `broadReason`. `policyApproved` and `broadReason` are audit/display metadata, not authorization decisions.
 
-`budget` is the maximum distinct requested scopes in each token exchange; repeated exchanges do not consume it. `policyApproved` and `broadReason` are audit/display metadata, not authorization decisions.
-
-Every request sent through `transport()` carries the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` baggage entries for Session, Delegation, and Subject authority record correlation. These are visible correlation identifiers, never credentials. The bearer token is attached only to Gateway-routed calls, and Gateway strips `caracal.*` baggage before forwarding upstream. Use `propagation: "gateway-only"` when third-party hosts must not receive the correlation identifiers.
+Every request sent through `transport()` carries the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` baggage entries for Session, Delegation, and Subject authority record correlation. These are visible correlation identifiers, never credentials. The bearer is attached only inside the configured Gateway origin and base path, and Gateway strips `caracal.*` baggage before forwarding upstream. Use `propagation: "gateway-only"` when third-party hosts must not receive the correlation identifiers. Gateway-bound calls without `scopes` are valid only when the bound token is already a `use=gateway` mandate; lifecycle and resource tokens fail locally.
 
 ## Protect Inbound Requests
 
-Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself; the callback receives the inbound token and must throw on failure. Return a `VerifiedClaims` object to stamp token-proven attribution (zone, application, Session, Delegation, hop) over the caller-supplied envelope headers. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must enforce mandate signatures, scopes, targets, Session identity, Delegation, or revocation at its own boundary.
+Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself. The callback must throw on failure and return a complete authoritative `VerifiedClaims` projection. Zone, application, and hop are required. Optional Session, Delegation, parent Delegation, and Subject authority record fields omitted from the result are authoritatively absent; they never fall back to unsigned caller baggage after verification.
 
-Header and transport helpers refuse to fall back to the application root token unless you pass `{ asApplication: true }`. Use that option only for trusted service-root ingress or setup calls. Normal agent work should run inside `session()`, `delegate()`, or `bindFromHeaders()`.
+```ts
+import { verify as verifyToken } from '@caracalai/identity'
+
+app.use(
+  caracal.contextMiddleware({
+    verify: async (token) => {
+      const claims = await verifyToken(token, {
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        zoneId: ZONE_ID,
+      })
+      return {
+        zoneId: claims.zoneId,
+        applicationId: claims.clientId,
+        sessionId: claims.sessionId,
+        delegationId: claims.delegationId,
+        subjectAuthorityRecordId: claims.authorityRecordId,
+        hop: claims.hopCount ?? 0,
+      }
+    },
+  }),
+)
+```
+
+Trace context and non-Caracal baggage remain propagation data. Use [Verification Layer Overview](/sdks/verification-layer/) when the TypeScript service must also enforce revocation, scopes, targets, Session identity, or Delegation requirements. The advanced `caracalFastifyHook()` entrypoint is intended for Fastify's `onRequest` hook; ambient context is inherited by asynchronous work created during request dispatch, so detached background work must capture only the context it intentionally retains.
+
+Header and transport helpers refuse to fall back to the application root token unless you pass `{ asApplication: true }`. Use that option only for trusted service-root ingress or setup calls. When inbound middleware injects application identity, caller-supplied Caracal authority baggage is discarded. Normal agent work should run inside `session()`, `delegate()`, or `bindFromHeaders()`.
 
 ## Errors and Observability
 

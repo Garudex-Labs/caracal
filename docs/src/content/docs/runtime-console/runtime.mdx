@@ -68,7 +68,7 @@ Web console **Guided setup** is the recommended way to create the first zone, pr
 
 ## Step-Up Challenges
 
-When STS returns `interaction_required`, the runtime writes an `approval_required` notice with the challenge id and binding, long-polls the hold for up to five minutes, and retries the mint once it is approved. If the hold is rejected, expires, or the wait times out, the subprocess is not spawned.
+When STS returns `interaction_required`, the runtime writes an `approval_required` notice with the challenge id and binding, long-polls until the hold expires, and retries the mint once it is approved. It uses a five-minute fallback only when the response carries no usable expiry. If the hold is rejected, expires, or the wait times out, the subprocess is not spawned.
 
 ## Child Environment Contract
 

@@ -47,7 +47,10 @@ func main() {
 ## Use an HTTP client
 
 ```go
-httpClient := client.Transport(nil)
+httpClient := client.Transport(nil, caracal.CallOptions{
+	Scopes:      []string{"tickets:read"},
+	Propagation: caracal.PropagationGatewayOnly,
+})
 
 err := client.Session(context.Background(), func(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/tickets", nil)
@@ -59,7 +62,7 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 })
 ```
 
-The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
+The transport mints the scoped Gateway-ingress mandate and injects Caracal envelope headers from `context.Context`. For explicit routing metadata, use `GatewayRequest()` and send the resulting request through the scoped transport; the helper alone does not authenticate it.
 
 ## Long-lived long-lived Sessions
 
@@ -102,7 +105,7 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 		return nil
 	}, caracal.SessionOptions{
 		Authority: caracal.AuthorityNarrow([]string{"tickets:read"}, caracal.NarrowOptions{
-			Constraints: &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
+			Constraints: &caracal.DelegationConstraints{MaxHops: 1},
 			TTLSeconds:  600,
 		}),
 	})

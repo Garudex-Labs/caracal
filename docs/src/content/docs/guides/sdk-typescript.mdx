@@ -47,15 +47,17 @@ await caracal.session(
 
 See [If many agents share one managed application, can policy and audit still tell them apart?](/reference/faq/#faq-008).
 
-## Long-lived long-lived Sessions
+## Long-lived Sessions
 
-Daemons and workers that outlive a single request use `startSession()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the Session with `close()`. Each renewal extends the lease. A long-lived Session is reaped only if it stops heartbeating before its lease expires. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
+Daemons and workers that outlive a single request use `startSession()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the Session with `close()`. Each renewal extends the lease. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
 
 ```ts
 const svc = await caracal.startSession({ labels: ['billing-worker'] })
 try {
   while (running) {
-    await doWork(await caracal.headersAsync()) // lease renews in the background
+    await caracal.bind(svc.context, async () => {
+      await doWork(await caracal.headersAsync())
+    }) // lease renews in the background
   }
 } finally {
   await svc.close()
@@ -72,7 +74,7 @@ The renewal cadence is controlled by `heartbeatIntervalMs`:
 
 The handle exposes `deadlineAt` - the lease deadline the coordinator reported on the last renewal - so a worker can surface its own liveness margin. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
-Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning:
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone, the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `onStateChange`.
 
 The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `onStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attachSession()` to restart lease renewal. `onLeaseLost` remains reserved for terminal loss.
 
@@ -109,7 +111,7 @@ await caracal.session(async () => {
     {
       authority: Authority.narrow(['tickets:read'], {
         resourceId: 'https://api.example.com/tickets',
-        constraints: { maxHops: 1, budget: 5 },
+        constraints: { maxHops: 1 },
         ttlSeconds: 600,
       }),
     },
@@ -134,23 +136,18 @@ A rejected, expired, or already-consumed decision rethrows the original `Approva
 ## Route through the Gateway
 
 ```ts
-const request = caracal.gatewayRequest('https://api.example.com/tickets', '/tickets')
-
-await fetch(request.url, {
-  headers: {
-    ...request.headers,
-    ...(await caracal.headersAsync({ asApplication: true })),
-  },
+await caracal.fetch('https://api.example.com/tickets', '/tickets', {
+  scopes: ['tickets:read'],
 })
 ```
 
-For provider SDKs that accept a custom `fetch`, pass `caracal.transport()` so Caracal headers and Gateway routing are applied automatically.
+For provider SDKs that accept a custom `fetch`, pass `caracal.transport({ scopes: ['tickets:read'], propagation: 'gateway-only' })` so Caracal mints a Gateway-ingress mandate and applies routing automatically. `gatewayRequest()` only builds a URL and routing header; it does not authenticate the request.
 
 ## Call as the application
 
 Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })`: a fetch pinned to one resource, calling as the application's own identity. There is no ambient authority to borrow, so each mint cycle _builds_ the authority the platform requires: it starts a **source and target session pair**, issues a delegation narrowing `scopes` to the resource between them, and mints the mandate from that delegation - which is why every request the transport sends is still session-attributed, policy-checked, and delegation-bounded in audit, exactly like user-context traffic.
 
-Authority provisioning costs four control-plane calls (one lifecycle bootstrap mint, two Session starts, and one Delegation) roughly once per authority cache key and mandate TTL. Same-key callers share provisioning, and distinct-key provisioning is serialized to stay within Coordinator Session capacity. Every outbound request then performs one uncached STS mandate mint so its replay-protected JTI is unique. Cache hits avoid Coordinator and Delegation traffic, but STS throughput still scales with governed request throughput. Tune `mandateTtlSeconds` for authority lifetime, not to eliminate the per-request mint.
+Authority provisioning costs four control-plane calls (one lifecycle bootstrap mint, two Session starts, and one Delegation) roughly once per authority cache key and mandate TTL. Same-key callers share provisioning, and distinct-key provisioning is serialized to stay within Coordinator Session capacity. Every outbound request then performs one uncached SDK mint, and Gateway performs a second STS exchange before dispatch. Cache hits avoid Coordinator and Delegation traffic, but both STS operations remain. Tune `mandateTtlSeconds` for authority lifetime, not to eliminate per-request exchange.
 
 ```ts
 const llm = new OpenAI({
