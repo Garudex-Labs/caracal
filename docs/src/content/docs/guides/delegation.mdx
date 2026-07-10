@@ -52,7 +52,7 @@ await caracal.session(async () => {
 
 ## Hand Over the Delegation ID Safely
 
-The issuer and receiver share the Delegation ID over their authenticated work channel, such as a queue message, RPC field, or task payload. The ID is a reference, not a bearer credential: STS binds every mint to the receiving Session. Use `acceptDelegation(delegationId, fn, { validate: true })` when the channel allows retries or replays so the receiver confirms the Delegation is live before work runs under it. Every presentation emits a `delegation.accept` event.
+The issuer and receiver share the opaque Delegation ID over their authenticated work channel, such as a queue message, RPC field, or task payload. Creation is only an offer and does not mutate receiver context. Possessing and presenting this target-Session-bound ID through `acceptDelegation()` is receiver consent; STS also checks the receiving application and live target Session. Use `acceptDelegation(delegationId, fn, { validate: true })` to confirm that exact ID with Coordinator before work runs under it. Every presentation emits a `delegation.accept` event.
 
 ## Safe constraints
 
@@ -61,7 +61,7 @@ The issuer and receiver share the Delegation ID over their authenticated work ch
 | Scopes     | Small subset of parent authority.         |
 | TTL        | Minutes, not days.                        |
 | Hop count  | `1` unless a deeper graph is intentional. |
-| Budget     | Explicit request or work limit.           |
+| Budget     | Maximum distinct scopes in each exchange. |
 | Resource   | Single resource whenever possible.        |
 
 ## Troubleshooting
@@ -69,8 +69,8 @@ The issuer and receiver share the Delegation ID over their authenticated work ch
 | Symptom                               | Check                                                                |
 | ------------------------------------- | -------------------------------------------------------------------- |
 | `Delegate requires an active Session` | Call delegation inside `session()` or a bound Caracal context.       |
-| Resource denies delegated request     | Confirm policy accepts the edge constraints and required scopes.     |
-| Chain validation fails                | Confirm the expected application appears in the delegation path.     |
+| Resource denies delegated request     | Confirm the edge, ancestry, policy grant, and required scopes remain live. |
+| Chain validation fails                | Confirm authoritative parent links are continuous; configure `requireChainContains` separately at verifiers when needed. |
 | Revocation did not affect child       | Confirm cascade revocation and resource-server revocation consumers. |
 
 Related pages: [Session Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).

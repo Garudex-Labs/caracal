@@ -47,6 +47,8 @@ sequenceDiagram
 
 Gateway proxies HTTP request/response traffic, including streamed responses such as SSE, with revocation re-checked on every streamed chunk. It does not proxy WebSocket connections: hop-by-hop headers, including `Upgrade`, are stripped before forwarding, so upgrade handshakes never reach the upstream. Enforce mandates for WebSocket workloads in-process at the service edge with the verification engine or a framework adapter.
 
+Gateway replicas consume revocations through a stable per-host consumer group, with one process-specific consumer in that group. A startup Postgres snapshot establishes current state before the group begins at the stream tail; pending recovery claims messages left by a crashed process on the same host identity. This preserves replica broadcast without creating a fresh group or replaying full history on every restart.
+
 ## Configuration Highlights
 
 | Variable | Purpose |

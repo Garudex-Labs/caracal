@@ -407,7 +407,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <li>Each <strong>manager</strong> is a plain <code>session()</code> that inherits the application's authority.</li>
         <li>Each <strong>task worker</strong> is <code>session(authority=Authority.narrow([...]))</code> - bounded to a subset of authority and auto-terminated when its block exits - with <code>ttl_seconds=…</code> added only when you also want a wall-clock cap.</li>
       </ul>
-      <p>A Session's authority comes from its application, bounded by policy. A parent matters when authority is narrowed: <code>Authority.narrow([...])</code> creates a Delegation that the server validates as a subset of the parent's effective authority. Cross-application authority uses <code>delegate(to=peer)</code> with receiver consent.</p>
+      <p>A Session's authority comes from its application, bounded by policy. A parent matters when authority is narrowed: <code>Authority.narrow([...])</code> creates a Delegation that the server validates as a subset of the parent's effective authority. Cross-application authority uses <code>delegate(to=peer)</code>; the receiver consents by presenting the opaque, target-bound Delegation ID.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a>, <a href="/concepts/delegation/">Delegation</a>, and <a href="/reference/faq/#faq-022">FAQ-022</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-022">FAQ-022</a></p>
     </details>
@@ -425,7 +425,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <li>With further narrowing, Coordinator rejects C unless <code>C ⊆ B</code>.</li>
         <li>If B has no inbound Delegation, C runs under the application's authority bounded by policy.</li>
       </ul>
-      <p>Cross-application authority is never inherited automatically; it requires <code>delegate(to=peer)</code> and receiver consent. Application plus policy remains the hard boundary.</p>
+      <p>Cross-application authority is never inherited automatically; it requires <code>delegate(to=peer)</code>, followed by receiver presentation of the opaque, target-bound Delegation ID. Application plus policy remains the hard boundary.</p>
       <p>See <a href="/concepts/delegation/">Delegation</a> and <a href="/reference/faq/#faq-023">FAQ-023</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-021">FAQ-021</a>, <a href="#faq-023">FAQ-023</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
