@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// RFC 8693 token exchange client with cache isolation and bounded retries.
+// RFC 8693 token exchange client with cache isolation.
 
 package oauth
 
@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
@@ -26,7 +25,6 @@ import (
 
 const (
 	defaultTimeout = 30 * time.Second
-	defaultRetries = 3
 )
 
 // Client exchanges subject authority with a Caracal STS.
@@ -61,9 +59,10 @@ type stsErrorResponse struct {
 }
 
 type stsSuccessResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
+	AccessToken     string   `json:"access_token"`
+	TokenType       string   `json:"token_type"`
+	ExpiresIn       int      `json:"expires_in"`
+	TargetResources []string `json:"target_resources"`
 }
 
 // NewClient returns a token exchange client.
@@ -101,6 +100,11 @@ func (c *Client) emit(event Event) {
 	c.OnEvent(event)
 }
 
+// Invalidate drops every cached token derived by this client. In-flight exchanges are not canceled.
+func (c *Client) Invalidate() {
+	c.cache.Clear()
+}
+
 // Exchange performs RFC 8693 token exchange or returns a safe cached response.
 func (c *Client) Exchange(ctx context.Context, subjectToken, resource string, opts ExchangeOptions) (TokenExchangeResponse, error) {
 	return c.ExchangeResources(ctx, subjectToken, []string{resource}, opts)
@@ -114,7 +118,8 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	cacheResource := c.cacheResource(resources, opts)
 	eventResources := resourceList(resources)
 	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
-	if !opts.OneShot && !opts.ForceRefresh {
+	oneShot := opts.OneShot || opts.ChallengeID != ""
+	if !oneShot && !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
 			// The preflight window is capped at half the token lifetime so
 			// short-lived tokens are still served from cache instead of
@@ -127,9 +132,9 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 		}
 	}
 
-	if opts.OneShot {
+	if oneShot {
 		start := time.Now()
-		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
 		event := Event{Type: "token.exchange", Ok: err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 		if err != nil {
 			var caracalErr *CaracalError
@@ -158,7 +163,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	defer close(call.done)
 
 	start := time.Now()
-	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
 	event := Event{Type: "token.exchange", Ok: call.err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 	if call.err == nil {
 		c.cache.Set(cacheSubject, cacheResource, call.token)
@@ -200,11 +205,10 @@ func (c *Client) cacheSubject(subjectToken string, opts ExchangeOptions) string 
 	parts := []string{
 		c.zoneID + "::" + c.applicationID,
 		hashSecret(subjectToken),
+		opts.AuthorityRecordID,
 		opts.SessionID,
-		opts.AgentSessionID,
-		opts.DelegationEdgeID,
+		opts.DelegationID,
 		c.authContext(opts),
-		hashSecret(opts.ClientAssertion),
 	}
 	return strings.Join(parts, "::")
 }
@@ -218,14 +222,10 @@ func (c *Client) authContext(opts ExchangeOptions) string {
 	if opts.ClientSecret != "" {
 		secret = "secret:" + hashSecret(opts.ClientSecret)
 	}
-	assertion := ""
-	if opts.ClientAssertion != "" {
-		assertion = "assertion"
-	}
-	return strings.Join([]string{secret, assertion, opts.ClientAssertionType}, ":")
+	return secret
 }
 
-func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, isRetry bool, deadline time.Time) (TokenExchangeResponse, error) {
+func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, deadline time.Time) (TokenExchangeResponse, error) {
 	form := url.Values{
 		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":        {c.zoneID},
@@ -239,11 +239,9 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 		form.Add("resource", resource)
 	}
 	setFormValue(form, "client_secret", opts.ClientSecret)
-	setFormValue(form, "client_assertion", opts.ClientAssertion)
-	setFormValue(form, "client_assertion_type", opts.ClientAssertionType)
-	setFormValue(form, "session_id", opts.SessionID)
-	setFormValue(form, "agent_session_id", opts.AgentSessionID)
-	setFormValue(form, "delegation_edge_id", opts.DelegationEdgeID)
+	setFormValue(form, "session_id", opts.AuthorityRecordID)
+	setFormValue(form, "agent_session_id", opts.SessionID)
+	setFormValue(form, "delegation_edge_id", opts.DelegationID)
 	if scope := normalizedScopes(opts.Scopes); scope != "" {
 		form.Set("scope", scope)
 	}
@@ -252,44 +250,25 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	}
 	setFormValue(form, "challenge_id", opts.ChallengeID)
 
-	var res *http.Response
-	var err error
-	retries := opts.Retries
-	if retries == 0 {
-		retries = defaultRetries
+	if !time.Now().Before(deadline) {
+		return TokenExchangeResponse{}, fmt.Errorf("STS request timed out")
 	}
-	for attempt := 0; attempt <= retries; attempt++ {
-		if !time.Now().Before(deadline) {
-			return TokenExchangeResponse{}, fmt.Errorf("STS request timed out")
-		}
-		reqCtx, cancel := context.WithDeadline(ctx, deadline)
-		req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodPost, c.stsURL+"/oauth/2/token", strings.NewReader(form.Encode()))
-		if reqErr != nil {
-			cancel()
-			return TokenExchangeResponse{}, reqErr
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		c.mu.Lock()
-		client := c.httpClient
-		c.mu.Unlock()
-		res, err = client.Do(req)
-		cancel()
-		if err == nil && (!transientStatus(res.StatusCode) || attempt == retries) {
-			break
-		}
-		if res != nil {
-			res.Body.Close()
-		}
-		if attempt == retries {
-			break
-		}
-		if sleepErr := sleepWithinDeadline(ctx, retryDelay(res, attempt), deadline); sleepErr != nil {
-			return TokenExchangeResponse{}, sleepErr
-		}
-	}
+	reqCtx, cancel := context.WithDeadline(ctx, deadline)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.stsURL+"/oauth/2/token", strings.NewReader(form.Encode()))
 	if err != nil {
+		cancel()
 		return TokenExchangeResponse{}, err
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.mu.Lock()
+	client := c.httpClient
+	c.mu.Unlock()
+	res, err := client.Do(req)
+	if err != nil {
+		cancel()
+		return TokenExchangeResponse{}, err
+	}
+	defer cancel()
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
@@ -313,10 +292,6 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 				RequestID:  body.RequestID,
 				HTTPStatus: res.StatusCode,
 			}
-		}
-		if res.StatusCode == http.StatusUnauthorized && !isRetry {
-			opts.Retries = 0
-			return c.doExchange(ctx, subjectToken, resources, opts, true, deadline)
 		}
 		code := body.Error
 		if code == "" {
@@ -349,7 +324,13 @@ func validateSuccess(body stsSuccessResponse) (TokenExchangeResponse, error) {
 	if body.ExpiresIn <= 0 {
 		return TokenExchangeResponse{}, fmt.Errorf("STS response invalid: expires_in must be a positive integer")
 	}
-	return TokenExchangeResponse{AccessToken: body.AccessToken, TokenType: "Bearer", ExpiresIn: body.ExpiresIn, IssuedAt: time.Now().Unix()}, nil
+	return TokenExchangeResponse{
+		AccessToken:     body.AccessToken,
+		TokenType:       "Bearer",
+		ExpiresIn:       body.ExpiresIn,
+		IssuedAt:        time.Now().Unix(),
+		TargetResources: body.TargetResources,
+	}, nil
 }
 
 // WaitForApproval long-polls an approval until an approver decides it, it
@@ -561,13 +542,20 @@ func normalizedScopes(scopes []string) string {
 }
 
 func resourceList(resources []string) []string {
+	seen := map[string]struct{}{}
 	out := []string{}
 	for _, resource := range resources {
 		resource = strings.TrimSpace(resource)
-		if resource != "" {
-			out = append(out, resource)
+		if resource == "" {
+			continue
 		}
+		if _, exists := seen[resource]; exists {
+			continue
+		}
+		seen[resource] = struct{}{}
+		out = append(out, resource)
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -576,50 +564,6 @@ func firstResource(resources []string) string {
 		return ""
 	}
 	return resources[0]
-}
-
-func transientStatus(status int) bool {
-	return status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || (status >= 500 && status < 600)
-}
-
-func retryDelay(res *http.Response, attempt int) time.Duration {
-	if res != nil {
-		if raw := res.Header.Get("Retry-After"); raw != "" {
-			if seconds, err := time.ParseDuration(raw + "s"); err == nil {
-				return seconds
-			}
-			if when, err := http.ParseTime(raw); err == nil {
-				return time.Until(when)
-			}
-		}
-	}
-	delay := time.Duration(250*(1<<attempt)) * time.Millisecond
-	if delay > 5*time.Second {
-		delay = 5 * time.Second
-	}
-	half := delay / 2
-	return half + rand.N(half+1)
-}
-
-func sleepWithinDeadline(ctx context.Context, delay time.Duration, deadline time.Time) error {
-	if delay < 0 {
-		delay = 0
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
-		return fmt.Errorf("STS request timed out")
-	}
-	if delay > remaining {
-		delay = remaining
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func jsonResponse(contentType string) bool {

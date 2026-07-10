@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,6 +47,9 @@ const (
 	controlExpiresTrait       = "control:expires:"
 	defaultControlAudience    = "caracal-control"
 	providerTokenCacheSkew    = 30 * time.Second
+	maxDelegationHops         = 10
+	tokenExchangeGrantType    = "urn:ietf:params:oauth:grant-type:token-exchange"
+	accessTokenType           = "urn:ietf:params:oauth:token-type:access_token"
 )
 
 type delegationProof struct {
@@ -60,7 +65,6 @@ type delegationConstraints struct {
 	TTLSeconds  int      `json:"ttl_seconds"`
 	MaxDepth    int      `json:"max_depth"`
 	MaxHops     int      `json:"max_hops"`
-	Budget      int      `json:"budget"`
 	Approved    bool     `json:"policy_approved"`
 	ExpiresAt   string   `json:"expires_at"`
 	BroadReason string   `json:"broad_reason"`
@@ -71,25 +75,34 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	if requestID == "" {
 		if id, err := uuid.NewV7(); err == nil {
 			requestID = id.String()
+		} else {
+			requestID = uuid.NewString()
 		}
 	}
 	if requestID != "" {
 		w.Header().Set("X-Request-Id", requestID)
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+	form, rawBody, ok := readFormBody(w, r, "resource")
+	if !ok {
 		return
 	}
 	// RFC 8693 actor tokens are not part of the exchange contract: the acting
 	// application authenticates with its own client credentials and rides the
 	// policy input as caracal_client_id.
-	if r.FormValue("actor_token") != "" {
+	if _, present := form["actor_token"]; present {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token is not supported: authenticate the acting application with its own client credentials"))
 		return
 	}
+	if _, present := form["client_assertion"]; present {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "client_assertion is not supported: use client_secret"))
+		return
+	}
+	if _, present := form["client_assertion_type"]; present {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "client_assertion_type is not supported: use client_secret"))
+		return
+	}
 	ttlSeconds := 0
-	if rawTTL := r.FormValue("ttl_seconds"); rawTTL != "" {
+	if rawTTL := form.Get("ttl_seconds"); rawTTL != "" {
 		parsedTTL, err := strconv.Atoi(rawTTL)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid ttl_seconds"))
@@ -98,43 +111,65 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ttlSeconds = parsedTTL
 	}
 
-	if requestID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			s.log.Error().Err(err).Msg("request id generation failed")
-			writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "generate request id"))
-			return
-		}
-		requestID = id.String()
-	}
-	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID)
+	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID, form, rawBody)
 	if gatewayErr != nil {
 		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid gateway exchange signature"))
 		return
 	}
 
+	resources, resourceErr := canonicalResourceSet(form["resource"])
+	if resourceErr != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, resourceErr.Error()))
+		return
+	}
 	req := TokenExchangeRequest{
-		GrantType:            r.FormValue("grant_type"),
-		SubjectToken:         r.FormValue("subject_token"),
-		SubjectTokenType:     r.FormValue("subject_token_type"),
-		Resources:            r.Form["resource"],
-		Scope:                r.FormValue("scope"),
-		ZoneID:               r.FormValue("zone_id"),
-		ApplicationID:        r.FormValue("application_id"),
-		ClientSecret:         r.FormValue("client_secret"),
-		ClientAssertion:      r.FormValue("client_assertion"),
-		ClientAssertionType:  r.FormValue("client_assertion_type"),
-		ChallengeID:          r.FormValue("challenge_id"),
-		AuthorityRecordID:    r.FormValue("session_id"),
-		SessionID:            r.FormValue("agent_session_id"),
-		DelegationEdgeID:     r.FormValue("delegation_edge_id"),
-		RequestMethod:        r.FormValue("request_method"),
-		RequestPath:          r.FormValue("request_path"),
+		GrantType:            form.Get("grant_type"),
+		SubjectToken:         form.Get("subject_token"),
+		SubjectTokenType:     form.Get("subject_token_type"),
+		Resources:            resources,
+		Scope:                form.Get("scope"),
+		ZoneID:               form.Get("zone_id"),
+		ApplicationID:        form.Get("application_id"),
+		ClientSecret:         form.Get("client_secret"),
+		ChallengeID:          form.Get("challenge_id"),
+		AuthorityRecordID:    form.Get("session_id"),
+		SessionID:            form.Get("agent_session_id"),
+		DelegationEdgeID:     form.Get("delegation_edge_id"),
+		RequestMethod:        form.Get("request_method"),
+		RequestPath:          form.Get("request_path"),
 		TTLSeconds:           ttlSeconds,
 		GatewayAuthenticated: gatewayAuthenticated,
 	}
+	if req.GrantType != tokenExchangeGrantType {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "unsupported grant_type"))
+		return
+	}
+	if req.SubjectTokenType != "" && req.SubjectTokenType != accessTokenType && req.SubjectTokenType != SubjectTokenTypeIDToken {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "unsupported subject_token_type"))
+		return
+	}
+	if req.SubjectToken != "" && req.SubjectTokenType == "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "subject_token_type is required with subject_token"))
+		return
+	}
+	if req.SubjectToken == "" && req.SubjectTokenType != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "subject_token is required with subject_token_type"))
+		return
+	}
+	if !req.GatewayAuthenticated {
+		if rateErr := s.checkAuthenticationRateLimit(r.Context(), strings.TrimSpace(req.ApplicationID)); rateErr != nil {
+			writeError(w, http.StatusTooManyRequests, rateErr)
+			return
+		}
+	}
 
 	resp, challenge, code, apiErr := s.exchange(r.Context(), req, requestID)
+	if !req.GatewayAuthenticated && code == http.StatusUnauthorized && apiErr != nil && apiErr.Description == "invalid client credentials" {
+		if rateErr := s.recordAuthenticationFailure(r.Context(), strings.TrimSpace(req.ApplicationID)); rateErr != nil {
+			writeError(w, http.StatusTooManyRequests, rateErr)
+			return
+		}
+	}
 	if apiErr != nil {
 		writeError(w, code, apiErr)
 		return
@@ -150,23 +185,83 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) verifyGatewayExchange(r *http.Request, requestID string) (bool, error) {
+func (s *Server) verifyGatewayExchange(r *http.Request, requestID string, form url.Values, rawBody []byte) (bool, error) {
 	timestamp := r.Header.Get(corests.GatewayTimestampHeader)
 	signature := r.Header.Get(corests.GatewaySignatureHeader)
 	gatewayRequestID := r.Header.Get(corests.GatewayRequestHeader)
 	if timestamp == "" && signature == "" && gatewayRequestID == "" {
 		return false, nil
 	}
-	if gatewayRequestID != requestID {
-		return false, fmt.Errorf("gateway request id mismatch")
+	if form.Get("gateway_request_id") != requestID {
+		return false, fmt.Errorf("gateway correlation id mismatch")
 	}
-	if err := corests.VerifyGatewayExchange(s.cfg.GatewayHMACKey, time.Now().UTC(), gatewayExchangeSkew, timestamp, gatewayRequestID, signature, r.Method, r.URL.EscapedPath(), []byte(r.PostForm.Encode())); err != nil {
+	if err := corests.VerifyGatewayExchange(s.cfg.GatewayHMACKey, time.Now().UTC(), gatewayExchangeSkew, timestamp, gatewayRequestID, signature, r.Method, r.URL.EscapedPath(), rawBody); err != nil {
 		return false, err
 	}
 	if err := s.consumeGatewayNonce(r.Context(), gatewayRequestID); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func readFormBody(w http.ResponseWriter, r *http.Request, repeatedFields ...string) (url.Values, []byte, bool) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, sharederr.New(sharederr.InvalidToken, "POST is required"))
+		return nil, nil, false
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "query parameters are not allowed"))
+		return nil, nil, false
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		writeError(w, http.StatusUnsupportedMediaType, sharederr.New(sharederr.InvalidToken, "application/x-www-form-urlencoded content type is required"))
+		return nil, nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, sharederr.New(sharederr.PayloadTooLarge, "request body too large"))
+			return nil, nil, false
+		}
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return nil, nil, false
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return nil, nil, false
+	}
+	repeated := make(map[string]struct{}, len(repeatedFields))
+	for _, field := range repeatedFields {
+		repeated[field] = struct{}{}
+	}
+	for field, values := range form {
+		if _, allowed := repeated[field]; !allowed && len(values) > 1 {
+			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "duplicate form field: "+field))
+			return nil, nil, false
+		}
+	}
+	return form, body, true
+}
+
+func canonicalResourceSet(resources []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(resources))
+	canonical := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		resource = strings.TrimSpace(resource)
+		if resource == "" {
+			return nil, fmt.Errorf("resource must not be empty")
+		}
+		if _, exists := seen[resource]; exists {
+			continue
+		}
+		seen[resource] = struct{}{}
+		canonical = append(canonical, resource)
+	}
+	slices.Sort(canonical)
+	return canonical, nil
 }
 
 // gatewayActionInput surfaces the upstream operation (HTTP method and path) the
@@ -273,7 +368,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	var subjectClaims map[string]any
 	if req.SubjectToken != "" {
-		subjectClaims, err = s.validateSubjectToken(ctx, req.SubjectToken, zoneID)
+		expectedUse := UseSession
+		if req.GatewayAuthenticated {
+			expectedUse = UseGateway
+		}
+		subjectClaims, err = s.validateSubjectTokenUse(ctx, req.SubjectToken, zoneID, expectedUse)
 		if err != nil {
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.InvalidToken, "invalid subject_token")
 		}
@@ -298,6 +397,18 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		principalID = sub
 	}
+	bundle := ZoneBundleInfo{}
+	if s.opa != nil {
+		bundle = s.opa.BundleInfo(zoneID)
+	}
+	approvalBinding := approvalBindingContext{
+		PrincipalID:       principalID,
+		AuthorityRecordID: req.AuthorityRecordID,
+		SessionID:         req.SessionID,
+		DelegationEdgeID:  req.DelegationEdgeID,
+		ApplicationID:     app.ID,
+		Bundle:            bundle,
+	}
 
 	challengeResolved := false
 	var approval *StepUpChallengePG
@@ -311,7 +422,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
 			existing.AuthorityRecordID != req.AuthorityRecordID ||
-			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope))) {
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope), approvalBinding)) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
@@ -514,7 +625,6 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 
 		result, evalErr := s.opa.Evaluate(ctx, opaInput)
-		bundle := s.opa.BundleInfo(zoneID)
 		if evalErr != nil {
 			if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
 				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier}), bundle); auditErr != nil {
@@ -556,7 +666,11 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// an approval bound to this exact request. Issuance is idempotent per binding,
 		// and a hold an approver has already granted releases the mint right here even
 		// when the retry did not carry the challenge id.
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		resolved, resolveErr := resolveApproval(gateDecls)
+		if resolveErr != nil {
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error())
+		}
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolved, bundle, req.Resources, scopes)
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
@@ -638,12 +752,16 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sessionType == "user" {
 		subType = SubTypeUser
 	}
-	// Gateway exchanges mint resource mandates. Exchanges minted without a
-	// subject_token bootstrap a session mandate that the application presents to
-	// Gateway for resource-scoped narrowing.
+	// Gateway exchanges mint resource mandates. A direct delegated mint creates
+	// a one-shot Gateway-ingress mandate. Bootstrap exchanges remain reusable
+	// lifecycle session mandates for Coordinator operations.
 	use := UseResource
 	if req.SubjectToken == "" && !controlKeyExchange {
-		use = UseSession
+		if req.SessionID != "" && req.DelegationEdgeID != "" {
+			use = UseGateway
+		} else {
+			use = UseSession
+		}
 	}
 
 	record := &AuthorityRecord{
@@ -660,7 +778,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// Consume as the final fallible step before the session exists: every deny
 		// above leaves the approval intact for the corrected retry, and a concurrent
 		// consumer losing this race is told so precisely.
-		if cerr := s.consumeApproval(ctx, zoneID, principalID, approval.ID, req.Resources, scopes); cerr != nil {
+		if cerr := s.consumeApproval(ctx, zoneID, principalID, approval.ID, req.Resources, scopes, approvalBinding); cerr != nil {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
 				mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -1240,22 +1358,13 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 		return app, zoneID, nil
 	}
 	if app.ClientSecretHash != nil {
-		if !verifyClientSecret(*app.ClientSecretHash, presentedSecret(req)) {
+		if !verifyClientSecret(*app.ClientSecretHash, req.ClientSecret) {
 			return nil, "", errSecretMismatch
 		}
 	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
 	return app, zoneID, nil
-}
-
-// presentedSecret returns the credential a client offered, preferring the form-encoded
-// client secret and falling back to a client assertion.
-func presentedSecret(req TokenExchangeRequest) string {
-	if req.ClientSecret != "" {
-		return req.ClientSecret
-	}
-	return req.ClientAssertion
 }
 
 // zoneMismatchError marks an authentication failure where the application id is valid and
@@ -1283,7 +1392,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 	if err != nil || other == nil || other.ZoneID == zoneID || other.ClientSecretHash == nil {
 		return nil
 	}
-	if !verifyClientSecret(*other.ClientSecretHash, presentedSecret(req)) {
+	if !verifyClientSecret(*other.ClientSecretHash, req.ClientSecret) {
 		return nil
 	}
 	return &zoneMismatchError{requested: zoneID, actual: other.ZoneID}
@@ -1322,6 +1431,10 @@ func isZoneDerivedControlTokenRequest(req TokenExchangeRequest) bool {
 // from the zone's active + grace-period key set, ensuring tokens signed by a previous
 // key during key rotation are still accepted within the 24h grace window.
 func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID string) (map[string]any, error) {
+	return s.validateSubjectTokenUse(ctx, tokenStr, zoneID, UseSession)
+}
+
+func (s *Server) validateSubjectTokenUse(ctx context.Context, tokenStr, zoneID, expectedUse string) (map[string]any, error) {
 	zoneKeys, err := s.keys.getPublicKeysByZone(ctx, zoneID)
 	if err != nil {
 		return nil, fmt.Errorf("get zone keys: %w", err)
@@ -1351,8 +1464,8 @@ func (s *Server) validateSubjectToken(ctx context.Context, tokenStr, zoneID stri
 	if claimString(mc, "zone_id") != zoneID {
 		return nil, errors.New("token zone mismatch")
 	}
-	if claimString(mc, "use") != UseSession {
-		return nil, errors.New("subject_token must be a session mandate")
+	if claimString(mc, "use") != expectedUse {
+		return nil, fmt.Errorf("subject_token must be a %s mandate", expectedUse)
 	}
 	return mc, nil
 }
@@ -1527,6 +1640,16 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 	if c.AuthorityRecordID != "" {
 		meta["session_id"] = c.AuthorityRecordID
 	}
+	if len(c.MetadataJSON) > 0 {
+		var stored map[string]any
+		if json.Unmarshal(c.MetadataJSON, &stored) == nil {
+			for _, key := range []string{"agent_session_id", "delegation_edge_id"} {
+				if value, ok := stored[key].(string); ok && value != "" {
+					meta[key] = value
+				}
+			}
+		}
+	}
 	return meta
 }
 
@@ -1674,7 +1797,7 @@ func bindGovernedSession(req *TokenExchangeRequest, claims map[string]any) *shar
 		return nil
 	}
 	if req.SessionID != "" && req.SessionID != sessionID {
-		return sharederr.New(sharederr.AccessDenied, "session mismatch")
+		return sharederr.New(sharederr.AccessDenied, "Session mismatch")
 	}
 	req.SessionID = sessionID
 	return nil
@@ -1805,9 +1928,6 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if !scopesAllowed(strings.Fields(req.Scope), edge.Scopes) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation scopes")
 	}
-	if constraints.Budget > 0 && len(strings.Fields(req.Scope)) > constraints.Budget {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation budget")
-	}
 	if constraints.TTLSeconds > 0 {
 		if req.TTLSeconds > constraints.TTLSeconds {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "requested ttl exceeds delegation ttl")
@@ -1816,10 +1936,13 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if constraints.MaxHops <= 0 {
 		constraints.MaxHops = 1
 	}
+	if constraints.MaxHops > maxDelegationHops {
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation hop limit exceeds platform maximum")
+	}
 	if s.metrics != nil {
 		s.metrics.GraphTraversals.Add(1)
 	}
-	path, err := s.db.GetDelegationPath(ctx, zoneID, edge.SourceSessionID, edge.TargetSessionID, constraints.MaxHops)
+	path, err := s.db.GetDelegationLineage(ctx, zoneID, edge.ID, constraints.MaxHops)
 	if err != nil || len(path) == 0 || len(path) > constraints.MaxHops || !containsString(path, edge.ID) {
 		if s.metrics != nil {
 			s.metrics.GraphTraversalErrors.Add(1)
@@ -1857,7 +1980,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 			}
 			hopEdge = fetched
 		}
-		// Re-validate each path edge against current state. GetDelegationPath
+		// Re-validate each path edge against current state. GetDelegationLineage
 		// filters in SQL, but a revoke racing the path computation could
 		// otherwise let a stale-but-attested chain hop ship in the JWT.
 		if hopEdge.ZoneID != edge.ZoneID || hopEdge.Status != "active" || hopEdge.RevokedAt != nil || !hopEdge.ExpiresAt.After(now) {
@@ -1893,7 +2016,7 @@ func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, err
 	if err := decoder.Decode(&constraints); err != nil {
 		return constraints, err
 	}
-	if constraints.TTLSeconds < 0 || constraints.MaxDepth < 0 || constraints.MaxHops < 0 || constraints.Budget < 0 {
+	if constraints.TTLSeconds < 0 || constraints.MaxDepth < 0 || constraints.MaxHops < 0 {
 		return constraints, fmt.Errorf("delegation constraints must be positive")
 	}
 	if constraints.MaxDepth > 0 {
@@ -1955,6 +2078,10 @@ func containsString(values []string, wanted string) bool {
 
 func activeSession(session *Session, zoneID string, now time.Time) bool {
 	if session == nil || session.ZoneID != zoneID || session.Status != "active" {
+		return false
+	}
+	if session.SubjectAuthorityRecordType == SubTypeUser &&
+		(session.SubjectAuthorityRecordStatus != "active" || !session.SubjectAuthorityRecordExpiresAt.After(now)) {
 		return false
 	}
 	if session.Lifecycle == "service" {
