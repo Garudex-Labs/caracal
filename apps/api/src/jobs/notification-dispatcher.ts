@@ -4,6 +4,10 @@
 // Notification dispatcher: fans out approval audit events to zone webhook sinks with signed, retried deliveries.
 
 import { createHmac } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { isIP } from 'node:net'
 import type { FastifyBaseLogger } from 'fastify'
 import { v7 as uuidv7 } from 'uuid'
 import { newTraceContext, runWithTrace } from '@caracalai/core'
@@ -15,7 +19,9 @@ const DISPATCH_LOCK_KEY = '7163920485318484'
 const FANOUT_SINK_BATCH = 200
 const FANOUT_EVENT_BATCH = 100
 const DELIVER_BATCH = 25
+const DELIVER_CONCURRENCY = 5
 const DELIVER_TIMEOUT_MS = 10_000
+const DELIVER_CLAIM_LEASE = '30 seconds'
 const MAX_DELIVERY_ATTEMPTS = 8
 const SETTLED_RETENTION = '7 days'
 const CLEANUP_BATCH = 500
@@ -26,6 +32,13 @@ export interface SinkFetch {
     init: { method: string; headers: Record<string, string>; body: string; redirect: 'error'; signal: AbortSignal },
   ): Promise<{ status: number }>
 }
+
+interface SinkAddress {
+  address: string
+  family: 4 | 6
+}
+
+export type SinkResolver = (host: string) => Promise<SinkAddress[]>
 
 interface SinkRow {
   id: string
@@ -91,6 +104,90 @@ function openSecret(packed: Buffer): string {
   } finally {
     plaintext.fill(0)
   }
+}
+
+function nat64EmbeddedIpv4(value: string): string | null {
+  const lower = value.toLowerCase()
+  if (!lower.startsWith('64:ff9b::')) return null
+  const tail = lower.slice('64:ff9b::'.length)
+  if (tail.includes('.')) return isIP(tail) === 4 ? tail : null
+  const groups = tail.split(':')
+  if (groups.length < 2) return null
+  const hi = Number.parseInt(groups.at(-2)!, 16)
+  const lo = Number.parseInt(groups.at(-1)!, 16)
+  if (!Number.isInteger(hi) || !Number.isInteger(lo) || hi > 0xffff || lo > 0xffff) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
+export function isUnsafeSinkAddress(value: string): boolean {
+  const nat64 = nat64EmbeddedIpv4(value)
+  if (nat64) return isUnsafeSinkAddress(nat64)
+  const ip = value.toLowerCase().startsWith('::ffff:') ? value.slice(7) : value
+  if (isIP(ip) === 4) {
+    const parts = ip.split('.').map(Number)
+    return (
+      parts[0] === 0 ||
+      parts[0] === 10 ||
+      parts[0] === 127 ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+      (parts[0] === 169 && parts[1] === 254) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      parts[0] >= 224
+    )
+  }
+  const lower = ip.toLowerCase()
+  return (
+    isIP(ip) !== 6 ||
+    lower === '::' ||
+    lower === '::1' ||
+    lower.startsWith('fc') ||
+    lower.startsWith('fd') ||
+    lower.startsWith('fe80:') ||
+    lower.startsWith('ff')
+  )
+}
+
+async function defaultSinkResolver(host: string): Promise<SinkAddress[]> {
+  if (isIP(host) !== 0) return [{ address: host, family: isIP(host) as 4 | 6 }]
+  return (await lookup(host, { all: true, verbatim: true })).filter(
+    (entry): entry is SinkAddress => entry.family === 4 || entry.family === 6,
+  )
+}
+
+export async function postNotificationSink(
+  rawUrl: string,
+  init: { method: string; headers: Record<string, string>; body: string; redirect: 'error'; signal: AbortSignal },
+  resolve: SinkResolver = defaultSinkResolver,
+): Promise<{ status: number }> {
+  const target = new URL(rawUrl)
+  const addresses = await resolve(target.hostname)
+  if (addresses.length === 0) throw new Error('sink host resolves to no addresses')
+  const loopbackDevelopment =
+    target.protocol === 'http:' &&
+    (target.hostname === 'localhost' || target.hostname === '127.0.0.1' || target.hostname === '[::1]' || target.hostname === '::1')
+  if (!loopbackDevelopment && addresses.some((entry) => isUnsafeSinkAddress(entry.address))) {
+    throw new Error('sink host resolves to a restricted address')
+  }
+  const address = addresses[0]
+  return new Promise((resolveRequest, reject) => {
+    const request = (target.protocol === 'https:' ? httpsRequest : httpRequest)(
+      target,
+      {
+        method: init.method,
+        headers: init.headers,
+        signal: init.signal,
+        lookup: (_host, _options, callback) => callback(null, address.address, address.family),
+      },
+      (response) => {
+        response.resume()
+        response.on('end', () => resolveRequest({ status: response.statusCode ?? 0 }))
+        response.on('error', reject)
+      },
+    )
+    request.on('error', reject)
+    request.end(init.body)
+  })
 }
 
 // Advances one sink through the zone audit stream: matching events become pending
@@ -194,15 +291,15 @@ async function deliverOne(db: DB, delivery: DeliveryRow, fetchImpl: SinkFetch): 
   return false
 }
 
-// One dispatch pass: enqueue new deliveries from the audit stream, post everything due,
-// and prune settled records past retention. Replicas coordinate through an advisory
-// lock; the claim itself also skips locked rows, so a lock lapse can never double-send.
+// One dispatch pass: enqueue new deliveries from the audit stream, lease the oldest
+// due delivery per sink, post across sinks concurrently, and prune settled records.
 export async function runNotificationDispatch(
   db: DB,
-  fetchImpl: SinkFetch = fetch as unknown as SinkFetch,
+  fetchImpl: SinkFetch = postNotificationSink,
 ): Promise<{ enqueued: number; delivered: number; failed: number }> {
   const client = await db.connect()
   const totals = { enqueued: 0, delivered: 0, failed: 0 }
+  let due: DeliveryRow[] = []
   try {
     const { rows } = await client.query<{ acquired: boolean }>(`SELECT pg_try_advisory_lock($1::bigint) AS acquired`, [DISPATCH_LOCK_KEY])
     if (!rows[0]?.acquired) return totals
@@ -215,26 +312,30 @@ export async function runNotificationDispatch(
       for (const sink of sinks) {
         totals.enqueued += await fanOutSink(db, sink)
       }
-      const { rows: due } = await db.query<DeliveryRow>(
+      const claimed = await db.query<DeliveryRow>(
         `UPDATE notification_deliveries d
-         SET attempts = d.attempts + 1
+         SET attempts = d.attempts + 1,
+             available_at = now() + $2::interval
          FROM notification_sinks s
          WHERE s.id = d.sink_id AND d.id IN (
            SELECT d2.id FROM notification_deliveries d2
            JOIN notification_sinks s2 ON s2.id = d2.sink_id
            WHERE d2.delivered_at IS NULL AND d2.abandoned_at IS NULL
              AND d2.available_at <= now() AND s2.active
-           ORDER BY d2.available_at
+             AND NOT EXISTS (
+               SELECT 1 FROM notification_deliveries prior
+               WHERE prior.sink_id = d2.sink_id
+                 AND prior.delivered_at IS NULL AND prior.abandoned_at IS NULL
+                 AND (prior.created_at, prior.id) < (d2.created_at, d2.id)
+             )
+           ORDER BY d2.available_at, d2.created_at, d2.id
            LIMIT $1
            FOR UPDATE OF d2 SKIP LOCKED
          )
          RETURNING d.id, d.sink_id, d.event_id, d.event_type, d.payload_json, d.attempts, s.url, s.secret_ct`,
-        [DELIVER_BATCH],
+        [DELIVER_BATCH, DELIVER_CLAIM_LEASE],
       )
-      for (const delivery of due) {
-        if (await deliverOne(db, delivery, fetchImpl)) totals.delivered += 1
-        else totals.failed += 1
-      }
+      due = claimed.rows
       await db.query(
         `DELETE FROM notification_deliveries WHERE id IN (
            SELECT id FROM notification_deliveries
@@ -244,13 +345,35 @@ export async function runNotificationDispatch(
          )`,
         [SETTLED_RETENTION, CLEANUP_BATCH],
       )
-      return totals
     } finally {
       await client.query(`SELECT pg_advisory_unlock($1::bigint)`, [DISPATCH_LOCK_KEY])
     }
   } finally {
     client.release()
   }
+  const bySink = new Map<string, DeliveryRow[]>()
+  for (const delivery of due) {
+    const entries = bySink.get(delivery.sink_id) ?? []
+    entries.push(delivery)
+    bySink.set(delivery.sink_id, entries)
+  }
+  const sinks = [...bySink.values()]
+  for (let offset = 0; offset < sinks.length; offset += DELIVER_CONCURRENCY) {
+    const results = await Promise.all(
+      sinks.slice(offset, offset + DELIVER_CONCURRENCY).map(async (deliveries) => {
+        const outcome: boolean[] = []
+        for (const delivery of deliveries) outcome.push(await deliverOne(db, delivery, fetchImpl))
+        return outcome
+      }),
+    )
+    for (const outcomes of results) {
+      for (const delivered of outcomes) {
+        if (delivered) totals.delivered += 1
+        else totals.failed += 1
+      }
+    }
+  }
+  return totals
 }
 
 export function startNotificationDispatcher(db: DB, log: FastifyBaseLogger, intervalMs = 5_000): NodeJS.Timeout {

@@ -5,12 +5,14 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { randomBytes } from 'node:crypto'
+import { isIP } from 'node:net'
 import { z } from 'zod'
 import { v7 as uuidv7 } from 'uuid'
 import { AAD_NOTIFICATION_SINK_SECRET, sealSecretEnvelope } from '@caracalai/server-core'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { zoneExists } from '../zone-guard.js'
+import { isUnsafeSinkAddress } from '../jobs/notification-dispatcher.js'
 
 // The event types a sink may subscribe to: the approval lifecycle as recorded in the zone
 // audit stream. The dispatcher fans out exactly these, so the subscription surface and the
@@ -44,6 +46,9 @@ export function validateSinkUrl(raw: string): string | null {
   }
   if (url.username || url.password) return 'sink url must not embed credentials'
   const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]' || url.hostname === '::1'
+  if (isIP(url.hostname) !== 0 && isUnsafeSinkAddress(url.hostname) && !(url.protocol === 'http:' && loopback)) {
+    return 'sink url must not target a restricted address'
+  }
   if (url.protocol === 'https:') return null
   if (url.protocol === 'http:' && loopback) return null
   return 'sink url must use https (http is allowed only for loopback)'

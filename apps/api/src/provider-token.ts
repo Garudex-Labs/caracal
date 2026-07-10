@@ -12,6 +12,15 @@ import { providerSecretConfigRef, type SecretBackend } from '@caracalai/server-c
 const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
 const PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES = 64 * 1024
 
+function privateEgressHosts(): Set<string> {
+  return new Set(
+    (process.env.CARACAL_PRIVATE_EGRESS_HOSTS ?? '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  )
+}
+
 // Resolves a provider's stored credential document from the secret backend. An empty
 // record means the provider has no secrets, which is valid for public-client kinds.
 export async function readProviderSecrets(secrets: SecretBackend, zoneId: string, providerId: string): Promise<Record<string, string>> {
@@ -83,21 +92,21 @@ function nat64EmbeddedIpv4(value: string): string | null {
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
 }
 
-function isUnsafeIpAddress(value: string): boolean {
+export function isUnsafeIpAddress(value: string, privateAllowed = false): boolean {
   const nat64 = nat64EmbeddedIpv4(value)
-  if (nat64) return isUnsafeIpAddress(nat64)
+  if (nat64) return isUnsafeIpAddress(nat64, privateAllowed)
   const ip = value.startsWith('::ffff:') ? value.slice(7) : value
   const family = isIP(ip)
   if (family === 4) {
     const parts = ip.split('.').map(Number)
     return (
       parts[0] === 0 ||
-      parts[0] === 10 ||
+      (parts[0] === 10 && !privateAllowed) ||
       parts[0] === 127 ||
-      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127 && !privateAllowed) ||
       (parts[0] === 169 && parts[1] === 254) ||
-      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-      (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 && !privateAllowed) ||
+      (parts[0] === 192 && parts[1] === 168 && !privateAllowed) ||
       parts[0] >= 224
     )
   }
@@ -106,8 +115,8 @@ function isUnsafeIpAddress(value: string): boolean {
     family === 6 &&
     (lower === '::' ||
       lower === '::1' ||
-      lower.startsWith('fc') ||
-      lower.startsWith('fd') ||
+      (lower.startsWith('fc') && !privateAllowed) ||
+      (lower.startsWith('fd') && !privateAllowed) ||
       lower.startsWith('fe80:') ||
       lower.startsWith('ff'))
   )
@@ -116,8 +125,9 @@ function isUnsafeIpAddress(value: string): boolean {
 async function resolveSafeHost(host: string): Promise<{ address: string; family: 4 | 6 }[]> {
   const addresses = await lookup(host, { all: true, verbatim: false })
   if (addresses.length === 0) throw new Error('provider token endpoint resolves to no addresses')
+  const privateAllowed = privateEgressHosts().has(host.toLowerCase())
   for (const address of addresses) {
-    if (isUnsafeIpAddress(address.address)) throw new Error('provider token endpoint resolves to a non-routable address')
+    if (isUnsafeIpAddress(address.address, privateAllowed)) throw new Error('provider token endpoint resolves to a non-routable address')
   }
   return addresses.filter((address): address is { address: string; family: 4 | 6 } => address.family === 4 || address.family === 6)
 }

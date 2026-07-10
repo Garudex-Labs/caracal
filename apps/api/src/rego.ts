@@ -141,6 +141,7 @@ export function validatePolicySource(content: string): string | null {
 // contract owns every decision, so an adopter can never author - or mistype - the
 // authorization logic itself.
 const DATA_DOCUMENT_DIRECTIVE = /(?:^|\n)\s*#\s*caracal:data-document\b/
+const AUTHZ_DATA_RULES = new Set(['app_ids', 'grants', 'confinement', 'restrict', 'risk', 'approval_tiers'])
 
 export function isDataDocumentDirective(content: string): boolean {
   return DATA_DOCUMENT_DIRECTIVE.test(content)
@@ -153,6 +154,9 @@ export function validateAuthzPolicy(content: string): string | null {
   if (!isDataDocumentDirective(content)) return 'must_be_data_document'
   if (check.rules.has('result')) return 'data_document_must_not_define_result'
   if (check.rules.size === 0) return 'data_document_must_define_data'
+  for (const rule of check.rules) {
+    if (!AUTHZ_DATA_RULES.has(rule)) return `data_document_rule_not_allowed:${rule}`
+  }
   return null
 }
 

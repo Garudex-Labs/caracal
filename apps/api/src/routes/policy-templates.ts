@@ -30,7 +30,7 @@ app_ids := {
     id: 'resource-grants',
     name: 'Resource Grants',
     description:
-      'For each resource view, declare the owning application and the scope set each role may hold. The platform contract allows a mint only when the acting application owns the view, the agent role grants the scope, and the delegation edge narrows to it.',
+      'For each resource view, declare the owning application and the scope set each role may hold. The platform contract allows a mint only when the acting application owns the view, the Session role grants the scope, and the Delegation narrows to it.',
     content: `# caracal:data-document
 package caracal.authz
 
@@ -48,7 +48,7 @@ grants := {
     id: 'label-confinement',
     name: 'Label Confinement',
     description:
-      'Cap every agent session whose principal carries a label prefix to a fixed scope set. A session labelled customer:<id> may mint only these scopes, whatever its role would otherwise allow.',
+      'Cap every Session whose principal carries a label prefix to a fixed scope set. A Session labelled customer:<id> may mint only these scopes, whatever its role would otherwise allow.',
     content: `# caracal:data-document
 package caracal.authz
 
