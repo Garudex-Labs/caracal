@@ -65,16 +65,17 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/audit")({
     view?: "activity" | "admin";
     focus?: string;
     request?: string;
-    agent?: string;
+    sessionId?: string;
     application?: string;
-    session?: string;
+    authorityRecordId?: string;
   } => ({
     view: search.view === "admin" ? "admin" : search.view === "activity" ? "activity" : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
     request: typeof search.request === "string" ? search.request : undefined,
-    agent: typeof search.agent === "string" ? search.agent : undefined,
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
     application: typeof search.application === "string" ? search.application : undefined,
-    session: typeof search.session === "string" ? search.session : undefined,
+    authorityRecordId:
+      typeof search.authorityRecordId === "string" ? search.authorityRecordId : undefined,
   }),
 });
 
@@ -103,9 +104,9 @@ function AuditRoute() {
             onMode={onMode}
             initial={{
               request: search.request,
-              agent: search.agent,
+              sessionId: search.sessionId,
               application: search.application,
-              session: search.session,
+              authorityRecordId: search.authorityRecordId,
             }}
           />
         ) : (
@@ -171,9 +172,9 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "connection_id", label: "Connection ID" },
   { id: "requested_scopes", label: "Requested scopes" },
   { id: "reason", label: "Denial reason", core: true },
-  { id: "agent_session_id", label: "Agent session" },
-  { id: "agent_lifecycle", label: "Agent lifecycle" },
-  { id: "agent_labels", label: "Agent labels" },
+  { id: "agent_session_id", label: "Session ID" },
+  { id: "agent_lifecycle", label: "Session lifecycle" },
+  { id: "agent_labels", label: "Session labels" },
   { id: "delegation_edge_id", label: "Delegation" },
   { id: "delegation_hop_count", label: "Delegation hops" },
   { id: "method", label: "HTTP method" },
@@ -448,15 +449,20 @@ function AuditPage({
   zoneId: string;
   mode: AuditMode;
   onMode: (m: AuditMode) => void;
-  initial: { request?: string; agent?: string; application?: string; session?: string };
+  initial: {
+    request?: string;
+    sessionId?: string;
+    application?: string;
+    authorityRecordId?: string;
+  };
 }) {
   const [category, setCategory] = useState<string>("all");
   const [decision, setDecision] = useState<string>("all");
   const [eventType, setEventType] = useState("");
   const [requestId, setRequestId] = useState(initial.request ?? "");
   const [applicationId, setApplicationId] = useState(initial.application ?? "");
-  const [agentSession, setAgentSession] = useState(initial.agent ?? "");
-  const [sessionId, setSessionId] = useState(initial.session ?? "");
+  const [sessionId, setSessionId] = useState(initial.sessionId ?? "");
+  const [authorityRecordId, setAuthorityRecordId] = useState(initial.authorityRecordId ?? "");
   const [label, setLabel] = useState("");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
@@ -472,8 +478,8 @@ function AuditPage({
     }
     if (requestId.trim()) q.request_id = requestId.trim();
     if (applicationId.trim()) q.application_id = applicationId.trim();
-    if (agentSession.trim()) q.agent_session_id = agentSession.trim();
-    if (sessionId.trim()) q.session_id = sessionId.trim();
+    if (sessionId.trim()) q.agent_session_id = sessionId.trim();
+    if (authorityRecordId.trim()) q.session_id = authorityRecordId.trim();
     if (label.trim()) q.label = label.trim();
     const sinceTs = parseTimeInput(since);
     if (sinceTs) q.since = sinceTs;
@@ -486,8 +492,8 @@ function AuditPage({
     eventType,
     requestId,
     applicationId,
-    agentSession,
     sessionId,
+    authorityRecordId,
     label,
     since,
     until,
@@ -602,8 +608,8 @@ function AuditPage({
           requestId={requestId}
           applicationId={applicationId}
           applications={apps.data ?? []}
-          agentSession={agentSession}
           sessionId={sessionId}
+          authorityRecordId={authorityRecordId}
           label={label}
           since={since}
           until={until}
@@ -613,8 +619,8 @@ function AuditPage({
           onEventType={setEventType}
           onRequestId={setRequestId}
           onApplicationId={setApplicationId}
-          onAgentSession={setAgentSession}
           onSessionId={setSessionId}
+          onAuthorityRecordId={setAuthorityRecordId}
           onLabel={setLabel}
           onSince={setSince}
           onUntil={setUntil}
@@ -665,8 +671,8 @@ function AuditFilterBar({
   requestId,
   applicationId,
   applications,
-  agentSession,
   sessionId,
+  authorityRecordId,
   label,
   since,
   until,
@@ -676,8 +682,8 @@ function AuditFilterBar({
   onEventType,
   onRequestId,
   onApplicationId,
-  onAgentSession,
   onSessionId,
+  onAuthorityRecordId,
   onLabel,
   onSince,
   onUntil,
@@ -691,8 +697,8 @@ function AuditFilterBar({
   requestId: string;
   applicationId: string;
   applications: Application[];
-  agentSession: string;
   sessionId: string;
+  authorityRecordId: string;
   label: string;
   since: string;
   until: string;
@@ -702,8 +708,8 @@ function AuditFilterBar({
   onEventType: (v: string) => void;
   onRequestId: (v: string) => void;
   onApplicationId: (v: string) => void;
-  onAgentSession: (v: string) => void;
   onSessionId: (v: string) => void;
+  onAuthorityRecordId: (v: string) => void;
   onLabel: (v: string) => void;
   onSince: (v: string) => void;
   onUntil: (v: string) => void;
@@ -711,7 +717,7 @@ function AuditFilterBar({
   const activeFilters =
     (category !== "all" ? 1 : 0) +
     (decision !== "all" ? 1 : 0) +
-    [eventType, requestId, applicationId, agentSession, sessionId, label, since, until].filter(
+    [eventType, requestId, applicationId, sessionId, authorityRecordId, label, since, until].filter(
       (v) => v.trim(),
     ).length;
   return (
@@ -762,20 +768,20 @@ function AuditFilterBar({
         ))}
       </Select>
       <Field
-        label="Session"
-        placeholder="Follow one session"
-        value={agentSession}
-        onChange={(e) => onAgentSession(e.target.value)}
-      />
-      <Field
-        label="Session"
-        placeholder="Backing session ID"
+        label="Session ID"
+        placeholder="Follow one Session"
         value={sessionId}
         onChange={(e) => onSessionId(e.target.value)}
       />
       <Field
-        label="Agent label"
-        placeholder="Scope to one agent role"
+        label="Authority record ID"
+        placeholder="Follow one STS exchange record"
+        value={authorityRecordId}
+        onChange={(e) => onAuthorityRecordId(e.target.value)}
+      />
+      <Field
+        label="Session label"
+        placeholder="Scope to one Session role"
         value={label}
         onChange={(e) => onLabel(e.target.value)}
       />
@@ -847,7 +853,7 @@ function entityLink(entity: AuditEntity): { to: string; search?: Record<string, 
       return { to: appLink("/resources"), search: { focus: entity.id } };
     case "provider":
       return { to: appLink("/providers"), search: { focus: entity.id } };
-    case "agent":
+    case "session":
       return { to: appLink("/sessions"), search: { focus: entity.id } };
     case "delegation":
       return { to: appLink("/sessions"), search: { view: "delegation", focus: entity.id } };
@@ -860,7 +866,7 @@ const ENTITY_KIND_LABELS: Record<AuditEntity["kind"], string> = {
   application: "Application",
   resource: "Resource",
   provider: "Provider",
-  agent: "Session",
+  session: "Session",
   delegation: "Delegation",
   approval: "Approval hold",
 };
@@ -916,7 +922,7 @@ function AuditDetailView({
     .join(" ");
   if (command) facts.push({ label: "Command", value: <Mono>{command}</Mono> });
   const lifecycle = metaString(meta, "agent_lifecycle");
-  if (lifecycle) facts.push({ label: "Agent lifecycle", value: lifecycle });
+  if (lifecycle) facts.push({ label: "Session lifecycle", value: lifecycle });
 
   // Attribution facts answer who stood behind the action: the control-plane subject,
   // and the operator-asserted authority recorded for approval-gated changes.
@@ -1068,13 +1074,13 @@ function AuditDetailView({
                     ? (appNames.get(hop.applicationId) ?? hop.applicationId)
                     : "unknown application"}
                 </span>
-                {hop.agentSessionId ? (
+                {hop.sessionId ? (
                   <Link
                     to={appLink("/sessions")}
-                    search={{ focus: hop.agentSessionId }}
+                    search={{ focus: hop.sessionId }}
                     className="truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
                   >
-                    {hop.agentSessionId}
+                    {hop.sessionId}
                   </Link>
                 ) : null}
               </li>

@@ -149,7 +149,7 @@ function PostureStrip({ data }: { data: ZoneOverview }) {
         />
         <PostureCell
           to={appLink("/subjects")}
-          label="Active subject sessions"
+          label="Active Subject authority records"
           value={String(activeSessions)}
           tone={activeSessions > 0 ? "ok" : "muted"}
           sub={activeSessions > 0 ? "Currently authenticated" : "None authenticated"}
@@ -281,14 +281,14 @@ function buildAttention(data: ZoneOverview, pendingApprovals: number): Attention
   const denied = data.decisions_24h.denied;
   const unenforced = data.resources.unenforced;
 
-  // Pending holds lead the list: an agent run is parked on each one right now, so every
+  // Pending holds lead the list: a Session is parked on each one, so every
   // minute unnoticed is a minute of a human-visible stall.
   if (pendingApprovals > 0) {
     items.push({
       id: "approvals",
       tone: "warn",
       title: `${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} awaiting a decision`,
-      detail: "Agent runs are parked on these holds until someone with authority decides.",
+      detail: "Sessions are parked on these holds until someone with authority decides.",
       to: appLink("/approvals"),
     });
   }

@@ -102,13 +102,13 @@ function requestedAuthority(challenge: StepUpChallenge): { scopes: string[]; res
   return { scopes: pick("requested_scopes"), resources: pick("resources") };
 }
 
-// The requesting agent run, when the exchange carried lineage. Lets an approver jump from
+// The requesting session run, when the exchange carried lineage. Lets an approver jump from
 // the hold to the exact run asking for authority before deciding.
-function agentLineage(challenge: StepUpChallenge): { agentSession?: string; edge?: string } {
+function sessionLineage(challenge: StepUpChallenge): { session?: string; edge?: string } {
   const meta = challenge.metadata_json;
   if (!meta) return {};
   return {
-    agentSession: typeof meta.agent_session_id === "string" ? meta.agent_session_id : undefined,
+    session: typeof meta.id === "string" ? meta.id : undefined,
     edge: typeof meta.delegation_edge_id === "string" ? meta.delegation_edge_id : undefined,
   };
 }
@@ -242,7 +242,7 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
         title: feed.isError ? "Could not load approvals" : "No approval holds",
         description: feed.isError
           ? errorMessage(feed.error)
-          : "Holds appear here when a policy declares an approval tier and an agent requests matching authority.",
+          : "Holds appear here when a policy declares an approval tier and an session requests matching authority.",
       }}
       detail={{
         title: (c) => appName(c) ?? c.principal_id,
@@ -294,21 +294,21 @@ function ApprovalFilterBar({
 // One labeled row inside the briefing card, aligned so the card scans as a grid of
 // facts instead of prose.
 
-// What the requesting agent says about itself, read live from the coordinator: the
+// What the requesting session says about itself, read live from the coordinator: the
 // task its developer annotated at session start, its role labels, and how recently it started.
 // The context a policy cannot evaluate but an approver can. A missing task annotation
-// is stated outright - not knowing why an agent wants authority is itself a signal.
-// Renders nothing only when the agent record is gone.
-function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSessionId: string }) {
-  const agent = useQuery({
-    queryKey: ["approvalAgent", zoneId, agentSessionId],
-    queryFn: () => consoleApi.agents.get(zoneId, agentSessionId),
+// is stated outright - not knowing why an session wants authority is itself a signal.
+// Renders nothing only when the session record is gone.
+function SessionContext({ zoneId, sessionId }: { zoneId: string; sessionId: string }) {
+  const session = useQuery({
+    queryKey: ["approvalSession", zoneId, sessionId],
+    queryFn: () => consoleApi.sessions.get(zoneId, sessionId),
     staleTime: 30_000,
     retry: false,
   });
-  if (!agent.data) return null;
-  const task = typeof agent.data.metadata?.task === "string" ? agent.data.metadata.task : null;
-  const labels = agent.data.labels ?? [];
+  if (!session.data) return null;
+  const task = typeof session.data.metadata?.task === "string" ? session.data.metadata.task : null;
+  const labels = session.data.labels ?? [];
   return (
     <BriefRow label="Task">
       <span className={task ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
@@ -321,11 +321,11 @@ function AgentContext({ zoneId, agentSessionId }: { zoneId: string; agentSession
             {" \u00b7 "}
           </>
         ) : null}
-        {relativeTime(agent.data.spawned_at)}
+        {relativeTime(session.data.startedAt)}
         {" \u00b7 "}
         <Link
           to={appLink("/sessions")}
-          search={{ focus: agentSessionId }}
+          search={{ focus: sessionId }}
           className="text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
         >
           View session
@@ -449,7 +449,7 @@ function holdEvents(challenge: StepUpChallenge, now: number): TimelineEvent[] {
       at: challenge.expires_at,
       tone: "muted",
       future: true,
-      detail: "The agent's next exchange mints the held token until then.",
+      detail: "The session's next exchange mints the held token until then.",
     });
   }
   return events;
@@ -468,7 +468,7 @@ function ApprovalDetail({
 }) {
   const now = Date.now();
   const authority = requestedAuthority(challenge);
-  const lineage = agentLineage(challenge);
+  const lineage = sessionLineage(challenge);
   const subjectPrincipal =
     challenge.principal_id && challenge.principal_id !== challenge.application_id;
 
@@ -511,9 +511,7 @@ function ApprovalDetail({
               ) : null}
             </span>
           </BriefRow>
-          {lineage.agentSession ? (
-            <AgentContext zoneId={zoneId} agentSessionId={lineage.agentSession} />
-          ) : null}
+          {lineage.session ? <SessionContext zoneId={zoneId} sessionId={lineage.session} /> : null}
           {challenge.state === "pending" ? <PatternLine challenge={challenge} /> : null}
         </dl>
       </div>
@@ -547,7 +545,7 @@ function ApprovalDetail({
         <dl className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
           <DetailField
             label="Hold"
-            hint="The challenge id the agent received; decisions land on this id"
+            hint="The challenge id the session received; decisions land on this id"
           >
             <CopyValue value={challenge.id} />
           </DetailField>
@@ -568,13 +566,16 @@ function ApprovalDetail({
             </DetailField>
           ) : null}
           {challenge.session_id ? (
-            <DetailField label="Session" hint="The subject session the exchange rode on">
+            <DetailField
+              label="Authority record ID"
+              hint="The STS exchange record that carried the Subject's authority"
+            >
               <CopyValue value={challenge.session_id} />
             </DetailField>
           ) : null}
-          {lineage.agentSession ? (
-            <DetailField label="Session" hint="The governed session asking for this token">
-              <CopyValue value={lineage.agentSession} />
+          {lineage.session ? (
+            <DetailField label="Session ID" hint="The governed Session asking for this token">
+              <CopyValue value={lineage.session} />
             </DetailField>
           ) : null}
           {lineage.edge ? (
@@ -605,7 +606,7 @@ function ApprovalDetail({
         <div className="border-t border-border pt-3">
           <Link
             to={appLink("/audit")}
-            search={{ session: challenge.session_id }}
+            search={{ authorityRecordId: challenge.session_id }}
             className="text-xs text-muted-foreground hover:text-foreground hover:underline"
           >
             Open session activity in Audit
@@ -637,8 +638,8 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
         title: decision === "approve" ? "Hold approved" : "Hold rejected",
         description:
           decision === "approve"
-            ? "The agent's next exchange attempt mints the held token."
-            : "The hold is settled; the agent's exchange fails closed.",
+            ? "The session's next exchange attempt mints the held token."
+            : "The hold is settled; the session's exchange fails closed.",
       });
     } catch (err) {
       if (err instanceof ConsoleApiError && err.code === "challenge_not_decidable") {

@@ -54,7 +54,7 @@ function ApplicationsRoute() {
   return (
     <ZoneScopedPage
       title="Applications"
-      description="Agent identities that can request authority in this zone."
+      description="Application identities that can request authority in this zone."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
     >
       {(zone) => <ApplicationsPage zoneId={zone.id} zoneName={zone.name} />}
@@ -173,7 +173,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       options: [
         { id: "all", label: "All types", count: allRows.length },
         { id: "managed", label: "Managed", count: counts.managed },
-        { id: "dynamic", label: "Dynamic (DCR)", count: counts.dynamic },
+        { id: "dynamic", label: "Dynamically registered", count: counts.dynamic },
       ],
     },
     ...(view === "archived"
@@ -214,7 +214,9 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
       id: "type",
       header: "Type",
       sortable: true,
-      cell: (app) => <Badge tone="neutral">{isManaged(app) ? "Managed" : "Dynamic (DCR)"}</Badge>,
+      cell: (app) => (
+        <Badge tone="neutral">{isManaged(app) ? "Managed" : "Dynamically registered"}</Badge>
+      ),
     },
     {
       id: "credential",
@@ -254,7 +256,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
     <>
       <ResourceWorkspace
         title="Applications"
-        description="Agent identities that can request authority in this zone."
+        description="Application identities that can request authority in this zone."
         breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Applications" }]}
         primaryAction={{ label: "New application", onClick: () => setCreateOpen(true) }}
         rows={rows}
@@ -284,7 +286,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
             ? errorMessage(query.error)
             : view === "archived"
               ? "Applications you archive keep their record here for audit."
-              : "Create an application to give an agent a scoped identity in this zone.",
+              : "Create an Application to give a workload a scoped identity in this zone.",
         }}
         detail={{
           title: (app) => app.name,
@@ -365,7 +367,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         open={rotateTarget !== null}
         onClose={() => setRotateTarget(null)}
         title="Rotate client secret"
-        description={`This immediately invalidates the current secret for "${rotateTarget?.name ?? ""}". Any agent using the old secret will fail to authenticate until updated.`}
+        description={`This immediately invalidates the current secret for "${rotateTarget?.name ?? ""}". Any workload using the old secret will fail to authenticate until updated.`}
         confirmLabel="Rotate secret"
         tone="danger"
         onConfirm={async () => {
@@ -391,7 +393,7 @@ function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: stri
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Archive application"
-        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens and any agent using its credentials stops authenticating. This cannot be undone; the record stays visible under Archived for audit.`}
+        description={`Archiving "${deleteTarget?.name ?? ""}" revokes its identity: it can no longer obtain tokens and any workload using its credentials stops authenticating. This cannot be undone; the record stays visible under Archived for audit.`}
         confirmLabel="Archive application"
         tone="danger"
         onConfirm={async () => {
@@ -443,7 +445,7 @@ function ApplicationDetail({
     <div className="flex flex-col gap-6">
       <DetailHeader>
         <CredentialBadge app={app} />
-        <Badge tone="neutral">{managed ? "Managed" : "Dynamic (DCR)"}</Badge>
+        <Badge tone="neutral">{managed ? "Managed" : "Dynamically registered"}</Badge>
         {archived && app.archived_at ? (
           <span className="text-xs text-muted-foreground">
             Archived {new Date(app.archived_at).toLocaleString()}
@@ -656,7 +658,7 @@ function CreateApplicationModal({
       open={open}
       onClose={onClose}
       title="New application"
-      description={`Give an agent a managed identity in ${zoneName}.`}
+      description={`Give a workload a managed Application identity in ${zoneName}.`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>

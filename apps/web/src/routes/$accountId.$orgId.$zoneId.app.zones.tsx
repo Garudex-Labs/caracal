@@ -171,7 +171,7 @@ function ZonesPage() {
     },
     {
       id: "dcr",
-      header: "DCR",
+      header: "Dynamic registration",
       cell: (zone) =>
         zone.dcr_enabled ? <Badge tone="neutral">Enabled</Badge> : <Badge tone="muted">Off</Badge>,
     },
@@ -441,7 +441,8 @@ function ZonesPage() {
           toast({
             tone: "info",
             title: "Dynamic clients revoked",
-            description: "Live DCR clients and their sessions were revoked.",
+            description:
+              "Live dynamically registered clients, Authority records, and Sessions were revoked.",
           });
         }}
         onClose={() => setDeleteTarget(null)}
@@ -703,9 +704,9 @@ function ZoneDetailDrawer({
           >
             {isActive ? <Badge tone="success">Active</Badge> : null}
             {zone.dcr_enabled ? (
-              <Badge tone="neutral">DCR enabled</Badge>
+              <Badge tone="neutral">Dynamic registration enabled</Badge>
             ) : (
-              <Badge tone="muted">DCR off</Badge>
+              <Badge tone="muted">Dynamic registration off</Badge>
             )}
           </DetailHeader>
 
@@ -945,7 +946,8 @@ function DeleteZoneDialog({
                 </p>
                 <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-400/90">
                   Deleting the zone does not revoke them. To cut off access immediately, revoke them
-                  first. This archives the identities and revokes their sessions and agents.
+                  first. This archives the identities and revokes their Authority records and
+                  Sessions.
                 </p>
                 <Button
                   variant="secondary"
@@ -955,7 +957,7 @@ function DeleteZoneDialog({
                   loading={revoking}
                   disabled={busy}
                 >
-                  Disable DCR &amp; revoke live clients
+                  Disable dynamic registration &amp; revoke live clients
                 </Button>
                 {revokeError ? (
                   <p className="mt-2 text-xs text-destructive">Revoke failed: {revokeError}</p>
@@ -1033,8 +1035,8 @@ function DcrShutdownDialog({
           <div className="text-sm font-medium text-destructive">Revoke all live clients now</div>
           <p className="mt-1 text-xs text-muted-foreground">
             Archives the {liveCount} dynamic identit{liveCount === 1 ? "y" : "ies"}, revokes their
-            sessions, and terminates related ephemeral agents immediately. Use this to stop DCR
-            access at once.
+            Authority records, and terminates related ephemeral Sessions immediately. Use this to
+            stop dynamic-registration access at once.
           </p>
         </button>
       </div>
