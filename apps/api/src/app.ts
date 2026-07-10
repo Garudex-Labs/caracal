@@ -511,15 +511,18 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
         lock.release()
       }
     }
+    let rotation: ReturnType<typeof setInterval> | undefined
+    app.addHook('onClose', async () => {
+      if (rotation) clearInterval(rotation)
+    })
     app.addHook('onListen', async () => {
       await provisionIdentities()
       // Rotate well inside the credential deadline, so a healthy instance never runs up to
       // expiry and a transient rotation failure has headroom to retry on the next tick.
-      const rotation = setInterval(() => {
+      rotation = setInterval(() => {
         void provisionIdentities()
       }, OPERATOR_CREDENTIAL_ROTATE_SEC * 1000)
       rotation.unref()
-      app.addHook('onClose', async () => clearInterval(rotation))
     })
   }
 

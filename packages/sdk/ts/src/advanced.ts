@@ -45,6 +45,7 @@ export {
   Lifecycle,
   startCoordinatorSession,
   terminateSession,
+  acquireSessionLease,
   heartbeatSession,
   createDelegation,
   revokeDelegation,

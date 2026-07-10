@@ -110,6 +110,7 @@ export interface StartSessionResponse {
   sessionId: string
   delegationId?: string
   heartbeatDeadlineAt?: string
+  leaseGeneration: number
 }
 
 export interface DelegationRequest {
@@ -136,6 +137,7 @@ export interface DelegationResponse {
 export interface HeartbeatResponse {
   status?: string
   heartbeatDeadlineAt?: string
+  leaseGeneration: number
 }
 
 async function call<T>(
@@ -212,7 +214,12 @@ export async function startCoordinatorSession(
         ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
       }
     : undefined
-  const res = await call<{ agent_session_id?: string; delegation_edge_id?: string | null; heartbeat_deadline_at?: string | null }>(
+  const res = await call<{
+    agent_session_id?: string
+    delegation_edge_id?: string | null
+    heartbeat_deadline_at?: string | null
+    lease_generation?: number
+  }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(req.zoneId)}/agents`,
@@ -232,15 +239,31 @@ export async function startCoordinatorSession(
     signal,
   )
   if (!res?.agent_session_id) throw new Error('coordinator session response missing agent_session_id')
+  if (!Number.isSafeInteger(res.lease_generation) || (req.lifecycle === Lifecycle.Service && res.lease_generation < 1)) {
+    throw new Error('coordinator session response missing valid lease_generation')
+  }
   return {
     sessionId: res.agent_session_id,
     delegationId: res.delegation_edge_id ?? undefined,
     heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
+    leaseGeneration: res.lease_generation,
   }
 }
 
-export async function terminateSession(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
-  await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`, bearer)
+export async function terminateSession(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  sessionId: string,
+  leaseGeneration?: number,
+): Promise<void> {
+  await call<unknown>(
+    client,
+    'DELETE',
+    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`,
+    bearer,
+    leaseGeneration === undefined ? undefined : { lease_generation: leaseGeneration },
+  )
 }
 
 export async function createDelegation(
@@ -366,14 +389,44 @@ export async function heartbeatSession(
   bearer: string,
   zoneId: string,
   sessionId: string,
+  leaseGeneration: number,
   status: SessionStatus = 'healthy',
 ): Promise<HeartbeatResponse> {
-  const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null } }>(
+  const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number } }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/heartbeat`,
     bearer,
-    { status },
+    { status, lease_generation: leaseGeneration },
   )
-  return { status: res?.agent?.status, heartbeatDeadlineAt: res?.agent?.heartbeat_deadline_at ?? undefined }
+  if (!Number.isSafeInteger(res?.agent?.lease_generation) || (res?.agent?.lease_generation ?? 0) < 1) {
+    throw new Error('coordinator heartbeat response missing valid lease_generation')
+  }
+  return {
+    status: res.agent?.status,
+    heartbeatDeadlineAt: res.agent?.heartbeat_deadline_at ?? undefined,
+    leaseGeneration: res.agent.lease_generation,
+  }
+}
+
+export async function acquireSessionLease(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  sessionId: string,
+): Promise<HeartbeatResponse> {
+  const res = await call<{ status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number }>(
+    client,
+    'POST',
+    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/lease`,
+    bearer,
+  )
+  if (!Number.isSafeInteger(res.lease_generation) || (res.lease_generation ?? 0) < 1) {
+    throw new Error('coordinator lease response missing valid lease_generation')
+  }
+  return {
+    status: res.status,
+    heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
+    leaseGeneration: res.lease_generation,
+  }
 }

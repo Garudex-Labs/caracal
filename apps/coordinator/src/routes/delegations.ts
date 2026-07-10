@@ -26,7 +26,6 @@ const ConstraintBody = z
     max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
     max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
     ttl_seconds: z.number().int().min(1).max(86400).optional(),
-    budget: z.number().int().min(1).max(1024).optional(),
     policy_approved: z.boolean().optional(),
     expires_at: z.string().datetime().optional(),
     broad_reason: z.string().min(1).max(256).optional(),
@@ -387,6 +386,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId, id } = params
     const readerApplicationId = delegationReaderApplication(req)
+    if (readerApplicationId !== null) return reply.code(403).send({ error: 'coordinator_admin_required' })
     const { rows } = await fastify.db.query(
       `WITH RECURSIVE graph AS (
          SELECT id, source_session_id, target_session_id, 1 AS depth, ARRAY[id] AS visited
@@ -414,6 +414,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId, id } = params
     const readerApplicationId = delegationReaderApplication(req)
+    if (readerApplicationId !== null) return reply.code(403).send({ error: 'coordinator_admin_required' })
     const { rows } = await fastify.db.query<{
       id: string
       source_session_id: string
@@ -839,10 +840,6 @@ function parentAllowsDelegation(
   if (constraints.ttl_seconds !== undefined) {
     const childTTL = childConstraints.ttl_seconds
     if (childTTL === undefined || childTTL > constraints.ttl_seconds) return false
-  }
-  if (constraints.budget !== undefined) {
-    const childBudget = childConstraints.budget ?? new Set(body.scopes).size
-    if (childBudget > constraints.budget) return false
   }
   return true
 }

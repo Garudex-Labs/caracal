@@ -33,6 +33,7 @@ const HeartbeatBody = z.object({
   status: z.enum(['starting', 'healthy', 'degraded', 'unhealthy']).default('healthy'),
   active_invocations: z.number().int().min(0).default(0),
   metadata: z.record(z.string(), z.unknown()).default({}),
+  lease_generation: z.number().int().min(1),
 })
 
 const ListQuery = z.object({
@@ -129,6 +130,95 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
     return { items: rows, next_cursor: nextCursor }
   })
 
+  fastify.post('/zones/:zoneId/agents/:id/lease', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const { zoneId, id } = params
+    const client = await fastify.db.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows: own } = await client.query<{
+        application_id: string
+        status: string
+        lifecycle: string
+        lease_expired: boolean
+      }>(
+        `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
+         SELECT application_id, status, lifecycle,
+                heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
+         FROM sessions, locked
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+        [id, zoneId, sessionLockKey(zoneId)],
+      )
+      if (!own[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(404).send({ error: 'session_not_found' })
+      }
+      if (
+        !ownsApplication(req, own[0].application_id) &&
+        !requireScope(req, 'coordinator.admin') &&
+        !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
+      ) {
+        await client.query('ROLLBACK')
+        return reply.code(403).send({ error: 'application_ownership_required' })
+      }
+      if (own[0].lifecycle !== 'service') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_not_service' })
+      }
+      if (own[0].status === 'suspended') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_suspended' })
+      }
+      if (own[0].status !== 'active') {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_not_live' })
+      }
+      if (own[0].lease_expired) {
+        await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
+        await client.query('COMMIT')
+        return reply.code(409).send({ error: 'session_lease_expired' })
+      }
+      const authorityRecordId = req.caracalAuth?.authorityRecordId
+      if (!authorityRecordId) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'authority_record_required' })
+      }
+      const { rows: authority } = await client.query(
+        `SELECT 1 FROM authority_records
+         WHERE id = $1 AND zone_id = $2 AND session_type = 'application'
+           AND subject_id = $3 AND status = 'active' AND expires_at > now()`,
+        [authorityRecordId, zoneId, own[0].application_id],
+      )
+      if (!authority[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'identity_revoked' })
+      }
+      const { rows } = await client.query(
+        `UPDATE sessions
+         SET lease_generation = lease_generation + 1,
+             last_active_at = now(),
+             last_heartbeat_at = now(),
+             heartbeat_deadline_at = now() + ($3::int * interval '1 second'),
+             updated_at = now()
+         WHERE id = $1 AND zone_id = $2
+         RETURNING status, heartbeat_deadline_at, lease_generation`,
+        [id, zoneId, cfg.serviceSessionLeaseSeconds],
+      )
+      await client.query('COMMIT')
+      return {
+        status: rows[0].status,
+        heartbeat_deadline_at: rows[0].heartbeat_deadline_at,
+        lease_generation: Number(rows[0].lease_generation),
+      }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  })
+
   fastify.post('/zones/:zoneId/agents/:id/heartbeat', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
@@ -144,9 +234,10 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         lifecycle: string
         heartbeat_deadline_at: Date | null
         lease_expired: boolean
+        lease_generation: string
       }>(
         `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
-         SELECT application_id, subject_authority_record_id, status, lifecycle, heartbeat_deadline_at,
+         SELECT application_id, subject_authority_record_id, status, lifecycle, heartbeat_deadline_at, lease_generation,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
          FROM sessions, locked
          WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
@@ -171,6 +262,10 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       if (own[0].lifecycle !== 'service') {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'session_not_service' })
+      }
+      if (body.lease_generation !== Number(own[0].lease_generation)) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_lease_fenced' })
       }
       if (own[0].status === 'active' && own[0].lifecycle === 'service' && own[0].lease_expired) {
         await suspendSubtree(client, zoneId, [id], 'service_heartbeat_lost')
@@ -198,10 +293,14 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
              last_heartbeat_at = now(),
              heartbeat_deadline_at = now() + ($3::int * interval '1 second'),
              updated_at = now()
-         WHERE id = $1 AND zone_id = $2
-          RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, cfg.serviceSessionLeaseSeconds],
+         WHERE id = $1 AND zone_id = $2 AND lease_generation = $4
+          RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at, lease_generation`,
+        [id, zoneId, cfg.serviceSessionLeaseSeconds, body.lease_generation],
       )
+      if (!agents[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_lease_fenced' })
+      }
       let service = null
       if (body.service_id) {
         const { rows: svc } = await client.query(
@@ -221,7 +320,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       }
       await client.query('COMMIT')
       return {
-        agent: agents[0],
+        agent: { ...agents[0], lease_generation: Number(agents[0].lease_generation) },
         service,
         active_invocations: body.active_invocations,
       }
