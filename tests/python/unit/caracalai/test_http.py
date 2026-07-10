@@ -111,8 +111,9 @@ class CaracalASGIMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     async def test_verifier_runs_at_boundary_then_binds(self) -> None:
         seen: dict[str, object] = {"token": None, "app": 0}
 
-        async def verifier(token: str) -> None:
+        async def verifier(token: str) -> VerifiedClaims:
             seen["token"] = token
+            return VerifiedClaims(zone_id="zone-1", application_id="app-1", hop=0)
 
         async def app(_scope, _receive, _send):
             seen["app"] = 1
@@ -130,6 +131,7 @@ class CaracalASGIMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         async def verifier(_token: str) -> VerifiedClaims:
             return VerifiedClaims(
                 zone_id="zone-proved",
+                application_id="app-proved",
                 session_id="agent-proved",
                 hop=3,
             )
@@ -150,6 +152,41 @@ class CaracalASGIMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         await middleware(scope, None, None)
 
         self.assertEqual(seen["claims"], ("zone-proved", "agent-proved", 3))
+
+    async def test_verified_claims_clear_omitted_authority_baggage(self) -> None:
+        seen: dict[str, object] = {}
+
+        async def verifier(_token: str) -> VerifiedClaims:
+            return VerifiedClaims(
+                zone_id="zone-proved", application_id="app-proved", hop=0
+            )
+
+        async def app(_scope, _receive, _send):
+            ctx = middleware.caracal.current()
+            assert ctx is not None
+            seen["claims"] = (
+                ctx.session_id,
+                ctx.delegation_id,
+                ctx.parent_delegation_id,
+                ctx.subject_authority_record_id,
+                ctx.hop,
+            )
+
+        middleware = CaracalASGIMiddleware(app, make_caracal(), verifier=verifier)
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer abc.def.ghi"),
+                (
+                    b"baggage",
+                    b"caracal.agent_session=forged,caracal.delegation_edge=forged-edge,"
+                    b"caracal.parent_edge=forged-parent,caracal.session=forged-subject,caracal.hop=9",
+                ),
+            ],
+        }
+        await middleware(scope, None, None)
+
+        self.assertEqual(seen["claims"], (None, None, None, None, 0))
 
     async def test_app_errors_propagate_unchanged(self) -> None:
         async def app(_scope, _receive, _send):

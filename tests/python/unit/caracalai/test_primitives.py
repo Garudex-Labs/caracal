@@ -49,6 +49,7 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         ) as ctx:
             self.assertEqual(ctx.session_id, "agent-1")
             self.assertEqual(ctx.zone_id, "z")
+            self.assertRegex(ctx.trace_id or "", r"^[0-9a-f]{32}$")
             self.assertIsNotNone(current())
 
     async def test_sets_ambient_context_and_clears_on_exit(self) -> None:
@@ -79,6 +80,22 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
         methods = [r.method for r in requests]
         self.assertIn("DELETE", methods)
+
+    async def test_cleanup_failure_is_raised_after_successful_block(self) -> None:
+        async def handler(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST":
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            return httpx.Response(500, text="db down")
+
+        coord = _coord(handler)
+        with self.assertRaises(CoordinatorError):
+            async with session(
+                coordinator=coord,
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            ):
+                pass
 
     async def test_on_session_start_hook_called(self) -> None:
         events: list[str] = []
@@ -578,6 +595,35 @@ class ParentCtxOverrideTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.trace_id, "11111111111111111111111111111111")
         self.assertEqual(captured["body"].get("parent_id"), "parent-session")
 
+    async def test_explicit_parent_id_must_match_parent_context(self) -> None:
+        from caracalai.context import CaracalContext
+
+        calls = 0
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(500)
+
+        parent = CaracalContext(
+            subject_token="parent-tok",
+            zone_id="z",
+            application_id="parent-app",
+            session_id="parent-session",
+            hop=0,
+        )
+        with self.assertRaisesRegex(ValueError, "must match the Session bound"):
+            async with session(
+                coordinator=_coord(handler),
+                zone_id="z",
+                application_id="child-app",
+                subject_token="tok",
+                parent_ctx=parent,
+                parent_session_id="other-session",
+            ):
+                pass  # pragma: no cover
+        self.assertEqual(calls, 0)
+
     async def test_spawn_narrow_uses_explicit_parent_ctx(self) -> None:
         from caracalai.context import CaracalContext
 
@@ -953,6 +999,41 @@ class SessionInheritDelegationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(heartbeats, 1)
         self.assertEqual(len(lost), 1)
         self.assertIsInstance(lost[0], CoordinatorError)
+        await agent.aclose()
+
+    async def test_lease_expiry_is_resumable_not_terminal_loss(self) -> None:
+        import asyncio
+        from caracalai.primitives import start_session
+
+        heartbeats = 0
+        lost: list[BaseException] = []
+        states: list[str] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            nonlocal heartbeats
+            if req.method == "POST" and str(req.url).endswith("/agents"):
+                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+            if req.method == "POST" and str(req.url).endswith("/heartbeat"):
+                heartbeats += 1
+                if heartbeats == 1:
+                    return httpx.Response(409, json={"error": "session_lease_expired"})
+                return httpx.Response(200, json={"agent": {"status": "suspended"}})
+            return httpx.Response(204)
+
+        agent = await start_session(
+            coordinator=_coord(handler),
+            zone_id="z",
+            application_id="app",
+            subject_token="tok",
+            heartbeat_interval=0.01,
+            on_lease_lost=lost.append,
+            on_state_change=states.append,
+        )
+        await asyncio.sleep(0.08)
+        self.assertEqual(heartbeats, 2)
+        self.assertEqual(lost, [])
+        self.assertEqual(states, ["suspended"])
+        self.assertEqual(agent.status, "suspended")
         await agent.aclose()
 
     async def test_narrow_grant_issues_delegation_edge(self) -> None:

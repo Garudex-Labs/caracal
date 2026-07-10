@@ -148,6 +148,7 @@ class StartSessionTests(unittest.IsolatedAsyncioTestCase):
                 zone_id="z",
                 application_id="app",
                 subject_authority_record_id="sid-1",
+                subject_authority_record_token="subject-mandate",
                 parent_id="parent-1",
                 lifecycle=Lifecycle.SERVICE,
                 ttl_seconds=60,
@@ -157,6 +158,7 @@ class StartSessionTests(unittest.IsolatedAsyncioTestCase):
         )
         body = captured[0]
         self.assertEqual(body["subject_session_id"], "sid-1")
+        self.assertEqual(body["subject_token"], "subject-mandate")
         self.assertEqual(body["parent_id"], "parent-1")
         self.assertEqual(body["lifecycle"], "service")
         self.assertEqual(body["ttl_seconds"], 60)
@@ -416,7 +418,6 @@ class DelegationConstraintsTests(unittest.TestCase):
             max_depth=3,
             max_hops=3,
             ttl_seconds=30,
-            budget=1,
             policy_approved=True,
             expires_at="2026-12-31T00:00:00Z",
             broad_reason="operator approved",
@@ -426,7 +427,6 @@ class DelegationConstraintsTests(unittest.TestCase):
         self.assertEqual(wire["max_depth"], 3)
         self.assertEqual(wire["max_hops"], 3)
         self.assertEqual(wire["ttl_seconds"], 30)
-        self.assertEqual(wire["budget"], 1)
         self.assertEqual(wire["policy_approved"], True)
         self.assertEqual(wire["expires_at"], "2026-12-31T00:00:00Z")
         self.assertEqual(wire["broad_reason"], "operator approved")

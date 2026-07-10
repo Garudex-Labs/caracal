@@ -109,6 +109,8 @@ def _gateway_echo(req: httpx.Request) -> httpx.Response:
             "presented": req.headers.get("authorization", ""),
             "resource": req.headers.get("x-caracal-resource", ""),
             "target": str(req.url),
+            "traceparent": req.headers.get("traceparent", ""),
+            "baggage": req.headers.get("baggage", ""),
         },
     )
 
@@ -153,6 +155,9 @@ class GovernedCycleTests(unittest.TestCase):
         self.assertEqual(body["presented"], "Bearer mandate-1")
         self.assertEqual(body["resource"], RESOURCE)
         self.assertEqual(body["target"], "http://gateway/tasks?x=1")
+        self.assertTrue(body["traceparent"].startswith("00-"))
+        self.assertIn("caracal.agent_session=agent-2", body["baggage"])
+        self.assertIn("caracal.delegation_edge=edge-1", body["baggage"])
 
         spawns = platform.spawn_calls()
         self.assertEqual(len(spawns), 2)
