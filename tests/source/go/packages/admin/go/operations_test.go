@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// AdminClient unit tests covering the operations surfaces: grants, sessions, audit, step-up, agents, and delegations.
+// AdminClient unit tests covering grants, authority records, sessions, approvals, audit, and delegations.
 
 package admin_test
 
@@ -75,24 +75,24 @@ func TestPolicyTemplateGetFindsAndRaisesNotFound(t *testing.T) {
 
 func TestListingUnwrapsAndValidatesItems(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"s1","subject_id":"user:richard"}],"next_cursor":null}`),
+		ok(`{"items":[{"authority_record_id":"s1","subject_id":"user:richard"}],"next_cursor":null}`),
 		ok(`{"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
-	sessions, err := client.Sessions.List(context.Background(), "z1", &admin.SessionQuery{Status: "active"})
+	sessions, err := client.AuthorityRecords.List(context.Background(), "z1", &admin.AuthorityRecordQuery{Status: "active"})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(sessions) != 1 || sessions[0].ID != "s1" {
+	if len(sessions) != 1 || sessions[0].AuthorityRecordID != "s1" {
 		t.Fatalf("sessions: %+v", sessions)
 	}
-	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/sessions?status=active" {
+	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/authority-records?status=active" {
 		t.Fatalf("url: %s", got)
 	}
 
-	_, err = client.AgentSessions.List(context.Background(), "z1", nil)
-	if err == nil || err.Error() != "agent-sessions response missing items" {
+	_, err = client.Sessions.List(context.Background(), "z1", nil)
+	if err == nil || err.Error() != "sessions response missing items" {
 		t.Fatalf("error: %v", err)
 	}
 }
@@ -195,10 +195,10 @@ func TestProviderGrantsPaths(t *testing.T) {
 	}
 }
 
-func TestCoordinatorSurfacesUseCoordinatorBaseAndToken(t *testing.T) {
+func TestSessionListingAndManagementUseTheirOwnTransports(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"agent_session_id":"a1"}]}`),
-		ok(`{"items":[]}`),
+		ok(`{"items":[{"session_id":"a1"}]}`),
+		ok(`{"items":[{"agent_session_id":"a2","parent_id":"a1","subject_session_id":"record-1"}]}`),
 		ok(`{"suspended":true}`),
 		respond(http.StatusNoContent, "", nil),
 		ok(`{"agent_session_id":"a1","inbound_edges":[],"effective_scopes":[],"effective_resources":[]}`),
@@ -207,23 +207,27 @@ func TestCoordinatorSurfacesUseCoordinatorBaseAndToken(t *testing.T) {
 	}}
 	client := newCoordinatorAdmin(transport, -1)
 
-	agents, err := client.Agents.List(context.Background(), "z1", &admin.AgentListQuery{Status: "active"})
+	sessions, err := client.Sessions.List(context.Background(), "z1", &admin.SessionQuery{Status: "active"})
 	if err != nil {
-		t.Fatalf("agents list: %v", err)
+		t.Fatalf("sessions list: %v", err)
 	}
-	if len(agents) != 1 || agents[0].AgentSessionID != "a1" {
-		t.Fatalf("agents: %+v", agents)
+	if len(sessions) != 1 || sessions[0].SessionID != "a1" {
+		t.Fatalf("sessions: %+v", sessions)
 	}
-	if _, err := client.Agents.Children(context.Background(), "z1", "a1", nil); err != nil {
+	children, err := client.Sessions.Children(context.Background(), "z1", "a1", nil)
+	if err != nil {
 		t.Fatalf("children: %v", err)
 	}
-	if _, err := client.Agents.Suspend(context.Background(), "z1", "a1"); err != nil {
+	if len(children) != 1 || children[0].SessionID != "a2" || children[0].ParentSessionID == nil || *children[0].ParentSessionID != "a1" || children[0].AuthorityRecordID != "record-1" {
+		t.Fatalf("children: %+v", children)
+	}
+	if _, err := client.Sessions.Suspend(context.Background(), "z1", "a1"); err != nil {
 		t.Fatalf("suspend: %v", err)
 	}
-	if err := client.Agents.Terminate(context.Background(), "z1", "a1"); err != nil {
+	if err := client.Sessions.Terminate(context.Background(), "z1", "a1"); err != nil {
 		t.Fatalf("terminate: %v", err)
 	}
-	if _, err := client.Agents.EffectiveAuthority(context.Background(), "z1", "a1"); err != nil {
+	if _, err := client.Sessions.EffectiveAuthority(context.Background(), "z1", "a1"); err != nil {
 		t.Fatalf("effective authority: %v", err)
 	}
 	if _, err := client.Delegations.Active(context.Background(), "z1"); err != nil {
@@ -233,14 +237,14 @@ func TestCoordinatorSurfacesUseCoordinatorBaseAndToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if revocation.RevokedEdges != 1 || revocation.AffectedSessions != 2 {
+	if revocation.RevokedDelegations != 1 || revocation.AffectedSessions != 2 {
 		t.Fatalf("revocation: %+v", revocation)
 	}
 
-	if got := transport.requests[0].url; got != "http://coord/zones/z1/agents?status=active" {
+	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/sessions?status=active" {
 		t.Fatalf("url: %s", got)
 	}
-	if got := transport.requests[0].header.Get("Authorization"); got != "Bearer ct" {
+	if got := transport.requests[0].header.Get("Authorization"); got != "Bearer t" {
 		t.Fatalf("authorization: %s", got)
 	}
 	if got := transport.requests[2]; got.url != "http://coord/zones/z1/agents/a1/suspend" || got.method != http.MethodPatch {
@@ -257,7 +261,7 @@ func TestCoordinatorSurfacesUseCoordinatorBaseAndToken(t *testing.T) {
 func TestCoordinatorSurfacesRequireConfiguration(t *testing.T) {
 	client := newAdmin(&scripted{}, -1)
 
-	if _, err := client.Agents.List(context.Background(), "z1", nil); !errors.Is(err, admin.ErrCoordinatorURLNotConfigured) {
+	if _, err := client.Sessions.Get(context.Background(), "z1", "session-1"); !errors.Is(err, admin.ErrCoordinatorURLNotConfigured) {
 		t.Fatalf("error: %v", err)
 	}
 
@@ -272,12 +276,12 @@ func TestCoordinatorSurfacesRequireConfiguration(t *testing.T) {
 	}
 }
 
-func TestAgentsListValidatesItems(t *testing.T) {
+func TestSessionsListValidatesItems(t *testing.T) {
 	transport := &scripted{steps: []any{ok(`{"next_cursor":null}`)}}
 	client := newCoordinatorAdmin(transport, -1)
 
-	_, err := client.Agents.List(context.Background(), "z1", nil)
-	if err == nil || err.Error() != "agents response missing items" {
+	_, err := client.Sessions.List(context.Background(), "z1", nil)
+	if err == nil || err.Error() != "sessions response missing items" {
 		t.Fatalf("error: %v", err)
 	}
 }
@@ -286,7 +290,7 @@ func TestCoordinatorErrorsCarryTarget(t *testing.T) {
 	transport := &scripted{steps: []any{respond(http.StatusNotFound, `{"error":"agent_not_found"}`, nil)}}
 	client := newCoordinatorAdmin(transport, -1)
 
-	_, err := client.Agents.Get(context.Background(), "z1", "a1")
+	_, err := client.Sessions.Get(context.Background(), "z1", "a1")
 	var apiErr *admin.AdminAPIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("error type: %v", err)

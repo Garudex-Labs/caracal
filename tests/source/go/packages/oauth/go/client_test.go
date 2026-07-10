@@ -60,6 +60,39 @@ func TestExchangeDoesNotShareCacheAcrossClientSecrets(t *testing.T) {
 	}
 }
 
+func TestOneShotExchangeBypassesCacheAndInflight(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		calls++
+		token := fmt.Sprintf("token-%d", calls)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":%q,"token_type":"Bearer","expires_in":900}`, token)
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "zone", "app", nil)
+	var wg sync.WaitGroup
+	tokens := make([]string, 2)
+	for i := range tokens {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out, err := client.Exchange(context.Background(), "", "resource://pipernet", ExchangeOptions{ClientSecret: "secret", Scopes: []string{"read"}, OneShot: true})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			tokens[i] = out.AccessToken
+		}(i)
+	}
+	wg.Wait()
+	if tokens[0] == tokens[1] || calls != 2 {
+		t.Fatalf("expected two distinct one-shot exchanges, tokens=%v calls=%d", tokens, calls)
+	}
+}
+
 func TestExchangeResourcesOmitsSubjectTokenForApplicationPrincipal(t *testing.T) {
 	var gotResources []string
 	var gotSubject string

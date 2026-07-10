@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garudex-labs/caracal/packages/identity/go"
 	"github.com/golang-jwt/jwt/v5"
 )
 

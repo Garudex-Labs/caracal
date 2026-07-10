@@ -84,7 +84,7 @@ func TestCoordinatorUsesInjectedHTTPClient(t *testing.T) {
 			return http.DefaultTransport.RoundTrip(req)
 		})},
 	}
-	if _, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{ZoneID: "z", ApplicationID: "app"}); err != nil {
+	if _, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app"}); err != nil {
 		t.Fatal(err)
 	}
 	if !used {
@@ -99,7 +99,7 @@ func TestCoordinatorResponsesRequireIdentifiers(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	if _, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{ZoneID: "z", ApplicationID: "app"}); err == nil || !strings.Contains(err.Error(), "agent_session_id") {
+	if _, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app"}); err == nil || !strings.Contains(err.Error(), "agent_session_id") {
 		t.Fatalf("expected missing session id error, got %v", err)
 	}
 	if _, err := sdk.CreateDelegation(context.Background(), client, "tok", sdk.DelegationRequest{ZoneID: "z"}); err == nil || !strings.Contains(err.Error(), "delegation_edge_id") {
@@ -168,7 +168,7 @@ func TestCoordinatorEventSinkPanicsAreContained(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL, OnEvent: func(oauth.Event) { panic("sink failure") }}
-	if _, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{ZoneID: "z", ApplicationID: "app"}); err != nil {
+	if _, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app"}); err != nil {
 		t.Fatalf("panicking sink must not break the call: %v", err)
 	}
 	if err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1"); err == nil {
@@ -182,7 +182,7 @@ func TestCoordinatorNetworkErrorEmitsFailureEvent(t *testing.T) {
 		BaseURL: "http://127.0.0.1:1",
 		OnEvent: func(event oauth.Event) { events = append(events, event) },
 	}
-	if _, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{ZoneID: "z", ApplicationID: "app"}); err == nil {
+	if _, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app"}); err == nil {
 		t.Fatal("expected connection failure")
 	}
 	if len(events) != 1 || events[0].Ok || events[0].Status != 0 {

@@ -771,7 +771,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	defer srv.Close()
 
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	agent, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
+	agent, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
 		ZoneID:        "z",
 		ApplicationID: "app",
 		Lifecycle:     sdk.LifecycleService,
@@ -780,8 +780,8 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.AgentSessionID != "agent-1" {
-		t.Fatalf("expected agent-1, got %q", agent.AgentSessionID)
+	if agent.SessionID != "agent-1" {
+		t.Fatalf("expected agent-1, got %q", agent.SessionID)
 	}
 	edge, err := sdk.CreateDelegation(context.Background(), client, "tok", sdk.DelegationRequest{
 		ZoneID:                "z",
@@ -796,15 +796,15 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edge.DelegationEdgeID != "edge-1" {
-		t.Fatalf("expected edge-1, got %q", edge.DelegationEdgeID)
+	if edge.DelegationID != "edge-1" {
+		t.Fatalf("expected edge-1, got %q", edge.DelegationID)
 	}
 	if len(bodies) != 2 || bodies[0]["ttl_seconds"] != float64(60) || bodies[1]["ttl_seconds"] != float64(30) {
 		t.Fatalf("unexpected coordinator request bodies: %#v", bodies)
 	}
 }
 
-func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
+func TestStartCoordinatorSessionNoIdempotencyKeyByDefault(t *testing.T) {
 	var seen http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Clone()
@@ -814,8 +814,8 @@ func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	_, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
-		ZoneID: "z", ApplicationID: "app", SubjectSessionID: "sid", ParentID: "parent",
+	_, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
+		ZoneID: "z", ApplicationID: "app", SubjectAuthorityRecordID: "sid", ParentID: "parent",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -825,7 +825,7 @@ func TestSpawnAgentNoIdempotencyKeyByDefault(t *testing.T) {
 	}
 }
 
-func TestSpawnAgentExplicitIdempotencyKey(t *testing.T) {
+func TestStartCoordinatorSessionExplicitIdempotencyKey(t *testing.T) {
 	var seen http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Clone()
@@ -834,7 +834,7 @@ func TestSpawnAgentExplicitIdempotencyKey(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	_, err := sdk.SpawnAgent(context.Background(), client, "tok", sdk.SpawnRequest{
+	_, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{
 		ZoneID: "z", ApplicationID: "app", IdempotencyKey: "user-key",
 	})
 	if err != nil {
@@ -1115,7 +1115,7 @@ func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
 		}
 	}
 	if !sawSpawn {
-		t.Fatal("expected a coordinator.call event for the spawn request")
+		t.Fatal("expected a coordinator.call event for the Session-start request")
 	}
 }
 

@@ -106,7 +106,19 @@ func (p *governedPlatform) finalMints() []url.Values {
 }
 
 func governedEcho() *httptest.Server {
+	var mu sync.Mutex
+	presented := map[string]struct{}{}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mandate := r.Header.Get("Authorization")
+		mu.Lock()
+		_, replayed := presented[mandate]
+		presented[mandate] = struct{}{}
+		mu.Unlock()
+		if replayed {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"error":"token_replayed"}`)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"presented": r.Header.Get("Authorization"),
@@ -204,7 +216,7 @@ func TestGovernedTransportRunsOwnAuthorityCycle(t *testing.T) {
 	}
 	for i, body := range platform.spawnBodies {
 		if body["application_id"] != "app" || body["lifecycle"] != "task" || body["ttl_seconds"] != float64(420) {
-			t.Fatalf("unexpected spawn body: %v", body)
+			t.Fatalf("unexpected Session-start body: %v", body)
 		}
 		labels, _ := body["labels"].([]any)
 		if len(labels) != 1 || labels[0] != "worker" {
@@ -277,7 +289,7 @@ func TestGovernedTransportDefaultsLabelsAndTTL(t *testing.T) {
 	}
 }
 
-func TestGovernedTransportCachesMandateAcrossRequests(t *testing.T) {
+func TestGovernedTransportMintsDistinctMandatesAcrossRequests(t *testing.T) {
 	platform := &governedPlatform{}
 	server := httptest.NewServer(platform.handler())
 	defer server.Close()
@@ -291,16 +303,16 @@ func TestGovernedTransportCachesMandateAcrossRequests(t *testing.T) {
 	}
 	first := governedGet(t, client, governedUpstream+"/tasks")
 	second := governedGet(t, client, governedUpstream+"/other")
-	if first["presented"] != "Bearer mandate-1" || second["presented"] != "Bearer mandate-1" {
-		t.Fatalf("expected shared cached mandate, got %s and %s", first["presented"], second["presented"])
+	if first["presented"] != "Bearer mandate-1" || second["presented"] != "Bearer mandate-2" {
+		t.Fatalf("expected distinct mandates, got %s and %s", first["presented"], second["presented"])
 	}
-	if mints := platform.finalMints(); len(mints) != 1 {
-		t.Fatalf("expected 1 provisioning cycle, got %d", len(mints))
+	if mints := platform.finalMints(); len(mints) != 2 {
+		t.Fatalf("expected 2 request mints, got %d", len(mints))
 	}
 	platform.mu.Lock()
 	defer platform.mu.Unlock()
 	if platform.agentN != 2 {
-		t.Fatalf("expected 2 spawned sessions, got %d", platform.agentN)
+		t.Fatalf("expected 2 sessions sessions, got %d", platform.agentN)
 	}
 }
 
@@ -374,7 +386,7 @@ func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	platform.mu.Lock()
 	defer platform.mu.Unlock()
 	if platform.agentN != 4 {
-		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
+		t.Fatalf("expected 4 sessions sessions, got %d", platform.agentN)
 	}
 	labels, _ := platform.spawnBodies[2]["labels"].([]any)
 	if len(labels) != 2 || labels[0] != "a" || labels[1] != "b" {
@@ -415,13 +427,20 @@ func TestGovernedTransportSharesConcurrentCycle(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	seen := map[string]struct{}{}
 	for _, token := range tokens {
-		if token != "Bearer mandate-1" {
-			t.Fatalf("expected single shared mandate, got %v", tokens)
-		}
+		seen[token] = struct{}{}
 	}
-	if mints := platform.finalMints(); len(mints) != 1 {
-		t.Fatalf("expected 1 provisioning cycle, got %d", len(mints))
+	if len(seen) != len(tokens) {
+		t.Fatalf("expected distinct concurrent mandates, got %v", tokens)
+	}
+	if mints := platform.finalMints(); len(mints) != len(tokens) {
+		t.Fatalf("expected %d request mints, got %d", len(tokens), len(mints))
+	}
+	platform.mu.Lock()
+	defer platform.mu.Unlock()
+	if platform.agentN != 2 {
+		t.Fatalf("expected one authority pair, got %d sessions", platform.agentN)
 	}
 }
 
@@ -555,7 +574,7 @@ func TestGovernedTransportReprovisionsOnIdentityChange(t *testing.T) {
 	platform.mu.Lock()
 	defer platform.mu.Unlock()
 	if platform.agentN != 4 {
-		t.Fatalf("expected 4 spawned sessions across identities, got %d", platform.agentN)
+		t.Fatalf("expected 4 sessions sessions across identities, got %d", platform.agentN)
 	}
 }
 

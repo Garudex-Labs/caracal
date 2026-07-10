@@ -127,7 +127,7 @@ func TestHTTPStatusCoversTransportCodes(t *testing.T) {
 		bodyError string
 	}{
 		{verify.ErrInsufficientScope, http.StatusForbidden, "insufficient_scope"},
-		{verify.ErrAgentRequired, http.StatusForbidden, "agent_required"},
+		{verify.ErrSessionRequired, http.StatusForbidden, "session_required"},
 		{verify.ErrDelegationRequired, http.StatusForbidden, "delegation_required"},
 		{verify.ErrChainMismatch, http.StatusForbidden, "chain_mismatch"},
 		{verify.ErrHopCountExceeded, http.StatusForbidden, "hop_count_exceeded"},

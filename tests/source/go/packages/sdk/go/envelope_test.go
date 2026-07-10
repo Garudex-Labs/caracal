@@ -157,15 +157,15 @@ func TestEncodeEnvelopeNeverEmitsAuthorization(t *testing.T) {
 
 func TestDecodeEncodeEnvelopeRoundTrip(t *testing.T) {
 	env := sdk.Envelope{
-		SessionID:          "sess1",
-		DelegationID:       "edge1",
-		ParentDelegationID: "parent1",
-		SubjectSessionID:   "sid1",
-		TraceID:            "0123456789abcdef0123456789abcdef",
-		TraceFlags:         "00",
-		TraceState:         "vendor=value",
-		Baggage:            map[string]string{"tenant": "pied-piper"},
-		Hop:                3,
+		SessionID:                "sess1",
+		DelegationID:             "edge1",
+		ParentDelegationID:       "parent1",
+		SubjectAuthorityRecordID: "sid1",
+		TraceID:                  "0123456789abcdef0123456789abcdef",
+		TraceFlags:               "00",
+		TraceState:               "vendor=value",
+		Baggage:                  map[string]string{"tenant": "pied-piper"},
+		Hop:                      3,
 	}
 	headers := map[string]string{}
 	sdk.EncodeEnvelope(env, func(k, v string) { headers[k] = v }, nil)
@@ -173,15 +173,15 @@ func TestDecodeEncodeEnvelopeRoundTrip(t *testing.T) {
 	out := sdk.DecodeEnvelope(func(k string) string { return headers[k] })
 
 	if out.SessionID != env.SessionID {
-		t.Errorf("AgentSessionID mismatch: %q vs %q", out.SessionID, env.SessionID)
+		t.Errorf("SessionID mismatch: %q vs %q", out.SessionID, env.SessionID)
 	}
 	if out.DelegationID != env.DelegationID {
-		t.Errorf("DelegationEdgeID mismatch")
+		t.Errorf("DelegationID mismatch")
 	}
 	if out.ParentDelegationID != env.ParentDelegationID {
 		t.Errorf("ParentEdgeID mismatch")
 	}
-	if out.SubjectSessionID != env.SubjectSessionID {
+	if out.SubjectAuthorityRecordID != env.SubjectAuthorityRecordID {
 		t.Errorf("SessionID mismatch")
 	}
 	if out.TraceID != env.TraceID {
@@ -315,7 +315,7 @@ func TestInjectFromHTTPRequestRoundTrip(t *testing.T) {
 	out := sdk.FromHTTPRequest(req)
 
 	if out.SessionID != env.SessionID {
-		t.Errorf("AgentSessionID: %q vs %q", out.SessionID, env.SessionID)
+		t.Errorf("SessionID: %q vs %q", out.SessionID, env.SessionID)
 	}
 	if out.TraceID != env.TraceID {
 		t.Errorf("TraceID: %q vs %q", out.TraceID, env.TraceID)
@@ -340,22 +340,22 @@ func TestFromHTTPRequestJoinsRepeatedBaggageHeaders(t *testing.T) {
 
 func TestToMapFromMapRoundTrip(t *testing.T) {
 	env := sdk.Envelope{
-		SessionID:        "sess",
-		DelegationID:     "edge",
-		SubjectSessionID: "sid",
-		TraceID:          "0123456789abcdef0123456789abcdef",
-		Hop:              1,
+		SessionID:                "sess",
+		DelegationID:             "edge",
+		SubjectAuthorityRecordID: "sid",
+		TraceID:                  "0123456789abcdef0123456789abcdef",
+		Hop:                      1,
 	}
 	m := sdk.ToHeaders(env)
 	out := sdk.FromHeaders(m)
 
 	if out.SessionID != env.SessionID {
-		t.Errorf("AgentSessionID mismatch")
+		t.Errorf("SessionID mismatch")
 	}
 	if out.DelegationID != env.DelegationID {
-		t.Errorf("DelegationEdgeID mismatch")
+		t.Errorf("DelegationID mismatch")
 	}
-	if out.SubjectSessionID != env.SubjectSessionID {
+	if out.SubjectAuthorityRecordID != env.SubjectAuthorityRecordID {
 		t.Errorf("SessionID mismatch")
 	}
 	if out.TraceID != env.TraceID {

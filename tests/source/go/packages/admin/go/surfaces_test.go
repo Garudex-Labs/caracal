@@ -261,7 +261,7 @@ func TestCoordinatorGraphSurfacePaths(t *testing.T) {
 	client := newCoordinatorAdmin(transport, -1)
 	ctx := context.Background()
 
-	if _, err := client.Agents.Resume(ctx, "z1", "a1"); err != nil {
+	if _, err := client.Sessions.Resume(ctx, "z1", "a1"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	if _, err := client.Delegations.Inbound(ctx, "z1", "a1"); err != nil {
@@ -277,7 +277,7 @@ func TestCoordinatorGraphSurfacePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact: %v", err)
 	}
-	if len(impact.AffectedAgents) != 1 || impact.AffectedAgents[0] != "a1" {
+	if len(impact.AffectedSessions) != 1 || impact.AffectedSessions[0] != "a1" {
 		t.Fatalf("impact: %+v", impact)
 	}
 
@@ -305,17 +305,17 @@ func TestQueryValuesEncodeAllFilters(t *testing.T) {
 	ctx := context.Background()
 
 	client.Audit.List(ctx, "z1", &admin.AuditQuery{
-		Since:          "2026-07-01T00:00:00Z",
-		Until:          "2026-07-05T00:00:00Z",
-		RequestID:      "req-1",
-		Decision:       "deny",
-		EventType:      "token_exchange",
-		AgentSessionID: "a1",
-		Label:          "worker",
-		Cursor:         "c1",
-		Limit:          10,
+		Since:     "2026-07-01T00:00:00Z",
+		Until:     "2026-07-05T00:00:00Z",
+		RequestID: "req-1",
+		Decision:  "deny",
+		EventType: "token_exchange",
+		SessionID: "a1",
+		Label:     "worker",
+		Cursor:    "c1",
+		Limit:     10,
 	})
-	client.Agents.List(ctx, "z1", &admin.AgentListQuery{
+	client.Sessions.List(ctx, "z1", &admin.SessionQuery{
 		Status:        "active",
 		Lifecycle:     "service",
 		ApplicationID: "app-1",
@@ -331,14 +331,14 @@ func TestQueryValuesEncodeAllFilters(t *testing.T) {
 		Cursor:        "c3",
 		Limit:         7,
 	})
-	client.AgentSessions.List(ctx, "z1", &admin.AgentSessionQuery{
-		Status:        "active",
-		Lifecycle:     "task",
-		ApplicationID: "app-1",
-		ParentID:      "parent-1",
-		Label:         "worker",
-		Cursor:        "c4",
-		Limit:         3,
+	client.Sessions.List(ctx, "z1", &admin.SessionQuery{
+		Status:          "active",
+		Lifecycle:       "task",
+		ApplicationID:   "app-1",
+		ParentSessionID: "parent-1",
+		Label:           "worker",
+		Cursor:          "c4",
+		Limit:           3,
 	})
 	client.AdminAudit.List(ctx, "z1", &admin.AdminAuditQuery{
 		Since:      "2026-07-01T00:00:00Z",
@@ -352,10 +352,10 @@ func TestQueryValuesEncodeAllFilters(t *testing.T) {
 	})
 
 	expected := []string{
-		"http://api/v1/zones/z1/audit?agent_session_id=a1&cursor=c1&decision=deny&event_type=token_exchange&label=worker&limit=10&request_id=req-1&since=2026-07-01T00%3A00%3A00Z&until=2026-07-05T00%3A00%3A00Z",
-		"http://coord/zones/z1/agents?application_id=app-1&cursor=c2&label=worker&lifecycle=service&limit=5&status=active",
+		"http://api/v1/zones/z1/audit?cursor=c1&decision=deny&event_type=token_exchange&label=worker&limit=10&request_id=req-1&session_id=a1&since=2026-07-01T00%3A00%3A00Z&until=2026-07-05T00%3A00%3A00Z",
+		"http://api/v1/zones/z1/sessions?application_id=app-1&cursor=c2&label=worker&lifecycle=service&limit=5&status=active",
 		"http://api/v1/zones/z1/grants?application_id=app-1&cursor=c3&limit=7&provider_id=prov-1&resource_id=res-1&status=active",
-		"http://api/v1/zones/z1/agent-sessions?application_id=app-1&cursor=c4&label=worker&lifecycle=task&limit=3&parent_id=parent-1&status=active",
+		"http://api/v1/zones/z1/sessions?application_id=app-1&cursor=c4&label=worker&lifecycle=task&limit=3&parent_session_id=parent-1&status=active",
 		"http://api/v1/zones/z1/admin-audit?actor_id=actor-1&cursor=c5&entity_id=z1&entity_type=zone&limit=2&method=POST&since=2026-07-01T00%3A00%3A00Z&until=2026-07-05T00%3A00%3A00Z",
 	}
 	for index, want := range expected {
@@ -370,7 +370,7 @@ func TestListingsRejectMissingItems(t *testing.T) {
 	client := newCoordinatorAdmin(transport, -1)
 	ctx := context.Background()
 
-	if _, err := client.Sessions.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
+	if _, err := client.AuthorityRecords.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("sessions: %v", err)
 	}
 	if _, err := client.Audit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
@@ -379,7 +379,7 @@ func TestListingsRejectMissingItems(t *testing.T) {
 	if _, err := client.AdminAudit.List(ctx, "z1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("admin audit: %v", err)
 	}
-	if _, err := client.Agents.Children(ctx, "z1", "a1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
+	if _, err := client.Sessions.Children(ctx, "z1", "a1", nil); err == nil || !strings.Contains(err.Error(), "missing items") {
 		t.Fatalf("children: %v", err)
 	}
 }
