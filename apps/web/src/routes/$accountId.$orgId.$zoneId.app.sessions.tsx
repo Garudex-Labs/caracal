@@ -894,7 +894,7 @@ function SessionInspector({
         >
           {session.lifecycle}
         </Badge>
-        <Badge tone="muted" title="Distance from the root session in the delegation tree">
+        <Badge tone="muted" title="Distance from the initiating Session in the Session tree">
           {session.depth === 0 ? "root" : `depth ${session.depth}`}
         </Badge>
         {session.labels.slice(1).map((l) => (

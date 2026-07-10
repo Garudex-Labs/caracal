@@ -348,6 +348,9 @@ function humanizeRegoError(code: string | undefined): string {
     case "content_too_large":
       return "Policy exceeds the 256 KiB size limit. Split it into smaller data documents.";
     default:
+      if (code?.startsWith("data_document_rule_not_allowed:")) {
+        return `Remove rule ${code.slice("data_document_rule_not_allowed:".length)}. Adopter documents may define only app_ids, grants, confinement, restrict, risk, and approval_tiers.`;
+      }
       if (code?.startsWith("forbidden_builtin:")) {
         return `Built-in ${code.slice("forbidden_builtin:".length)} is not allowed in tenant policies.`;
       }

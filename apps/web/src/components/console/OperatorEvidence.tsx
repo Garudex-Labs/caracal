@@ -19,8 +19,8 @@ const DOMAIN_LABELS: Record<string, string> = {
   resource: "Resources",
   policy: "Policies",
   grant: "Grants",
-  session: "Authority records",
-  agent: "Sessions",
+  "authority-record": "Authority records",
+  session: "Sessions",
   delegation: "Delegations",
   audit: "Audit",
 };
@@ -196,8 +196,8 @@ function AuthorityRecordRow({ row }: { row: EvidenceRowView }) {
       lead={
         <>
           <Mono value={text(row, "subject_id") || text(row, "id")} />
-          {text(row, "session_type") ? (
-            <Badge tone="muted">{text(row, "session_type")}</Badge>
+          {text(row, "authority_record_type") ? (
+            <Badge tone="muted">{text(row, "authority_record_type")}</Badge>
           ) : null}
           <StatusBadge value={text(row, "status")} />
         </>
@@ -300,8 +300,8 @@ const DOMAIN_ROWS: Record<string, (props: { row: EvidenceRowView }) => ReactNode
   resource: ResourceRow,
   policy: PolicyRow,
   grant: GrantRow,
-  session: AuthorityRecordRow,
-  agent: SessionRow,
+  "authority-record": AuthorityRecordRow,
+  session: SessionRow,
   delegation: DelegationRow,
   audit: AuditRow,
 };

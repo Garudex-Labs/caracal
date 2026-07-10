@@ -218,7 +218,7 @@ export function DelegationInspector({
             Authority chain {chain ? `(${chain.length})` : ""}
           </TabButton>
           <TabButton active={tab === "impact"} onClick={() => setTab("impact")}>
-            Revocation impact {impact ? `(${impact.affected_edges.length})` : ""}
+            Revocation impact {impact ? `(${impact.affectedDelegations.length})` : ""}
           </TabButton>
         </div>
 
@@ -313,7 +313,7 @@ function ChainView({ hops }: { hops: DelegationHop[] }) {
 }
 
 function ImpactView({ impact }: { impact: DelegationImpact | null }) {
-  const rows = impact?.affected_edges ?? [];
+  const rows = impact?.affectedDelegations ?? [];
   if (rows.length === 0) {
     return (
       <p className="mt-3 text-sm text-muted-foreground">
@@ -321,12 +321,12 @@ function ImpactView({ impact }: { impact: DelegationImpact | null }) {
       </p>
     );
   }
-  const subjects = impact?.affected_subject_sessions ?? [];
+  const authorityRecords = impact?.affectedAuthorityRecords ?? [];
   return (
     <div className="mt-4">
       <p className="mb-3 text-xs text-muted-foreground">
-        Revoking this delegation cascades to {rows.length} downstream edge
-        {rows.length === 1 ? "" : "s"}. Each row shows the session that loses authority.
+        Revoking this Delegation cascades to {rows.length} downstream Delegation
+        {rows.length === 1 ? "" : "s"}. Each row shows the Session that loses authority.
       </p>
       <div className="overflow-hidden border border-border">
         <table className="w-full text-sm">
@@ -354,10 +354,10 @@ function ImpactView({ impact }: { impact: DelegationImpact | null }) {
           </tbody>
         </table>
       </div>
-      {subjects.length > 0 ? (
+      {authorityRecords.length > 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          Subject authority records losing access:{" "}
-          <span className="font-mono">{subjects.map((s) => shortId(s)).join(", ")}</span>
+          Authority records losing access:{" "}
+          <span className="font-mono">{authorityRecords.map((id) => shortId(id)).join(", ")}</span>
         </p>
       ) : null}
     </div>

@@ -1,6 +1,6 @@
 # caracalai-sdk
 
-Caracal SDK for Python: short-lived, policy-approved authority for AI agents - agent sessions, delegation, and transport hooks.
+Caracal SDK for Python: short-lived, policy-approved authority for AI agents - Sessions, Delegation, and transport hooks.
 
 Part of [Caracal](https://github.com/Garudex-Labs/caracal): the identity and authorization layer for AI agents - short-lived, policy-approved authority instead of credentials.
 
