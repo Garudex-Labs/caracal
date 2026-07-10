@@ -170,7 +170,6 @@ export interface SessionOptions {
 
 export interface StartSessionOptions {
   authority?: Authority
-  ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
@@ -203,7 +202,7 @@ export interface DelegateOptions {
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
-  ttlSeconds?: number
+  ttlSeconds: number
   signal?: AbortSignal
 }
 
@@ -414,7 +413,10 @@ export class Caracal {
    * @example Narrowed child session
    * ```ts
    * await caracal.session(work, {
-   *   authority: Authority.narrow(['tickets:read'], { resourceId: 'resource://pipernet' }),
+   *   authority: Authority.narrow(['tickets:read'], {
+   *     resourceId: 'resource://pipernet',
+   *     ttlSeconds: 600,
+   *   }),
    * })
    * ```
    */
@@ -456,7 +458,6 @@ export class Caracal {
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
-      ttlSeconds: opts.ttlSeconds,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
       parentSessionId: opts.parentSessionId,
       authority: opts.authority,

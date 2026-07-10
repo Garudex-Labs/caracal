@@ -323,10 +323,17 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
               parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
-       FROM delegation_edges
+       FROM delegation_edges edge
        WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
         AND status = 'active' AND expires_at > now()
-        AND ($4::text IS NULL OR receiver_application_id = $4)`,
+        AND ($4::text IS NULL OR (
+          receiver_application_id = $4
+          AND EXISTS (
+            SELECT 1 FROM sessions target
+            WHERE target.id = edge.target_session_id AND target.zone_id = edge.zone_id
+              AND target.application_id = $4
+          )
+        ))`,
       [params.id, params.zoneId, params.sessionId, readerApplicationId],
     )
     if (!rows[0]) return reply.code(404).send({ error: 'delegation_not_found' })
@@ -685,12 +692,20 @@ async function listEdges(
   if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
   const column = EDGE_LIST_FIELDS[field]
   const { limit, cursor } = parsed.data
+  if (readerApplicationId !== null) {
+    const { rows: owned } = await db.query(`SELECT 1 FROM sessions WHERE id = $1 AND zone_id = $2 AND application_id = $3`, [
+      sessionId,
+      zoneId,
+      readerApplicationId,
+    ])
+    if (!owned[0]) return reply.code(404).send({ error: 'session_not_found' })
+  }
   if (cursor) {
     const { rows: probe } = await db.query(
       `SELECT 1 FROM delegation_edges
-       WHERE id = $1 AND zone_id = $2
-         AND ($3::text IS NULL OR issuer_application_id = $3 OR receiver_application_id = $3)`,
-      [cursor, zoneId, readerApplicationId],
+       WHERE id = $1 AND zone_id = $2 AND ${column} = $3
+         AND ($4::text IS NULL OR issuer_application_id = $4 OR receiver_application_id = $4)`,
+      [cursor, zoneId, sessionId, readerApplicationId],
     )
     if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
   }

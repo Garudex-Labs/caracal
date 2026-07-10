@@ -101,7 +101,10 @@ export const Authority = {
    * sub-narrow its slice further down the tree. A single scope may be passed
    * as a bare string.
    */
-  narrow(scopes: string | string[], opts?: { resourceId?: string; constraints?: DelegationConstraints; ttlSeconds?: number }): Authority {
+  narrow(scopes: string | string[], opts: { resourceId?: string; constraints?: DelegationConstraints; ttlSeconds: number }): Authority {
+    if (!Number.isInteger(opts.ttlSeconds) || opts.ttlSeconds <= 0) {
+      throw new TypeError('Authority.narrow ttlSeconds must be a positive integer')
+    }
     return { mode: 'narrow', scopes: typeof scopes === 'string' ? [scopes] : scopes, ...opts }
   },
 }
@@ -326,7 +329,7 @@ export interface DelegateInput {
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
-  ttlSeconds?: number
+  ttlSeconds: number
   signal?: AbortSignal
 }
 
@@ -346,6 +349,9 @@ export interface Delegation {
  * acceptDelegation.
  */
 export async function delegate(input: DelegateInput): Promise<Delegation> {
+  if (!Number.isInteger(input.ttlSeconds) || input.ttlSeconds <= 0) {
+    throw new TypeError('delegate ttlSeconds must be a positive integer')
+  }
   const ctx = current()
   if (!ctx) throw new Error('delegate requires a Caracal context bound on this path')
   if (!ctx.sessionId) {
@@ -408,7 +414,6 @@ export interface StartSessionInput {
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
-  ttlSeconds?: number
   metadata?: JsonObject
   labels?: string[]
   traceId?: string

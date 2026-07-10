@@ -117,6 +117,7 @@ function operatorZone(method: string, path: string): string | undefined {
   if (parts[2] === 'delegations') {
     if (method === 'GET' && parts.length === 4 && parts[3] === 'active') return parts[1]
     if (method === 'GET' && parts.length === 5 && (parts[3] === 'inbound' || parts[3] === 'outbound')) return parts[1]
+    if (method === 'GET' && parts.length === 6 && parts[3] === 'inbound') return parts[1]
     if (method === 'GET' && parts.length === 5 && (parts[4] === 'traverse' || parts[4] === 'impact')) return parts[1]
     if (method === 'PATCH' && parts.length === 5 && parts[4] === 'revoke') return parts[1]
   }

@@ -54,13 +54,25 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
     }
 
     const { rows: expiredRows } = await client.query<ExpiredEdge>(
-      `WITH expired AS (
-         SELECT id
+      `WITH candidates AS MATERIALIZED (
+         SELECT id, zone_id
          FROM delegation_edges
          WHERE status = 'active' AND expires_at < now()
-         ORDER BY expires_at
+         ORDER BY expires_at, id
          LIMIT $1
-         FOR UPDATE SKIP LOCKED
+       ),
+       locked_zones AS MATERIALIZED (
+         SELECT pg_advisory_xact_lock(hashtext('delegation:' || zone_id))
+         FROM (SELECT DISTINCT zone_id FROM candidates) zones
+         ORDER BY zone_id
+       ),
+       expired AS (
+         SELECT edge.id
+         FROM candidates candidate
+         JOIN delegation_edges edge ON edge.id = candidate.id
+         CROSS JOIN (SELECT COUNT(*) FROM locked_zones) locks
+         WHERE edge.status = 'active' AND edge.expires_at < now()
+         FOR UPDATE OF edge SKIP LOCKED
        )
        UPDATE delegation_edges d
        SET status = 'expired', updated_at = now()
@@ -104,6 +116,8 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
            AND NOT EXISTS (
              SELECT 1 FROM delegation_edges child
              WHERE child.parent_edge_id = delegation_edges.id
+               AND child.status = 'active'
+               AND child.expires_at > now()
            )
          ORDER BY COALESCE(revoked_at, expires_at, updated_at, created_at)
          LIMIT $2
