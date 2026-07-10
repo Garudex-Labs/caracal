@@ -188,7 +188,7 @@ describe('toHeaders/fromHeaders', () => {
       sessionId: 'agent-1',
       delegationId: 'edge-1',
       parentDelegationId: 'parent-1',
-      subjectSessionId: 'sid-1',
+      subjectAuthorityRecordId: 'sid-1',
       traceId: 'a'.repeat(32),
       traceFlags: '00',
       traceState: 'vendor=value',
@@ -203,7 +203,7 @@ describe('toHeaders/fromHeaders', () => {
     expect(recovered.sessionId).toBe('agent-1')
     expect(recovered.delegationId).toBe('edge-1')
     expect(recovered.parentDelegationId).toBe('parent-1')
-    expect(recovered.subjectSessionId).toBe('sid-1')
+    expect(recovered.subjectAuthorityRecordId).toBe('sid-1')
     expect(recovered.traceId).toBe('a'.repeat(32))
     expect(recovered.traceFlags).toBe('00')
     expect(recovered.traceState).toBe('vendor=value')

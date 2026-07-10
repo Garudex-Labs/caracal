@@ -30,14 +30,16 @@ function json(body: unknown): Response {
 function fakeFetch(): { fetchImpl: typeof fetch; calls: RecordedCall[]; counters: { spawn: number; mint: number } } {
   const calls: RecordedCall[] = []
   const counters = { spawn: 0, mint: 0 }
+  const presented = new Set<string>()
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
-    const method = init?.method ?? 'GET'
+    const request = input instanceof Request ? input : undefined
+    const method = init?.method ?? request?.method ?? 'GET'
     const headers: Record<string, string> = {}
-    new Headers(init?.headers ?? {}).forEach((value, key) => {
+    new Headers(init?.headers ?? request?.headers ?? {}).forEach((value, key) => {
       headers[key] = value
     })
-    const body = init?.body != null ? String(init.body) : undefined
+    const body = init?.body != null ? String(init.body) : request ? await request.clone().text() : undefined
     calls.push({ url, method, headers, body })
 
     if (url === `${STS}/oauth/2/token`) {
@@ -57,6 +59,8 @@ function fakeFetch(): { fetchImpl: typeof fetch; calls: RecordedCall[]; counters
       return new Response(null, { status: 204 })
     }
     if (url.startsWith(GATEWAY)) {
+      if (presented.has(headers['authorization'])) return new Response(JSON.stringify({ error: 'token_replayed' }), { status: 409 })
+      presented.add(headers['authorization'])
       return json({ ok: true, presented: headers['authorization'], resource: headers['x-caracal-resource'], target: url })
     }
     return new Response('not found', { status: 404 })
@@ -148,14 +152,14 @@ describe('Caracal.applicationTransport', () => {
     expect(((await direct.json()) as { target: string }).target).toBe(`${GATEWAY}/v1/chat`)
   })
 
-  it('caches the mandate per resource and scope set so repeat calls mint nothing new', async () => {
+  it('mints a distinct mandate per request while reusing the authority pair', async () => {
     const { fetchImpl, counters } = fakeFetch()
     const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'] })
 
     await appFetch(`${GATEWAY}/a`, { method: 'POST', body: '{}' })
     await appFetch(`${GATEWAY}/b`, { method: 'POST', body: '{}' })
 
-    expect(counters.mint).toBe(1)
+    expect(counters.mint).toBe(2)
     expect(counters.spawn).toBe(2)
   })
 
@@ -181,14 +185,34 @@ describe('Caracal.applicationTransport', () => {
     expect(finalMint.get('ttl_seconds')).toBe('60')
   })
 
-  it('dedups concurrent first calls into a single mint cycle', async () => {
+  it('dedups concurrent provisioning without sharing a bearer', async () => {
     const { fetchImpl, counters } = fakeFetch()
     const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'] })
 
     await Promise.all([appFetch(`${GATEWAY}/a`, { method: 'POST', body: '{}' }), appFetch(`${GATEWAY}/b`, { method: 'POST', body: '{}' })])
 
-    expect(counters.mint).toBe(1)
+    expect(counters.mint).toBe(2)
     expect(counters.spawn).toBe(2)
+  })
+
+  it('preserves Request method, headers, body, and signal while rewriting', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'] })
+    const controller = new AbortController()
+    const request = new Request('https://api.pipernet.example/v1/things', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-existing': '1' },
+      body: '{"name":"PiperNet"}',
+      signal: controller.signal,
+    })
+
+    await appFetch(request)
+
+    const gateway = calls.at(-1)!
+    expect(gateway.method).toBe('POST')
+    expect(gateway.headers['content-type']).toBe('application/json')
+    expect(gateway.headers['x-existing']).toBe('1')
+    expect(gateway.body).toBe('{"name":"PiperNet"}')
   })
 
   it('terminates spawned sessions when the delegation step fails', async () => {

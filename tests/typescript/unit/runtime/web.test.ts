@@ -146,6 +146,8 @@ describe('webCommand stack preflight', () => {
     expect(exit).not.toHaveBeenCalled()
     expect(spawnMock).toHaveBeenCalled()
     expect(output()).toContain('Coordinator is not responding')
+    expect(output()).toContain('Sessions and Delegation will be unavailable')
+    expect(output()).not.toContain('Agents and Delegation')
   })
 
   it('bypasses the preflight with --allow-offline', async () => {
@@ -162,6 +164,7 @@ describe('webCommand stack preflight', () => {
     await expect(webCommand(['--help'])).rejects.toThrow('exit:0')
     expect(output()).toContain('Usage:')
     expect(output()).toContain('--allow-offline')
+    expect(output()).toContain('sign-in UI without Console data')
 
     stdout.mockClear()
     stderr.mockClear()

@@ -39,7 +39,7 @@ function claims(overrides: Partial<Claims> = {}): Claims {
     exp: Math.floor(Date.now() / 1000) + 300,
     zoneId: 'z1',
     clientId: 'app-1',
-    scope: 'control:agent:read control:agent:write',
+    scope: 'control:session:read control:session:write',
     ...overrides,
   }
 }
@@ -85,7 +85,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(401)
@@ -106,7 +106,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(429)
@@ -130,7 +130,7 @@ describe('registerInvokeRoute', () => {
     registerInvokeRoute(app, d)
     await app.ready()
     const headers = { authorization: 'Bearer token' }
-    const payload = { command: 'agent', subcommand: 'list' }
+    const payload = { command: 'session', subcommand: 'list' }
 
     const first = await app.inject({ method: 'POST', url: '/v1/control/invoke', headers, payload })
     expect(first.statusCode).not.toBe(429)
@@ -147,7 +147,7 @@ describe('registerInvokeRoute', () => {
     apps.push(app)
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
-    d.ctx = ctx({ agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } })
+    d.ctx = ctx({ sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -155,12 +155,12 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list', flags: ['ignored'] },
+      payload: { command: 'session', subcommand: 'list', flags: ['ignored'] },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ ok: true, result: [{ id: 'agent-1' }] })
-    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'agent' }))
+    expect(res.json()).toEqual({ ok: true, result: [{ id: 'session-1' }] })
+    expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', command: 'session' }))
   })
 
   it('refuses to report success when the allow audit cannot be durably recorded', async () => {
@@ -172,7 +172,7 @@ describe('registerInvokeRoute', () => {
       if (ev.decision === 'allow') throw new Error('audit store unavailable')
     })
     d.sink = { emit } as EventSink
-    d.ctx = ctx({ agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) } })
+    d.ctx = ctx({ sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) } })
 
     registerInvokeRoute(app, d)
     await app.ready()
@@ -180,7 +180,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
 
     expect(res.statusCode).toBe(500)
@@ -193,7 +193,7 @@ describe('registerInvokeRoute', () => {
     const d = deps(vi.fn(async () => claims()))
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['subject-1'])
-    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: () => admin }
+    const admin = { sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) }, withDefaultHeaders: () => admin }
     d.ctx = { admin } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -202,7 +202,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list', authorized_by: 'account-7' },
+      payload: { command: 'session', subcommand: 'list', authorized_by: 'account-7' },
     })
 
     expect(d.sink.emit).toHaveBeenCalledWith(expect.objectContaining({ decision: 'allow', authorizedBy: 'account-7' }))
@@ -214,7 +214,7 @@ describe('registerInvokeRoute', () => {
     const d = deps(vi.fn(async () => claims({ sub: 'tenant-key' })))
     d.replay.mark = vi.fn(async () => true)
     d.resolveOperatorSubjects = () => new Set(['operator-executor'])
-    const admin = { agents: { list: vi.fn(async () => [{ id: 'agent-1' }]) }, withDefaultHeaders: vi.fn(() => admin) }
+    const admin = { sessions: { list: vi.fn(async () => [{ id: 'session-1' }]) }, withDefaultHeaders: vi.fn(() => admin) }
     d.ctx = { admin } as unknown as DispatchContext
 
     registerInvokeRoute(app, d)
@@ -223,7 +223,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list', authorized_by: 'forged-human', co_author_operator: true },
+      payload: { command: 'session', subcommand: 'list', authorized_by: 'forged-human', co_author_operator: true },
     })
 
     // The command still runs in the caller's own authority, but no attribution header is ever
@@ -256,14 +256,14 @@ describe('registerInvokeRoute', () => {
 
     const invalidDeps = deps(vi.fn(async () => claims()))
     invalidDeps.replay.mark = vi.fn(async () => true)
-    invalidDeps.ctx = ctx({ agents: { suspend: vi.fn() } })
+    invalidDeps.ctx = ctx({ sessions: { suspend: vi.fn() } })
     registerInvokeRoute(invalid, invalidDeps)
     await invalid.ready()
     const invalidRes = await invalid.inject({
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'suspend' },
+      payload: { command: 'session', subcommand: 'suspend' },
     })
     expect(invalidRes.statusCode).toBe(400)
     expect(invalidRes.json()).toEqual({ ok: false, error: { code: 'invalid', reason: expect.any(String) } })
@@ -271,7 +271,7 @@ describe('registerInvokeRoute', () => {
     const upstreamDeps = deps(vi.fn(async () => claims()))
     upstreamDeps.replay.mark = vi.fn(async () => true)
     upstreamDeps.ctx = ctx({
-      agents: {
+      sessions: {
         list: vi.fn(async () => {
           throw new Error('api down')
         }),
@@ -283,7 +283,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token' },
-      payload: { command: 'agent', subcommand: 'list' },
+      payload: { command: 'session', subcommand: 'list' },
     })
     expect(upstreamRes.statusCode).toBe(502)
     expect(upstreamRes.json()).toEqual({ ok: false, error: { code: 'upstream', reason: 'upstream error' } })

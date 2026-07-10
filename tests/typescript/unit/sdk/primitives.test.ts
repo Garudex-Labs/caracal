@@ -34,7 +34,7 @@ function baseCtx(overrides: Partial<CaracalContext> = {}): CaracalContext {
     zoneId: 'zone-1',
     applicationId: 'app-1',
     sessionId: 'agent-parent',
-    subjectSessionId: 'sess-1',
+    subjectAuthorityRecordId: 'sess-1',
     traceId: 'trace-1',
     hop: 0,
     ...overrides,

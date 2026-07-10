@@ -18,7 +18,8 @@ describe('buildApp operational endpoints', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [{ status: 'running', n: '2' }] })
-        .mockResolvedValueOnce({ rows: [{ status: 'published', n: '3' }] }),
+        .mockResolvedValueOnce({ rows: [{ status: 'published', n: '3' }] })
+        .mockResolvedValueOnce({ rows: [{ n: '4', oldest_seconds: '120' }] }),
     }
     const app = await buildApp({
       cfg: {
@@ -40,8 +41,10 @@ describe('buildApp operational endpoints', () => {
     expect(stats.json()).toMatchObject({
       invocations: { running: 2 },
       outbox: { published: 3 },
+      idempotency: { rows: 4, oldestSeconds: 120 },
     })
-    expect(db.query).toHaveBeenCalledTimes(2)
+    expect(metrics.body).toContain('caracal_idempotency_receipts 4')
+    expect(db.query).toHaveBeenCalledTimes(3)
     await app.close()
   })
 

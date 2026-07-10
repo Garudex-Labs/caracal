@@ -32,6 +32,26 @@ describe('OAuthClient', () => {
     expect(body.get('client_secret')).toBe('secret-1')
   })
 
+  it('mints distinct one-shot tokens without cache or single-flight sharing', async () => {
+    let calls = 0
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ access_token: `token-${++calls}`, token_type: 'Bearer', expires_in: 900 }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new OAuthClient('http://sts:8080', 'zone1', 'app1')
+
+    const tokens = await Promise.all([
+      client.exchange('', 'resource://pipernet', { clientSecret: 'secret', scopes: ['read'], cache: false }),
+      client.exchange('', 'resource://pipernet', { clientSecret: 'secret', scopes: ['read'], cache: false }),
+    ])
+
+    expect(tokens.map((token) => token.accessToken).sort()).toEqual(['token-1', 'token-2'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('returns upstream directives from gateway-authenticated exchanges', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   CoordinatorError,
-  spawnAgent,
+  startCoordinatorSession,
   terminateAgent,
   createDelegation,
   heartbeatAgent,
@@ -49,20 +49,22 @@ describe('coordinator client', () => {
           { status: 201 },
         ),
     )
-    const res = await spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1', idempotencyKey: 'key-1' })
-    expect(res).toEqual({ agentSessionId: 'agent-1', delegationEdgeId: 'edge-1', heartbeatDeadlineAt: '2026-07-04T12:00:00.000Z' })
+    const res = await startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1', idempotencyKey: 'key-1' })
+    expect(res).toEqual({ sessionId: 'agent-1', delegationId: 'edge-1', heartbeatDeadlineAt: '2026-07-04T12:00:00.000Z' })
     expect(calls[0].headers.get('idempotency-key')).toBe('key-1')
     expect(calls[0].headers.get('authorization')).toBe('Bearer tok')
   })
 
   it('rejects a spawn response that lacks an agent session id', async () => {
     const { client } = stub(() => new Response(JSON.stringify({}), { status: 201 }))
-    await expect(spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow(/missing agent_session_id/)
+    await expect(startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow(
+      /missing agent_session_id/,
+    )
   })
 
   it('raises CoordinatorError carrying method, path, status, and body', async () => {
     const { client } = stub(() => new Response('zone quota exceeded', { status: 403 }))
-    const err = await spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' }).catch((e: unknown) => e)
+    const err = await startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' }).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(CoordinatorError)
     const coordErr = err as CoordinatorError
     expect(coordErr.method).toBe('POST')
@@ -102,7 +104,7 @@ describe('coordinator client', () => {
       receiverApplicationId: 'app-2',
       scopes: ['read'],
     })
-    expect(res).toEqual({ delegationEdgeId: 'edge-9', scopes: ['read'], expiresAt: '2026-07-04T12:00:00.000Z' })
+    expect(res).toEqual({ delegationId: 'edge-9', scopes: ['read'], expiresAt: '2026-07-04T12:00:00.000Z' })
     expect(calls[0].body).not.toHaveProperty('resource_id')
   })
 
@@ -165,7 +167,7 @@ describe('coordinator client', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     const controller = new AbortController()
     controller.abort()
-    await expect(spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' }, controller.signal)).rejects.toThrow()
+    await expect(startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' }, controller.signal)).rejects.toThrow()
   })
 
   it('emits coordinator.call events for success, denial, and transport failure', async () => {
@@ -180,7 +182,7 @@ describe('coordinator client', () => {
       throw new Error('sink failure')
     }
 
-    await spawnAgent(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })
+    await startCoordinatorSession(client, 'tok', { zoneId: 'z1', applicationId: 'app-1' })
     await expect(terminateAgent(client, 'tok', 'z1', 'agent-1')).rejects.toThrow(CoordinatorError)
 
     const failing: CoordinatorClient = {
@@ -190,7 +192,7 @@ describe('coordinator client', () => {
       }) as unknown as typeof fetch,
       onEvent: (event) => events.push(event),
     }
-    await expect(spawnAgent(failing, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow('network down')
+    await expect(startCoordinatorSession(failing, 'tok', { zoneId: 'z1', applicationId: 'app-1' })).rejects.toThrow('network down')
 
     expect(events).toHaveLength(3)
     expect(events[0]).toMatchObject({ type: 'coordinator.call', method: 'POST', ok: true, status: 201 })

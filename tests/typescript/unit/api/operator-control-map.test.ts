@@ -285,17 +285,17 @@ describe('buildInvocation', () => {
 
   it('builds the runtime interventions from the session and edge ids', () => {
     expect(CONTROL_CAPABILITIES.suspendAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
-      command: 'agent',
+      command: 'session',
       subcommand: 'suspend',
       flags: { id: 'agent-1' },
     })
     expect(CONTROL_CAPABILITIES.resumeAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
-      command: 'agent',
+      command: 'session',
       subcommand: 'resume',
       flags: { id: 'agent-1' },
     })
     expect(CONTROL_CAPABILITIES.terminateAgent.buildInvocation({ agent_session_id: 'agent-1' })).toEqual({
-      command: 'agent',
+      command: 'session',
       subcommand: 'terminate',
       flags: { id: 'agent-1' },
     })

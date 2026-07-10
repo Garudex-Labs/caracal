@@ -178,11 +178,29 @@ describe('policy and policy set endpoints', () => {
   })
 })
 
-describe('session, approval, and audit endpoints', () => {
-  it('unwraps the session list envelope with query filters', async () => {
-    const calls = record(() => ({ items: [{ id: 's1' }], next_cursor: 'c2' }))
-    const page = await consoleApi.sessions.list('z1', { status: 'active', subject_id: 'richard' })
-    expect(page).toEqual({ rows: [{ id: 's1' }], nextCursor: 'c2' })
+describe('Authority record, approval, and audit endpoints', () => {
+  it('maps the Authority record list envelope with query filters', async () => {
+    const calls = record(() => ({
+      items: [
+        {
+          id: 's1',
+          zone_id: 'z1',
+          session_type: 'user',
+          subject_id: 'richard',
+          parent_id: null,
+          status: 'active',
+          expires_at: '2026-07-10T12:00:00Z',
+          authenticated_at: '2026-07-10T11:00:00Z',
+          created_at: '2026-07-10T11:00:00Z',
+          revoked_at: null,
+          revoked_reason: null,
+        },
+      ],
+      next_cursor: 'c2',
+    }))
+    const page = await consoleApi.authorityRecords.list('z1', { status: 'active', subject_id: 'richard' })
+    expect(page.rows[0]).toMatchObject({ id: 's1', zoneId: 'z1', type: 'user', subjectId: 'richard' })
+    expect(page.nextCursor).toBe('c2')
     expect(last(calls).url).toContain('status=active')
     expect(last(calls).url).toContain('subject_id=richard')
   })
@@ -273,17 +291,45 @@ describe('operator endpoints', () => {
 })
 
 describe('coordinator endpoints', () => {
-  it('covers agent tree, authority, and lifecycle actions', async () => {
-    const calls = record(() => ({ items: [{ id: 'ag2' }] }))
-    expect(await consoleApi.agents.children('z1', 'ag1')).toEqual([{ id: 'ag2' }])
+  it('exposes the canonical Session namespace over Coordinator transport paths', async () => {
+    const calls = record(() => ({
+      items: [
+        {
+          agent_session_id: 'ag2',
+          zone_id: 'z1',
+          application_id: 'app1',
+          parent_id: 'ag1',
+          subject_session_id: 'record1',
+          lifecycle: 'task',
+          labels: [],
+          status: 'active',
+          depth: 1,
+          ttl_seconds: 60,
+          metadata: null,
+          spawned_at: '2026-07-10T11:00:00Z',
+          terminated_at: null,
+          termination_reason: null,
+          last_heartbeat_at: null,
+          heartbeat_deadline_at: null,
+        },
+      ],
+    }))
+    expect(await consoleApi.sessions.children('z1', 'ag1')).toEqual([
+      expect.objectContaining({
+        id: 'ag2',
+        applicationId: 'app1',
+        subjectAuthorityRecordId: 'record1',
+        startedAt: '2026-07-10T11:00:00Z',
+      }),
+    ])
     expect(last(calls).url).toBe('/api/console/coord/zones/z1/agents/ag1/children')
-    await consoleApi.agents.effectiveAuthority('z1', 'ag1')
+    await consoleApi.sessions.effectiveAuthority('z1', 'ag1')
     expect(last(calls).url).toContain('/agents/ag1/effective-authority')
-    await consoleApi.agents.suspend('z1', 'ag1')
+    await consoleApi.sessions.suspend('z1', 'ag1')
     expect(last(calls)).toMatchObject({ method: 'PATCH', url: '/api/console/coord/zones/z1/agents/ag1/suspend' })
-    await consoleApi.agents.resume('z1', 'ag1')
+    await consoleApi.sessions.resume('z1', 'ag1')
     expect(last(calls).url).toContain('/agents/ag1/resume')
-    await consoleApi.agents.terminate('z1', 'ag1')
+    await consoleApi.sessions.terminate('z1', 'ag1')
     expect(last(calls)).toMatchObject({ method: 'DELETE', url: '/api/console/coord/zones/z1/agents/ag1' })
   })
 
@@ -295,7 +341,7 @@ describe('coordinator endpoints', () => {
     expect(last(calls).url).toContain('status=running')
     await consoleApi.delegations.active('z1', { limit: 10 })
     expect(last(calls).url).toContain('/delegations/active?limit=10')
-    // Coordinator per-agent edge lists arrive as {items, next_cursor} envelopes; the
+    // Coordinator per-Session edge lists arrive as {items, next_cursor} envelopes; the
     // client hands components the bare rows so `edges.map` can never see the envelope.
     const inboundRows = await consoleApi.delegations.inbound('z1', 's1')
     expect(last(calls).url).toContain('/delegations/inbound/s1')

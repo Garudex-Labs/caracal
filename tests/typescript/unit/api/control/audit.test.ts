@@ -20,7 +20,7 @@ function event(overrides: Partial<AuditEvent> = {}): AuditEvent {
     clientId: 'app-1',
     subject: 'user-1',
     jti: 'jti-1',
-    command: 'agent',
+    command: 'session',
     subcommand: 'spawn',
     decision: 'allow',
     reason: 'ok',
@@ -51,7 +51,7 @@ describe('buildAuditPayload', () => {
       subject: 'user-1',
       jti: 'jti-1',
       client_id: 'app-1',
-      command: 'agent',
+      command: 'session',
       subcommand: 'spawn',
       reason: 'ok',
     })

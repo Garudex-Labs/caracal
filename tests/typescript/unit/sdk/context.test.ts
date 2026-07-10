@@ -21,7 +21,7 @@ function ctx(overrides: Partial<CaracalContext> = {}): CaracalContext {
     zoneId: 'zone-1',
     applicationId: 'app-1',
     sessionId: 'agent-1',
-    subjectSessionId: 'sess-1',
+    subjectAuthorityRecordId: 'sess-1',
     traceId: 'trace-1',
     hop: 0,
     ...overrides,
@@ -133,7 +133,7 @@ describe('describeAuthority', () => {
   })
 
   it('omits chain segments for absent identifiers', () => {
-    const summary = describeAuthority(ctx({ sessionId: undefined, subjectSessionId: undefined }))
+    const summary = describeAuthority(ctx({ sessionId: undefined, subjectAuthorityRecordId: undefined }))
     expect(summary?.chain).toEqual([])
   })
 })

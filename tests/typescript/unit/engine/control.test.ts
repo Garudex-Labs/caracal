@@ -34,7 +34,7 @@ function resource(overrides: Partial<Resource> = {}): Resource {
     zone_id: 'z1',
     name: 'Control API',
     identifier: 'caracal-control',
-    scopes: ['control:agent:read'],
+    scopes: ['control:session:read'],
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -54,10 +54,10 @@ function client(): AdminClient {
 describe('control metadata helpers', () => {
   it('derives sorted scopes, permissions, and records from application traits', () => {
     const scopes = controlScopes()
-    expect(scopes).toContain('control:agent:read')
+    expect(scopes).toContain('control:session:read')
     expect(scopes).not.toContain('control:zone:read')
-    expect(controlPermissions().find((permission) => permission.scope === 'control:agent:delete')).toMatchObject({
-      command: 'agent',
+    expect(controlPermissions().find((permission) => permission.scope === 'control:session:delete')).toMatchObject({
+      command: 'session',
       action: 'delete',
     })
     expect(
@@ -65,7 +65,7 @@ describe('control metadata helpers', () => {
         app({
           traits: [
             CONTROL_INVOKE_TRAIT,
-            `${CONTROL_SCOPE_TRAIT_PREFIX}control:agent:read`,
+            `${CONTROL_SCOPE_TRAIT_PREFIX}control:session:read`,
             `${CONTROL_SCOPE_TRAIT_PREFIX}not-real`,
             `${CONTROL_MAX_TTL_TRAIT_PREFIX}120`,
             `${CONTROL_EXPIRES_TRAIT_PREFIX}2027-01-01T00:00:00.000Z`,
@@ -73,7 +73,7 @@ describe('control metadata helpers', () => {
         }),
       ),
     ).toMatchObject({
-      allowed_scopes: ['control:agent:read'],
+      allowed_scopes: ['control:session:read'],
       max_ttl_seconds: 120,
       expires_at: '2027-01-01T00:00:00.000Z',
       restrictions: ['zone-bound', 'application-only', 'no-subject-token', 'no-delegation'],
@@ -89,7 +89,7 @@ describe('ensureControlResource', () => {
       'z1',
       expect.objectContaining({
         identifier: 'caracal-control',
-        scopes: expect.arrayContaining(['control:agent:read']),
+        scopes: expect.arrayContaining(['control:session:read']),
       }),
     )
 
@@ -99,7 +99,7 @@ describe('ensureControlResource', () => {
       'z1',
       'res-1',
       expect.objectContaining({
-        scopes: expect.arrayContaining(['control:agent:read']),
+        scopes: expect.arrayContaining(['control:session:read']),
       }),
     )
 

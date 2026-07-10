@@ -551,6 +551,35 @@ describe('caracal.transport', () => {
     expect(signals[1]).toBeInstanceOf(AbortSignal)
   })
 
+  it('preserves Request method, headers, body, and signal while rewriting', async () => {
+    const calls: Request[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(input instanceof Request ? input : new Request(input, init))
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+      resources: [{ resourceId: 'calendar', upstreamPrefix: 'https://api.example.com/v1' }],
+    })
+    const controller = new AbortController()
+    const request = new Request('https://api.example.com/v1/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-existing': '1' },
+      body: '{"event":"PiperNet launch"}',
+      signal: controller.signal,
+    })
+
+    await c.transport({ asApplication: true, timeoutMs: 5000 })(request)
+
+    expect(calls[0].url).toBe('https://gateway.example.com/proxy/events')
+    expect(calls[0].method).toBe('POST')
+    expect(calls[0].headers.get('x-existing')).toBe('1')
+    expect(await calls[0].text()).toBe('{"event":"PiperNet launch"}')
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal)
+  })
+
   it('keeps envelope headers off non-gateway hosts under gateway-only propagation', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {

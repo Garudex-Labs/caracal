@@ -73,7 +73,7 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
       .mockResolvedValueOnce({
         rows: [
           {
-            id: 'ag-1',
+            session_id: 'session-1',
             application_id: 'app-1',
             application_name: 'Son of Anton',
             lifecycle: 'task',
@@ -106,6 +106,7 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
     const body = JSON.parse(res.body)
     expect(body.subject.subject_id).toBe(SUBJECT_ROW.subject_id)
     expect(body.governed).toMatchObject({ active: 1, total: 4 })
+    expect(body.governed.recent[0].session_id).toBe('session-1')
     expect(body.governed.recent[0].application_name).toBe('Son of Anton')
     expect(body.approvals).toEqual({ pending: 1, total: 3 })
     expect(body.connections[0].provider_name).toBe('Hooli OIDC')
@@ -146,8 +147,8 @@ describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({
       subject_id: 'auth0|507f1f77bcf86cd799439011',
-      sessions: 2,
-      agents: 1,
+      authority_records: 2,
+      sessions: 1,
       delegations: 1,
       connections: 1,
     })
@@ -176,7 +177,7 @@ describe('POST /v1/zones/:zoneId/subjects/revoke', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ sessions: 0, agents: 0, delegations: 0, connections: 0 })
+    expect(JSON.parse(res.body)).toMatchObject({ authority_records: 0, sessions: 0, delegations: 0, connections: 0 })
   })
 
   it('404s a subject with no recorded sessions and validates the body', async () => {

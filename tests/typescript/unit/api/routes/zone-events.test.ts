@@ -171,14 +171,14 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     ])
   })
 
-  it('filters audit by agent_session_id and label', async () => {
+  it('filters audit by governed session id and label', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/audit?agent_session_id=agt-1&label=refund-agent',
+      url: '/v1/zones/z1/audit?session_id=agt-1&label=refund-agent',
     })
 
     expect(res.statusCode).toBe(200)
@@ -244,14 +244,14 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     })
   })
 
-  it('filters audit by session_id', async () => {
+  it('filters audit by authority record id', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/audit?session_id=sess-1',
+      url: '/v1/zones/z1/audit?authority_record_id=sess-1',
     })
 
     expect(res.statusCode).toBe(200)
@@ -417,7 +417,7 @@ describe('GET /v1/zones/:zoneId/audit/by-request/:requestId/explain', () => {
   })
 })
 
-describe('GET /v1/zones/:zoneId/sessions', () => {
+describe('GET /v1/zones/:zoneId/authority-records', () => {
   it('returns zone-scoped sessions', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
@@ -425,7 +425,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/authority-records' })
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
@@ -446,7 +446,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: `/v1/zones/z1/sessions?status=active&subject_id=user-1&cursor=${cursor('2026-05-03T00:00:00.000Z', 'session-3')}&limit=2`,
+      url: `/v1/zones/z1/authority-records?status=active&subject_id=user-1&cursor=${cursor('2026-05-03T00:00:00.000Z', 'session-3')}&limit=2`,
     })
 
     expect(res.statusCode).toBe(200)
@@ -458,7 +458,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions?cursor=not-json' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/authority-records?cursor=not-json' })
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_cursor' })
@@ -470,10 +470,10 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'sess-9',
-          session_type: 'user',
+          authority_record_id: 'sess-9',
+          authority_record_type: 'user',
           subject_id: 'user-1',
-          parent_id: null,
+          parent_authority_record_id: null,
           status: 'revoked',
           authenticated_at: '2026-05-02T00:00:00.000Z',
           created_at: '2026-05-02T00:00:00.000Z',
@@ -487,14 +487,16 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/sessions?status=revoked&format=csv',
+      url: '/v1/zones/z1/authority-records?status=revoked&format=csv',
     })
 
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('text/csv')
-    expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="authority-records-z1.csv"')
     const lines = res.body.trim().split('\r\n')
-    expect(lines[0]).toBe('id,session_type,subject_id,parent_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason')
+    expect(lines[0]).toBe(
+      'authority_record_id,authority_record_type,subject_id,parent_authority_record_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason',
+    )
     expect(lines[1]).toBe(
       'sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked',
     )
@@ -505,10 +507,10 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'sess-10',
-          session_type: 'user',
+          authority_record_id: 'sess-10',
+          authority_record_type: 'user',
           subject_id: '=HYPERLINK("https://evil.hooli.example")',
-          parent_id: null,
+          parent_authority_record_id: null,
           status: 'active',
           authenticated_at: '2026-05-02T00:00:00.000Z',
           created_at: '2026-05-02T00:00:00.000Z',
@@ -520,7 +522,7 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions?format=csv' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/authority-records?format=csv' })
 
     expect(res.statusCode).toBe(200)
     const lines = res.body.trim().split('\r\n')
@@ -529,20 +531,20 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
   })
 })
 
-describe('GET /v1/zones/:zoneId/agent-sessions', () => {
+describe('GET /v1/zones/:zoneId/sessions', () => {
   it('filters by status, lifecycle and label and emits a cursor when the page is full', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
-        { id: 'as-2', status: 'terminated', spawned_at: '2026-05-02T00:00:00.000Z' },
-        { id: 'as-1', status: 'terminated', spawned_at: '2026-05-01T00:00:00.000Z' },
+        { session_id: 'as-2', status: 'terminated', spawned_at: '2026-05-02T00:00:00.000Z' },
+        { session_id: 'as-1', status: 'terminated', spawned_at: '2026-05-01T00:00:00.000Z' },
       ],
     })
 
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/agent-sessions?status=terminated&lifecycle=service&label=refund-worker&limit=2',
+      url: '/v1/zones/z1/sessions?status=terminated&lifecycle=service&label=refund-worker&limit=2',
     })
 
     expect(res.statusCode).toBe(200)
@@ -564,9 +566,9 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'as-9',
+          session_id: 'as-9',
           application_id: 'app-1',
-          parent_id: null,
+          parent_session_id: null,
           status: 'suspended',
           lifecycle: 'service',
           labels: ['voice', 'worker'],
@@ -584,15 +586,15 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/agent-sessions?status=suspended&format=csv',
+      url: '/v1/zones/z1/sessions?status=suspended&format=csv',
     })
 
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('text/csv')
-    expect(res.headers['content-disposition']).toContain('attachment; filename="agent-sessions-z1.csv"')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
     expect(lines[0]).toBe(
-      'id,application_id,parent_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
+      'session_id,application_id,parent_session_id,status,lifecycle,labels,depth,child_count,spawned_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
     )
     expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
   })
@@ -601,7 +603,7 @@ describe('GET /v1/zones/:zoneId/agent-sessions', () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/agent-sessions?status=bogus' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions?status=bogus' })
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_query' })

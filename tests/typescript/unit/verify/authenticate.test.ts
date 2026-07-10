@@ -154,7 +154,7 @@ describe('verify authentication', () => {
       zoneId: 'zone-1',
       requiredScopes: ['mcp:call'],
       requiredTargets: ['resource://api'],
-      requireAgent: true,
+      requireSession: true,
       requireDelegation: true,
       requireChainContains: ['app-parent'],
       maxHopCount: 4,
@@ -167,12 +167,12 @@ describe('verify authentication', () => {
         sub: 'user-1',
         zoneId: 'zone-1',
         clientId: 'app-1',
-        sid: 'sid-1',
-        rootSid: 'root-1',
+        authorityRecordId: 'sid-1',
+        rootAuthorityRecordId: 'root-1',
         subType: 'user',
         scope: 'mcp:call',
-        agentSessionId: 'agent-1',
-        delegationEdgeId: 'edge-1',
+        sessionId: 'agent-1',
+        delegationId: 'edge-1',
         hopCount: 2,
       },
     })
@@ -194,7 +194,7 @@ describe('verify authentication', () => {
         zoneId: 'zone-1',
         revocations,
       }),
-    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
+    ).resolves.toMatchObject({ ok: true, principal: { authorityRecordId: 'sid-1' } })
     await expect(
       authenticate(second.token, {
         issuer: second.issuer,
@@ -202,7 +202,7 @@ describe('verify authentication', () => {
         zoneId: 'zone-1',
         revocations,
       }),
-    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-2' } })
+    ).resolves.toMatchObject({ ok: true, principal: { authorityRecordId: 'sid-2' } })
   })
 
   it('rejects revoked sessions after successful verification', async () => {
@@ -273,8 +273,8 @@ describe('verify authentication', () => {
           sub: 'user-1',
           zoneId: 'zone-1',
           clientId: 'app-1',
-          sid: 'sid-1',
-          rootSid: 'root-1',
+          authorityRecordId: 'sid-1',
+          rootAuthorityRecordId: 'root-1',
           use: 'resource',
           subType: 'user',
           jti: 'jti-1',
@@ -291,7 +291,7 @@ describe('verify authentication', () => {
     })
   })
 
-  it('rejects active-execution checks with missing sid', async () => {
+  it('rejects active-execution checks with a missing Authority record ID', async () => {
     revocations.isRevoked.mockResolvedValue(false)
 
     await expect(
@@ -300,8 +300,8 @@ describe('verify authentication', () => {
           sub: 'user-1',
           zoneId: 'zone-1',
           clientId: 'app-1',
-          sid: '',
-          rootSid: '',
+          authorityRecordId: '',
+          rootAuthorityRecordId: '',
           use: 'resource',
           subType: 'user',
           jti: 'jti-1',
@@ -328,7 +328,7 @@ describe('verify authentication', () => {
       'Token validation failed',
     ],
     ['session mandate use', {}, { use: 'session' }, 'invalid_token', 'Token validation failed'],
-    ['agent identity required', { requireAgent: true }, {}, 'agent_required', 'Agent identity required'],
+    ['session required', { requireSession: true }, {}, 'session_required', 'Session required'],
     ['delegation required', { requireDelegation: true }, {}, 'delegation_required', 'Delegation required'],
     [
       'delegation chain mismatch',
@@ -380,7 +380,7 @@ describe('verify authentication', () => {
         requiredScopes: ['mcp:call'],
         requiredTargets: ['resource://api'],
       }),
-    ).resolves.toMatchObject({ ok: true, principal: { sid: 'sid-1' } })
+    ).resolves.toMatchObject({ ok: true, principal: { authorityRecordId: 'sid-1' } })
 
     await expect(verifier.require({ requiredScopes: ['admin:call'] }).authenticate(token)).resolves.toMatchObject({
       ok: false,

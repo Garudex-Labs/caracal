@@ -92,10 +92,10 @@ describe('buildAdminClient', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { client } = buildAdminClient()
-    await client.agents.list('z1')
+    await client.sessions.get('z1', 'session-1')
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://coordinator.test/zones/z1/agents',
+      'http://coordinator.test/zones/z1/agents/session-1',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer coordinator-secret' }),
       }),
@@ -129,7 +129,7 @@ describe('buildAdminClient', () => {
 
     const { client } = buildAdminClient()
     await client.zones.list()
-    await client.agents.list('z1')
+    await client.sessions.get('z1', 'session-1')
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/v1/zones',
@@ -138,7 +138,7 @@ describe('buildAdminClient', () => {
       }),
     )
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:4000/zones/z1/agents',
+      'http://localhost:4000/zones/z1/agents/session-1',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer coordinator-secret' }),
       }),

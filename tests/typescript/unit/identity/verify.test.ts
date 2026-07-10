@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   verify,
   verifyChainContains,
-  AgentIdentityRequiredError,
+  SessionRequiredError,
   DelegationRequiredError,
   HopCountExceededError,
   TokenInvalidError,
@@ -82,20 +82,20 @@ describe('verify', () => {
     expect(claims.sub).toBe('user-1')
     expect(claims.zoneId).toBe('zone-1')
     expect(claims.clientId).toBe('app-1')
-    expect(claims.sid).toBe('sid-1')
-    expect(claims.rootSid).toBe('root-1')
+    expect(claims.authorityRecordId).toBe('sid-1')
+    expect(claims.rootAuthorityRecordId).toBe('root-1')
     expect(claims.subType).toBe('user')
     expect(claims.issuedAt).toBeGreaterThan(0)
     expect(claims.expiresAt).toBeGreaterThan(claims.issuedAt)
     expect(claims.targetResources).toEqual(['resource://api'])
-    expect(claims.agentSessionId).toBe('agent-1')
-    expect(claims.delegationEdgeId).toBe('edge-1')
+    expect(claims.sessionId).toBe('agent-1')
+    expect(claims.delegationId).toBe('edge-1')
     expect(claims.sourceSessionId).toBe('src-1')
     expect(claims.targetSessionId).toBe('tgt-1')
     expect(claims.hopCount).toBe(2)
     expect(claims.graphEpoch).toBe(7)
     expect(claims.delegationPath).toEqual(['edge-0', 'edge-1'])
-    expect(claims.delegationChain?.[0]).toMatchObject({ applicationId: 'app-parent', agentSessionId: 's1', delegationEdgeId: 'e1' })
+    expect(claims.delegationChain?.[0]).toMatchObject({ applicationId: 'app-parent', sessionId: 's1', delegationId: 'e1' })
   })
 
   it('throws TokenInvalidError for a malformed token', async () => {
@@ -157,10 +157,10 @@ describe('verify', () => {
     ).rejects.toBeInstanceOf(TokenInvalidError)
   })
 
-  it('throws AgentIdentityRequiredError when agent is required but absent', async () => {
+  it('throws SessionRequiredError when agent is required but absent', async () => {
     const { token, issuer } = await mintToken()
-    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireAgent: true })).rejects.toBeInstanceOf(
-      AgentIdentityRequiredError,
+    await expect(verify(token, { issuer, audience: 'resource://api', zoneId: 'zone-1', requireSession: true })).rejects.toBeInstanceOf(
+      SessionRequiredError,
     )
   })
 
@@ -209,7 +209,7 @@ describe('verify', () => {
         issuer,
         audience: 'resource://api',
         zoneId: 'zone-1',
-        requireAgent: true,
+        requireSession: true,
       }),
     ).rejects.toBeInstanceOf(TokenInvalidError)
   })
@@ -225,7 +225,17 @@ describe('verifyChainContains', () => {
   it('matches by clientId', () => {
     expect(
       verifyChainContains(
-        { sub: '', zoneId: '', clientId: 'app-1', sid: '', rootSid: 'root-1', use: 'resource', subType: 'user', jti: 'jti-1', scope: '' },
+        {
+          sub: '',
+          zoneId: '',
+          clientId: 'app-1',
+          authorityRecordId: '',
+          rootAuthorityRecordId: 'root-1',
+          use: 'resource',
+          subType: 'user',
+          jti: 'jti-1',
+          scope: '',
+        },
         'app-1',
       ),
     ).toBe(true)
@@ -238,8 +248,8 @@ describe('verifyChainContains', () => {
           sub: '',
           zoneId: '',
           clientId: 'other',
-          sid: '',
-          rootSid: 'root-1',
+          authorityRecordId: '',
+          rootAuthorityRecordId: 'root-1',
           use: 'resource',
           subType: 'user',
           jti: 'jti-1',
@@ -258,8 +268,8 @@ describe('verifyChainContains', () => {
           sub: '',
           zoneId: '',
           clientId: 'app-1',
-          sid: '',
-          rootSid: 'root-1',
+          authorityRecordId: '',
+          rootAuthorityRecordId: 'root-1',
           use: 'resource',
           subType: 'user',
           jti: 'jti-1',

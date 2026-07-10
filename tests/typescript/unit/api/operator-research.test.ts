@@ -231,7 +231,7 @@ describe('createStateResearcher', () => {
         items: [{ id: 'd1', issuer_application_id: 'a1', receiver_application_id: 'a2', scopes: ['read'], status: 'active' }],
         next_cursor: null,
       },
-      agent: [{ agent_session_id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
+      session: [{ agent_session_id: 'ag1', application_id: 'a1', lifecycle: 'ephemeral', status: 'active', depth: 1 }],
     })
     const { evidence } = await createStateResearcher(client).gather(['delegation', 'agent'])
     const byDomain = Object.fromEntries(evidence.map((e) => [e.domain, e]))

@@ -200,7 +200,7 @@ describe('auditReason', () => {
 })
 
 describe('auditEntities', () => {
-  it('extracts linked application, resource, agent, and delegation entities', () => {
+  it('extracts linked application, resource, Session, and Delegation entities', () => {
     const entities = auditEntities(
       event('token_exchange', 'allow', {
         application_id: 'app-1',
@@ -213,7 +213,7 @@ describe('auditEntities', () => {
     expect(entities).toEqual([
       { kind: 'application', id: 'app-1', label: 'Son of Anton' },
       { kind: 'resource', id: 'resource://pipernet', label: 'resource://pipernet' },
-      { kind: 'agent', id: 'agent-7', label: 'agent-7' },
+      { kind: 'session', id: 'agent-7', label: 'agent-7' },
       { kind: 'delegation', id: 'edge-3', label: 'edge-3' },
     ])
   })
@@ -245,8 +245,8 @@ describe('auditDelegationChain', () => {
       }),
     )
     expect(chain).toEqual([
-      { applicationId: 'app-1', agentSessionId: 'agent-1', delegationEdgeId: 'edge-1' },
-      { applicationId: 'app-2', agentSessionId: null, delegationEdgeId: null },
+      { applicationId: 'app-1', sessionId: 'agent-1', delegationEdgeId: 'edge-1' },
+      { applicationId: 'app-2', sessionId: null, delegationEdgeId: null },
     ])
   })
 
