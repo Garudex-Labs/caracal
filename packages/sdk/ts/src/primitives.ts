@@ -11,8 +11,8 @@ import {
   CoordinatorClient,
   CoordinatorError,
   DelegationResponse,
-  SpawnResponse,
-  spawnAgent,
+  StartSessionResponse,
+  startCoordinatorSession,
   terminateAgent,
   heartbeatAgent,
   createDelegation,
@@ -113,7 +113,8 @@ export interface SessionInput {
   subjectToken: string
   tokenSource?: () => string | Promise<string>
   invalidate?: () => void
-  subjectSessionId?: string
+  /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
+  subjectAuthorityRecordId?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -121,7 +122,7 @@ export interface SessionInput {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
-  /** Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate. */
+  /** Caller-supplied Session-start idempotency key; redelivery resumes the Session instead of creating a duplicate. */
   idempotencyKey?: string
   signal?: AbortSignal
   /** Receives operational warnings (cleanup failures); defaults to console.warn. */
@@ -137,7 +138,7 @@ interface EstablishInput {
   subjectToken: string
   tokenSource?: () => string | Promise<string>
   invalidate?: () => void
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   parentSessionId?: string
   authority?: Authority
   ttlSeconds?: number
@@ -168,10 +169,12 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
   const parentId = input.parentSessionId ?? parent?.sessionId
   let token = input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : token)
-  const spawnReq = {
+  if (input.idempotencyKey !== undefined) validateIdempotencyKey(input.idempotencyKey)
+  const generatedIdempotencyKey = input.idempotencyKey === undefined
+  const startReq = {
     zoneId: input.zoneId,
     applicationId: input.applicationId,
-    subjectSessionId: input.subjectSessionId,
+    subjectAuthorityRecordId: input.subjectAuthorityRecordId,
     parentId,
     lifecycle,
     ttlSeconds: input.ttlSeconds,
@@ -182,17 +185,18 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     // parent's wider delegation alongside it.
     parentAuthority: (authority.mode === 'inherit' ? 'inherit' : 'none') as 'inherit' | 'none',
     idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
+    idempotencyKeyGenerated: generatedIdempotencyKey,
   }
-  let res: SpawnResponse | undefined
+  let res: StartSessionResponse | undefined
   let refreshed = false
   for (let attempt = 0; res === undefined; attempt++) {
     try {
-      res = await spawnAgent(input.coordinator, token, spawnReq, input.signal)
+      res = await startCoordinatorSession(input.coordinator, token, startReq, input.signal)
     } catch (e) {
       if (input.signal?.aborted) throw e
       // A cached token can be rejected before its exp (server-side session
       // revocation after a credential rotation); force one refresh and retry
-      // the spawn once. The jittered pause spreads the refresh across a fleet
+      // the Session start once. The jittered pause spreads the refresh across a fleet
       // so a mass revocation cannot stampede the STS.
       if (e instanceof CoordinatorError && e.status === 401 && !refreshed && input.invalidate && input.tokenSource) {
         refreshed = true
@@ -210,7 +214,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     }
   }
 
-  let delegationId = res.delegationEdgeId
+  let delegationId = res.delegationId
   let hop = delegationId && parent ? parent.hop + 1 : (parent?.hop ?? 0)
   try {
     if (authority.mode === 'narrow') {
@@ -224,7 +228,7 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
           zoneId: input.zoneId,
           issuerApplicationId: parent.applicationId,
           sourceSessionId: parent.sessionId,
-          targetSessionId: res.agentSessionId,
+          targetSessionId: res.sessionId,
           receiverApplicationId: input.applicationId,
           parentEdgeId: parent.delegationId,
           resourceId: authority.resourceId,
@@ -234,11 +238,11 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
         },
         input.signal,
       )
-      delegationId = delRes.delegationEdgeId
+      delegationId = delRes.delegationId
       hop = parent.hop + 1
     }
   } catch (e) {
-    await retire(input.coordinator, bearer, input.zoneId, res.agentSessionId, input.warn)
+    await retire(input.coordinator, bearer, input.zoneId, res.sessionId, input.warn)
     throw e
   }
 
@@ -246,10 +250,10 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     subjectToken: token,
     zoneId: input.zoneId,
     applicationId: input.applicationId,
-    sessionId: res.agentSessionId,
+    sessionId: res.sessionId,
     delegationId,
     parentDelegationId: parent?.delegationId,
-    subjectSessionId: input.subjectSessionId ?? parent?.subjectSessionId,
+    subjectAuthorityRecordId: input.subjectAuthorityRecordId ?? parent?.subjectAuthorityRecordId,
     traceId: input.traceId ?? parent?.traceId,
     traceFlags: parent?.traceFlags,
     traceState: parent?.traceState,
@@ -257,7 +261,15 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     hop,
     ownToken: true,
   }
-  return { sessionId: res.agentSessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
+  return { sessionId: res.sessionId, ctx, bearer, heartbeatDeadlineAt: res.heartbeatDeadlineAt }
+}
+
+function validateIdempotencyKey(key: string): void {
+  if (!key || key !== key.trim() || new TextEncoder().encode(key).length > 255 || /[\u0000-\u001f\u007f]/.test(key)) {
+    throw new Error(
+      'idempotencyKey must be non-empty, at most 255 UTF-8 bytes, and contain no surrounding whitespace or control characters',
+    )
+  }
 }
 
 /**
@@ -365,7 +377,7 @@ export async function delegate(input: DelegateInput): Promise<Delegation> {
       await backoff(attempt, input.signal, e instanceof CoordinatorError ? e.retryAfterSeconds : undefined)
     }
   }
-  return { delegationId: res.delegationEdgeId, scopes: res.scopes, expiresAt: res.expiresAt }
+  return { delegationId: res.delegationId, scopes: res.scopes, expiresAt: res.expiresAt }
 }
 
 /**
@@ -391,7 +403,8 @@ export interface StartSessionInput {
   subjectToken: string
   tokenSource?: () => string | Promise<string>
   invalidate?: () => void
-  subjectSessionId?: string
+  /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
+  subjectAuthorityRecordId?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
@@ -399,7 +412,7 @@ export interface StartSessionInput {
   metadata?: JsonObject
   labels?: string[]
   traceId?: string
-  /** Caller-supplied spawn idempotency key; redelivering the same trigger resumes the session instead of minting a duplicate. */
+  /** Caller-supplied Session-start idempotency key; redelivery resumes the Session instead of creating a duplicate. */
   idempotencyKey?: string
   /**
    * Auto-heartbeat cadence. Leave unset to derive it from the server lease
@@ -414,6 +427,7 @@ export interface StartSessionInput {
    * timer stops at that point because no beat can revive the session.
    */
   onLeaseLost?: (err: unknown) => void
+  onStateChange?: (status: string) => void
   signal?: AbortSignal
   /** Receives operational warnings (lease loss, heartbeat retries, cleanup failures); defaults to console.warn. */
   warn?: WarnSink
@@ -433,6 +447,7 @@ export interface SessionHandle {
   sessionId: string
   /** The lease deadline the coordinator reported on the last renewal; undefined until the server reports one. */
   readonly deadlineAt: string | undefined
+  readonly status: string
   heartbeat: (status?: SessionStatus) => Promise<void>
   close: () => Promise<void>
 }
@@ -462,6 +477,7 @@ export interface AttachSessionInput {
   sessionId: string
   heartbeatIntervalMs?: number
   onLeaseLost?: (err: unknown) => void
+  onStateChange?: (status: string) => void
   warn?: WarnSink
   onSessionEnd?: (ctx: CaracalContext) => void | Promise<void>
 }
@@ -476,9 +492,17 @@ export interface AttachSessionInput {
  * the previous holder are re-presented with acceptDelegation.
  */
 export async function attachSession(input: AttachSessionInput): Promise<SessionHandle> {
-  const token = input.tokenSource ? await input.tokenSource() : input.subjectToken
+  let token = input.tokenSource ? await input.tokenSource() : input.subjectToken
   const bearer = async () => (input.tokenSource ? await input.tokenSource() : input.subjectToken)
-  const first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+  let first
+  try {
+    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+  } catch (err) {
+    if (!(err instanceof CoordinatorError) || err.status !== 401 || !input.invalidate || !input.tokenSource) throw err
+    input.invalidate()
+    token = await input.tokenSource()
+    first = await heartbeatAgent(input.coordinator, token, input.zoneId, input.sessionId)
+  }
   const ctx: CaracalContext = {
     subjectToken: token,
     zoneId: input.zoneId,
@@ -496,6 +520,7 @@ interface LeaseInput {
   invalidate?: () => void
   heartbeatIntervalMs?: number
   onLeaseLost?: (err: unknown) => void
+  onStateChange?: (status: string) => void
   warn?: WarnSink
   onSessionEnd?: (ctx: CaracalContext) => void | Promise<void>
 }
@@ -509,6 +534,8 @@ function leaseHandle(
 ): SessionHandle {
   const warn = input.warn ?? defaultWarn
   let deadlineAt = initialDeadlineAt
+  let sessionStatus = 'active'
+  let suspendedNotified = false
   const heartbeat = async (status?: SessionStatus) => {
     let res
     try {
@@ -522,6 +549,14 @@ function leaseHandle(
       res = await heartbeatAgent(input.coordinator, await bearer(), input.zoneId, sessionId, status)
     }
     deadlineAt = res.heartbeatDeadlineAt ?? deadlineAt
+    if (res.status && res.status !== sessionStatus) {
+      sessionStatus = res.status
+      input.onStateChange?.(sessionStatus)
+    }
+    if (sessionStatus === 'suspended') {
+      stopped = true
+      if (!suspendedNotified) suspendedNotified = true
+    }
   }
   const mode = input.heartbeatIntervalMs === undefined ? 'auto' : input.heartbeatIntervalMs > 0 ? 'fixed' : 'manual'
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -563,6 +598,9 @@ function leaseHandle(
     sessionId,
     get deadlineAt() {
       return deadlineAt
+    },
+    get status() {
+      return sessionStatus
     },
     heartbeat,
     close: () =>

@@ -14,7 +14,7 @@ export type AuthErrorCode =
   | 'insufficient_scope'
   | 'session_revoked'
   | 'delegation_stale'
-  | 'agent_required'
+  | 'session_required'
   | 'delegation_required'
   | 'chain_mismatch'
   | 'hop_count_exceeded'

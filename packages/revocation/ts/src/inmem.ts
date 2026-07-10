@@ -20,22 +20,22 @@ export class InMemoryRevocationStore implements RevocationStore {
     this.maxEntries = opts.maxEntries ?? 100_000
   }
 
-  isRevoked(sid: string): boolean {
-    const entry = this.entries.get(sid)
+  isRevoked(anchorId: string): boolean {
+    const entry = this.entries.get(anchorId)
     if (!entry) return false
     if (entry.expiresAtMonoMs <= performance.now()) {
-      this.entries.delete(sid)
+      this.entries.delete(anchorId)
       return false
     }
     return true
   }
 
-  markRevoked(sid: string, ttlMs?: number): void {
+  markRevoked(anchorId: string, ttlMs?: number): void {
     if (this.entries.size >= this.maxEntries) {
       this.reapExpired()
       if (this.entries.size >= this.maxEntries) throw new Error('Revocation store capacity exceeded')
     }
-    this.entries.set(sid, { expiresAtMonoMs: performance.now() + (ttlMs ?? this.defaultTtlMs) })
+    this.entries.set(anchorId, { expiresAtMonoMs: performance.now() + (ttlMs ?? this.defaultTtlMs) })
   }
 
   currentDelegationEpoch(zoneId: string): number {
@@ -63,8 +63,8 @@ export class InMemoryRevocationStore implements RevocationStore {
 
   private reapExpired(): void {
     const now = performance.now()
-    for (const [sid, entry] of this.entries) {
-      if (entry.expiresAtMonoMs <= now) this.entries.delete(sid)
+    for (const [anchorId, entry] of this.entries) {
+      if (entry.expiresAtMonoMs <= now) this.entries.delete(anchorId)
     }
   }
 }

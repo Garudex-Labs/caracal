@@ -15,6 +15,11 @@ export interface CoordinatorCallEvent {
   status: number
   ok: boolean
   durationMs: number
+  /** True when the Coordinator returned a durable idempotency receipt instead of creating a new resource. */
+  replayed?: boolean
+  /** Structured Coordinator error code, when the response used the standard JSON envelope. */
+  code?: string
+  requestId?: string
 }
 
 export interface CoordinatorClient {
@@ -40,6 +45,8 @@ export class CoordinatorError extends Error {
     body: string,
     /** Server-requested retry delay parsed from Retry-After, when present. */
     readonly retryAfterSeconds?: number,
+    readonly code?: string,
+    readonly requestId?: string,
   ) {
     super(
       `coordinator ${method} ${path} failed: ${status} ${body.length > ERROR_BODY_CAP ? `${body.slice(0, ERROR_BODY_CAP)}… (truncated)` : body}`,
@@ -83,22 +90,23 @@ export interface DelegationConstraints {
   broadReason?: string
 }
 
-export interface SpawnRequest {
+export interface StartSessionRequest {
   zoneId: string
   applicationId: string
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   parentId?: string
   lifecycle?: Lifecycle
   ttlSeconds?: number
   metadata?: JsonObject
   labels?: string[]
   idempotencyKey?: string
+  idempotencyKeyGenerated?: boolean
   parentAuthority?: 'inherit' | 'none'
 }
 
-export interface SpawnResponse {
-  agentSessionId: string
-  delegationEdgeId?: string
+export interface StartSessionResponse {
+  sessionId: string
+  delegationId?: string
   heartbeatDeadlineAt?: string
 }
 
@@ -118,7 +126,7 @@ export interface DelegationRequest {
 
 /** The created delegation edge: its id, the scopes it bounds, and when it lapses. */
 export interface DelegationResponse {
-  delegationEdgeId: string
+  delegationId: string
   scopes: string[]
   expiresAt?: string
 }
@@ -146,10 +154,10 @@ async function call<T>(
     ...(extraHeaders ?? {}),
   }
   const start = performance.now()
-  const emit = (status: number, ok: boolean): void => {
+  const emit = (status: number, ok: boolean, details: { replayed?: boolean; code?: string; requestId?: string } = {}): void => {
     if (!client.onEvent) return
     try {
-      client.onEvent({ type: 'coordinator.call', method, path, status, ok, durationMs: performance.now() - start })
+      client.onEvent({ type: 'coordinator.call', method, path, status, ok, durationMs: performance.now() - start, ...details })
     } catch {
       // The observability sink must never break the coordinator path.
     }
@@ -173,22 +181,35 @@ async function call<T>(
   }
   if (!res.ok) {
     const text = await res.text()
-    emit(res.status, false)
-    throw new CoordinatorError(method, path, res.status, text, retryAfterSeconds(res))
+    let error: { error?: unknown; request_id?: unknown } = {}
+    try {
+      error = JSON.parse(text)
+    } catch {
+      // Non-JSON responses remain available through the bounded error body.
+    }
+    const code = typeof error.error === 'string' ? error.error : undefined
+    const requestId = typeof error.request_id === 'string' ? error.request_id : (res.headers.get('x-request-id') ?? undefined)
+    emit(res.status, false, { code, requestId })
+    throw new CoordinatorError(method, path, res.status, text, retryAfterSeconds(res), code, requestId)
   }
-  emit(res.status, true)
+  emit(res.status, true, { replayed: res.headers.get('idempotency-replayed') === 'true' })
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
 }
 
-export async function spawnAgent(
+export async function startCoordinatorSession(
   client: CoordinatorClient,
   bearer: string,
-  req: SpawnRequest,
+  req: StartSessionRequest,
   signal?: AbortSignal,
-): Promise<SpawnResponse> {
-  const headers = req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined
+): Promise<StartSessionResponse> {
+  const headers = req.idempotencyKey
+    ? {
+        'idempotency-key': req.idempotencyKey,
+        ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
+      }
+    : undefined
   const res = await call<{ agent_session_id?: string; delegation_edge_id?: string | null; heartbeat_deadline_at?: string | null }>(
     client,
     'POST',
@@ -196,7 +217,7 @@ export async function spawnAgent(
     bearer,
     {
       application_id: req.applicationId,
-      subject_session_id: req.subjectSessionId,
+      subject_session_id: req.subjectAuthorityRecordId,
       parent_id: req.parentId,
       lifecycle: req.lifecycle,
       ttl_seconds: req.ttlSeconds,
@@ -207,16 +228,16 @@ export async function spawnAgent(
     headers,
     signal,
   )
-  if (!res?.agent_session_id) throw new Error('coordinator spawn response missing agent_session_id')
+  if (!res?.agent_session_id) throw new Error('coordinator session response missing agent_session_id')
   return {
-    agentSessionId: res.agent_session_id,
-    delegationEdgeId: res.delegation_edge_id ?? undefined,
+    sessionId: res.agent_session_id,
+    delegationId: res.delegation_edge_id ?? undefined,
     heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
   }
 }
 
-export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, agentSessionId: string): Promise<void> {
-  await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}`, bearer)
+export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
+  await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`, bearer)
 }
 
 export async function createDelegation(
@@ -258,7 +279,7 @@ export async function createDelegation(
   )
   if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
   return {
-    delegationEdgeId: res.delegation_edge_id,
+    delegationId: res.delegation_edge_id,
     scopes: res.scopes ?? [],
     expiresAt: res.expires_at ?? undefined,
   }
@@ -266,7 +287,7 @@ export async function createDelegation(
 
 /** One delegation offered to a session, as the coordinator lists it. */
 export interface InboundDelegation {
-  delegationEdgeId: string
+  delegationId: string
   status: string
   expiresAt?: string
 }
@@ -288,7 +309,7 @@ export async function listInboundDelegations(
     signal,
   )
   return (res?.items ?? []).flatMap((item) =>
-    item.id ? [{ delegationEdgeId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }] : [],
+    item.id ? [{ delegationId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }] : [],
   )
 }
 
@@ -296,13 +317,13 @@ export async function heartbeatAgent(
   client: CoordinatorClient,
   bearer: string,
   zoneId: string,
-  agentSessionId: string,
+  sessionId: string,
   status: SessionStatus = 'healthy',
 ): Promise<HeartbeatResponse> {
   const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null } }>(
     client,
     'POST',
-    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(agentSessionId)}/heartbeat`,
+    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/heartbeat`,
     bearer,
     { status },
   )

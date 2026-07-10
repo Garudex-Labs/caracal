@@ -4,11 +4,11 @@
 // Framework-neutral mandate verification: bearer verify, revocation check, typed result.
 
 import {
-  AgentIdentityRequiredError,
   ChainMismatchError,
   DelegationRequiredError,
   HopCountExceededError,
   ScopeInsufficientError,
+  SessionRequiredError,
   TokenInvalidError,
   ZoneInvalidError,
   MANDATE_USE_RESOURCE,
@@ -85,8 +85,8 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
     if (err instanceof ScopeInsufficientError) {
       return { ok: false, error: authError('insufficient_scope', err.message) }
     }
-    if (err instanceof AgentIdentityRequiredError) {
-      return { ok: false, error: authError('agent_required', err.message) }
+    if (err instanceof SessionRequiredError) {
+      return { ok: false, error: authError('session_required', err.message) }
     }
     if (err instanceof DelegationRequiredError) {
       return { ok: false, error: authError('delegation_required', err.message) }
@@ -108,7 +108,7 @@ export async function authenticate(token: string, deps: AuthDeps): Promise<AuthR
 }
 
 export async function checkActiveAuthority(claims: Principal, revocations: RevocationStore, nowMs = Date.now()): Promise<AuthError | null> {
-  if (!claims.sid) {
+  if (!claims.authorityRecordId) {
     return authError('invalid_token')
   }
   if (claims.expiresAt * 1000 <= nowMs) {
@@ -122,7 +122,7 @@ export async function checkActiveAuthority(claims: Principal, revocations: Revoc
 }
 
 function revocationAnchors(claims: Principal): string[] {
-  const anchors = [claims.sid, claims.rootSid, claims.agentSessionId, claims.delegationEdgeId].filter(
+  const anchors = [claims.authorityRecordId, claims.rootAuthorityRecordId, claims.sessionId, claims.delegationId].filter(
     (value): value is string => typeof value === 'string' && value !== '',
   )
   return [...new Set(anchors)]
@@ -151,7 +151,7 @@ function authError(code: AuthError['code'], description = defaultDescription(cod
 export function httpStatusForAuthError(code: AuthErrorCode): number {
   switch (code) {
     case 'insufficient_scope':
-    case 'agent_required':
+    case 'session_required':
     case 'delegation_required':
     case 'chain_mismatch':
     case 'hop_count_exceeded':
@@ -173,8 +173,8 @@ function defaultDescription(code: AuthError['code']): string {
       return 'Session revoked'
     case 'delegation_stale':
       return 'Delegation graph changed'
-    case 'agent_required':
-      return 'Agent identity required'
+    case 'session_required':
+      return 'Session required'
     case 'delegation_required':
       return 'Delegation required'
     case 'chain_mismatch':
@@ -198,8 +198,8 @@ function defaultHint(code: AuthError['code']): string {
       return 'Refresh the mandate or start a new authorized session.'
     case 'delegation_stale':
       return 'Refresh the mandate so delegated authority is evaluated against the latest graph.'
-    case 'agent_required':
-      return 'Use an agent-issued resource mandate for this endpoint.'
+    case 'session_required':
+      return 'Use a resource mandate issued for a governed Session.'
     case 'delegation_required':
       return 'Use a mandate produced by a delegated grant flow.'
     case 'chain_mismatch':

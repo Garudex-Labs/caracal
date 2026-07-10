@@ -9,7 +9,7 @@
  * traceparent and tracestate. The wire keys keep their protocol names: the
  * session id travels as caracal.agent_session, the delegation id as
  * caracal.delegation_edge, its parent as caracal.parent_edge, and the
- * subject session as caracal.session. Decoding reads the subject token from
+ * Subject authority record as caracal.session. Decoding reads the subject token from
  * Authorization, but encoding never writes it: credential emission is an
  * explicit client-layer decision. Baggage is unsigned routing metadata;
  * verifiers must treat signed token claims as the only authoritative source
@@ -39,7 +39,7 @@ export interface Envelope {
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   traceId?: string
   traceFlags?: string
   traceState?: string
@@ -156,7 +156,7 @@ export function decodeEnvelope(get: HeaderGetter): Envelope {
     sessionId: bag[BaggageAgentSession] || undefined,
     delegationId: bag[BaggageDelegationEdge] || undefined,
     parentDelegationId: bag[BaggageParentEdge] || undefined,
-    subjectSessionId: bag[BaggageSession] || undefined,
+    subjectAuthorityRecordId: bag[BaggageSession] || undefined,
     traceId: trace?.traceId,
     traceFlags: trace?.flags,
     traceState: traceState || undefined,
@@ -182,8 +182,8 @@ export function encodeEnvelope(env: Envelope, set: HeaderSetter, get?: HeaderGet
   if (env.sessionId) merged[BaggageAgentSession] = env.sessionId
   if (env.delegationId) merged[BaggageDelegationEdge] = env.delegationId
   if (env.parentDelegationId) merged[BaggageParentEdge] = env.parentDelegationId
-  if (env.subjectSessionId) merged[BaggageSession] = env.subjectSessionId
-  if (env.hop > 0 || env.sessionId || env.delegationId || env.parentDelegationId || env.subjectSessionId) {
+  if (env.subjectAuthorityRecordId) merged[BaggageSession] = env.subjectAuthorityRecordId
+  if (env.hop > 0 || env.sessionId || env.delegationId || env.parentDelegationId || env.subjectAuthorityRecordId) {
     merged[BaggageHop] = String(env.hop)
   }
   const baggage = encodeBaggage(merged)

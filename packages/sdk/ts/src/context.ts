@@ -13,7 +13,7 @@ export interface CaracalContext {
    * The bearer credential this context presents: the session mandate every
    * gateway-bound call and token exchange authenticates with. Named for the
    * RFC 8693 subject_token it becomes on the wire; it is not an end-user
-   * identity - see subjectSessionId for that.
+   * identity - see subjectAuthorityRecordId for that.
    */
   subjectToken: string
   zoneId: string
@@ -21,7 +21,7 @@ export interface CaracalContext {
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   /** W3C trace id (32 lowercase hex characters) correlating this context's requests. */
   traceId?: string
   traceFlags?: string
@@ -41,7 +41,7 @@ export interface CaracalContext {
 export interface AuthoritySummary {
   zoneId: string
   applicationId: string
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
@@ -61,7 +61,7 @@ export interface VerifiedClaims {
   sessionId?: string
   delegationId?: string
   parentDelegationId?: string
-  subjectSessionId?: string
+  subjectAuthorityRecordId?: string
   hop?: number
 }
 
@@ -98,7 +98,7 @@ export function toEnvelope(ctx: CaracalContext): Envelope {
     sessionId: ctx.sessionId,
     delegationId: ctx.delegationId,
     parentDelegationId: ctx.parentDelegationId,
-    subjectSessionId: ctx.subjectSessionId,
+    subjectAuthorityRecordId: ctx.subjectAuthorityRecordId,
     traceId: ctx.traceId,
     traceFlags: ctx.traceFlags,
     traceState: ctx.traceState,
@@ -116,7 +116,7 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
     sessionId: env.sessionId,
     delegationId: env.delegationId,
     parentDelegationId: env.parentDelegationId,
-    subjectSessionId: env.subjectSessionId,
+    subjectAuthorityRecordId: env.subjectAuthorityRecordId,
     traceId: env.traceId,
     traceFlags: env.traceFlags,
     traceState: env.traceState,
@@ -128,14 +128,14 @@ export function fromEnvelope(env: Envelope, base: { zoneId: string; applicationI
 export function describeAuthority(ctx: CaracalContext | undefined = current()): AuthoritySummary | undefined {
   if (!ctx) return undefined
   const chain: string[] = []
-  if (ctx.subjectSessionId) chain.push(`subject:${ctx.subjectSessionId}`)
+  if (ctx.subjectAuthorityRecordId) chain.push(`subject:${ctx.subjectAuthorityRecordId}`)
   if (ctx.sessionId) chain.push(`session:${ctx.sessionId}`)
   if (ctx.parentDelegationId) chain.push(`parent-delegation:${ctx.parentDelegationId}`)
   if (ctx.delegationId) chain.push(`delegation:${ctx.delegationId}`)
   return {
     zoneId: ctx.zoneId,
     applicationId: ctx.applicationId,
-    subjectSessionId: ctx.subjectSessionId,
+    subjectAuthorityRecordId: ctx.subjectAuthorityRecordId,
     sessionId: ctx.sessionId,
     delegationId: ctx.delegationId,
     parentDelegationId: ctx.parentDelegationId,
