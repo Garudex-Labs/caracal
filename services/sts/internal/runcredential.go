@@ -34,15 +34,14 @@ func workloadAuditMeta(workload *Workload) map[string]any {
 // workload's own least-privilege profile. Every mint is policy-evaluated as a Workload
 // principal and can be held for human approval exactly like an application exchange.
 func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+	form, _, ok := readFormBody(w, r)
+	if !ok {
 		return
 	}
-	workloadID := strings.TrimSpace(r.FormValue("workload_id"))
-	secret := r.FormValue("secret")
-	env := strings.TrimSpace(r.FormValue("env"))
-	challengeID := strings.TrimSpace(r.FormValue("challenge_id"))
+	workloadID := strings.TrimSpace(form.Get("workload_id"))
+	secret := form.Get("secret")
+	env := strings.TrimSpace(form.Get("env"))
+	challengeID := strings.TrimSpace(form.Get("challenge_id"))
 	if workloadID == "" || secret == "" || env == "" {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id, secret, and env are required"))
 		return

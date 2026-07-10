@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,20 +86,27 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	if requestID != "" {
 		w.Header().Set("X-Request-Id", requestID)
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+	form, rawBody, ok := readFormBody(w, r, "resource")
+	if !ok {
 		return
 	}
 	// RFC 8693 actor tokens are not part of the exchange contract: the acting
 	// application authenticates with its own client credentials and rides the
 	// policy input as caracal_client_id.
-	if r.FormValue("actor_token") != "" {
+	if _, present := form["actor_token"]; present {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "actor_token is not supported: authenticate the acting application with its own client credentials"))
 		return
 	}
+	if _, present := form["client_assertion"]; present {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "client_assertion is not supported: use client_secret"))
+		return
+	}
+	if _, present := form["client_assertion_type"]; present {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "client_assertion_type is not supported: use client_secret"))
+		return
+	}
 	ttlSeconds := 0
-	if rawTTL := r.FormValue("ttl_seconds"); rawTTL != "" {
+	if rawTTL := form.Get("ttl_seconds"); rawTTL != "" {
 		parsedTTL, err := strconv.Atoi(rawTTL)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "invalid ttl_seconds"))
@@ -106,29 +115,32 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ttlSeconds = parsedTTL
 	}
 
-	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID)
+	gatewayAuthenticated, gatewayErr := s.verifyGatewayExchange(r, requestID, form, rawBody)
 	if gatewayErr != nil {
 		writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "invalid gateway exchange signature"))
 		return
 	}
 
+	resources, resourceErr := canonicalResourceSet(form["resource"])
+	if resourceErr != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, resourceErr.Error()))
+		return
+	}
 	req := TokenExchangeRequest{
-		GrantType:            r.FormValue("grant_type"),
-		SubjectToken:         r.FormValue("subject_token"),
-		SubjectTokenType:     r.FormValue("subject_token_type"),
-		Resources:            r.Form["resource"],
-		Scope:                r.FormValue("scope"),
-		ZoneID:               r.FormValue("zone_id"),
-		ApplicationID:        r.FormValue("application_id"),
-		ClientSecret:         r.FormValue("client_secret"),
-		ClientAssertion:      r.FormValue("client_assertion"),
-		ClientAssertionType:  r.FormValue("client_assertion_type"),
-		ChallengeID:          r.FormValue("challenge_id"),
-		AuthorityRecordID:    r.FormValue("session_id"),
-		SessionID:            r.FormValue("agent_session_id"),
-		DelegationEdgeID:     r.FormValue("delegation_edge_id"),
-		RequestMethod:        r.FormValue("request_method"),
-		RequestPath:          r.FormValue("request_path"),
+		GrantType:            form.Get("grant_type"),
+		SubjectToken:         form.Get("subject_token"),
+		SubjectTokenType:     form.Get("subject_token_type"),
+		Resources:            resources,
+		Scope:                form.Get("scope"),
+		ZoneID:               form.Get("zone_id"),
+		ApplicationID:        form.Get("application_id"),
+		ClientSecret:         form.Get("client_secret"),
+		ChallengeID:          form.Get("challenge_id"),
+		AuthorityRecordID:    form.Get("session_id"),
+		SessionID:            form.Get("agent_session_id"),
+		DelegationEdgeID:     form.Get("delegation_edge_id"),
+		RequestMethod:        form.Get("request_method"),
+		RequestPath:          form.Get("request_path"),
 		TTLSeconds:           ttlSeconds,
 		GatewayAuthenticated: gatewayAuthenticated,
 	}
@@ -177,23 +189,83 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) verifyGatewayExchange(r *http.Request, requestID string) (bool, error) {
+func (s *Server) verifyGatewayExchange(r *http.Request, requestID string, form url.Values, rawBody []byte) (bool, error) {
 	timestamp := r.Header.Get(corests.GatewayTimestampHeader)
 	signature := r.Header.Get(corests.GatewaySignatureHeader)
 	gatewayRequestID := r.Header.Get(corests.GatewayRequestHeader)
 	if timestamp == "" && signature == "" && gatewayRequestID == "" {
 		return false, nil
 	}
-	if r.FormValue("gateway_request_id") != requestID {
+	if form.Get("gateway_request_id") != requestID {
 		return false, fmt.Errorf("gateway correlation id mismatch")
 	}
-	if err := corests.VerifyGatewayExchange(s.cfg.GatewayHMACKey, time.Now().UTC(), gatewayExchangeSkew, timestamp, gatewayRequestID, signature, r.Method, r.URL.EscapedPath(), []byte(r.PostForm.Encode())); err != nil {
+	if err := corests.VerifyGatewayExchange(s.cfg.GatewayHMACKey, time.Now().UTC(), gatewayExchangeSkew, timestamp, gatewayRequestID, signature, r.Method, r.URL.EscapedPath(), rawBody); err != nil {
 		return false, err
 	}
 	if err := s.consumeGatewayNonce(r.Context(), gatewayRequestID); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func readFormBody(w http.ResponseWriter, r *http.Request, repeatedFields ...string) (url.Values, []byte, bool) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, sharederr.New(sharederr.InvalidToken, "POST is required"))
+		return nil, nil, false
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "query parameters are not allowed"))
+		return nil, nil, false
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		writeError(w, http.StatusUnsupportedMediaType, sharederr.New(sharederr.InvalidToken, "application/x-www-form-urlencoded content type is required"))
+		return nil, nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBodyBytes))
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, sharederr.New(sharederr.PayloadTooLarge, "request body too large"))
+			return nil, nil, false
+		}
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return nil, nil, false
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+		return nil, nil, false
+	}
+	repeated := make(map[string]struct{}, len(repeatedFields))
+	for _, field := range repeatedFields {
+		repeated[field] = struct{}{}
+	}
+	for field, values := range form {
+		if _, allowed := repeated[field]; !allowed && len(values) > 1 {
+			writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "duplicate form field: "+field))
+			return nil, nil, false
+		}
+	}
+	return form, body, true
+}
+
+func canonicalResourceSet(resources []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(resources))
+	canonical := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		resource = strings.TrimSpace(resource)
+		if resource == "" {
+			return nil, fmt.Errorf("resource must not be empty")
+		}
+		if _, exists := seen[resource]; exists {
+			continue
+		}
+		seen[resource] = struct{}{}
+		canonical = append(canonical, resource)
+	}
+	slices.Sort(canonical)
+	return canonical, nil
 }
 
 // gatewayActionInput surfaces the upstream operation (HTTP method and path) the
@@ -1238,7 +1310,7 @@ func validProviderHeaderName(name string) bool {
 			return false
 		}
 	}
-	return true
+	return corests.ValidUpstreamCredentialHeader(name)
 }
 
 func validProviderAuthScheme(scheme string) bool {
@@ -1359,22 +1431,13 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 		return app, zoneID, nil
 	}
 	if app.ClientSecretHash != nil {
-		if !verifyClientSecret(*app.ClientSecretHash, presentedSecret(req)) {
+		if !verifyClientSecret(*app.ClientSecretHash, req.ClientSecret) {
 			return nil, "", errSecretMismatch
 		}
 	} else {
 		return nil, "", fmt.Errorf("client secret not configured")
 	}
 	return app, zoneID, nil
-}
-
-// presentedSecret returns the credential a client offered, preferring the form-encoded
-// client secret and falling back to a client assertion.
-func presentedSecret(req TokenExchangeRequest) string {
-	if req.ClientSecret != "" {
-		return req.ClientSecret
-	}
-	return req.ClientAssertion
 }
 
 // zoneMismatchError marks an authentication failure where the application id is valid and
@@ -1402,7 +1465,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 	if err != nil || other == nil || other.ZoneID == zoneID || other.ClientSecretHash == nil {
 		return nil
 	}
-	if !verifyClientSecret(*other.ClientSecretHash, presentedSecret(req)) {
+	if !verifyClientSecret(*other.ClientSecretHash, req.ClientSecret) {
 		return nil
 	}
 	return &zoneMismatchError{requested: zoneID, actual: other.ZoneID}

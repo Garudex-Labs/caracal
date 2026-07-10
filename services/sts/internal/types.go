@@ -33,8 +33,6 @@ type TokenExchangeRequest struct {
 	ZoneID               string
 	ApplicationID        string
 	ClientSecret         string
-	ClientAssertion      string
-	ClientAssertionType  string
 	ChallengeID          string // identifier of a previously issued step-up challenge
 	AuthorityRecordID    string
 	SessionID            string

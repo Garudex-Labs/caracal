@@ -255,13 +255,13 @@ func WithDeadLetterMaxLength(length int64) ConsumerOption {
 // NewConsumer returns a Redis stream consumer that populates store.
 func NewConsumer(redis StreamClient, store *Store, consumer string, opts ...ConsumerOption) (*Consumer, error) {
 	c := &Consumer{
-		redis:       redis,
-		store:       store,
-		stream:      RevocationStream,
-		group:       "resource-revocation",
-		consumer:    consumer,
-		batchSize:   50,
-		pendingIdle: 30 * time.Second,
+		redis:            redis,
+		store:            store,
+		stream:           RevocationStream,
+		group:            "resource-revocation",
+		consumer:         consumer,
+		batchSize:        50,
+		pendingIdle:      30 * time.Second,
 		deadLetterMaxLen: DefaultDeadLetterMaxLength,
 	}
 	for _, opt := range opts {

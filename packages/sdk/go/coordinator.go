@@ -116,15 +116,13 @@ type StartSessionResponse struct {
 	LeaseGeneration     int64  `json:"lease_generation"`
 }
 
-// DelegationConstraints narrows a Delegation. Budget is the maximum number of
-// distinct requested scopes in each token exchange; repeated exchanges do not
-// consume it. PolicyApproved and BroadReason are audit and display metadata.
+// DelegationConstraints narrows a Delegation. PolicyApproved and BroadReason
+// are audit and display metadata.
 type DelegationConstraints struct {
 	Resources      []string
 	MaxDepth       int
 	MaxHops        int
 	TTLSeconds     int
-	Budget         int
 	PolicyApproved bool
 	ExpiresAt      string
 	BroadReason    string
@@ -143,9 +141,6 @@ func (d *DelegationConstraints) toWire() map[string]any {
 	}
 	if d.TTLSeconds > 0 {
 		out["ttl_seconds"] = d.TTLSeconds
-	}
-	if d.Budget > 0 {
-		out["budget"] = d.Budget
 	}
 	if d.PolicyApproved {
 		out["policy_approved"] = d.PolicyApproved
