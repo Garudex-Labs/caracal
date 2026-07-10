@@ -10,22 +10,22 @@ Observability workflows live in the web console because they need operator conte
 
 Open **Diagnostics**. The Doctor view runs the shared engine diagnostics across four sections:
 
-| Section | Checks |
-| --- | --- |
-| **Health** | API reachability, admin authentication, and operator clock skew against the platform. |
+| Section       | Checks                                                                                                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Health**    | API reachability, admin authentication, and operator clock skew against the platform.                           |
 | **Readiness** | Per-service `/ready` probes plus threshold evaluation of STS, Gateway, audit, and Coordinator operator metrics. |
-| **Zones** | Visible zones, resources, policy sets, and audit queryability. |
-| **Preflight** | Local secrets, keys, TLS material, and Postgres/Redis reachability. |
+| **Zones**     | Visible zones, resources, policy sets, and audit queryability.                                                  |
+| **Preflight** | Local secrets, keys, TLS material, and Postgres/Redis reachability.                                             |
 
 Doctor does more than report liveness: it evaluates the operator metrics it collects and raises a warning or failure when a signal needs action. Notable deeper checks include:
 
-| Signal | Result | Why it matters |
-| --- | --- | --- |
-| Clock skew vs the API exceeds 30s | `fail` | Token `iat`/`nbf`/`exp` validation and audit ordering break when hosts are not NTP-synced. |
-| STS OPA `compile_errors` > 0 | `fail` | A policy bundle will not compile, so token exchanges deny or run on a stale bundle. |
-| Audit `tamper_mismatch_total` or `chain_breaks` > 0 | `fail` | Audit chain integrity is broken - treat as a security incident. |
-| Audit `dlq_size` or `hmac_failures` > 0 | `warn` | Events are failing processing or HMAC verification before they age out. |
-| Coordinator outbox `dead` rows, or a large `pending` backlog | `warn` | Spawn and revocation events are not propagating downstream. |
+| Signal                                                       | Result | Why it matters                                                                             |
+| ------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------ |
+| Clock skew vs the API exceeds 30s                            | `fail` | Token `iat`/`nbf`/`exp` validation and audit ordering break when hosts are not NTP-synced. |
+| STS OPA `compile_errors` > 0                                 | `fail` | A policy bundle will not compile, so token exchanges deny or run on a stale bundle.        |
+| Audit `tamper_mismatch_total` or `chain_breaks` > 0          | `fail` | Audit chain integrity is broken - treat as a security incident.                            |
+| Audit `dlq_size` or `hmac_failures` > 0                      | `warn` | Events are failing processing or HMAC verification before they age out.                    |
+| Coordinator outbox `dead` rows, or a large `pending` backlog | `warn` | Session-start and revocation events are not propagating downstream.                        |
 
 Useful Doctor controls include reload, all-zones or selected-zone checks, preflight-only checks, and strict readiness where warnings fail automation gates. The `Next actions` block collects the advice for every non-passing check.
 
@@ -35,7 +35,7 @@ This view is deeper than `caracal status`: `status` answers "is the stack up", w
 
 Open **Audit**. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
 
-The audit view opens recent events immediately and streams new ones as they arrive. Advanced filters include decision, event type, time window, request ID, agent session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date. Use row actions to open the full event group or the decision trace for the selected request.
+The audit view opens recent events immediately and streams new ones as they arrive. Advanced filters include decision, event type, time window, request ID, Session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date. Use row actions to open the full event group or the decision trace for the selected request.
 
 Audit is an event ledger: it records what authorization decided. It is distinct from the session views, which show the live state of subjects, sessions, and delegations. Filter audit by `session` or `agent label` to connect a decision back to the session that made it.
 
@@ -45,11 +45,11 @@ When you already have a request ID - from a log line, error response, or Gateway
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Diagnostics cannot reach API | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
-| Zone diagnostics show no zones | Confirm the admin token has visibility into the expected zone. |
-| Audit records are missing | Confirm the selected zone, time window, and audit service readiness. |
+| Symptom                        | Check                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| Diagnostics cannot reach API   | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
+| Zone diagnostics show no zones | Confirm the admin token has visibility into the expected zone.                              |
+| Audit records are missing      | Confirm the selected zone, time window, and audit service readiness.                        |
 
 For a symptom-first path from a failing application call to the right surface and tool, see [Troubleshoot by Symptom](/operations/troubleshooting/).
 

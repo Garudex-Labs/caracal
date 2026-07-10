@@ -33,21 +33,21 @@ caracal web --allow-offline
 
 ## Development Launcher Options
 
-| Option | Purpose |
-| --- | --- |
-| `--web-port <port>` | Bind the browser UI to a specific port (default `3001`). |
+| Option               | Purpose                                                            |
+| -------------------- | ------------------------------------------------------------------ |
+| `--web-port <port>`  | Bind the browser UI to a specific port (default `3001`).           |
 | `--auth-port <port>` | Bind the session/auth backend to a specific port (default `3002`). |
-| `--build` | Build the web assets before launching. |
-| `--allow-offline` | Start the UI even when local Caracal services are not ready. |
+| `--build`            | Build the web assets before launching.                             |
+| `--allow-offline`    | Start the UI even when local Caracal services are not ready.       |
 
 ## Credentials and Endpoints
 
-| Input | Purpose |
-| --- | --- |
-| `CARACAL_API_URL` | Cloud/custom admin API URL override. |
-| `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE` | Admin bearer token for management views. |
-| `CARACAL_COORDINATOR_URL` | Cloud/custom Coordinator URL override for agent and delegation views. |
-| `CARACAL_COORDINATOR_TOKEN` or `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator token for agent and delegation views. |
+| Input                                                           | Purpose                                                               |
+| --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `CARACAL_API_URL`                                               | Cloud/custom admin API URL override.                                  |
+| `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`             | Admin bearer token for management views.                              |
+| `CARACAL_COORDINATOR_URL`                                       | Cloud/custom Coordinator URL override for agent and delegation views. |
+| `CARACAL_COORDINATOR_TOKEN` or `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator token for agent and delegation views.                     |
 
 For BFF deployment variables such as `CARACAL_AUTH_URL`, `CARACAL_AUTH_DATABASE_URL`, `CARACAL_AUTH_SECRET`, `CARACAL_WEB_ROOT`, and `CARACAL_AUTH_AUTO_MIGRATE`, use [Configure Service Environment](/operations/env-vars/#web-console-bff).
 
@@ -57,36 +57,38 @@ For default local services, generated secret files from `caracal up` are preferr
 
 Open the packaged or development URL in a browser, sign in to the session-guarded UI, and navigate by sections instead of terminal keys.
 
-| Section | What it manages |
-| --- | --- |
-| **Guided setup** | First zone, application, provider, resource, and access policy. |
-| **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope. |
-| **Zones** | Zone records and active zone selection. |
-| **Applications** | Confidential applications and their client secrets. |
-| **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
-| **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
-| **Policies** | Policy content and versions. |
-| **Policy Sets** | Policy-set composition, simulation, and activation. |
-| **Subjects** | The identities applications act for - federated users and application identities - with the authority each holds. |
-| **Sessions** | Governed execution sessions, lifecycle, lease health, and session trees. |
-| **Delegation** | Authority delegated between sessions. |
-| **Audit** | Recent decisions, filters, event details, and built-in request tracing. |
-| **Services** | Catalog of platform surfaces beyond the console and SDK, opening the Run and Control API pages. |
-| **Run** | Workload identities, launch bindings, gateway requirements, and exact launch commands. |
-| **Control** | Control API exposure and Control credentials. |
-| **Diagnostics** | Health, readiness, zone, and preflight checks. |
+| Section              | What it manages                                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Guided setup**     | First zone, application, provider, resource, and access policy.                                                                                    |
+| **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope.      |
+| **Zones**            | Zone records and active zone selection.                                                                                                            |
+| **Applications**     | Confidential applications and their client secrets.                                                                                                |
+| **Providers**        | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
+| **Resources**        | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings.                    |
+| **Policies**         | Policy content and versions.                                                                                                                       |
+| **Policy Sets**      | Policy-set composition, simulation, and activation.                                                                                                |
+| **Subjects**         | The identities applications act for - federated users and application identities - with the authority each holds.                                  |
+| **Sessions**         | Governed execution sessions, lifecycle, lease health, and session trees.                                                                           |
+| **Delegation**       | Authority delegated between sessions.                                                                                                              |
+| **Audit**            | Recent decisions, filters, event details, and built-in request tracing.                                                                            |
+| **Services**         | Catalog of platform surfaces beyond the console and SDK, opening the Run and Control API pages.                                                    |
+| **Run**              | Workload identities, launch bindings, gateway requirements, and exact launch commands.                                                             |
+| **Control**          | Control API exposure and Control credentials.                                                                                                      |
+| **Diagnostics**      | Health, readiness, zone, and preflight checks.                                                                                                     |
 
-## Sessions Views
+## Identity and Session Views
 
-The subject, session, and delegation pages observe the runtime identity objects. Authority is minted by the STS, and delegation is authored through the SDK; the web console lists and inspects them.
+The Subject, Session, and Delegation pages observe distinct identity and execution objects. STS creates Authority records, Coordinator owns Sessions, and the SDK creates Delegations; the web console lists and inspects them.
 
-| View | What it shows | Object |
-| --- | --- | --- |
-| **Subjects** | One row per distinct subject identity, aggregated across its token exchanges | `sessions` rows grouped by `sub` |
-| **Sessions** | A governed execution session, its lifecycle, and lease health | an `agent_sessions` row |
-| **Delegation** | Authority delegated between sessions | a `delegation_edges` row |
+| View           | What it shows                                                   | Object                                        |
+| -------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| **Subjects**   | One row per distinct Subject, with its Authority record history | internal `sessions` rows grouped by JWT `sub` |
+| **Sessions**   | A governed execution, its lifecycle, and lease health           | internal `agent_sessions` row                 |
+| **Delegation** | Bounded authority between Sessions                              | internal `delegation_edges` row               |
 
-A **subject** is the identity an application acts for: the `sub` of the token the application exchanged with the STS. The Subjects page shows one row per distinct subject, with a standing verdict (live, dormant, or revoked authority), and each subject's detail view gathers its governed sessions, approvals, provider connections, and per-exchange authority records. A subject holding live authority also carries the kill switch: one action revokes every live record, terminates the sessions riding them, and revokes their delegations and provider connections - for credential compromise or offboarding, where per-record surgery is too slow. Subjects are not console logins - Caracal never authenticates these identities. The application's own authentication system (Auth0, Keycloak, Better Auth, a custom issuer) authenticates the user or service first, and the application then exchanges that identity with the STS; the resulting records are the anchor that sessions, delegations, mandates, provider connections, revocation, and audit attach to. A **session** is one governed execution under an application; a *delegated* session is a session holding an inbound delegation. A **delegation** connects two sessions, so inbound and outbound delegations are anchored on the session id.
+A **Subject** is the JWT `sub` identity an application acts for. Each STS exchange creates an **Authority record**, and the Subjects page groups those records by Subject. Its kill switch revokes the Subject's live Authority records, terminates linked Sessions, and revokes Delegations and provider connections. Subjects are not console logins; the application's identity system authenticates them first.
+
+A **Session** is one governed Coordinator execution under an application. It has a Session ID distinct from every Authority record ID. A Session may hold a Subject authority record ID for attribution and lifecycle linkage, but that link alone does not make later resource mandates carry the federated Subject's `sub`. A **Delegation** connects two Sessions, so inbound and outbound Delegations are anchored on Session IDs.
 
 The **Sessions** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegations.
 
@@ -178,15 +180,15 @@ Guided setup creates product objects only. Bind launch credentials on the **Run*
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Browser cannot reach the packaged web console | Confirm `caracal up` is running and no other service is using host port `3001`. |
+| Symptom                                       | Check                                                                                                |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Browser cannot reach the packaged web console | Confirm `caracal up` is running and no other service is using host port `3001`.                      |
 | Browser cannot reach the development launcher | Confirm the `caracal web` process is still running and no other service is using the selected ports. |
-| Product views show connection errors | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
-| `401 Unauthorized` | Check `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`. |
-| `403 Forbidden` | The token lacks the required management scope. |
-| Coordinator-backed views fail | Confirm the Coordinator token and, for custom deployments, the Coordinator URL override. |
-| A zone-scoped page has no data | Select a zone before opening zone-scoped views. |
+| Product views show connection errors          | Run `caracal status --ready`; custom deployments should confirm the admin API URL override.          |
+| `401 Unauthorized`                            | Check `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`.                                           |
+| `403 Forbidden`                               | The token lacks the required management scope.                                                       |
+| Coordinator-backed views fail                 | Confirm the Coordinator token and, for custom deployments, the Coordinator URL override.             |
+| A zone-scoped page has no data                | Select a zone before opening zone-scoped views.                                                      |
 
 ## Next Step
 

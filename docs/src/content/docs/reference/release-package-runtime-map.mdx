@@ -6,13 +6,13 @@ pageType: reference
 
 ## Repository Release Surfaces
 
-| Surface | Current source |
-| --- | --- |
-| Root package manager | `package.json` declares `pnpm@11.1.1`. |
-| Release scripts | `scripts/release.sh`, `scripts/release.mjs`, `release.config.json`. |
-| Docker runtime compose | `infra/docker/runtime-compose.yml`. |
-| Helm chart | `infra/helm/caracal/Chart.yaml` and values files. |
-| Docs build | `docs/package.json`. |
+| Surface                | Current source                                                      |
+| ---------------------- | ------------------------------------------------------------------- |
+| Root package manager   | `package.json` declares `pnpm@11.1.1`.                              |
+| Release scripts        | `scripts/release.sh`, `scripts/release.mjs`, `release.config.json`. |
+| Docker runtime compose | `infra/docker/runtime-compose.yml`.                                 |
+| Helm chart             | `infra/helm/caracal/Chart.yaml` and values files.                   |
+| Docs build             | `docs/package.json`.                                                |
 
 ## Service Images
 
@@ -20,12 +20,12 @@ Caracal ships two application images. Each runs multiple roles selected by the
 container `command`; this keeps the trust boundary (separate processes/pods per
 role) while cutting build, signing, and supply-chain surface.
 
-| Image name | Roles | Runtime |
-| --- | --- | --- |
-| `caracal-node` | API, Coordinator | Node |
-| `caracal-go` | STS, Gateway, Audit | Go |
-| `caracal-postgres` | Postgres | - |
-| `caracal-redis` | Redis | - |
+| Image name         | Roles               | Runtime |
+| ------------------ | ------------------- | ------- |
+| `caracal-node`     | API, Coordinator    | Node    |
+| `caracal-go`       | STS, Gateway, Audit | Go      |
+| `caracal-postgres` | Postgres            | -       |
+| `caracal-redis`    | Redis               | -       |
 
 Role selection:
 
@@ -36,19 +36,19 @@ Runtime Compose references `${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}<image>:v$
 
 ## Published Package Names
 
-| Area | TypeScript | Python | Go |
-| --- | --- | --- | --- |
-| SDK | `@caracalai/sdk` | `caracalai-sdk` | `github.com/garudex-labs/caracal/packages/sdk/go` |
-| Identity | `@caracalai/identity` | `caracalai-identity` | `github.com/garudex-labs/caracal/packages/identity/go` |
-| OAuth | `@caracalai/oauth` | `caracalai-oauth` | `github.com/garudex-labs/caracal/packages/oauth/go` |
-| Revocation | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
-| Verify engine | `@caracalai/verify` | `caracalai-verify` | `github.com/garudex-labs/caracal/packages/verify/go` |
+| Area          | TypeScript              | Python                 | Go                                                       |
+| ------------- | ----------------------- | ---------------------- | -------------------------------------------------------- |
+| SDK           | `@caracalai/sdk`        | `caracalai-sdk`        | `github.com/garudex-labs/caracal/packages/sdk/go`        |
+| Identity      | `@caracalai/identity`   | `caracalai-identity`   | `github.com/garudex-labs/caracal/packages/identity/go`   |
+| OAuth         | `@caracalai/oauth`      | `caracalai-oauth`      | `github.com/garudex-labs/caracal/packages/oauth/go`      |
+| Revocation    | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
+| Verify engine | `@caracalai/verify`     | `caracalai-verify`     | `github.com/garudex-labs/caracal/packages/verify/go`     |
 
 ## Versioning Notes
 
 - Pin exact image tags in production values.
 - Run migration and readiness validation after image or chart changes.
-- Do not use product-management runtime CLI aliases as release surfaces; management automation belongs to Control/Admin APIs.
+- Do not use product-management runtime CLI aliases as release surfaces; broad automation belongs to the Admin API and zone-scoped dispatch belongs to the Control API.
 
 ## Next Step
 

@@ -1,6 +1,6 @@
 ---
 title: Manage Product Objects
-description: Manage zones, applications, providers, resources, policies, authority sessions, and Control through the web console.
+description: Manage zones, applications, providers, resources, policies, Subjects, Sessions, and Control through the web console.
 pageType: reference
 ---
 
@@ -13,23 +13,24 @@ caracal web
 ## Management Flow
 
 ```text
-zone -> application -> provider -> resource -> policy -> policy set -> authority session/audit
+zone -> application -> provider -> resource -> policy -> policy set -> Subject/Session/audit
 ```
 
 Web console **Guided setup** walks the first version of that flow, opening the real create form at each step. Bind launch credentials on the **Run** page; the workload then needs only its application ID and client secret.
 
 ## Web Console Workflows
 
-| Section | What it manages |
-| --- | --- |
-| **Zones** | Zone records and active zone selection. |
-| **Applications** | Confidential agent applications and their client secrets. |
-| **Providers** | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
-| **Resources** | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings. |
-| **Policies** | Policy content and versions. |
-| **Policy Sets** | Policy-set composition, simulation, and activation. |
-| **Sessions** | Active authority-session records. |
-| **Control** | Control API exposure and Control credentials. |
+| Section          | What it manages                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Zones**        | Zone records and active zone selection.                                                                                                            |
+| **Applications** | Confidential agent applications and their client secrets.                                                                                          |
+| **Providers**    | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
+| **Resources**    | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings.                    |
+| **Policies**     | Policy content and versions.                                                                                                                       |
+| **Policy Sets**  | Policy-set composition, simulation, and activation.                                                                                                |
+| **Subjects**     | Subjects and their Authority record histories.                                                                                                     |
+| **Sessions**     | Governed Coordinator executions and lifecycle state.                                                                                               |
+| **Control**      | Control API exposure and Control credentials.                                                                                                      |
 
 ## Secrets and Credentials
 
@@ -41,12 +42,12 @@ Use the web console's **Control** section when management needs to move from int
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| A page says a zone is required | Select a zone before opening zone-scoped pages. |
+| Symptom                                      | Check                                                                                                                                    |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| A page says a zone is required               | Select a zone before opening zone-scoped pages.                                                                                          |
 | A created client secret is no longer visible | Reveal it from the application's detail panel (the reveal is audited); applications created before credential custody must rotate first. |
-| Policy activation fails | Run simulation, inspect validation errors, and confirm the policy set references the intended policy versions. |
-| Control API calls fail | Confirm Control is enabled from the web console's **Control** section and the automation token targets the Control resource. |
+| Policy activation fails                      | Run simulation, inspect validation errors, and confirm the policy set references the intended policy versions.                           |
+| Control API calls fail                       | Confirm Control is enabled from the web console's **Control** section and the automation token targets the Control resource.             |
 
 ## Next Step
 

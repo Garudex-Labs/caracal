@@ -8,11 +8,11 @@ Use this section after installation when you need to operate Caracal locally or 
 
 Caracal has three operator surfaces:
 
-| Surface | Use it for | Do not use it for |
-| --- | --- | --- |
-| `caracal` | Local stack lifecycle, readiness checks, local reset, token-injected process execution, and the local web development launcher. | Creating or changing zones, applications, providers, resources, policies, audit queries, agents, delegation, or Control setup. |
-| Web console | Human product management for zones, applications, providers, resources, policies, policy sets, subjects, Control, audit, request tracing, sessions, delegation, and diagnostics. In Compose it is served by the packaged `web` service at `http://localhost:3001`; `caracal web` remains the development launcher. | Starting or stopping the stack, purging local runtime state, running workloads, or CI automation. |
-| Control API / Admin SDK | Scripted product management from trusted operator automation. | Local lifecycle, workload execution, or browser-based guided setup. |
+| Surface                 | Use it for                                                                                                                                                                                                                                                                                                         | Do not use it for                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `caracal`               | Local stack lifecycle, readiness checks, local reset, token-injected process execution, and the local web development launcher.                                                                                                                                                                                    | Creating or changing zones, applications, providers, resources, policies, audit queries, agents, delegation, or Control setup. |
+| Web console             | Human product management for zones, applications, providers, resources, policies, policy sets, subjects, Control, audit, request tracing, sessions, delegation, and diagnostics. In Compose it is served by the packaged `web` service at `http://localhost:3001`; `caracal web` remains the development launcher. | Starting or stopping the stack, purging local runtime state, running workloads, or CI automation.                              |
+| Control API / Admin SDK | Scripted product management from trusted operator automation.                                                                                                                                                                                                                                                      | Local lifecycle, workload execution, or browser-based guided setup.                                                            |
 
 The runtime CLI stays small so lifecycle and workload execution do not depend on admin tokens, zone selection, or Control credentials. Human product management belongs to the web console; automation belongs to the Control API or Admin SDK.
 
@@ -29,16 +29,16 @@ The runtime CLI stays small so lifecycle and workload execution do not depend on
 
 ## Command Map
 
-| Outcome | Surface |
-| --- | --- |
-| Start, stop, check, upgrade, or purge the local runtime stack | `caracal` |
-| Open the packaged local web console | `http://localhost:3001` after `caracal up` |
-| Launch the local web development server | `caracal web` |
-| Run an agent process with scoped resource tokens | `caracal run -- <command>` |
-| Create a zone, app, provider, resource, policy, or policy set | Web console |
-| Enable Control automation | Web console **Control** section |
-| Script management workflows | Control API or Admin SDK |
-| Inspect audit events, request traces, diagnostics, agents, or delegation | Web console |
+| Outcome                                                                  | Surface                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------ |
+| Start, stop, check, upgrade, or purge the local runtime stack            | `caracal`                                  |
+| Open the packaged local web console                                      | `http://localhost:3001` after `caracal up` |
+| Launch the local web development server                                  | `caracal web`                              |
+| Run an agent process with scoped resource tokens                         | `caracal run -- <command>`                 |
+| Create a zone, app, provider, resource, policy, or policy set            | Web console                                |
+| Enable Control automation                                                | Web console **Control** section            |
+| Script management workflows                                              | Control API or Admin SDK                   |
+| Inspect audit events, request traces, diagnostics, agents, or delegation | Web console                                |
 
 ## Next Step
 

@@ -16,13 +16,13 @@ Use `--` when the child command accepts flags.
 
 `caracal run` complements the web console and the control plane; it does not duplicate them.
 
-| Concern | Owner |
-| --- | --- |
-| Launching a workload with injected credentials | `caracal run` |
+| Concern                                                                              | Owner                                               |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Launching a workload with injected credentials                                       | `caracal run`                                       |
 | Creating and managing zones, workloads, applications, resources, policies, providers | Web console (`caracal web`), Control API, Admin SDK |
-| Credential renewal during execution | Caracal SDKs, which re-exchange on demand |
-| Request-level governance, routing, and audit | Gateway and control-plane services |
-| Process supervision, restarts, scheduling | Your process manager or orchestrator |
+| Credential renewal during execution                                                  | Caracal SDKs, which re-exchange on demand           |
+| Request-level governance, routing, and audit                                         | Gateway and control-plane services                  |
+| Process supervision, restarts, scheduling                                            | Your process manager or orchestrator                |
 
 The launcher performs one credential mint per configured binding at startup and never renews. Injected credentials are short-lived and expire on the schedule of the minted mandate or provider token. Workloads that run longer than their credentials must use a Caracal SDK instead of relying on injected environment variables.
 
@@ -46,25 +46,25 @@ workload identity -> binding fetch -> credential mint -> env injection -> child 
 
 `caracal run` needs:
 
-| Input | Source |
-| --- | --- |
-| STS URL | Automatic for local dev/stable; `CARACAL_STS_URL` only for cloud/custom deployments. |
-| Workload ID | `CARACAL_WORKLOAD_ID`. |
+| Input           | Source                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| STS URL         | Automatic for local dev/stable; `CARACAL_STS_URL` only for cloud/custom deployments.                                                      |
+| Workload ID     | `CARACAL_WORKLOAD_ID`.                                                                                                                    |
 | Workload secret | `CARACAL_WORKLOAD_SECRET`, `CARACAL_WORKLOAD_SECRET_FILE`, or the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. |
-| Launch bindings | Authored on the console's **Launcher** page and served by STS. |
+| Launch bindings | Authored on the console's **Launcher** page and served by STS.                                                                            |
 
 Web console **Guided setup** is the recommended way to create the first zone, provider, resource, and policy; the **Launcher** page then creates the workload and its bindings. The workload's secret is held sealed in the Secret Store and stays retrievable from the Launcher page with every reveal audited; you store it in a local file yourself, because the console never writes files to your machine. See [Configure Workloads](/runtime-console/config-file/) for the exact paths and permissions. Local dev and stable service URLs resolve automatically; cloud/custom deployments configure explicit overrides.
 
 ## Credential Lifecycle
 
-| Stage | Behavior |
-| --- | --- |
-| Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its secret into an owner-only file at the runtime path. |
-| Consumption | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. The binding fetch and every mint are recorded in the zone's audit ledger, correlated by a per-launch id. |
-| TTL | Injected credentials carry the expiry of the minted mandate or provider token; when the provider reports one, it is also injected as `<ENV>_EXPIRES_AT` in epoch seconds. |
-| Renewal | None. The launcher never re-mints after spawn; long-running workloads use a Caracal SDK. |
-| Rotation | Rotate the workload secret on the **Launcher** page, then update the local secret file. |
-| Revocation | Revoke through the web console; Gateway-routed requests are rejected immediately, and injected tokens expire at TTL. |
+| Stage        | Behavior                                                                                                                                                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provisioning | Create the workload and its launch bindings on the console's **Launcher** page; copy its secret into an owner-only file at the runtime path.                                                                                                                      |
+| Consumption  | At launch, the workload secret authenticates the binding fetch and one credential mint per binding; results are injected as child environment variables. The binding fetch and every mint are recorded in the zone's audit ledger, correlated by a per-launch id. |
+| TTL          | Injected credentials carry the expiry of the minted mandate or provider token; when the provider reports one, it is also injected as `<ENV>_EXPIRES_AT` in epoch seconds.                                                                                         |
+| Renewal      | None. The launcher never re-mints after spawn; long-running workloads use a Caracal SDK.                                                                                                                                                                          |
+| Rotation     | Rotate the workload secret on the **Launcher** page, then update the local secret file.                                                                                                                                                                           |
+| Revocation   | Revoke through the web console; Gateway-routed requests are rejected immediately, and injected tokens expire at TTL.                                                                                                                                              |
 
 ## Step-Up Challenges
 
@@ -85,25 +85,25 @@ SDK-based children resolve their own configuration from the default profile path
 
 `caracal run` forwards `SIGINT`, `SIGTERM`, `SIGHUP`, and `SIGQUIT` to the child, waits for the child to exit, and never leaves it running. Terminating the launcher terminates the workload.
 
-| Exit code | Meaning |
-| --- | --- |
+| Exit code    | Meaning                                                            |
+| ------------ | ------------------------------------------------------------------ |
 | Child's code | The child spawned and exited; its exit code is returned unchanged. |
-| `1` | Config, credential exchange, or step-up failed before spawn. |
-| `127` | The command could not be spawned (not found or not executable). |
-| `128 + N` | The child was terminated by signal number N. |
+| `1`          | Config, credential exchange, or step-up failed before spawn.       |
+| `127`        | The command could not be spawned (not found or not executable).    |
+| `128 + N`    | The child was terminated by signal number N.                       |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `workload identity not found` | Create a workload on the console's **Launcher** page, then set `CARACAL_WORKLOAD_ID` and a workload secret source. |
-| `no credential bindings configured` | Define launch bindings for this workload on the **Launcher** page in the web console. |
-| Secret-file validation fails | Store the secret value in the file and ensure it is not group- or world-writable. |
-| Credential mint fails | Confirm `caracal status --ready`, workload ID, workload secret, resource ID, and policy coverage. |
-| Child command never starts | Required credential mint, step-up, or binding validation failed before spawn. |
+| Symptom                                 | Check                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `workload identity not found`           | Create a workload on the console's **Launcher** page, then set `CARACAL_WORKLOAD_ID` and a workload secret source.        |
+| `no credential bindings configured`     | Define launch bindings for this workload on the **Launcher** page in the web console.                                     |
+| Secret-file validation fails            | Store the secret value in the file and ensure it is not group- or world-writable.                                         |
+| Credential mint fails                   | Confirm `caracal status --ready`, workload ID, workload secret, resource ID, and policy coverage.                         |
+| Child command never starts              | Required credential mint, step-up, or binding validation failed before spawn.                                             |
 | Child cannot see a `CARACAL_*` variable | Expected: launcher configuration never propagates. Verify injected credentials with `caracal run -- printenv <ENV_NAME>`. |
-| Credentials expire mid-run | Expected once the minted credential's TTL passes. Use a Caracal SDK for workloads that outlive their credentials. |
-| Child command exits non-zero | The runtime returns the child process exit code after successful credential injection. |
+| Credentials expire mid-run              | Expected once the minted credential's TTL passes. Use a Caracal SDK for workloads that outlive their credentials.         |
+| Child command exits non-zero            | The runtime returns the child process exit code after successful credential injection.                                    |
 
 ## Next Step
 

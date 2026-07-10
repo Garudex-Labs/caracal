@@ -10,12 +10,12 @@ Workload configuration has two consumers. `caracal run` needs only a workload id
 
 `caracal run` authenticates as one workload, created on the console's **Launcher** page, and fetches that workload's launch bindings from STS. The environment carries only identity:
 
-| Variable | Meaning |
-| --- | --- |
-| `CARACAL_WORKLOAD_ID` | Workload identifier from the Launcher page. Required. |
-| `CARACAL_WORKLOAD_SECRET` | Inline local-development workload secret. |
-| `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom path to a mounted workload-secret file. |
-| `CARACAL_STS_URL` | Cloud/custom STS URL override for credential minting. |
+| Variable                       | Meaning                                               |
+| ------------------------------ | ----------------------------------------------------- |
+| `CARACAL_WORKLOAD_ID`          | Workload identifier from the Launcher page. Required. |
+| `CARACAL_WORKLOAD_SECRET`      | Inline local-development workload secret.             |
+| `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom path to a mounted workload-secret file.  |
+| `CARACAL_STS_URL`              | Cloud/custom STS URL override for credential minting. |
 
 Set only one of `CARACAL_WORKLOAD_SECRET` and `CARACAL_WORKLOAD_SECRET_FILE`. Local dev and stable service URLs resolve automatically; set `CARACAL_STS_URL` only for cloud deployments, containers, or custom service locations.
 
@@ -49,11 +49,11 @@ Each binding selects the scopes its credential should carry; leaving all scopes 
 
 SDK credential loaders resolve a local profile instead of calling STS for a manifest:
 
-| Order | Source |
-| --- | --- |
-| 1 | `CARACAL_CONFIG`, when set and the file exists. |
-| 2 | Environment runtime config (`CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, secret and credential variables). |
-| 3 | `caracal.toml` in the OS Caracal config directory. |
+| Order | Source                                                                                                     |
+| ----- | ---------------------------------------------------------------------------------------------------------- |
+| 1     | `CARACAL_CONFIG`, when set and the file exists.                                                            |
+| 2     | Environment runtime config (`CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, secret and credential variables). |
+| 3     | `caracal.toml` in the OS Caracal config directory.                                                         |
 
 SDKs do not read `./caracal.toml` from the current working directory. Local dev and stable SDK loads also read the client secret and credential manifest from `<Caracal config dir>/runtime/<zone_id>/<application_id>/client-secret` and `credentials.json`; set `CARACAL_RUN_CREDENTIALS_FILE` or `CARACAL_RUN_CREDENTIALS` (one, not both) to override the manifest location.
 
@@ -79,19 +79,19 @@ on_failure = "warn"
 
 ### Field Reference
 
-| Field | Meaning |
-| --- | --- |
-| `zone_url` | Cloud/custom STS URL override; `sts_url` is accepted as an SDK-readable alias/fallback. |
-| `gateway_url` | Cloud/custom Gateway endpoint override for SDK transports. |
-| `coordinator_url` | Cloud/custom Coordinator endpoint override for SDK agent/delegation features. |
-| `zone_id` | Zone created in the web console. |
-| `application_id` | Confidential application used by the workload. |
-| `app_client_secret_file` | Cloud/custom secret-file path override. |
-| `app_client_secret` | Inline local-development secret. |
-| `ttl_seconds` | Credential exchange TTL; defaults to and is capped at 900 seconds. |
-| `continue_on_failure` | Required credential failure behavior; defaults to `false`. |
-| `credentials[]` | Required resource tokens. |
-| `optional_credentials[]` | Optional resource tokens with `on_failure = "warn"` or `"error"`. |
+| Field                    | Meaning                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `zone_url`               | Cloud/custom STS URL override; `sts_url` is accepted as an SDK-readable alias/fallback. |
+| `gateway_url`            | Cloud/custom Gateway endpoint override for SDK transports.                              |
+| `coordinator_url`        | Cloud/custom Coordinator endpoint override for SDK agent/delegation features.           |
+| `zone_id`                | Zone created in the web console.                                                        |
+| `application_id`         | Confidential application used by the workload.                                          |
+| `app_client_secret_file` | Cloud/custom secret-file path override.                                                 |
+| `app_client_secret`      | Inline local-development secret.                                                        |
+| `ttl_seconds`            | Credential exchange TTL; defaults to and is capped at 900 seconds.                      |
+| `continue_on_failure`    | Required credential failure behavior; defaults to `false`.                              |
+| `credentials[]`          | Required resource tokens.                                                               |
+| `optional_credentials[]` | Optional resource tokens with `on_failure = "warn"` or `"error"`.                       |
 
 Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. `provider_token` requires a provider with `allow_runtime_injection = true`; `caracal_mandate` is for workloads that consume Caracal mandates directly. SDKs can also use entries as resource audiences and Gateway routing hints.
 
@@ -105,14 +105,14 @@ Credential entries use `env`, `resource`, optional `upstream_prefix`, and option
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| `workload identity not found` | Set `CARACAL_WORKLOAD_ID` and a workload secret source. |
-| `no credential bindings configured` | Define launch bindings for this workload on the Launcher page in the web console. |
-| Provider key is not injected | Confirm the provider config allows runtime injection. |
-| Permission error on the secret file | The file must be owner-only; `chmod 600` it. |
-| `CARACAL_CONFIG` is set but ignored (SDKs) | The file must exist; when it is set, no other profile path is considered. |
-| Optional credential stops the process | Set the binding's unavailable behavior to warn on the Launcher page, or `on_failure = "warn"` in an SDK profile. |
+| Symptom                                    | Check                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `workload identity not found`              | Set `CARACAL_WORKLOAD_ID` and a workload secret source.                                                          |
+| `no credential bindings configured`        | Define launch bindings for this workload on the Launcher page in the web console.                                |
+| Provider key is not injected               | Confirm the provider config allows runtime injection.                                                            |
+| Permission error on the secret file        | The file must be owner-only; `chmod 600` it.                                                                     |
+| `CARACAL_CONFIG` is set but ignored (SDKs) | The file must exist; when it is set, no other profile path is considered.                                        |
+| Optional credential stops the process      | Set the binding's unavailable behavior to warn on the Launcher page, or `on_failure = "warn"` in an SDK profile. |
 
 ## Next Step
 
