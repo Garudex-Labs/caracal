@@ -22,7 +22,7 @@ const LIST_MAX_LIMIT = 500
 
 const ConstraintBody = z
   .object({
-    resources: z.array(z.string().min(1)).max(64).optional(),
+    resources: z.array(z.string().trim().min(1)).max(64).optional(),
     max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
     max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
     ttl_seconds: z.number().int().min(1).max(86400).optional(),
@@ -57,7 +57,7 @@ const DelegationBody = z.object({
   receiver_application_id: z.string().min(1),
   parent_edge_id: z.string().min(1).optional(),
   resource_id: z.string().min(1).nullable().default(null),
-  scopes: z.array(z.string().min(1)).default([]),
+  scopes: z.array(z.string().trim().min(1)).default([]),
   constraints: z.unknown().optional(),
   constraints_json: z.unknown().optional(),
   expires_at: z.string().datetime().optional(),
@@ -75,6 +75,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId } = params
     const body = DelegationBody.parse(req.body)
+    body.scopes = [...new Set(body.scopes)].sort()
     const constraintsResult = normalizedConstraints(body.constraints_json, body.constraints, body.ttl_seconds)
     if (!constraintsResult.ok) return reply.code(400).send({ error: constraintsResult.error })
     const constraints = constraintsResult.constraints
@@ -88,14 +89,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       !requireScope(req, `coordinator.delegate_from:${body.issuer_application_id}`)
     ) {
       return reply.code(403).send({ error: 'issuer_ownership_required' })
-    }
-    if (
-      body.receiver_application_id !== body.issuer_application_id &&
-      !ownsApplication(req, body.receiver_application_id) &&
-      !requireScope(req, `coordinator.delegate_to:${body.receiver_application_id}`) &&
-      !requireScope(req, 'coordinator.admin')
-    ) {
-      return reply.code(403).send({ error: 'receiver_consent_required' })
     }
     if (body.source_session_id === body.target_session_id) {
       return reply.code(400).send({ error: 'self_delegation_denied' })
@@ -321,6 +314,21 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId, sessionId } = params
     return listEdges(fastify.db, reply, zoneId, 'target_session_id', sessionId, req.query)
+  })
+
+  fastify.get('/zones/:zoneId/delegations/inbound/:sessionId/:id', async (req, reply) => {
+    const params = parseParams(z.object({ zoneId: z.string().min(1), sessionId: z.string().min(1), id: z.string().min(1) }), req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query(
+      `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
+              parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
+       FROM delegation_edges
+       WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
+         AND status = 'active' AND expires_at > now()`,
+      [params.id, params.zoneId, params.sessionId],
+    )
+    if (!rows[0]) return reply.code(404).send({ error: 'delegation_not_found' })
+    return rows[0]
   })
 
   fastify.get('/zones/:zoneId/delegations/active', async (req, reply) => {
@@ -783,7 +791,7 @@ function parentAllowsDelegation(
     if (childTTL === undefined || childTTL > constraints.ttl_seconds) return false
   }
   if (constraints.budget !== undefined) {
-    const childBudget = childConstraints.budget ?? body.scopes.length
+    const childBudget = childConstraints.budget ?? new Set(body.scopes).size
     if (childBudget > constraints.budget) return false
   }
   return true

@@ -38,6 +38,8 @@ export {
   terminateSession,
   heartbeatSession,
   createDelegation,
+  revokeDelegation,
+  getInboundDelegation,
   listInboundDelegations,
 } from './coordinator.js'
 export type {

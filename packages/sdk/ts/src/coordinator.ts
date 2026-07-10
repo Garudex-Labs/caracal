@@ -84,9 +84,12 @@ export interface DelegationConstraints {
   maxDepth?: number
   maxHops?: number
   ttlSeconds?: number
+  /** Maximum distinct requested scopes in each token exchange; repeated exchanges do not consume it. */
   budget?: number
+  /** Audit and display metadata; it does not itself authorize the Delegation. */
   policyApproved?: boolean
   expiresAt?: string
+  /** Audit and display metadata describing an elevated resource-unbounded offer. */
   broadReason?: string
 }
 
@@ -285,6 +288,24 @@ export async function createDelegation(
   }
 }
 
+export async function revokeDelegation(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  delegationId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await call<unknown>(
+    client,
+    'PATCH',
+    `/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(delegationId)}/revoke`,
+    bearer,
+    undefined,
+    undefined,
+    signal,
+  )
+}
+
 /** One delegation offered to a session, as the coordinator lists it. */
 export interface InboundDelegation {
   delegationId: string
@@ -311,6 +332,34 @@ export async function listInboundDelegations(
   return (res?.items ?? []).flatMap((item) =>
     item.id ? [{ delegationId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }] : [],
   )
+}
+
+export async function getInboundDelegation(
+  client: CoordinatorClient,
+  bearer: string,
+  zoneId: string,
+  sessionId: string,
+  delegationId: string,
+  signal?: AbortSignal,
+): Promise<InboundDelegation> {
+  const response = await call<{
+    id?: string
+    status?: string
+    expires_at?: string | null
+    items?: Array<{ id?: string; status?: string; expires_at?: string | null }>
+  }>(
+    client,
+    'GET',
+    `/zones/${encodeURIComponent(zoneId)}/delegations/inbound/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}`,
+    bearer,
+    undefined,
+    undefined,
+    signal,
+  )
+  const item = response.id ? response : response.items?.find((candidate) => candidate.id === delegationId)
+  if (!item) throw new Error('coordinator inbound delegation response missing id')
+  if (!item.id) throw new Error('coordinator inbound delegation response missing id')
+  return { delegationId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }
 }
 
 export async function heartbeatSession(

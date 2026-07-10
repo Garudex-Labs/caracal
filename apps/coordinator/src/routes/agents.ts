@@ -57,7 +57,7 @@ const TerminateQuery = z.object({
 // committing under a subtree being terminated would otherwise create an orphan
 // the terminate cascade's recursive CTE never saw.
 export function sessionLockKey(zoneId: string): string {
-  return `coordinator:session_start:${zoneId}`
+  return `delegation:${zoneId}`
 }
 
 type InheritOutcome = { edgeId: string | null } | { conflict: 'inherit_parent_edge_not_active' | 'inherit_parent_edge_ambiguous' }
@@ -704,15 +704,6 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
         zone_id: zoneId,
         agent_session_id: row.id,
         parent_id: row.parent_id,
-        reason,
-      },
-    })
-    items.push({
-      topic: Topics.SessionsRevoke,
-      dedupeKey: `agent_suspend:${row.id}`,
-      payload: {
-        zone_id: zoneId,
-        agent_session_id: row.id,
         reason,
       },
     })

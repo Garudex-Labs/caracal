@@ -84,12 +84,13 @@ export class OAuthClient {
   async exchange(subjectToken: string, resource: string | string[], opts: ExchangeOptions = {}): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
     const preflightWindow = timeoutMs / 1000 + 30
+    const oneShot = opts.cache === false || Boolean(opts.challengeId)
 
     const resources = resourceList(resource)
     const scopes = [...new Set(opts.scopes ?? [])].sort()
     const cacheSubject = this.cacheSubject(subjectToken, opts)
     const cacheResource = this.cacheResource(resource, opts)
-    if (opts.cache !== false && !opts.forceRefresh) {
+    if (!oneShot && !opts.forceRefresh) {
       const cached = this.cache.get(cacheSubject, cacheResource)
       if (cached) {
         // Cap the preflight window at half the token lifetime so short-lived
@@ -104,7 +105,7 @@ export class OAuthClient {
     }
 
     const inflightKey = `${cacheSubject}::${cacheResource}`
-    if (opts.cache === false) {
+    if (oneShot) {
       const start = performance.now()
       try {
         const token = await this.doExchange(subjectToken, resource, opts, false)

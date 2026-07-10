@@ -24,7 +24,8 @@ import {
 } from './primitives.js'
 import {
   createDelegation,
-  listInboundDelegations,
+  getInboundDelegation,
+  revokeDelegation,
   startCoordinatorSession,
   terminateSession,
   type CoordinatorCallEvent,
@@ -492,6 +493,13 @@ export class Caracal {
     return delegatePrimitive(input)
   }
 
+  /** Revoke a Delegation issued by this application. */
+  async revokeDelegation(delegationId: string, signal?: AbortSignal): Promise<void> {
+    const ctx = current()
+    const identity = await this.identity()
+    await revokeDelegation(this.config.coordinator, ctx?.subjectToken ?? (await this.rootToken()), identity.zoneId, delegationId, signal)
+  }
+
   /**
    * Run fn under a delegation received from a peer: the current session
    * context is rebound so token exchanges inside fn present the delegation.
@@ -516,9 +524,16 @@ export class Caracal {
       })
     if (opts.validate) {
       if (!ctx.sessionId) throw new Error('acceptDelegation validation requires an active session in context')
-      const inbound = await listInboundDelegations(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId)
-      const match = inbound.find((item) => item.delegationId === delegationId)
-      if (!match || match.status !== 'active') {
+      let match
+      try {
+        match = await getInboundDelegation(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId, delegationId)
+      } catch {
+        emit(false)
+        throw new Error(
+          `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
+        )
+      }
+      if (match.status !== 'active') {
         emit(false)
         throw new Error(
           `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
@@ -964,6 +979,8 @@ export class Caracal {
   applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.applicationTransport(): requires a client-secret configuration')
+    if (!this.config.gatewayUrl)
+      throw new Error('Caracal.applicationTransport(): requires gatewayUrl so mandates are sent only to the Gateway')
     if (!resourceId.trim()) throw new Error('Caracal.applicationTransport(): resourceId is required')
     if (!opts.scopes.length) throw new Error('Caracal.applicationTransport(): scopes are required')
     const scopes = [...new Set(opts.scopes)].sort()
@@ -985,9 +1002,9 @@ export class Caracal {
       merged.set('X-Caracal-Resource', resourceId)
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
       const rewritten = outer.routeThroughGateway(input, resourceId)
+      if (!rewritten) throw new Error('Caracal.applicationTransport(): request could not be pinned to the configured Gateway')
       const requestInit = { ...init, headers: merged, signal: init?.signal ?? request?.signal }
-      if (rewritten) return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
-      return fetchImpl(request ? new Request(request, requestInit) : (input as URL), request ? undefined : requestInit)
+      return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
     }) as typeof fetch
     return fn
   }
@@ -1171,7 +1188,7 @@ export class Caracal {
     } catch {
       return null
     }
-    if (sameOrigin(parsed, gw)) return null
+    if (sameOrigin(parsed, gw)) return { url: raw, resourceId: explicitResource ?? '' }
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
