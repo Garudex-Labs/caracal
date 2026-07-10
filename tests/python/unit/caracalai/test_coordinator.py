@@ -15,6 +15,7 @@ from caracalai.coordinator import (
     DelegationConstraints,
     DelegationRequest,
     StartSessionRequest,
+    acquire_session_lease,
     create_delegation,
     heartbeat_session,
     start_coordinator_session,
@@ -121,7 +122,9 @@ class StartSessionTests(unittest.IsolatedAsyncioTestCase):
 
         async def handler(req: httpx.Request) -> httpx.Response:
             captured.append(req)
-            return httpx.Response(200, json={"agent_session_id": "a-1"})
+            return httpx.Response(
+                200, json={"agent_session_id": "a-1", "lease_generation": 1}
+            )
 
         c = CoordinatorClient(
             base_url="http://coordinator.test/",
@@ -139,7 +142,9 @@ class StartSessionTests(unittest.IsolatedAsyncioTestCase):
             import json
 
             captured.append(json.loads(req.content))
-            return httpx.Response(200, json={"agent_session_id": "a-1"})
+            return httpx.Response(
+                200, json={"agent_session_id": "a-1", "lease_generation": 1}
+            )
 
         await start_coordinator_session(
             _client(handler),
@@ -226,6 +231,56 @@ class CoordinatorLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
 
 class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_propagates_one_trace_with_fresh_spans(self) -> None:
+        captured: list[httpx.Request] = []
+        trace_id = "1" * 32
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            if str(req.url).endswith("/heartbeat"):
+                return httpx.Response(
+                    200,
+                    json={"agent": {"status": "active", "lease_generation": 1}},
+                )
+            return httpx.Response(
+                200,
+                json={"agent_session_id": "session-1", "lease_generation": 1},
+            )
+
+        client = _client(handler)
+        await start_coordinator_session(
+            client,
+            "tok",
+            StartSessionRequest(
+                zone_id="z",
+                application_id="app",
+                lifecycle=Lifecycle.SERVICE,
+                trace_id=trace_id,
+                trace_flags="01",
+                trace_state="vendor=value",
+            ),
+        )
+        await heartbeat_session(
+            client,
+            "tok",
+            "z",
+            "session-1",
+            1,
+            trace_id=trace_id,
+            trace_flags="01",
+            trace_state="vendor=value",
+        )
+
+        traceparents = [request.headers["traceparent"] for request in captured]
+        self.assertTrue(all(value.split("-")[1] == trace_id for value in traceparents))
+        self.assertNotEqual(
+            traceparents[0].split("-")[2], traceparents[1].split("-")[2]
+        )
+        self.assertEqual(
+            [request.headers["tracestate"] for request in captured],
+            ["vendor=value", "vendor=value"],
+        )
+
     async def test_returns_status_and_deadline_from_agent_wire(self) -> None:
         captured: list[httpx.Request] = []
 
@@ -237,12 +292,13 @@ class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
                     "agent": {
                         "status": "suspended",
                         "heartbeat_deadline_at": "2026-07-04T00:02:00+00:00",
+                        "lease_generation": 3,
                     }
                 },
             )
 
         res = await heartbeat_session(
-            _client(handler), "tok", "z 1", "agent 1", "degraded"
+            _client(handler), "tok", "z 1", "agent 1", 3, "degraded"
         )
         self.assertEqual(res.status, "suspended")
         self.assertEqual(res.heartbeat_deadline_at, "2026-07-04T00:02:00+00:00")
@@ -252,13 +308,17 @@ class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
         )
         import json
 
-        self.assertEqual(json.loads(captured[0].content), {"status": "degraded"})
+        self.assertEqual(
+            json.loads(captured[0].content),
+            {"status": "degraded", "lease_generation": 3},
+        )
+        self.assertEqual(res.lease_generation, 3)
 
     async def test_tolerates_empty_response_body(self) -> None:
         async def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(204)
 
-        res = await heartbeat_session(_client(handler), "tok", "z", "session-1")
+        res = await heartbeat_session(_client(handler), "tok", "z", "session-1", 1)
         self.assertIsNone(res.status)
         self.assertIsNone(res.heartbeat_deadline_at)
 
@@ -267,8 +327,27 @@ class HeartbeatSessionTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(409, json={"error": "agent_lease_expired"})
 
         with self.assertRaises(CoordinatorError) as caught:
-            await heartbeat_session(_client(handler), "tok", "z", "session-1")
+            await heartbeat_session(_client(handler), "tok", "z", "session-1", 1)
         self.assertEqual(caught.exception.status, 409)
+
+    async def test_acquires_a_new_lease_generation(self) -> None:
+        captured: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(
+                200,
+                json={
+                    "status": "active",
+                    "heartbeat_deadline_at": "2026-07-04T00:02:00+00:00",
+                    "lease_generation": 4,
+                },
+            )
+
+        res = await acquire_session_lease(_client(handler), "tok", "z", "session-1")
+
+        self.assertEqual(res.lease_generation, 4)
+        self.assertTrue(str(captured[0].url).endswith("/agents/session-1/lease"))
 
 
 class TerminateSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -284,6 +363,19 @@ class TerminateSessionTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         await terminate_session(_client(handler), "tok", "z", "session-1")
+
+    async def test_sends_service_lease_generation(self) -> None:
+        captured: list[httpx.Request] = []
+
+        async def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(204)
+
+        await terminate_session(_client(handler), "tok", "z", "session-1", 7)
+
+        import json
+
+        self.assertEqual(json.loads(captured[0].content), {"lease_generation": 7})
 
 
 class CreateDelegationTests(unittest.IsolatedAsyncioTestCase):

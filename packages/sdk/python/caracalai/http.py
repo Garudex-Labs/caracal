@@ -46,11 +46,13 @@ class CaracalASGIMiddleware:
         *,
         as_application: bool = False,
         verifier: TokenVerifier | None = None,
+        trusted_propagation: bool = False,
     ) -> None:
         self.app = app
         self.caracal = caracal
         self.as_application = as_application
         self.verifier = verifier
+        self.trusted_propagation = trusted_propagation
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") not in ("http", "websocket"):
@@ -61,7 +63,10 @@ class CaracalASGIMiddleware:
         for k, v in raw:
             headers[k.decode("latin-1")] = v.decode("latin-1")
         binder = self.caracal.bind_from_headers(
-            headers, as_application=self.as_application, verifier=self.verifier
+            headers,
+            as_application=self.as_application,
+            verifier=self.verifier,
+            trusted_propagation=self.trusted_propagation,
         )
         try:
             await binder.__aenter__()

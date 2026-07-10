@@ -29,6 +29,7 @@ from .coordinator import (
     DelegationConstraints,
     DelegationRequest,
     StartSessionRequest,
+    acquire_session_lease,
     create_delegation,
     heartbeat_session,
     start_coordinator_session,
@@ -69,6 +70,8 @@ def _is_gone(exc: BaseException) -> bool:
                 "already_terminated",
                 "session_not_live",
                 "session_not_found_or_not_active",
+                "session_lease_fenced",
+                "session_subject_inactive",
             }
         )
     )
@@ -96,6 +99,10 @@ async def _terminate_shielded(
     *,
     token_source: TokenSource | None,
     fallback_token: str,
+    lease_generation: int | None = None,
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
     propagate: bool = False,
 ) -> None:
     """Retire a session even while the awaiting task is being cancelled: the
@@ -109,7 +116,16 @@ async def _terminate_shielded(
     async def retire() -> None:
         try:
             bearer = await _resolve_bearer(token_source, fallback_token)
-            await terminate_session(coordinator, bearer, zone_id, session_id)
+            await terminate_session(
+                coordinator,
+                bearer,
+                zone_id,
+                session_id,
+                lease_generation,
+                trace_id,
+                trace_flags,
+                trace_state,
+            )
         except Exception as exc:
             if _is_gone(exc):
                 return
@@ -201,6 +217,7 @@ class _Established:
     ctx: CaracalContext
     subject_token: str
     heartbeat_deadline_at: str | None
+    lease_generation: int
 
 
 async def _establish_session(
@@ -232,6 +249,11 @@ async def _establish_session(
             "parent_session_id must match the Session bound on the calling context"
         )
     parent_session_id = parent_id or (parent.session_id if parent else None)
+    effective_trace_id = (
+        trace_id or (parent.trace_id if parent else None) or secrets.token_hex(16)
+    )
+    trace_flags = parent.trace_flags if parent else None
+    trace_state = parent.trace_state if parent else None
     bearer = subject_token
 
     # Narrowed (or none) authority suppresses server-side inheritance: the
@@ -250,6 +272,9 @@ async def _establish_session(
         idempotency_key=idempotency_key or uuid.uuid4().hex,
         idempotency_key_generated=idempotency_key is None,
         parent_authority="inherit" if authority.mode == "inherit" else "none",
+        trace_id=effective_trace_id,
+        trace_flags=trace_flags,
+        trace_state=trace_state,
     )
     refreshed = False
     attempt = 0
@@ -311,6 +336,9 @@ async def _establish_session(
                     scopes=list(authority.scopes),
                     constraints=authority.constraints,
                     ttl_seconds=authority.ttl_seconds,
+                    trace_id=effective_trace_id,
+                    trace_flags=trace_flags,
+                    trace_state=trace_state,
                 ),
             )
             delegation_id = deleg.delegation_id
@@ -322,6 +350,12 @@ async def _establish_session(
             res.session_id,
             token_source=token_source,
             fallback_token=bearer,
+            lease_generation=(
+                res.lease_generation if lifecycle == Lifecycle.SERVICE else None
+            ),
+            trace_id=effective_trace_id,
+            trace_flags=trace_flags,
+            trace_state=trace_state,
         )
         raise
 
@@ -334,17 +368,21 @@ async def _establish_session(
         parent_delegation_id=parent.delegation_id if parent else None,
         subject_authority_record_id=subject_authority_record_id
         or (parent.subject_authority_record_id if parent else None),
-        trace_id=trace_id
-        or (parent.trace_id if parent else None)
-        or secrets.token_hex(16),
-        trace_flags=parent.trace_flags if parent else None,
-        trace_state=parent.trace_state if parent else None,
+        trace_id=effective_trace_id,
+        trace_flags=trace_flags,
+        trace_state=trace_state,
         baggage=parent.baggage if parent else (),
         hop=hop,
         own_token=True,
         token_source=token_source,
     )
-    return _Established(res.session_id, ctx, bearer, res.heartbeat_deadline_at)
+    return _Established(
+        res.session_id,
+        ctx,
+        bearer,
+        res.heartbeat_deadline_at,
+        res.lease_generation,
+    )
 
 
 def _validate_idempotency_key(key: str) -> None:
@@ -452,6 +490,9 @@ async def session(
             established.session_id,
             token_source=token_source,
             fallback_token=established.subject_token,
+            trace_id=ctx.trace_id,
+            trace_flags=ctx.trace_flags,
+            trace_state=ctx.trace_state,
             propagate=body_error is None and end_error is None,
         )
     except BaseException as exc:
@@ -497,6 +538,7 @@ class SessionHandle:
         token_source: TokenSource | None = None,
         invalidate: Callable[[], None] | None = None,
         heartbeat_deadline_at: str | None = None,
+        lease_generation: int,
         status: str = "active",
         on_lease_lost: Callable[[BaseException], None] | None = None,
         on_state_change: Callable[[str], None] | None = None,
@@ -504,6 +546,7 @@ class SessionHandle:
     ) -> None:
         self.context = context
         self.heartbeat_deadline_at = heartbeat_deadline_at
+        self.lease_generation = lease_generation
         self._coordinator = coordinator
         self._subject_token = subject_token
         self._heartbeat_interval = heartbeat_interval
@@ -536,7 +579,11 @@ class SessionHandle:
                 bearer,
                 self.context.zone_id,
                 self.context.session_id,
+                self.lease_generation,
                 status,
+                self.context.trace_id,
+                self.context.trace_flags,
+                self.context.trace_state,
             )
         except CoordinatorError as exc:
             # A cached token can be rejected before its exp (server-side
@@ -557,7 +604,11 @@ class SessionHandle:
                 fresh,
                 self.context.zone_id,
                 self.context.session_id,
+                self.lease_generation,
                 status,
+                self.context.trace_id,
+                self.context.trace_flags,
+                self.context.trace_state,
             )
         if res.heartbeat_deadline_at:
             self.heartbeat_deadline_at = res.heartbeat_deadline_at
@@ -638,6 +689,10 @@ class SessionHandle:
                 self.context.session_id,
                 token_source=self._token_source,
                 fallback_token=self._subject_token,
+                lease_generation=self.lease_generation,
+                trace_id=self.context.trace_id,
+                trace_flags=self.context.trace_flags,
+                trace_state=self.context.trace_state,
                 propagate=True,
             )
 
@@ -725,6 +780,10 @@ async def start_session(
                 established.session_id,
                 token_source=token_source,
                 fallback_token=established.subject_token,
+                lease_generation=established.lease_generation,
+                trace_id=ctx.trace_id,
+                trace_flags=ctx.trace_flags,
+                trace_state=ctx.trace_state,
             )
             raise
     handle = SessionHandle(
@@ -735,6 +794,7 @@ async def start_session(
         token_source=token_source,
         invalidate=invalidate,
         heartbeat_deadline_at=established.heartbeat_deadline_at,
+        lease_generation=established.lease_generation,
         on_lease_lost=on_lease_lost,
         on_state_change=on_state_change,
         on_session_end=on_session_end,
@@ -766,19 +826,25 @@ async def attach_session(
     only; delegations bound by the previous holder are re-presented with
     :func:`accept_delegation`."""
     bearer = await _resolve_bearer(token_source, subject_token)
+    trace_id = secrets.token_hex(16)
     try:
-        first = await heartbeat_session(coordinator, bearer, zone_id, session_id)
+        first = await acquire_session_lease(
+            coordinator, bearer, zone_id, session_id, trace_id
+        )
     except CoordinatorError as exc:
         if exc.status != 401 or invalidate is None or token_source is None:
             raise
         invalidate()
         bearer = await _resolve_bearer(token_source, subject_token)
-        first = await heartbeat_session(coordinator, bearer, zone_id, session_id)
+        first = await acquire_session_lease(
+            coordinator, bearer, zone_id, session_id, trace_id
+        )
     ctx = CaracalContext(
         subject_token=bearer,
         zone_id=zone_id,
         application_id=application_id,
         session_id=session_id,
+        trace_id=trace_id,
         hop=0,
         own_token=True,
         token_source=token_source,
@@ -791,6 +857,7 @@ async def attach_session(
         token_source=token_source,
         invalidate=invalidate,
         heartbeat_deadline_at=first.heartbeat_deadline_at,
+        lease_generation=first.lease_generation,
         status=first.status or "active",
         on_lease_lost=on_lease_lost,
         on_state_change=on_state_change,
@@ -849,6 +916,9 @@ async def delegate(
         scopes=scopes,
         constraints=constraints,
         ttl_seconds=ttl_seconds,
+        trace_id=ctx.trace_id,
+        trace_flags=ctx.trace_flags,
+        trace_state=ctx.trace_state,
         idempotency_key=uuid.uuid4().hex,
     )
     # The idempotency key makes one retry of a transient failure safe: the

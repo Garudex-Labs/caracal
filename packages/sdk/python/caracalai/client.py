@@ -852,7 +852,6 @@ class Caracal:
         self._app_provision = threading.Semaphore(1)
         self._app_mandate_guard = threading.Lock()
         self._app_generation = 0
-        self._unverified_boundary_warned = False
 
     @classmethod
     def from_client_secret(
@@ -1325,18 +1324,12 @@ class Caracal:
         *,
         as_application: bool = False,
         verifier: TokenVerifier | None = None,
+        trusted_propagation: bool = False,
     ) -> AsyncGenerator[CaracalContext, None]:
-        if (
-            verifier is None
-            and not self._unverified_boundary_warned
-            and _production_env(os.environ)
-        ):
-            self._unverified_boundary_warned = True
-            logging.getLogger("caracalai").warning(
-                "caracal: inbound context is being bound without a verifier in "
-                "production; the envelope is propagation-only - pass verifier= "
-                "or keep this boundary behind a verifier such as the Gateway or "
-                "caracalai_identity"
+        if verifier is not None and trusted_propagation:
+            raise ValueError(
+                "Caracal.bind_from_headers(): choose either verifier or "
+                "trusted_propagation, not both"
             )
 
         def get(name: str) -> str | None:
@@ -1349,6 +1342,17 @@ class Caracal:
         env = decode_envelope(get)
         claims: VerifiedClaims | None = None
         root_injected = False
+        if (
+            env.subject_token
+            and verifier is None
+            and not trusted_propagation
+            and _production_env(os.environ)
+        ):
+            raise ValueError(
+                "Caracal.bind_from_headers(): production ingress requires "
+                "verifier= or trusted_propagation=True when an upstream "
+                "boundary already verified the request"
+            )
         if not env.subject_token:
             if not as_application:
                 raise MissingTokenError(
@@ -1461,6 +1465,7 @@ class Caracal:
         *,
         as_application: bool = False,
         verifier: TokenVerifier | None = None,
+        trusted_propagation: bool = False,
     ) -> Callable[[ASGIApp], CaracalASGIMiddleware]:
         """ASGI middleware factory for the inbound request boundary.
 
@@ -1472,11 +1477,13 @@ class Caracal:
         Pass ``verifier`` to enforce at the boundary. The callable receives the
         bearer token and must raise on failure; back it with
         ``caracalai_identity.verify_token`` so the application sees a request
-        only after the mandate is proven. Return :class:`VerifiedClaims` from
-        the verifier to stamp token-proven attribution over the caller-supplied
-        envelope. The SDK never inspects token internals itself. This middleware
-        is framework-agnostic and runs on any ASGI app (FastAPI, Starlette,
-        Quart, Django ASGI).
+        only after the mandate is proven. It must return complete
+        :class:`VerifiedClaims`; omitted optional authority fields are
+        authoritatively absent. In production propagation-only mode, pass
+        ``trusted_propagation=True`` to state that an upstream boundary already
+        verified the request. The SDK never inspects token internals itself.
+        This middleware is framework-agnostic and runs on any ASGI app
+        (FastAPI, Starlette, Quart, Django ASGI).
 
         Install at module load: `app.add_middleware()` only registers middleware
         before Starlette/FastAPI startup, so this cannot be called from inside a
@@ -1487,9 +1494,15 @@ class Caracal:
             caracal = Caracal()
             app = FastAPI()
 
-            async def verify(token: str) -> None:
-                await verify_token(
+            async def verify(token: str) -> VerifiedClaims:
+                claims = await verify_token(
                     token, issuer=ISSUER, audience=AUDIENCE, expected_zone_id=ZONE_ID
+                )
+                return VerifiedClaims(
+                    zone_id=str(claims["zone_id"]),
+                    application_id=str(claims["client_id"]),
+                    subject_authority_record_id=str(claims["sid"]),
+                    hop=int(claims.get("hop_count") or 0),
                 )
 
             app.add_middleware(caracal.context_middleware(verifier=verify))
@@ -1500,7 +1513,11 @@ class Caracal:
 
         def factory(app: ASGIApp) -> CaracalASGIMiddleware:
             return CaracalASGIMiddleware(
-                app, outer, as_application=as_application, verifier=verifier
+                app,
+                outer,
+                as_application=as_application,
+                verifier=verifier,
+                trusted_propagation=trusted_propagation,
             )
 
         return factory
@@ -1512,7 +1529,7 @@ class Caracal:
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
         approval_id: str | None = None,
-        propagation: str = "always",
+        propagation: str = "gateway-only",
         **kwargs: Any,
     ) -> httpx.AsyncClient:
         """Returns an httpx.AsyncClient that auto-injects the envelope on every request
@@ -1562,7 +1579,7 @@ class Caracal:
         scopes: list[str] | None,
         approval_id: str | None,
         label: str,
-        propagation: str = "always",
+        propagation: str = "gateway-only",
     ) -> httpx.Auth:
         outer = self
 
@@ -1913,7 +1930,7 @@ class Caracal:
         ctx: CaracalContext | None = None,
         scopes: list[str] | None = None,
         approval_id: str | None = None,
-        propagation: str = "always",
+        propagation: str = "gateway-only",
         **kwargs: Any,
     ) -> httpx.Client:
         """Sync counterpart to transport(): returns an httpx.Client that auto-injects

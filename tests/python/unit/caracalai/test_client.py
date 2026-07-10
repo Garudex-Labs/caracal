@@ -654,6 +654,27 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(c.current(), ctx)
         self.assertIsNone(c.current())
 
+    async def test_bind_from_headers_requires_explicit_production_trust(self) -> None:
+        c = _build_caracal()
+        previous = os.environ.get("CARACAL_ENV")
+        os.environ["CARACAL_ENV"] = "production"
+        try:
+            with self.assertRaisesRegex(ValueError, "production ingress requires"):
+                async with c.bind_from_headers(
+                    {HEADER_AUTHORIZATION: "Bearer inbound"}
+                ):
+                    pass
+            async with c.bind_from_headers(
+                {HEADER_AUTHORIZATION: "Bearer inbound"},
+                trusted_propagation=True,
+            ) as ctx:
+                self.assertEqual(ctx.subject_token, "inbound")
+        finally:
+            if previous is None:
+                os.environ.pop("CARACAL_ENV", None)
+            else:
+                os.environ["CARACAL_ENV"] = previous
+
     def test_context_middleware_factory_captures_allow_root(self) -> None:
         c = _build_caracal()
 
@@ -692,7 +713,9 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), as_application=True
+            transport=httpx.MockTransport(handler),
+            as_application=True,
+            propagation="always",
         ) as client:
             response = await client.get("https://api.example.com/v1/events?limit=10")
 
@@ -753,7 +776,7 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             await client.get("https://api.unbound.example.com/data")
 
         self.assertIsNone(seen["auth"])
-        self.assertIsNotNone(parse_traceparent(seen["traceparent"]))
+        self.assertIsNone(seen["traceparent"])
 
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -763,7 +786,10 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
             if request.method == "POST" and str(request.url).endswith("/delegations"):
                 return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
             if request.method == "DELETE":
@@ -849,7 +875,10 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
             return httpx.Response(204)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -949,9 +978,15 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "svc-1", "lease_generation": 1},
+                )
             if request.method == "POST" and str(request.url).endswith("/heartbeat"):
-                return httpx.Response(200, json={"agent": {"id": "svc-1"}})
+                return httpx.Response(
+                    200,
+                    json={"agent": {"id": "svc-1", "lease_generation": 1}},
+                )
             if request.method == "DELETE":
                 return httpx.Response(204)
             return httpx.Response(404)
@@ -1066,10 +1101,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
-                    "agent": {
-                        "status": "active",
-                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
-                    }
+                    "status": "active",
+                    "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    "lease_generation": 2,
                 },
             )
 
@@ -1094,7 +1128,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handle.session_id, "agent-persisted")
         self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
         self.assertTrue(
-            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/lease")
         )
         await handle.aclose()
         await client.aclose()
@@ -1419,7 +1453,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             seen, {"url": "https://other.example.com/v1/events", "resource": None}
         )
 
-    async def test_gateway_only_propagation_skips_third_party_hosts(self) -> None:
+    async def test_default_propagation_skips_third_party_hosts(self) -> None:
         calls: list[dict[str, str | None]] = []
 
         async def handler(request):
@@ -1445,7 +1479,6 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
         async with c.transport(
             transport=httpx.MockTransport(handler),
             as_application=True,
-            propagation="gateway-only",
         ) as client:
             await client.get("https://third-party.example.com/data")
             await client.get("https://api.example.com/v1/events")
