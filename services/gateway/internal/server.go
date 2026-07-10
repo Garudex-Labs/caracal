@@ -234,6 +234,11 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		writeReadyFailure(w, "revocation_snapshot_stale")
 		return
 	}
+	if s.audit.Dropped() > 0 {
+		s.log.Error().Uint64("dropped", s.audit.Dropped()).Msg("ready: audit evidence lost")
+		writeReadyFailure(w, "audit_evidence_lost")
+		return
+	}
 	if err := s.audit.Ready(); err != nil {
 		s.log.Warn().Err(err).Msg("ready: audit replay unavailable")
 		writeReadyFailure(w, "audit_replay_unavailable")

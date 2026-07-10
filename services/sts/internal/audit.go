@@ -38,6 +38,8 @@ const (
 	auditReplayDirP = 0o700
 )
 
+var errAuditEvidenceLost = errors.New("audit evidence lost")
+
 // AuditBuffer decouples audit emission from the hot token-exchange path. Events that
 // cannot reach Redis (sink error or shutdown with backlog) are persisted to disk and
 // replayed on next startup so audit loss requires both Redis and disk failure.
@@ -112,6 +114,9 @@ func (a *AuditBuffer) Ready() error {
 	if a == nil {
 		return errors.New("audit buffer unavailable")
 	}
+	if a.Dropped() > 0 {
+		return errAuditEvidenceLost
+	}
 	info, err := os.Stat(a.replayDir)
 	if err != nil {
 		return err
@@ -182,6 +187,14 @@ func (a *AuditBuffer) persistBatch(batch []AuditEvent) error {
 	if len(batch) == 0 {
 		return nil
 	}
+	lines := make([][]byte, len(batch))
+	for i, ev := range batch {
+		data, err := json.Marshal(ev)
+		if err != nil {
+			return fmt.Errorf("marshal audit event %q: %w", ev.ID, err)
+		}
+		lines[i] = append(data, '\n')
+	}
 	name := fmt.Sprintf("pending-%d-%d%s", os.Getpid(), time.Now().UnixNano(), auditReplayExt)
 	path := filepath.Join(a.replayDir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, auditReplayPerm)
@@ -198,13 +211,8 @@ func (a *AuditBuffer) persistBatch(batch []AuditEvent) error {
 		}
 	}()
 	w := bufio.NewWriter(f)
-	for _, ev := range batch {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			a.log.Error().Err(err).Str("id", ev.ID).Msg("marshal audit event")
-			continue
-		}
-		if _, err := w.Write(append(data, '\n')); err != nil {
+	for _, line := range lines {
+		if _, err := w.Write(line); err != nil {
 			a.log.Error().Err(err).Msg("audit replay file write")
 			return err
 		}

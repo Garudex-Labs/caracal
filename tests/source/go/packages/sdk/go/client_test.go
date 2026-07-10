@@ -435,7 +435,7 @@ func TestHTTPClientInjects(t *testing.T) {
 		SessionID:     "sess9",
 		Hop:           1,
 	})
-	client := c.Transport(nil)
+	client := c.Transport(nil, sdk.CallOptions{Propagation: sdk.PropagationAlways})
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -771,7 +771,7 @@ func TestTransportAllowsUnboundRootWhenOptedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationAlways}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,6 +806,13 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	if cur, ok := sdk.Current(ctx); !ok || cur.SubjectToken != "inbound" {
 		t.Fatalf("unexpected bound context: %#v", cur)
 	}
+	t.Setenv("CARACAL_ENV", "production")
+	if _, err := c.BindFromRequest(context.Background(), req); err == nil || !strings.Contains(err.Error(), "production ingress requires") {
+		t.Fatalf("production ingress must require an explicit trust posture: %v", err)
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{TrustedPropagation: true}); err != nil {
+		t.Fatalf("trusted upstream propagation must bind: %v", err)
+	}
 	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, nil },
 	}); err == nil {
@@ -838,7 +845,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","lease_generation":1}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
 			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
 		default:
@@ -1337,7 +1344,7 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+		fmt.Fprint(w, `{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z","lease_generation":2}`)
 	}))
 	defer coord.Close()
 	c := &sdk.Caracal{
@@ -1359,8 +1366,8 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 	if handle.SessionID() != "agent-persisted" || handle.DeadlineAt().IsZero() {
 		t.Fatalf("unexpected handle: %s %v", handle.SessionID(), handle.DeadlineAt())
 	}
-	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
-		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	if paths[0] != "POST /zones/z/agents/agent-persisted/lease" {
+		t.Fatalf("expected an immediate fenced lease acquisition, got %v", paths)
 	}
 	if err := handle.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -1370,7 +1377,7 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 	}
 }
 
-func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
+func TestPropagationDefaultsToGatewayOnlyAndAllowsExplicitAlways(t *testing.T) {
 	type seen struct {
 		target      string
 		traceparent string
@@ -1389,7 +1396,7 @@ func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
 		SubjectToken:  "tok",
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: "http://coord"},
 	}
-	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true})
 	res, err := client.Get(upstream.URL + "/data")
 	if err != nil {
 		t.Fatal(err)
@@ -1399,13 +1406,13 @@ func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
 		t.Fatalf("expected no envelope on a non-gateway host: %+v", calls[0])
 	}
 
-	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true})
+	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationAlways})
 	res, err = gatewayClient.Get(upstream.URL + "/data")
 	if err != nil {
 		t.Fatal(err)
 	}
 	res.Body.Close()
 	if calls[1].traceparent == "" {
-		t.Fatalf("expected the default propagation to carry the envelope: %+v", calls[1])
+		t.Fatalf("expected explicit always propagation to carry the envelope: %+v", calls[1])
 	}
 }

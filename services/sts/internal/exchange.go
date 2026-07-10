@@ -390,6 +390,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if refErr != nil {
 		return nil, nil, http.StatusForbidden, refErr
 	}
+	if subjectClaims == nil && req.AuthorityRecordID == "" && session != nil && req.SessionID != "" {
+		req.AuthorityRecordID = session.SubjectAuthorityRecordID
+	}
 
 	delegationMeta := delegationAuditMeta(delegation)
 
@@ -1918,9 +1921,10 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil {
 		return nil, nil, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable")
 	}
+	var authorityRecord *AuthorityRecord
 	if req.AuthorityRecordID != "" {
-		session, err := s.db.GetAuthorityRecord(ctx, req.AuthorityRecordID)
-		if err != nil || session.ZoneID != zoneID || session.Status != "active" || !session.ExpiresAt.After(now) {
+		authorityRecord, err = s.db.GetAuthorityRecord(ctx, req.AuthorityRecordID)
+		if err != nil || authorityRecord.ZoneID != zoneID || authorityRecord.Status != "active" || !authorityRecord.ExpiresAt.After(now) {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record inactive or expired")
 		}
 		// Application-principal flows (no subject_token) must assert a
@@ -1928,7 +1932,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		// zone could pass another app's session_id and have OPA evaluate
 		// against authority state that is not their own.
 		if !hasSubjectToken {
-			if session.SessionType != "application" || session.SubjectID == nil || *session.SubjectID != appID {
+			if authorityRecord.SessionType != "application" || authorityRecord.SubjectID == nil || *authorityRecord.SubjectID != appID {
 				return nil, nil, sharederr.New(sharederr.AccessDenied, "authority record not owned by caller")
 			}
 		}
@@ -1938,7 +1942,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		if aerr != nil {
 			return nil, nil, aerr
 		}
-		if hasSubjectToken && req.AuthorityRecordID != "" && session.SubjectAuthorityRecordID != req.AuthorityRecordID {
+		if hasSubjectToken && !sessionAuthorityRecordMatches(session.SubjectAuthorityRecordID, req.AuthorityRecordID, authorityRecord) {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 		}
 		return nil, session, nil
@@ -1964,7 +1968,7 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	if err != nil || !activeSession(target, zoneID, now) || target.ApplicationID != appID {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation target inactive or unauthorized")
 	}
-	if hasSubjectToken && req.AuthorityRecordID != "" && target.SubjectAuthorityRecordID != req.AuthorityRecordID {
+	if hasSubjectToken && !sessionAuthorityRecordMatches(target.SubjectAuthorityRecordID, req.AuthorityRecordID, authorityRecord) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "session authority record binding mismatch")
 	}
 	if source.ApplicationID != edge.IssuerAppID || target.ApplicationID != edge.ReceiverAppID {
@@ -2008,6 +2012,13 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 		edge: edge, edges: edges, source: source, target: target,
 		constraints: constraints, path: path, chain: chain, graphEpoch: graphEpoch,
 	}, target, nil
+}
+
+func sessionAuthorityRecordMatches(sessionAuthorityRecordID, presentedAuthorityRecordID string, presented *AuthorityRecord) bool {
+	if presentedAuthorityRecordID == "" || sessionAuthorityRecordID == presentedAuthorityRecordID {
+		return true
+	}
+	return presented != nil && presented.ParentID != nil && *presented.ParentID == sessionAuthorityRecordID
 }
 
 // buildDelegationChain resolves each edge id along the path to a chain hop the
@@ -2256,6 +2267,10 @@ func containsString(values []string, wanted string) bool {
 
 func activeSession(session *Session, zoneID string, now time.Time) bool {
 	if session == nil || session.ZoneID != zoneID || session.Status != "active" {
+		return false
+	}
+	if session.SubjectAuthorityRecordType == "user" &&
+		(session.SubjectAuthorityRecordStatus != "active" || !session.SubjectAuthorityRecordExpiresAt.After(now)) {
 		return false
 	}
 	if session.Lifecycle == "service" {
