@@ -121,19 +121,19 @@ const CARACAL_PLATFORM = [
   '',
   'MANDATE. The token Caracal issues after the STS approves an exchange: a short-lived JWT signed with',
   'the zone key. It proves which zone issued it, which application and principal act, which session',
-  'anchors are live, which resource and scopes were approved, whether authority came from an agent',
-  'session or a delegation edge, and when it expires. The Gateway/connector verifies signature,',
+  'anchors are live, which resource and scopes were approved, whether authority came from a Session',
+  'or Delegation, and when it expires. The Gateway/connector verifies signature,',
   'claims, audience, scopes, expiry, and revocation before allowing the request.',
   '',
   'APPLICATIONS VS AGENTS, SESSIONS, REVOCATION. Authority follows the application; ordinary agent',
   'fan-out under one application needs no delegation. A Subject authority record anchors a user or service;',
   'Sessions are governed runtime contexts. Mandates carry authority anchors, and a guard rejects a mandate',
   'the moment any anchor - Authority record, Root authority record, Session, or Delegation -',
-  'edge - is revoked (session_revoked), which is how authority stays temporary and instantly killable.',
+  'is revoked (session_revoked), which is how authority stays temporary and instantly killable.',
   '',
-  'DELEGATION, CONSTRAINTS, STEP-UP. A delegation edge passes a narrower, typed slice of authority from',
-  'one session to another - used to narrow to least privilege or to cross application boundaries.',
-  'Typed constraints bound an edge: resource, scopes, TTL, hop count, budget, approval, and chain',
+  'DELEGATION, CONSTRAINTS, APPROVAL. A Delegation passes a narrower, typed slice of authority from',
+  'one Session to another - used to narrow to least privilege or to cross application boundaries.',
+  'Typed constraints bound a Delegation: resource, scopes, TTL, hop count, budget, approval, and chain',
   'membership. Step-up lets policy demand fresh proof (e.g. MFA) for a sensitive exchange: the STS',
   'returns interaction_required with a challenge, which is satisfied and the exchange retried.',
   '',
@@ -163,7 +163,7 @@ const CARACAL_PLATFORM = [
   "Your work is this zone's product configuration and runtime oversight, carried out here in the",
   'console: register applications, connect providers, define resources, author and activate its',
   'policy set, grant scoped access, manage workload launcher identities, and intervene in the running',
-  'system - suspend, resume, or terminate agent sessions and revoke delegation edges. You can read',
+  'system - suspend, resume, or terminate Sessions and revoke Delegations. You can read',
   'step-up approval requests but never decide them: approving or rejecting an approval stays with a',
   'human. When someone asks how to make this zone "complete and ready", that means creating',
   'and wiring those objects in this zone - never stack setup and never a new zone.',
@@ -858,7 +858,7 @@ export function buildTroubleshooterMessages(message: string, context: AgentConte
           'binding the application, user, resource, and scopes; a scope requested that the grant or',
           'resource does not include; an application, resource, or provider that does not exist yet or is',
           'mislabeled; a policy set that was authored but never activated for the zone; a revoked or',
-          'expired session, mandate, or delegation edge; a step-up hold awaiting a human decision; or a',
+          'expired Session, mandate, or Delegation; an approval awaiting a human decision; or a',
           'request aimed at the wrong zone or a resource identifier that does not match. Name the cause',
           'you judge most likely, say how to confirm it (the explain trace or audit event for that',
           'request is the fastest check), and give one concrete next action.',
@@ -1270,6 +1270,9 @@ function describePolicyError(code: string): string {
     case 'data_document_must_define_data':
       return 'the document must define at least one data rule (app_ids, grants, confinement, restrict, risk, or approval_tiers)'
     default:
+      if (code.startsWith('data_document_rule_not_allowed:')) {
+        return `the data document must not define "${code.slice('data_document_rule_not_allowed:'.length)}" - only app_ids, grants, confinement, restrict, risk, and approval_tiers are adopter-owned`
+      }
       return code
   }
 }

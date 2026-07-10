@@ -154,6 +154,13 @@ interface WireEffectiveAuthority {
   earliest_expires_at: string | null;
 }
 
+interface WireDelegationImpact {
+  edge_id: string;
+  affected_edges: DelegationHop[];
+  affected_sessions: string[];
+  affected_authority_records: string[];
+}
+
 interface WireSubjectOverview extends Omit<SubjectOverview, "governed"> {
   governed: {
     active: number;
@@ -225,6 +232,15 @@ function effectiveAuthority(record: WireEffectiveAuthority): EffectiveAuthority 
     maxHops: record.effective_max_hops,
     ttlSeconds: record.effective_ttl_seconds,
     expiresAt: record.earliest_expires_at,
+  };
+}
+
+function delegationImpact(record: WireDelegationImpact): DelegationImpact {
+  return {
+    delegationId: record.edge_id,
+    affectedDelegations: record.affected_edges,
+    affectedSessions: record.affected_sessions,
+    affectedAuthorityRecords: record.affected_authority_records,
   };
 }
 
@@ -1343,9 +1359,9 @@ export const consoleApi = {
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/traverse`,
       ),
     impact: (zoneId: string, id: string) =>
-      request<DelegationImpact>(
+      request<WireDelegationImpact>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/impact`,
-      ),
+      ).then(delegationImpact),
     revoke: (zoneId: string, id: string) =>
       request<DelegationEdge>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/revoke`,

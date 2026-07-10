@@ -247,6 +247,18 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     const outboxId = await withTransaction(fastify.db, async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.zoneId])
+      const { rows: lockedVersions } = await client.query(
+        `SELECT psv.id
+         FROM policy_set_versions psv
+         JOIN policy_sets ps ON ps.id = psv.policy_set_id
+         WHERE psv.id = $1 AND psv.policy_set_id = $2 AND ps.zone_id = $3 AND ps.archived_at IS NULL
+         FOR UPDATE OF ps, psv`,
+        [body.version_id, params.id, params.zoneId],
+      )
+      if (!lockedVersions[0]) {
+        throw new TxAbort(reply.code(404).send({ error: 'version_not_found' }))
+      }
       const referencedIds = collectManifestIds(vRows[0].manifest_json)
       // Hold SHARE locks on every referenced policy_version row so a concurrent
       // delete of one of them blocks until activation commits. This closes the
@@ -391,6 +403,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
     return withTransaction(fastify.db, async (client) => {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.zoneId])
       const { rowCount } = await client.query(
         `UPDATE policy_sets SET archived_at = now(), updated_at = now(), updated_by = $3, updated_via_operator = $4
          WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
@@ -579,6 +592,13 @@ async function policySetContract(db: Queryable, zoneId: string, manifestJSON: st
         error: `policy version ${row.id} must not define result; the platform decision contract owns every decision`,
       }
     }
+    if (err?.startsWith('data_document_rule_not_allowed:')) {
+      return {
+        policies: [],
+        schemaVersion,
+        error: `policy version ${row.id} defines ${err.slice('data_document_rule_not_allowed:'.length)}, which is owned by the platform decision contract`,
+      }
+    }
     if (err) {
       return { policies: [], schemaVersion, error: `policy version ${row.id} failed validation: ${err}` }
     }
@@ -612,6 +632,7 @@ async function executePolicySimulation(
         ),
       },
       body,
+      signal: AbortSignal.timeout(fastify.cfg.requestTimeoutMs ?? 30_000),
     })
   } catch (err) {
     return {
@@ -718,6 +739,7 @@ async function fetchSTSPolicyStatus(fastify: FastifyInstance, zoneId: string): P
         [GATEWAY_REQUEST_HEADER]: requestId,
         [GATEWAY_SIGNATURE_HEADER]: signGatewayExchange(fastify.cfg.gatewayStsHmacKey, timestamp, requestId, 'GET', path, Buffer.alloc(0)),
       },
+      signal: AbortSignal.timeout(fastify.cfg.requestTimeoutMs ?? 30_000),
     })
   } catch (err) {
     return { state: 'unreachable', detail: err instanceof Error ? err.message : String(err) }

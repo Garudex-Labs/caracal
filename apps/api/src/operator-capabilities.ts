@@ -24,6 +24,7 @@ export type CapabilityDomain =
   | 'resource'
   | 'policy'
   | 'grant'
+  | 'authority-record'
   | 'session'
   | 'agent'
   | 'delegation'
@@ -35,7 +36,7 @@ export type CapabilityDomain =
 // preview interpreter owns the table and liveness predicate, so the catalog stays free of
 // any database detail.
 export type PreviewTarget =
-  'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants' | 'workloads' | 'agentSessions' | 'delegations'
+  'applications' | 'providers' | 'resources' | 'policies' | 'policySets' | 'grants' | 'workloads' | 'sessions' | 'delegations'
 
 // How a capability's effect is resolved against live state, declared on the capability so a
 // new capability needs no change to the preview interpreter: a read changes nothing; a
@@ -604,17 +605,17 @@ export const CAPABILITIES: Record<string, Capability> = {
     },
   },
   // Runtime authority is governed here like everything else: suspending, resuming, or
-  // terminating an agent session and revoking a delegation edge ride the same catalog,
+  // terminating a Session and revoking a Delegation ride the same catalog,
   // preview, approval gate, and governed control-plane apply as zone-topology changes.
   // The one deliberate exception is deciding a step-up approval: the control plane's
   // credential carries write capability and never approve, so an agent structurally
   // cannot decide a challenge that exists to put a human in the loop. The Operator
   // reads approvals so it can reason about them, and stops there.
-  listSessions: {
-    id: 'listSessions',
-    title: 'List sessions',
-    summary: 'Read the authenticated sessions active in the zone with their subjects and expiry, optionally filtered by subject or status.',
-    domain: 'session',
+  listAuthorityRecords: {
+    id: 'listAuthorityRecords',
+    title: 'List authority records',
+    summary: 'Read the Authority records in the zone with their subjects and expiry, optionally filtered by subject or status.',
+    domain: 'authority-record',
     mutating: false,
     args: z
       .object({
@@ -626,73 +627,73 @@ export const CAPABILITIES: Record<string, Capability> = {
     argsHint: 'subject (string, optional), status (string, optional), limit (number, optional)',
     preview: { kind: 'read' },
   },
-  listAgents: {
-    id: 'listAgents',
-    title: 'List agent sessions',
-    summary: 'Read the agent sessions running in the zone with their lifecycle and status.',
-    domain: 'agent',
+  listSessions: {
+    id: 'listSessions',
+    title: 'List sessions',
+    summary: 'Read the Sessions running in the zone with their lifecycle and status.',
+    domain: 'session',
     mutating: false,
     args: NoArgs,
     argsHint: 'no arguments',
     preview: { kind: 'read' },
   },
-  suspendAgent: {
-    id: 'suspendAgent',
-    title: 'Suspend an agent session',
-    summary: 'Pause a running agent session so it stops acting until resumed; its delegated authority is retained.',
-    domain: 'agent',
+  suspendSession: {
+    id: 'suspendSession',
+    title: 'Suspend a session',
+    summary: 'Pause a running Session so it stops acting until resumed; its delegated authority is retained.',
+    domain: 'session',
     mutating: true,
-    args: z.object({ agent_session_id: IdRef }).strict(),
-    argsHint: 'agent_session_id (string)',
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
     preview: {
       kind: 'mutateById',
-      target: 'agentSessions',
-      idArg: 'agent_session_id',
+      target: 'sessions',
+      idArg: 'session_id',
       effect: 'update',
-      live: (id) => `Would suspend agent session ${id}.`,
-      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+      live: (id) => `Would suspend Session ${id}.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
     },
-    outputs: ['agent_session_id'],
+    outputs: ['session_id'],
   },
-  resumeAgent: {
-    id: 'resumeAgent',
-    title: 'Resume an agent session',
-    summary: 'Resume a suspended agent session so it can act again under its existing authority.',
-    domain: 'agent',
+  resumeSession: {
+    id: 'resumeSession',
+    title: 'Resume a session',
+    summary: 'Resume a suspended Session so it can act again under its existing authority.',
+    domain: 'session',
     mutating: true,
-    args: z.object({ agent_session_id: IdRef }).strict(),
-    argsHint: 'agent_session_id (string)',
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
     preview: {
       kind: 'mutateById',
-      target: 'agentSessions',
-      idArg: 'agent_session_id',
+      target: 'sessions',
+      idArg: 'session_id',
       effect: 'update',
-      live: (id) => `Would resume agent session ${id}.`,
-      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+      live: (id) => `Would resume Session ${id}.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
     },
-    outputs: ['agent_session_id'],
+    outputs: ['session_id'],
   },
-  terminateAgent: {
-    id: 'terminateAgent',
-    title: 'Terminate an agent session',
-    summary: 'Permanently end an agent session and its descendants, revoking the authority delegated to them.',
-    domain: 'agent',
+  terminateSession: {
+    id: 'terminateSession',
+    title: 'Terminate a session',
+    summary: 'Permanently end a Session and its descendants, revoking the authority delegated to them.',
+    domain: 'session',
     mutating: true,
-    args: z.object({ agent_session_id: IdRef }).strict(),
-    argsHint: 'agent_session_id (string)',
+    args: z.object({ session_id: IdRef }).strict(),
+    argsHint: 'session_id (string)',
     preview: {
       kind: 'mutateById',
-      target: 'agentSessions',
-      idArg: 'agent_session_id',
+      target: 'sessions',
+      idArg: 'session_id',
       effect: 'delete',
-      live: (id) => `Would terminate agent session ${id} and its descendants.`,
-      blocked: (id) => `Agent session ${id} is not live in this zone.`,
+      live: (id) => `Would terminate Session ${id} and its descendants.`,
+      blocked: (id) => `Session ${id} is not live in this zone.`,
     },
   },
   listDelegations: {
     id: 'listDelegations',
     title: 'List delegations',
-    summary: 'Read the active delegation edges in the zone: who delegated which scopes to whom.',
+    summary: 'Read the active Delegations in the zone: who delegated which scopes to whom.',
     domain: 'delegation',
     mutating: false,
     args: NoArgs,
@@ -702,7 +703,7 @@ export const CAPABILITIES: Record<string, Capability> = {
   revokeDelegation: {
     id: 'revokeDelegation',
     title: 'Revoke a delegation',
-    summary: 'Revoke a delegation edge, withdrawing the scopes it conferred from the receiving agent and its descendants.',
+    summary: 'Revoke a Delegation, withdrawing the scopes it conferred from the receiving Session and its descendants.',
     domain: 'delegation',
     mutating: true,
     args: z.object({ delegation_id: IdRef }).strict(),

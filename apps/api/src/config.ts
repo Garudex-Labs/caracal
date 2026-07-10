@@ -56,8 +56,8 @@ export interface Config {
   redisUrl: string
   stsUrl: string
   // The data-plane endpoints the Operator's governed LLM transport routes through: the
-  // gateway it presents minted mandates to and the coordinator it spawns its short-lived
-  // agent sessions on. Defaulted for the standard deployment topology; never an end-user
+  // gateway it presents minted mandates to and the coordinator it starts its short-lived
+  // Sessions on. Defaulted for the standard deployment topology; never an end-user
   // surface.
   gatewayUrl: string
   coordinatorUrl: string
@@ -229,14 +229,27 @@ export function loadConfig(): Config {
   if (control && isPublished() && !auditHmacKey) {
     throw new Error('AUDIT_HMAC_KEY is required when CARACAL_CONTROL_ENABLED=true and CARACAL_MODE=rc or stable')
   }
+  const stsUrl = process.env.STS_URL
+  const gatewayUrl = process.env.CARACAL_GATEWAY_URL
+  const coordinatorUrl = process.env.CARACAL_COORDINATOR_URL
+  if (isPublished()) {
+    const missing = [
+      ['STS_URL', stsUrl],
+      ['CARACAL_GATEWAY_URL', gatewayUrl],
+      ['CARACAL_COORDINATOR_URL', coordinatorUrl],
+    ]
+      .filter(([, value]) => !value)
+      .map(([name]) => name)
+    if (missing.length > 0) throw new Error(`Published API deployments require explicit service endpoints: ${missing.join(', ')}`)
+  }
   return {
     port,
     host: getenv('HOST', process.env.CARACAL_MODE === 'rc' || process.env.CARACAL_MODE === 'stable' ? '0.0.0.0' : '127.0.0.1'),
     databaseUrl: mustGetenv('DATABASE_URL'),
     redisUrl: mustGetenv('REDIS_URL'),
-    stsUrl: getenv('STS_URL', 'http://localhost:8080'),
-    gatewayUrl: getenv('CARACAL_GATEWAY_URL', 'http://localhost:8081'),
-    coordinatorUrl: getenv('CARACAL_COORDINATOR_URL', 'http://localhost:4000'),
+    stsUrl: stsUrl ?? 'http://localhost:8080',
+    gatewayUrl: gatewayUrl ?? 'http://localhost:8081',
+    coordinatorUrl: coordinatorUrl ?? 'http://localhost:4000',
     gatewayStsHmacKey,
     auditHmacKey,
     logLevel: getenv('LOG_LEVEL', 'info'),
