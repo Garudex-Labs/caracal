@@ -108,7 +108,7 @@ export class OAuthClient {
     if (oneShot) {
       const start = performance.now()
       try {
-        const token = await this.doExchange(subjectToken, resource, opts, false)
+        const token = await this.doExchange(subjectToken, resource, opts)
         this.emit({ type: 'token.exchange', resources, scopes, cached: false, ok: true, durationMs: performance.now() - start })
         return token
       } catch (err) {
@@ -130,7 +130,7 @@ export class OAuthClient {
     const start = performance.now()
     const pending = (async () => {
       try {
-        const token = await this.doExchange(subjectToken, resource, opts, false)
+        const token = await this.doExchange(subjectToken, resource, opts)
         this.cache.set(cacheSubject, cacheResource, token)
         this.emit({ type: 'token.exchange', resources, scopes, cached: false, ok: true, durationMs: performance.now() - start })
         return token
@@ -185,7 +185,6 @@ export class OAuthClient {
     subjectToken: string,
     resource: string | string[],
     opts: ExchangeOptions,
-    isRetry: boolean,
     deadlineMs = performance.now() + (opts.timeoutMs ?? 30_000),
   ): Promise<TokenExchangeResponse> {
     const body = new URLSearchParams({
@@ -263,9 +262,6 @@ export class OAuthClient {
           requestId: err['requestId'],
           httpStatus: res.status,
         })
-      }
-      if (res.status === 401 && !isRetry) {
-        return this.doExchange(subjectToken, resource, { ...opts, retries: 0 }, true, deadlineMs)
       }
       throw new CaracalError(err.error || 'error', formatSTSError(res.status, err), {
         requestId: err.requestId,

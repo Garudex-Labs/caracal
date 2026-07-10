@@ -147,7 +147,7 @@ class OAuthClient:
 
         if not opts.cache:
             return await self._do_exchange(
-                subject_token, resource, opts, False, time() + opts.timeout_ms / 1000
+                subject_token, resource, opts, time() + opts.timeout_ms / 1000
             )
 
         inflight_key = f"{cache_subject}::{cache_resource}"
@@ -175,7 +175,7 @@ class OAuthClient:
         cache_resource: str,
     ) -> TokenExchangeResponse:
         token = await self._do_exchange(
-            subject_token, resource, opts, False, time() + opts.timeout_ms / 1000
+            subject_token, resource, opts, time() + opts.timeout_ms / 1000
         )
         self._cache.set(cache_subject, cache_resource, token)
         return token
@@ -210,7 +210,6 @@ class OAuthClient:
         subject_token: str,
         resource: str,
         opts: ExchangeOptions,
-        is_retry: bool,
         deadline: float,
     ) -> TokenExchangeResponse:
         data = {
@@ -269,27 +268,6 @@ class OAuthClient:
                     ),
                     resource=resource,
                     binding=str(body["binding"]) if "binding" in body else "",
-                )
-            if response.status_code == 401 and not is_retry:
-                return await self._do_exchange(
-                    subject_token,
-                    resource,
-                    ExchangeOptions(
-                        client_secret=opts.client_secret,
-                        client_assertion=opts.client_assertion,
-                        client_assertion_type=opts.client_assertion_type,
-                        authority_record_id=opts.authority_record_id,
-                        session_id=opts.session_id,
-                        delegation_id=opts.delegation_id,
-                        challenge_id=opts.challenge_id,
-                        scopes=opts.scopes,
-                        timeout_ms=opts.timeout_ms,
-                        retries=0,
-                        ttl_seconds=opts.ttl_seconds,
-                        cache=opts.cache,
-                    ),
-                    True,
-                    deadline,
                 )
             raise RuntimeError(
                 str(

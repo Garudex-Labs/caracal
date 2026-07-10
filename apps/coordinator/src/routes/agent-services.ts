@@ -139,13 +139,14 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query('BEGIN')
       const { rows: own } = await client.query<{
         application_id: string
+        subject_authority_record_id: string
         status: string
         lifecycle: string
         heartbeat_deadline_at: Date | null
         lease_expired: boolean
       }>(
         `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
-         SELECT application_id, status, lifecycle, heartbeat_deadline_at,
+         SELECT application_id, subject_authority_record_id, status, lifecycle, heartbeat_deadline_at,
                 heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at <= now() AS lease_expired
          FROM sessions, locked
          WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
@@ -163,6 +164,21 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
       }
+      const authorityRecordId = req.caracalAuth?.authorityRecordId
+      if (!authorityRecordId) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'authority_record_required' })
+      }
+      const { rows: authority } = await client.query(
+        `SELECT 1 FROM authority_records
+         WHERE id = $1 AND zone_id = $2 AND session_type = 'application'
+           AND subject_id = $3 AND status = 'active' AND expires_at > now()`,
+        [authorityRecordId, zoneId, own[0].application_id],
+      )
+      if (!authority[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(401).send({ error: 'identity_revoked' })
+      }
       if (own[0].status !== 'active' && own[0].status !== 'suspended') {
         await client.query('ROLLBACK')
         return reply.code(409).send({ error: 'session_not_live' })
@@ -176,6 +192,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE sessions
          SET last_active_at = now(),
              last_heartbeat_at = now(),
+           subject_authority_record_id = $4,
              heartbeat_deadline_at = CASE
                WHEN lifecycle = 'service' THEN now() + ($3::int * interval '1 second')
                ELSE heartbeat_deadline_at
@@ -183,7 +200,7 @@ export const agentServicesRoutes: FastifyPluginAsync = async (fastify) => {
              updated_at = now()
          WHERE id = $1 AND zone_id = $2
           RETURNING id, zone_id, application_id, status, last_active_at, last_heartbeat_at, heartbeat_deadline_at`,
-        [id, zoneId, cfg.serviceSessionLeaseSeconds],
+        [id, zoneId, cfg.serviceSessionLeaseSeconds, authorityRecordId],
       )
       let service = null
       if (body.service_id) {

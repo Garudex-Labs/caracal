@@ -65,7 +65,7 @@
       "description": "Root authority record ID for the STS exchange ancestry."
     },
     "use": {
-      "enum": ["session", "resource"]
+      "enum": ["session", "gateway", "resource"]
     },
     "sub_type": {
       "enum": ["user", "application"]
