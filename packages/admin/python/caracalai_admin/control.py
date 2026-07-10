@@ -42,12 +42,11 @@ class ControlClientError(RuntimeError):
 
     @property
     def definitive(self) -> bool:
-        """Whether the failure provably applied nothing: any token-stage
-        failure (no token was minted, so nothing was invoked) or an invoke the
-        control plane rejected with a client error. An invoke-stage server
-        error or lost response is not definitive - the command may already
-        have applied - so a caller must never blindly retry it."""
-        return self.stage == "token" or 400 <= self.status < 500
+        """Whether the server definitively rejected the request before
+        accepting it. Lost responses and server failures are outcome-ambiguous
+        at both stages: STS may have minted a token, or Control may have applied
+        the command."""
+        return 400 <= self.status < 500
 
 
 def _read_json(res: httpx.Response) -> Any:

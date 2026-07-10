@@ -1757,14 +1757,12 @@ class Caracal:
         ttl_seconds: int | None = None,
         approval_id: str | None = None,
     ) -> MintedMandate:
-        """Mint a resource mandate for the current session: a short-lived token
-        audienced to ``resource_id`` and narrowed to ``scopes``, carrying the
-        session and delegation of the bound :class:`CaracalContext` (or
-        ``ctx`` when the caller owns the context on another task or thread).
-        The STS evaluates policy against that session's authority, so a
-        narrowed child can mint only what its delegation allows. Results are
-        cached per resource, scope set, and session identity, and refreshed
-        before expiry. Returns the mandate token with its remaining lifetime.
+        """Mint a scoped mandate narrowed to ``resource_id`` and ``scopes``.
+        A bound Session and Delegation produce an uncached, one-shot
+        ``use=gateway`` mandate. Application-principal lifecycle calls produce
+        a reusable ``use=session`` mandate that may be cached and refreshed
+        before expiry. The STS evaluates policy against the bound authority.
+        Returns the mandate token with its remaining lifetime.
 
         When a scope is approval-gated the mint raises
         :class:`caracalai.ApprovalRequired`; retry with ``approval_id`` set to

@@ -32,7 +32,7 @@ class TokenExchangeResponse:
 
 @dataclass(frozen=True)
 class MintedMandate:
-    """A minted resource mandate: the bearer token to present and how long it
+    """A minted scoped mandate: the bearer token to present and how long it
     stays valid, so callers can schedule refresh without decoding the JWT."""
 
     token: str

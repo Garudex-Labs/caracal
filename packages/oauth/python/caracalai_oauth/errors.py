@@ -187,6 +187,8 @@ def raise_for_caracal_error(resp: httpx.Response) -> None:
         body = resp.json()
     except ValueError:
         body = {}
+    if not isinstance(body, dict):
+        body = {}
     code = str(body.get("error", ""))
     description = str(body.get("error_description", ""))
     request_id = str(body.get("requestId", ""))

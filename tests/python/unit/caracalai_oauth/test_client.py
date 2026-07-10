@@ -461,6 +461,20 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(CaracalError, "bad request"):
             await error_client.exchange("subject", "resource://api")
 
+        malformed_error_client = OAuthClient(
+            "https://sts.example.com",
+            "zone1",
+            "app1",
+            http_client=httpx.AsyncClient(
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(502, json=["bad"])
+                )
+            ),
+        )
+        with self.assertRaises(CaracalError) as caught:
+            await malformed_error_client.exchange("subject", "resource://api")
+        self.assertEqual(caught.exception.http_status, 502)
+
 
 class InMemoryTokenCacheTests(unittest.TestCase):
     def test_rejects_invalid_size_expires_entries_and_evicts_lru(self) -> None:

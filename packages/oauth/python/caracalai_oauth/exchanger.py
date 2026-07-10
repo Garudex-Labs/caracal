@@ -330,13 +330,12 @@ class ClientSecretExchanger:
         approval_id: str | None = None,
         cache: bool = True,
     ) -> MintedMandate:
-        """Exchange the application credential for a resource mandate audienced
-        to one resource and narrowed to the requested scopes. Pass the calling
-        Session and Delegation so the STS evaluates policy against that
-        Session's authority and the mandate carries its identity. When a scope
-        is approval-gated the mint raises :class:`ApprovalRequired`; retry with
-        ``approval_id`` set to the returned challenge id once an approver has
-        satisfied it."""
+        """Exchange the application credential for a scoped mandate narrowed
+        to one resource and the requested scopes. Session and Delegation inputs
+        produce an uncached ``use=gateway`` mandate; application lifecycle
+        exchanges produce cacheable ``use=session`` mandates. When a scope is
+        approval-gated the mint raises :class:`ApprovalRequired`; retry with
+        ``approval_id`` once an approver has satisfied it."""
         if not resource:
             raise ValueError("mint_mandate requires a resource")
         if not scopes:

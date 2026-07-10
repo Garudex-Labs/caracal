@@ -230,8 +230,9 @@ class ControlInvokeTests(unittest.TestCase):
         self.assertIn("socket hang up", caught.exception.reason)
 
     def test_definitive_classification(self):
-        self.assertTrue(ControlClientError("token", 503, "unavailable").definitive)
-        self.assertTrue(ControlClientError("token", 0, "network").definitive)
+        self.assertTrue(ControlClientError("token", 403, "denied").definitive)
+        self.assertFalse(ControlClientError("token", 503, "unavailable").definitive)
+        self.assertFalse(ControlClientError("token", 0, "network").definitive)
         self.assertTrue(ControlClientError("invoke", 403, "denied").definitive)
         self.assertFalse(ControlClientError("invoke", 504, "timeout").definitive)
         self.assertFalse(ControlClientError("invoke", 0, "network").definitive)
