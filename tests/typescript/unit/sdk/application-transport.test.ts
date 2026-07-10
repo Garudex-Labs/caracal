@@ -170,34 +170,25 @@ describe('Caracal.applicationTransport', () => {
 
     await c.close()
     expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(2)
+    expect(() => c.gatewayRequest(RESOURCE, '/things')).toThrow('Caracal client is closed')
   })
 
-  it('separates authority provisioning started after close advances the generation', async () => {
+  it('rejects in-flight and subsequent requests once close begins', async () => {
     const { fetchImpl: platformFetch, calls, counters } = fakeFetch()
-    let delegationCount = 0
     let markFirstDelegation!: () => void
     let releaseFirstDelegation!: () => void
-    let markSecondDelegation!: () => void
     const firstDelegation = new Promise<void>((resolve) => {
       markFirstDelegation = resolve
     })
     const firstRelease = new Promise<void>((resolve) => {
       releaseFirstDelegation = resolve
     })
-    const secondDelegation = new Promise<void>((resolve) => {
-      markSecondDelegation = resolve
-    })
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
       const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
       if (url.endsWith('/delegations') && method === 'POST') {
-        delegationCount += 1
-        if (delegationCount === 1) {
-          markFirstDelegation()
-          await firstRelease
-        } else if (delegationCount === 2) {
-          markSecondDelegation()
-        }
+        markFirstDelegation()
+        await firstRelease
       }
       return platformFetch(input, init)
     }) as typeof fetch
@@ -206,25 +197,14 @@ describe('Caracal.applicationTransport', () => {
 
     const firstRequest = appFetch(`${GATEWAY}/first`)
     await firstDelegation
-    let closing: Promise<void> | undefined
-    let secondRequest: Promise<Response> | undefined
-    let failure: unknown
-    try {
-      closing = caracal.close()
-      secondRequest = appFetch(`${GATEWAY}/second`)
-      releaseFirstDelegation()
-      await secondDelegation
+    const closing = caracal.close()
+    const secondRequest = appFetch(`${GATEWAY}/second`)
+    releaseFirstDelegation()
 
-      expect(counters.spawn).toBe(4)
-      expect((await secondRequest).status).toBe(200)
-    } finally {
-      releaseFirstDelegation()
-      const completion = await Promise.allSettled([firstRequest, ...(closing ? [closing] : []), ...(secondRequest ? [secondRequest] : [])])
-      failure = completion.find((result) => result.status === 'rejected')?.reason
-    }
-
-    if (failure) throw failure
-    expect(counters.spawn).toBe(4)
+    await expect(firstRequest).rejects.toThrow('Caracal client is closed')
+    await expect(secondRequest).rejects.toThrow('Caracal client is closed')
+    await closing
+    expect(counters.spawn).toBe(2)
     expect(calls.filter((call) => call.method === 'DELETE').map((call) => call.url.split('/').at(-1))).toEqual(['agent-1', 'agent-2'])
   })
 
