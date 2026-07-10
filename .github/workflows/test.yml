@@ -12,8 +12,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/test.yml'
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/release.yml'
       - '.prettierrc.json'
       - 'scripts/checkStyle.mjs'
+      - 'scripts/docsVersion.mjs'
       - 'scripts/pythonStyleRequirements.in'
       - 'scripts/pythonStyleRequirements.lock'
       - 'scripts/pythonTestRequirements.in'
@@ -140,7 +143,7 @@ jobs:
             # under-triggers; precision is traded for safety.
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
+                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|scripts/docsVersion.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
                   typescript=true
                   style=true
                   ;;
@@ -158,7 +161,7 @@ jobs:
                   ;;
               esac
               case "$path" in
-                .github/workflows/test.yml|docs/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
+                .github/workflows/test.yml|.github/workflows/deploy.yml|.github/workflows/release.yml|scripts/docsVersion.mjs|docs/**|tests/typescript/unit/docs/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml)
                   docs=true
                   ;;
               esac
@@ -400,6 +403,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup pnpm
@@ -418,7 +422,11 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build static docs
+        env:
+          DOCS_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
         run: |
+          node scripts/docsVersion.mjs verify --base "$DOCS_BASE_REF"
+          pnpm --dir docs test
           node scripts/validateOpsDocs.mjs
           pnpm --dir docs build
 

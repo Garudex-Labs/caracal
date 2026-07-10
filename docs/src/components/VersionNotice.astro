@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Status notice for historical and unreleased documentation pages.
+ * Status notice for historical and next-version documentation pages.
  */
 
 import { docsRouteVersion, docsVersionState } from '../../versioning.mjs'
@@ -23,7 +23,7 @@ const stableHref = docsVersionState.current ? `/${docsVersionState.current}/` : 
       <path d="M12 16h.01" />
     </svg>
     <span>
-      {isNext ? 'This documentation describes the next unreleased minor version.' : `This documentation is the locked ${entry?.version} release snapshot.`}
+      {isNext ? 'This documentation describes the next minor version.' : `This documentation is the locked ${entry?.version} release snapshot.`}
       {' '}<a href={stableHref}>View the latest stable documentation.</a>
     </span>
   </aside>

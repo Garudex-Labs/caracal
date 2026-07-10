@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Documentation minor-version selector for stable, historical, and unreleased content.
+ * Documentation minor-version selector for current and historical content.
  */
 
 import { getCollection } from 'astro:content'
@@ -19,11 +19,11 @@ const versions = docsVersionState.current
   ? [
       ...docsVersionState.versions.map((version) => ({
         version: version.version,
-        label: version.version === docsVersionState.current ? `${version.version} (stable)` : version.version,
+        label: version.version,
       })),
-      { version: 'next', label: 'Next (unreleased)' },
+      { version: 'next', label: 'Next' },
     ]
-  : [{ version: docsVersionState.target, label: `${docsVersionState.target} (unreleased)` }]
+  : [{ version: docsVersionState.target, label: docsVersionState.target }]
 
 function versionHref(version: string) {
   if (!docsVersionState.current) return Astro.url.pathname
@@ -35,10 +35,6 @@ function versionHref(version: string) {
 <caracal-version-select>
   <label>
     <span class="sr-only">Documentation version</span>
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
     <select aria-label="Documentation version" autocomplete="off">
       {versions.map((version) => (
         <option selected={version.version === routeVersion} value={versionHref(version.version)}>
@@ -80,17 +76,11 @@ function versionHref(version: string) {
     color: var(--sl-color-text);
   }
 
-  label > svg:first-of-type {
-    position: absolute;
-    left: 0.58rem;
-    pointer-events: none;
-  }
-
   select {
     min-height: 2rem;
     max-width: 10.5rem;
     appearance: none;
-    padding: 0 1.9rem 0 1.8rem;
+    padding: 0 1.9rem 0 0.72rem;
     border: 1px solid var(--caracal-border-strong);
     border-radius: 6px;
     background: var(--caracal-panel-strong);

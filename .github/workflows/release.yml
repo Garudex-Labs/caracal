@@ -199,6 +199,20 @@ jobs:
           test -f "$manifest" || { echo "::error::Missing release manifest: $manifest"; exit 1; }
           CARACAL_VALIDATE_HELM_FILES=1 node scripts/validateReleaseManifest.mjs "$manifest"
 
+      - name: Validate stable documentation version
+        if: steps.resolve.outputs.channel == 'stable'
+        env:
+          RELEASE_VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/docsVersion.mjs verify
+          expected="v$(echo "$RELEASE_VERSION" | cut -d. -f1,2)"
+          current="$(jq -r '.current' docs/versions.json)"
+          if [ "$current" != "$expected" ]; then
+            echo "::error::Stable ${RELEASE_VERSION} requires the ${expected} documentation snapshot; current is ${current}."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: ${{ env.PNPM_VERSION }}
