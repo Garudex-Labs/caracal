@@ -128,7 +128,7 @@ func TestFromEnvClientSecretTokenSource(t *testing.T) {
 	}
 }
 
-func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *testing.T) {
+func TestFromEnvClientSecretUsesExplicitAppResources(t *testing.T) {
 	var gotResources []string
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -145,7 +145,6 @@ func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
 	t.Setenv("CARACAL_STS_URL", sts.URL)
-	t.Setenv("CARACAL_RUN_CREDENTIALS", `[{"resource":"calendar","upstream_prefix":"https://calendar.example.com"}]`)
 	t.Setenv("CARACAL_APP_RESOURCES", "billing")
 
 	c, err := sdk.FromEnv()
@@ -155,29 +154,15 @@ func TestFromEnvClientSecretKeepsCredentialResourcesWithExplicitAppResources(t *
 	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(compactSorted(gotResources), ",") != "billing,calendar" {
+	if strings.Join(compactSorted(gotResources), ",") != "billing" {
 		t.Fatalf("unexpected resources: %#v", gotResources)
 	}
-	got := resourceBindingMap(c.Resources)
-	if got["calendar"] != "https://calendar.example.com" {
-		t.Fatalf("expected credential binding, got %#v", got)
+	if len(c.Resources) != 0 {
+		t.Fatalf("unexpected bindings: %#v", c.Resources)
 	}
 }
 
-func TestFromEnvAutoDetectsCredentialFiles(t *testing.T) {
-	var gotResources []string
-	var gotSecret string
-	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		gotResources = r.Form["resource"]
-		gotSecret = r.Form.Get("client_secret")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"fresh-root","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer sts.Close()
-
+func TestFromEnvIgnoresImplicitCredentialFiles(t *testing.T) {
 	dir := t.TempDir()
 	credentialDir := filepath.Join(dir, "caracal", "runtime", "z", "app")
 	if err := os.MkdirAll(credentialDir, 0o700); err != nil {
@@ -192,20 +177,10 @@ func TestFromEnvAutoDetectsCredentialFiles(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("CARACAL_ZONE_ID", "z")
 	t.Setenv("CARACAL_APPLICATION_ID", "app")
-	t.Setenv("CARACAL_STS_URL", sts.URL)
+	t.Setenv("CARACAL_STS_URL", "http://sts")
 
-	c, err := sdk.FromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.Headers(context.Background(), sdk.CallOptions{AsApplication: true}); err != nil {
-		t.Fatal(err)
-	}
-	if gotSecret != "secret" {
-		t.Fatalf("expected auto-detected client secret, got %q", gotSecret)
-	}
-	if strings.Join(compactSorted(gotResources), ",") != "calendar" {
-		t.Fatalf("unexpected resources: %#v", gotResources)
+	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "CARACAL_APP_CLIENT_SECRET") {
+		t.Fatalf("expected explicit credential error, got %v", err)
 	}
 }
 
@@ -270,7 +245,7 @@ func TestNewUsesExplicitOptionsConfigProfileAndEnv(t *testing.T) {
 	}))
 	defer sts.Close()
 
-	explicit, err := sdk.New(sdk.ClientSecretOptions{
+	explicit, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
 		CoordinatorURL: "http://coord",
 		STSURL:         sts.URL,
 		ZoneID:         "z",
@@ -328,15 +303,6 @@ resource = "resource://pipernet"
 `, sts.URL, secretPath)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fromProfile, err := sdk.New()
-	if err != nil {
-		t.Fatalf("profile connect: %v", err)
-	}
-	if fromProfile.ZoneID != "z-profile" {
-		t.Fatalf("unexpected profile client: %#v", fromProfile)
-	}
-
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "empty"))
 	t.Setenv("CARACAL_ZONE_ID", "z-env")
 	t.Setenv("CARACAL_APPLICATION_ID", "app-env")
 	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "tok-env")
@@ -346,6 +312,9 @@ resource = "resource://pipernet"
 	}
 	if fromEnv.SubjectToken != "tok-env" {
 		t.Fatalf("unexpected env client: %#v", fromEnv)
+	}
+	if fromEnv.ZoneID == "z-profile" {
+		t.Fatalf("New must not inspect default profile paths: %#v", fromEnv)
 	}
 }
 
@@ -845,6 +814,32 @@ func TestStartCoordinatorSessionExplicitIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestFromClientSecretPropagatesHTTPClientToCoordinator(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"session_id":"session-1"}`)),
+			Request:    req,
+		}, nil
+	})}
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "https://coordinator.example.com",
+		STSURL:         "https://sts.example.com",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		Resources:      []string{"resource://pipernet"},
+		HTTPClient:     client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Coordinator.HTTPClient != client {
+		t.Fatal("custom HTTP client must be shared with Coordinator")
+	}
+}
+
 func TestFromEnvRejectsExpiredJWT(t *testing.T) {
 	// Header.Payload.Sig where payload claims exp=1000000 (year 1970).
 	expired := "eyJhbGciOiJFUzI1NiJ9.eyJleHAiOjEwMDAwMDB9.sig"
@@ -1071,7 +1066,7 @@ func TestOnEventForwardsCoordinatorAndExchangeEvents(t *testing.T) {
 	}))
 	defer coord.Close()
 
-	c, err := sdk.New(sdk.ClientSecretOptions{
+	c, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
 		CoordinatorURL: coord.URL,
 		STSURL:         sts.URL,
 		ZoneID:         "z",

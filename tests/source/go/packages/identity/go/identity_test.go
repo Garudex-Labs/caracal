@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -318,6 +319,60 @@ func TestGetJWKSHandlesFetchDecodeAndConcurrentCalls(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestGetJWKSNormalizesIssuerAndRejectsOversizedDocuments(t *testing.T) {
+	ResetJWKSCache()
+	key := testKey(t)
+	good, calls := issuerWithJWKS(t, func() string {
+		body, _ := json.Marshal(map[string]any{"keys": []any{jwkForKey(key, "kid-1")}})
+		return string(body)
+	})
+	defer good.Close()
+	if _, err := GetJWKS(good.URL+"/", "zone-1"); err != nil {
+		t.Fatalf("trailing slash issuer: %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected normalized issuer fetch, got %d calls", calls.Load())
+	}
+
+	ResetJWKSCache()
+	large := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[],"padding":"` + strings.Repeat("x", jwksMaxBytes) + `"}`))
+	}))
+	defer large.Close()
+	if _, err := GetJWKS(large.URL, "zone-1"); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("expected oversized JWKS rejection, got %v", err)
+	}
+}
+
+func TestJWKSCacheUsesInjectedHTTPClient(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"keys":[]}`)),
+			Request:    req,
+		}, nil
+	})}
+	cache := NewJWKSCache(client, time.Minute)
+	if _, err := cache.Get(context.Background(), "https://issuer.example", "zone-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Get(context.Background(), "https://issuer.example", "zone-1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one injected-client request, got %d", calls.Load())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestParseECJWKRejectsUnsupportedKeys(t *testing.T) {

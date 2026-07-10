@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
@@ -144,6 +146,21 @@ func governedClient(t *testing.T, platformURL, gatewayURL string, opts func(*sdk
 		opts(&options)
 	}
 	c, err := sdk.FromClientSecret(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func governedResolverClient(t *testing.T, platformURL, gatewayURL string, resolver sdk.CredentialsResolver) *sdk.Caracal {
+	t.Helper()
+	c, err := sdk.FromCredentials(sdk.AdvancedCredentialsOptions{
+		CoordinatorURL:   platformURL,
+		STSURL:           platformURL,
+		Credentials:      resolver,
+		ResourceBindings: []sdk.ResourceBinding{{ResourceID: governedResource, UpstreamPrefix: governedUpstream}},
+		GatewayURL:       gatewayURL,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +367,124 @@ func TestCloseDropsCachedApplicationMandates(t *testing.T) {
 	}
 }
 
+func TestCloseSeparatesAuthorityProvisioningGenerations(t *testing.T) {
+	workers := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(workers)
+	platform := &governedPlatform{}
+	firstDelegation := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondDelegation := make(chan struct{})
+	var releaseOnce sync.Once
+	defer func() { releaseOnce.Do(func() { close(releaseFirst) }) }()
+	var delegationMu sync.Mutex
+	delegationN := 0
+	handler := platform.handler()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations") {
+			delegationMu.Lock()
+			delegationN++
+			current := delegationN
+			delegationMu.Unlock()
+			switch current {
+			case 1:
+				close(firstDelegation)
+				<-releaseFirst
+			case 2:
+				close(secondDelegation)
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	c := governedClient(t, server.URL, gateway.URL, nil)
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type requestResult struct {
+		status int
+		err    error
+	}
+	request := func(target string) <-chan requestResult {
+		done := make(chan requestResult, 1)
+		go func() {
+			res, err := client.Get(target)
+			if err != nil {
+				done <- requestResult{err: err}
+				return
+			}
+			defer res.Body.Close()
+			done <- requestResult{status: res.StatusCode}
+		}()
+		return done
+	}
+	wait := func(ch <-chan struct{}, label string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", label)
+		}
+	}
+
+	first := request(governedUpstream + "/first")
+	wait(firstDelegation, "first delegation")
+	closeStarted := make(chan struct{})
+	closeResult := make(chan error, 1)
+	go func() {
+		close(closeStarted)
+		closeResult <- c.Close()
+	}()
+	<-closeStarted
+	runtime.Gosched()
+	second := request(governedUpstream + "/second")
+	wait(secondDelegation, "second delegation")
+
+	platform.mu.Lock()
+	spawns := platform.agentN
+	platform.mu.Unlock()
+	if spawns != 4 {
+		t.Fatalf("expected a distinct authority pair for the new generation, got %d spawned sessions", spawns)
+	}
+	select {
+	case result := <-second:
+		if result.err != nil || result.status != http.StatusOK {
+			t.Fatalf("new-generation request failed: status=%d err=%v", result.status, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for new-generation request")
+	}
+	releaseOnce.Do(func() { close(releaseFirst) })
+	select {
+	case err := <-closeResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Close")
+	}
+	select {
+	case result := <-first:
+		if result.err != nil || result.status != http.StatusOK {
+			t.Fatalf("old-generation request failed: status=%d err=%v", result.status, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for old-generation request")
+	}
+
+	platform.mu.Lock()
+	defer platform.mu.Unlock()
+	if platform.agentN != 4 {
+		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
+	}
+	if len(platform.terminated) != 2 || platform.terminated[0] != "agent-1" || platform.terminated[1] != "agent-2" {
+		t.Fatalf("expected the old authority pair to retire, got %v", platform.terminated)
+	}
+}
+
 func TestGovernedTransportCacheSeparatesLabelsAndTTL(t *testing.T) {
 	platform := &governedPlatform{}
 	server := httptest.NewServer(platform.handler())
@@ -444,6 +579,35 @@ func TestGovernedTransportSharesConcurrentCycle(t *testing.T) {
 	}
 }
 
+func TestGovernedTransportEvictsAndRetiresAuthorityPairsAtCapacity(t *testing.T) {
+	platform := &governedPlatform{}
+	server := httptest.NewServer(platform.handler())
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	c := governedClient(t, server.URL, gateway.URL, nil)
+	for index := 0; index < 20; index++ {
+		client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
+			Scopes: []string{"data:read"},
+			Labels: []string{fmt.Sprintf("worker-%d", index)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		governedGet(t, client, fmt.Sprintf("%s/%d", governedUpstream, index))
+	}
+
+	platform.mu.Lock()
+	defer platform.mu.Unlock()
+	if platform.agentN != 40 {
+		t.Fatalf("expected 40 spawned sessions, got %d", platform.agentN)
+	}
+	if len(platform.terminated) != 2 || platform.terminated[0] != "agent-1" || platform.terminated[1] != "agent-2" {
+		t.Fatalf("expected one evicted authority pair, got %v", platform.terminated)
+	}
+}
+
 func TestGovernedTransportTerminatesSessionsOnDelegationFailure(t *testing.T) {
 	platform := &governedPlatform{failDelegation: true}
 	server := httptest.NewServer(platform.handler())
@@ -501,11 +665,7 @@ func TestGovernedTransportResolverFailsClosedAndRecovers(t *testing.T) {
 		defer mu.Unlock()
 		return current, nil
 	}
-	c := governedClient(t, server.URL, gateway.URL, func(o *sdk.ClientSecretOptions) {
-		o.ZoneID, o.ApplicationID, o.ClientSecret = "", "", ""
-		o.Resources = nil
-		o.Credentials = resolver
-	})
+	c := governedResolverClient(t, server.URL, gateway.URL, resolver)
 	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
@@ -544,11 +704,7 @@ func TestGovernedTransportReprovisionsOnIdentityChange(t *testing.T) {
 		defer mu.Unlock()
 		return current, nil
 	}
-	c := governedClient(t, server.URL, gateway.URL, func(o *sdk.ClientSecretOptions) {
-		o.ZoneID, o.ApplicationID, o.ClientSecret = "", "", ""
-		o.Resources = nil
-		o.Credentials = resolver
-	})
+	c := governedResolverClient(t, server.URL, gateway.URL, resolver)
 	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
 	if err != nil {
 		t.Fatal(err)
@@ -578,16 +734,49 @@ func TestGovernedTransportReprovisionsOnIdentityChange(t *testing.T) {
 	}
 }
 
-func TestFromClientSecretRejectsResolverWithTriple(t *testing.T) {
-	resolver := func(context.Context) (*sdk.ClientCredentials, error) { return nil, nil }
-	_, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+func TestGovernedTransportReprovisionsAndRetiresOnSecretRotation(t *testing.T) {
+	platform := &governedPlatform{}
+	server := httptest.NewServer(platform.handler())
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	var mu sync.Mutex
+	current := &sdk.ClientCredentials{ZoneID: "z", ApplicationID: "app", ClientSecret: "secret-1"}
+	resolver := func(context.Context) (*sdk.ClientCredentials, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return current, nil
+	}
+	c := governedResolverClient(t, server.URL, gateway.URL, resolver)
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{Scopes: []string{"data:read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	governedGet(t, client, governedUpstream+"/one")
+
+	mu.Lock()
+	current = &sdk.ClientCredentials{ZoneID: "z", ApplicationID: "app", ClientSecret: "secret-2"}
+	mu.Unlock()
+	governedGet(t, client, governedUpstream+"/two")
+
+	platform.mu.Lock()
+	defer platform.mu.Unlock()
+	if platform.agentN != 4 {
+		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
+	}
+	if len(platform.terminated) != 2 || platform.terminated[0] != "agent-1" || platform.terminated[1] != "agent-2" {
+		t.Fatalf("expected the prior authority pair to retire, got %v", platform.terminated)
+	}
+}
+
+func TestFromCredentialsRequiresResolver(t *testing.T) {
+	_, err := sdk.FromCredentials(sdk.AdvancedCredentialsOptions{
 		CoordinatorURL: "http://coord",
 		STSURL:         "http://sts",
-		ZoneID:         "z",
-		Credentials:    resolver,
 	})
-	if err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Fatalf("expected resolver/triple conflict error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "requires Credentials") {
+		t.Fatalf("expected resolver requirement, got %v", err)
 	}
 }
 

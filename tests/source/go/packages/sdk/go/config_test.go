@@ -57,7 +57,7 @@ func TestFromEnvStsURLFallsBackToZoneURL(t *testing.T) {
 	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
 	t.Setenv("CARACAL_APP_RESOURCES", "resource://pipernet")
-	t.Setenv("CARACAL_ZONE_URL", sts.URL)
+	t.Setenv("CARACAL_STS_URL", sts.URL)
 	c, err := sdk.FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -137,44 +137,16 @@ func TestFromEnvClientSecretSources(t *testing.T) {
 	}
 }
 
-func TestFromEnvClientSecretRequiresResources(t *testing.T) {
+func TestFromEnvClientSecretAllowsNoResources(t *testing.T) {
 	setSubjectEnv(t)
 	t.Setenv("CARACAL_BOOTSTRAP_TOKEN", "")
 	t.Setenv("CARACAL_APP_CLIENT_SECRET", "secret")
-	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "requires resources") {
-		t.Fatalf("expected resources requirement, got %v", err)
-	}
-}
-
-func TestFromEnvRunCredentialsManifestForms(t *testing.T) {
-	setSubjectEnv(t)
-	t.Setenv("CARACAL_RUN_CREDENTIALS", `{
-		"credentials":[{"resource":"resource://pipernet","upstream_prefix":"https://api.pipernet.example"}],
-		"optional_credentials":[{"resource":"resource://not-hotdog"}]
-	}`)
 	c, err := sdk.FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := resourceBindingMap(c.Resources)
-	if got["resource://pipernet"] != "https://api.pipernet.example" || len(c.Resources) != 1 {
-		t.Fatalf("unexpected bindings: %#v", c.Resources)
-	}
-
-	t.Setenv("CARACAL_RUN_CREDENTIALS", `not json`)
-	if _, err := sdk.FromEnv(); err == nil {
-		t.Fatal("invalid manifest JSON must be rejected")
-	}
-
-	t.Setenv("CARACAL_RUN_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "creds.json"))
-	t.Setenv("CARACAL_RUN_CREDENTIALS", `[]`)
-	if _, err := sdk.FromEnv(); err == nil || !strings.Contains(err.Error(), "only one of") {
-		t.Fatalf("expected conflict error, got %v", err)
-	}
-
-	t.Setenv("CARACAL_RUN_CREDENTIALS", "")
-	if _, err := sdk.FromEnv(); err == nil {
-		t.Fatal("missing credentials file must surface the read error")
+	if len(c.Resources) != 0 {
+		t.Fatalf("unexpected resources: %#v", c.Resources)
 	}
 }
 
@@ -243,7 +215,7 @@ application_id = "app"
 app_client_secret_file = %q
 `, secretPath))
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("CARACAL_ZONE_URL", "http://sts.local")
+	t.Setenv("CARACAL_STS_URL", "http://sts.local")
 	t.Setenv("CARACAL_COORDINATOR_URL", "http://coordinator.local")
 	t.Setenv("CARACAL_GATEWAY_URL", "http://gateway.local")
 	t.Setenv("CARACAL_DEFAULT_TTL_SECONDS", "90")
@@ -264,7 +236,7 @@ app_client_secret_file = %q
 	}
 }
 
-func TestFromConfigRequiresResources(t *testing.T) {
+func TestFromConfigAllowsNoResources(t *testing.T) {
 	dir := t.TempDir()
 	secretPath := filepath.Join(dir, "secret")
 	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
@@ -276,8 +248,12 @@ sts_url = "http://sts.local"
 app_client_secret_file = %q
 `, secretPath))
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if _, err := sdk.FromConfig(path); err == nil || !strings.Contains(err.Error(), "at least one resource") {
-		t.Fatalf("expected resource requirement, got %v", err)
+	c, err := sdk.FromConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Resources) != 0 {
+		t.Fatalf("unexpected resources: %#v", c.Resources)
 	}
 }
 
@@ -327,7 +303,7 @@ sts_url = "http://sts.local"
 [[credentials]]
 resource = "resource://pipernet"
 `)
-	if _, err := sdk.FromConfig(missing); err == nil || !strings.Contains(err.Error(), "requires a client secret") {
+	if _, err := sdk.FromConfig(missing); err == nil || !strings.Contains(err.Error(), "requires app_client_secret or app_client_secret_file") {
 		t.Fatalf("expected missing secret error, got %v", err)
 	}
 }
@@ -343,5 +319,35 @@ func TestFromClientSecretRejectsNegativeTTL(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "DefaultTTLSeconds") {
 		t.Fatalf("expected ttl validation error, got %v", err)
+	}
+}
+
+func TestFromClientSecretRejectsMalformedEndpoint(t *testing.T) {
+	_, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "coordinator.internal:4000",
+		STSURL:         "http://sts",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+	})
+	if err == nil || !strings.Contains(err.Error(), "absolute http or https URL") {
+		t.Fatalf("expected endpoint validation error, got %v", err)
+	}
+}
+
+func TestFromClientSecretRejectsMalformedResourceBinding(t *testing.T) {
+	_, err := sdk.FromClientSecret(sdk.ClientSecretOptions{
+		CoordinatorURL: "http://coord",
+		STSURL:         "http://sts",
+		ZoneID:         "z",
+		ApplicationID:  "app",
+		ClientSecret:   "secret",
+		ResourceBindings: []sdk.ResourceBinding{{
+			ResourceID:     "calendar",
+			UpstreamPrefix: "ftp://calendar.example.com",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "absolute http or https URL") {
+		t.Fatalf("expected binding validation error, got %v", err)
 	}
 }

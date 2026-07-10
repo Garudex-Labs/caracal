@@ -256,7 +256,7 @@ func TestCoordinatorGraphSurfacePaths(t *testing.T) {
 		ok(`[]`),
 		ok(`[]`),
 		ok(`[{"id":"edge-1","depth":1}]`),
-		ok(`{"edge_id":"edge-1","affected_edges":[],"affected_agents":["a1"],"affected_subject_sessions":[]}`),
+		ok(`{"edge_id":"edge-1","affected_edges":[],"affected_sessions":["s1"],"affected_authority_records":["record-1"]}`),
 	}}
 	client := newCoordinatorAdmin(transport, -1)
 	ctx := context.Background()
@@ -277,8 +277,11 @@ func TestCoordinatorGraphSurfacePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("impact: %v", err)
 	}
-	if len(impact.AffectedSessions) != 1 || impact.AffectedSessions[0] != "a1" {
+	if len(impact.AffectedSessions) != 1 || impact.AffectedSessions[0] != "s1" {
 		t.Fatalf("impact: %+v", impact)
+	}
+	if len(impact.AffectedAuthorityRecords) != 1 || impact.AffectedAuthorityRecords[0] != "record-1" {
+		t.Fatalf("impact authority records: %+v", impact)
 	}
 
 	expected := []struct {

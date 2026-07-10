@@ -156,7 +156,7 @@ func TestCloseWaitsForReplayPersistence(t *testing.T) {
 	}
 }
 
-func TestEmitDropsWhenFull(t *testing.T) {
+func TestEmitPersistsWhenFull(t *testing.T) {
 	dir := t.TempDir()
 	var dropped atomic.Uint64
 	c, err := NewClient(&fakeStreamer{}, ClientConfig{
@@ -174,8 +174,11 @@ func TestEmitDropsWhenFull(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		c.Emit(Event{ID: "x"})
 	}
-	if dropped.Load() == 0 {
-		t.Fatal("expected drops when buffer is exhausted without consumer")
+	if dropped.Load() != 0 {
+		t.Fatalf("overflow must not drop durable events: %d", dropped.Load())
+	}
+	if c.Snapshot().Persisted != 8 {
+		t.Fatalf("overflow persisted = %d", c.Snapshot().Persisted)
 	}
 }
 

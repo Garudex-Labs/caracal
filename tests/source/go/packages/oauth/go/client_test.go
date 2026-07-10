@@ -201,9 +201,9 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	token, err := client.ExchangeResources(context.Background(), "subject", []string{" resource://b ", "", "resource://a"}, ExchangeOptions{
 		ClientAssertion:     "assertion",
 		ClientAssertionType: "urn:jwt",
-		SessionID:           "sid",
-		AgentSessionID:      "agent",
-		DelegationEdgeID:    "edge",
+		AuthorityRecordID:   "record",
+		SessionID:           "session",
+		DelegationID:        "delegation",
 		Scopes:              []string{"write", "read", "write"},
 		TTLSeconds:          300,
 	})
@@ -216,7 +216,9 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	if got := form["resource"]; len(got) != 2 || got[0] != "resource://b" || got[1] != "resource://a" {
 		t.Fatalf("unexpected resources: %#v", got)
 	}
-	if form.Get("scope") != "read write" || form.Get("ttl_seconds") != "300" || form.Get("agent_session_id") != "agent" {
+	if form.Get("scope") != "read write" || form.Get("ttl_seconds") != "300" ||
+		form.Get("session_id") != "record" || form.Get("agent_session_id") != "session" ||
+		form.Get("delegation_edge_id") != "delegation" {
 		t.Fatalf("unexpected form: %#v", form)
 	}
 	if _, present := form["actor_token"]; present {
@@ -412,6 +414,10 @@ func TestInMemoryTokenCacheBoundaries(t *testing.T) {
 	}
 	if key := cacheKey("subject", "resource://b"); key == "" || key == fmt.Sprintf("%x", []byte("subject")) {
 		t.Fatalf("unexpected cache key: %q", key)
+	}
+	cache.Clear()
+	if _, ok := cache.Get("subject", "resource://b"); ok {
+		t.Fatal("cleared cache entry should miss")
 	}
 }
 

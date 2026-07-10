@@ -114,13 +114,13 @@ func TestCoordinatorErrorFormatsMethodPathAndBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1")
+	err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1")
 	var coordErr *sdk.CoordinatorError
 	if !errors.As(err, &coordErr) {
 		t.Fatalf("expected CoordinatorError, got %v", err)
 	}
 	msg := coordErr.Error()
-	if !strings.Contains(msg, "DELETE") || !strings.Contains(msg, "/zones/z/agents/agent-1") || !strings.Contains(msg, "409") || !strings.Contains(msg, "already_terminated") {
+	if !strings.Contains(msg, "DELETE") || !strings.Contains(msg, "/zones/z/agents/session-1") || !strings.Contains(msg, "409") || !strings.Contains(msg, "already_terminated") {
 		t.Fatalf("unexpected error string: %s", msg)
 	}
 }
@@ -132,7 +132,7 @@ func TestCoordinatorErrorCarriesRetryAfterHint(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1")
+	err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1")
 	var coordErr *sdk.CoordinatorError
 	if !errors.As(err, &coordErr) || coordErr.RetryAfterSeconds != 3 {
 		t.Fatalf("expected the Retry-After hint to be carried, got %v", err)
@@ -146,7 +146,7 @@ func TestCoordinatorErrorCapsBodyInMessage(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1")
+	err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1")
 	var coordErr *sdk.CoordinatorError
 	if !errors.As(err, &coordErr) {
 		t.Fatalf("expected CoordinatorError, got %v", err)
@@ -171,7 +171,7 @@ func TestCoordinatorEventSinkPanicsAreContained(t *testing.T) {
 	if _, err := sdk.StartCoordinatorSession(context.Background(), client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app"}); err != nil {
 		t.Fatalf("panicking sink must not break the call: %v", err)
 	}
-	if err := sdk.TerminateAgent(context.Background(), client, "tok", "z", "agent-1"); err == nil {
+	if err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1"); err == nil {
 		t.Fatal("expected coordinator error")
 	}
 }
@@ -190,7 +190,7 @@ func TestCoordinatorNetworkErrorEmitsFailureEvent(t *testing.T) {
 	}
 }
 
-func TestHeartbeatAgentDefaultsStatusToHealthy(t *testing.T) {
+func TestHeartbeatSessionDefaultsStatusToHealthy(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -199,7 +199,7 @@ func TestHeartbeatAgentDefaultsStatusToHealthy(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	res, err := sdk.HeartbeatAgent(context.Background(), client, "tok", "z", "agent-1", "")
+	res, err := sdk.HeartbeatSession(context.Background(), client, "tok", "z", "session-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

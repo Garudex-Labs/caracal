@@ -64,7 +64,7 @@ func TestSnapshotAndStatsHandleNilAndEmptyDir(t *testing.T) {
 	}
 }
 
-func TestDroppedCountsOverflow(t *testing.T) {
+func TestOverflowPersistsWithoutLoss(t *testing.T) {
 	c, err := NewClient(&fakeStreamer{}, ClientConfig{
 		ReplayDir: t.TempDir(),
 		Logger:    zerolog.Nop(),
@@ -75,9 +75,12 @@ func TestDroppedCountsOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Emit(Event{ID: "kept"})
-	c.Emit(Event{ID: "dropped"})
-	if c.Dropped() != 1 {
+	c.Emit(Event{ID: "persisted"})
+	if c.Dropped() != 0 {
 		t.Fatalf("dropped: %d", c.Dropped())
+	}
+	if c.Snapshot().Persisted != 1 {
+		t.Fatalf("persisted: %d", c.Snapshot().Persisted)
 	}
 	if c.Snapshot().QueueDepth != 1 || c.Snapshot().QueueCap != 1 {
 		t.Fatalf("queue snapshot: %+v", c.Snapshot())
