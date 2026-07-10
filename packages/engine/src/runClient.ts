@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Run client: fetches a workload's launch bindings and mints bound runtime credentials from STS.
+// Private STS client for workload launch bindings and runtime credentials.
 
-import { ApprovalRequiredError } from './types.js'
+import { ApprovalRequiredError } from '@caracalai/oauth'
 
 export interface RunBinding {
   env: string
@@ -13,7 +13,7 @@ export interface RunBinding {
   onFailure: 'warn' | 'error'
 }
 
-export interface RunManifestResponse {
+interface RunManifestResponse {
   zoneId: string
   workloadId: string
   bindings: RunBinding[]
@@ -25,10 +25,9 @@ export interface RunCredentialResponse {
   expiresAt?: number
 }
 
-export interface RunRequestOptions {
+interface RunRequestOptions {
   timeoutMs?: number
   fetchImpl?: typeof fetch
-  // Client-generated UUID that correlates every STS call of one launch in the audit stream.
   launchId?: string
 }
 
@@ -68,9 +67,6 @@ async function readRunError(res: Response): Promise<RunErrorResponse> {
   }
 }
 
-// Authenticates the workload against STS and returns its launch bindings. STS reports
-// every credential failure identically, so callers only see whether the pair is valid
-// and whether bindings are configured.
 export async function fetchRunManifest(
   stsUrl: string,
   workloadId: string,
@@ -85,10 +81,6 @@ export async function fetchRunManifest(
   return validateManifest(await res.json())
 }
 
-// Mints the provider credential for one binding, addressed by env name only: the
-// resource, scopes, and provider are resolved server-side from the workload's stored
-// binding, so the request wire carries no authority. A policy-gated mint surfaces as
-// ApprovalRequiredError; retrying with the approved approvalId releases it.
 export async function fetchRunCredential(
   stsUrl: string,
   workloadId: string,
