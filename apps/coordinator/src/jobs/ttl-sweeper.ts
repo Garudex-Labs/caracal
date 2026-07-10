@@ -34,8 +34,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
          AND ttl_seconds IS NOT NULL
          AND started_at + (ttl_seconds * interval '1 second') < now()
        ORDER BY id
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED`,
+      LIMIT $1`,
       [cfg.sweeperBatchSize],
     )
     if (expired.length === 0) {
@@ -49,7 +48,7 @@ export async function runTTLSweep(db: Pool): Promise<number> {
       byZone.set(row.zone_id, list)
     }
     let terminated = 0
-    for (const [zoneId, ids] of byZone) {
+    for (const [zoneId, ids] of [...byZone].sort(([a], [b]) => a.localeCompare(b))) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       terminated += await terminateSubtree(client, zoneId, ids, 'ttl', 'expired')
     }

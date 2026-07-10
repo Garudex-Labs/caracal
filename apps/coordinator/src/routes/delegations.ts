@@ -11,10 +11,11 @@ import { scopesAllowed } from '@caracalai/core'
 import { enqueue, enqueueMany, Topics, type OutboxItem, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
 import { bumpDelegationEpoch } from '../delegationEpochs.js'
-import { MAX_DEPTH, terminateSubtree } from './agents.js'
+import { MAX_DEPTH, sessionLockKey, terminateSubtree } from './agents.js'
 import { ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
+import { SESSION_LIVE_SQL } from '../sessionLiveness.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -172,7 +173,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(receipt.status).send(receipt.response)
         }
       }
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       const endpoints = await activeSessionEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
       if (!endpoints.source || !endpoints.target) {
         await client.query('ROLLBACK')
@@ -399,7 +400,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
          UNION ALL
          SELECT e.id, e.source_session_id, e.target_session_id, a.depth + 1, a.visited || e.id
          FROM delegation_edges e
-         JOIN affected a ON e.source_session_id = a.target_session_id
+         JOIN affected a ON e.parent_edge_id = a.id
          WHERE e.zone_id = $2
            AND e.status = 'active'
            AND e.expires_at > now()
@@ -417,7 +418,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       edge_id: id,
       affected_edges: rows.map(({ subject_authority_record_id: _subjectAuthorityRecordId, ...row }) => row),
       affected_sessions: [...new Set(rows.map((row) => row.target_session_id))],
-      affected_subject_sessions: [...new Set(rows.map((row) => row.subject_authority_record_id).filter(Boolean))],
+      affected_authority_records: [...new Set(rows.map((row) => row.subject_authority_record_id).filter(Boolean))],
     }
   })
 
@@ -499,7 +500,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
       const { rows: edge } = await client.query<{ issuer_application_id: string }>(
         `SELECT issuer_application_id FROM delegation_edges
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -525,7 +526,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
            UNION ALL
            SELECT e.id, e.target_session_id, a.visited || e.id
            FROM delegation_edges e
-           JOIN affected a ON e.source_session_id = a.target_session_id
+           JOIN affected a ON e.parent_edge_id = a.id
            WHERE e.zone_id = $2
              AND e.status = 'active'
              AND NOT e.id = ANY(a.visited)
@@ -685,10 +686,7 @@ async function activeSessionEndpoints(
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
-        AND (
-          (ttl_seconds IS NOT NULL AND started_at + (ttl_seconds * interval '1 second') > now())
-          OR (lifecycle = 'service' AND heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at > now())
-        )
+        AND ${SESSION_LIVE_SQL}
      FOR SHARE`,
     [zoneId, [sourceId, targetId]],
   )

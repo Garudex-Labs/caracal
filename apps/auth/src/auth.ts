@@ -200,7 +200,7 @@ export const auth = betterAuth({
     },
     defaultCookieAttributes: {
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: cfg.cookieSameSite,
     },
   },
 })

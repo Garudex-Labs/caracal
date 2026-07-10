@@ -74,7 +74,7 @@ interface LiveDcrApplication {
   id: string
 }
 
-interface RevokedSession {
+interface RevokedAuthorityRecord {
   id: string
 }
 
@@ -185,8 +185,8 @@ async function revokeDcrIdentities(
   applicationIds: string[],
   requestId: string,
   attribution: Attribution,
-): Promise<{ applications: number; sessions: number; agents: number; delegations: number }> {
-  if (applicationIds.length === 0) return { applications: 0, sessions: 0, agents: 0, delegations: 0 }
+): Promise<{ applications: number; authorityRecords: number; sessions: number; delegations: number }> {
+  if (applicationIds.length === 0) return { applications: 0, authorityRecords: 0, sessions: 0, delegations: 0 }
 
   const { rows: apps } = await client.query<{ id: string }>(
     `UPDATE applications
@@ -196,7 +196,7 @@ async function revokeDcrIdentities(
     [zoneId, applicationIds, attribution.actor, attribution.viaOperator],
   )
 
-  const { rows: authorityRecords } = await client.query<RevokedSession>(
+  const { rows: authorityRecords } = await client.query<RevokedAuthorityRecord>(
     `WITH RECURSIVE revoked_tree AS (
        SELECT id FROM authority_records
        WHERE zone_id = $1
@@ -284,7 +284,12 @@ async function revokeDcrIdentities(
   }
   await enqueueOutboxBatch(client, events)
 
-  return { applications: apps.length, sessions: authorityRecords.length, agents: sessions.length, delegations: delegations.length }
+  return {
+    applications: apps.length,
+    authorityRecords: authorityRecords.length,
+    sessions: sessions.length,
+    delegations: delegations.length,
+  }
 }
 
 async function auditDcrShutdown(
@@ -293,7 +298,7 @@ async function auditDcrShutdown(
   requestId: string,
   zoneId: string,
   mode: 'keep_live' | 'revoke_live' | 'no_live',
-  counts: { live: number; applications: number; sessions: number; agents: number; delegations: number },
+  counts: { live: number; applications: number; authorityRecords: number; sessions: number; delegations: number },
 ): Promise<void> {
   await insertAdminAuditRecord(client, {
     requestId,
@@ -312,8 +317,8 @@ async function auditDcrShutdown(
       dcr_shutdown_mode: mode,
       live_dcr_applications: counts.live,
       revoked_applications: counts.applications,
-      revoked_sessions: counts.sessions,
-      terminated_agents: counts.agents,
+      revoked_authority_records: counts.authorityRecords,
+      terminated_sessions: counts.sessions,
       revoked_delegations: counts.delegations,
     },
   })
@@ -477,7 +482,7 @@ export const zonesRoutes: FastifyPluginAsync = async (fastify) => {
                 req.id,
                 attribution,
               )
-            : { applications: 0, sessions: 0, agents: 0, delegations: 0 }
+            : { applications: 0, authorityRecords: 0, sessions: 0, delegations: 0 }
         if (zones[0].dcr_enabled || body.dcr_shutdown) {
           await auditDcrShutdown(
             client,

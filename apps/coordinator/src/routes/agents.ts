@@ -13,6 +13,7 @@ import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
+import { SESSION_LIVE_SQL } from '../sessionLiveness.js'
 
 export const MAX_DEPTH = 10
 const MAX_CHILDREN = 10
@@ -93,6 +94,11 @@ async function inheritParentEdge(
   }
   if (liveEdges.length > 1) return { conflict: 'inherit_parent_edge_ambiguous' }
   const parentEdge = liveEdges[0]
+  const constraints = { ...(parentEdge.constraints_json as Record<string, unknown>) }
+  const maxHops = typeof constraints.max_hops === 'number' ? constraints.max_hops : 1
+  if (maxHops <= 1) return { conflict: 'inherit_parent_edge_not_active' }
+  constraints.max_hops = maxHops - 1
+  if (typeof constraints.max_depth === 'number') constraints.max_depth = maxHops - 1
   const edgeId = uuidv7()
   await client.query(
     `INSERT INTO delegation_edges
@@ -109,7 +115,7 @@ async function inheritParentEdge(
       parentEdge.id,
       parentEdge.resource_id,
       parentEdge.scopes,
-      parentEdge.constraints_json,
+      constraints,
       parentEdge.expires_at,
     ],
   )
@@ -141,7 +147,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const idempotencyKey = parseIdempotencyKey(req.headers['idempotency-key'])
     const generatedIdempotencyKey = req.headers['idempotency-key-kind'] === 'generated'
     const lifecycle = body.lifecycle ?? 'task'
-    const ttlSeconds = body.ttl_seconds ?? (lifecycle === 'service' ? null : DEFAULT_TTL)
+    let ttlSeconds = body.ttl_seconds ?? (lifecycle === 'service' ? null : DEFAULT_TTL)
     const idempotencyRequest = {
       principal: { client_id: req.caracalAuth?.clientId, subject: req.caracalAuth?.subject },
       application_id: body.application_id,
@@ -275,10 +281,13 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.parent_id) {
         const { rows: parent } = await client.query(
           `SELECT s.depth, s.child_count, s.max_children, s.application_id, s.lifecycle,
+              CASE WHEN s.lifecycle = 'service' THEN s.heartbeat_deadline_at
+                   ELSE s.started_at + (s.ttl_seconds * interval '1 second') END AS live_until,
                   a.registration_method
            FROM sessions s
            JOIN applications a ON a.id = s.application_id AND a.zone_id = s.zone_id
            WHERE s.id = $1 AND s.zone_id = $2 AND s.status = 'active'
+             AND ${SESSION_LIVE_SQL.replaceAll(/\b(lifecycle|heartbeat_deadline_at|ttl_seconds|started_at)\b/g, 's.$1')}
            FOR UPDATE OF s`,
           [body.parent_id, zoneId],
         )
@@ -293,6 +302,14 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         if (parent[0].lifecycle === 'task' && lifecycle === 'service') {
           await client.query('ROLLBACK')
           return reply.code(409).send({ error: 'task_session_cannot_start_service' })
+        }
+        if (lifecycle === 'task' && ttlSeconds !== null) {
+          const remainingSeconds = Math.floor((new Date(parent[0].live_until).getTime() - Date.now()) / 1000)
+          if (remainingSeconds < 1) {
+            await client.query('ROLLBACK')
+            return reply.code(404).send({ error: 'parent_not_found' })
+          }
+          ttlSeconds = Math.min(ttlSeconds, remainingSeconds)
         }
         if (parent[0].application_id !== body.application_id && !requireScope(req, `coordinator.spawn_under:${parent[0].application_id}`)) {
           await client.query('ROLLBACK')
@@ -482,9 +499,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       await client.query('BEGIN')
       const { rows: own } = await client.query(
-        `SELECT application_id FROM sessions
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
-        [id, zoneId],
+        `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
+         SELECT application_id FROM sessions, locked
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+        [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
         await client.query('ROLLBACK')
@@ -521,9 +539,10 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       await client.query('BEGIN')
       const { rows: own } = await client.query(
-        `SELECT application_id FROM sessions
-         WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
-        [id, zoneId],
+        `WITH locked AS (SELECT pg_advisory_xact_lock(hashtext($3)))
+         SELECT application_id FROM sessions, locked
+         WHERE id = $1 AND zone_id = $2 FOR UPDATE OF sessions`,
+        [id, zoneId, sessionLockKey(zoneId)],
       )
       if (!own[0]) {
         await client.query('ROLLBACK')
@@ -536,6 +555,23 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
+      }
+      const { rows: ancestry } = await client.query(
+        `WITH RECURSIVE ancestors AS (
+           SELECT parent_id FROM sessions WHERE id = $1 AND zone_id = $2
+           UNION ALL
+           SELECT s.parent_id FROM sessions s JOIN ancestors a ON s.id = a.parent_id
+           WHERE s.zone_id = $2
+         )
+         SELECT 1 FROM sessions
+         WHERE zone_id = $2 AND id IN (SELECT parent_id FROM ancestors WHERE parent_id IS NOT NULL)
+           AND status <> 'active'
+         LIMIT 1`,
+        [id, zoneId],
+      )
+      if (ancestry[0]) {
+        await client.query('ROLLBACK')
+        return reply.code(409).send({ error: 'session_ancestor_not_active' })
       }
       const { rows: changed } = await client.query<{ id: string; parent_id: string | null }>(
         `WITH RECURSIVE tree AS (
@@ -657,7 +693,6 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
     [rootIds, zoneId],
   )
   if (rows.length === 0) return 0
-  const exemptSessions = await revocationExemptSessions(client, zoneId, rows)
   const items: OutboxItem[] = []
   for (const row of rows) {
     items.push({
@@ -671,13 +706,11 @@ export async function suspendSubtree(client: PoolClient, zoneId: string, rootIds
         reason,
       },
     })
-    if (exemptSessions.has(row.subject_authority_record_id)) continue
     items.push({
       topic: Topics.SessionsRevoke,
       dedupeKey: `agent_suspend:${row.id}`,
       payload: {
         zone_id: zoneId,
-        session_id: row.subject_authority_record_id,
         agent_session_id: row.id,
         reason,
       },

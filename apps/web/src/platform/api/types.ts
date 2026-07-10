@@ -663,10 +663,10 @@ export interface DelegationHop {
 // The coordinator's revocation-impact envelope: the downstream edges a revocation
 // cascades through, plus the distinct Sessions and Subject authority records losing authority.
 export interface DelegationImpact {
-  edge_id: string;
-  affected_edges: DelegationHop[];
-  affected_agents: string[];
-  affected_subject_sessions: string[];
+  delegationId: string;
+  affectedDelegations: DelegationHop[];
+  affectedSessions: string[];
+  affectedAuthorityRecords: string[];
 }
 
 /* ------------------------------ Provider grants ----------------------------- */
@@ -902,7 +902,18 @@ export interface SessionService {
 }
 
 export type OperatorCapabilityDomain =
-  "zone" | "application" | "provider" | "resource" | "policy" | "grant" | "audit";
+  | "zone"
+  | "application"
+  | "provider"
+  | "resource"
+  | "policy"
+  | "grant"
+  | "authority-record"
+  | "session"
+  | "delegation"
+  | "audit"
+  | "workload"
+  | "approval";
 
 export interface OperatorCapability {
   id: string;

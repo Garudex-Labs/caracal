@@ -9,6 +9,7 @@ import { resolveFileSecrets } from '@caracalai/server-core'
 // stack), "require" enforces a verified certificate, and "no-verify" enables TLS without
 // certificate verification for managed providers that present self-signed chains.
 export type PostgresSsl = 'disable' | 'require' | 'no-verify'
+export type CookieSameSite = 'lax' | 'none'
 
 export interface AuthConfig {
   port: number
@@ -28,6 +29,7 @@ export interface AuthConfig {
   // Injected by the stack as CARACAL_VERSION (the image tag); local source runs report "dev".
   version: string
   secureCookies: boolean
+  cookieSameSite: CookieSameSite
   autoProvisionDatabase: boolean
   // Whether the immediate reverse proxy's x-forwarded-for is trusted when resolving the client
   // address for auth rate limiting. Off by default: a directly exposed BFF must key on the TCP
@@ -144,6 +146,13 @@ export function loadConfig(): AuthConfig {
     process.env.CARACAL_AUTH_SECURE_COOKIES !== undefined
       ? /^(1|true|yes|on)$/i.test(process.env.CARACAL_AUTH_SECURE_COOKIES)
       : production || baseURL.startsWith('https://')
+  const sameSite = (process.env.CARACAL_AUTH_COOKIE_SAME_SITE ?? 'lax').trim().toLowerCase()
+  if (sameSite !== 'lax' && sameSite !== 'none') {
+    throw new Error('CARACAL_AUTH_COOKIE_SAME_SITE must be lax or none')
+  }
+  if (sameSite === 'none' && !secureCookies) {
+    throw new Error('CARACAL_AUTH_COOKIE_SAME_SITE=none requires secure cookies')
+  }
   const webRoot = process.env.CARACAL_WEB_ROOT?.trim() || undefined
   // Per-replica DDL (CREATE DATABASE + Better Auth migrations) races under horizontal scaling
   // and needs an elevated role production deliberately withholds. Default it on for local
@@ -191,6 +200,7 @@ export function loadConfig(): AuthConfig {
     production,
     version: process.env.CARACAL_VERSION?.trim() || 'dev',
     secureCookies,
+    cookieSameSite: sameSite,
     autoProvisionDatabase,
     trustProxy,
     openRegistration,
