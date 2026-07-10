@@ -95,7 +95,7 @@ caracal = from_credentials(
 
 ## Coexist with OpenTelemetry
 
-Caracal needs no bridge configuration to run alongside an OpenTelemetry deployment. The SDK transport merges its envelope with headers already on the request: a valid `traceparent` written by your instrumentation is preserved rather than overwritten, `tracestate` passes through unchanged, and Caracal appends its `baggage` entries without dropping the ones your services set. The Gateway validates the W3C trace context on every request and records the trace id in each audit event's metadata.
+Caracal needs no bridge configuration to run alongside an OpenTelemetry deployment. The SDK transport merges its envelope with headers already on the request: a valid `traceparent` written by your instrumentation is preserved rather than overwritten, `tracestate` passes through unchanged, and Caracal appends its `baggage` entries without dropping the ones your services set. Session start, Delegation creation, heartbeat, lease acquisition, and termination retain that Session trace ID while creating a fresh span ID for each Coordinator call. The Gateway validates the W3C trace context on every request and records the trace ID in each audit event's metadata.
 
 ```python
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor

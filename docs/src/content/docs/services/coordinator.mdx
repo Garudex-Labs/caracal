@@ -32,7 +32,7 @@ Coordinator owns Session and Delegation runtime state. SDKs and Console use it t
 | TTL sweeper           | Expires stale sessions and delegation state.                                           |
 | Service lease sweeper | Marks stale long-lived Sessions unhealthy.                                             |
 | Deadline enforcer     | Handles invocation deadlines.                                                          |
-| Retention cleaner     | Removes expired historical coordination records.                                       |
+| Retention cleaner     | Expires Delegations and removes retained Delegations, terminal Session leaves, published outbox rows, and expired idempotency receipts after their configured windows. |
 | Outbox publisher      | Publishes Coordinator outbox messages to Redis.                                        |
 | Lifecycle relay       | Observes `caracal.agents.lifecycle` delivery with HMAC origin verification and dedupe. |
 
