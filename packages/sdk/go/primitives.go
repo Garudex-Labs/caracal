@@ -62,7 +62,7 @@ type NarrowOptions struct {
 }
 
 // AuthorityNarrow issues a bounded delegation limited to scopes. TTLSeconds
-// must be positive. A narrowing delegation defaults to a hop budget of 1;
+// must be positive. A narrowing delegation defaults to a hop allowance of 1;
 // pass Constraints with MaxHops 2 (or more) when the child must re-delegate
 // or sub-narrow.
 func AuthorityNarrow(scopes []string, opts NarrowOptions) Authority {
@@ -85,6 +85,8 @@ type SessionInput struct {
 	Invalidate    func()
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
+	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
 	Authority       Authority
@@ -99,20 +101,21 @@ type SessionInput struct {
 }
 
 type sessionInput struct {
-	coordinator              *CoordinatorClient
-	zoneID                   string
-	applicationID            string
-	subjectToken             string
-	tokenSource              func(context.Context) (string, error)
-	invalidate               func()
-	subjectAuthorityRecordID string
-	parentID                 string
-	authority                Authority
-	ttlSeconds               int
-	metadata                 map[string]any
-	labels                   []string
-	traceID                  string
-	idempotencyKey           string
+	coordinator                 *CoordinatorClient
+	zoneID                      string
+	applicationID               string
+	subjectToken                string
+	tokenSource                 func(context.Context) (string, error)
+	invalidate                  func()
+	subjectAuthorityRecordID    string
+	subjectAuthorityRecordToken string
+	parentID                    string
+	authority                   Authority
+	ttlSeconds                  int
+	metadata                    map[string]any
+	labels                      []string
+	traceID                     string
+	idempotencyKey              string
 }
 
 type session struct {
@@ -122,12 +125,17 @@ type session struct {
 	heartbeatDeadlineAt string
 }
 
-// isGone reports a session the coordinator no longer holds live (terminated
-// or lease-reaped); retiring it again counts as success and heartbeats can
-// never revive it.
+// isGone reports a session the coordinator no longer holds live; retiring it
+// again counts as success and heartbeats can never revive it.
 func isGone(err error) bool {
 	var coordErr *CoordinatorError
-	return errors.As(err, &coordErr) && (coordErr.StatusCode == 404 || coordErr.StatusCode == 409)
+	if !errors.As(err, &coordErr) {
+		return false
+	}
+	if coordErr.StatusCode == 404 {
+		return true
+	}
+	return coordErr.StatusCode == 409 && (coordErr.Code == "already_terminated" || coordErr.Code == "session_not_live" || coordErr.Code == "session_not_found_or_not_active")
 }
 
 // retryAfterCap bounds a server-requested Retry-After so a hostile or
@@ -170,6 +178,9 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		return nil, errors.New("caracal: AuthorityNarrow TTLSeconds must be a positive integer")
 	}
 	parent, hasParent := Current(ctx)
+	if in.parentID != "" && hasParent && parent.SessionID != "" && in.parentID != parent.SessionID {
+		return nil, errors.New("caracal: ParentSessionID must match the Session bound on the calling context")
+	}
 	parentID := in.parentID
 	if parentID == "" {
 		parentID = parent.SessionID
@@ -196,17 +207,18 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 		return nil, err
 	}
 	req := StartSessionRequest{
-		ZoneID:                   in.zoneID,
-		ApplicationID:            in.applicationID,
-		SubjectAuthorityRecordID: in.subjectAuthorityRecordID,
-		ParentID:                 parentID,
-		Lifecycle:                lifecycle,
-		TTLSeconds:               in.ttlSeconds,
-		Metadata:                 in.metadata,
-		Labels:                   in.labels,
-		IdempotencyKey:           idempotencyKey,
-		IdempotencyKeyGenerated:  in.idempotencyKey == "",
-		ParentAuthority:          parentAuthority,
+		ZoneID:                      in.zoneID,
+		ApplicationID:               in.applicationID,
+		SubjectAuthorityRecordID:    in.subjectAuthorityRecordID,
+		SubjectAuthorityRecordToken: in.subjectAuthorityRecordToken,
+		ParentID:                    parentID,
+		Lifecycle:                   lifecycle,
+		TTLSeconds:                  in.ttlSeconds,
+		Metadata:                    in.metadata,
+		Labels:                      in.labels,
+		IdempotencyKey:              idempotencyKey,
+		IdempotencyKeyGenerated:     in.idempotencyKey == "",
+		ParentAuthority:             parentAuthority,
 	}
 	const sessionStartRetries = 2
 	var res StartSessionResponse
@@ -293,6 +305,9 @@ func establishSession(ctx context.Context, in sessionInput, lifecycle Lifecycle)
 	if traceID == "" {
 		traceID = parent.TraceID
 	}
+	if traceID == "" {
+		traceID = newTraceID()
+	}
 	sessionID := in.subjectAuthorityRecordID
 	if sessionID == "" {
 		sessionID = parent.SubjectAuthorityRecordID
@@ -347,20 +362,21 @@ func logRetire(err error, sessionID string) {
 // the session to a subset of scopes.
 func Session(ctx context.Context, opts SessionInput, fn func(context.Context) error) error {
 	sess, err := establishSession(ctx, sessionInput{
-		coordinator:              opts.Coordinator,
-		zoneID:                   opts.ZoneID,
-		applicationID:            opts.ApplicationID,
-		subjectToken:             opts.SubjectToken,
-		tokenSource:              opts.TokenSource,
-		invalidate:               opts.Invalidate,
-		subjectAuthorityRecordID: opts.SubjectAuthorityRecordID,
-		parentID:                 opts.ParentSessionID,
-		authority:                opts.Authority,
-		ttlSeconds:               opts.TTLSeconds,
-		metadata:                 opts.Metadata,
-		labels:                   opts.Labels,
-		traceID:                  opts.TraceID,
-		idempotencyKey:           opts.IdempotencyKey,
+		coordinator:                 opts.Coordinator,
+		zoneID:                      opts.ZoneID,
+		applicationID:               opts.ApplicationID,
+		subjectToken:                opts.SubjectToken,
+		tokenSource:                 opts.TokenSource,
+		invalidate:                  opts.Invalidate,
+		subjectAuthorityRecordID:    opts.SubjectAuthorityRecordID,
+		subjectAuthorityRecordToken: opts.SubjectAuthorityRecordToken,
+		parentID:                    opts.ParentSessionID,
+		authority:                   opts.Authority,
+		ttlSeconds:                  opts.TTLSeconds,
+		metadata:                    opts.Metadata,
+		labels:                      opts.Labels,
+		traceID:                     opts.TraceID,
+		idempotencyKey:              opts.IdempotencyKey,
 	}, "")
 	if err != nil {
 		return err
@@ -374,11 +390,20 @@ func Session(ctx context.Context, opts SessionInput, fn func(context.Context) er
 		}
 	}
 	runErr := fn(child)
+	var endErr error
 	if opts.OnSessionEnd != nil {
-		runErr = errors.Join(runErr, opts.OnSessionEnd(child, sess.ctx))
+		endErr = opts.OnSessionEnd(child, sess.ctx)
 	}
-	logRetire(retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID), sess.sessionID)
-	return runErr
+	cleanupErr := retire(ctx, opts.Coordinator, sess.bearer, opts.ZoneID, sess.sessionID)
+	if runErr != nil {
+		logRetire(cleanupErr, sess.sessionID)
+		return errors.Join(runErr, endErr)
+	}
+	if endErr != nil {
+		logRetire(cleanupErr, sess.sessionID)
+		return endErr
+	}
+	return cleanupErr
 }
 
 // DelegateInput controls delegation creation.
@@ -490,6 +515,8 @@ type StartSessionInput struct {
 	Invalidate    func()
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
+	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
 	Authority       Authority
@@ -706,20 +733,21 @@ func (s *SessionHandle) Close(ctx context.Context) error {
 // Delegation so the handle holds only a subset of scopes.
 func StartSession(ctx context.Context, opts StartSessionInput) (*SessionHandle, error) {
 	sess, err := establishSession(ctx, sessionInput{
-		coordinator:              opts.Coordinator,
-		zoneID:                   opts.ZoneID,
-		applicationID:            opts.ApplicationID,
-		subjectToken:             opts.SubjectToken,
-		tokenSource:              opts.TokenSource,
-		invalidate:               opts.Invalidate,
-		subjectAuthorityRecordID: opts.SubjectAuthorityRecordID,
-		parentID:                 opts.ParentSessionID,
-		authority:                opts.Authority,
-		ttlSeconds:               0,
-		metadata:                 opts.Metadata,
-		labels:                   opts.Labels,
-		traceID:                  opts.TraceID,
-		idempotencyKey:           opts.IdempotencyKey,
+		coordinator:                 opts.Coordinator,
+		zoneID:                      opts.ZoneID,
+		applicationID:               opts.ApplicationID,
+		subjectToken:                opts.SubjectToken,
+		tokenSource:                 opts.TokenSource,
+		invalidate:                  opts.Invalidate,
+		subjectAuthorityRecordID:    opts.SubjectAuthorityRecordID,
+		subjectAuthorityRecordToken: opts.SubjectAuthorityRecordToken,
+		parentID:                    opts.ParentSessionID,
+		authority:                   opts.Authority,
+		ttlSeconds:                  0,
+		metadata:                    opts.Metadata,
+		labels:                      opts.Labels,
+		traceID:                     opts.TraceID,
+		idempotencyKey:              opts.IdempotencyKey,
 	}, LifecycleService)
 	if err != nil {
 		return nil, err

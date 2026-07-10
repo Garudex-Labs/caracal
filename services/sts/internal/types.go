@@ -138,6 +138,7 @@ type OPAResult struct {
 	DeterminingPolicies []map[string]any `json:"determining_policies"`
 	EvaluationStatus    string           `json:"evaluation_status"`
 	Diagnostics         []map[string]any `json:"diagnostics"`
+	Bundle              ZoneBundleInfo   `json:"-"`
 }
 
 // StepUpChallenge describes the 401 response body for interaction_required. State is

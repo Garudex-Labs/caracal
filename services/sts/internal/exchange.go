@@ -67,7 +67,6 @@ type delegationConstraints struct {
 	TTLSeconds  int      `json:"ttl_seconds"`
 	MaxDepth    int      `json:"max_depth"`
 	MaxHops     int      `json:"max_hops"`
-	Budget      int      `json:"budget"`
 	Approved    bool     `json:"policy_approved"`
 	ExpiresAt   string   `json:"expires_at"`
 	BroadReason string   `json:"broad_reason"`
@@ -336,7 +335,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	challengeResolved := false
 	var approval *StepUpChallengePG
+	var approvalBundle ZoneBundleInfo
 	if req.ChallengeID != "" {
+		approvalBundle = s.opa.BundleInfo(zoneID)
 		// Verify the presented approval against every binding without consuming it:
 		// consumption happens after the policy loop, immediately before the session is
 		// created, so a downstream deny never burns a granted approval. The generic
@@ -346,7 +347,14 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
 			existing.AuthorityRecordID != req.AuthorityRecordID ||
-			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope))) {
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(req.Resources, strings.Fields(req.Scope), approvalBindingContext{
+				PrincipalID:       principalID,
+				AuthorityRecordID: req.AuthorityRecordID,
+				SessionID:         req.SessionID,
+				DelegationEdgeID:  req.DelegationEdgeID,
+				ApplicationID:     app.ID,
+				Bundle:            approvalBundle,
+			})) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
@@ -396,6 +404,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	grantedDirectives := map[string]UpstreamDirective{}
 	grantedResourceRows := map[string]*Resource{}
 	var gateDecls []tierDeclaration
+	var gateBundle ZoneBundleInfo
+	gateBundleSet := false
 	controlKeyExchange := false
 
 	for _, identifier := range req.Resources {
@@ -576,9 +586,24 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if result.EvaluationStatus != "complete" {
 			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation incomplete")
 		}
+		if challengeResolved && !sameApprovalPolicy(approvalBundle, result.Bundle) {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_policy_changed", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "approval policy changed during retry")
+		}
 
 		if !challengeResolved {
-			gateDecls = append(gateDecls, parseTierDeclarations(result)...)
+			decls := parseTierDeclarations(result)
+			if len(decls) > 0 {
+				if !gateBundleSet {
+					gateBundle = result.Bundle
+					gateBundleSet = true
+				} else if !sameApprovalPolicy(gateBundle, result.Bundle) {
+					return nil, nil, http.StatusServiceUnavailable, sharederr.New(sharederr.PolicyEvalFailed, "approval policy changed during evaluation")
+				}
+				gateDecls = append(gateDecls, decls...)
+			}
 		}
 
 		if result.Decision == "allow" {
@@ -592,10 +617,18 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// an approval bound to this exact request. Issuance is idempotent per binding,
 		// and a hold an approver has already granted releases the mint right here even
 		// when the retry did not carry the challenge id.
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolveApproval(gateDecls), req.Resources, scopes)
+		resolved, resolveErr := resolveApproval(gateDecls)
+		if resolveErr != nil {
+			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_class_conflict", &OPAResult{}, appMeta); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error())
+		}
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolved, gateBundle, req.Resources, scopes)
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
+		approvalBundle = gateBundle
 		switch challengeLifecycleState(hold, exchangeNow) {
 		case ChallengeStateApproved:
 			approval = hold
@@ -720,22 +753,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		issueParams.DelegationChain = delegation.chain
 		issueParams.GraphEpoch = delegation.graphEpoch
 	}
-	token, jti, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
-	if err != nil {
-		s.log.Error().Err(err).Str("zone_id", zoneID).Str("request_id", requestID).Msg("token issuance failed")
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
-	}
-	if err := s.recordIssuedJTI(ctx, jti, app.ID, zoneID, requestID, ttl); err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
-	}
-
 	if req.GatewayAuthenticated {
 		for _, identifier := range grantedResources {
 			directive, err := s.buildUpstreamDirective(ctx, zoneID, subjectClaims, grantedResourceRows[identifier], req.GatewayAuthenticated, false)
 			if err != nil {
-				// The mint already passed policy; a failure here is the upstream credential
-				// plumbing (IdP outage, rejected client, circuit open), so the caller gets
-				// the operational reason and the audit trail records the denial.
 				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "provider_credential_unavailable", &OPAResult{},
 					mergeAuditMeta(appMeta, map[string]any{"resource": identifier, "reason": err.Error()})); auditErr != nil {
 					return nil, nil, http.StatusInternalServerError, auditErr
@@ -746,13 +767,28 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			grantedDirectives[identifier] = directive
 		}
 	}
+	token, jti, err := issueToken(ctx, issueParams, s.keys, s.cfg.IssuerURL)
+	if err != nil {
+		s.log.Error().Err(err).Str("zone_id", zoneID).Str("request_id", requestID).Msg("token issuance failed")
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
+	}
+	if err := s.recordIssuedJTI(ctx, jti, app.ID, zoneID, requestID, ttl); err != nil {
+		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "token issuance failed")
+	}
 
 	if delegation != nil {
 		var approvalParams *ConsumeApprovalParams
 		if approval != nil {
 			approvalParams = &ConsumeApprovalParams{
 				ID: approval.ID, ZoneID: zoneID, PrincipalID: principalID,
-				ResourceSetHash: hashApprovalBinding(req.Resources, scopes), Now: now,
+				ResourceSetHash: hashApprovalBinding(req.Resources, scopes, approvalBindingContext{
+					PrincipalID:       principalID,
+					AuthorityRecordID: req.AuthorityRecordID,
+					SessionID:         req.SessionID,
+					DelegationEdgeID:  req.DelegationEdgeID,
+					ApplicationID:     app.ID,
+					Bundle:            approvalBundle,
+				}), Now: now,
 			}
 		}
 		err := s.db.InsertDelegatedAuthorityRecord(ctx, record, delegationIssuanceProof(delegation), approvalParams)
@@ -765,17 +801,30 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			}
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 		}
+		if approval != nil {
+			if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+				mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
+				return nil, nil, http.StatusInternalServerError, auditErr
+			}
+		}
 	} else if approval == nil {
 		if err := s.db.InsertAuthorityRecord(ctx, record); err != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
 		}
 	} else {
 		err := s.db.InsertAuthorityRecordWithApproval(ctx, record, ConsumeApprovalParams{
-			ID:              approval.ID,
-			ZoneID:          zoneID,
-			PrincipalID:     principalID,
-			ResourceSetHash: hashApprovalBinding(req.Resources, scopes),
-			Now:             now,
+			ID:          approval.ID,
+			ZoneID:      zoneID,
+			PrincipalID: principalID,
+			ResourceSetHash: hashApprovalBinding(req.Resources, scopes, approvalBindingContext{
+				PrincipalID:       principalID,
+				AuthorityRecordID: req.AuthorityRecordID,
+				SessionID:         req.SessionID,
+				DelegationEdgeID:  req.DelegationEdgeID,
+				ApplicationID:     app.ID,
+				Bundle:            approvalBundle,
+			}),
+			Now: now,
 		})
 		if err != nil {
 			if errors.Is(err, ErrChallengeInvalid) {
@@ -1618,6 +1667,23 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 	if c.AuthorityRecordID != "" {
 		meta["session_id"] = c.AuthorityRecordID
 	}
+	if len(c.MetadataJSON) > 0 {
+		var stored map[string]any
+		if json.Unmarshal(c.MetadataJSON, &stored) == nil {
+			for _, key := range []string{
+				"agent_session_id",
+				"delegation_edge_id",
+				"policy_set_version_id",
+				"policy_manifest_sha",
+				"decision_contract_version",
+				"decision_contract_sha",
+			} {
+				if value, ok := stored[key].(string); ok && value != "" {
+					meta[key] = value
+				}
+			}
+		}
+	}
 	return meta
 }
 
@@ -1885,10 +1951,10 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	}
 	edge, err := s.db.GetDelegationEdge(ctx, req.DelegationEdgeID)
 	if err != nil || edge.ZoneID != zoneID || edge.Status != "active" || !edge.ExpiresAt.After(now) || edge.RevokedAt != nil {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge inactive or expired")
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation inactive or expired")
 	}
 	if edge.TargetSessionID != req.SessionID {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation edge target mismatch")
+		return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation target mismatch")
 	}
 	source, err := s.db.GetSession(ctx, edge.SourceSessionID)
 	if err != nil || !activeSession(source, zoneID, now) {
@@ -1911,9 +1977,6 @@ func (s *Server) validateSessionReferences(ctx context.Context, zoneID, appID st
 	requestedScopes := distinctScopes(req.Scope)
 	if !scopesAllowed(requestedScopes, edge.Scopes) {
 		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation scopes")
-	}
-	if constraints.Budget > 0 && len(requestedScopes) > constraints.Budget {
-		return nil, nil, sharederr.New(sharederr.AccessDenied, "requested scopes exceed delegation budget")
 	}
 	if constraints.TTLSeconds > 0 {
 		if req.TTLSeconds > constraints.TTLSeconds {
@@ -1978,7 +2041,7 @@ func (s *Server) buildDelegationChain(ctx context.Context, path []string, edge *
 		}
 		hopConstraints, err := parseDelegationConstraints(hopEdge.ConstraintsJSON)
 		if err != nil || hopConstraints.MaxHops < len(path)-index {
-			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation hop budget exhausted")
+			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation hop allowance exhausted")
 		}
 		if prevReceiverApp != "" && hopEdge.IssuerAppID != prevReceiverApp {
 			return nil, nil, sharederr.New(sharederr.AccessDenied, "delegation chain discontinuous")
@@ -2058,15 +2121,6 @@ func (s *Server) validateAncestorAttenuation(ctx context.Context, parent *Delega
 	if childConstraints.MaxHops > parentConstraints.MaxHops-1 {
 		return fmt.Errorf("delegation lineage widens hop allowance")
 	}
-	if parentConstraints.Budget > 0 {
-		childBudget := childConstraints.Budget
-		if childBudget == 0 {
-			childBudget = len(uniqueStrings(child.Scopes))
-		}
-		if childBudget > parentConstraints.Budget {
-			return fmt.Errorf("delegation lineage widens budget")
-		}
-	}
 	parentResources, err := s.edgeResourceIDs(ctx, parent)
 	if err != nil {
 		return fmt.Errorf("delegation ancestor resources invalid")
@@ -2140,7 +2194,7 @@ func parseDelegationConstraints(raw json.RawMessage) (delegationConstraints, err
 	if err := decoder.Decode(&constraints); err != nil {
 		return constraints, err
 	}
-	if constraints.TTLSeconds < 0 || constraints.MaxDepth < 0 || constraints.MaxHops < 0 || constraints.Budget < 0 {
+	if constraints.TTLSeconds < 0 || constraints.MaxDepth < 0 || constraints.MaxHops < 0 {
 		return constraints, fmt.Errorf("delegation constraints must be positive")
 	}
 	if constraints.MaxDepth > 0 {
