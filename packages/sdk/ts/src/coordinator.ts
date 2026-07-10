@@ -6,7 +6,6 @@
  */
 
 import type { JsonObject } from './json.js'
-import { formatTraceparent } from './envelope.js'
 
 /** One completed coordinator request and its outcome; status 0 means no response arrived. */
 export interface CoordinatorCallEvent {
@@ -80,29 +79,14 @@ export type Lifecycle = (typeof Lifecycle)[keyof typeof Lifecycle]
 
 export type SessionStatus = 'starting' | 'healthy' | 'degraded' | 'unhealthy'
 
-export interface CoordinatorTrace {
-  traceId: string
-  traceFlags?: string
-  traceState?: string
-}
-
-function traceHeaders(trace: CoordinatorTrace | undefined): Record<string, string> | undefined {
-  if (!trace || !/^[0-9a-f]{32}$/.test(trace.traceId) || trace.traceId === '0'.repeat(32)) return undefined
-  return {
-    traceparent: formatTraceparent(trace.traceId, trace.traceFlags),
-    ...(trace.traceState ? { tracestate: trace.traceState } : {}),
-  }
-}
-
 export interface DelegationConstraints {
   resources?: string[]
   maxDepth?: number
   maxHops?: number
   ttlSeconds?: number
-  /** Audit and display metadata; it does not itself authorize the Delegation. */
+  budget?: number
   policyApproved?: boolean
   expiresAt?: string
-  /** Audit and display metadata describing an elevated resource-unbounded offer. */
   broadReason?: string
 }
 
@@ -110,7 +94,6 @@ export interface StartSessionRequest {
   zoneId: string
   applicationId: string
   subjectAuthorityRecordId?: string
-  subjectAuthorityRecordToken?: string
   parentId?: string
   lifecycle?: Lifecycle
   ttlSeconds?: number
@@ -119,14 +102,12 @@ export interface StartSessionRequest {
   idempotencyKey?: string
   idempotencyKeyGenerated?: boolean
   parentAuthority?: 'inherit' | 'none'
-  trace?: CoordinatorTrace
 }
 
 export interface StartSessionResponse {
   sessionId: string
   delegationId?: string
   heartbeatDeadlineAt?: string
-  leaseGeneration: number
 }
 
 export interface DelegationRequest {
@@ -141,10 +122,9 @@ export interface DelegationRequest {
   constraints?: DelegationConstraints
   ttlSeconds?: number
   idempotencyKey?: string
-  trace?: CoordinatorTrace
 }
 
-/** The created Delegation: its ID, the scopes it bounds, and when it lapses. */
+/** The created delegation edge: its id, the scopes it bounds, and when it lapses. */
 export interface DelegationResponse {
   delegationId: string
   scopes: string[]
@@ -154,7 +134,6 @@ export interface DelegationResponse {
 export interface HeartbeatResponse {
   status?: string
   heartbeatDeadlineAt?: string
-  leaseGeneration: number
 }
 
 async function call<T>(
@@ -225,21 +204,13 @@ export async function startCoordinatorSession(
   req: StartSessionRequest,
   signal?: AbortSignal,
 ): Promise<StartSessionResponse> {
-  const headers = {
-    ...(req.idempotencyKey
-      ? {
-          'idempotency-key': req.idempotencyKey,
-          ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
-        }
-      : {}),
-    ...traceHeaders(req.trace),
-  }
-  const res = await call<{
-    agent_session_id?: string
-    delegation_edge_id?: string | null
-    heartbeat_deadline_at?: string | null
-    lease_generation?: number
-  }>(
+  const headers = req.idempotencyKey
+    ? {
+        'idempotency-key': req.idempotencyKey,
+        ...(req.idempotencyKeyGenerated ? { 'idempotency-key-kind': 'generated' } : {}),
+      }
+    : undefined
+  const res = await call<{ agent_session_id?: string; delegation_edge_id?: string | null; heartbeat_deadline_at?: string | null }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(req.zoneId)}/agents`,
@@ -247,7 +218,6 @@ export async function startCoordinatorSession(
     {
       application_id: req.applicationId,
       subject_session_id: req.subjectAuthorityRecordId,
-      subject_token: req.subjectAuthorityRecordToken,
       parent_id: req.parentId,
       lifecycle: req.lifecycle,
       ttl_seconds: req.ttlSeconds,
@@ -259,34 +229,15 @@ export async function startCoordinatorSession(
     signal,
   )
   if (!res?.agent_session_id) throw new Error('coordinator session response missing agent_session_id')
-  const leaseGeneration = res.lease_generation ?? 0
-  if (!Number.isSafeInteger(leaseGeneration) || leaseGeneration < 0 || (req.lifecycle === Lifecycle.Service && leaseGeneration < 1)) {
-    throw new Error('coordinator session response missing valid lease_generation')
-  }
   return {
     sessionId: res.agent_session_id,
     delegationId: res.delegation_edge_id ?? undefined,
     heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
-    leaseGeneration,
   }
 }
 
-export async function terminateSession(
-  client: CoordinatorClient,
-  bearer: string,
-  zoneId: string,
-  sessionId: string,
-  leaseGeneration?: number,
-  trace?: CoordinatorTrace,
-): Promise<void> {
-  await call<unknown>(
-    client,
-    'DELETE',
-    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`,
-    bearer,
-    leaseGeneration === undefined ? undefined : { lease_generation: leaseGeneration },
-    traceHeaders(trace),
-  )
+export async function terminateAgent(client: CoordinatorClient, bearer: string, zoneId: string, sessionId: string): Promise<void> {
+  await call<unknown>(client, 'DELETE', `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}`, bearer)
 }
 
 export async function createDelegation(
@@ -301,6 +252,7 @@ export async function createDelegation(
         max_depth: req.constraints.maxDepth,
         max_hops: req.constraints.maxHops,
         ttl_seconds: req.constraints.ttlSeconds,
+        budget: req.constraints.budget,
         policy_approved: req.constraints.policyApproved,
         expires_at: req.constraints.expiresAt,
         broad_reason: req.constraints.broadReason,
@@ -322,10 +274,7 @@ export async function createDelegation(
       constraints,
       ttl_seconds: req.ttlSeconds,
     },
-    {
-      ...(req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : {}),
-      ...traceHeaders(req.trace),
-    },
+    req.idempotencyKey ? { 'idempotency-key': req.idempotencyKey } : undefined,
     signal,
   )
   if (!res?.delegation_edge_id) throw new Error('coordinator delegation response missing delegation_edge_id')
@@ -334,25 +283,6 @@ export async function createDelegation(
     scopes: res.scopes ?? [],
     expiresAt: res.expires_at ?? undefined,
   }
-}
-
-export async function revokeDelegation(
-  client: CoordinatorClient,
-  bearer: string,
-  zoneId: string,
-  delegationId: string,
-  signal?: AbortSignal,
-  trace?: CoordinatorTrace,
-): Promise<void> {
-  await call<unknown>(
-    client,
-    'PATCH',
-    `/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(delegationId)}/revoke`,
-    bearer,
-    undefined,
-    traceHeaders(trace),
-    signal,
-  )
 }
 
 /** One delegation offered to a session, as the coordinator lists it. */
@@ -383,84 +313,19 @@ export async function listInboundDelegations(
   )
 }
 
-export async function getInboundDelegation(
+export async function heartbeatAgent(
   client: CoordinatorClient,
   bearer: string,
   zoneId: string,
   sessionId: string,
-  delegationId: string,
-  signal?: AbortSignal,
-): Promise<InboundDelegation> {
-  const response = await call<{
-    id?: string
-    status?: string
-    expires_at?: string | null
-    items?: Array<{ id?: string; status?: string; expires_at?: string | null }>
-  }>(
-    client,
-    'GET',
-    `/zones/${encodeURIComponent(zoneId)}/delegations/inbound/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}`,
-    bearer,
-    undefined,
-    undefined,
-    signal,
-  )
-  const item = response.id ? response : response.items?.find((candidate) => candidate.id === delegationId)
-  if (!item) throw new Error('coordinator inbound delegation response missing id')
-  if (!item.id) throw new Error('coordinator inbound delegation response missing id')
-  return { delegationId: item.id, status: item.status ?? '', expiresAt: item.expires_at ?? undefined }
-}
-
-export async function heartbeatSession(
-  client: CoordinatorClient,
-  bearer: string,
-  zoneId: string,
-  sessionId: string,
-  leaseGeneration: number,
   status: SessionStatus = 'healthy',
-  trace?: CoordinatorTrace,
 ): Promise<HeartbeatResponse> {
-  const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number } }>(
+  const res = await call<{ agent?: { status?: string; heartbeat_deadline_at?: string | null } }>(
     client,
     'POST',
     `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/heartbeat`,
     bearer,
-    { status, lease_generation: leaseGeneration },
-    traceHeaders(trace),
+    { status },
   )
-  const responseLeaseGeneration = res?.agent?.lease_generation
-  if (typeof responseLeaseGeneration !== 'number' || !Number.isSafeInteger(responseLeaseGeneration) || responseLeaseGeneration < 1) {
-    throw new Error('coordinator heartbeat response missing valid lease_generation')
-  }
-  return {
-    status: res.agent?.status,
-    heartbeatDeadlineAt: res.agent?.heartbeat_deadline_at ?? undefined,
-    leaseGeneration: responseLeaseGeneration,
-  }
-}
-
-export async function acquireSessionLease(
-  client: CoordinatorClient,
-  bearer: string,
-  zoneId: string,
-  sessionId: string,
-  trace?: CoordinatorTrace,
-): Promise<HeartbeatResponse> {
-  const res = await call<{ status?: string; heartbeat_deadline_at?: string | null; lease_generation?: number }>(
-    client,
-    'POST',
-    `/zones/${encodeURIComponent(zoneId)}/agents/${encodeURIComponent(sessionId)}/lease`,
-    bearer,
-    undefined,
-    traceHeaders(trace),
-  )
-  const leaseGeneration = res.lease_generation
-  if (typeof leaseGeneration !== 'number' || !Number.isSafeInteger(leaseGeneration) || leaseGeneration < 1) {
-    throw new Error('coordinator lease response missing valid lease_generation')
-  }
-  return {
-    status: res.status,
-    heartbeatDeadlineAt: res.heartbeat_deadline_at ?? undefined,
-    leaseGeneration,
-  }
+  return { status: res?.agent?.status, heartbeatDeadlineAt: res?.agent?.heartbeat_deadline_at ?? undefined }
 }

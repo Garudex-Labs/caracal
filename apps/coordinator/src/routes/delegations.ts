@@ -11,21 +11,21 @@ import { scopesAllowed } from '@caracalai/core'
 import { enqueue, enqueueMany, Topics, type OutboxItem, type Queryable } from '../outbox.js'
 import { ownsApplication, requireScope } from '../auth.js'
 import { bumpDelegationEpoch } from '../delegationEpochs.js'
-import { MAX_DEPTH, sessionLockKey, terminateSubtree } from './agents.js'
+import { MAX_DEPTH, terminateSubtree } from './agents.js'
 import { ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './params.js'
 import { cfg } from '../config.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
-import { SESSION_LIVE_SQL } from '../sessionLiveness.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
 
 const ConstraintBody = z
   .object({
-    resources: z.array(z.string().trim().min(1)).max(64).optional(),
+    resources: z.array(z.string().min(1)).max(64).optional(),
     max_depth: z.number().int().min(1).max(MAX_DEPTH).optional(),
     max_hops: z.number().int().min(1).max(MAX_DEPTH).optional(),
     ttl_seconds: z.number().int().min(1).max(86400).optional(),
+    budget: z.number().int().min(1).max(1024).optional(),
     policy_approved: z.boolean().optional(),
     expires_at: z.string().datetime().optional(),
     broad_reason: z.string().min(1).max(256).optional(),
@@ -56,7 +56,7 @@ const DelegationBody = z.object({
   receiver_application_id: z.string().min(1),
   parent_edge_id: z.string().min(1).optional(),
   resource_id: z.string().min(1).nullable().default(null),
-  scopes: z.array(z.string().trim().min(1)).default([]),
+  scopes: z.array(z.string().min(1)).default([]),
   constraints: z.unknown().optional(),
   constraints_json: z.unknown().optional(),
   expires_at: z.string().datetime().optional(),
@@ -74,7 +74,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!params) return
     const { zoneId } = params
     const body = DelegationBody.parse(req.body)
-    body.scopes = [...new Set(body.scopes)].sort()
     const constraintsResult = normalizedConstraints(body.constraints_json, body.constraints, body.ttl_seconds)
     if (!constraintsResult.ok) return reply.code(400).send({ error: constraintsResult.error })
     const constraints = constraintsResult.constraints
@@ -88,6 +87,14 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       !requireScope(req, `coordinator.delegate_from:${body.issuer_application_id}`)
     ) {
       return reply.code(403).send({ error: 'issuer_ownership_required' })
+    }
+    if (
+      body.receiver_application_id !== body.issuer_application_id &&
+      !ownsApplication(req, body.receiver_application_id) &&
+      !requireScope(req, `coordinator.delegate_to:${body.receiver_application_id}`) &&
+      !requireScope(req, 'coordinator.admin')
+    ) {
+      return reply.code(403).send({ error: 'receiver_consent_required' })
     }
     if (body.source_session_id === body.target_session_id) {
       return reply.code(400).send({ error: 'self_delegation_denied' })
@@ -165,7 +172,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(receipt.status).send(receipt.response)
         }
       }
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
       const endpoints = await activeSessionEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
       if (!endpoints.source || !endpoints.target) {
         await client.query('ROLLBACK')
@@ -312,31 +319,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneSessionParams, req, reply)
     if (!params) return
     const { zoneId, sessionId } = params
-    return listEdges(fastify.db, reply, zoneId, 'target_session_id', sessionId, req.query, delegationReaderApplication(req))
-  })
-
-  fastify.get('/zones/:zoneId/delegations/inbound/:sessionId/:id', async (req, reply) => {
-    const params = parseParams(z.object({ zoneId: z.string().min(1), sessionId: z.string().min(1), id: z.string().min(1) }), req, reply)
-    if (!params) return
-    const readerApplicationId = delegationReaderApplication(req)
-    const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-              parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
-       FROM delegation_edges edge
-       WHERE id = $1 AND zone_id = $2 AND target_session_id = $3
-        AND status = 'active' AND expires_at > now()
-        AND ($4::text IS NULL OR (
-          receiver_application_id = $4
-          AND EXISTS (
-            SELECT 1 FROM sessions target
-            WHERE target.id = edge.target_session_id AND target.zone_id = edge.zone_id
-              AND target.application_id = $4
-          )
-        ))`,
-      [params.id, params.zoneId, params.sessionId, readerApplicationId],
-    )
-    if (!rows[0]) return reply.code(404).send({ error: 'delegation_not_found' })
-    return rows[0]
+    return listEdges(fastify.db, reply, zoneId, 'target_session_id', sessionId, req.query)
   })
 
   fastify.get('/zones/:zoneId/delegations/active', async (req, reply) => {
@@ -346,28 +329,20 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
     const { zoneId } = params
     const { limit, cursor } = query.data
-    const readerApplicationId = delegationReaderApplication(req)
-    const values: unknown[] = [zoneId, limit, readerApplicationId]
+    const values: unknown[] = [zoneId, limit]
     let cursorClause = ''
     if (cursor) {
-      const { rows: probe } = await fastify.db.query(
-        `SELECT 1 FROM delegation_edges
-         WHERE id = $1 AND zone_id = $2
-           AND ($3::text IS NULL OR issuer_application_id = $3 OR receiver_application_id = $3)`,
-        [cursor, zoneId, readerApplicationId],
-      )
+      const { rows: probe } = await fastify.db.query(`SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
       if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
       values.push(cursor)
-      cursorClause = `AND id < $4`
+      cursorClause = `AND id < $3`
     }
     const { rows } = await fastify.db.query(
       `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
               parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at,
               constraints_json->>'broad_reason' AS broad_reason
        FROM delegation_edges
-       WHERE zone_id = $1 AND status = 'active' AND expires_at > now()
-         AND ($3::text IS NULL OR issuer_application_id = $3 OR receiver_application_id = $3)
-         ${cursorClause}
+       WHERE zone_id = $1 AND status = 'active' AND expires_at > now() ${cursorClause}
        ORDER BY id DESC LIMIT $2`,
       values,
     )
@@ -378,21 +353,18 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneSessionParams, req, reply)
     if (!params) return
     const { zoneId, sessionId } = params
-    return listEdges(fastify.db, reply, zoneId, 'source_session_id', sessionId, req.query, delegationReaderApplication(req))
+    return listEdges(fastify.db, reply, zoneId, 'source_session_id', sessionId, req.query)
   })
 
   fastify.get('/zones/:zoneId/delegations/:id/traverse', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { zoneId, id } = params
-    const readerApplicationId = delegationReaderApplication(req)
-    if (readerApplicationId !== null) return reply.code(403).send({ error: 'coordinator_admin_required' })
     const { rows } = await fastify.db.query(
       `WITH RECURSIVE graph AS (
          SELECT id, source_session_id, target_session_id, 1 AS depth, ARRAY[id] AS visited
          FROM delegation_edges
          WHERE id = $1 AND zone_id = $2 AND status = 'active' AND expires_at > now()
-           AND ($4::text IS NULL OR issuer_application_id = $4 OR receiver_application_id = $4)
          UNION ALL
          SELECT e.id, e.source_session_id, e.target_session_id, g.depth + 1, g.visited || e.id
          FROM delegation_edges e
@@ -404,7 +376,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
            AND g.depth < $3
        )
        SELECT id, source_session_id, target_session_id, depth FROM graph ORDER BY depth, id`,
-      [id, zoneId, MAX_DEPTH, readerApplicationId],
+      [id, zoneId, MAX_DEPTH],
     )
     return rows
   })
@@ -413,8 +385,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { zoneId, id } = params
-    const readerApplicationId = delegationReaderApplication(req)
-    if (readerApplicationId !== null) return reply.code(403).send({ error: 'coordinator_admin_required' })
     const { rows } = await fastify.db.query<{
       id: string
       source_session_id: string
@@ -426,11 +396,10 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
          SELECT id, source_session_id, target_session_id, 1 AS depth, ARRAY[id] AS visited
          FROM delegation_edges
          WHERE id = $1 AND zone_id = $2 AND status = 'active' AND expires_at > now()
-           AND ($4::text IS NULL OR issuer_application_id = $4 OR receiver_application_id = $4)
          UNION ALL
          SELECT e.id, e.source_session_id, e.target_session_id, a.depth + 1, a.visited || e.id
          FROM delegation_edges e
-         JOIN affected a ON e.parent_edge_id = a.id
+         JOIN affected a ON e.source_session_id = a.target_session_id
          WHERE e.zone_id = $2
            AND e.status = 'active'
            AND e.expires_at > now()
@@ -441,14 +410,14 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
        FROM affected a
        LEFT JOIN sessions s ON s.id = a.target_session_id AND s.zone_id = $2
        ORDER BY a.depth, a.id`,
-      [id, zoneId, MAX_DEPTH, readerApplicationId],
+      [id, zoneId, MAX_DEPTH],
     )
     if (rows.length === 0) return reply.code(404).send({ error: 'delegation_not_found' })
     return {
       edge_id: id,
       affected_edges: rows.map(({ subject_authority_record_id: _subjectAuthorityRecordId, ...row }) => row),
       affected_sessions: [...new Set(rows.map((row) => row.target_session_id))],
-      affected_authority_records: [...new Set(rows.map((row) => row.subject_authority_record_id).filter(Boolean))],
+      affected_subject_sessions: [...new Set(rows.map((row) => row.subject_authority_record_id).filter(Boolean))],
     }
   })
 
@@ -456,15 +425,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const params = parseParams(ZoneSessionParams, req, reply)
     if (!params) return
     const { zoneId, sessionId } = params
-    const readerApplicationId = delegationReaderApplication(req)
-    if (readerApplicationId !== null) {
-      const { rows: owned } = await fastify.db.query(`SELECT 1 FROM sessions WHERE id = $1 AND zone_id = $2 AND application_id = $3`, [
-        sessionId,
-        zoneId,
-        readerApplicationId,
-      ])
-      if (!owned[0]) return reply.code(404).send({ error: 'session_not_found' })
-    }
     const parents = await activeParentDelegations(fastify.db, zoneId, sessionId)
     if (parents.length === 0) {
       return {
@@ -539,7 +499,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [sessionLockKey(zoneId)])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
       const { rows: edge } = await client.query<{ issuer_application_id: string }>(
         `SELECT issuer_application_id FROM delegation_edges
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
@@ -565,7 +525,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
            UNION ALL
            SELECT e.id, e.target_session_id, a.visited || e.id
            FROM delegation_edges e
-           JOIN affected a ON e.parent_edge_id = a.id
+           JOIN affected a ON e.source_session_id = a.target_session_id
            WHERE e.zone_id = $2
              AND e.status = 'active'
              AND NOT e.id = ANY(a.visited)
@@ -676,10 +636,6 @@ const EDGE_LIST_FIELDS = {
   target_session_id: 'target_session_id',
 } as const
 
-function delegationReaderApplication(req: import('fastify').FastifyRequest): string | null {
-  return requireScope(req, 'coordinator.admin') ? null : (req.caracalAuth?.clientId ?? '')
-}
-
 async function listEdges(
   db: Pool,
   reply: import('fastify').FastifyReply,
@@ -687,42 +643,26 @@ async function listEdges(
   field: keyof typeof EDGE_LIST_FIELDS,
   sessionId: string,
   rawQuery: unknown,
-  readerApplicationId: string | null,
 ): Promise<unknown> {
   const parsed = ListQuery.safeParse(rawQuery)
   if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
   const column = EDGE_LIST_FIELDS[field]
   const { limit, cursor } = parsed.data
-  if (readerApplicationId !== null) {
-    const { rows: owned } = await db.query(`SELECT 1 FROM sessions WHERE id = $1 AND zone_id = $2 AND application_id = $3`, [
-      sessionId,
-      zoneId,
-      readerApplicationId,
-    ])
-    if (!owned[0]) return reply.code(404).send({ error: 'session_not_found' })
-  }
   if (cursor) {
-    const { rows: probe } = await db.query(
-      `SELECT 1 FROM delegation_edges
-       WHERE id = $1 AND zone_id = $2 AND ${column} = $3
-         AND ($4::text IS NULL OR issuer_application_id = $4 OR receiver_application_id = $4)`,
-      [cursor, zoneId, sessionId, readerApplicationId],
-    )
+    const { rows: probe } = await db.query(`SELECT 1 FROM delegation_edges WHERE id = $1 AND zone_id = $2`, [cursor, zoneId])
     if (!probe[0]) return reply.code(400).send({ error: 'invalid_cursor' })
   }
-  const params: unknown[] = [zoneId, sessionId, limit, readerApplicationId]
+  const params: unknown[] = [zoneId, sessionId, limit]
   let cursorClause = ''
   if (cursor) {
     params.push(cursor)
-    cursorClause = `AND id < $5`
+    cursorClause = `AND id < $4`
   }
   const { rows } = await db.query(
     `SELECT id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
             parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
      FROM delegation_edges
-     WHERE zone_id = $1 AND ${column} = $2
-       AND ($4::text IS NULL OR issuer_application_id = $4 OR receiver_application_id = $4)
-       ${cursorClause}
+     WHERE zone_id = $1 AND ${column} = $2 ${cursorClause}
      ORDER BY id DESC LIMIT $3`,
     params,
   )
@@ -745,7 +685,10 @@ async function activeSessionEndpoints(
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
-        AND ${SESSION_LIVE_SQL}
+        AND (
+          (ttl_seconds IS NOT NULL AND started_at + (ttl_seconds * interval '1 second') > now())
+          OR (lifecycle = 'service' AND heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at > now())
+        )
      FOR SHARE`,
     [zoneId, [sourceId, targetId]],
   )
@@ -840,6 +783,10 @@ function parentAllowsDelegation(
   if (constraints.ttl_seconds !== undefined) {
     const childTTL = childConstraints.ttl_seconds
     if (childTTL === undefined || childTTL > constraints.ttl_seconds) return false
+  }
+  if (constraints.budget !== undefined) {
+    const childBudget = childConstraints.budget ?? body.scopes.length
+    if (childBudget > constraints.budget) return false
   }
   return true
 }
