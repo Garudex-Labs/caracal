@@ -14,7 +14,7 @@ Scale Caracal around three bottlenecks: token exchange and policy evaluation in 
 | STS         | Replicas, OPA policy age, Redis invalidation health, `MAX_GRANT_TTL_SECONDS`, replay persistence.                 |
 | Gateway     | Replicas, `MAX_REQUEST_BYTES`, `STS_TIMEOUT`, `UPSTREAM_TIMEOUT`, upstream allowlist, revocation snapshot health. |
 | Audit       | Replicas, Postgres write capacity, DLQ thresholds, retention, S3 export settings.                                 |
-| Coordinator | Replicas, DB pool, sweeper intervals, outbox batch, service-agent leases.                                         |
+| Coordinator | Replicas, DB pool, sweeper intervals, outbox batch, and long-lived Session leases.                               |
 | Postgres    | Connection limits, indexes, partitions, storage IOPS, backup windows.                                             |
 | Redis       | Stream memory, pending entries, consumer lag, persistence, network latency.                                       |
 

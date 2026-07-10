@@ -41,25 +41,18 @@ Credential bindings, zone, scopes, and failure behavior come from the workload's
 
 | Field                    | Meaning                                               |
 | ------------------------ | ----------------------------------------------------- |
-| `zone_url`               | Cloud/custom STS URL override for token exchange.     |
-| `sts_url`                | Cloud/custom SDK-readable STS alias/fallback.         |
+| `sts_url`                | Cloud/custom STS URL for token exchange.              |
 | `coordinator_url`        | Cloud/custom SDK/Console Coordinator URL override.    |
 | `gateway_url`            | Cloud/custom Gateway URL override for SDK transports. |
 | `zone_id`                | Zone identifier.                                      |
-| `application_id`         | Confidential application ID.                          |
+| `application_id`         | Application identifier.                               |
 | `app_client_secret_file` | Cloud/custom secret-file path override.               |
 | `app_client_secret`      | Inline local-development secret.                      |
-| `ttl_seconds`            | Credential exchange TTL, capped at 900 seconds.       |
-| `continue_on_failure`    | Required credential failure behavior.                 |
-| `credentials[]`          | Required resource credentials.                        |
-| `optional_credentials[]` | Optional resource credentials with `on_failure`.      |
+| `default_ttl_seconds`    | Default TTL for block-style Session calls.            |
+| `credentials[]`          | Resource audiences with optional upstream prefixes.   |
+| `optional_credentials[]` | Additional resource audiences and upstream prefixes.  |
 
-Credential entries use `env`, `resource`, optional `upstream_prefix`, and optional `credential_type`. Use `provider_token` for direct provider-key access and `caracal_mandate` for mandate-aware workloads.
-
-Local dev and stable SDK loads read the client secret and credential
-manifest from files you store under the OS Caracal config directory. Use explicit
-secret-file paths and service URLs only for cloud deployments, containers, or
-custom infrastructure.
+SDK credential entries use `resource` and optional `upstream_prefix`. SDKs do not read launcher fields or search the OS config directory. Set `CARACAL_CONFIG` to an explicit profile path.
 
 ## Core Service Environment Keys
 
@@ -77,7 +70,7 @@ custom infrastructure.
 | `SECRET_STORE_KEK_PREVIOUS` / `SECRET_STORE_KEK_PREVIOUS_FILE`         | API and STS during a master-key rotation window.            |
 | `CARACAL_SECRET_BACKEND`                                               | API and STS; selects the secret backend, default `builtin`. |
 | `CARACAL_ADMIN_TOKEN` / `CARACAL_ADMIN_TOKEN_FILE`                     | API and management clients.                                 |
-| `CARACAL_COORDINATOR_TOKEN` / `CARACAL_COORDINATOR_TOKEN_FILE`         | Coordinator and Console agent/delegation views.             |
+| `CARACAL_COORDINATOR_TOKEN` / `CARACAL_COORDINATOR_TOKEN_FILE`         | Coordinator and Console Session/Delegation views.           |
 
 ## Deployment Values
 

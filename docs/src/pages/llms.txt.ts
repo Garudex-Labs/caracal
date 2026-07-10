@@ -145,7 +145,7 @@ export async function GET() {
     '',
     '> The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.',
     '',
-    'Caracal is an open-source system built by Garudex Labs. It issues short-lived signed mandates that bind agents and workloads to policy before protected-resource access. The core primitives are: principal, mandate, policy, zone, resource, grant, delegation edge, constraint, agent session, step-up challenge, and audit ledger.',
+    'Caracal is an open-source system built by Garudex Labs. It issues short-lived signed mandates that bind agents and workloads to policy before protected-resource access. The core primitives are: Subject, Authority record, Session, Delegation, principal, mandate, policy, zone, resource, grant, constraint, approval, and audit ledger.',
     '',
     'The runtime includes API (port 3000), STS (port 8080), Gateway (port 8081), Audit (port 9090), and Coordinator (port 4000). Control runs as an optional in-process plugin inside API. Runtime lifecycle uses the top-level caracal runtime CLI; product management uses Console, Admin SDK, or Control API.',
     '',

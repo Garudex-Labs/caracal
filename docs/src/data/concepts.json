@@ -6,7 +6,7 @@
     "aliases": ["caller identity", "agent identity", "requester"],
     "relations": {
       "requests": ["mandate"],
-      "participates-in": ["delegation-edge"],
+      "participates-in": ["delegation"],
       "scoped-to": ["zone"]
     }
   },
@@ -55,13 +55,13 @@
       "scoped-to": ["zone"]
     }
   },
-  "delegation-edge": {
-    "title": "Delegation Edge",
+  "delegation": {
+    "title": "Delegation",
     "path": "/concepts/delegation/",
     "description": "A typed, auditable narrowing of authority between two execution sessions in the same zone.",
     "aliases": ["delegation", "authority delegation"],
     "relations": {
-      "connects": ["agent-session"],
+      "connects": ["session"],
       "constrained-by": ["constraint"],
       "tracked-by": ["coordinator"]
     }
@@ -72,18 +72,18 @@
     "description": "A typed restriction on delegated authority, such as resource, TTL, hop, or budget limits.",
     "aliases": ["caveat", "attenuation"],
     "relations": {
-      "limits": ["delegation-edge"],
+      "limits": ["delegation"],
       "validated-by": ["coordinator", "sts"]
     }
   },
-  "agent-session": {
-    "title": "Agent Session",
+  "session": {
+    "title": "Session",
     "path": "/concepts/sessions-revocation/",
     "description": "A Coordinator-tracked execution session with lifecycle, lineage, and revocation state.",
     "aliases": ["session", "execution session"],
     "relations": {
       "tracked-by": ["coordinator"],
-      "may-contain": ["delegation-edge"],
+      "may-contain": ["delegation"],
       "revoked-through": ["revocation"]
     }
   },
@@ -98,11 +98,11 @@
       "ingested-by": ["audit"]
     }
   },
-  "step-up": {
-    "title": "Step-Up Challenge",
+  "approval": {
+    "title": "Approval",
     "path": "/concepts/step-up/",
-    "description": "An interaction-required challenge returned when policy needs stronger proof before STS issues a mandate.",
-    "aliases": ["interaction_required", "challenge"],
+    "description": "A policy-raised hold that requires a human decision before STS issues authority.",
+    "aliases": ["interaction_required", "approval hold"],
     "relations": {
       "requested-by": ["policy"],
       "issued-by": ["sts"],

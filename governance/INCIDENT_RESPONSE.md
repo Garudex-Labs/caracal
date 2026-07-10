@@ -11,7 +11,7 @@ One Incident Lead owns sequencing, decisions, evidence, and closure. One Driver 
 Use this process for incidents affecting:
 
 - `apps/api`: control-plane routes, admin auth, zones, applications, resources, providers, policies, policy sets, grants, step-up challenges, admin tokens, audit retention, the AI Operator, and the optional control invocation plugin (`apps/api/src/control`).
-- `apps/coordinator`: agent lifecycle, delegation, invocation, TTL, retention, outbox, and lifecycle events.
+- `apps/coordinator`: Session lifecycle, Delegation, invocation, TTL, retention, outbox, and lifecycle events.
 - `apps/auth` and `apps/web`: operator sign-in, sessions, the authenticated console proxy, and the web console.
 - `services/sts`: token exchange, OPA policy decisions, signing keys, JWKS, replay, revocation, step-up, and audit emission.
 - `services/gateway`: proxy enforcement, upstream safety, STS exchange, bindings, replay, and revocation checks.

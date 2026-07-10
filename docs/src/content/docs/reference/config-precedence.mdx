@@ -19,26 +19,19 @@ The credential bindings, zone, scopes, and failure behavior come from the worklo
 SDK loaders use this order:
 
 1. `CARACAL_CONFIG`, when set. A missing file at that path is an error, not a fallthrough.
-2. `caracal.toml` in the OS Caracal config directory, when present.
-3. Environment runtime config.
-
-The OS Caracal config directory is `$XDG_CONFIG_HOME/caracal` (or `~/.config/caracal`) on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. Set `CARACAL_CONFIG_HOME` to override it on any platform.
+2. Environment runtime config.
 
 SDKs do not read `./caracal.toml` from the current working directory.
 
-Environment config is considered when workload identity variables are present.
-Local dev and stable SDK loads use `CARACAL_ZONE_ID` and
-`CARACAL_APPLICATION_ID`, then auto-detect credential files from the OS Caracal
-config directory. Setting `CARACAL_ENV=production` disables that auto-detection
-and requires explicit service URLs. Cloud and custom deployments can provide
-explicit `CARACAL_APP_CLIENT_SECRET_FILE`, `CARACAL_RUN_CREDENTIALS`,
-`CARACAL_RUN_CREDENTIALS_FILE`, or `CARACAL_RESOURCES_FILE` values when mounted
+Environment config uses `CARACAL_ZONE_ID` and `CARACAL_APPLICATION_ID` with one
+explicit credential source. SDKs read secret and manifest files only when named
+by `CARACAL_APP_CLIENT_SECRET_FILE` or an explicit profile field. Setting `CARACAL_ENV=production` requires explicit
+service URLs. Cloud and custom deployments can provide
+`CARACAL_RESOURCES_FILE` values when mounted
 secret or config paths differ from the local convention. A deployment without a
 client secret can instead supply a pre-minted session mandate through
 `CARACAL_BOOTSTRAP_TOKEN`; the SDK rejects a bootstrap token that is already
 expired at startup.
-
-Set only one of `CARACAL_RUN_CREDENTIALS` and `CARACAL_RUN_CREDENTIALS_FILE`.
 
 Resource bindings resolve from profile credentials, then
 `CARACAL_RESOURCES_FILE`, then `CARACAL_RESOURCES`. Later bindings with the
@@ -51,19 +44,19 @@ Services support `*_FILE` variants for configured secret keys. File values are r
 
 ## Deployment Values
 
-| Deployment path | Precedence model |
-| --- | --- |
-| Docker Compose | Shell environment overrides defaults in compose files; secrets are mounted from files. |
-| Helm | CLI `--set` and later values files override earlier chart values; runtime Secret keys feed mounted service env. |
+| Deployment path | Precedence model                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Docker Compose  | Shell environment overrides defaults in compose files; secrets are mounted from files.                          |
+| Helm            | CLI `--set` and later values files override earlier chart values; runtime Secret keys feed mounted service env. |
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Expected SDK profile is ignored | `CARACAL_CONFIG` may point elsewhere or environment runtime config may be winning. |
-| `caracal run` cannot find bindings | Bindings live on the **Run** page in the web console, not in a local file. |
-| Service fails with missing secret | Confirm the `*_FILE` variable name is supported by that service and the file is readable. |
-| Helm values render unexpected defaults | Check values file order and CLI overrides. |
+| Symptom                                | Check                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Expected SDK profile is ignored        | Set `CARACAL_CONFIG` to the exact profile path; SDKs do not search default directories.   |
+| `caracal run` cannot find bindings     | Bindings live on the **Run** page in the web console, not in a local file.                |
+| Service fails with missing secret      | Confirm the `*_FILE` variable name is supported by that service and the file is readable. |
+| Helm values render unexpected defaults | Check values file order and CLI overrides.                                                |
 
 ## Next Step
 

@@ -38,7 +38,7 @@ Residual, knowingly-open items are tracked in [Known Limits and How Caracal Cont
 In scope:
 
 - `apps/api`: Fastify control plane for zones, applications, resources, providers, policies, policy sets, grants, step-up challenges, policy templates, admin tokens, audit retention, admin audit, and the AI Operator, plus the optional control invocation plugin (`apps/api/src/control`) gated by explicit enablement, ES256 bearer auth, per-resource scope checks against the engine catalog, JTI replay, rate limits, and audit.
-- `apps/coordinator`: agent lifecycle, delegation, invocation, TTL, retention, outbox, and the Redis Streams lifecycle relay with signature verification and dedupe.
+- `apps/coordinator`: Session lifecycle, Delegation, invocation, TTL, retention, outbox, and the Redis Streams lifecycle relay with signature verification and dedupe.
 - `apps/auth`: web backend-for-frontend - operator sign-in, sessions, and the authenticated proxy that carries console traffic to the API and coordinator.
 - `apps/web`: web console SPA, served same-origin by the BFF in production.
 - `services/sts`: OAuth 2.0 token exchange, ES256 signing, JWKS, policy evaluation, step-up, replay, revocation, and audit emission.

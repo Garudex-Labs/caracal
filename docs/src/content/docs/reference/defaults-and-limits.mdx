@@ -39,6 +39,8 @@ pageType: reference
 | Gateway max request bytes         | 10 MiB              |
 | Gateway STS timeout               | 5 seconds           |
 | Gateway upstream timeout          | 30 seconds          |
+| Gateway non-stream write timeout  | 60 seconds          |
+| Gateway stream idle timeout       | 60 seconds per chunk |
 | Gateway STS circuit failure limit | 3 failures          |
 | Gateway STS circuit open window   | 10 seconds          |
 | STS `OPA_POLL_SECONDS`            | 60 seconds, max 300 |
@@ -58,6 +60,7 @@ The SDKs share one timeout philosophy: **control-plane calls are always bounded,
 | Delegation create         | 1 retry                              | Same durable creation-replay contract.                                                                                                                                                                                                          |
 | Retry backoff             | 250 ms escalating, jittered          | A server `Retry-After` wins, capped at 10 seconds.                                                                                                                                                                                              |
 | STS token exchange        | 30-second budget, up to 3 attempts   | Transient statuses only; policy denials never retry.                                                                                                                                                                                            |
+| TypeScript Control invoke | 30-second total budget               | Covers token mint, its one safe retry, and invoke; mutating invoke timeouts are outcome-ambiguous and never auto-retried.                                                                                                                       |
 | Approval wait             | 300-second default                   | Long-polls in chunks; `pending` on timeout means waiting again is safe.                                                                                                                                                                         |
 | Heartbeat renewal         | 10-second bound per tick             | Failures retry on the next tick; a session reported gone stops the timer and fires `onLeaseLost`.                                                                                                                                               |
 | `transport()` / `fetch()` | none (TS/Go), httpx default (Python) | Bound per call: `timeoutMs`, `AbortSignal`, `timeout=`, or the injected HTTP client.                                                                                                                                                            |

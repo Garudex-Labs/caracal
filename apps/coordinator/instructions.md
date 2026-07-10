@@ -1,12 +1,12 @@
 # apps/coordinator
 
 ## Scope
-- Covers the `@caracalai/coordinator` Fastify agent lifecycle service under `apps/coordinator/`.
+- Covers the `@caracalai/coordinator` Fastify Session lifecycle service under `apps/coordinator/`.
 
 ## Architecture Design
-- Routes under `src/routes/` own agents, agent services, delegations, and invocations.
+- Routes under `src/routes/` own Session protocol routes, long-lived Session services, Delegations, and invocations.
 - Jobs under `src/jobs/` enforce deadlines, TTLs, retention, outbox publishing, and lifecycle relay observation.
-- PostgreSQL owns authoritative agent state; Redis Streams distribute lifecycle and delegation events.
+- PostgreSQL owns authoritative Session state; Redis Streams distribute lifecycle and Delegation events.
 - The service listens on port 4000 in Compose.
 
 ## Required

@@ -24,7 +24,7 @@ The production web tier is a same-origin deployment: the `caracal-web` image ser
 
 Use HTTPS at the public edge and set `CARACAL_AUTH_URL` to that origin. The BFF pins `Secure`, `HttpOnly`, and `SameSite` session cookies, sets hardened response headers (`Content-Security-Policy` with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and HSTS when HTTPS is in use), enforces the request `Origin` on state-changing proxied calls, rate-limits credential endpoints, and validates proxied paths.
 
-For a split deployment where the browser origin differs from the BFF origin, set `CARACAL_WEB_ORIGIN` to the trusted browser origins and use `SameSite=None; Secure` cookies. Keep this shape explicit; the packaged Helm and Compose paths serve the SPA same-origin.
+For a cross-site deployment where the browser site differs from the BFF site, set `CARACAL_WEB_ORIGIN` to the exact trusted browser origins and `CARACAL_AUTH_COOKIE_SAME_SITE=none`. This mode refuses to start unless cookies are Secure. A cross-origin deployment on sibling subdomains can keep the safer `lax` default when both origins are same-site. Packaged Helm and Compose serve the SPA same-origin.
 
 With Helm NetworkPolicy enabled, add a `networkPolicy.extraIngress` rule for the ingress controller to reach the web service on port `3002`. API, Coordinator, and Gateway should remain private unless a deployment requires their endpoints externally.
 
@@ -40,6 +40,8 @@ To pin egress to an explicit set of hosts as a hardening control, set:
 ```bash
 UPSTREAM_HOST_ALLOWLIST=internal-api.example.svc,provider.example.com
 ```
+
+Provider token endpoints and subject-issuer JWKS remain public-address-only by default. When an IdP is reachable over a private interconnect, set `CARACAL_PRIVATE_EGRESS_HOSTS` on API and STS to its exact DNS hostname. This exception permits private and unique-local addresses only for those names; loopback, metadata, link-local, multicast, and unspecified addresses remain blocked at resolution and connection time.
 
 ## HMAC and Signing Keys
 

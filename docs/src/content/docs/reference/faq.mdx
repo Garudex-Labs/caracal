@@ -154,9 +154,9 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <h3>What is the difference between an application, Subject, Authority record, and Session?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-005">Share</button>
       </summary>
-      <span id="faq-application-principal-agent-session" className="faqAnchor"></span>
+      <span id="faq-application-subject-authority-record-session" className="faqAnchor"></span>
       <p>An application is registered software that authenticates to Caracal. A Subject is the opaque JWT <code>sub</code> identity the work is attributed to. An Authority record is one STS exchange record. A Session is one governed Coordinator execution.</p>
-      <p>These identifiers are distinct: Authority record ID is the raw JWT <code>sid</code>, Root authority record ID is <code>root_sid</code>, and Session ID is the Coordinator protocol's <code>agent_session_id</code>.</p>
+      <p>These identifiers are distinct: Authority record ID identifies one STS exchange, Root authority record ID identifies its exchange-chain root, and Session ID identifies one governed Coordinator execution.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
 
@@ -201,9 +201,9 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       </summary>
       <span id="faq-distinguish-agents-under-one-application" className="faqAnchor"></span>
       <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
-      <p>Each execution has a unique Session ID. On the protocol it is <code>agent_session_id</code>; policy reads <code>input.principal.agent_session_id</code>, and audit records it with lifecycle, labels, parentage, and Delegation context. The Console **Sessions** view shows the same execution records.</p>
+      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The Console **Sessions** view shows the same execution records.</p>
       <p>Authority, not labels, is the security boundary. Labels are asserted by the credentialed workload and help policy and audit classify work; scopes, Delegations, and policy contain compromised workloads.</p>
-      <p>Filter the Admin API audit protocol by <code>agent_session_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
+      <p>Filter the Admin API audit endpoint by <code>session_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
@@ -353,11 +353,11 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <h3>Two agents share the same application and labels - how do I tell which one acted?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-020">Share</button>
       </summary>
-      <span id="faq-which-agent-session-acted" className="faqAnchor"></span>
-      <p>Every governed execution has one canonical Session ID. The Coordinator protocol names it <code>agent_session_id</code>. It is returned when <code>session()</code> or <code>startSession()</code> starts the Session and is stamped onto its token exchanges and audit events.</p>
-      <p>Identical sessions are interchangeable on purpose. A hundred <code>["pricing-worker"]</code> sessions fanned out under one application are meant to be fungible - that is how fan-out works, and it is why labels are a descriptor rather than a unique name. When you need to tell sessions apart by <em>meaning</em> rather than by raw id, give them distinguishing <code>labels</code>, attach business correlation in <code>metadata</code>, or propagate a <code>trace_id</code> through the work.</p>
-      <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>agent_session_id</code> to follow one exact session end to end, or <code>label</code> to scope to a role across a whole fleet of sessions. The web console audit view exposes both filters.</p>
-      <p>To see Sessions that have ended, the Admin API exposes <code>GET /v1/zones/&#123;zone&#125;/agent-sessions</code>. The stable protocol path retains <code>agent-sessions</code>; it returns governed Sessions and supports status, lifecycle, label, parent, and application filters plus CSV export.</p>
+      <span id="faq-which-session-acted" className="faqAnchor"></span>
+      <p>Every governed execution has one canonical Session ID. It is returned when <code>session()</code> or <code>startSession()</code> starts the Session and is stamped onto its token exchanges and audit events.</p>
+      <p>Identical Sessions are interchangeable on purpose. A hundred <code>["pricing-worker"]</code> Sessions fanned out under one application are meant to be fungible - that is how fan-out works, and it is why labels are a descriptor rather than a unique name. When you need to tell Sessions apart by <em>meaning</em> rather than by raw id, give them distinguishing <code>labels</code>, attach business correlation in <code>metadata</code>, or propagate a <code>trace_id</code> through the work.</p>
+      <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>session_id</code> to follow one exact Session end to end, or <code>label</code> to scope to a role across a whole fleet of Sessions. The web console audit view exposes both filters.</p>
+      <p>To see Sessions that have ended, the Admin API exposes <code>GET /v1/zones/&#123;zone&#125;/sessions</code>. It supports status, lifecycle, label, parent Session, and application filters plus CSV export.</p>
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-021">FAQ-021</a></p>
     </details>
 
@@ -376,7 +376,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-011">FAQ-011</a></p>
     </details>
 
-    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If child Sessions use the parent's application, when is DCR used?" data-keywords="DCR ephemeral agent lifecycle managed authenticate client credentials session per tenant isolation use case orchestrator">
+    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If child Sessions use the parent's application, when is DCR used?" data-keywords="DCR ephemeral Session lifecycle managed authenticate client credentials per tenant isolation use case orchestrator">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-022</span>
         <span className="faqTag faqTagIdentity">Identity</span>
@@ -385,7 +385,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       </summary>
       <span id="faq-when-is-dcr-actually-used" className="faqAnchor"></span>
       <p>A DCR application is used by <strong>authenticating as it</strong>, not by starting it as a child. Because <code>session()</code> uses the caller's application, a DCR application bound to exactly one Session cannot parent another Session.</p>
-      <p>The credential boundary between durable managed identities and short-lived DCR identities is named by <code>registration_method</code> (managed vs DCR), not by an agent's <code>lifecycle</code>. A session's <code>lifecycle</code> is either <code>task</code> (the default) or <code>service</code> (heartbeat-leased), and a DCR application cannot host a <code>service</code> session, so its one session is always a <code>task</code> session. A short-lived worker is therefore <em>not</em> a separate lifecycle - it is an ordinary <code>task</code> session with a TTL (see <a href="#faq-023">FAQ-023</a>).</p>
+      <p>The credential boundary between durable managed identities and short-lived DCR identities is named by <code>registration_method</code> (managed vs DCR), not by an agent's <code>lifecycle</code>. A Session's <code>lifecycle</code> is either <code>task</code> (the default) or <code>service</code> (heartbeat-leased), and a DCR application cannot host a <code>service</code> Session, so its one Session is always a <code>task</code> Session. A short-lived worker is therefore <em>not</em> a separate lifecycle - it is an ordinary <code>task</code> Session with a TTL (see <a href="#faq-023">FAQ-023</a>).</p>
       <p>The Admin API registers the DCR application and returns a one-time client secret and short expiry. An orchestrator injects those credentials into an independently launched workload, which authenticates with <code>client_credentials</code> and starts its single Session. STS creates Authority records as that workload exchanges.</p>
       <p>The credential split is deliberate: minting a new credentialed identity is a privileged control-plane action, so a runtime cannot register applications for itself. The SDK <em>consumes</em> a DCR application by being configured with its credentials; only an operator or orchestrator with Admin API access <em>mints</em> one.</p>
       <p>Because a DCR root has no parent and no Delegation, its authority is decided entirely by <strong>policy</strong>, not by inheritance - and policy is <strong>default-deny</strong>, so a DCR identity opens no tools until a policy grants it scopes. Policies receive <code>input.principal.registration_method</code>, so you write <em>one</em> policy class targeting <code>registration_method == "dcr"</code> (optionally narrowed by <code>labels</code>, resource, or zone) that covers every DCR application; you do not author a policy per DCR app. Pair that with per-tenant or per-job resources to keep each DCR identity scoped to its own data.</p>
@@ -453,10 +453,10 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <h3>Can two DCR applications have different policies, and can a DCR Session start children?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-026">Share</button>
       </summary>
-      <span id="faq-dcr-policy-and-spawn" className="faqAnchor"></span>
+      <span id="faq-dcr-policy-and-session-parenting" className="faqAnchor"></span>
       <p><strong>Different policies per DCR app: yes.</strong> Policy evaluation receives the full principal, including the specific <code>input.principal.id</code> (the application id), <code>input.principal.labels</code>, and <code>input.principal.registration_method</code>. Matching on <code>registration_method == "dcr"</code> is just the convenient way to write <em>one</em> rule that covers every DCR app; when two DCR apps need different authority, target their distinct application ids or labels, or scope them to different resources. There is no requirement that all DCR apps share a policy.</p>
       <p><strong>Can a DCR application start child Sessions: no.</strong> It binds exactly one Session; a second start is rejected with the protocol error <code>dcr_application_already_bound</code>.</p>
-      <p><strong>Which Sessions can be parents:</strong> Sessions under managed applications can start child Sessions. A task parent cannot start a service child; the protocol reports <code>task_agent_cannot_spawn_service</code>. DCR Sessions are isolated leaves, reported by the protocol as <code>dcr_application_cannot_spawn</code> and <code>dcr_application_cannot_be_child</code>.</p>
+      <p><strong>Which Sessions can be parents:</strong> Sessions under managed applications can start child Sessions. A task parent cannot start a service child; the protocol reports <code>task_session_cannot_start_service</code>. DCR Sessions are isolated leaves, reported by the protocol as <code>dcr_application_cannot_start_child</code> and <code>dcr_application_cannot_be_child</code>.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-022">FAQ-022</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-025">FAQ-025</a>, <a href="#faq-007">FAQ-007</a></p>
     </details>
