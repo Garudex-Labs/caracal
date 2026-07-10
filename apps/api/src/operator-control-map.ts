@@ -132,7 +132,7 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   listSessions: readControl('session', 'session', 'list', (args) =>
     filterFlags(args, { subject: 'subject', status: 'status', limit: 'limit' }),
   ),
-  listAgents: readControl('agent', 'agent session'),
+  listAgents: readControl('session', 'governed session'),
   listDelegations: readControl('delegation', 'delegation', 'active'),
   // The audit read tails the most recent decisions; the bound keeps a read small while still
   // showing what the zone decided last.
@@ -431,22 +431,27 @@ export const CONTROL_CAPABILITIES: Record<string, ControlCapability> = {
   // Runtime authority interventions ride the same governed apply as topology changes: the
   // suspend and resume verbs are lifecycle writes, terminate and revoke are removals.
   suspendAgent: {
-    scopes: ['control:agent:write'],
-    buildInvocation: (args) => ({ command: 'agent', subcommand: 'suspend', flags: { id: asString(args.agent_session_id) } }),
+    scopes: ['control:session:write'],
+    buildInvocation: (args) => ({ command: 'session', subcommand: 'suspend', flags: { id: asString(args.agent_session_id) } }),
     describeOutcome: (_result, args) => ({
       detail: `Suspended agent session ${asString(args.agent_session_id)}.`,
       output: { agent_session_id: asString(args.agent_session_id) },
     }),
   },
   resumeAgent: {
-    scopes: ['control:agent:write'],
-    buildInvocation: (args) => ({ command: 'agent', subcommand: 'resume', flags: { id: asString(args.agent_session_id) } }),
+    scopes: ['control:session:write'],
+    buildInvocation: (args) => ({ command: 'session', subcommand: 'resume', flags: { id: asString(args.agent_session_id) } }),
     describeOutcome: (_result, args) => ({
       detail: `Resumed agent session ${asString(args.agent_session_id)}.`,
       output: { agent_session_id: asString(args.agent_session_id) },
     }),
   },
-  terminateAgent: removeControl('agent', 'terminate', 'agent_session_id', (id) => `Terminated agent session ${id} and its descendants.`),
+  terminateAgent: removeControl(
+    'session',
+    'terminate',
+    'agent_session_id',
+    (id) => `Terminated governed session ${id} and its descendants.`,
+  ),
   revokeDelegation: removeControl('delegation', 'revoke', 'delegation_id', (id) => `Revoked delegation ${id}.`),
   // The control plane mints the workload secret server-side and returns it once in the create
   // and rotate responses; it reaches the caller through the step output only and is never

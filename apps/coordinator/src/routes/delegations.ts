@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Delegation graph routes for agent-to-agent authority edges.
+// Delegation graph routes between governed Sessions.
 
 import type { FastifyPluginAsync } from 'fastify'
 import type { Pool } from 'pg'
@@ -13,6 +13,8 @@ import { ownsApplication, requireScope } from '../auth.js'
 import { bumpDelegationEpoch } from '../delegationEpochs.js'
 import { MAX_DEPTH, terminateSubtree } from './agents.js'
 import { ZoneIdParams, ZoneParams, ZoneSessionParams, parseParams } from './params.js'
+import { cfg } from '../config.js'
+import { completeIdempotency, parseIdempotencyKey, startIdempotency, type IdempotencyStart } from '../idempotency.js'
 
 const LIST_DEFAULT_LIMIT = 100
 const LIST_MAX_LIMIT = 500
@@ -111,26 +113,80 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       constraints.broad_reason ??= 'resource_null_delegation'
       constraints.policy_approved = true
     }
-    const idempotencyKey = (req.headers['idempotency-key'] as string | undefined)?.trim() || null
+    const idempotencyKey = parseIdempotencyKey(req.headers['idempotency-key'])
+    const idempotencyRequest = {
+      principal: { client_id: req.caracalAuth?.clientId, subject: req.caracalAuth?.subject },
+      source_session_id: body.source_session_id,
+      target_session_id: body.target_session_id,
+      issuer_application_id: body.issuer_application_id,
+      receiver_application_id: body.receiver_application_id,
+      parent_edge_id: body.parent_edge_id ?? null,
+      resource_id: body.resource_id,
+      scopes: [...body.scopes].sort(),
+      constraints,
+      expires_at: requestedExpiresAt ?? null,
+      ttl_seconds: ttlSeconds,
+    }
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
+      let receipt: IdempotencyStart | null = null
       if (idempotencyKey) {
-        const { rows: existing } = await client.query(
-          `SELECT id AS delegation_edge_id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-                  parent_edge_id, resource_id, scopes, constraints_json, status, expires_at, edge_version, revoked_at, created_at
-           FROM delegation_edges
-           WHERE zone_id = $1 AND issuer_application_id = $2 AND idempotency_key = $3 AND status = 'active'
+        receipt = await startIdempotency(client, {
+          operation: 'delegation.create.v2',
+          zoneId,
+          scopeId: body.issuer_application_id,
+          key: idempotencyKey,
+          request: idempotencyRequest,
+          hmacKeys: cfg.idempotencyHmacKeys,
+          maxReceiptsPerScope: cfg.idempotencyMaxReceiptsPerScope,
+        })
+        if (receipt.outcome === 'conflict') {
+          await client.query('ROLLBACK')
+          return reply.code(409).send({
+            error: 'idempotency_key_conflict',
+            message: 'Idempotency-Key was already used for a different delegation request',
+          })
+        }
+        if (receipt.outcome === 'limit') {
+          await client.query('ROLLBACK')
+          return reply.code(429).send({ error: 'idempotency_receipt_limit_exceeded' })
+        }
+        if (receipt.outcome === 'replayed') {
+          const { rows: live } = await client.query(
+            `SELECT 1 FROM delegation_edges
+             WHERE id = $1 AND zone_id = $2 AND issuer_application_id = $3
+               AND status = 'active' AND expires_at > now()`,
+            [receipt.resourceId, zoneId, body.issuer_application_id],
+          )
+          if (!live[0]) {
+            await client.query('ROLLBACK')
+            return reply.code(409).send({
+              error: 'idempotency_result_inactive',
+              message:
+                'The operation already completed and its delegation is no longer active; use a new operation identifier for an intentional delegation',
+            })
+          }
+          await client.query('COMMIT')
+          reply.header('Idempotency-Replayed', 'true')
+          return reply.code(receipt.status).send(receipt.response)
+        }
+        const { rows: legacy } = await client.query(
+          `SELECT 1 FROM delegation_edges
+           WHERE zone_id = $1 AND issuer_application_id = $2 AND idempotency_key = $3
            LIMIT 1`,
           [zoneId, body.issuer_application_id, idempotencyKey],
         )
-        if (existing[0]) {
+        if (legacy[0]) {
           await client.query('ROLLBACK')
-          return reply.code(200).send(existing[0])
+          return reply.code(409).send({
+            error: 'idempotency_key_legacy_conflict',
+            message: 'Idempotency-Key belongs to an operation created before durable receipts; use a new operation identifier',
+          })
         }
       }
-      const endpoints = await activeAgentEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`delegation:${zoneId}`])
+      const endpoints = await activeSessionEndpoints(client, zoneId, body.source_session_id, body.target_session_id)
       if (!endpoints.source || !endpoints.target) {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'delegation_endpoint_not_found' })
@@ -194,8 +250,8 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
          )
          INSERT INTO delegation_edges
           (id, zone_id, source_session_id, target_session_id, issuer_application_id, receiver_application_id,
-           parent_edge_id, resource_id, scopes, constraints_json, expires_at, idempotency_key)
-          SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,expiry.expires_at,$13
+           parent_edge_id, resource_id, scopes, constraints_json, expires_at)
+          SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,expiry.expires_at
           FROM expiry
           WHERE expiry.expires_at > now()
             AND (
@@ -219,7 +275,6 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           constraints,
           requestedExpiresAt ?? null,
           ttlSeconds,
-          idempotencyKey,
         ],
       )
       if (!rows[0]) {
@@ -238,8 +293,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         target_session_id: body.target_session_id,
         epoch,
       })
-      await client.query('COMMIT')
-      return reply.code(201).send({
+      const response = {
         ...rows[0],
         warnings,
         allow_reason: [
@@ -249,7 +303,23 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
           'typed_constraints_validated',
         ],
         effective_authority: effectiveAuthority(body, constraints, resources.items, insertedExpiresAt, parents, parentEdgeId),
-      })
+      }
+      if (receipt?.outcome === 'new') {
+        await completeIdempotency(client, {
+          operation: 'delegation.create.v2',
+          zoneId,
+          scopeId: body.issuer_application_id,
+          keyDigest: receipt.keyDigest,
+          requestDigest: receipt.requestDigest,
+          resourceType: 'delegation_edge',
+          resourceId: edgeId,
+          responseStatus: 201,
+          response,
+          retentionSeconds: cfg.idempotencyRetentionSeconds,
+        })
+      }
+      await client.query('COMMIT')
+      return reply.code(201).send(response)
     } catch (err) {
       await client.query('ROLLBACK')
       throw err
@@ -333,7 +403,7 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       source_session_id: string
       target_session_id: string
       depth: number
-      subject_session_id: string | null
+      subject_authority_record_id: string | null
     }>(
       `WITH RECURSIVE affected AS (
          SELECT id, source_session_id, target_session_id, 1 AS depth, ARRAY[id] AS visited
@@ -349,18 +419,18 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
            AND NOT e.id = ANY(a.visited)
            AND a.depth < $3
        )
-       SELECT a.id, a.source_session_id, a.target_session_id, a.depth, s.subject_session_id
+       SELECT a.id, a.source_session_id, a.target_session_id, a.depth, s.subject_authority_record_id
        FROM affected a
-       LEFT JOIN agent_sessions s ON s.id = a.target_session_id AND s.zone_id = $2
+       LEFT JOIN sessions s ON s.id = a.target_session_id AND s.zone_id = $2
        ORDER BY a.depth, a.id`,
       [id, zoneId, MAX_DEPTH],
     )
     if (rows.length === 0) return reply.code(404).send({ error: 'delegation_not_found' })
     return {
       edge_id: id,
-      affected_edges: rows.map(({ subject_session_id: _subjectSessionId, ...row }) => row),
-      affected_agents: [...new Set(rows.map((row) => row.target_session_id))],
-      affected_subject_sessions: [...new Set(rows.map((row) => row.subject_session_id).filter(Boolean))],
+      affected_edges: rows.map(({ subject_authority_record_id: _subjectAuthorityRecordId, ...row }) => row),
+      affected_sessions: [...new Set(rows.map((row) => row.target_session_id))],
+      affected_subject_sessions: [...new Set(rows.map((row) => row.subject_authority_record_id).filter(Boolean))],
     }
   })
 
@@ -489,10 +559,10 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       const targetIds = [...new Set(revoked.map((row) => row.target_session_id))]
       const { rows: targets } = await client.query<{
         id: string
-        subject_session_id: string
+        subject_authority_record_id: string
         parent_id: string | null
       }>(
-        `SELECT id, subject_session_id, parent_id FROM agent_sessions
+        `SELECT id, subject_authority_record_id, parent_id FROM sessions
          WHERE id = ANY($1::text[]) AND zone_id = $2
            AND status IN ('active','suspended')`,
         [targetIds, zoneId],
@@ -512,16 +582,16 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
         epoch,
       })
       const sessionItems: OutboxItem[] = []
-      const seenSubjectSessionIds = new Set<string>()
+      const seenAuthorityRecordIds = new Set<string>()
       for (const row of targets) {
-        if (seenSubjectSessionIds.has(row.subject_session_id)) continue
-        seenSubjectSessionIds.add(row.subject_session_id)
+        if (seenAuthorityRecordIds.has(row.subject_authority_record_id)) continue
+        seenAuthorityRecordIds.add(row.subject_authority_record_id)
         sessionItems.push({
           topic: Topics.SessionsRevoke,
-          dedupeKey: `delegation:${id}:subject:${row.subject_session_id}`,
+          dedupeKey: `delegation:${id}:subject:${row.subject_authority_record_id}`,
           payload: {
             zone_id: zoneId,
-            session_id: row.subject_session_id,
+            session_id: row.subject_authority_record_id,
             agent_session_id: row.id,
             delegation_edge_id: id,
             reason: 'delegation_revoked',
@@ -532,8 +602,8 @@ export const delegationsRoutes: FastifyPluginAsync = async (fastify) => {
       await client.query('COMMIT')
       return {
         revoked_edges: revoked.length,
-        affected_sessions: seenSubjectSessionIds.size,
-        terminated_agents: terminated,
+        affected_sessions: seenAuthorityRecordIds.size,
+        terminated_sessions: terminated,
       }
     } catch (err) {
       await client.query('ROLLBACK')
@@ -613,7 +683,7 @@ async function listEdges(
   return { items: rows, next_cursor: nextCursor }
 }
 
-async function activeAgentEndpoints(
+async function activeSessionEndpoints(
   db: Queryable,
   zoneId: string,
   sourceId: string,
@@ -624,12 +694,12 @@ async function activeAgentEndpoints(
 }> {
   const { rows } = await db.query(
     `SELECT id, application_id
-     FROM agent_sessions
+     FROM sessions
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
         AND (
-          (ttl_seconds IS NOT NULL AND spawned_at + (ttl_seconds * interval '1 second') > now())
+          (ttl_seconds IS NOT NULL AND started_at + (ttl_seconds * interval '1 second') > now())
           OR (lifecycle = 'service' AND heartbeat_deadline_at IS NOT NULL AND heartbeat_deadline_at > now())
         )
      FOR SHARE`,

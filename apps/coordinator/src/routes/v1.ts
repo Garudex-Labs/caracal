@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { verify, type JwtConfig } from '@caracalai/identity'
 import { cfg } from '../config.js'
 import { redisMinuteBucket } from '../redis.js'
-import { AgentLabels, Lifecycle } from './agents.js'
+import { SessionLabels, Lifecycle } from './agents.js'
 
 const BeginBody = z.object({
   zone_id: z.string().min(1),
@@ -17,7 +17,7 @@ const BeginBody = z.object({
   subject_session_id: z.string().min(1),
   parent_id: z.string().nullable().default(null),
   lifecycle: Lifecycle.optional(),
-  labels: AgentLabels,
+  labels: SessionLabels,
   ttl_seconds: z.number().int().min(1).max(86400).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
@@ -81,7 +81,14 @@ function hopHeaders(req: FastifyRequest): Record<string, string> {
   const tp = req.headers['traceparent']
   const value = Array.isArray(tp) ? tp[0] : tp
   if (value) headers.traceparent = value
+  const idempotencyKey = req.headers['idempotency-key']
+  if (typeof idempotencyKey === 'string') headers['idempotency-key'] = idempotencyKey
   return headers
+}
+
+function forwardReplayHeader(source: { headers: Record<string, string | number | string[] | undefined> }, reply: FastifyReply): void {
+  const replayed = source.headers['idempotency-replayed']
+  if (typeof replayed === 'string') reply.header('Idempotency-Replayed', replayed)
 }
 
 function clientIp(req: FastifyRequest): string {
@@ -119,6 +126,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         ...(body.metadata ? { metadata: body.metadata } : {}),
       },
     })
+    forwardReplayHeader(res, reply)
     return reply.code(res.statusCode).send(res.json())
   })
 
@@ -152,6 +160,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         ...(body.metadata ? { metadata: body.metadata } : {}),
       },
     })
+    forwardReplayHeader(res, reply)
     return reply.code(res.statusCode).send(res.json())
   })
 
@@ -165,6 +174,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
       headers: { ...hopHeaders(req), 'content-type': 'application/json' },
       payload,
     })
+    forwardReplayHeader(res, reply)
     return reply.code(res.statusCode).send(res.json())
   })
 
@@ -186,6 +196,7 @@ export const v1Routes: FastifyPluginAsync = async (fastify) => {
         expires_at: body.expires_at,
       },
     })
+    forwardReplayHeader(res, reply)
     return reply.code(res.statusCode).send(res.json())
   })
 

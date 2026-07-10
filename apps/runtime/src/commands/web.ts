@@ -275,7 +275,7 @@ function printWebUsage(): void {
     '  --web-port <port>    Port for the web UI (default 3001)',
     '  --auth-port <port>   Port for the backend-for-frontend (default 3002)',
     '  --build              Serve the production build instead of the dev server',
-    '  --allow-offline      Launch even if the stack is not running (UI/sign-in only)',
+    '  --allow-offline      Launch the sign-in UI without Console data when the stack is down',
     '  -h, --help           Show help',
     '',
     'The web console proxies the local control plane started by `caracal up`.',
@@ -312,12 +312,12 @@ export async function webCommand(argv: string[]): Promise<void> {
       printInfo('The web console proxies the local control plane, which is started by `caracal up`.')
       printInfo('Start the stack first:')
       printInfo(`  ${style.code('caracal up')}`)
-      printInfo('Or launch the UI without a backend (sign-in only):')
+      printInfo('Or launch only the sign-in UI without Console data:')
       printInfo(`  ${style.code('caracal web --allow-offline')}`)
       process.exit(1)
     }
     if (!(await serviceUp(coordinatorUrl()))) {
-      printWarn('Coordinator is not responding; Agents and Delegation will be unavailable until the stack is fully up.')
+      printWarn('Coordinator is not responding; Sessions and Delegation will be unavailable until the stack is fully up.')
     }
   }
 

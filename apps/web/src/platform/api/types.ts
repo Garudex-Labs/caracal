@@ -324,18 +324,18 @@ export interface SimulateResult {
   result: unknown;
 }
 
-export interface Session {
+export interface AuthorityRecord {
   id: string;
-  zone_id: string;
-  session_type: string;
-  subject_id: string;
-  parent_id: string | null;
+  zoneId: string;
+  type: string;
+  subjectId: string;
+  parentId: string | null;
   status: string;
-  expires_at: string;
-  authenticated_at: string;
-  created_at: string;
-  revoked_at: string | null;
-  revoked_reason: string | null;
+  expiresAt: string;
+  authenticatedAt: string;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
 }
 
 export interface SubjectSummary {
@@ -364,7 +364,7 @@ export interface SubjectGovernedSession {
   application_name: string | null;
   lifecycle: string;
   status: string;
-  spawned_at: string;
+  startedAt: string;
 }
 
 export interface SubjectConnection {
@@ -386,7 +386,7 @@ export interface SubjectOverview {
 export interface SubjectRevokeResult {
   subject_id: string;
   sessions: number;
-  agents: number;
+  governed_sessions: number;
   delegations: number;
   connections: number;
 }
@@ -597,25 +597,25 @@ export interface DiagnosticsReport {
   generatedAt: string;
 }
 
-export type AgentStatus = "active" | "suspended" | "terminated" | "expired";
+export type SessionStatus = "active" | "suspended" | "terminated" | "expired";
 
-export interface Agent {
-  agent_session_id: string;
-  zone_id: string;
-  application_id: string;
-  parent_id: string | null;
-  subject_session_id: string | null;
+export interface Session {
+  id: string;
+  zoneId: string;
+  applicationId: string;
+  parentId: string | null;
+  subjectAuthorityRecordId: string | null;
   lifecycle: string;
   labels: string[];
-  status: AgentStatus;
+  status: SessionStatus;
   depth: number;
-  ttl_seconds: number | null;
+  ttlSeconds: number | null;
   metadata: Record<string, unknown> | null;
-  spawned_at: string;
-  terminated_at: string | null;
-  termination_reason: string | null;
-  last_heartbeat_at: string | null;
-  heartbeat_deadline_at: string | null;
+  startedAt: string;
+  terminatedAt: string | null;
+  terminationReason: string | null;
+  lastHeartbeatAt: string | null;
+  heartbeatDeadlineAt: string | null;
 }
 
 export interface CoordinatorList<T> {
@@ -624,15 +624,15 @@ export interface CoordinatorList<T> {
 }
 
 export interface EffectiveAuthority {
-  agent_session_id: string;
-  inbound_edges: string[];
-  effective_scopes: string[];
-  effective_resources: string[];
-  effective_resource_ids?: string[];
-  effective_resource_constrained?: boolean;
-  effective_max_hops: number | null;
-  effective_ttl_seconds: number | null;
-  earliest_expires_at: string | null;
+  sessionId: string;
+  inboundDelegations: string[];
+  scopes: string[];
+  resources: string[];
+  resourceIds?: string[];
+  resourceConstrained?: boolean;
+  maxHops: number | null;
+  ttlSeconds: number | null;
+  expiresAt: string | null;
 }
 
 export interface DelegationEdge {
@@ -661,7 +661,7 @@ export interface DelegationHop {
 }
 
 // The coordinator's revocation-impact envelope: the downstream edges a revocation
-// cascades through, plus the distinct agent and subject sessions losing authority.
+// cascades through, plus the distinct Sessions and Subject authority records losing authority.
 export interface DelegationImpact {
   edge_id: string;
   affected_edges: DelegationHop[];
@@ -837,7 +837,7 @@ export interface AdminAuditQuery {
   cursor?: string;
 }
 
-export interface SessionQuery {
+export interface AuthorityRecordQuery {
   id?: string;
   status?: string;
   subject_id?: string;
@@ -846,7 +846,7 @@ export interface SessionQuery {
   cursor?: string;
 }
 
-export interface AgentQuery {
+export interface SessionQuery {
   status?: string;
   lifecycle?: string;
   application_id?: string;
@@ -888,7 +888,7 @@ export interface Invocation {
   created_at: string;
 }
 
-export interface AgentService {
+export interface SessionService {
   id: string;
   zone_id: string;
   application_id: string;
