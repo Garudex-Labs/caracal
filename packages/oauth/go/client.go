@@ -135,7 +135,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 
 	if oneShot {
 		start := time.Now()
-		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+		token, err := c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
 		event := Event{Type: "token.exchange", Ok: err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 		if err != nil {
 			var caracalErr *CaracalError
@@ -164,7 +164,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	defer close(call.done)
 
 	start := time.Now()
-	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, false, start.Add(timeout))
+	call.token, call.err = c.doExchange(ctx, subjectToken, eventResources, opts, start.Add(timeout))
 	event := Event{Type: "token.exchange", Ok: call.err == nil, Duration: time.Since(start), Resources: eventResources, Scopes: eventScopes}
 	if call.err == nil {
 		c.cache.Set(cacheSubject, cacheResource, call.token)
@@ -231,7 +231,7 @@ func (c *Client) authContext(opts ExchangeOptions) string {
 	return strings.Join([]string{secret, assertion, opts.ClientAssertionType}, ":")
 }
 
-func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, isRetry bool, deadline time.Time) (TokenExchangeResponse, error) {
+func (c *Client) doExchange(ctx context.Context, subjectToken string, resources []string, opts ExchangeOptions, deadline time.Time) (TokenExchangeResponse, error) {
 	form := url.Values{
 		"grant_type":     {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"zone_id":        {c.zoneID},
@@ -319,10 +319,6 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 				RequestID:  body.RequestID,
 				HTTPStatus: res.StatusCode,
 			}
-		}
-		if res.StatusCode == http.StatusUnauthorized && !isRetry {
-			opts.Retries = 0
-			return c.doExchange(ctx, subjectToken, resources, opts, true, deadline)
 		}
 		code := body.Error
 		if code == "" {

@@ -42,16 +42,15 @@ func newJTITracker(redis jtiRedis, log zerolog.Logger, failOpen bool, emitter au
 }
 
 // Check records the JTI as seen with TTL = time-until-exp. Returns true when the
-// caller may proceed (first use or session mandate).
+// caller may proceed (first use or lifecycle session mandate).
 // Returns false on a confirmed replay of a resource mandate, after emitting a
 // replay_detected audit event. Errors talking to Redis are governed by failOpen:
 // when false (production default) the request is rejected so a flaky Redis cannot
 // silently widen the replay window; when true the request proceeds and the error
 // is logged.
 //
-// Session mandates are explicitly reusable because their only valid audience is
-// STS exchange. Resource mandates are minted for resource execution and must not
-// be re-presented; replay protection only fires for those.
+// Lifecycle session mandates are reusable for Coordinator operations. Gateway
+// ingress and resource mandates are one-shot at this boundary.
 func (t *jtiTracker) Check(ctx context.Context, jti string, exp time.Time, use, requestID, resource, zoneID, clientID, subjectFP string) bool {
 	if jti == "" {
 		return true

@@ -209,11 +209,12 @@ type ChainHop struct {
 	DelegationEdgeID string `json:"delegation_edge_id,omitempty"`
 }
 
-// Mandate use classes. Session mandates are anchored by an authority record and may be
-// re-presented to STS as subject_token; resource mandates are narrowed to a specific
-// resource set and must never be reused as subject_token.
+// Mandate use classes. Session mandates authorize lifecycle operations,
+// Gateway mandates are one-shot ingress credentials accepted only by Gateway,
+// and resource mandates authorize the final upstream execution.
 const (
 	UseSession  = "session"
+	UseGateway  = "gateway"
 	UseResource = "resource"
 )
 
@@ -295,7 +296,7 @@ func issueToken(ctx context.Context, params IssueParams, keys *KeyCache, issuerU
 	// can be re-presented as subject_token), resource mandates carry only their
 	// target resources (so they cannot bootstrap further exchanges).
 	var audience []string
-	if use == UseSession {
+	if use == UseSession || use == UseGateway {
 		audience = []string{issuerURL}
 	} else {
 		audience = append(audience, params.Resources...)

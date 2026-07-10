@@ -670,12 +670,16 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sessionType == "user" {
 		subType = SubTypeUser
 	}
-	// Gateway exchanges mint resource mandates. Exchanges minted without a
-	// subject_token bootstrap a session mandate that the application presents to
-	// Gateway for resource-scoped narrowing.
+	// Gateway exchanges mint resource mandates. A direct delegated mint creates
+	// a one-shot Gateway-ingress mandate. Bootstrap exchanges remain reusable
+	// lifecycle session mandates for Coordinator operations.
 	use := UseResource
 	if req.SubjectToken == "" && !controlKeyExchange {
-		use = UseSession
+		if req.SessionID != "" && req.DelegationEdgeID != "" {
+			use = UseGateway
+		} else {
+			use = UseSession
+		}
 	}
 
 	record := &AuthorityRecord{
@@ -1463,7 +1467,7 @@ func (s *Server) validateAuthorityRecord(ctx context.Context, zoneID, appID, aut
 }
 
 func parentAuthorityRecordID(authorityRecordID string, use string) *string {
-	if use != UseResource || authorityRecordID == "" {
+	if use == UseSession || authorityRecordID == "" {
 		return nil
 	}
 	return &authorityRecordID
