@@ -62,6 +62,31 @@ func TestRunManifestRequiresCredentials(t *testing.T) {
 	}
 }
 
+func TestRunManifestRequiresBodyOnlyFormEncoding(t *testing.T) {
+	cases := []struct {
+		name        string
+		target      string
+		contentType string
+		body        string
+		wantStatus  int
+	}{
+		{"query rejected", "/v1/run/manifest?workload_id=wl-1", "application/x-www-form-urlencoded", "secret=ws_good", http.StatusBadRequest},
+		{"wrong content type", "/v1/run/manifest", "application/json", `{}`, http.StatusUnsupportedMediaType},
+		{"duplicate workload", "/v1/run/manifest", "application/x-www-form-urlencoded", "workload_id=wl-1&workload_id=wl-2&secret=ws_good", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			(&Server{}).handleRunManifest(w, req)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
 func TestRunManifestOpaqueAuthFailures(t *testing.T) {
 	bindings := []byte(`[{"env":"PIPERNET_TOKEN","resource":"resource://pipernet"}]`)
 	cases := []struct {

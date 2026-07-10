@@ -71,6 +71,58 @@ func TestTokenExchangeRejectsUnsupportedOAuthParameters(t *testing.T) {
 	}
 }
 
+func TestTokenExchangeRequiresBodyOnlyFormEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		target      string
+		contentType string
+		body        string
+		status      int
+	}{
+		{name: "query", target: "/oauth/2/token?resource=resource%3A%2F%2Fpipernet", contentType: "application/x-www-form-urlencoded", status: http.StatusBadRequest},
+		{name: "content type", target: "/oauth/2/token", contentType: "application/json", body: `{}`, status: http.StatusUnsupportedMediaType},
+		{name: "duplicate singleton", target: "/oauth/2/token", contentType: "application/x-www-form-urlencoded", body: "zone_id=z1&zone_id=z2", status: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			(&Server{}).handleTokenExchange(w, req)
+			if w.Code != tc.status {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestTokenExchangeRejectsClientAssertionAuthentication(t *testing.T) {
+	for _, field := range []string{"client_assertion", "client_assertion_type"} {
+		t.Run(field, func(t *testing.T) {
+			form := url.Values{"grant_type": {tokenExchangeGrantType}, field: {"value"}}
+			req := httptest.NewRequest(http.MethodPost, "/oauth/2/token", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			(&Server{}).handleTokenExchange(w, req)
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "not supported") {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCanonicalResourceSet(t *testing.T) {
+	resources, err := canonicalResourceSet([]string{" resource://pipernet ", "resource://hoolibox", "resource://pipernet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(resources, []string{"resource://hoolibox", "resource://pipernet"}) {
+		t.Fatalf("resources=%v", resources)
+	}
+	if _, err := canonicalResourceSet([]string{""}); err == nil {
+		t.Fatal("empty resource must fail")
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

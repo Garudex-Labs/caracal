@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// ControlClient unit tests covering scoped token minting, invoke dispatch, retry classification, and secret hygiene.
+// ControlClient unit tests covering scoped token minting, invoke dispatch, failure classification, and secret hygiene.
 
 package admin_test
 
@@ -75,7 +75,7 @@ func TestInvokeMintsScopedTokenThenInvokes(t *testing.T) {
 		t.Fatalf("unexpected token url %s", tokenCall.url)
 	}
 	form := parseForm(t, tokenCall.body)
-	if form.Get("grant_type") != "client_credentials" || form.Get("application_id") != "app-operator" ||
+	if form.Get("grant_type") != "urn:ietf:params:oauth:grant-type:token-exchange" || form.Get("application_id") != "app-operator" ||
 		form.Get("resource") != "caracal-control" || form.Get("scope") != "control:grant:write" {
 		t.Fatalf("unexpected token form %v", form)
 	}
@@ -192,35 +192,31 @@ func TestEmptyAccessTokenIsTokenFailure(t *testing.T) {
 	}
 }
 
-func TestRetriesTransientTokenFailureOnce(t *testing.T) {
+func TestDoesNotRetryTransientTokenFailure(t *testing.T) {
 	transport := &scripted{steps: []any{
 		respond(http.StatusBadGateway, `{"error":"bad gateway"}`, nil),
-		tokenResponse(),
-		invokeResponse(),
 	}}
 	client := newControl(transport, nil)
 
-	if _, err := client.Invoke(context.Background(), "grant", "list", nil, []string{"control:grant:read"}); err != nil {
-		t.Fatalf("invoke: %v", err)
+	if _, err := client.Invoke(context.Background(), "grant", "list", nil, []string{"control:grant:read"}); err == nil {
+		t.Fatal("expected token failure")
 	}
-	if len(transport.requests) != 3 {
-		t.Fatalf("expected one token retry, got %d requests", len(transport.requests))
+	if len(transport.requests) != 1 {
+		t.Fatalf("expected one token request, got %d", len(transport.requests))
 	}
 }
 
-func TestRetriesThrownTokenNetworkFailureOnce(t *testing.T) {
+func TestDoesNotRetryThrownTokenNetworkFailure(t *testing.T) {
 	transport := &scripted{steps: []any{
 		errors.New("socket hang up"),
-		tokenResponse(),
-		invokeResponse(),
 	}}
 	client := newControl(transport, nil)
 
-	if _, err := client.Invoke(context.Background(), "grant", "list", nil, []string{"control:grant:read"}); err != nil {
-		t.Fatalf("invoke: %v", err)
+	if _, err := client.Invoke(context.Background(), "grant", "list", nil, []string{"control:grant:read"}); err == nil {
+		t.Fatal("expected token failure")
 	}
-	if len(transport.requests) != 3 {
-		t.Fatalf("expected one token retry, got %d requests", len(transport.requests))
+	if len(transport.requests) != 1 {
+		t.Fatalf("expected one token request, got %d", len(transport.requests))
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,21 @@ func TestStoreTracksTheLatestDelegationGraphEpoch(t *testing.T) {
 	}
 	if rdb.values["test:delegation-epoch:zone1"] != "7" {
 		t.Fatalf("unexpected epoch key contents: %#v", rdb.values)
+	}
+}
+
+func TestStoreKeepsDelegationEpochMonotonic(t *testing.T) {
+	rdb := newFakeRedis()
+	store := NewStore(rdb)
+
+	if err := store.MarkDelegationEpoch("zone1", 9, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkDelegationEpoch("zone1", 4, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.CurrentDelegationEpoch("zone1"); got != 9 {
+		t.Fatalf("epoch = %d, want 9", got)
 	}
 }
 
@@ -233,7 +249,7 @@ func TestEnsureGroupIgnoresBusyGroupAndReturnsOtherErrors(t *testing.T) {
 	}
 }
 
-func TestConsumerAcksInvalidSignatureWithoutMarkingSession(t *testing.T) {
+func TestConsumerDeadLettersInvalidSignatureWithoutMarkingSession(t *testing.T) {
 	rdb := newFakeRedis()
 	store := NewStore(rdb)
 	rdb.messages = []redis.XMessage{{ID: "1-1", Values: map[string]any{
@@ -256,8 +272,30 @@ func TestConsumerAcksInvalidSignatureWithoutMarkingSession(t *testing.T) {
 	if store.IsRevoked("sid-2") {
 		t.Fatal("invalid signature must not mark session revoked")
 	}
+	if len(rdb.deadLetters) != 1 || rdb.deadLetters[0].Stream != RevocationStream+".dead" {
+		t.Fatalf("invalid signature was not dead-lettered: %#v", rdb.deadLetters)
+	}
 	if len(rdb.acked) != 1 || rdb.acked[0] != "1-1" {
 		t.Fatalf("message should be acked once, got %v", rdb.acked)
+	}
+}
+
+func TestConsumerLeavesPoisonMessagePendingWhenDeadLetterFails(t *testing.T) {
+	rdb := newFakeRedis()
+	rdb.addErr = errors.New("dead letter unavailable")
+	rdb.messages = []redis.XMessage{{ID: "1-1", Values: map[string]any{
+		"session_id":                "sid-2",
+		sharedcrypto.StreamSigField: "00",
+	}}}
+	consumer, err := NewConsumer(rdb, NewStore(rdb), "resource-1", WithStreamHMAC([]byte("0123456789abcdef0123456789abcdef"), true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := consumer.PollOnce(context.Background()); err == nil {
+		t.Fatal("expected dead-letter error")
+	}
+	if len(rdb.acked) != 0 {
+		t.Fatalf("poison message was acknowledged: %v", rdb.acked)
 	}
 }
 
@@ -430,6 +468,9 @@ func TestDelegationInvalidationConsumerAcksInvalidAndMalformedMessages(t *testin
 	if got := store.CurrentDelegationEpoch("zone1"); got != 0 {
 		t.Fatalf("invalid signature must not mark epoch, got %d", got)
 	}
+	if len(rdb.deadLetters) != 1 {
+		t.Fatalf("invalid signature was not dead-lettered: %#v", rdb.deadLetters)
+	}
 
 	unsigned := newFakeRedis()
 	unsignedStore := NewStore(unsigned)
@@ -450,6 +491,9 @@ func TestDelegationInvalidationConsumerAcksInvalidAndMalformedMessages(t *testin
 	if len(unsigned.acked) != 2 {
 		t.Fatalf("expected 2 acks, got %v", unsigned.acked)
 	}
+	if len(unsigned.deadLetters) != 2 {
+		t.Fatalf("malformed epochs were not dead-lettered: %#v", unsigned.deadLetters)
+	}
 }
 
 type fakeRedis struct {
@@ -457,6 +501,8 @@ type fakeRedis struct {
 	ttls         map[string]time.Duration
 	getErr       error
 	setErr       error
+	evalErr      error
+	addErr       error
 	ackErr       error
 	groupErr     error
 	readErr      error
@@ -465,6 +511,7 @@ type fakeRedis struct {
 	pendingPages []pendingPage
 	messages     []redis.XMessage
 	acked        []string
+	deadLetters  []*redis.XAddArgs
 }
 
 type pendingPage struct {
@@ -496,12 +543,38 @@ func (f *fakeRedis) Set(_ context.Context, key string, value any, ttl time.Durat
 	return redis.NewStatusResult("OK", nil)
 }
 
+func (f *fakeRedis) Eval(_ context.Context, _ string, keys []string, args ...any) *redis.Cmd {
+	if f.evalErr != nil {
+		return redis.NewCmdResult(nil, f.evalErr)
+	}
+	candidate, err := strconv.ParseInt(args[0].(string), 10, 64)
+	if err != nil {
+		return redis.NewCmdResult(nil, err)
+	}
+	current, _ := strconv.ParseInt(f.values[keys[0]], 10, 64)
+	if candidate <= current {
+		return redis.NewCmdResult(int64(0), nil)
+	}
+	f.values[keys[0]] = strconv.FormatInt(candidate, 10)
+	ttlMillis, _ := strconv.ParseInt(args[1].(string), 10, 64)
+	f.ttls[keys[0]] = time.Duration(ttlMillis) * time.Millisecond
+	return redis.NewCmdResult(int64(1), nil)
+}
+
 func (f *fakeRedis) XAck(_ context.Context, _ string, _ string, ids ...string) *redis.IntCmd {
 	if f.ackErr != nil {
 		return redis.NewIntResult(0, f.ackErr)
 	}
 	f.acked = append(f.acked, ids...)
 	return redis.NewIntResult(int64(len(ids)), nil)
+}
+
+func (f *fakeRedis) XAdd(_ context.Context, args *redis.XAddArgs) *redis.StringCmd {
+	if f.addErr != nil {
+		return redis.NewStringResult("", f.addErr)
+	}
+	f.deadLetters = append(f.deadLetters, args)
+	return redis.NewStringResult("1-0", nil)
 }
 
 func (f *fakeRedis) XGroupCreateMkStream(_ context.Context, _ string, _ string, _ string) *redis.StatusCmd {
