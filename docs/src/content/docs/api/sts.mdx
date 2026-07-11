@@ -42,6 +42,18 @@ Applications normally call it through the OAuth or application SDK. The public e
 
 RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. Public `client_assertion` and `client_assertion_type` fields are also rejected; application authentication uses `client_secret`. The acting application's identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
 
+A minimal application-principal exchange:
+
+```bash
+curl -s http://localhost:8080/oauth/2/token \
+  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  --data-urlencode "zone_id=$CARACAL_ZONE_ID" \
+  --data-urlencode "application_id=$CARACAL_APPLICATION_ID" \
+  --data-urlencode "client_secret=$CARACAL_APP_CLIENT_SECRET" \
+  --data-urlencode 'resource=resource://pipernet' \
+  --data-urlencode 'scope=pipernet:read'
+```
+
 ## Subject Identity
 
 STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. Two subject token classes are accepted:

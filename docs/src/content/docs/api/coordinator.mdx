@@ -38,6 +38,33 @@ Protocol errors are JSON with at least `error`; common statuses are `400` valida
 
 Lists accept `limit` (default 100, maximum 500), opaque `cursor`, and route-specific filters. Responses use `{ "items": [...], "next_cursor": string | null }`.
 
+A task Session start and its `201` response:
+
+```json
+// POST /zones/{zoneId}/agents
+{ "application_id": "0198f3e2-...", "lifecycle": "task", "ttl_seconds": 900 }
+```
+
+```json
+{
+  "agent_session_id": "0198f4a1-...",
+  "zone_id": "0198f3d0-...",
+  "application_id": "0198f3e2-...",
+  "parent_id": null,
+  "subject_authority_record_id": "0198f3f7-...",
+  "lifecycle": "task",
+  "labels": null,
+  "status": "active",
+  "depth": 0,
+  "ttl_seconds": 900,
+  "started_at": "2026-07-11T13:00:00.000Z",
+  "last_heartbeat_at": null,
+  "heartbeat_deadline_at": null,
+  "lease_generation": 0,
+  "delegation_edge_id": null
+}
+```
+
 ## Long-lived Sessions and Invocations
 
 | Method  | Path                                      | Purpose                                                                               |

@@ -30,6 +30,14 @@ The original HTTP method, query, headers, and body are proxied after safety filt
 
 Gateway rejects any request that sets `X-Caracal-Client-ID`; the caller's application identity derives from the verified mandate's `client_id` claim.
 
+A proxied request:
+
+```bash
+curl -s http://localhost:8081/v1/models \
+  -H "Authorization: Bearer $GATEWAY_MANDATE" \
+  -H 'X-Caracal-Resource: resource://pipernet'
+```
+
 ## Denial Checks
 
 Gateway rejects before upstream dispatch. Treat these checks as the safety gate in front of every protected upstream.
