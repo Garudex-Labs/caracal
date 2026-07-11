@@ -358,7 +358,7 @@ export function buildTriageMessages(message: string, recent?: RecentMessage[]): 
           '- "change": carry out ONE concrete change the operator has decided on - create, connect,',
           '  register, rotate, grant, or set up a single named thing. Use change when the current message',
           '  is a direct instruction to act now AND the thing to act on is named, whether the operator',
-          '  names it in this message (e.g. "create an application called Son of Anton", "connect GitHub")',
+          '  names it in this message (e.g. "create an application called Anton", "connect GitHub")',
           '  OR the conversation so far already established it and the operator is now telling you to',
           '  proceed (e.g. after gathering, "create it", "do it", "yes go ahead", "Create heiro as',
           '  managed"). A bare opening like "create an application for me" with nothing named yet is NOT a',
