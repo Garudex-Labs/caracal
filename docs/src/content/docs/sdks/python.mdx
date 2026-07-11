@@ -5,6 +5,8 @@ description: Public API reference for caracalai-sdk.
 
 `caracalai-sdk` is the main Python package for async Session lifecycle, Delegation, Gateway routing, and ASGI context propagation.
 
+Use it in application code. Product management belongs to [Admin Package](/sdks/admin/), and direct inbound enforcement belongs to an adapter or the verify package.
+
 ## Install
 
 ```bash
@@ -142,6 +144,12 @@ caracal.on_event(
     )
 )
 ```
+
+## Retries and Cleanup
+
+Session creation retries transient Coordinator failures twice with one generated idempotency key; Delegation creation retries once. STS exchange makes one network attempt, and Gateway transports do not replay redirects or request bodies.
+
+Use `async with caracal.session()` for bounded work. Close long-lived handles with `await handle.aclose()`, close owned synchronous `httpx` clients, and finish shutdown with `await caracal.aclose()`. Repeated facade close is safe; later operations fail.
 
 ## Advanced Surface
 

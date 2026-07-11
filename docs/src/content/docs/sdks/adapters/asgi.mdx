@@ -5,6 +5,8 @@ description: Pure ASGI middleware that verifies Caracal mandates for FastAPI, St
 
 The ASGI adapter protects any Python ASGI application - FastAPI, Starlette, Quart, Django ASGI - with fail-closed Caracal mandate verification. It is pure ASGI: it imports no web framework and delegates every check to [Verify Package](/sdks/verify/).
 
+`CaracalASGIAuth` is the only public package entry point. Use it for inbound ASGI HTTP or WebSocket authentication, not outbound SDK calls.
+
 ## Install
 
 ```bash
@@ -49,6 +51,8 @@ async def balances(request):
 | `require_session` / `require_delegation` / `max_hop_count` | Session identity, delegated authority, and Delegation-depth requirements.                                      |
 | `routes`                                                 | Per-route overrides by path prefix; the longest matching prefix wins. Any option above can be overridden.       |
 | `exclude`                                                | Path prefixes served without verification (health and readiness probes).                                        |
+
+`required_use` defaults to `resource`; `require_session` and `require_delegation` default to false. Exclusions and route prefixes match path-segment boundaries, and the longest route prefix wins.
 
 ## Behavior
 

@@ -5,6 +5,10 @@ description: Choose the Caracal SDK, verification engine, framework adapter, adm
 
 Use SDKs when you need package-level details after a guide. The [Guides](/guides/) section shows task workflows; this section explains package names, install commands, public APIs, runtime requirements, and where each package fits.
 
+:::caution[Three separate boundaries]
+Application SDKs create and carry authority, the Admin package changes product state, and verification packages enforce inbound mandates. Do not use an application credential for administration or treat context propagation as authentication.
+:::
+
 ## Choose by What You Are Building
 
 | I am building...                     | Start here                                           | Then read                                                                                             |
@@ -41,6 +45,8 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 | Node.js   | Node `>=22` for published TypeScript packages that declare an engine.                                                 |
 | Python    | Python `>=3.12` for published Python packages.                                                                        |
 | Go        | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
+
+Go submodules may resolve to pseudo-versions because repository CalVer release tags are not semantic-version tags for nested Go modules. Adapter availability is intentionally ecosystem-specific; parity covers behavior exposed by all three application facades, not identical framework packages.
 
 ## Related Guides
 

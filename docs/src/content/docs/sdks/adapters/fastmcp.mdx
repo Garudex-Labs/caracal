@@ -3,7 +3,11 @@ title: FastMCP Adapter
 description: FastMCP token verifiers for TypeScript and Python servers.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
 FastMCP adapters expose small verifier APIs that delegate to the verify packages. Use them when your FastMCP integration needs to authenticate a bearer token before running a tool.
+
+They verify one token and return a small principal projection; they do not install server lifecycle hooks, create Sessions, or mint outbound mandates.
 
 ## Install
 
@@ -12,7 +16,10 @@ FastMCP adapters expose small verifier APIs that delegate to the verify packages
 | TypeScript | `npm install @caracalai/fastmcp @caracalai/verify @caracalai/revocation` |
 | Python     | `pip install caracalai-fastmcp`                                          |
 
-## TypeScript verifier
+## Verify a Token
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```ts
 import { extractBearer, verifyFastMcpToken } from '@caracalai/fastmcp'
@@ -38,9 +45,10 @@ const context = await verifyFastMcpToken(token, verifier, {
 console.log(context.sub, context.zoneId, context.scope)
 ```
 
-`verifyFastMcpToken()` returns `{ sub, zoneId, scope }` or throws `FastMcpAuthError`.
+`verifyFastMcpToken()` returns `{ sub, zoneId, scope }` or throws `FastMcpAuthError`. The public entries are `verifyFastMcpToken`, `extractBearer`, and `FastMcpAuthError`.
 
-## Python verifier
+</TabItem>
+<TabItem label="Python">
 
 ```python
 from caracalai_fastmcp import CaracalAuth, CaracalAuthError
@@ -60,6 +68,13 @@ try:
 except CaracalAuthError as exc:
     raise RuntimeError(exc.code) from exc
 ```
+
+The public entries are `CaracalAuth` and `CaracalAuthError`.
+
+</TabItem>
+</Tabs>
+
+There is no Go FastMCP adapter; use the framework-neutral Go verifier or the [net/http adapter](/sdks/adapters/nethttp/).
 
 ## Boundary
 

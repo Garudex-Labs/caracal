@@ -5,6 +5,8 @@ description: RFC 8693 token exchange clients for Caracal STS.
 
 The OAuth packages call the STS `/oauth/2/token` endpoint for RFC 8693 exchanges. The returned mandate class depends on the authenticated flow: lifecycle bootstrap returns `use=session`, a bound direct mint returns `use=gateway`, and Gateway's authenticated exchange returns `use=resource` privately to Gateway.
 
+Use this package only when composing a custom authority client. Normal applications should use the language SDK facade, which supplies the correct Authority-record, Session, and Delegation identifiers.
+
 ## Install
 
 | Ecosystem  | Package                                                    |
@@ -41,7 +43,7 @@ try {
   console.log(token.accessToken, token.expiresIn)
 } catch (error) {
   if (error instanceof ApprovalRequiredError) {
-    console.log('step-up required', error.approvalId)
+    console.log('approval required', error.approvalId)
   } else {
     throw error
   }
@@ -55,6 +57,8 @@ try {
 - Cache-enabled responses are isolated by identity, canonical resources, scopes, TTL, and credential context. One-shot, approval-bearing, and cache-disabled exchanges bypass both cache and single-flight sharing.
 - Issuance uses one network attempt. A lost response may hide a successfully minted token, so the clients never retry STS exchange automatically.
 - STS `interaction_required` responses surface as `ApprovalRequiredError`.
+- Default exchange timeout is 30 seconds. `invalidate()` / `invalidate` clears the client cache; it does not revoke already issued mandates or cancel exchanges already in flight.
+- Never retry an exchange merely because the response was lost. If the surrounding business operation is replayable, mint a fresh mandate for that new attempt.
 
 ## Subject Federation
 

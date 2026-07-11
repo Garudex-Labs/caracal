@@ -5,6 +5,8 @@ description: Public API reference for @caracalai/sdk.
 
 `@caracalai/sdk` is the main TypeScript package for Session lifecycle, Delegation, Gateway routing, and Caracal context propagation.
 
+Use it in application code. Do not use it to create zones, applications, policies, resources, or grants; those operations belong to [Admin Package](/sdks/admin/).
+
 ## Install
 
 ```bash
@@ -161,6 +163,12 @@ caracal.onEvent((event) => {
 ```
 
 Operational warnings - lease loss, cleanup failures, an unverified inbound boundary in production - go to `console.warn` by default; pass `logger` in `CaracalConfig` to route them into your logging system instead.
+
+## Retries and Cleanup
+
+Session creation retries transient Coordinator failures twice under one generated idempotency key; Delegation creation retries once. Reusing the key with different input is a conflict. STS exchange deliberately performs one network attempt because a lost response may already represent a minted one-shot mandate. Gateway transports do not replay redirects or request bodies.
+
+Use `session()` for bounded work. For long-lived work, close the `SessionHandle`, then call `await caracal.close()` during shutdown. `close()` is terminal and idempotent. A canceled local wait does not prove the remote operation did not commit.
 
 Approval-gated flows resolve in one call with `withApproval`, which encapsulates the catch-wait-retry dance:
 

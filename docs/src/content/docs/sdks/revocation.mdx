@@ -5,6 +5,8 @@ description: Revocation-store interfaces and in-memory stores for resource serve
 
 The revocation packages define the store contract resource servers use to reject mandates after an Authority record, Root authority record, Session, or Delegation has been revoked.
 
+They do not consume streams, verify JWTs, or revoke product objects by themselves. Use the Redis backend and its consumers for distributed enforcement; use the Admin API to initiate revocation.
+
 ## Install
 
 | Ecosystem  | Package                                                         |
@@ -19,6 +21,8 @@ The revocation packages define the store contract resource servers use to reject
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `isRevoked(anchorId)` / `is_revoked(anchor_id)` / `IsRevoked(anchorID)`                      | Return whether an Authority record, Root authority record, Session, or Delegation anchor is revoked. |
 | `markRevoked(anchorId, ttl)` / `mark_revoked(anchor_id, ttl)` / `MarkRevoked(anchorID, ttl)` | Record a revocation anchor for a TTL.                                                                |
+| `currentDelegationEpoch(zoneId)` / idiomatic equivalent | Return the newest observed Delegation graph epoch when the backend supports stale-edge detection. |
+| `markDelegationEpoch(zoneId, epoch, ttl)` / idiomatic equivalent | Advance that epoch without allowing delayed messages to regress it. |
 
 ## In-memory stores
 
