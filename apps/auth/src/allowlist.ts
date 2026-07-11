@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs'
 
 import type { AuthConfig } from './config.ts'
+import { logger } from './logger.ts'
 
 type AllowlistConfig = Pick<AuthConfig, 'operatorAllowlistFile' | 'openRegistration'>
 
@@ -33,9 +34,25 @@ export interface EnforcementContext {
 // malformed individual entry reads as absent, so every parse error fails closed.
 function readEntries(path: string): Entries {
   if (!path) return {}
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch (err) {
+    // An absent file is the normal "no allowlist" state and falls back to the deployment posture.
+    // Any other read failure - most often the container's user lacking permission on the
+    // bind-mounted file - would otherwise deny every operator with a misleading "unlisted" reason,
+    // so name the real cause explicitly while still failing closed.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.error('operator allowlist is present but unreadable; denying all access until fixed', {
+        path,
+        code: (err as NodeJS.ErrnoException).code,
+      })
+    }
+    return {}
+  }
   let parsed: unknown
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'))
+    parsed = JSON.parse(raw)
   } catch {
     return {}
   }
