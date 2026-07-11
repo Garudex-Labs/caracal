@@ -8,11 +8,11 @@ module github.com/garudex-labs/caracal/packages/verify/go
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/packages/identity/go v0.2.0
-	github.com/garudex-labs/caracal/packages/revocation/go v0.2.0
+	github.com/garudex-labs/caracal/packages/identity/go v0.2.0-rc.1
+	github.com/garudex-labs/caracal/packages/revocation/go v0.2.0-rc.1
 )
 
 require (
-	github.com/garudex-labs/caracal/packages/core/go v0.2.0 // indirect
+	github.com/garudex-labs/caracal/packages/core/go v0.2.0-rc.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 )

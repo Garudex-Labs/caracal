@@ -1,0 +1,38 @@
+# Caracal SDK Playbooks
+
+Copy-paste prompts that turn a coding agent into a careful integration engineer for adding Caracal SDKs to your application. The agent studies your existing architecture first, verifies the SDK surface against the documentation, then wires token exchange and runtime authorization with minimal, production-grade changes.
+
+Use these inside your own project. You do not need the Caracal repository in your app.
+
+## Use it for
+
+- Integrating Caracal SDKs into application, service, agent, and platform code
+- Wiring token exchange and runtime authorization calls into existing auth and middleware
+- Selecting stable or release-candidate SDK versions for your runtime
+- Validating the integration with your codebase's existing tests and checks
+
+## Supported agents
+
+| Agent | File to use |
+| --- | --- |
+| Claude Code | `claude-code/CLAUDE.md` |
+| GitHub Copilot | `github-copilot/AGENTS.md` |
+| OpenAI Codex | `openai-codex/.codex/AGENTS.md` |
+
+## How to use
+
+1. Open the folder for your coding agent.
+2. Copy the prompt file into your agent instructions, or paste it into the agent chat.
+3. Point the agent at your own application checkout.
+4. Ask it to review your auth, routing, middleware, and environment patterns before editing.
+5. Have it plan the integration, confirm the approach, then implement and validate.
+
+## Ground rules the prompts enforce
+
+- Read the existing auth, routing, middleware, and environment patterns before editing code.
+- Verify the SDK surface and version compatibility against Caracal and framework documentation.
+- Recommend stable or release-candidate SDK versions, never alpha or experimental ones by default.
+- Keep Admin API setup separate from runtime application code.
+- Store secrets in environment variables or your existing secret manager, never in generated code or an AI chat.
+
+To connect a provider, model a resource, or author access policies, use the [Caracal Operator](https://docs.caracal.run/concepts/operator/) in the web console.

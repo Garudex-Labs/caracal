@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-oauth"
-version = "0.2.0"
+version = "0.2.0rc1"
 description = "Caracal RFC 8693 token exchange client with safe in-memory caching"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

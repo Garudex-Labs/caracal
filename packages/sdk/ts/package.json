@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/sdk",
-  "version": "0.2.0",
+  "version": "0.2.0-rc.1",
   "description": "Caracal SDK for TypeScript: short-lived, policy-approved authority for AI agents instead of long-lived credentials.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -40,7 +40,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@caracalai/oauth": "0.2.0",
+    "@caracalai/oauth": "0.2.0-rc.1",
     "smol-toml": "^1.7.0"
   },
   "scripts": {

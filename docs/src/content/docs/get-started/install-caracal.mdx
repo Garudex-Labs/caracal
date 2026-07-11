@@ -22,20 +22,22 @@ You install one binary; Docker provides the rest. No source checkout, package bu
 
 ## Install the CLI
 
-The install script resolves the latest release, downloads the right archive for your platform, verifies its checksum, and places `caracal` on your `PATH`. Pin a version by setting `CARACAL_VERSION` first.
+The install script downloads the archive for your platform, verifies its checksum, and places `caracal` on your `PATH`. The commands below pin this release; drop `--version` (or set `CARACAL_VERSION`) to track the latest stable release instead.
 
 <Tabs syncKey="os">
 <TabItem label="Linux / macOS">
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --version v0.2.0-rc.1
 ```
 
 </TabItem>
 <TabItem label="Windows">
 
 ```powershell
-irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 | iex
+$installer = "$env:TEMP\install.ps1"
+iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 -OutFile $installer
+powershell -ExecutionPolicy Bypass -File $installer -Version v0.2.0-rc.1
 ```
 
 The installer places `caracal.exe` in `%LOCALAPPDATA%\Programs\caracal` and adds it to the user `Path`; open a new shell afterward.
@@ -49,11 +51,12 @@ Prefer to download and verify manually? Each [release](https://github.com/Garude
 <TabItem label="Linux / macOS">
 
 ```sh
-tag=$(curl -fsSL https://api.github.com/repos/Garudex-Labs/caracal/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
-curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/caracal-runtime-linux-amd64-${tag}.tar.gz"
+tag=v0.2.0-rc.1
+platform=linux-amd64   # or linux-arm64, darwin-amd64, darwin-arm64
+curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/caracal-runtime-${platform}-${tag}.tar.gz"
 curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/SHA256SUMS"
 sha256sum --ignore-missing --check SHA256SUMS   # macOS: shasum -a 256 --ignore-missing --check SHA256SUMS
-tar -xzf "caracal-runtime-linux-amd64-${tag}.tar.gz"
+tar -xzf "caracal-runtime-${platform}-${tag}.tar.gz"
 install -m 0755 caracal ~/.local/bin/caracal
 ```
 
@@ -63,7 +66,7 @@ Make sure the destination directory is on your `PATH`.
 <TabItem label="Windows">
 
 ```powershell
-$tag = (Invoke-RestMethod https://api.github.com/repos/Garudex-Labs/caracal/releases/latest).tag_name
+$tag = 'v0.2.0-rc.1'
 Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/caracal-runtime-windows-amd64-$tag.zip" -OutFile caracal.zip
 Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/SHA256SUMS" -OutFile SHA256SUMS
 Get-FileHash .\caracal.zip -Algorithm SHA256   # compare with the matching SHA256SUMS entry
