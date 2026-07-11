@@ -4,7 +4,7 @@ description: Launch a command with one-time credential injection and understand 
 pageType: workflow
 ---
 
-`caracal run` authenticates a Launcher workload, fetches its bindings, mints credentials, injects them into a child environment, and returns the child's result.
+`caracal run` authenticates a Launcher workload, fetches its bindings, mints credentials, injects them into a child environment, and returns the child's result. The workload identity and bindings come from [Configure Workloads](/runtime-console/config-file/); this page is the launch contract - what happens at spawn, and how approvals, expiry, signals, and exits behave.
 
 ```bash
 caracal run -- python3 agent.py
