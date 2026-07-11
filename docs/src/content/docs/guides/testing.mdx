@@ -3,7 +3,19 @@ title: Test Caracal Integrations
 description: Fake the coordinator and STS behind injected HTTP clients, assert on emitted events, and run integration tests against a local runtime.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
 Caracal integrations test cleanly because every control-plane dependency enters through an injectable HTTP client: `fetchImpl` in TypeScript, `http_client` and `httpx.MockTransport` in Python, `HTTPClient` and `httptest` in Go. Fake the wire, not the SDK - your test exercises the same request construction, retry, and caching code that runs in production, and nothing reaches a network.
+
+## When to use this guide
+
+Use it before production rollout and whenever Session, Delegation, transport, policy, approval, or resource-server requirements change.
+
+## Prerequisites
+
+- The exact application workflow and enforcement boundary to test.
+- One allow case and explicit deny, expiry, revoke, timeout, replay, and cleanup expectations.
+- Injectable clients or a local runtime dedicated to the test.
 
 ## What to stub
 
@@ -21,7 +33,10 @@ Return an error status to exercise failure paths: a `503` drives the idempotent 
 
 Make scoped-transport Gateway fakes replay-sensitive: remember each presented bearer and reject a duplicate with `token_replayed`. Repeated and concurrent requests must carry distinct mandates, while an application transport must still create only one source/target Session pair and one delegation per authority-cache key.
 
-## TypeScript
+## Fake the Coordinator in Each Language
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```ts
 import { describe, expect, it, vi } from 'vitest'
@@ -51,7 +66,8 @@ it('runs work inside a governed Session', async () => {
 })
 ```
 
-## Python
+</TabItem>
+<TabItem label="Python">
 
 ```python
 import httpx
@@ -82,7 +98,8 @@ async def test_runs_work_inside_a_governed_session() -> None:
         assert ctx.session_id == "agent-1"
 ```
 
-## Go
+</TabItem>
+<TabItem label="Go">
 
 ```go
 func TestRunsWorkInsideAGovernedSession(t *testing.T) {
@@ -116,6 +133,9 @@ func TestRunsWorkInsideAGovernedSession(t *testing.T) {
 }
 ```
 
+</TabItem>
+</Tabs>
+
 ## Assert on behavior, not internals
 
 Two seams make assertions precise without reaching into SDK state. The fake transport records every request, so you can assert the wire contract: an `idempotency-key` header on Session starts, the Delegation body, and termination on Session exit. `onEvent` reports control-plane operations as data, so tests can assert the expected `coordinator.call`, `token.exchange`, or `delegation.accept` events.
@@ -135,3 +155,15 @@ application credential -> parent Session -> narrowed child Delegation -> one-sho
 The workflow owns the admin-token file and upstream container. Application tests should continue using injected transports unless they intentionally run in an isolated operator environment.
 
 Related pages: [Integrate the TypeScript SDK](/guides/sdk-typescript/), [Integrate the Python SDK](/guides/sdk-python/), and [Integrate the Go SDK](/guides/sdk-go/).
+
+## Production acceptance result
+
+The fake-backed suite proves request construction and failure handling in TypeScript, Python, or Go; the thin runtime suite proves one real exchange, Gateway call, revocation, and correlated audit trace. No test depends on production secrets or a shared developer zone.
+
+:::caution[Failure point: over-mocking]
+Do not mock your own wrapper and conclude Caracal works. Record and assert actual Coordinator, STS, Gateway, and adapter wire behavior, including cleanup and stable idempotency keys.
+:::
+
+## Next step
+
+Add acceptance cases to deployment gating, then use [Debug Authorization Decisions](/guides/authorize-access/) for any runtime-only difference.

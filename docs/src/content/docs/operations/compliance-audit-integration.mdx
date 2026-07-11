@@ -1,51 +1,29 @@
 ---
 title: Export Audit Evidence
-description: Export, verify, and preserve Caracal audit evidence for compliance workflows.
+description: Operate and verify audit ingestion and optional S3-compatible export without claiming compliance.
 pageType: workflow
 ---
 
-Caracal audit records provide decision evidence for STS, Gateway, Coordinator, policy evaluation, Control, and administrative activity. Treat audit as a protected evidence pipeline.
+Audit records are technical evidence, not certification or a complete organizational trail. Audit consumes Redis, writes append-only Postgres rows, checks tamper state, and can export complete hourly Parquet partitions.
 
-## Evidence Path
+## Prerequisites
 
-```mermaid
-flowchart LR
-  Producer[API, STS, Gateway, Coordinator, Control] --> Redis[caracal.audit.events]
-  Redis --> Audit[Audit service]
-  Audit --> PG[(audit_events)]
-  Audit --> DLQ[caracal.audit.events.dlq]
-  Audit --> Export[S3-compatible export]
-  Export --> SIEM[SIEM or archive]
-```
+Define evidence scope, retention, access, encryption, legal hold, and archive ownership. Configure `AUDIT_EXPORT_S3_*` only when needed and size `AUDIT_EXPORT_TMP_DIR` for the largest hourly partition.
 
-Audit events are HMAC-protected in published modes. Audit storage includes tamper checks and append-only permission validation.
+## Procedure
 
-## Integration Points
+1. Verify Audit readiness, HMAC, stream group, DLQ, and tamper metrics.
+2. Configure an operator-owned S3-compatible endpoint and least-privilege credentials.
+3. Enable export; monitor watermark, scratch space, upload failures, and objects.
+4. Correlate a canary request across producer, stream, Postgres, and export.
+5. Retain applicable HMAC material with verification evidence.
 
-| Need                 | Surface                                                  |
-| -------------------- | -------------------------------------------------------- |
-| Search recent events | Console `audit` or Audit API search.                     |
-| Trace one request    | Console `request trace` or API request ID lookup.        |
-| SIEM export          | `caracal.audit.events` consumer or Audit export path.    |
-| Evidence archive     | Postgres backup plus object-store export.                |
-| Tamper response      | `CaracalAuditTamperDetected` alert and incident runbook. |
+The watermark advances only after successful upload.
 
-## Operational Controls
+## Verify and Recover
 
-- Monitor Audit DLQ, consumer lag, tamper metrics, and export watermarks.
-- Preserve audit HMAC keys according to retention requirements.
-- Keep audit partitions and backup retention aligned with legal hold requirements.
-- Size writable `AUDIT_EXPORT_TMP_DIR` scratch space for the largest complete hourly Parquet partition; Helm uses `services.audit.exportScratchSizeLimit`.
-- Do not manually mutate `audit_events`; verification expects append-only behavior.
+Compare counts for a closed interval, inspect DLQ/lag, and verify intended reader access. On failure preserve Postgres, pending entries, DLQ, replay, scratch output, and logs before replay or deletion.
 
-## Troubleshooting
+## Next Action
 
-| Symptom                     | Check                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| SIEM is missing events      | Redis group lag, export watermark, Audit readiness, and network egress.                     |
-| DLQ has HMAC failures       | Producer key mismatch or corrupted stream payload.                                          |
-| Request explanation missing | Confirm request ID, zone, retention window, and that the protected request reached Caracal. |
-
-## Next Step
-
-Use [Hand Off to Platform Teams](/operations/platform-team-handoff/) when deployment, recovery, audit, alerting, and ownership evidence are ready.
+Generate an [Evidence Pack](/security/evidence-pack/) or complete [Platform Handoff](/operations/platform-team-handoff/).

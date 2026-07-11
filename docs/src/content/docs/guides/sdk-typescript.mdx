@@ -3,7 +3,13 @@ title: Integrate the TypeScript SDK
 description: Install @caracalai/sdk, load a runtime profile, run governed sessions, delegate authority, and inject Caracal headers.
 ---
 
-Use `@caracalai/sdk` in Node applications that need Sessions, delegation, Gateway routing, or Caracal context propagation.
+Use `@caracalai/sdk` in a Node application that must create governed Sessions, narrow authority, call Gateway-routed resources, or propagate verified Caracal context. Resource servers that only verify inbound mandates should use [the Express adapter](/guides/protect-express/) or [verify package](/sdks/verify/) instead.
+
+## Prerequisites
+
+- A managed application credential, active policy, resource, provider binding, and Gateway route.
+- `CARACAL_CONFIG` or a complete `CARACAL_*` environment configuration.
+- A destination timeout and idempotency plan for mutating calls.
 
 ## Install
 
@@ -26,10 +32,10 @@ const resourceId = 'resource://pipernet'
 await caracal.session(async () => {
   await caracal.session(
     async () => {
-      await caracal.fetch(resourceId, '/tickets', { scopes: ['tickets:read'] })
+      await caracal.fetch(resourceId, '/reports', { scopes: ['pipernet:read'] })
     },
     {
-      authority: Authority.narrow(['tickets:read'], {
+      authority: Authority.narrow(['pipernet:read'], {
         resourceId,
         ttlSeconds: 600,
       }),
@@ -58,7 +64,7 @@ See [If many agents share one managed application, can policy and audit still te
 Daemons and workers that outlive a single request use `startSession()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the Session with `close()`. Each renewal extends the lease. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
 
 ```ts
-const svc = await caracal.startSession({ labels: ['billing-worker'] })
+const svc = await caracal.startSession({ labels: ['fiona-worker'] })
 try {
   while (running) {
     await caracal.bind(svc.context, async () => {
@@ -111,10 +117,10 @@ import { Authority } from '@caracalai/sdk'
 await caracal.session(async () => {
   await caracal.session(
     async () => {
-      await caracal.fetch('resource://pipernet', '/tickets', { scopes: ['tickets:read'] })
+      await caracal.fetch('resource://pipernet', '/reports', { scopes: ['pipernet:read'] })
     },
     {
-      authority: Authority.narrow(['tickets:read'], {
+      authority: Authority.narrow(['pipernet:read'], {
         resourceId: 'resource://pipernet',
         constraints: { maxHops: 1 },
         ttlSeconds: 600,
@@ -132,7 +138,7 @@ A mint whose scope is approval-gated throws `ApprovalRequiredError`. `withApprov
 
 ```ts
 const mandate = await caracal.withApproval((approvalId) =>
-  caracal.mintMandate('resource://pipernet', ['tickets:admin'], { approvalId }),
+  caracal.mintMandate('resource://pipernet', ['pipernet:admin'], { approvalId }),
 )
 ```
 
@@ -141,12 +147,12 @@ A rejected, expired, or already-consumed decision rethrows the original `Approva
 ## Route through the Gateway
 
 ```ts
-await caracal.fetch('resource://pipernet', '/tickets', {
-  scopes: ['tickets:read'],
+await caracal.fetch('resource://pipernet', '/reports', {
+  scopes: ['pipernet:read'],
 })
 ```
 
-For provider SDKs that accept a custom `fetch`, pass `caracal.transport({ scopes: ['tickets:read'], propagation: 'gateway-only' })` so Caracal mints a Gateway-ingress mandate and applies routing automatically. `gatewayRequest()` only builds a URL and routing header; it does not authenticate the request.
+For provider SDKs that accept a custom `fetch`, pass `caracal.transport({ scopes: ['pipernet:read'], propagation: 'gateway-only' })` so Caracal mints a Gateway-ingress mandate and applies routing automatically. `gatewayRequest()` only builds a URL and routing header; it does not authenticate the request.
 
 ## Call as the application
 
@@ -177,4 +183,16 @@ Two things `close()` deliberately does **not** do. It does not retire `startSess
 | Delegation fails                | Ensure the call runs inside `session()` or another bound context.                            |
 | Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`.                          |
 
-Related pages: [Add SDK to Your App](/get-started/add-sdk-to-your-app/) and [Implement Multi-Agent Delegation](/guides/delegation/).
+## Validate the integration
+
+Run an allowed call, a call with one extra scope, a revoked-Session call, and a timeout. Expect only the allowed call to reach the upstream; expect the SDK error or Gateway response to carry a request ID for Audit. Close every owned Session handle and then `await caracal.close()` during shutdown.
+
+:::caution[Failure point: automatic retries]
+The SDK retries selected Coordinator and STS transient failures with stable operation identity. It does not retry Gateway side effects. Use [Safe Retries and Idempotency](/guides/idempotency/) before retrying a mutation.
+:::
+
+For exact constructors, options, and return types, use [TypeScript SDK reference](/sdks/typescript/).
+
+## Next step
+
+Add [multi-agent delegation](/guides/delegation/) only if one Session must hand a narrower slice to another; otherwise validate the resource boundary with [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/).

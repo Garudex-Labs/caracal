@@ -5,6 +5,16 @@ description: Declare approval tiers in policy data, hold the exchange, and decid
 
 Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
 
+## When to use approval
+
+Use it for infrequent high-impact authority where waiting is safer than automatic issuance. Do not use approval as user authentication, a substitute for least privilege, or a repair for an overbroad provider credential.
+
+## Prerequisites
+
+- Valid grant data for the underlying scope; approval can gate authority but cannot create it.
+- An operator approval path, or a registered subject issuer plus implemented federation for subject-only decisions.
+- A durable place to persist `approvalId` and operation identity across worker restarts.
+
 ## Flow
 
 ```mermaid
@@ -112,4 +122,14 @@ Retry with `challenge_id` once the hold is approved. STS verifies the complete b
 | `approve_capability_required`          | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability.                                                                                       |
 | Retry still denied                     | The approval may have expired, or the retry changed its principal, Authority record, Session, Delegation, application, resource, scopes, policy set, or decision contract. Request a fresh approval for the current context. |
 
-Related pages: [Step-Up Challenges](/concepts/step-up/), [Approval Notifications](/guides/approval-notifications/), and [Author Policy Data](/guides/author-policy/).
+## Validate the flow
+
+Test approve, reject, expiry, concurrent consumption, changed binding, and missing issuer for a subject-only tier. Expected result: exactly one matching retry consumes an approval; no decision widens resource, scopes, Session, Delegation, application, or policy binding.
+
+:::caution[Failure point: subject authority]
+Subject approval works only when the application registers a trusted issuer, federates the end user's token, and presents the resulting user Session mandate. A caller-supplied subject ID or Session label cannot approve a hold.
+:::
+
+## Next step
+
+Add [Approval Notifications](/guides/approval-notifications/) if operators need push delivery, then add all terminal states to [Test Caracal Integrations](/guides/testing/).
