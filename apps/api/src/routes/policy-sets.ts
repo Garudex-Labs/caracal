@@ -120,7 +120,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
 
     try {
-      return await withTransaction(fastify.db, async (client) => {
+      const created = await withTransaction(fastify.db, async (client) => {
         const { rows } = await client.query(
           `INSERT INTO policy_sets (id, zone_id, name, description, created_by, created_via_operator)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -132,8 +132,10 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
            VALUES ($1, $2)`,
           [params.zoneId, id],
         )
-        return reply.code(201).send(rows[0])
+        return rows[0]
       })
+      // Reply only after COMMIT so a client that immediately adds a version reads a committed row.
+      return reply.code(201).send(created)
     } catch (err) {
       if (isPolicySetNameConflict(err)) return reply.code(409).send({ error: 'policy_set_name_conflict' })
       throw err
@@ -161,7 +163,7 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
     if (compileErr) return reply.code(compileErr.status).send(compileErr.body)
 
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    return withTransaction(fastify.db, async (client) => {
+    const created = await withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const manifestJSON = JSON.stringify(body.manifest)
       const manifestSHA = sha256Hex(manifestJSON)
@@ -181,8 +183,10 @@ export const policySetsRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE policy_sets SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
         [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
-      return reply.code(201).send({ version_id: rows[0].id, ...rows[0] })
+      return rows[0]
     })
+    // Reply only after COMMIT so a client that immediately activates reads a committed version.
+    return reply.code(201).send({ version_id: created.id, ...created })
   })
 
   fastify.get('/zones/:zoneId/policy-sets/:id/versions', async (req, reply) => {
