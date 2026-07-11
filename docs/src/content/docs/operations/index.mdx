@@ -8,16 +8,57 @@ Use this section when you own a Caracal deployment. These runbooks describe beha
 
 ## Choose a Runbook
 
-| Need | Start here |
+The runbooks follow the deployment lifecycle. Work down the phases for a new deployment; jump straight to a phase for day-to-day operations.
+
+**Deploy** - pick a substrate and stand the stack up:
+
+| Need | Runbook |
 | --- | --- |
 | Choose a substrate | [Choose a Deployment Profile](/operations/deployment-profiles/) |
 | Run one Docker host | [Deploy with Docker Compose](/operations/docker-compose/) |
 | Deploy the repository chart | [Deploy with Helm](/operations/kubernetes-helm/) |
+| Provision chart or VM bootstrap declaratively | [Provision with OpenTofu](/operations/opentofu/) |
+| Map managed cloud services to the chart | [Choose a Cloud Profile](/operations/cloud-native-profiles/) and [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/) |
+| Hand a reviewed deployment package to another team | [Package an Install Kit](/operations/install-kit/) |
+
+**Configure and secure** - before real credentials or traffic:
+
+| Need | Runbook |
+| --- | --- |
+| Set service variables and secrets | [Configure Service Environment](/operations/env-vars/) |
+| Choose where sealed credentials are stored | [Configure Secret Backends](/operations/secret-backends/) |
+| Pass the pre-production hardening checklist | [Harden Production](/operations/tls-hardening/) |
+| Rotate keys, HMACs, and service tokens | [Rotate Keys and Secrets](/operations/key-management/) |
+| Operate the durable stores | [Operate PostgreSQL](/operations/postgres/) and [Operate Redis Streams](/operations/redis/) |
+| Size and scale services | [Scale Capacity](/operations/scale-capacity/) |
+
+**Observe** - know the deployment is healthy before users tell you it is not:
+
+| Need | Runbook |
+| --- | --- |
+| Wire health, readiness, and metrics | [Monitor Health and Metrics](/operations/observability/) |
+| Alert on measured thresholds | [Configure Alerts](/operations/alerts/) |
 | Diagnose a failed request | [Troubleshoot by Symptom](/operations/troubleshooting/) |
 | Diagnose unhealthy infrastructure | [Debug Infrastructure Issues](/operations/debugging/) |
+
+**Recover** - when something is wrong or before it can be:
+
+| Need | Runbook |
+| --- | --- |
 | Recover a known failure | [Recover from Failures](/operations/failure-modes/) |
+| Prove recovery works before you need it | [Run Failure Drills](/operations/failure-drills/) |
 | Back up or restore Compose state | [Back Up and Retain Data](/operations/backup-retention/) |
+| Handle a security or availability incident | [Respond to Incidents](/operations/incident-response/) |
+
+**Change** - roll out versions, policy, and responsibility:
+
+| Need | Runbook |
+| --- | --- |
 | Change versions | [Upgrade Caracal](/operations/upgrade/) |
+| Roll out infrastructure changes | [Plan a Platform Rollout](/operations/platform-rollout-kit/) |
+| Activate policy changes safely | [Deploy Policy Changes](/operations/policy-deployment/) |
+| Export audit evidence for compliance tooling | [Export Audit Evidence](/operations/compliance-audit-integration/) |
+| Transfer operational ownership | [Hand Off to Platform Teams](/operations/platform-team-handoff/) |
 
 ## Operating Invariants
 

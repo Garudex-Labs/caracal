@@ -4,7 +4,11 @@ description: Diagnose a denied request, simulate a candidate policy-set version,
 pageType: workflow
 ---
 
-Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input - and prove it does not change other decisions - before activation.
+Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. It tests a candidate policy change against the exact redaction-safe audit input of a real denial - and proves the change does not alter other decisions - before activation.
+
+## When to use it
+
+Use it when a real request was denied and the fix must be proven safe before rollout: the candidate has to repair that denial and keep every regression case's decision. Do not use it as a substitute for the [policy authoring contract](/guides/author-policy/) or [activation workflow](/guides/activate-policy-set/); it automates their verification loop.
 
 ## Prerequisites
 

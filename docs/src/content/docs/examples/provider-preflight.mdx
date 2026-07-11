@@ -4,7 +4,11 @@ description: Validate service readiness, dependencies, provider configuration, r
 pageType: workflow
 ---
 
-Provider Preflight is an automatable readiness check in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `providerPreflight/`. Use it after creating a provider-backed resource, before cutting traffic over, and from CI before each deploy. It walks the same chain a real Gateway request depends on - control plane, Gateway dependencies, application identity, provider binding and configuration, network paths, and the active policy decision - and reports exactly which link is broken and how to fix it.
+Provider Preflight is an automatable readiness check in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `providerPreflight/`. It walks the same chain a real Gateway request depends on - control plane, Gateway dependencies, application identity, provider binding and configuration, network paths, and the active policy decision - and reports exactly which link is broken and how to fix it.
+
+## When to use it
+
+Run it after creating a provider-backed resource, before cutting traffic over, and from CI before each deploy. It proves the chain is ready; it does not replace the first real audited request as enforcement evidence.
 
 ## Prerequisites
 
