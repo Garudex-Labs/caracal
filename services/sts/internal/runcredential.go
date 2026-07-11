@@ -318,6 +318,10 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.Decision != "allow" {
+		if reason := denyDiagnosticReason(result); reason != "" {
+			writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied ("+reason+")"))
+			return
+		}
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied"))
 		return
 	}

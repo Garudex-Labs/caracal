@@ -468,6 +468,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	// Tracks the last user-consent credential failure so a fully denied exchange can
 	// answer with the operational reason instead of a generic policy verdict.
 	var providerDenial *sharederr.CaracalError
+	var policyDenyReason string
 	grantedDirectives := map[string]UpstreamDirective{}
 	grantedResourceRows := map[string]*Resource{}
 	var gateDecls []tierDeclaration
@@ -658,6 +659,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if result.Decision == "allow" {
 			grantedResources = append(grantedResources, resource.Identifier)
 			grantedResourceRows[resource.Identifier] = resource
+		} else if policyDenyReason == "" {
+			policyDenyReason = denyDiagnosticReason(result)
 		}
 	}
 
@@ -705,6 +708,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		// instead of debugging policy.
 		if providerDenial != nil {
 			return nil, nil, http.StatusForbidden, providerDenial
+		}
+		if policyDenyReason != "" {
+			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied ("+policyDenyReason+")")
 		}
 		return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied")
 	}
@@ -2146,6 +2152,18 @@ func scopesAllowed(requested, available []string) bool {
 // it, and the bootstrap allow rule gates on resource ownership rather than declared
 // scopes.
 const lifecycleScope = "agent:lifecycle"
+
+// denyDiagnosticReason extracts the gate-specific reason the decision contract names
+// in a deny result's diagnostics, so the caller error states which gate refused the
+// request; empty when the diagnostics carry none.
+func denyDiagnosticReason(result *OPAResult) string {
+	for _, diag := range result.Diagnostics {
+		if reason, ok := diag["reason"].(string); ok && reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
 
 // resourceMintScopes returns the scopes mintable against a resource: its declared
 // business scopes plus the platform-reserved lifecycle bootstrap scope for
