@@ -18,7 +18,7 @@ Human operators use the console **Audit** workspace. Zone-scoped automation uses
 | `GET /api/audit/dlq`, `/api/audit/dlq/{id}` | Inspect failed events                 |
 | `POST /api/audit/dlq/replay`                | Retry selected failed evidence        |
 
-Do not send application audit records to these routes. Caracal services publish the signed event contract.
+Do not send application audit records to these routes. Caracal services publish the signed event contract. Service environment variables are cataloged in [Configure Service Environment](/operations/env-vars/).
 
 ## Delivery and Recovery
 

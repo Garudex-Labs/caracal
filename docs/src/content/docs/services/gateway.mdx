@@ -4,7 +4,7 @@ description: Understand the Gateway request boundary, deny-before-upstream behav
 pageType: reference
 ---
 
-Gateway is the HTTP enforcement boundary for configured upstream resources. It listens on local port `8081`.
+Gateway is the HTTP enforcement boundary for configured upstream resources.
 
 ## Supported Request
 
@@ -35,6 +35,7 @@ It rejects caller-supplied `X-Caracal-Client-ID`, strips hop-by-hop and caller a
 
 | Item               | Behavior                                                            |
 | ------------------ | ------------------------------------------------------------------- |
+| Port               | Local `8081`                                                        |
 | Liveness/readiness | `/health`, `/ready`                                                 |
 | Monitoring         | `/metrics`, `/metrics.json`                                         |
 | Request size       | `MAX_REQUEST_BYTES`, 10 MiB by default                              |
@@ -43,6 +44,8 @@ It rejects caller-supplied `X-Caracal-Client-ID`, strips hop-by-hop and caller a
 | Revocation reload  | `POST /internal/revocations/reload`, service/operator-internal only |
 
 Protect WebSocket services in process with a verification package or framework adapter.
+
+Service environment variables are cataloged in [Configure Service Environment](/operations/env-vars/).
 
 ## Dependency Implications
 
