@@ -85,7 +85,7 @@ func runCredentialWorkload() *Workload {
 	return &Workload{
 		ID:       "wl-1",
 		ZoneID:   "z1",
-		Name:     "Son of Anton",
+		Name:     "Anton",
 		Bindings: []byte(`[{"env": "PIPERNET_TOKEN", "resource": "resource://pipernet", "scopes": ["pipernet:read"]}]`),
 	}
 }

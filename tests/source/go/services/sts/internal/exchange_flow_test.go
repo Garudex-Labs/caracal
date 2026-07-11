@@ -42,7 +42,7 @@ func exchangeFlowDB(t *testing.T) *stubDB {
 		app: &Application{
 			ID:                 "app1",
 			ZoneID:             "zone1",
-			Name:               "Son of Anton",
+			Name:               "Anton",
 			RegistrationMethod: "managed",
 			ClientSecretHash:   &hash,
 		},

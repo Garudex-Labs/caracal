@@ -37,13 +37,13 @@ func requestSummary(transport *scripted) []string {
 func TestEnsureApplicationCreatesManagedIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
 		ok(`{"items":[],"next_cursor":null}`),
-		ok(`{"id":"app-created","name":"Son of Anton","registration_method":"managed"}`),
+		ok(`{"id":"app-created","name":"Anton","registration_method":"managed"}`),
 		ok(`{"id":"app-created"}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	id, err := admin.EnsureApplication(context.Background(), client, "z1", admin.ApplicationEnsure{
-		Name: "Son of Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
+		Name: "Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
 	})
 	if err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -52,7 +52,7 @@ func TestEnsureApplicationCreatesManagedIdentity(t *testing.T) {
 		t.Fatalf("unexpected id %s", id)
 	}
 	assertJSONEqual(t, transport.requests[1].body, map[string]any{
-		"name": "Son of Anton", "registration_method": "managed", "traits": []any{"ops"},
+		"name": "Anton", "registration_method": "managed", "traits": []any{"ops"},
 	})
 	if transport.requests[2].url != "http://api/v1/zones/z1/applications/app-created" {
 		t.Fatalf("unexpected patch url %s", transport.requests[2].url)
@@ -62,12 +62,12 @@ func TestEnsureApplicationCreatesManagedIdentity(t *testing.T) {
 
 func TestEnsureApplicationRejectsDCRIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"dcr"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"dcr"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	_, err := admin.EnsureApplication(context.Background(), client, "z1", admin.ApplicationEnsure{
-		Name: "Son of Anton", ClientSecret: "cs_1",
+		Name: "Anton", ClientSecret: "cs_1",
 	})
 	if err == nil || !strings.Contains(err.Error(), "not a usable managed credential") {
 		t.Fatalf("expected managed credential error, got %v", err)
@@ -79,12 +79,12 @@ func TestEnsureApplicationRejectsDCRIdentity(t *testing.T) {
 
 func TestEnsureApplicationRejectsExpiringIdentity(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","expires_at":"2026-07-01T00:00:00Z"}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"managed","expires_at":"2026-07-01T00:00:00Z"}],"next_cursor":null}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	_, err := admin.EnsureApplication(context.Background(), client, "z1", admin.ApplicationEnsure{
-		Name: "Son of Anton", ClientSecret: "cs_1",
+		Name: "Anton", ClientSecret: "cs_1",
 	})
 	if err == nil || !strings.Contains(err.Error(), "not a usable managed credential") {
 		t.Fatalf("expected managed credential error, got %v", err)
@@ -93,14 +93,14 @@ func TestEnsureApplicationRejectsExpiringIdentity(t *testing.T) {
 
 func TestEnsureApplicationPatchesDriftedTraitsThenRotates(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["stale"]}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"managed","traits":["stale"]}],"next_cursor":null}`),
 		ok(`{"id":"app-1"}`),
 		ok(`{"id":"app-1"}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	id, err := admin.EnsureApplication(context.Background(), client, "z1", admin.ApplicationEnsure{
-		Name: "Son of Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
+		Name: "Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
 	})
 	if err != nil || id != "app-1" {
 		t.Fatalf("ensure: id=%s err=%v", id, err)
@@ -111,13 +111,13 @@ func TestEnsureApplicationPatchesDriftedTraitsThenRotates(t *testing.T) {
 
 func TestEnsureApplicationSkipsTraitPatchWhenConverged(t *testing.T) {
 	transport := &scripted{steps: []any{
-		ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["ops"]}],"next_cursor":null}`),
+		ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"managed","traits":["ops"]}],"next_cursor":null}`),
 		ok(`{"id":"app-1"}`),
 	}}
 	client := newAdmin(transport, -1)
 
 	if _, err := admin.EnsureApplication(context.Background(), client, "z1", admin.ApplicationEnsure{
-		Name: "Son of Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
+		Name: "Anton", Traits: []string{"ops"}, ClientSecret: "cs_1",
 	}); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestEnsureActivePolicySetSelfHealsInactiveSet(t *testing.T) {
 
 func TestAuthorGrantsDocumentRendersDecisionContractInputs(t *testing.T) {
 	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
 	})
 	if err != nil {
 		t.Fatalf("author: %v", err)
@@ -507,7 +507,7 @@ func TestAuthorGrantsDocumentRendersDecisionContractInputs(t *testing.T) {
 		"# caracal:data-document",
 		"package caracal.authz",
 		"import rego.v1",
-		`app_ids := {"operator":"app-son-of-anton"}`,
+		`app_ids := {"operator":"app-anton"}`,
 		`grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}`,
 	} {
 		if !strings.Contains(document, fragment) {
@@ -518,13 +518,13 @@ func TestAuthorGrantsDocumentRendersDecisionContractInputs(t *testing.T) {
 
 func TestAuthorGrantsDocumentDefaultsRoleToApplicationID(t *testing.T) {
 	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}},
 	})
 	if err != nil {
 		t.Fatalf("author: %v", err)
 	}
-	if !strings.Contains(document, `app_ids := {"app-son-of-anton":"app-son-of-anton"}`) ||
-		!strings.Contains(document, `"roles":{"app-son-of-anton":["data:read"]}`) {
+	if !strings.Contains(document, `app_ids := {"app-anton":"app-anton"}`) ||
+		!strings.Contains(document, `"roles":{"app-anton":["data:read"]}`) {
 		t.Fatalf("unexpected document:\n%s", document)
 	}
 }
@@ -532,13 +532,13 @@ func TestAuthorGrantsDocumentDefaultsRoleToApplicationID(t *testing.T) {
 func TestAuthorGrantsDocumentIsDeterministic(t *testing.T) {
 	first, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
 		{ApplicationID: "app-fiona", ResourceIdentifier: "resource://not-hotdog", Scopes: []string{"data:write", "data:read"}, Role: "classifier"},
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
 	})
 	if err != nil {
 		t.Fatalf("author: %v", err)
 	}
 	second, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
 		{ApplicationID: "app-fiona", ResourceIdentifier: "resource://not-hotdog", Scopes: []string{"data:read", "data:write", "data:read"}, Role: "classifier"},
 	})
 	if err != nil {
@@ -551,8 +551,8 @@ func TestAuthorGrantsDocumentIsDeterministic(t *testing.T) {
 
 func TestAuthorGrantsDocumentMergesScopesForOneRole(t *testing.T) {
 	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:write"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:write"}, Role: "operator"},
 	})
 	if err != nil {
 		t.Fatalf("author: %v", err)
@@ -564,7 +564,7 @@ func TestAuthorGrantsDocumentMergesScopesForOneRole(t *testing.T) {
 
 func TestAuthorGrantsDocumentRejectsRoleClaimedByTwoApplications(t *testing.T) {
 	_, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
 		{ApplicationID: "app-fiona", ResourceIdentifier: "resource://not-hotdog", Scopes: []string{"data:read"}, Role: "operator"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "claimed by two applications") {
@@ -584,7 +584,7 @@ func TestEnsureGrantsConvergesDefaultPolicyAndSet(t *testing.T) {
 	client := newAdmin(transport, -1)
 
 	grants := []admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
 	}
 	if err := admin.EnsureGrants(context.Background(), client, "z1", admin.GrantsEnsure{Grants: grants}); err != nil {
 		t.Fatalf("ensure: %v", err)
@@ -660,7 +660,7 @@ func pipernetUpstream(apiKey string) admin.GovernedUpstream {
 			UpstreamURL: "https://api.pipernet.example",
 		},
 		Grants: []admin.GovernedUpstreamGrant{
-			{ApplicationID: "app-son-of-anton", Scopes: []string{"data:read"}},
+			{ApplicationID: "app-anton", Scopes: []string{"data:read"}},
 		},
 	}
 }
@@ -699,7 +699,7 @@ func TestEnsureGovernedUpstreamsConvergesInDependencyOrder(t *testing.T) {
 		"credential_provider_id": "prov-created",
 	})
 	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
-		{ApplicationID: "app-son-of-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}},
+		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}},
 	})
 	if err != nil {
 		t.Fatalf("author: %v", err)

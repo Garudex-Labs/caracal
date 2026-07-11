@@ -54,7 +54,7 @@ func TestIssueTokenAuthorityRecordAndResourceClaims(t *testing.T) {
 	issuedAt := time.Now().Truncate(time.Second)
 	signed, jti, err := issueToken(context.Background(), IssueParams{
 		ZoneID:                "zone-1",
-		AppID:                 "son-of-anton",
+		AppID:                 "anton",
 		SubjectID:             "user:richard.hendricks@piedpiper.example",
 		SubType:               SubTypeUser,
 		Use:                   UseSession,
@@ -84,8 +84,8 @@ func TestIssueTokenAuthorityRecordAndResourceClaims(t *testing.T) {
 
 	signed, _, err = issueToken(context.Background(), IssueParams{
 		ZoneID:                "zone-1",
-		AppID:                 "son-of-anton",
-		SubjectID:             "son-of-anton",
+		AppID:                 "anton",
+		SubjectID:             "anton",
 		AuthorityRecordID:     "sid-2",
 		RootAuthorityRecordID: "sid-root",
 		Resources:             []string{"resource://pipernet", "resource://nucleus"},
