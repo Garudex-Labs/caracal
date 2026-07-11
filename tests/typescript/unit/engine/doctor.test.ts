@@ -376,3 +376,52 @@ describe('runDoctorDiagnostics - full system run', () => {
     fetchSpy.mockRestore()
   })
 })
+
+describe('runDoctorDiagnostics - control-plane vantage', () => {
+  it('skips the local preflight and fabricates no failures for unconfigured services', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    // A control-plane surface (the Console BFF) is not given every service URL and holds no
+    // sealing keys or storage credentials.
+    delete process.env.CARACAL_STS_URL
+    delete process.env.CARACAL_GATEWAY_URL
+    delete process.env.CARACAL_AUDIT_URL
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    const report = await runDoctorDiagnostics({ localEnvironment: false })
+    // The runtime-environment preflight never runs from a control-plane vantage.
+    expect(report.checks.some((c) => c.section === 'preflight')).toBe(false)
+    // Services without a configured URL are omitted, not reported as configuration failures.
+    expect(report.checks.some((c) => c.check === 'sts config')).toBe(false)
+    expect(report.checks.some((c) => c.check === 'gateway config')).toBe(false)
+    expect(report.checks.some((c) => c.check === 'audit config')).toBe(false)
+    // Configured services are still probed, so the panel stays a real reachability view.
+    expect(report.checks.some((c) => c.check === 'coordinator readiness')).toBe(true)
+    expect(report.ready).toBe(true)
+    fetchSpy.mockRestore()
+  })
+
+  it('probes configured services for readiness only, never protected metrics', async () => {
+    vi.mocked(buildAdminClient).mockReturnValue(fakeAdminContext() as never)
+    const seen: string[] = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      seen.push(url)
+      if (url.endsWith('/health') || url.endsWith('/ready')) return jsonResponse({}, true)
+      if (url.endsWith('/stats')) return jsonResponse({ outbox: { pending: 0, dead: 0 }, invocations: { running: 0 } })
+      return jsonResponse({ opa: { compile_errors: 0 } })
+    })
+
+    await runDoctorDiagnostics({ localEnvironment: false })
+    // Readiness is the health signal; protected metrics endpoints need a bearer the BFF is not
+    // issued, so they are never called from a control-plane vantage.
+    expect(seen.some((u) => u.endsWith(':8080/ready'))).toBe(true)
+    expect(seen.some((u) => u.includes('/metrics.json'))).toBe(false)
+    expect(seen.some((u) => u.endsWith('/stats'))).toBe(false)
+    fetchSpy.mockRestore()
+  })
+})
