@@ -11,6 +11,8 @@ An **Application** is registered software that authenticates to Caracal. A **Sub
 
 ## Identity and Execution Objects
 
+When you need the operator-facing view of these objects side by side - including how their IDs appear on the wire - the identity table in [Manage Runtime Authority](/runtime-console/agents/#keep-the-identities-distinct) is the quick reference.
+
 | Public object    | Typical source                                | What it controls                                                                                                           |
 | ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Application      | Workload credential or Application secret     | The durable credential and policy boundary for software.                                                                  |
@@ -30,7 +32,7 @@ Applications represent software that can participate in Caracal flows:
 - an adapter-protected resource server;
 - a managed or dynamically registered client.
 
-Applications have registration metadata, a server-owned credential, and a registration method. Durable Applications are operator-provisioned for known software, including runtimes that start child Sessions. Auto-expiring Applications are created programmatically when a separate temporary credential boundary is needed, not for ordinary Session fan-out.
+Applications have registration metadata, a server-owned credential, and a registration method. **Managed** Applications are durable and operator-provisioned for known software, including runtimes that start child Sessions. **DCR** Applications (Dynamic Client Registration) are auto-expiring and created programmatically when a separate temporary credential boundary is needed, not for ordinary Session fan-out.
 
 ## Applications Are the Credential Boundary; Sessions Are the Runtime Unit
 
@@ -45,12 +47,12 @@ flowchart TD
 
 An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. A Session is started at runtime by the process that already holds that secret; it carries parent, Subject authority record ID, labels, and delegation context. One application backs many Sessions, so a long-running service uses **one managed application** and starts, delegates, and fans out as many Sessions as it needs. You do not register an application per AI agent - see [Should I create one application per agent?](/reference/faq/#faq-006).
 
-## Durable and Auto-Expiring Applications
+## Managed and DCR Applications
 
 | Kind          | Use it for                                                        | Rule                                                                                                   |
 | ------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Durable       | A service, orchestrator, Gateway, or agent runtime                 | Create once and reuse across many Sessions for the same service.                                      |
-| Auto-expiring | An isolated credential boundary for a tenant or integration       | Create programmatically; it expires, binds to one task Session, and cannot participate in a child tree. |
+| Managed (durable)       | A service, orchestrator, Gateway, or agent runtime                 | Create once and reuse across many Sessions for the same service.                                      |
+| DCR (auto-expiring) | An isolated credential boundary for a tenant or integration       | Create programmatically; it expires, binds to one task Session, and cannot participate in a child tree. |
 
 Sessions use one of two lifecycles: a **task Session** ends with a bounded unit of work, while a **service Session** stays active through a heartbeat lease. Lifecycle describes time, not actor type or authority.
 
@@ -59,15 +61,15 @@ A task Session may have a wall-clock TTL. A service Session ends when its heartb
 Two structural rules prevent invalid trees:
 
 - A `task` parent cannot start a `service` child. The protocol reports `task_session_cannot_start_service`. A `service` parent may start either lifecycle.
-- An auto-expiring Application's Session is a **leaf**: it cannot parent or be a child Session.
+- A DCR Application's Session is a **leaf**: it cannot parent or be a child Session.
 
-A short-lived worker is an ordinary task Session with a TTL. Model an orchestrator and its workers under one durable Application unless they need separate credentials or mutual distrust boundaries.
+A short-lived worker is an ordinary task Session with a TTL. Model an orchestrator and its workers under one managed Application unless they need separate credentials or mutual distrust boundaries.
 
 - the orchestrator is the top-level Session, or a [`start_session()`](/sdks/python/) handle when it needs a heartbeat lease,
 - each manager is a plain `session()` that inherits the application's authority,
 - each task worker is `session(authority=Authority.narrow([...]), ttl_seconds=…)` - least-privilege and auto-terminated on block exit, with the TTL sweeper as a backstop.
 
-Use an auto-expiring Application for credential isolation, not Session fan-out. It authenticates independently; it is not started as a child Session.
+Use a DCR Application for credential isolation, not Session fan-out. It authenticates independently; it is not started as a child Session.
 
 :::note[FAQ]
 [What is the difference between an application, principal, and Session?](/reference/faq/#faq-005) and [when should I use a managed application versus DCR?](/reference/faq/#faq-007)

@@ -25,16 +25,28 @@ Complete [Trace One Protected Request](../inspect-a-run/) or be able to explain 
 
 ## Choose by Boundary
 
+**Gateway-routed** - requests detour through the central checkpoint:
+
 | If your production path is... | Continue with |
 | --- | --- |
 | Route HTTP traffic through the Caracal Gateway | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
-| Add Caracal sessions and Gateway calls to app code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
+
+**In-process adapter** - your service verifies mandates itself:
+
+| If your production path is... | Continue with |
+| --- | --- |
 | Protect an Express resource server in process | [Protect an Express App](/guides/protect-express/) |
 | Protect a FastAPI or Starlette service in process | [Protect a FastAPI App](/guides/protect-fastapi/) |
 | Protect a FastMCP server in process | [Protect a FastMCP App](/guides/protect-fastmcp/) |
 | Protect a Go `net/http` service in process | [Protect a Go net/http Service](/guides/protect-nethttp/) |
 | Protect an MCP server without a dedicated adapter | [Protect an MCP Server](/guides/protect-mcp/) |
-| Run an existing CLI or worker under injected runtime tokens | [Run an Agent with caracal run](/guides/runtime-run/) |
+
+Two paths sit **alongside** the boundary choice rather than replacing it - how your application code obtains authority, and how existing CLIs receive provider credentials:
+
+| If you also need to... | Continue with |
+| --- | --- |
+| Add Caracal sessions and Gateway calls to app code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
+| Launch an existing CLI or worker with injected provider credentials | [Run an Agent with caracal run](/guides/runtime-run/) |
 
 ## Add Capabilities After the Boundary Works
 

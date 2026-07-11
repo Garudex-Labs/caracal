@@ -36,8 +36,8 @@ import { OAuthClient, ApprovalRequiredError } from '@caracalai/oauth'
 const oauth = new OAuthClient(stsUrl, zoneId, applicationId)
 
 try {
-  const token = await oauth.exchange(subjectToken, 'https://api.example.com/tickets', {
-    scopes: ['tickets:read'],
+  const token = await oauth.exchange(subjectToken, 'resource://pipernet', {
+    scopes: ['pipernet:read'],
     clientSecret: process.env.CARACAL_APP_CLIENT_SECRET,
   })
   console.log(token.accessToken, token.expiresIn)
@@ -69,7 +69,7 @@ When the zone registers the application's identity system as a Subject issuer, t
 
 See [Human Approval](/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.
 
-## Related pages
+## Related Pages
 
 - [Human Approval](/guides/step-up/)
 - [Mandates](/concepts/mandate/)

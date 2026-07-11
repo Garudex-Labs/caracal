@@ -22,58 +22,70 @@ You install one binary; Docker provides the rest. No source checkout, package bu
 
 ## Install the CLI
 
-On Linux or macOS, the install script downloads the right release archive for your platform, verifies its checksum, and places `caracal` on your `PATH`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
-```
-
-Prefer to download and verify manually, on any platform? Each [release](https://github.com/Garudex-Labs/caracal/releases) ships platform archives (`caracal-runtime-*`), a `manifest.json`, and a `SHA256SUMS` file.
+The install script resolves the latest release, downloads the right archive for your platform, verifies its checksum, and places `caracal` on your `PATH`. Pin a version by setting `CARACAL_VERSION` first.
 
 <Tabs syncKey="os">
 <TabItem label="Linux / macOS">
 
 ```sh
-gh release download vX.Y.Z \
-  --repo Garudex-Labs/caracal \
-  --pattern 'caracal-runtime-linux-amd64-*.tar.gz' \
-  --pattern SHA256SUMS
-sha256sum --check SHA256SUMS   # macOS: shasum -a 256 --check SHA256SUMS
-tar -xzf caracal-runtime-linux-amd64-vX.Y.Z.tar.gz
-install -m 0755 caracal ~/.local/bin/caracal
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
 ```
-
-Choose the `linux-arm64`, `darwin-amd64`, or `darwin-arm64` archive when that matches your machine, and make sure the destination directory is on your `PATH`.
 
 </TabItem>
 <TabItem label="Windows">
 
 ```powershell
-gh release download vX.Y.Z `
-  --repo Garudex-Labs/caracal `
-  --pattern 'caracal-runtime-windows-amd64-*.zip' `
-  --pattern SHA256SUMS
-Get-FileHash .\caracal-runtime-windows-amd64-vX.Y.Z.zip -Algorithm SHA256
-Expand-Archive .\caracal-runtime-windows-amd64-vX.Y.Z.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
+irm https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 | iex
 ```
 
-Compare the PowerShell hash with the matching entry in `SHA256SUMS`, then add `%LOCALAPPDATA%\Programs\caracal` to the user `Path` and open a new shell.
+The installer places `caracal.exe` in `%LOCALAPPDATA%\Programs\caracal` and adds it to the user `Path`; open a new shell afterward.
 
 </TabItem>
 </Tabs>
 
-For deeper supply-chain checks, signatures, and container image verification, see [Verify a Release](/security/verify-releases/).
+Prefer to download and verify manually? Each [release](https://github.com/Garudex-Labs/caracal/releases) ships platform archives (`caracal-runtime-*`), a `manifest.json`, and a `SHA256SUMS` file. Pick the archive matching your platform (`linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, or `windows-amd64`):
+
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
+
+```sh
+tag=$(curl -fsSL https://api.github.com/repos/Garudex-Labs/caracal/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/caracal-runtime-linux-amd64-${tag}.tar.gz"
+curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/SHA256SUMS"
+sha256sum --ignore-missing --check SHA256SUMS   # macOS: shasum -a 256 --ignore-missing --check SHA256SUMS
+tar -xzf "caracal-runtime-linux-amd64-${tag}.tar.gz"
+install -m 0755 caracal ~/.local/bin/caracal
+```
+
+Make sure the destination directory is on your `PATH`.
+
+</TabItem>
+<TabItem label="Windows">
+
+```powershell
+$tag = (Invoke-RestMethod https://api.github.com/repos/Garudex-Labs/caracal/releases/latest).tag_name
+Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/caracal-runtime-windows-amd64-$tag.zip" -OutFile caracal.zip
+Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/SHA256SUMS" -OutFile SHA256SUMS
+Get-FileHash .\caracal.zip -Algorithm SHA256   # compare with the matching SHA256SUMS entry
+Expand-Archive .\caracal.zip -DestinationPath $env:LOCALAPPDATA\Programs\caracal
+```
+
+Add `%LOCALAPPDATA%\Programs\caracal` to the user `Path` and open a new shell.
+
+</TabItem>
+</Tabs>
+
+Both install scripts always verify checksums. With the GitHub CLI `gh` installed they also verify build provenance; set `CARACAL_REQUIRE_PROVENANCE=1` to make a missing provenance check fail the install instead of skipping it. For deeper supply-chain checks, signatures, and container image verification, see [Verify a Release](/security/verify-releases/).
 
 ## Verify the Installation
 
-The same commands work in every shell:
+The same command works in every shell:
 
 ```sh
 caracal --version
-caracal status --help
 ```
 
-Both commands should print without errors.
+It should print the installed version without errors.
 
 ## Verify Docker
 
@@ -92,9 +104,30 @@ caracal status --ready
 
 `caracal up` pulls and starts the containers; `caracal status --ready` waits until every service reports healthy. When readiness succeeds, the web console is being served at [http://localhost:3001](http://localhost:3001).
 
-:::note
-Do not sign in yet. The console keeps registration closed by default, so the next page first allows your email from the terminal and configures a sign-in method, then walks you through everything in the browser.
+## Enable Console Sign-In
+
+The console ships locked down: nobody can register until you, from the machine that runs the stack, allow their email. Allow yours:
+
+```sh
+caracal allowlist add <your email>
+```
+
+The change applies immediately; no restart is needed. The same command family later manages suspension, restoration, and removal - see [Control Console Access](/runtime-console/console-access/) for the full lifecycle.
+
+An allowlisted email still needs a way to sign in. Pick one, add its settings to the environment file the stack reads (`$CARACAL_HOME/caracal.env` - Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
+
+| Sign-in method | Required variables |
+| --- | --- |
+| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
+| Email and password | `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
+
+For OAuth, create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. With email/password sign-up, registration sends a verification link over SMTP and the account signs in after the link is confirmed. The full sign-in reference lives in [Configure Service Environment](/operations/env-vars/#web-console-bff).
+
+:::note[Why is sign-in this strict on a local machine?]
+The packaged runtime runs the console in published mode, which enforces the same fail-closed sign-in posture you would run in production: host-controlled admission plus a verified sign-in method. This is a one-time setup; everything after it happens in the browser.
 :::
+
+Do not sign in yet - the next page walks through onboarding and your first protected setup in one continuous flow.
 
 ## Common Mistakes
 
@@ -104,15 +137,15 @@ Do not sign in yet. The console keeps registration closed by default, so the nex
 
 ## Expected Outcome
 
-`caracal status --ready` exits successfully and [http://localhost:3001](http://localhost:3001) responds. Readiness proves the local services are up; nothing is protected yet - that is the next page.
+`caracal status --ready` exits successfully, [http://localhost:3001](http://localhost:3001) responds, your email is allowlisted, and one sign-in method is configured. Readiness proves the local services are up; nothing is protected yet - that is the next page.
 
 ## Platform Notes
 
 | Platform | Architectures | Notes |
 | --- | --- | --- |
-| Linux | `amd64`, `arm64` | Requires `curl` or `wget`, `tar`, and `sha256sum` or `shasum`. Archive checksums are always verified; installing GitHub CLI `gh` additionally verifies provenance attestations. |
-| macOS | `amd64`, `arm64` | GitHub CLI `gh` enables provenance verification; if Gatekeeper quarantines the binary, remove quarantine from the installed file. |
-| Windows | `amd64` | GitHub CLI `gh` enables provenance verification; open a new shell after updating the user `Path`. |
+| Linux | `amd64`, `arm64` | Requires `curl` or `wget`, `tar`, and `sha256sum` or `shasum`. |
+| macOS | `amd64`, `arm64` | If Gatekeeper quarantines the binary, remove quarantine from the installed file. |
+| Windows | `amd64` | Open a new shell after the installer updates the user `Path`. |
 
 ## Next Step
 

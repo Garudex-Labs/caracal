@@ -1,9 +1,13 @@
 ---
 title: Human Approval
-description: Declare approval tiers in policy data, hold the exchange, and decide it from the Console, the Admin API, or your application's federated end user.
+description: Declare approval tiers in policy data, hold the exchange, and decide it from the web console, the Admin API, or your application's federated end user.
 ---
 
 Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
+
+:::note[One object, two names]
+An Approval is one object with a wire name: SDKs expose it as `approvalId`, while the STS and Admin API call the same value `challenge_id` and serve it under `/step-up/{id}` and `/v1/zones/{zone}/step-up-challenges/{id}` paths. This page says *Approval* for the object and *hold* for its undecided state; the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping) is the canonical translation table.
+:::
 
 ## When to use approval
 
@@ -30,7 +34,7 @@ flowchart LR
 
 Approval is declared as data, like every other policy input. `risk` names a tier for each sensitive scope; `approval_tiers` declares which tiers hold a mint for a decision:
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -83,7 +87,7 @@ The Python and Go clients expose the same surface as `with_approval`/`wait_for_a
 
 ## Decide as an operator
 
-Open the zone's **Approvals** page in the Console to review pending holds - each shows the requesting principal, the tier, the binding to cross-check against the agent's notice, and the approval window - and approve or reject with an optional reason. For automation, the Admin API exposes the same decision:
+Open the zone's **Approvals** page in the web console to review pending holds - each shows the requesting principal, the tier, the binding to cross-check against the agent's notice, and the approval window - and approve or reject with an optional reason. For automation, the Admin API exposes the same decision:
 
 ```bash
 curl -X POST \
@@ -93,7 +97,7 @@ curl -X POST \
   -d '{"reason": "PiperNet refund reviewed against baseline v3"}'
 ```
 
-Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body, and a hold declared `"approver": "subject"` refuses every operator decision with `subject_approval_required`. To hear about new holds without watching the Console, add a [notification sink](/guides/approval-notifications/) that pushes approval events to your team's own systems.
+Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body. To hear about new holds without watching the web console, add a [notification sink](/guides/approval-notifications/) that pushes approval events to your team's own systems.
 
 ## Decide as the application's end user
 
@@ -130,6 +134,6 @@ Test approve, reject, expiry, concurrent consumption, changed binding, and missi
 Subject approval works only when the application registers a trusted issuer, federates the end user's token, and presents the resulting user Session mandate. A caller-supplied subject ID or Session label cannot approve a hold.
 :::
 
-## Next step
+## Next Step
 
 Add [Approval Notifications](/guides/approval-notifications/) if operators need push delivery, then add all terminal states to [Test Caracal Integrations](/guides/testing/).

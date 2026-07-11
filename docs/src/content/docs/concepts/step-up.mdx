@@ -7,7 +7,7 @@ sidebar:
 
 Read this page after [Policies and Policy Sets](/concepts/policy/). An Approval pauses a sensitive authority request until an eligible human decides it. Policy data maps scopes to risk tiers and identifies whether an operator, the federated Subject, or either may decide.
 
-Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one.
+Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one. One naming rule carries through every surface: the SDKs call the decision's identifier `approvalId`, while the STS and Admin API call the same value `challenge_id` under `step-up` paths - see the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping).
 
 ## Approval Flow
 
@@ -72,7 +72,7 @@ The tier's `privacy` declaration controls what the decision record retains of a 
 - Keep the decision outside policy; policy declares that a decision is needed, never performs it.
 - Use `subject` tiers when the risk belongs to the application's end user and the application federates its users through a zone subject issuer; use `operator` tiers when the risk belongs to the zone.
 - Give automation credentials `write` without `approve`, so no pipeline can silently settle a hold.
-- Cross-check the binding: the agent prints it beside the challenge id, and the Console shows it on the hold.
+- Cross-check the binding: the agent prints it beside the challenge id, and the web console shows it on the hold.
 
 ## Next Step
 

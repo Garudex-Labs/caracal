@@ -51,7 +51,9 @@ import { RedisRevocationConsumer } from '@caracalai/revocation-redis'
 
 const consumer = new RedisRevocationConsumer(redis, revocations, {
   consumer: 'api-1',
-  streamHmacKey: Buffer.from(process.env.CARACAL_REVOCATION_HMAC_SECRET!, 'hex'),
+  // The key material is the deployment's STREAMS_HMAC_KEY; deliver it to this
+  // workload through its own secret manager.
+  streamHmacKey: Buffer.from(process.env.STREAMS_HMAC_KEY!, 'hex'),
   requireSignature: true,
 })
 
@@ -65,7 +67,7 @@ Delegated verification also needs the `caracal.delegations.invalidate` stream. S
 
 Each independently deployed resource instance uses a unique consumer name under deployment-specific groups for both streams. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
 
-## Related pages
+## Related Pages
 
 - [Revocation Package](/sdks/revocation/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)

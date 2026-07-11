@@ -40,7 +40,7 @@ In-memory stores do not share revocation state across processes. Production reso
 
 Use [Redis Revocation Store](/sdks/backends/redis/) for multi-instance resource servers. The Redis backend reads signed revocation stream messages, marks every revocation anchor, and lets verifiers fail closed when Redis is unavailable.
 
-## Related pages
+## Related Pages
 
 - [Sessions and Revocation](/concepts/sessions-revocation/)
 - [Verify Package](/sdks/verify/)

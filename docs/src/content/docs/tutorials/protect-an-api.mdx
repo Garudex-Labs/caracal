@@ -60,7 +60,7 @@ You met providers in Get Started, where one held your LLM key: a **provider** is
 
 Caracal denies everything not explicitly allowed, so a new resource starts unreachable. Open **Policies** and add the rule allowing your existing application (Anton from Get Started) to request `pipernet:read` on `resource://pipernet`, then activate the change.
 
-A good first rule names exactly four things - the application, the resource, the scopes, and the zone - and nothing more. The [policy contract](/guides/author-policy/) and [activation workflow](/guides/activate-policy-set/) go deeper when you need real policy structure.
+A good first rule names exactly four things - the application, the resource, the scopes, and the zone - and nothing more. [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/) go deeper when you need real policy structure.
 
 **After this step:** the active policy set includes your new rule. The Policies page shows which set is active.
 
@@ -120,7 +120,7 @@ Run the example again. This time it fails: policy allows `pipernet:read` only, s
 
 Set the scope back to `pipernet:read` afterward.
 
-**After this step:** Audit contains a deny decision with your request ID. Keep that ID - the [next tutorial](../inspect-a-run/) dissects one just like it.
+**After this step:** Audit contains a deny decision with your request ID. Keep that ID - [Trace One Protected Request](../inspect-a-run/) dissects one just like it two steps from now.
 
 ## Expected Outcome
 
@@ -134,4 +134,4 @@ The same SDK flow that reached the LLM provider now reaches your real API throug
 
 ## Next Step
 
-Continue with [Connect Your App with the SDK](../connect-an-agent/) to make your app's runs identifiable in the audit trail.
+Continue with [Make Runs Identifiable with Labels](../connect-an-agent/) to make your app's runs identifiable in the audit trail.

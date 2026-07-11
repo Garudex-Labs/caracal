@@ -88,11 +88,12 @@ The full hand-off workflow, including safe constraint choices, lives in [Impleme
 
 | Method                                         | Purpose |
 | ---------------------------------------------- | ------- |
-| `transport(options?)`                          | Return a fetch-compatible function that injects Caracal headers and Gateway routing. Pass `scopes` to mint the `use=gateway` mandate required at Gateway ingress, `approvalId` to consume an approved hold on that mint, and `timeoutMs` to bound the mint and request. Propagation defaults to `"gateway-only"`; use `"always"` only for a known Caracal-aware direct service chain. Gateway redirects are surfaced without automatic replay.                                                                                                                         |
-| `applicationTransport(resourceId, options)`    | Return a fetch pinned to one resource, calling as the application's own identity. Provisioning starts one source/target Session pair and one narrowed Delegation per cache key; every request performs an uncached final mint and emits trace and authority-correlation headers. A cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange; a warm call still performs both per-request STS exchanges. `close()` retires backing Sessions best-effort. |
-| `mintMandate(resourceId, scopes, options?)`    | Mint a cached resource mandate carrying the bound Session and Delegation; returns `{ token, expiresInSeconds }` so callers can schedule refresh. Requires client-secret credentials.                                                                                                                                                                                                                                                                                                           |
+| `transport(options?)`                          | Return a fetch-compatible function that mints the `use=gateway` mandate from `scopes` and applies Gateway routing. Also accepts `approvalId` and `timeoutMs`. |
+| `applicationTransport(resourceId, options)`    | Return a fetch pinned to one resource, calling as the application's own identity; provisions its own Session pair and Delegation. |
+| `mintMandate(resourceId, scopes, options?)`    | Mint a cached resource mandate carrying the bound Session and Delegation; returns `{ token, expiresInSeconds }`. Requires client-secret credentials. |
+| `fetch(resourceId, path, init?)`               | One-call Gateway request to a resource: builds the Gateway URL, mints the scoped mandate from `init.scopes`, and sends the request with context and authority injected. |
 
-Use `applicationTransport()` when your service calls as itself; use `transport()` inside a Session when work already runs under session or delegated authority. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/guides/provider-recipes/#wire-the-transport-into-provider-clients).
+Use `applicationTransport()` when your service calls as itself; use `transport()` inside a Session when work already runs under session or delegated authority. Propagation defaults to `"gateway-only"`; use `"always"` only for a known Caracal-aware direct service chain, and note that Gateway redirects are surfaced without automatic replay. Application-transport provisioning starts one source/target Session pair and one narrowed Delegation per cache key: a cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange, a warm call still performs both per-request STS exchanges, and `close()` retires backing Sessions best-effort. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/guides/provider-recipes/#wire-the-transport-into-provider-clients).
 
 ## Act for End Users and Approvals
 
@@ -120,12 +121,12 @@ import { Authority } from '@caracalai/sdk'
 
 await caracal.session(
   async () => {
-    await fetch('https://api.example.com/tickets', {
+    await fetch('https://api.pipernet.example/reports', {
       headers: await caracal.headersAsync(),
     })
   },
   {
-    authority: Authority.narrow(['tickets:read'], {
+    authority: Authority.narrow(['pipernet:read'], {
       resourceId: 'resource://pipernet',
       constraints: {
         maxHops: 1,
@@ -144,6 +145,8 @@ Gateway-bound requests sent through `transport()` carry the context envelope: W3
 ## Protect Inbound Requests
 
 Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself. The callback must throw on failure and return a complete authoritative `VerifiedClaims` projection. Zone, application, and hop are required. Optional Session, Delegation, parent Delegation, and Subject authority record fields omitted from the result are authoritatively absent; they never fall back to unsigned caller baggage after verification.
+
+`caracal.contextMiddleware()` is the Express-style wrapper over this binding - it mounts with `app.use(...)`. It is not the same job as `caracalAuth` from [`@caracalai/express`](/sdks/adapters/express/): `caracalAuth` **enforces** inbound mandates (401/403 before your handler); `contextMiddleware` **propagates or binds** context, enforcing only when you pass a `verify` callback.
 
 ```ts
 import { verify as verifyToken } from '@caracalai/identity'
@@ -183,7 +186,7 @@ STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`,
 import { Caracal, CaracalError } from '@caracalai/sdk'
 
 try {
-  await caracal.mintMandate('resource://pipernet', ['tickets:read'])
+  await caracal.mintMandate('resource://pipernet', ['pipernet:read'])
 } catch (err) {
   if (err instanceof CaracalError && err.code === 'access_denied') {
     console.warn(`denied by policy (request ${err.requestId})`)
@@ -231,7 +234,7 @@ Approval-gated flows resolve in one call with `withApproval`, which encapsulates
 
 ```ts
 const mandate = await caracal.withApproval((approvalId) =>
-  caracal.mintMandate('resource://pipernet', ['tickets:admin'], { approvalId }),
+  caracal.mintMandate('resource://pipernet', ['pipernet:admin'], { approvalId }),
 )
 ```
 
@@ -247,7 +250,7 @@ Every control-plane client accepts a custom fetch through `fetchImpl` (on `Carac
 
 Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: JavaScript strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the `credentials` resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
-## Related pages
+## Related Pages
 
 - [Integrate the TypeScript SDK](/guides/sdk-typescript/)
 - [Verification Layer Overview](/sdks/verification-layer/)

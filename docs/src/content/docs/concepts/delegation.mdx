@@ -57,9 +57,9 @@ A Delegation bounds every Mandate issued through it and every later Delegation c
 - Inheriting from a narrowed parent preserves that narrowing for descendants.
 - Inheriting from an Application-root Session does not manufacture delegated Resource authority.
 
-Worked example: A starts B with `Authority.narrow([tickets:read])`, then B starts C.
+Worked example: A starts B with `Authority.narrow([pipernet:read])`, then B starts C.
 
-- If B starts C with **inherit**, Coordinator records a `B → C` edge mirroring B's `tickets:read` slice, so C remains bounded by B's narrowing.
+- If B starts C with **inherit**, Coordinator records a `B → C` edge mirroring B's `pipernet:read` slice, so C remains bounded by B's narrowing.
 - If B starts C with narrower authority, Coordinator records a `B → C` edge and rejects it unless `C ⊆ B`.
 
 The Application and active policy remain the hard ceiling. Use a separate Application when the receiver needs a separate credential or trust boundary. A cross-Application receiver must explicitly accept the offered Delegation before using it.

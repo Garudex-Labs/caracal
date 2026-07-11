@@ -4,7 +4,7 @@ description: Keep an agent environment in sync with a declared plan through a sc
 pageType: workflow
 ---
 
-Control Bootstrap is the canonical Control API automation example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `controlBootstrap/`. A small CI/CD-style pipeline keeps one workload environment—Application, Provider, Resource, and Policy—matching a declared plan without adding product-management verbs to the runtime CLI.
+Control Bootstrap is the canonical Control API automation example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `controlBootstrap/`. A small CI/CD-style pipeline keeps one workload environment - Application, Provider, Resource, and Policy - matching a declared plan without adding product-management verbs to the runtime CLI.
 
 ## When to use it
 
@@ -41,7 +41,7 @@ The plan describes the PiperNet reporter's environment: its Application, the `pr
 
 2. Create or select the target zone.
 3. Create a control key with only the scopes the stage needs: read/write on app, provider, resource, and policy for `apply`; read for `verify`; read/delete for `teardown`.
-4. Save the `client_id` and `client_secret`. STS resolves the zone from the bound control key; the secret stays retrievable from the Applications page through an audited reveal.
+4. Save the `client_id` and `client_secret`. STS resolves the zone from the bound control key; the secret stays retrievable from **Services → Control** through an audited reveal.
 
 ## Run the pipeline
 
@@ -88,6 +88,6 @@ Run `apply` twice, then `verify`, introduce one safe drift, and run `verify` aga
 Never give the example a root admin token or application credential. Control keys are zone-bound automation credentials; keep each pipeline stage least-privileged and short-lived.
 :::
 
-## Next step
+## Next Step
 
 Continue to [Check Provider Readiness](/examples/provider-preflight/) before sending traffic through a provider-backed Gateway resource.

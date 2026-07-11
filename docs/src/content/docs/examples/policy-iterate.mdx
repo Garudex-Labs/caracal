@@ -19,7 +19,7 @@ Use it when a real request was denied and the fix must be proven safe before rol
 ## Loop
 
 1. **Diagnose** - a request is denied and you capture its audit `request_id`. The audit explain endpoint reconstructs the denied `policy_input` along with the diagnostics and determining policies.
-2. **Simulate** - you edit the policy, stage a candidate policy-set version, and the example replays the denied input against it through the same OPA engine that serves live traffic.
+2. **Simulate** - you edit the policy data, stage a candidate policy-set version, and the example replays the denied input against it through the same policy engine that serves live traffic.
 3. **Regress** - the example replays your expected-decision cases against the same candidate, so loosening a policy for one caller cannot silently change decisions for everyone else.
 4. **Decide** - activation is gated on evidence: the candidate allows the denied input, the rollout contract validates, simulation produced no warnings, and every regression case keeps its expected decision.
 5. **Activate** - with `ACTIVATE=true` and a clean verdict, the example activates the version and polls activation status until the STS runtime reports it loaded.
@@ -64,6 +64,6 @@ Keep `ACTIVATE` unset first. Expect the candidate to repair the target denial wh
 Audit reconstruction is redaction-safe and omits actor/subject claims. If a decision depends on implemented federated claims, supply them explicitly in a reviewed regression case; never guess them from a display name.
 :::
 
-## Next step
+## Next Step
 
 Continue to [Launch Research Agent](/examples/research-agent/) to see runtime credential injection for a plain CLI agent.

@@ -19,11 +19,13 @@ go get github.com/garudex-labs/caracal/packages/sdk/go
 
 ## Connect
 
+The smallest protected call needs no session code at all: `ApplicationTransport` pins an `*http.Client` to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
+
 ```go
 package main
 
 import (
-	"context"
+	"io"
 	"log"
 
 	caracal "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -34,17 +36,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer client.Close()
 
-	if err := client.Session(context.Background(), func(ctx context.Context) error {
-		headers, err := client.Headers(ctx)
-		if err != nil {
-			return err
-		}
-		_ = headers
-		return nil
-	}); err != nil {
+	// nil base: the SDK constructs its own HTTP client.
+	governed, err := client.ApplicationTransport(nil, "resource://pipernet", caracal.ApplicationTransportOptions{
+		Scopes: []string{"pipernet:read"},
+	})
+	if err != nil {
 		log.Fatal(err)
 	}
+	target, err := client.GatewayRequest("resource://pipernet", "/reports")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp, err := governed.Get(target.URL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	log.Println(string(body))
 }
 ```
 
@@ -118,7 +130,21 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 })
 ```
 
-A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)` - the full two-sided flow is in [Implement Multi-Agent Delegation](/guides/delegation/). Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+
+## Handle approvals
+
+A mint whose scope is approval-gated returns `*oauth.ApprovalRequiredError`. `caracal.WithApproval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call:
+
+```go
+mandate, err := caracal.WithApproval(ctx, client, 10*time.Minute,
+	func(ctx context.Context, approvalID string) (oauth.MintedMandate, error) {
+		return client.MintMandate(ctx, "resource://pipernet", []string{"pipernet:admin"},
+			caracal.MintMandateOptions{ApprovalID: approvalID})
+	})
+```
+
+A rejected, expired, or already-consumed decision returns the original `*oauth.ApprovalRequiredError`; its `ApprovalID` lets you resume waiting later with `client.WaitForApproval(ctx, approvalID, timeout)`, which returns the typed final state. [Human Approval](/guides/step-up/) covers the tiers and decision paths.
 
 ## Troubleshooting
 
@@ -139,6 +165,6 @@ Do not replace the callback or handle context with `context.Background()` inside
 
 For exact exported types and options, use [Go SDK reference](/sdks/go/).
 
-## Next step
+## Next Step
 
 Protect inbound handlers with [the net/http adapter](/guides/protect-nethttp/) or implement [multi-agent delegation](/guides/delegation/).

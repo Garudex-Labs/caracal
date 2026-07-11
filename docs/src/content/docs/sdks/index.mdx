@@ -46,11 +46,11 @@ Application SDKs create and carry authority, the Admin package changes product s
 | Python    | Python `>=3.12` for published Python packages.                                                                        |
 | Go        | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
 
-Go submodules may resolve to pseudo-versions because repository CalVer release tags are not semantic-version tags for nested Go modules. Adapter availability is intentionally ecosystem-specific; parity covers behavior exposed by all three application facades, not identical framework packages.
+Go submodules may resolve to pseudo-versions because release tags at the repository root are not per-module tags for nested Go modules. Adapter availability is intentionally ecosystem-specific; parity covers behavior exposed by all three application facades, not identical framework packages.
 
 ## Related Guides
 
 - [Add SDK to Your App](/get-started/add-sdk-to-your-app/)
-- [Connect Your App with the SDK](/tutorials/connect-an-agent/)
+- [Make Runs Identifiable with Labels](/tutorials/connect-an-agent/)
 - [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)
 - [Implement Multi-Agent Delegation](/guides/delegation/)

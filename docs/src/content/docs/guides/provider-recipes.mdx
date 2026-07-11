@@ -13,7 +13,7 @@ Use this page while creating a provider for a known upstream. First select the e
 - The upstream's official token or authentication documentation is available.
 - Production secrets are ready to enter through Console or a trusted Admin API process, never application source.
 
-Provider recipes live in the documentation, not the web console. The Console stays focused on the fields a given setup needs; this page is the reference you keep open beside it.
+Provider recipes live in the documentation, not the web console. The web console stays focused on the fields a given setup needs; this page is the reference you keep open beside it.
 
 ## Choose the enforcement boundary first
 
@@ -155,9 +155,13 @@ Once a provider and resource exist, the client side of a Gateway-mediated setup 
 export CARACAL_RESOURCES="resource://openai=https://api.openai.com"
 ```
 
-Bindings can also live in the runtime profile as `[[credentials]]` entries; see [Configuration File](/runtime-console/config-file/). Provider clients still require an API key argument at construction - pass a placeholder such as `caracal-gateway`. The transport replaces the `Authorization` header on Gateway-routed calls, so the placeholder never reaches the provider. The examples use `inference:invoke`; register and grant that scope on each resource, or replace it with the resource's configured operation scope.
+Bindings can also live in the runtime profile as `[[credentials]]` entries; see [Configure Workloads](/runtime-console/config-file/). Provider clients still require an API key argument at construction - pass a placeholder such as `caracal-gateway`. The transport replaces the `Authorization` header on Gateway-routed calls, so the placeholder never reaches the provider.
 
-Each recipe below assumes a constructed SDK client (`const caracal = new Caracal()`, `caracal = Caracal()`, `client, _ := caracal.New()`) and runs inside a governed Session context.
+:::caution[Failure point: snippet scopes]
+The wiring snippets below all request one illustrative scope, `inference:invoke`. The recipe tables above declare provider-specific scopes such as `openai:chat`. Pick one convention and use it in **both** the resource's declared scopes and the transport call - a scope the resource does not declare, or policy does not grant, is denied.
+:::
+
+Each recipe below assumes a constructed SDK client (`const caracal = new Caracal()`, `caracal = Caracal()`, `client, _ := caracal.New()`) and runs inside a governed Session context - `transport()` borrows the ambient Session's authority, unlike `applicationTransport()`, which provisions its own (see [Call Protected Resources](/sdks/typescript/#call-protected-resources)).
 
 ### OpenAI
 
@@ -169,7 +173,7 @@ import OpenAI from 'openai'
 
 const openai = new OpenAI({
   apiKey: 'caracal-gateway',
-    fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+  fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
 })
 ```
 
@@ -218,7 +222,7 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic({
   apiKey: 'caracal-gateway',
-    fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+  fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
 })
 ```
 
@@ -325,7 +329,7 @@ import { Ollama } from 'ollama'
 
 const ollama = new Ollama({
   host: 'http://ollama.internal.example:11434',
-    fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+  fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
 })
 ```
 
@@ -371,6 +375,6 @@ Gateway does not make an unsafe upstream operation idempotent. Supply a destinat
 - [Debug Authorization Decisions](/guides/authorize-access/)
 - [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)
 
-## Next step
+## Next Step
 
 Integrate the caller with the [TypeScript](/guides/sdk-typescript/), [Python](/guides/sdk-python/), or [Go](/guides/sdk-go/) workflow.

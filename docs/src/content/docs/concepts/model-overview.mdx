@@ -1,6 +1,6 @@
 ---
 title: Caracal Mental Model
-description: Seven nouns, three verbs, and one decision point that explain Caracal.
+description: Eight nouns, three verbs, and one decision point that explain Caracal.
 sidebar:
   order: 2
 ---
@@ -27,7 +27,7 @@ flowchart TD
 
 Know the Application and Resource from Get Started. No protocol knowledge is required.
 
-## Seven Core Nouns
+## Eight Core Nouns
 
 | Noun        | What it means                                                                      |
 | ----------- | ---------------------------------------------------------------------------------- |
@@ -36,10 +36,11 @@ Know the Application and Resource from Get Started. No protocol knowledge is req
 | Subject     | An optional identity federated from your identity provider for attribution.        |
 | Session     | One governed execution under an Application.                                       |
 | Resource    | The protected target: API, MCP server, tool group, or upstream service.            |
+| Provider    | Sealed custody of a Resource's upstream credential, attached only after approval.  |
 | Policy      | Versioned data the platform decision contract evaluates during exchange.           |
 | Mandate     | The short-lived signed proof accepted by the Gateway or a verified service.        |
 
-Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
+Get Started introduced Application, Resource, Provider, Policy, Mandate, Gateway, Audit, and Zone; this model adds the two runtime nouns behind them - Session and the optional Subject. Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
 ## One Application, Many Sessions
 

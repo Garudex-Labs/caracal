@@ -39,7 +39,7 @@ func main() {
 	verifier := verify.NewVerifier(verify.Options{
 		Issuer:      "https://sts.pipernet.example",
 		Audience:    "resource://pipernet",
-		ZoneID:      "pied-piper-production",
+		ZoneID:      "0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
 		Revocations: revocations,
 	})
 
@@ -90,6 +90,6 @@ Place Caracal verification before handlers that read bodies or perform work. Log
 
 For exact Go fields, use [net/http Adapter reference](/sdks/adapters/nethttp/).
 
-## Next step
+## Next Step
 
 Connect the Redis revocation consumer and validate it with [Test Caracal Integrations](/guides/testing/).

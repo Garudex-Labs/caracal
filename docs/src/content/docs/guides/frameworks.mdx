@@ -61,9 +61,9 @@ const caracal = new Caracal()
 const llm = new ChatOpenAI({
   model: 'gpt-4o',
   apiKey: 'caracal-gateway',
-    configuration: {
-        fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
-    },
+  configuration: {
+    fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+  },
 })
 ```
 
@@ -136,6 +136,6 @@ Capture every outbound host in a test run. Each governed host must route through
 Passing a governed model client does not govern a tool that constructs its own HTTP client. Inject a Caracal transport into every network client or protect the destination as a resource server.
 :::
 
-## Next step
+## Next Step
 
 Add [multi-agent delegation](/guides/delegation/) only after single-Session transport and audit validation pass.

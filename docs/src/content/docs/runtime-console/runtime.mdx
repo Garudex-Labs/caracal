@@ -4,7 +4,7 @@ description: Launch a command with one-time credential injection and understand 
 pageType: workflow
 ---
 
-`caracal run` authenticates a Launcher workload, fetches its bindings, mints credentials, injects them into a child environment, and returns the child's result. The workload identity and bindings come from [Configure Workloads](/runtime-console/config-file/); this page is the launch contract - what happens at spawn, and how approvals, expiry, signals, and exits behave.
+`caracal run` authenticates a Launcher workload, fetches its bindings, obtains each binding's provider credential after a policy decision, injects the credentials into a child environment, and returns the child's result. The workload identity and bindings come from [Configure Workloads](/runtime-console/config-file/); this page is the launch contract - what happens at spawn, and how approvals, expiry, signals, and exits behave.
 
 ```bash
 caracal run -- python3 agent.py
@@ -15,16 +15,16 @@ Use `--` before a child command that accepts flags.
 ## What Happens Before Spawn
 
 ```text
-workload proof → fetch bindings → mint credentials → inject environment → spawn child
+workload proof → fetch bindings → obtain provider credentials → inject environment → spawn child
 ```
 
-For each binding, the runtime validates the environment name and secret-file permissions, then requests only the configured resource and scopes. A required failure prevents the child from starting. Optional bindings follow their configured unavailable behavior.
+For each binding, the runtime validates the environment name and secret-file permissions, then requests the credential for only the configured resource and scopes. The injected value is the resource provider's own credential - a brokered OAuth token or the sealed static key - released only when the provider allows runtime injection and policy approves; the eligible provider kinds are listed in [What a Binding Injects](/guides/runtime-run/#what-a-binding-injects). A required failure prevents the child from starting. Optional bindings follow their configured unavailable behavior.
 
-Static upstream credentials such as API keys remain as powerful as the upstream value itself even when the Caracal mint decision was scope-bounded. Prefer short-lived provider tokens or Caracal mandates where supported.
+Static upstream credentials such as API keys remain as powerful as the upstream value itself even when the Caracal release decision was scope-bounded. Prefer short-lived provider tokens or Gateway brokering where supported.
 
 ## Approval Holds
 
-If STS returns `interaction_required`, the runtime prints an `approval_required` notice containing the hold and binding, long-polls the hold, and retries the mint once after approval. When the response has no usable expiry, it uses a five-minute fallback. Rejection, expiry, timeout, or consumption by another request prevents spawn.
+If STS returns `interaction_required`, the runtime prints an `approval_required` notice containing the hold and binding, long-polls the hold, and retries the credential request once after approval. When the response has no usable expiry, it uses a five-minute fallback. Rejection, expiry, timeout, or consumption by another request prevents spawn.
 
 An operator can inspect eligible holds in the console **Approvals** page. Subject-only holds are visible there but can be decided only by the application's end user.
 
@@ -36,9 +36,9 @@ Launcher configuration variables are removed. In particular, `CARACAL_WORKLOAD_S
 
 ## Credential Lifetime
 
-`caracal run` mints once at startup and does not renew. Use it for bounded processes whose work completes before the injected credentials expire. Use a Caracal SDK when a service must re-exchange credentials, manage Sessions, or continue indefinitely.
+`caracal run` obtains credentials once at startup and does not renew them. Use it for bounded processes whose work completes before the injected credentials expire. Use a Caracal SDK when a service must re-exchange credentials, manage Sessions, or continue indefinitely.
 
-Every manifest fetch and mint is correlated in audit. Rotating the workload secret blocks later launches that still use the prior value. Revocation blocks Gateway-routed use immediately while already injected provider credentials remain subject to their own expiry and provider behavior.
+Every manifest fetch and credential release is correlated in audit. Rotating the workload secret blocks later launches that still use the prior value. Revoking Caracal authority does not recall a credential that was already injected: a static provider key remains valid until rotated at the provider, and a brokered token until its own expiry.
 
 ## Signals and Exit Results
 

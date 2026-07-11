@@ -3,12 +3,18 @@ title: Author Policy Data
 description: Author the grant, binding, and confinement data the platform decision contract reads, and validate it before activation.
 ---
 
-Use this guide after resources and applications exist and before activating production access. You author only data consumed by Caracal's signed decision contract; you do not replace decision logic or define `result`.
+Use this guide after resources and applications exist and before activating production access.
+
+## Why data, not decisions
+
+Authorization logic - delegation narrowing, role and grant checks, label confinement, bootstrap isolation - is identical for every adopter and is the part most dangerous to get wrong. A single typo in a hand-written rule (`if { false }` → `if { true }`) silently turns a deny into an allow-all. Caracal removes that footgun by owning the logic in a signed, versioned [platform decision contract](/concepts/policy/#decision-contract) and letting you supply only **data**.
+
+Every policy you author is a data document marked with `# caracal:data-document` on its first line. It carries only data tables and is **forbidden from defining `result`**, so it can never decide an authorization on its own. `restrict` entries can only subtract authority and `confinement` can only narrow it - a careless data change fails closed.
 
 ## Prerequisites
 
 - A zone, application, and resource.
-- Access to the Console or Admin API.
+- Access to the web console or Admin API.
 - The resource identifier and scopes you want to grant.
 - The real application ID and the Session labels the application emits.
 - Representative allow and deny inputs for simulation.
@@ -17,7 +23,7 @@ Use this guide after resources and applications exist and before activating prod
 
 The core document is `grants`: it names the application that owns a resource view and the scopes each role may hold. Pair it with `app_ids`, which binds the application key you use in `grants` to the control-plane id the STS sees as `input.principal.id`.
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -47,7 +53,7 @@ Two further documents add an optional human gate on top of a grant. `risk` names
 tier for each sensitive scope, and `approval_tiers` declares which tiers hold the
 mint until a person decides it:
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -110,7 +116,7 @@ for every field.
 
 ## Validate before versioning
 
-Use the Console policy workflow to paste the document and run validation. For automation, validate through the Admin API or `@caracalai/admin`:
+Use the web console policy workflow to paste the document and run validation. For automation, validate through the Admin API or `@caracalai/admin`:
 
 ```ts
 import { AdminClient } from '@caracalai/admin'
@@ -131,32 +137,6 @@ the first line must carry the `# caracal:data-document` directive, the document 
 define at least one data rule, and it must **not** define `result`. Validation also
 checks the schema version, balanced syntax, and forbidden built-ins. Because the
 platform contract owns the decision, a data document can never authorize on its own.
-
-## Why data, not decisions
-
-Authorization logic - delegation narrowing, role and grant checks, label
-confinement, bootstrap isolation - is identical for every adopter and is the part
-most dangerous to get wrong. A single typo in a hand-written rule (`if { false }` →
-`if { true }`) silently turns a deny into an allow-all. Caracal removes that footgun
-by owning the logic in a signed, versioned platform decision contract and letting
-you supply only data.
-
-Every policy is a data document marked with `# caracal:data-document` on its first
-line. The document carries only `data` and is **forbidden from defining `result`**,
-so it can never decide an authorization:
-
-```text
-# caracal:data-document
-package caracal.authz
-
-import rego.v1
-
-restrict := {}
-```
-
-A `restrict` entry can only subtract authority, and `confinement` can only narrow it.
-Neither can widen what the contract already allows, so a careless data change fails
-closed.
 
 ### Preview how the document parses
 
@@ -183,26 +163,13 @@ platform decision contract.
 
 ## Iterate from a denied request
 
-When a real request is denied, you do not have to guess the input. The audit
-explain endpoint reconstructs a redaction-safe policy input for every denied
-decision:
-
-```ts
-const trace = await admin.audit.explain(zoneId, requestId)
-const input = trace.denied[0]?.policy_input
-```
-
-Feed that `input` straight into [simulation](/guides/activate-policy-set/) against
-a candidate policy-set version to confirm your fix before activating it. The
-[Iterate Policy Safely](/examples/policy-iterate/) automates this denial-to-simulation loop.
-Actor and subject claims are never written to audit, so add any claim-dependent
-fields to the input before simulating.
+When a real request is denied, you do not have to guess the input: the audit explain endpoint reconstructs a redaction-safe policy input for every denied decision, and you replay it against a candidate policy-set version before activating the fix. The workflow, snippet, and caveats live in [Iterate from real denials](/guides/activate-policy-set/#iterate-from-real-denials); [Iterate Policy Safely](/examples/policy-iterate/) automates the whole loop.
 
 ## Keep policies reviewable
 
 - Default to deny.
 - Keep resource identifiers stable and scopes action-oriented.
-- Keep decision logic in policy rather than duplicating allow tables across rules.
+- Keep grant data normalized: one `grants` entry per resource view, rather than duplicating the same scope sets across documents.
 - Split policies by ownership only when separate review or activation is useful.
 
 Next, [activate the policy in a policy set](/guides/activate-policy-set/).
@@ -215,6 +182,6 @@ Validation must return `valid: true`; preview must list only intended data rules
 The acting application is `input.principal.id`; Session labels are `input.principal.labels`. Do not invent `input.user`, `input.application`, or an authoritative subject field. Federated subject identity is a separate explicit flow, not default policy authority.
 :::
 
-## Next step
+## Next Step
 
 [Activate a Policy Set](/guides/activate-policy-set/) with the allow and deny simulations used here.

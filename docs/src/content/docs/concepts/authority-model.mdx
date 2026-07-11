@@ -18,14 +18,14 @@ Caracal separates **granting authority** from **using authority**.
 sequenceDiagram
   participant Client as Agent or app
   participant STS as STS
-  participant OPA as Active policy set
+  participant Policy as Active policy set
   participant Guard as Gateway or adapter
   participant Resource as Protected resource
   participant Audit as Audit ledger
 
   Client->>STS: Exchange subject token for resource scopes
-  STS->>OPA: Evaluate Application, Session, grant data, Resource, Delegation
-  OPA-->>STS: allow, deny, diagnostics, or Approval requirement
+  STS->>Policy: Evaluate Application, Session, grant data, Resource, Delegation
+  Policy-->>STS: allow, deny, diagnostics, or Approval requirement
   STS->>Audit: Record decision
   alt allowed
     STS-->>Client: Mandate JWT

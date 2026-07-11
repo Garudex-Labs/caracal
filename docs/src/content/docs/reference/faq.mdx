@@ -201,7 +201,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       </summary>
       <span id="faq-distinguish-agents-under-one-application" className="faqAnchor"></span>
       <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
-      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The Console **Sessions** view shows the same execution records.</p>
+      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The web console **Sessions** view shows the same execution records.</p>
       <p>Authority, not labels, is the security boundary. Labels are asserted by the credentialed workload and help policy and audit classify work; scopes, Delegations, and policy contain compromised workloads.</p>
       <p>Filter the Admin API audit endpoint by <code>session_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
@@ -228,7 +228,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-010">Share</button>
       </summary>
       <span id="faq-stable-resource-identifier" className="faqAnchor"></span>
-      <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://billing</code>, then change the upstream URL when routing changes.</p>
+      <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://pipernet</code>, then change the upstream URL when routing changes.</p>
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-011">FAQ-011</a></p>
     </details>
 
@@ -240,7 +240,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-011">Share</button>
       </summary>
       <span id="faq-scope-design" className="faqAnchor"></span>
-      <p>Use small action-oriented scopes such as <code>payments:read</code>, <code>tickets:comment</code>, or <code>mcp:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
+      <p>Use small action-oriented scopes such as <code>pipernet:read</code>, <code>piperchat:comment</code>, or <code>mcp:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
       <p>Scopes answer "what action is allowed?" Resource identifiers answer "what target is protected?"</p>
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-012">FAQ-012</a></p>
     </details>
@@ -419,7 +419,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-024">Share</button>
       </summary>
       <span id="faq-inherit-vs-narrow-chain" className="faqAnchor"></span>
-      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow([tickets:read])</code>, then B starts C:</p>
+      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow([pipernet:read])</code>, then B starts C:</p>
       <ul>
         <li>With <strong>inherit</strong>, Coordinator mirrors B's Delegation onto C. C stays within B's scopes, resource, constraints, and expiry.</li>
         <li>With further narrowing, Coordinator rejects C unless <code>C ⊆ B</code>.</li>

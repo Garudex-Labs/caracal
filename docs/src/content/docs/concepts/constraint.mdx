@@ -30,7 +30,7 @@ Read [Session Delegation](/concepts/delegation/) first. Constraints state how fa
 }
 ```
 
-Delegation constraints bound authority, lifetime, and propagation. They are not quotas. Use a domain-specific store when calls, work, or cost must be consumed atomically. Approval metadata and broad-reason fields are audit annotations; they do not authorize the Delegation.
+Delegation constraints bound authority, lifetime, and propagation. They are not quotas: the wire accepts a `budget` field, but it is a narrowing bound - a child edge's budget can never exceed its parent's - not a per-call counter, and no constraint performs usage accounting. Use a domain-specific store when calls, work, or cost must be consumed atomically. Approval metadata and broad-reason fields are audit annotations; they do not authorize the Delegation.
 
 Application-chain requirements are verifier options rather than edge constraints. Use `requireChainContains` at a resource boundary when a specific application must appear in the signed delegation chain.
 

@@ -26,9 +26,9 @@ import { RedisRevocationStore } from '@caracalai/revocation-redis'
 const app = express()
 
 const verifier = createMandateVerifier({
-  issuer: 'https://sts.example.com',
-  audience: 'https://mcp.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new RedisRevocationStore(redis),
 })
 
@@ -38,7 +38,7 @@ app.use(
     { verifier },
     {
       requiredScopes: ['mcp:tool:call'],
-      requiredTargets: ['https://mcp.example.com'],
+      requiredTargets: ['resource://pipernet'],
       requireSession: true,
     },
   ),
@@ -63,7 +63,7 @@ app.post('/mcp/tools/search', (req: CaracalRequest, res) => {
 
 Failed verification returns a verify-engine error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`, plus a safe `error_hint` field. Pair the adapter with a shared revocation store when multiple resource-server instances serve the same resource.
 
-## Related pages
+## Related Pages
 
 - [Protect an Express App](/guides/protect-express/)
 - [Verify Package](/sdks/verify/)

@@ -7,7 +7,7 @@ Use Gateway-routed protection when the upstream is HTTP-routable and you want Ca
 
 ## Prerequisites
 
-- Gateway, STS, Redis revocation state, audit ingestion, and the upstream report ready.
+- Gateway, STS, Redis revocation state, audit ingestion, and the upstream ready.
 - A resource with stable identifier, Gateway application, provider, scopes, and declared operations.
 - An active policy granting only the calling role and an application SDK configured for the same resource.
 
@@ -99,6 +99,6 @@ Gateway preserves the HTTP method, path, query, body, and streaming response. It
 `X-Caracal-Resource` routes the request; it does not authorize it. Send a scoped `use=gateway` bearer minted by the SDK transport. Do not send lifecycle headers or trust a client-supplied application ID.
 :::
 
-## Next step
+## Next Step
 
 Run [Check Provider Readiness](/examples/provider-preflight/), then use [Debug Authorization Decisions](/guides/authorize-access/) for any deny.

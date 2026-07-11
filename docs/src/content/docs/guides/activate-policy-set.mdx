@@ -134,7 +134,7 @@ if (check.result?.decision === "allow") {
 }
 ```
 
-The [Iterate Policy Safely example](/examples/policy-iterate/) wraps this loop as a runnable script.
+The reconstructed input is redaction-safe: actor and subject claims are never written to audit, so add any claim-dependent fields before simulating. The [Iterate Policy Safely example](/examples/policy-iterate/) wraps this loop as a runnable script.
 
 ## Likely failure points
 
@@ -145,6 +145,6 @@ The [Iterate Policy Safely example](/examples/policy-iterate/) wraps this loop a
 | Real decisions still name the previous manifest | Treat the replica as unconverged and keep rollout monitoring active. |
 | Rollback is needed | Activate the recorded prior version; never mutate the failed version. |
 
-## Next step
+## Next Step
 
 Run [Iterate Policy Safely](/examples/policy-iterate/) for the first real denial, or [Debug Authorization Decisions](/guides/authorize-access/) when live behavior differs from simulation.

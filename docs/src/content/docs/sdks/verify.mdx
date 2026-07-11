@@ -38,15 +38,15 @@ import { createMandateVerifier } from '@caracalai/verify'
 import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: 'https://sts.example.com',
-  audience: 'https://mcp.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new InMemoryRevocationStore(),
 })
 
 const result = await verifier.authorization(req.headers.authorization, {
   requiredScopes: ['mcp:tool:call'],
-  requiredTargets: ['https://mcp.example.com'],
+  requiredTargets: ['resource://pipernet'],
   requireSession: true,
 })
 
@@ -66,9 +66,9 @@ from caracalai_verify import AuthOptions, create_mandate_verifier
 
 verifier = create_mandate_verifier(
     AuthOptions(
-        issuer="https://sts.example.com",
-        audience="https://api.example.com",
-        expected_zone_id="zone_prod",
+        issuer="https://sts.pipernet.example",
+        audience="https://api.pipernet.example",
+        expected_zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
         revocations=InMemoryRevocationStore(),
     )
 )
@@ -77,8 +77,8 @@ await verifier.warmup()
 
 result = await verifier.authorization(
     request.headers.get("authorization"),
-    required_scopes=["tickets:read"],
-    required_targets=["https://api.example.com/tickets"],
+    required_scopes=["pipernet:read"],
+    required_targets=["resource://pipernet"],
 )
 
 if not result.ok:
@@ -92,7 +92,7 @@ Use one verifier per resource server. The verifier defaults to resource mandates
 
 ## Fetch-standard runtimes
 
-Runtimes built on WinterTC `Request`/`Response` globals — Node 18+, Deno, Bun, and edge workers — can authenticate without a framework adapter:
+Runtimes built on WinterTC `Request`/`Response` globals - Node 18+, Deno, Bun, and edge workers - can authenticate without a framework adapter:
 
 ```ts
 import { authenticateRequest, unauthorizedResponse } from '@caracalai/verify'
@@ -125,7 +125,7 @@ And in a Next.js route handler:
 export async function GET(request: Request): Promise<Response> {
   const result = await authenticateRequest(request, deps)
   if (!result.ok) return unauthorizedResponse(result.error)
-  return Response.json(await loadTickets(result.principal))
+  return Response.json(await loadReports(result.principal))
 }
 ```
 
@@ -133,11 +133,11 @@ Python and Go services cover this role with the [ASGI adapter](/sdks/adapters/as
 
 ## Error codes
 
-`authenticate` and reusable verifiers normalize failures into typed error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `delegation_stale`, `session_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies.
+`authenticate` and reusable verifiers normalize failures into typed error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `delegation_stale`, `session_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies. STS and Gateway report the zone and scope conditions with their own spellings, `zone_invalid` and `scope_insufficient`; see [Error Codes](/reference/errors/) for the per-surface mapping.
 
 Authentication performs no retry of the protected operation. A JWKS or revocation-store failure fails verification rather than widening authority. Warm the verifier at process startup where the language API exposes `warmup`; close any caller-owned HTTP or Redis clients during service shutdown.
 
-## Related pages
+## Related Pages
 
 - [Verification Layer Overview](/sdks/verification-layer/)
 - [Protect an MCP Server](/guides/protect-mcp/)

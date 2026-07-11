@@ -46,7 +46,9 @@ Request IDs tie multiple events together. Keep the request ID from an SDK, Gatew
 
 ## Integrity and Retention
 
-Audit events should be treated as operational evidence. Configure retention, export, and SIEM forwarding according to your deployment requirements. Do not rely on local process logs as the only authority trail.
+Tamper evidence is mechanical, not aspirational. Each ingested event is stored with a `content_sha256` of its payload, an HMAC computed under the deployment's `AUDIT_HMAC_KEY`, and the previous event's content hash - forming a per-zone hash chain. A background sweeper continuously recomputes hashes and HMACs and checks chain continuity; any mismatch or chain break surfaces as a tamper metric and readiness signal, and is treated as a security incident, never a retryable formatting issue. The database role that writes evidence cannot update or delete rows.
+
+Retention defaults to 365 days (`AUDIT_RETENTION_DAYS`), and complete hourly partitions can be exported to S3-compatible storage - see [Export Audit Evidence](/operations/compliance-audit-integration/). Configure retention, export, and SIEM forwarding according to your deployment requirements, and do not rely on local process logs as the only authority trail.
 
 ## Outcome
 

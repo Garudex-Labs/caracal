@@ -5,7 +5,7 @@ description: Choose between framework adapters, the verify engine, identity veri
 
 Use this page when you are protecting an inbound resource-server boundary and need to choose the right package layer. Start with the highest-level adapter that fits your framework; use lower-level packages only when you are building a custom boundary.
 
-The verification layer consumes `use=resource` mandates at a resource server. Gateway ingress consumes `use=gateway` mandates instead. A Session or lifecycle mandate must not be accepted at either boundary.
+The verification layer consumes `use=resource` mandates at a resource server. Gateway ingress consumes `use=gateway` mandates instead. A Session or lifecycle mandate must not be accepted at either boundary. The classes are defined in [Mandate Use Classes](/concepts/mandate/#mandate-use-classes).
 
 ## Which Layer Should I Use?
 
@@ -39,12 +39,7 @@ Resource servers must reject mandates anchored to a revoked Authority record ID,
 
 ## Failure Behavior
 
-All HTTP verification layers should preserve the shared status mapping:
-
-| Status | Meaning                                                                                            |
-| ------ | -------------------------------------------------------------------------------------------------- |
-| `401`  | The credential was missing, invalid, expired, revoked, or from the wrong zone.                     |
-| `403`  | The mandate verified but lacks required scope, target, Session, Delegation, chain, or hop authority. |
+All HTTP verification layers preserve one status contract - `401` when the credential itself was not accepted, `403` when a verified mandate lacks the route's required authority. The canonical per-code mapping and the shared status function live in [Framework Adapters](/sdks/adapters/#boundary-semantics); the code catalog is in [Error Codes](/reference/errors/).
 
 JWT verification establishes signed claims; revocation checks establish whether their authority remains active. Both are required where revocation-before-expiry is part of the resource's security contract.
 

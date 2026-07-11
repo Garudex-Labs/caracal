@@ -159,7 +159,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', link: '/tutorials/' },
             { label: 'Protect Your First Real API', link: '/tutorials/protect-an-api/' },
-            { label: 'Connect Your App with the SDK', link: '/tutorials/connect-an-agent/' },
+            { label: 'Make Runs Identifiable with Labels', link: '/tutorials/connect-an-agent/' },
             { label: 'Trace One Protected Request', link: '/tutorials/inspect-a-run/' },
             { label: 'Choose Your Production Integration Path', link: '/tutorials/choose-production-path/' },
           ],

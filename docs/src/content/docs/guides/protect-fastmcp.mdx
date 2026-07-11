@@ -32,7 +32,7 @@ from caracalai_revocation import InMemoryRevocationStore
 auth = CaracalAuth(
     issuer="https://sts.pipernet.example",
     audience="resource://pipernet",
-    expected_zone_id="pied-piper-production",
+    expected_zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
     required_scopes=["mcp:tool:call"],
     required_targets=["resource://pipernet"],
     revocations=InMemoryRevocationStore(),
@@ -72,7 +72,7 @@ import { InMemoryRevocationStore } from '@caracalai/revocation'
 const verifier = createMandateVerifier({
   issuer: 'https://sts.pipernet.example',
   audience: 'resource://pipernet',
-  zoneId: 'pied-piper-production',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new InMemoryRevocationStore(),
 })
 
@@ -114,6 +114,6 @@ The adapter verifies one token; it does not start a Session, mint authority, or 
 
 For exact call signatures, use [FastMCP Adapter reference](/sdks/adapters/fastmcp/).
 
-## Next step
+## Next Step
 
 Use [Protect an MCP Server](/guides/protect-mcp/) only when the framework hook cannot use this dedicated adapter.

@@ -47,7 +47,7 @@ Gateway rejects before upstream dispatch. Treat these checks as the safety gate 
 | Request preflight   | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal.                      |
 | Token validation    | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
 | Resource resolution | STS resolves `(zone_id, resource)` to a gateway-routed resource, and the returned upstream passes host safety checks.            |
-| STS exchange        | Gateway’s STS circuit is closed and the signed exchange succeeds; STS enforces the resource’s declared scopes on the mandate.    |
+| STS exchange        | Gateway's STS circuit is closed and the signed exchange succeeds; STS enforces the resource's declared scopes on the mandate.    |
 
 ## Forwarding Behavior
 

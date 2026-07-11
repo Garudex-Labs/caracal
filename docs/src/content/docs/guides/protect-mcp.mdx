@@ -29,7 +29,7 @@ import { InMemoryRevocationStore } from '@caracalai/revocation'
 const verifier = createMandateVerifier({
   issuer: 'https://sts.pipernet.example',
   audience: 'resource://pipernet',
-  zoneId: 'pied-piper-production',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new InMemoryRevocationStore(),
 })
 
@@ -68,7 +68,7 @@ async def verify_tool_request(authorization: str | None):
         issuer="https://sts.pipernet.example",
         audience="resource://pipernet",
         required_scopes=["mcp:tool:call"],
-        expected_zone_id="pied-piper-production",
+        expected_zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
         revocations=revocations,
         require_session=True,
         required_targets=["resource://pipernet"],
@@ -111,6 +111,6 @@ Never authorize from baggage, trace headers, tool arguments, or a caller-provide
 
 For exact verifier functions and error types, use [Verify Package reference](/sdks/verify/).
 
-## Next step
+## Next Step
 
 Wrap the framework hook, then run [Test Caracal Integrations](/guides/testing/) with a revoked-anchor case.

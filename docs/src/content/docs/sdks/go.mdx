@@ -110,11 +110,11 @@ The full hand-off workflow, including safe constraint choices, lives in [Impleme
 
 | API | Purpose |
 | --- | --- |
-| `client.Transport(base, opts...)`                      | Return an `*http.Client` that injects Caracal headers. Set `CallOptions.Scopes` to mint the `use=gateway` mandate required at Gateway ingress and `CallOptions.ApprovalID` to consume an approved hold on that mint. Propagation defaults to `PropagationGatewayOnly`; use `PropagationAlways` only for a known Caracal-aware direct service chain. Gateway redirects are surfaced without automatically replaying the mandate.                                                                                                                                                    |
-| `client.ApplicationTransport(base, resourceID, opts)`  | Return an `*http.Client` pinned to one resource, calling as the application's own identity. Provisioning starts one source/target Session pair and one narrowed Delegation per cache key; every request performs an uncached final mint and emits trace and authority-correlation headers. Set `ApplicationTransportOptions.ApprovalID` to consume an approved hold on that final mint. A cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange; a warm call still performs both per-request STS exchanges. `Close()` retires backing Sessions best-effort. |
-| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound Session and Delegation; returns an `oauth.MintedMandate` with `Token` and `ExpiresInSeconds`. Requires client-secret credentials.                                                                                                                                                                                                                                                                                                                     |
+| `client.Transport(base, opts...)`                      | Return an `*http.Client` that mints the `use=gateway` mandate from `CallOptions.Scopes` and applies Gateway routing. Set `CallOptions.ApprovalID` to consume an approved hold. |
+| `client.ApplicationTransport(base, resourceID, opts)`  | Return an `*http.Client` pinned to one resource, calling as the application's own identity; provisions its own Session pair and Delegation. Set `ApplicationTransportOptions.ApprovalID` to consume an approved hold. |
+| `client.MintMandate(ctx, resourceID, scopes, opts...)` | Mint a cached resource mandate carrying the bound Session and Delegation; returns an `oauth.MintedMandate` with `Token` and `ExpiresInSeconds`. Requires client-secret credentials. |
 
-Use `ApplicationTransport()` when your service calls as itself; use `Transport()` inside a Session when work already runs under session or delegated authority. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/guides/provider-recipes/#wire-the-transport-into-provider-clients).
+Use `ApplicationTransport()` when your service calls as itself; use `Transport()` inside a Session when work already runs under session or delegated authority. Propagation defaults to `PropagationGatewayOnly`; use `PropagationAlways` only for a known Caracal-aware direct service chain, and note that Gateway redirects are surfaced without automatically replaying the mandate. Application-transport provisioning starts one source/target Session pair and one narrowed Delegation per cache key: a cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange, a warm call still performs both per-request STS exchanges, and `Close()` retires backing Sessions best-effort. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/guides/provider-recipes/#wire-the-transport-into-provider-clients).
 
 ## Act for End Users and Approvals
 
@@ -161,7 +161,7 @@ STS denials return `*oauth.CaracalError` carrying `Code`, `HTTPStatus`, and `Req
 ```go
 import oauth "github.com/garudex-labs/caracal/packages/oauth/go"
 
-_, err := client.MintMandate(ctx, "https://api.example.com/tickets", []string{"tickets:read"})
+_, err := client.MintMandate(ctx, "resource://pipernet", []string{"pipernet:read"})
 var denied *oauth.CaracalError
 if errors.As(err, &denied) && denied.Code == "access_denied" {
 	log.Printf("denied by policy (request %s)", denied.RequestID)
@@ -204,7 +204,7 @@ Every control-plane client accepts a custom `*http.Client` - `HTTPClient` on `Co
 
 Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: Go strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the credentials resolver for rotation, and treat heap access as full credential compromise in your threat model.
 
-## Related pages
+## Related Pages
 
 - [Integrate the Go SDK](/guides/sdk-go/)
 - [Verification Layer Overview](/sdks/verification-layer/)

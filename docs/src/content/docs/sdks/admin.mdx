@@ -91,11 +91,11 @@ The same groups exist in every language with idiomatic naming: `admin.policySets
 
 ```ts
 const policy = await admin.policies.create(zoneId, {
-  name: 'tickets-read',
+  name: 'pipernet-read',
   content: policySource,
 })
 
-const set = await admin.policySets.create(zoneId, 'tickets')
+const set = await admin.policySets.create(zoneId, 'pipernet')
 const version = await admin.policySets.addVersion(zoneId, set.id, [{ policy_version_id: policy.version.id }])
 
 await admin.policySets.activate(zoneId, set.id, version.id)
@@ -154,7 +154,7 @@ DCR is the **only** way to create short-lived, self-registering client identitie
 
 ```ts
 const app = await admin.applications.dcr(zoneId, {
-  name: 'tenant-acme-job',
+  name: 'tenant-hooli-job',
   expires_in: 900, // seconds; capped at 3600
 })
 // app.client_secret is returned ONCE and never retrievable again.
@@ -173,7 +173,7 @@ DCR applications remain visible read-only in Console under the `dcr` method for 
 
 ## Rotating a managed application secret
 
-A managed application's client secret can be rotated without recreating the application. Send the new secret on a patch; the server stores only its hash and the previous secret stops working immediately.
+Two rotation paths exist and differ in who generates the secret. `applications.rotateSecret()` generates a strong secret server-side and returns the plaintext once - the path the web console's **rotate secret** action uses, and the right default. `applications.patch({ client_secret })` instead stores a secret you supply; the server keeps only its hash and the patch response does not echo it - use it only when an external system must own secret generation.
 
 ```ts
 await admin.applications.patch(zoneId, appId, {
@@ -181,7 +181,7 @@ await admin.applications.patch(zoneId, appId, {
 })
 ```
 
-Rotation is rejected with `client_secret_not_configured` if the application has no secret to replace. The Console exposes the same operation as the **rotate secret** action on managed applications, generating a strong secret and revealing it once. DCR applications are not rotated - they are short-lived and replaced by re-registration.
+Rotation is rejected with `client_secret_not_configured` if the application has no secret to replace. DCR applications are not rotated - they are short-lived and replaced by re-registration.
 
 ## Error handling
 
@@ -193,4 +193,4 @@ Core groups and reconcilers are implemented in all three languages with idiomati
 
 ## Boundary
 
-Use the Admin package for automation. Use the Console for human workflows. Do not expose Admin operations as top-level `caracal` runtime commands.
+Use the Admin package for automation. Use the web console for human workflows. Do not expose Admin operations as top-level `caracal` runtime commands.

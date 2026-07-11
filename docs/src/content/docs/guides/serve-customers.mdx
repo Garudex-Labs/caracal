@@ -14,6 +14,7 @@ Use one shared zone only when customers share signing keys, policy ownership, au
 - An application-owned, authenticated customer ID that is stable and non-personal.
 - A reviewed label vocabulary and grant/confinement data.
 - Capacity and audit filters tested against expected customer concurrency.
+- The policy-data vocabulary from [Author Policy Data](/guides/author-policy/) - this page uses `grants` and `confinement` documents and the platform decision contract without re-introducing them.
 
 The short answer: run **one zone for your deployment** and carry **each customer on the work itself** through a `customer:` label that policy confines and audit can filter. Keep `customer_id` metadata only when Coordinator inspection needs an additional business key. Customer separation lives below the zone - in Sessions, labels, and Delegation - which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
 
@@ -59,7 +60,7 @@ Start the Session for a customer's request inside the one zone and stamp the cus
 
 ```python
 async with caracal.session(
-  labels=[f"customer:{customer_id}"],
+    labels=[f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:
     # Every gateway and provider call in this block carries a scoped,
@@ -81,7 +82,7 @@ When policy must confine the work itself - a PiperNet report run, a retention cy
 
 ```python
 async with caracal.session(
-  authority=Authority.narrow(["pipernet:process"], ttl_seconds=600),
+    authority=Authority.narrow(["pipernet:process"], ttl_seconds=600),
     labels=[role, f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:
@@ -90,7 +91,7 @@ async with caracal.session(
 
 Labels drive the platform decision contract's confinement: a `confinement` data document caps every customer-labeled agent to the customer-record surface - whatever its role would otherwise allow:
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -108,7 +109,7 @@ Publish this `confinement` document and a worker Session started for one custome
 
 All customers share one zone policy set, but authority is per-request and label-aware. The agent's role labels and the Delegation are in the platform decision contract's input, and your `grants` map roles to scopes per resource. Model plan or tier differences as roles: give the scale-plan role the resource scope, withhold it from the others, and label each customer's session with the role it earns.
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -134,7 +135,7 @@ To cut a customer off, find Sessions by the `customer:` label, terminate them, a
 
 ## Limits to Plan For
 
-One shared Zone serves many customers well, with two ceilings to design around. Session concurrency caps and the rate-limit scope are in [Defaults and Limits](/reference/defaults-and-limits/#session-and-delegation-limits).
+One shared zone serves many customers well, with two ceilings to design around. Session concurrency caps and the rate-limit scope are in [Defaults and Limits](/reference/defaults-and-limits/#session-and-delegation-limits).
 
 - **Concurrent agents per zone** are capped, so a single zone bounds how many customer agents can run at once. If you need more simultaneous customer agents than one zone allows, add applications within the zone, or move the busiest customers to their own zone.
 - **STS rate limiting is per zone, resource, and acting application** - not per customer. Because customers share your application identity, one heavy customer draws on the shared budget. Keep this in mind for fairness, and isolate a customer into its own zone if it must have a guaranteed independent budget.
@@ -143,7 +144,7 @@ One shared Zone serves many customers well, with two ceilings to design around. 
 
 Stay with one shared zone unless a customer genuinely requires hard isolation: independent signing keys, an audit trail that can never mix with others, or a policy change that can never affect another customer. Those needs are the **zone per customer** model in [Model Your Application in Caracal](/guides/modeling-recipes/#multiple-customers-or-workspaces).
 
-In this open-source product you provision and automate those Zones yourself through the Admin API, and your Application authenticates separately into each. A scoped Control key cannot create Zones because it is bound to the Zone that issued it. Automated managed-tenant lifecycle is not implemented in this repository.
+In this open-source product you provision and automate those zones yourself through the Admin API, and your application authenticates separately into each. A scoped Control key cannot create zones because it is bound to the zone that issued it. Automated managed-tenant lifecycle is not implemented in this repository.
 
 ## Validate the Pattern
 
@@ -154,7 +155,7 @@ In this open-source product you provision and automate those Zones yourself thro
 Expected result: customer A cannot mint customer B's resource authority, customer activity is discoverable by Session labels and IDs, and revoking A does not terminate B.
 
 :::caution[Failure point: metadata]
-Session metadata is not an authorization input. Enforce from reviewed labels and Delegation; use metadata only for Coordinator inspection. Caracal does not verify that a customer ID belongs to the caller—your application must authenticate and bind it before starting the Session.
+Session metadata is not an authorization input. Enforce from reviewed labels and Delegation; use metadata only for Coordinator inspection. Caracal does not verify that a customer ID belongs to the caller - your application must authenticate and bind it before starting the Session.
 :::
 
 ## Related
@@ -167,6 +168,6 @@ Session metadata is not an authorization input. Enforce from reviewed labels and
 - [Sessions and Revocation](/concepts/sessions-revocation/)
 - [Audit and Request Traces](/concepts/audit-ledger/)
 
-## Next step
+## Next Step
 
 Implement label and confinement tests in [Test Caracal Integrations](/guides/testing/) before onboarding production customers.

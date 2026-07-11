@@ -14,16 +14,7 @@ Use `CARACAL_MODE=dev` only locally. `rc` and `stable` share fail-closed configu
 
 ## Fixed Endpoints
 
-| Service | Port | Health | Readiness | Metrics |
-| --- | ---: | --- | --- | --- |
-| API | 3000 | `/health` | `/ready` | `/metrics` |
-| STS | 8080 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Gateway | 8081 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Audit | 9090 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Coordinator | 4000 | `/health` | `/ready` | `/metrics` |
-| Web BFF | 3002 | deployment probe | deployment probe | none documented |
-
-Compose publishes web on host port `3001` and other services on their service ports, all on loopback.
+Every service binds a fixed local port with `/health`, `/ready`, and `/metrics` endpoints; the canonical map is in [Monitor Health and Metrics](/operations/observability/#endpoint-map). Compose publishes the web console on host port `3001` (container `3002`) and other services on their service ports, all on loopback; bare port numbers are listed in [Defaults and Limits](/reference/defaults-and-limits/#ports).
 
 ## Required Secret Classes
 
@@ -70,6 +61,6 @@ The API process also accepts `API_OPERATOR_AI_PROVIDERS` plus per-ID `API_OPERAT
 
 Run `caracal status --ready` or inspect Kubernetes readiness. Published metrics must reject a missing bearer and accept the configured one. If startup fails, revert the last override; do not replace generated secrets merely to clear validation errors.
 
-## Next Action
+## Next Step
 
-Choose a [Secret Backend](/operations/secret-backends/) and apply [Harden Production](/operations/tls-hardening/).
+Choose a [Configure Secret Backends](/operations/secret-backends/) and apply [Harden Production](/operations/tls-hardening/).

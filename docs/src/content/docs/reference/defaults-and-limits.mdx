@@ -74,13 +74,15 @@ The SDKs share one timeout philosophy: **control-plane calls are bounded, data-p
 
 | Limit                                                       | Default         |
 | ----------------------------------------------------------- | --------------- |
-| Concurrent Sessions per zone                                | 50              |
-| Concurrent Sessions per application                         | 200             |
+| Concurrent Sessions per zone                                | 50 (`MAX_AGENTS_PER_ZONE`) |
+| Concurrent Sessions per application                         | 200 (`MAX_AGENTS_PER_APP`) |
 | Child Sessions per parent Session                           | 10              |
 | Delegation depth                                            | 10              |
 | Session labels per Session                                  | 32              |
 | Session label length                                        | 64 characters   |
 | STS request rate per zone, resource, and acting application | 1000 per minute |
+
+The per-zone ceiling binds first: with defaults, no application can hold more than 50 concurrent Sessions because its zone caps out there. The higher per-application ceiling matters once `MAX_AGENTS_PER_ZONE` is raised.
 
 `max_hops` defaults to `1` on a constrained Delegation when omitted. The server validates every child bound against its parent's remaining hops.
 

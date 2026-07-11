@@ -14,8 +14,8 @@ Caracal supports two configuration paths. Choose one from the credential lifecyc
 ## Configure a Launcher Workload
 
 1. Open **Services → Launcher** in the intended zone.
-2. Create a workload identity, for example Anton.
-3. Add bindings. Each binding selects an environment variable, resource, scopes, credential type, and unavailable behavior.
+2. Create a workload identity, for example Fiona.
+3. Add bindings. Each binding selects an environment variable, a resource, the scopes for the policy decision, and - for optional bindings - the unavailable behavior. The injected value is the resource provider's credential; the provider must allow runtime injection. See [Run an Agent with caracal run](/guides/runtime-run/#what-a-binding-injects).
 4. Reveal the workload secret. The reveal is recorded in admin audit.
 5. Store the secret on the host that will run the command.
 6. Copy the exact launch command shown by the page.

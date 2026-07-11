@@ -19,7 +19,7 @@ Use it before production rollout and whenever Session, Delegation, transport, po
 
 ## What to stub
 
-A governed Session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly:
+A governed Session touches a handful of endpoints. Stub the ones your code path uses and let anything unexpected fail loudly. The wire paths and fields retain protocol names - Sessions are `/agents` and `agent_session_id` on the Coordinator wire; the [Product-to-Wire Mapping](/reference/interoperability-contracts/#product-to-wire-mapping) is the translation table:
 
 | Call                             | Respond with                                                                                                            |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -164,6 +164,6 @@ The fake-backed suite proves request construction and failure handling in TypeSc
 Do not mock your own wrapper and conclude Caracal works. Record and assert actual Coordinator, STS, Gateway, and adapter wire behavior, including cleanup and stable idempotency keys.
 :::
 
-## Next step
+## Next Step
 
 Add acceptance cases to deployment gating, then use [Debug Authorization Decisions](/guides/authorize-access/) for any runtime-only difference.

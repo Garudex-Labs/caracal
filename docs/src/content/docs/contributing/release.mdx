@@ -74,7 +74,7 @@ Do not delete published tags. Roll forward with a new SemVer tag. Pinned `vX.Y.Z
 
 The migration from CalVer to lockstep SemVer leaves registry state that only a maintainer with registry access can retire. Complete these steps manually after the first `v0.2.0` stable release is live:
 
-1. Deprecate dead npm names with a pointer to their successors — never unpublish:
+1. Deprecate dead npm names with a pointer to their successors - never unpublish:
    ```bash
    npm deprecate @caracalai/transport-mcp@'*' 'renamed: use the current @caracalai packages'
    npm deprecate @caracalai/transport-a2a@'*' 'renamed: use the current @caracalai packages'

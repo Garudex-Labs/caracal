@@ -54,9 +54,9 @@ Each zone has its own signing-key and JWKS context. Resource servers verify mand
 
 ## Advanced Application Registration
 
-A Zone can allow programmatic registration of auto-expiring Applications. This is off by default and is for separate credential boundaries, not ordinary Session fan-out. The console does not create these Applications.
+A Zone can allow programmatic registration of auto-expiring **DCR Applications** (Dynamic Client Registration). This is off by default and is for separate credential boundaries, not ordinary Session fan-out. The console does not create these Applications.
 
-Disabling registration while live auto-expiring Applications exist requires an explicit decision:
+Disabling registration while live DCR Applications exist requires an explicit decision:
 
 | Choice      | Effect                                                                                                                                 |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |

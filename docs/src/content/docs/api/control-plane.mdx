@@ -72,7 +72,7 @@ Workloads are the launcher identities `caracal run` uses. Create a workload, del
 | Subject issuers      | `GET /v1/zones/:zoneId/subject-issuers`, `GET /v1/zones/:zoneId/subject-issuers/:id`                                                                                                                 | `POST /v1/zones/:zoneId/subject-issuers`, `PATCH /v1/zones/:zoneId/subject-issuers/:id`, `DELETE /v1/zones/:zoneId/subject-issuers/:id`                                                                                                   |
 | Provider connections | `GET /v1/zones/:zoneId/provider-connections`, `GET /v1/zones/:zoneId/provider-connections/oauth/callback` (OAuth redirect target)                                                                    | `POST /v1/zones/:zoneId/provider-connections`, `POST /v1/zones/:zoneId/provider-connections/oauth/authorize`, `POST /v1/zones/:zoneId/provider-connections/revoke`                                                                        |
 
-Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
+Use the web console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
 
 ## Audit, Authority Records, Sessions, and Approvals
 
@@ -121,7 +121,7 @@ Credential create, rotation, and reveal endpoints are security-sensitive. Plaint
 
 ## Usage Notes
 
-- Use Console for human workflows and Admin SDK or Control API for automation.
+- Use the web console for human workflows and Admin SDK or Control API for automation.
 - For scoped, non-interactive provisioning, drive the Control API with a control key. See the [supported Control management model](/services/control/#supported-management-model) and [Bootstrap Control State](/examples/control-bootstrap/).
 - Prefer declarative reconciliation over scripting individual writes. Control's [`state plan|verify|apply` workflows](/services/control/#supported-management-model) converge a Zone from desired state with dry-run and CI-friendly verification.
 - Policy activation and simulation are API operations, but top-level `caracal` runtime commands do not expose them.

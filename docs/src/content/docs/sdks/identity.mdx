@@ -38,11 +38,11 @@ Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 import { verify } from '@caracalai/identity'
 
 const claims = await verify(token, {
-  issuer: 'https://sts.example.com',
-  audience: 'https://api.example.com',
-  zoneId: 'zone_prod',
-  requiredScopes: ['tickets:read'],
-  requiredTargets: ['https://api.example.com/tickets'],
+  issuer: 'https://sts.pipernet.example',
+  audience: 'https://api.pipernet.example',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
+  requiredScopes: ['pipernet:read'],
+  requiredTargets: ['resource://pipernet'],
 })
 ```
 
@@ -65,12 +65,12 @@ STS signing keysets are zone-scoped: every fetch hits `{issuer}/.well-known/jwks
 import { createJwksCache, verify } from '@caracalai/identity'
 
 const jwksCache = createJwksCache({ ttlMs: 300_000, fetchTimeoutMs: 5_000 })
-await jwksCache.warm('https://sts.example.com', 'zone_prod')
+await jwksCache.warm('https://sts.pipernet.example', '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f')
 
 const claims = await verify(token, {
-  issuer: 'https://sts.example.com',
-  audience: 'https://api.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'https://api.pipernet.example',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   jwksCache,
 })
 ```

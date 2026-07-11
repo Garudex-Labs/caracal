@@ -23,6 +23,21 @@ npm install @caracalai/sdk
 
 ## Connect and call a protected resource
 
+The smallest protected call needs no session code at all: `applicationTransport()` pins a fetch to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
+
+```ts
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+const governedFetch = caracal.applicationTransport('resource://pipernet', {
+  scopes: ['pipernet:read'],
+})
+const target = caracal.gatewayRequest('resource://pipernet', '/reports')
+const response = await governedFetch(target.url)
+```
+
+When your code already runs inside a governed Session - an agent step, a worker task - call through the Session instead: `fetch()` mints a one-shot Gateway mandate under the Session's authority.
+
 ```ts
 import { Authority, Caracal } from '@caracalai/sdk'
 
@@ -44,7 +59,7 @@ await caracal.session(async () => {
 })
 ```
 
-The outer `session()` creates the lifecycle parent. The narrowed child creates the positive-TTL Delegation required for resource authority, and `fetch()` mints a one-shot Gateway mandate for the protected call. Both Sessions terminate when their callbacks exit.
+Why two levels? The outer `session()` is the lifecycle parent; the narrowed child creates the positive-TTL Delegation that resource authority requires. Both Sessions terminate when their callbacks exit. `applicationTransport()` builds exactly this structure internally, which is why it is the right starting point for application-owned calls.
 
 To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and Delegation. The Session lifecycle is handled for you: `session()` records a `task` Session, while `startSession()` records a heartbeat-leased `service` Session.
 
@@ -111,26 +126,17 @@ The rebuilt context carries the Session identity only; Delegations bound by the 
 
 ## Start a narrowed child
 
-```ts
-import { Authority } from '@caracalai/sdk'
+The nested pattern from the [connect example](#connect-and-call-a-protected-resource) is how narrowing always looks; add typed constraints when the child's authority should carry explicit bounds:
 
-await caracal.session(async () => {
-  await caracal.session(
-    async () => {
-      await caracal.fetch('resource://pipernet', '/reports', { scopes: ['pipernet:read'] })
-    },
-    {
-      authority: Authority.narrow(['pipernet:read'], {
-        resourceId: 'resource://pipernet',
-        constraints: { maxHops: 1 },
-        ttlSeconds: 600,
-      }),
-    },
-  )
-})
+```ts
+authority: Authority.narrow(['pipernet:read'], {
+  resourceId: 'resource://pipernet',
+  constraints: { maxHops: 1 },
+  ttlSeconds: 600,
+}),
 ```
 
-A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to a Session that already exists, typically in another application: it returns the delegation, and the receiving session presents it with `acceptDelegation(delegationId, fn)`.
+A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to a Session that already exists, typically in another application: it returns the delegation, and the receiving session presents it with `acceptDelegation(delegationId, fn)` - the full two-sided flow is in [Implement Multi-Agent Delegation](/guides/delegation/).
 
 ## Handle approvals
 
@@ -156,15 +162,13 @@ For provider SDKs that accept a custom `fetch`, pass `caracal.transport({ scopes
 
 ## Call as the application
 
-Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })`: a fetch pinned to one resource, calling as the application's own identity. There is no ambient authority to borrow, so each mint cycle _builds_ the authority the platform requires: it starts a **source and target session pair**, issues a delegation narrowing `scopes` to the resource between them, and mints the mandate from that delegation - which is why every request the transport sends is still session-attributed, policy-checked, and delegation-bounded in audit, exactly like user-context traffic.
-
-Authority provisioning costs four control-plane calls (one lifecycle bootstrap mint, two Session starts, and one Delegation) roughly once per authority cache key and mandate TTL. Same-key callers share provisioning, and distinct-key provisioning is serialized to stay within Coordinator Session capacity. Every outbound request then performs one uncached SDK mint, and Gateway performs a second STS exchange before dispatch. Cache hits avoid Coordinator and Delegation traffic, but both STS operations remain. Tune `mandateTtlSeconds` for authority lifetime, not to eliminate per-request exchange.
+Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })` - the same call the [connect example](#connect-and-call-a-protected-resource) opens with. There is no ambient authority to borrow, so each mint cycle builds the authority the platform requires: a source and target Session pair plus a narrowing Delegation, which keeps every request session-attributed, policy-checked, and delegation-bounded in audit. Provisioning costs and caching behavior are in the [TypeScript SDK reference](/sdks/typescript/#call-protected-resources); tune `mandateTtlSeconds` for authority lifetime, not to eliminate per-request exchange.
 
 ```ts
 const llm = new OpenAI({
   baseURL: 'https://api.pipernet.example/v1',
   apiKey: 'unused-gateway-injects-credentials',
-  fetch: caracal.applicationTransport('resource://pipernet', { scopes: ['chat:complete'] }),
+  fetch: caracal.applicationTransport('resource://pipernet', { scopes: ['pipernet:chat'] }),
 })
 ```
 
@@ -193,6 +197,6 @@ The SDK retries selected Coordinator and STS transient failures with stable oper
 
 For exact constructors, options, and return types, use [TypeScript SDK reference](/sdks/typescript/).
 
-## Next step
+## Next Step
 
 Add [multi-agent delegation](/guides/delegation/) only if one Session must hand a narrower slice to another; otherwise validate the resource boundary with [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/).

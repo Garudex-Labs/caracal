@@ -1,14 +1,12 @@
 ---
 title: Add SDK to Your App
-description: Make the protected call from First Protected Call again, this time from your own TypeScript, Python, or Go code.
+description: Turn the throwaway script from First Protected Call into an application integration with a durable configuration profile.
 pageType: workflow
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-In [First Protected Call](/get-started/first-protected-call/) you proved the enforcement path with `caracal run` and `curl`. This page makes the same protected call from your own code. Pick one language; the three examples are equivalent.
-
-The difference from the previous page: your program now talks to Caracal itself. Instead of `caracal run` fetching a token before launch, the SDK requests authority while your program runs - asking for exactly the permission each call needs, when it needs it. That is the shape real applications and agents use.
+In [First Protected Call](/get-started/first-protected-call/) a throwaway script proved the enforcement path with three environment variables. This page turns that into the shape real applications use: a durable **configuration profile** instead of pasted variables, and an example parameterized so the same code reaches any resource you protect. Pick one language; the three examples are equivalent.
 
 ## Prerequisites
 
@@ -18,7 +16,7 @@ The difference from the previous page: your program now talks to Caracal itself.
 
 ## Write the Configuration Profile
 
-Because your program runs directly (not under `caracal run`), the SDK needs to know who it is and where Caracal is. It reads both from a small TOML file called a profile, or from `CARACAL_*` environment variables. You write this file yourself, using the values from First Protected Call - the zone ID, the application ID, and the application client secret you copied during guided setup:
+Inline environment variables work for a script; an application needs configuration it can deploy. The SDK reads a small TOML file called a profile, named by the `CARACAL_CONFIG` environment variable. You write this file yourself, using the values from First Protected Call - the zone ID, the application ID, and the application client secret you copied during guided setup:
 
 ```toml
 zone_id = "<Pied Piper Production zone ID>"
@@ -36,13 +34,13 @@ Reading it line by line:
 - `app_client_secret_file` points to a file containing the client secret, readable only by your user. The SDK never searches for credentials on its own; the path must be explicit. If you lost the secret, reveal it again from the application's detail panel in the console (each reveal is audited).
 - The `[[credentials]]` entry declares which resource this program uses. Its key is the resource identifier, not the upstream URL.
 
-On the local stack the SDK's built-in defaults already point at the right service URLs, so this is the whole file. For cloud or custom deployments you would add `sts_url`, `coordinator_url`, and `gateway_url`; the full schema is in [Configuration File](/runtime-console/config-file/).
+On the local stack the SDK's built-in defaults already point at the right service URLs, so this is the whole file. For cloud or custom deployments you would add `sts_url`, `coordinator_url`, and `gateway_url`; the full schema is in [Configure Workloads](/runtime-console/config-file/).
 
 :::note[Key takeaway]
 One profile serves your whole service. It names the application your program acts as - not each agent inside it. Every run executes under this one application identity, so you do not register an application per agent.
 :::
 
-Point the examples at the profile and choose what they call:
+Point the examples at the profile and choose what they call. When `CARACAL_CONFIG` is set, the SDK reads exactly that profile - the identity variables from the previous page are no longer needed:
 
 <Tabs syncKey="os">
 <TabItem label="Linux / macOS">
@@ -167,6 +165,7 @@ func main() {
     }
     defer c.Close()
 
+    // nil base: the SDK constructs its own HTTP client.
     governed, err := c.ApplicationTransport(nil, resourceID, caracal.ApplicationTransportOptions{
         Scopes: []string{resourceScope},
     })
@@ -195,20 +194,20 @@ func main() {
 
 ## Expected Outcome
 
-Run the example in your selected language. It should print the provider's JSON model list - the same response your `curl` call returned - and create matching authorization and Gateway action-result events in **Audit**. A constructor or profile error means no request reached Caracal; a policy denial appears in Audit with a request ID.
+Run the example in your selected language. It should print the provider's JSON model list - the same response your first script returned - and create matching authorization and Gateway action-result events in **Audit**. A constructor or profile error means no request reached Caracal; a policy denial appears in Audit with a request ID.
 
 ## What Each Call Does
 
 All three examples follow the same four calls; only the naming convention changes per language:
 
-- `new Caracal()` / `Caracal()` / `New()` loads the profile and prepares the client. It fails immediately if the configuration is missing or unreadable.
-- `applicationTransport()` / `application_transport()` / `ApplicationTransport()` returns an HTTP transport pinned to one resource. Under the hood it does what `caracal run` did before launch, but per call: it asks Caracal for authority with exactly the scopes you list and gets a fresh, short-lived, replay-protected mandate for each request. To do this it opens a **session** - Caracal's record of one governed run of your program - and narrows the requested scope through a **delegation**, a hand-off that can only ever shrink permissions, never grow them. The SDK manages both for you; you will meet them properly in [Concepts](/concepts/).
-- `gatewayRequest()` / `GatewayRequest()` builds the Gateway URL and the `X-Caracal-Resource` routing header - the same two things you assembled by hand in the `curl` call.
+- `new Caracal()` / `Caracal()` / `New()` loads the profile named by `CARACAL_CONFIG` (or, without one, `CARACAL_*` environment variables, as in First Protected Call). It fails immediately if the configuration is missing or unreadable.
+- `applicationTransport()` / `application_transport()` / `ApplicationTransport()` returns an HTTP transport pinned to one resource. Each call asks Caracal's token service (the **STS**, the component that evaluates policy and issues mandates) for authority with exactly the scopes you list and gets a fresh, short-lived, replay-protected mandate for the request. To do this it opens a **session** - Caracal's record of one governed run of your program - and narrows the requested scope through a **delegation**, a hand-off that can only ever shrink permissions, never grow them. The SDK manages both for you; you will meet them properly in [Concepts](/concepts/).
+- `gatewayRequest()` / `gateway_request()` / `GatewayRequest()` builds the Gateway URL and the `X-Caracal-Resource` routing header that names the resource.
 - `close()` / `aclose()` / `Close()` ends SDK-owned sessions and background work cleanly.
 
-`applicationTransport()` is the smallest application-owned call path and the right starting point. Agent frameworks that already run under delegated authority use `session()` with `fetch(..., { scopes })` instead; read your language's [SDK guide](/guides/) before switching paths.
+`applicationTransport()` is the smallest application-owned call path and the right starting point. Agent frameworks that already run under delegated authority use `session()` with a scoped transport instead; read your language's SDK guide ([TypeScript](/guides/sdk-typescript/), [Python](/guides/sdk-python/), [Go](/guides/sdk-go/)) before switching paths.
 
-If policy denies the exchange, the SDK surfaces the error from Caracal's token service. Open **Audit** in the web console with the request ID to see the determining policy and diagnostics.
+If policy denies the exchange, the SDK surfaces the error from the STS. Open **Audit** in the web console with the request ID to see the determining policy and diagnostics.
 
 ## Common Mistakes
 

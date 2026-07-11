@@ -29,11 +29,23 @@ flowchart LR
   Verify --> Resource["Protected resource"]
 ```
 
-## Mandate Use
+## Mandate Use Classes
 
-| Use                | Verification focus                                                             |
+Every mandate carries a `use` claim naming the boundary that may accept it. Pages across the docs refer to these classes as `use=session`, `use=gateway`, and `use=resource`:
+
+| `use` claim | Minted when | Accepted by |
+| --- | --- | --- |
+| `session` | An application's lifecycle bootstrap exchange, with no Session or Delegation context. Reusable within its TTL. | Coordinator lifecycle operations and later exchanges as a subject token. |
+| `gateway` | A direct mint with Session and Delegation context - what SDK transports send to the Gateway. Single-use. | Gateway ingress only. |
+| `resource` | The Gateway's own authenticated exchange of an inbound `use=gateway` mandate. | The upstream path: `caracal_mandate` resources and in-process verifiers. |
+
+A verifier must accept only its own class: resource servers require `use=resource`, the Gateway requires `use=gateway`, and neither accepts a Session or lifecycle mandate.
+
+## Where Mandates Are Verified
+
+| Boundary           | Verification focus                                                             |
 | ------------------ | ------------------------------------------------------------------------------ |
-| Gateway request    | Issuer, audience, zone, resource, scopes, expiry, revocation.                  |
+| Gateway request    | Issuer, audience, zone, resource, scopes, expiry, replay, revocation.          |
 | MCP tool call      | Bearer token, required scopes, required targets, Session and Delegation constraints. |
 | SDK outbound call  | Context propagation and mandate header injection.                              |
 | Delegated exchange | Session, Delegation, scopes, hop count, and constraints.                       |
@@ -49,7 +61,7 @@ Resource servers should always verify a mandate at request time. Verification in
 | Failure                   | Meaning                                                                   |
 | ------------------------- | ------------------------------------------------------------------------- |
 | `invalid_token`           | Signature, issuer, audience, required claim, or expiry validation failed. |
-| `scope_insufficient`      | The mandate does not contain a required scope.                            |
+| `scope_insufficient`      | The mandate does not contain a required scope. In-process verifiers report the same condition as `insufficient_scope`. |
 | `session_revoked`         | One of the mandate revocation anchors has been revoked.                   |
 | `session_required`        | The resource requires authority from a governed Session.                  |
 | `delegation_required`     | The resource requires delegated authority.                                |

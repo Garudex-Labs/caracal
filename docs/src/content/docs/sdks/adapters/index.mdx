@@ -16,16 +16,7 @@ Adapters are inbound enforcement only. They do not start Sessions, mint mandates
 | [FastMCP](/sdks/adapters/fastmcp/) | `@caracalai/fastmcp`, `caracalai-fastmcp` | Verifying FastMCP bearer tokens before tool execution. |
 | [Go net/http](/sdks/adapters/nethttp/) | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` | Protecting Go HTTP handlers. |
 
-## Choose a Verification Layer
-
-| Need | Use |
-| --- | --- |
-| Framework-neutral verification | [Verify Package](/sdks/verify/) |
-| Express route middleware | [Express Adapter](/sdks/adapters/express/) |
-| FastAPI/Starlette (ASGI) middleware | [ASGI Adapter](/sdks/adapters/asgi/) |
-| FastMCP tool/server authentication | [FastMCP Adapter](/sdks/adapters/fastmcp/) |
-| Go HTTP middleware | [Go net/http Adapter](/sdks/adapters/nethttp/) |
-| Shared revocation store | [Redis Revocation Store](/sdks/backends/redis/) |
+No adapter fits, or you need a custom boundary? Route through [Verification Layer Overview](/sdks/verification-layer/) to choose between the verify engine, identity package, and revocation stores.
 
 ## Boundary Semantics
 

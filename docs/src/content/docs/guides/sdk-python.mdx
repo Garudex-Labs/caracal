@@ -29,6 +29,22 @@ caracal = Caracal()
 
 ## Start a Session and call a protected resource
 
+The smallest protected call needs no session code at all: `application_transport()` pins an `httpx.AsyncClient` to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
+
+```python
+from caracalai import Caracal
+
+caracal = Caracal()
+target = caracal.gateway_request("resource://pipernet", "/reports")
+async with caracal.application_transport(
+    "resource://pipernet",
+    scopes=["pipernet:read"],
+) as governed:
+    response = await governed.get(target.url)
+```
+
+When your code already runs inside a governed Session - an agent step, a worker task - call through the Session instead: `fetch()` mints a one-shot Gateway mandate under the Session's authority.
+
 ```python
 from caracalai import Authority, Caracal
 
@@ -47,7 +63,7 @@ async with caracal.session() as parent:
         await caracal.fetch(resource_id, "/reports", scopes=["pipernet:read"])
 ```
 
-The outer Session is the lifecycle parent. The narrowed child creates the positive-TTL Delegation required for resource authority, and `fetch()` mints a one-shot Gateway mandate for the protected call. Both async context managers retire their Sessions on exit.
+Why two levels? The outer Session is the lifecycle parent; the narrowed child creates the positive-TTL Delegation that resource authority requires. Both async context managers retire their Sessions on exit. `application_transport()` builds exactly this structure internally, which is why it is the right starting point for application-owned calls.
 
 To make AI-agent executions distinguishable in policy and audit, pass `labels` when starting a Session. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. Labels describe work; scopes and Delegations bound authority. `session()` retires the task Session when the block exits, while `start_session()` starts a heartbeat-leased long-lived Session whose protocol lifecycle is `service`.
 
@@ -137,6 +153,25 @@ A plain `caracal.session()` runs the child under its parent's effective authorit
 
 Use `async with caracal.bind(ctx)` before handing a captured context to a background task.
 
+## Handle approvals
+
+A mint whose scope is approval-gated raises `ApprovalRequired`. `with_approval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call. Its callback must return an awaitable; `mint_mandate` is synchronous, so wrap it with `asyncio.to_thread`:
+
+```python
+import asyncio
+
+mandate = await caracal.with_approval(
+    lambda approval_id: asyncio.to_thread(
+        caracal.mint_mandate,
+        "resource://pipernet",
+        ["pipernet:admin"],
+        approval_id=approval_id,
+    )
+)
+```
+
+A rejected, expired, or already-consumed decision re-raises the original `ApprovalRequired`; its approval id lets you resume waiting later with `wait_for_approval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`). [Human Approval](/guides/step-up/) covers the tiers and decision paths.
+
 ## Use httpx transport injection
 
 ```python
@@ -183,6 +218,6 @@ Do not create one SDK or `httpx` client per request. Reuse them, bind the curren
 
 For exact Python signatures and sync/async variants, use [Python SDK reference](/sdks/python/).
 
-## Next step
+## Next Step
 
 Protect inbound FastAPI traffic with [the ASGI adapter](/guides/protect-fastapi/) or implement [multi-agent delegation](/guides/delegation/) for cross-Session authority.

@@ -28,15 +28,15 @@ import (
 revocations := revocation.NewInMemoryStore(24 * time.Hour)
 
 verifier := verify.NewVerifier(verify.Options{
-	Issuer:          "https://sts.example.com",
-	Audience:        "https://api.example.com",
-	ZoneID:          "zone_prod",
+	Issuer:          "https://sts.pipernet.example",
+	Audience:        "https://api.pipernet.example",
+	ZoneID:          "0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
 	Revocations:     revocations,
 })
 
 handler := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
-	RequiredScopes:  []string{"tickets:read"},
-	RequiredTargets: []string{"https://api.example.com/tickets"},
+	RequiredScopes:  []string{"pipernet:read"},
+	RequiredTargets: []string{"resource://pipernet"},
 	RequireSession:  true,
 }))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	claims, ok := nethttp.ClaimsFromContext(r.Context())
@@ -62,7 +62,7 @@ handler := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 
 The middleware maps verification errors to HTTP failures before the handler runs and includes a safe `error_hint` in JSON failures. Use a shared revocation store through `verify.Options` in production so revoked sessions are rejected consistently across service instances.
 
-## Related pages
+## Related Pages
 
 - [Protect a Go net/http Service](/guides/protect-nethttp/)
 - [Go SDK](/sdks/go/)

@@ -13,13 +13,21 @@ Use this guide after modeling an upstream and before writing policy or applicati
 
 ## When to create each object
 
+```mermaid
+flowchart LR
+  Caller[Verified request] --> GW[Gateway]
+  Resource["Resource\nidentifier + scopes + upstream URL"] -->|routes| GW
+  Provider["Provider\nsealed upstream credential"] -->|attaches| GW
+  GW --> Upstream[Protected upstream]
+```
+
 | Object              | Create it when                                                                                                                                                                          |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Resource            | You need a stable protected target, Caracal resource scopes, an upstream URL, a Gateway application, and one upstream credential provider binding.                                      |
 | Provider            | A resource needs an explicit upstream auth mode: none, Caracal mandate, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API key, bearer-token, or HTTP Basic upstream auth. |
 | Gateway application | You want Gateway-originated upstream calls to use a specific Caracal application identity.                                                                                              |
 
-Resource fields should answer “what is being protected and where does Gateway send traffic?” Provider fields should answer “what credential or identity does Gateway attach upstream?” Keep credential details such as client secrets, token endpoints, API-key placement, bearer tokens, identity forwarding, and runtime injection on the provider. Keep target details such as resource identifier, Caracal resource scopes, upstream URL, Gateway application, and the selected upstream credential provider on the resource.
+Resource fields should answer "what is being protected and where does Gateway send traffic?" Provider fields should answer "what credential or identity does Gateway attach upstream?" Keep credential details such as client secrets, token endpoints, API-key placement, bearer tokens, identity forwarding, and runtime injection on the provider. Keep target details such as resource identifier, Caracal resource scopes, upstream URL, Gateway application, and the selected upstream credential provider on the resource.
 
 :::note[FAQ]
 [What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)
@@ -28,15 +36,11 @@ Resource fields should answer “what is being protected and where does Gateway 
 ## Web Console Workflow
 
 1. Start the runtime for your deployment (locally, `caracal up`).
-2. Open the web console for your deployment.
-3. Select **Resources**.
-4. Create a resource with a stable identifier, such as `resource://pipernet`.
-5. Add action-oriented scopes, such as `pipernet:read` and `pipernet:refund`.
-6. Set the upstream URL, Gateway application, and upstream credential provider for the protected service.
-7. Select a `None` provider when Gateway should enforce Caracal access but the upstream expects no credential.
-8. Select `Caracal mandate` for resources that verify Caracal tokens directly, or choose a provider-native type when the upstream needs external credentials.
-9. Attach exactly one upstream credential provider to the resource.
-10. For a path-addressed REST upstream, declare the operations the Gateway may invoke and keep operation authority `enforced`; choose `transport_uniform` for single-surface transports such as MCP.
+2. Open the web console and select **Resources**.
+3. Create a resource with a stable identifier, such as `resource://pipernet`, and action-oriented scopes, such as `pipernet:read` and `pipernet:refund`.
+4. Set the upstream URL and the Gateway application.
+5. Attach exactly one upstream credential provider: `None` when the Gateway is the enforcement point and the upstream expects no credential, `Caracal mandate` when the upstream verifies Caracal tokens itself, or a provider-native kind when the upstream needs external credentials.
+6. For a path-addressed REST upstream, declare the operations the Gateway may invoke and keep [operation authority](#operation-authority) `enforced`; choose `transport_uniform` for single-surface transports such as MCP.
 
 ## Provider auth modes
 
@@ -50,25 +54,41 @@ Resource fields should answer “what is being protected and where does Gateway 
 | Bearer token                 | Bearer token.                                                                                                          | Gateway forwards the sealed provider token as `Authorization: Bearer ...` unless Advanced routing configures another header or scheme.                        |
 | HTTP Basic                   | Username and password.                                                                                                 | Gateway forwards `Authorization: Basic ...` built from the username and the sealed password; the pair is never exposed to callers or runtimes.                |
 
-OAuth 2.0 authorization-code providers are for delegated consent. Register the exact Caracal callback URI as the provider redirect URI, such as `https://api.hooli.example/v1/zones/z1/provider-connections/oauth/callback`, then use the provider's **Connect** action to create an authorization URL for a subject. A connection is one authenticated upstream account per subject and provider: after consent, every resource routed through the provider uses it, while authorization stays per-resource through resource scopes, policies, and grants. The upstream scopes requested during consent come from the provider's configured upstream OAuth scopes. OAuth authorization parameters are Advanced key/value entries for provider-specific browser parameters, such as `access_type=offline` and `prompt=consent`; Caracal always owns reserved OAuth fields such as `client_id`, `redirect_uri`, `state`, and PKCE challenge values. OAuth token parameters are Advanced key/value entries for provider-specific token endpoint parameters; Caracal owns credentials, connections, refresh tokens, and scope parameters. OAuth token endpoint hosts constrain the code exchange and later refresh calls. Endpoints must resolve publicly unless the exact private hostname is granted through `CARACAL_PRIVATE_EGRESS_HOSTS` on API and STS.
+Rules shared by every kind: provider secrets are sealed at creation and never returned by list or detail APIs; every Gateway resource binds exactly one provider; one provider can serve many resources. Concrete per-upstream setups (OpenAI, Google, GitHub, Slack, Jira, internal APIs) live in [Provider Recipes](/guides/provider-recipes/).
 
-Stored connections follow the upstream token's own lifecycle. A connection whose provider returned no expiry is treated as non-expiring and served as stored; a connection with a refresh token is refreshed inside STS shortly before expiry, so the Gateway is never handed an upstream token about to lapse; a lapsed connection without a refresh token transitions to `expired` and the caller receives a precise `credential_expired_not_renewable` denial rather than a generic policy error. The provider's Connections panel reads this state live - `GET /v1/zones/{zoneId}/provider-connections` is the same listing for automation - and reconnecting the same subject and provider replaces the active connection. Providers that rotate refresh tokens on every use are supported: each refresh stores the newest rotation under optimistic locking so concurrent refreshes cannot resurrect a superseded token. Token responses are held to RFC 6749: a `token_type` other than `bearer` is rejected unless the provider's upstream auth scheme explicitly asserts it.
+### OAuth 2.0 authorization code (delegated consent)
 
-Revoking a connection always succeeds inside Caracal and immediately stops STS from brokering its tokens. When the provider advertises an RFC 7009 revocation endpoint - set it in the Advanced field or let issuer discovery fill it - Caracal also revokes the upstream tokens best-effort and reports whether the upstream accepted; without one, the console notes that the upstream token lives on until it expires at the provider.
+- Register the exact Caracal callback URI as the provider redirect URI, such as `https://api.hooli.example/v1/zones/z1/provider-connections/oauth/callback`, then use the provider's **Connect** action to create an authorization URL for a subject.
+- A connection is one authenticated upstream account per subject and provider. After consent, every resource routed through the provider uses it; authorization stays per-resource through scopes, policies, and grants. Reconnecting the same subject and provider replaces the active connection.
+- The upstream scopes requested during consent come from the provider's configured upstream OAuth scopes. Advanced key/value entries add provider-specific browser parameters (`access_type=offline`, `prompt=consent`) and token endpoint parameters; Caracal always owns `client_id`, `redirect_uri`, `state`, PKCE, credentials, connections, and refresh tokens.
+- Connections follow the upstream token's lifecycle: refresh tokens are refreshed inside STS shortly before expiry (rotating refresh tokens are stored under optimistic locking); a lapsed connection without a refresh token becomes `expired` and callers receive a precise `credential_expired_not_renewable` denial. The provider's Connections panel reads this state live; `GET /v1/zones/{zoneId}/provider-connections` is the same listing for automation. Token responses are held to RFC 6749: a `token_type` other than `bearer` is rejected unless the provider's upstream auth scheme explicitly asserts it.
+- Revoking a connection always succeeds inside Caracal and immediately stops STS from brokering its tokens; when the provider advertises an RFC 7009 revocation endpoint, Caracal also revokes upstream best-effort and reports the result.
+- The callback endpoint is intentionally public so providers can redirect browsers back. Security comes from short-lived Redis-backed one-time state, PKCE, provider binding checks, sealed token storage, HTTPS-only exchange, redirect blocking, host allow-listing, and private-address rejection. In cloud deployments, all API replicas must share Redis so any replica can validate callback state.
 
-The callback endpoint is intentionally public so external providers can redirect browsers back to Caracal. Security comes from short-lived Redis-backed state, one-time state consumption, PKCE, provider binding checks, sealed token storage, HTTPS-only token exchange, redirect blocking, host allow-listing, and private-address rejection. In cloud deployments, all API replicas must share Redis so a callback can validate state created by any replica.
+### OAuth 2.0 client credentials (machine-to-machine)
 
-OAuth 2.0 client credentials keeps common machine-to-machine setup in the main form and moves provider-specific controls to Advanced. The grant type selects how STS obtains tokens: `client_credentials` posts the client's own credentials to the token endpoint, while `jwt_bearer` signs an RFC 7523 assertion with the provider private key and submits it as the grant - the pattern behind Google service accounts, Salesforce JWT bearer flow, and similar signed-assertion providers. For `jwt_bearer`, client authentication defaults to `none` because the assertion itself is the credential; the configured upstream OAuth scopes ride inside the assertion's `scope` claim, the assertion subject overrides the `sub` claim for patterns such as Google domain-wide delegation, and the assertion audience overrides the `aud` claim for providers such as Salesforce that expect a value other than the token endpoint. For `client_credentials`, use upstream OAuth scopes when the token endpoint expects OAuth scopes, OAuth token audience when the provider requires an `audience` parameter, OAuth resource indicator when the provider expects a resource indicator, and OAuth token parameters only for documented provider-specific token endpoint parameters. With `private_key_jwt` client authentication, an optional client certificate adds `x5t` and `x5t#S256` thumbprint headers to the signed client assertion, which Microsoft Entra ID certificate credentials require. OAuth token endpoint hosts constrain outbound token acquisition; web console infers the host from the token endpoint when the Advanced field is blank.
+- The grant type selects how STS obtains tokens: `client_credentials` posts the client's own credentials to the token endpoint; `jwt_bearer` signs an RFC 7523 assertion with the provider private key - the pattern behind Google service accounts and Salesforce's JWT bearer flow.
+- For `jwt_bearer`, client authentication defaults to `none` because the assertion is the credential. Upstream OAuth scopes ride inside the assertion's `scope` claim; the assertion subject overrides `sub` (Google domain-wide delegation) and the assertion audience overrides `aud` (Salesforce).
+- For `client_credentials`, use upstream OAuth scopes, OAuth token audience, or an OAuth resource indicator as the provider documents; reserve OAuth token parameters for documented provider-specific extras. With `private_key_jwt` client authentication, an optional client certificate adds the `x5t`/`x5t#S256` thumbprint headers Microsoft Entra ID certificate credentials require.
+- OAuth token endpoint hosts constrain outbound token acquisition; the web console infers the host from the token endpoint when the Advanced field is blank. Endpoints must resolve publicly unless the exact private hostname is granted through `CARACAL_PRIVATE_EGRESS_HOSTS` on API and STS.
+- Both OAuth kinds support endpoint autofill: paste the issuer URL and the control plane resolves its OIDC or RFC 8414 metadata (MCP servers publish the same metadata), fills the endpoints, and rejects metadata whose issuer does not match.
 
-Both OAuth kinds support endpoint autofill in the web console: paste the provider's issuer URL and the control plane resolves its published OIDC or RFC 8414 authorization-server metadata, fills the endpoint fields, and leaves them editable. MCP servers publish the same metadata, so an MCP server's issuer autofills the same way. The lookup runs from the control plane with the same outbound hardening as connectivity checks and rejects metadata whose issuer does not match the requested issuer.
+### API key
 
-API key providers use one required routing field: the exact header the upstream expects. Use `X-API-Key` or another vendor header when the API wants the raw key value, use `Authorization` plus the Advanced auth scheme `Bearer` for bearer-style API keys, and use a vendor scheme such as `Token` only when the provider documents that format. `auth_header` is not part of API-key provider config; OAuth and bearer-token providers use that field because their default upstream header is `Authorization`. Query-parameter placement is fully supported for upstreams that require it, but a key carried in the query string may be recorded by the upstream server, reverse proxies, CDNs, load balancers, and access logs outside Caracal's control - Caracal's own gateway and STS audit events never include query strings. Prefer header placement whenever the upstream supports it.
+- One required routing field: the exact header the upstream expects. Use `X-API-Key` or another vendor header for raw key values, `Authorization` plus the Advanced auth scheme `Bearer` for bearer-style keys, or a documented vendor scheme such as `Token`.
+- Query-parameter placement is supported for upstreams that require it, but a key in the query string may be logged by systems outside Caracal's control - Caracal's own Gateway and STS audit events never include query strings. Prefer header placement.
 
-Bearer token providers are for static, pre-issued access tokens that Caracal does not mint or refresh. The main form only needs the token; Advanced options are for uncommon upstreams that expect a non-default header or a scheme other than `Bearer`. The token is sealed at creation time, list and detail APIs expose only `secret_config_keys`, and Gateway replaces caller-supplied auth before forwarding the provider credential upstream.
+### Bearer token
 
-HTTP Basic providers are for upstreams that authenticate with a username and password or API-token pair, such as Atlassian, Twilio, or Elasticsearch REST APIs. The username stays readable configuration while the password is sealed, and Gateway composes `Authorization: Basic ...` at forward time. Because the credential is a two-part pair, HTTP Basic providers are Gateway-forwarded only and never eligible for runtime credential injection.
+- For static, pre-issued access tokens Caracal does not mint or refresh. The main form needs only the token; Advanced options cover non-default headers or schemes. List and detail APIs expose only `secret_config_keys`, and the Gateway replaces caller-supplied auth before forwarding.
 
-Provider secrets are sealed at creation time and are not returned by list or detail APIs. Every Gateway resource binds one upstream credential provider, and one provider can be reused by many resources. None providers have no secret and send no credential. Caracal mandate providers have no provider-native secret and no `forward_caracal_identity` setting because the mandate is already the upstream credential. Use Caracal mandate for internal services, partner services, external integrations, or network-level resources that choose to trust Caracal mandates through a verifier.
+### HTTP Basic
+
+- For username/password or username/API-token pairs (Atlassian, Twilio, Elasticsearch). The username stays readable configuration; the password is sealed, and the Gateway composes `Authorization: Basic ...` at forward time. Because the credential is a two-part pair, HTTP Basic providers are Gateway-forwarded only and never eligible for runtime credential injection.
+
+### None and Caracal mandate
+
+- None providers have no secret and send no credential. Caracal mandate providers have no provider-native secret and no `forward_caracal_identity` setting because the mandate is already the upstream credential - use it for internal services, partner services, and integrations that verify Caracal mandates through a verifier or adapter.
 
 ## Provider connectivity checks
 
@@ -87,7 +107,11 @@ A resource declares which upstream operations the Gateway may invoke and how str
 | `operations`            | The operations the Gateway may forward, each a `{method, path, scope}` triple. `method` and `path` match the upstream call; `scope` is the Caracal resource scope the mandate must carry for that operation, and must be one of the resource's declared scopes.                              |
 | `operation_enforcement` | `enforced` denies any Gateway operation not listed in `operations` and requires its scope on the mandate. `transport_uniform` treats the upstream as a single surface and relies on the mint-time scope check, for protocols such as MCP that address every call through one transport path. |
 
-When `operation_enforcement` is `enforced`, the Gateway authorizes only declared operations and denies everything else with `operation_not_permitted` before any upstream call. A resource that is `enforced` with an empty `operations` list is fully closed: every Gateway operation is denied until operations are declared. New resources created through the Control API default to `enforced`, so authority stays closed until you describe it; web console guided setup opens resources as `transport_uniform` because it does not collect per-operation detail, and you tighten them from the resource editor once the operation set is known.
+When `operation_enforcement` is `enforced`, the Gateway authorizes only declared operations and denies everything else with `operation_not_permitted` before any upstream call. A resource that is `enforced` with an empty `operations` list is fully closed: every Gateway operation is denied until operations are declared.
+
+:::caution[Defaults differ by creation surface]
+Resources created through the Control API default to `enforced`, so authority stays closed until you describe it. Web console guided setup opens resources as `transport_uniform` because it does not collect per-operation detail - tighten them from the resource editor once the operation set is known.
+:::
 
 Because the floor is enforced in the platform rather than in adopter policy, a policy can further restrict an operation but can never widen authority beyond the declared operations and their scopes.
 
@@ -123,7 +147,7 @@ Expected result: OAuth provider checks pass where supported, the resource has on
 The API value is `enforced`, not `enforce`. An `enforced` resource with no operations is intentionally closed. Use `transport_uniform` only when every call shares one transport surface, such as MCP.
 :::
 
-## Related guides
+## Related Guides
 
 - [Provider Recipes](/guides/provider-recipes/)
 - [Author Policy Data](/guides/author-policy/)
@@ -131,6 +155,6 @@ The API value is `enforced`, not `enforce`. An `enforced` resource with no opera
 - [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)
 - [Activate a Policy Set](/guides/activate-policy-set/)
 
-## Next step
+## Next Step
 
 Choose a concrete credential setup in [Provider Recipes](/guides/provider-recipes/), then run [Check Provider Readiness](/examples/provider-preflight/) before the first real call.

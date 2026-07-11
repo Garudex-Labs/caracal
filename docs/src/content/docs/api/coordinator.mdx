@@ -82,7 +82,7 @@ A task Session start and its `201` response:
 
 ## Delegation
 
-Runtime credentials see only Delegations where their application is the issuer or receiver. Recursive traversal and impact analysis are operator-only because descendants can cross application boundaries and expose another application's topology or Authority record IDs. The managed operator token retains zone-wide inspection for Console and Admin SDK workflows.
+Runtime credentials see only Delegations where their application is the issuer or receiver. Recursive traversal and impact analysis are operator-only because descendants can cross application boundaries and expose another application's topology or Authority record IDs. The managed operator token retains zone-wide inspection for web console and Admin SDK workflows.
 
 | Method  | Path                                                   | Purpose                                                                                              |
 | ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
@@ -114,7 +114,7 @@ The SDK retries transient Session creation twice and Delegation creation once. D
 
 SDK lifecycle clients use the zone-scoped Session, lease, heartbeat, termination, and Delegation endpoints above. Coordinator exposes no parallel flat lifecycle or Delegation protocol.
 
-Delegation creation authenticates the issuer and records an offer. Receiver credentials are not distributed to the issuer. The receiver consents by presenting the opaque ID, while STS verifies its target Session and application binding. The Console intentionally has no creation form.
+Delegation creation authenticates the issuer and records an offer. Receiver credentials are not distributed to the issuer. The receiver consents by presenting the opaque ID, while STS verifies its target Session and application binding. The web console intentionally has no creation form.
 
 ## Next Step
 

@@ -20,14 +20,7 @@ Most integrations should use an SDK or the web console. Only the Admin API is a 
 
 ## Service Ports
 
-| Service     | Local port              |
-| ----------- | ----------------------- |
-| API         | `3000`                  |
-| Coordinator | `4000`                  |
-| STS         | `8080`                  |
-| Gateway     | `8081`                  |
-| Audit       | `9090`                  |
-| Control     | API `3000` when enabled |
+Local Compose ports: API `3000`, Coordinator `4000`, STS `8080`, Gateway `8081`, Audit `9090`; Control shares the API port when enabled. The canonical port and endpoint maps are in [Defaults and Limits](/reference/defaults-and-limits/#ports) and [Monitor Health and Metrics](/operations/observability/#endpoint-map).
 
 ## Error Shape
 

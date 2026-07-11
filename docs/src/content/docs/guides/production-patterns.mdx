@@ -47,7 +47,7 @@ One SDK client represents one `(zone, application)` identity during concurrent u
 On a shared host, give each service its own application, profile, and owner-only secret file:
 
 ```toml
-zone_id = "pied-piper-production"
+zone_id = "0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f"
 application_id = "anton"
 app_client_secret_file = "/etc/caracal/anton.secret"
 sts_url = "https://sts.pipernet.example"
@@ -95,6 +95,6 @@ Run a successful request, policy denial, verifier denial, revoked-Session reques
 
 In staging, interrupt STS, Redis revocation freshness, Audit delivery, and the upstream. Confirm access fails closed where authority cannot be proven and application retries remain bounded and mutation-safe.
 
-## Next Action
+## Next Step
 
 Complete the focused guide for the selected enforcement boundary, then use [Operate Caracal](/operations/) to deploy and monitor it.

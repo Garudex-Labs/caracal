@@ -37,6 +37,8 @@ The pre-commit hook activated by `pnpm install` formats staged files automatical
 | Reference    | Exact names, defaults, tables, examples, source-of-truth links.       |
 | Architecture | Diagram, component responsibilities, flow, boundaries, related pages. |
 
+Recurring sections use fixed names and casing: `## Prerequisites`, `## Expected Outcome`, `## Common Mistakes`, `## Troubleshooting`, `## Related Pages`, and `## Next Step`. Cross-reference link text matches the target page's title or sidebar label. Web console locations are written as breadcrumbs (**Services → Launcher**). Clause separators are spaced hyphens (` - `), not em dashes; quotes are straight. Example data uses the PiperNet/Hooli sample universe with reserved `.example` hosts and UUID-style zone IDs; scopes in a snippet must match the resource the snippet targets. Rego policy-data blocks are fenced as `rego`.
+
 Do not use docs to preserve stale command names, screenshots, package names, or workflows. Update the whole affected page coherently.
 
 ## Project Boundaries
@@ -47,7 +49,7 @@ Do not use docs to preserve stale command names, screenshots, package names, or 
 
 ## Naming
 
-Use canonical terms from [Glossary](/reference/glossary/). Keep raw names such as `agent_session_id`, `delegation_edge_id`, and `/agents` at explicit protocol boundaries only.
+Use canonical terms from [Glossary](/reference/glossary/). Keep raw names such as `agent_session_id`, `delegation_edge_id`, and `/agents` at explicit protocol boundaries only, and link the [Product-to-Wire Mapping](/reference/interoperability-contracts/#product-to-wire-mapping) wherever a raw name must appear. Capitalize Caracal object nouns (Session, Zone, Delegation, Mandate, Approval) when naming the product object; keep fully generic uses lowercase, and never mix both styles in one page.
 
 ## Next Step
 

@@ -26,29 +26,46 @@ flowchart LR
 
 Python uses `Authority.narrow(...)`, `await caracal.delegate(...)`, and `async with caracal.accept_delegation(edge_id, validate=True)`. Go uses `AuthorityNarrow(...)`, `Delegate`, and `AcceptDelegation`. The [language SDK references](/sdks/) define exact option types; the workflow and wire authority are equivalent.
 
-## TypeScript example
+## Narrow a child in the same application
+
+Starting a child with less authority than its parent needs no explicit hand-off - pass `Authority.narrow(...)` when starting the child Session, exactly as shown in your [SDK guide](/guides/sdk-typescript/#start-a-narrowed-child). This page's subject is the explicit flow between two Sessions that already exist.
+
+## Delegate across applications
+
+The issuer holds the authority and knows the receiver's Session ID; the receiver presents the returned Delegation ID. Two sides, one edge:
 
 ```ts
-import { Caracal, Authority } from '@caracalai/sdk'
+// Issuer side: Anton delegates read-only PiperNet access
+// to a peer Session owned by the Fiona application.
+const delegation = await caracal.delegate({
+  toSessionId: receiverSessionId,          // shared by the receiver up front
+  toApplicationId: fionaApplicationId,     // omit for same-application peers
+  resourceId: 'resource://pipernet',
+  scopes: ['pipernet:read'],
+  constraints: { maxHops: 1 },
+  ttlSeconds: 600,
+})
+await sendOverWorkChannel({ delegationId: delegation.delegationId })
+```
 
-const caracal = new Caracal()
-
+```ts
+// Receiver side (Fiona): present the offered Delegation inside the
+// target Session's context. validate: true confirms it is live first.
 await caracal.session(async () => {
-  await caracal.session(
+  const { delegationId } = await readFromWorkChannel()
+  await caracal.acceptDelegation(
+    delegationId,
     async () => {
-      const headers = await caracal.headersAsync()
-      await fetch('https://api.pipernet.example/reports', { headers })
+      const governed = caracal.transport({ scopes: ['pipernet:read'] })
+      const target = caracal.gatewayRequest('resource://pipernet', '/reports')
+      await governed(target.url)
     },
-    {
-      authority: Authority.narrow(['pipernet:read'], {
-        resourceId: 'resource://pipernet',
-        constraints: { maxHops: 1 },
-        ttlSeconds: 600,
-      }),
-    },
+    { validate: true },
   )
 })
 ```
+
+Every mint inside the accepted block presents the Delegation, so the STS enforces its scopes, resource bound, TTL, and hop budget - and revoking the edge cuts the receiver off mid-run.
 
 ## Review the graph
 
@@ -88,6 +105,6 @@ Mint the allowed subset, attempt one broader scope, revoke the edge, and retry. 
 A Delegation can expire before its target Session. The Session may remain observable but cannot mint through the expired edge. Size the edge TTL to the work and handle terminal authorization failure rather than widening authority.
 :::
 
-## Next step
+## Next Step
 
 Inspect the graph and request trace in [Tail and Query the Audit Stream](/guides/audit-stream/).

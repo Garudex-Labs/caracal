@@ -74,11 +74,32 @@ SDK credential entries use `resource` and optional `upstream_prefix`. SDKs do no
 | `CARACAL_COORDINATOR_TOKEN` / `CARACAL_COORDINATOR_TOKEN_FILE`         | Coordinator and Console Session/Delegation views.           |
 | `METRICS_BEARER` / `METRICS_BEARER_FILE`                               | Metrics authentication in published modes.                  |
 
+## Per-Service Tuning Keys
+
+Variables that appear in individual runbooks are cataloged here so every documented knob has one home. Defaults are in [Defaults and Limits](/reference/defaults-and-limits/).
+
+| Key | Service | Controls |
+| --- | --- | --- |
+| `OPA_POLL_SECONDS` | STS | Policy-bundle database poll interval (default 60, max 300). |
+| `MAX_GRANT_TTL_SECONDS` | STS | Ceiling for requested mandate TTLs. |
+| `CARACAL_PRIVATE_EGRESS_HOSTS` | API, STS | Exact private hostnames granted to OAuth token endpoints and connectivity checks. |
+| `UPSTREAM_HOST_ALLOWLIST` | Gateway | Pins Gateway upstream destinations to an explicit host list. |
+| `MAX_REQUEST_BYTES` | Gateway | Proxied request size cap (default 10 MiB). |
+| `JTI_FAIL_OPEN` | Gateway | Replay-tracker failure posture; forbidden in published modes. |
+| `AUDIT_ADMIN_TOKEN` | Audit | Enables the direct operator search and DLQ routes; they return `404` when unset. |
+| `AUDIT_RETENTION_DAYS` | Audit | Evidence retention window (default 365). |
+| `AUDIT_EXPORT_S3_*`, `AUDIT_EXPORT_TMP_DIR` | Audit | Optional S3-compatible Parquet export endpoint, credentials, and scratch space. |
+| `MAX_AGENTS_PER_ZONE`, `MAX_AGENTS_PER_APP` | Coordinator | Concurrent Session ceilings (defaults 50 and 200). |
+| `IDEMPOTENCY_RETENTION_SECONDS`, `GENERATED_IDEMPOTENCY_RETENTION_SECONDS`, `IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE` | Coordinator | Idempotency receipt retention windows and per-scope cap. |
+| `COORDINATOR_BODY_LIMIT_BYTES` | Coordinator | Request body cap (default 256 KiB). |
+| `CARACAL_ALLOW_INSECURE_CONFIG_URLS` | SDK clients | Permits plaintext control-plane URLs outside loopback, with a startup warning. |
+| `CARACAL_REQUIRE_PROVENANCE` | Install scripts | Makes a missing provenance check fail the install instead of skipping. |
+
 ## Deployment Values
 
 Helm values live under `infra/helm/caracal/values.yaml`. Compose environment and secrets are defined by `infra/docker/docker-compose.yml` and `infra/docker/runtime-compose.yml`.
 
-This page is the index. [Configure Service Environment](/operations/env-vars/) is canonical for each service's complete variable list, valid values, and published-mode requirements.
+This page is the canonical key inventory. [Configure Service Environment](/operations/env-vars/) is the workflow for setting them, with precedence, secret-class, and published-mode requirements; the shipped Compose files and Helm values for a release map each key to its deployment surface.
 
 ## Next Step
 

@@ -61,7 +61,7 @@ For exact payload examples, scopes, reconciliation documents, and error envelope
 | Bound zone conflicts with requested state | `zone_mismatch`, `409`                                 |
 | Subject/source exceeds rate               | `rate_limited`, `429`                                  |
 | Required audit cannot be recorded         | `audit_unavailable`, `500`; operation does not execute |
-| Body exceeds 256 KiB                      | `413`                                                  |
+| Body exceeds 64 KiB                       | `413`                                                  |
 
 Control depends on STS JWKS/issuer validation, Redis replay/rate state, the API's downstream credential, and durable audit. Keep it behind TLS and store the long-lived Control key in the automation platform's secret store.
 

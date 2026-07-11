@@ -27,9 +27,9 @@ import { createMandateVerifier } from '@caracalai/verify'
 import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: 'https://sts.example.com',
-  audience: 'https://mcp.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new InMemoryRevocationStore(),
 })
 
@@ -38,7 +38,7 @@ if (!token) throw new Error('missing bearer token')
 
 const context = await verifyFastMcpToken(token, verifier, {
   requiredScopes: ['mcp:tool:call'],
-  requiredTargets: ['https://mcp.example.com'],
+  requiredTargets: ['resource://pipernet'],
   requireSession: true,
 })
 
@@ -54,11 +54,11 @@ console.log(context.sub, context.zoneId, context.scope)
 from caracalai_fastmcp import CaracalAuth, CaracalAuthError
 
 auth = CaracalAuth(
-    issuer="https://sts.example.com",
-    audience="https://mcp.example.com",
-    zone_id="zone_prod",
+    issuer="https://sts.pipernet.example",
+    audience="resource://pipernet",
+    zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
     required_scopes=["mcp:tool:call"],
-    required_targets=["https://mcp.example.com"],
+    required_targets=["resource://pipernet"],
     require_session=True,
     revocations=revocations,
 )
@@ -80,7 +80,7 @@ There is no Go FastMCP adapter; use the framework-neutral Go verifier or the [ne
 
 The adapter verifies tokens; it does not create Sessions or Delegations. Use the [Python SDK](/sdks/python/) or [TypeScript SDK](/sdks/typescript/) to create Caracal context before making outbound calls.
 
-## Related pages
+## Related Pages
 
 - [Protect a FastMCP App](/guides/protect-fastmcp/)
 - [Verify Package](/sdks/verify/)

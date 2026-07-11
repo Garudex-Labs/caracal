@@ -19,9 +19,9 @@ Use this page to understand what policy owners configure and what Caracal guaran
 
 ## Decision Contract
 
-The decision contract is deny by default. You never replace its decision result; you supply the data it reads. This keeps structural checks, Delegation narrowing, and Approval behavior consistent across Zones.
+The decision contract is deny by default. You never replace its decision result; you supply the data it reads. This keeps structural checks, Delegation narrowing, and Approval behavior consistent across Zones. Under the hood the contract is Rego evaluated by an embedded [Open Policy Agent](https://www.openpolicyagent.org/) engine inside the STS - which is why policy content is Rego syntax and offline policy tests use `opa test` - but the decision rules are platform-owned; adopters ship data.
 
-```text
+```rego
 # caracal:data-document
 package caracal.authz
 
@@ -35,7 +35,7 @@ grants := {
 }
 ```
 
-The contract reads four adopter documents:
+The contract reads six adopter documents:
 
 | Document      | Shape                                                | Effect                                                                                                                           |
 | ------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,6 +43,8 @@ The contract reads four adopter documents:
 | `grants`      | `{resource: {application, roles: {role: [scopes]}}}` | Declares which application owns a resource view and which scopes each role may hold.                                             |
 | `confinement` | `[{label_prefix, scopes}]`                           | Caps every Session with a matching label prefix to a fixed scope set. Optional; omitting it confines nothing.                   |
 | `restrict`    | set of reasons                                       | Deny overlay. Any entry denies every exchange in the zone. Optional; keep it empty to authorize normally.                        |
+| `risk`        | `[{scope, tier}]`                                    | Names a risk tier for each sensitive scope. Optional; feeds the approval gate.                                                    |
+| `approval_tiers` | `[{tier, approver, ttl_seconds, privacy}]`        | Declares which tiers hold a mint for a human decision. Optional; a zone without it never raises a hold.                            |
 
 A zone that supplies no data authorizes nothing: every allow rule collapses to the default deny.
 

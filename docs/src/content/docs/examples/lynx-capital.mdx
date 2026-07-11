@@ -17,7 +17,7 @@ Use this fixed-name reference only after a smaller example works. Study it for m
 
 ## Prerequisites
 
-- Python, Docker, OPA, an isolated development zone, and a scoped provisioning Control key.
+- Python, Docker, OPA (for the offline policy-data tests), an isolated development zone, and a scoped provisioning Control key.
 - Capacity to run offline policy and Python suites before live provisioning.
 - Separate secrets for every managed application boundary.
 
@@ -29,7 +29,7 @@ Use this fixed-name reference only after a smaller example works. Study it for m
 | Agents         | Every agent execution - orchestrator or worker - is its own **Session** under its role's application, labeled `[role, lynx-swarm]` with run and agent metadata, narrowed by a Delegation to its role's scopes and views.         |
 | Providers      | Twenty partner **credential providers** (`provider://<slug>`), each registered in the exact config shape its kind supports: API key, bearer token, OAuth client credentials, OAuth authorization code, Caracal mandate, or none. |
 | Resources      | Per-application **resource views** (`resource://<app>-<provider>`). The Gateway binds each view to exactly one application, so shared partners expose one view per boundary, each carrying only that boundary's scopes.          |
-| Policy set     | `lynx-finance-ops`: default-deny base, generated bindings and grants data, and one shared decisions policy allowing exactly each application's role-granted mandate mints and gateway calls.                                     |
+| Policy set     | `lynx-finance-ops`: generated policy data documents - application bindings, per-view grants, and label confinement - that the default-deny platform decision contract evaluates, allowing exactly each application's role-granted mandate mints and gateway calls. |
 
 The model is declared once in `config/tenancy.yaml`; the SDK seam, agent runner,
 provisioning, and policy all read from it.
@@ -104,13 +104,9 @@ key on the real control-plane UUIDs.
 
 ## Policies
 
-`policies/` is an importable, OPA-tested library. The base policy default-denies and owns
-the decision contract; generated data documents carry the application bindings and the
-resource-view grants; one shared decisions policy allows mandate mints (scope ∩
-Delegation, role label granted, view owned by the caller) and gateway uses (mandate
-target includes the view), naming the deciding application boundary in every decision.
-Expected access behavior is documented in
-`policies/README.md`.
+`policies/` is an importable, OPA-tested library of **policy data documents** - Caracal adopters author data, never decision logic, because the platform [decision contract](/concepts/policy/#decision-contract) owns every `result`. The generated documents carry the application bindings (`app_ids`), the resource-view grants (`grants`), and the customer-label confinement; the contract then allows exactly the mandate mints (scope ∩ Delegation, role label granted, view owned by the caller) and gateway uses (mandate target includes the view) those documents describe, naming the deciding application boundary in every decision. Expected access behavior is documented in `policies/README.md`.
+
+The locally installed OPA from the prerequisites exists only for this offline test loop - it exercises the data documents against a vendored copy of the platform contract before anything is provisioned:
 
 ```bash
 opa test policies/ -v
@@ -164,11 +160,11 @@ docker compose -f _mock/docker-compose.yml down
 Open `http://localhost:8000`; the guided `/setup` wizard teaches the one-zone,
 per-boundary-application, provider, resource-view, and policy-library flow.
 
-## Related examples
+## Related Examples
 
 - [Run Echo Upstream](/examples/echo-upstream/)
 - [Launch Research Agent](/examples/research-agent/)
 
-## Next step
+## Next Step
 
-Map one Lynx pattern—not the whole domain—onto [Model Your Application in Caracal](/guides/modeling-recipes/) and add equivalent tests to your integration.
+Map one Lynx pattern - not the whole domain - onto [Model Your Application in Caracal](/guides/modeling-recipes/) and add equivalent tests to your integration.
