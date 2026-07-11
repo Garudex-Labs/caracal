@@ -170,6 +170,14 @@ describe('release manifest finalization', () => {
 })
 
 describe('release registry preflight', () => {
+  it('pins the Windows build dependency with hashes', () => {
+    const requirements = readFileSync(join(root, 'scripts', 'publishPypiRequirements.in'), 'utf8')
+    const lock = readFileSync(join(root, 'scripts', 'publishPypiRequirements.lock'), 'utf8')
+
+    expect(requirements).toMatch(/^colorama==0\.4\.6$/m)
+    expect(lock).toMatch(/^colorama==0\.4\.6 \\\n(?:    --hash=sha256:[0-9a-f]{64} \\\n)+    --hash=sha256:[0-9a-f]{64}$/m)
+  })
+
   it('reports immutable versions that already exist', async () => {
     const server = createServer((request, response) => {
       response.statusCode = request.url?.includes('existing') ? 200 : 404
