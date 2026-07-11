@@ -1,56 +1,51 @@
 ---
 title: Control Console Access
-description: Manage who can sign in to the web console with caracal allowlist, and understand when the access-denied page appears.
+description: Admit console users, understand sign-in denial, and distinguish account access from zone authority.
 pageType: workflow
 ---
 
-Console access on a self-hosted deployment is decided on the runtime host with `caracal allowlist`. The console's auth backend reads the allowlist file live, so every change applies on the next request with no restart. This page explains each command, what it does to existing accounts and sessions, and when a person sees the access-denied page.
+The runtime host controls who may register and sign in. Zone roles and product authority are separate concerns applied after authentication.
 
-## Manage the Allowlist
+## Admit a Person or Domain
 
-```sh
+```bash
 caracal allowlist add richard.hendricks@piedpiper.example
 caracal allowlist add @piedpiper.example
-caracal allowlist lock monica.hall@piedpiper.example
-caracal allowlist unlock monica.hall@piedpiper.example
-caracal allowlist remove gavin.belson@hooli.example
 caracal allowlist list
 ```
 
-Entries are exact emails or `@domain` suffixes; an exact entry always wins over a domain entry. While the list has active or locked entries, it is the sole authority over who may register and sign in. While it is empty, registration follows the deployment default: open in development, closed in production.
+Entries are exact email addresses or `@domain` suffixes. An exact entry takes precedence over a domain entry. While any active or locked entries exist, the allowlist is the sign-in authority. With an empty list, registration follows deployment configuration: open in development and closed in production unless configured otherwise.
 
-| Command  | Effect on access                                                                        | Effect on the account                                                                                                                           |
-| -------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `add`    | The email may register and sign in. Re-adding a removed email starts a fresh admission. | None; a new person registers through a configured sign-in method.                                                                               |
-| `lock`   | Sign-in and console use are blocked until unlocked.                                     | Sessions are revoked immediately; the account and its data stay intact.                                                                         |
-| `unlock` | Restores sign-in for a locked entry.                                                    | None.                                                                                                                                           |
-| `remove` | Access ends permanently unless re-added.                                                | Sessions are revoked and the account's sign-in records are erased on its next contact. Zone data and audit history remain in the control plane. |
+## Suspend, Restore, or Remove Access
 
-Removal is recorded as an explicit `removed` marker in the allowlist file rather than by deleting the line. Erasure only ever follows that deliberate marker: a missing, empty, or unreadable allowlist file can deny access but can never delete an account.
+```bash
+caracal allowlist lock monica.hall@piedpiper.example
+caracal allowlist unlock monica.hall@piedpiper.example
+caracal allowlist remove gavin.belson@hooli.example
+```
 
-## When the Access-Denied Page Appears
+| Action              | Sign-in effect                              | Account effect                                                                                                 |
+| ------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `lock`              | Blocks sign-in and console requests.        | Revokes sessions; retains the account and product data.                                                        |
+| `unlock`            | Restores access.                            | Retains the existing account.                                                                                  |
+| `remove`            | Blocks access until explicitly re-admitted. | Revokes sessions and erases sign-in records on the person's next contact; zone data and audit evidence remain. |
+| `add` after removal | Allows registration again.                  | Starts a fresh admission.                                                                                      |
 
-The console shows one uniform access-denied page for every denial. It appears when:
+Removal is stored as an explicit marker. A missing, empty, or unreadable allowlist may deny access, but it does not trigger account erasure.
 
-- An email that has no active allowlist entry attempts to sign in or register, with a password or through Google/GitHub.
-- A signed-in person's entry is locked. The next request from their browser revokes their sessions and lands them on the page, typically within seconds.
-- A signed-in person's entry is removed. The next request revokes their sessions, erases their sign-in records, and lands them on the page.
+## Interpret Access Denial
 
-The page is deliberately identical in all three cases, and the browser receives the same `access_denied` response for each. Whether an email was never admitted, suspended, or removed is visible only to you: the auth service log records the concrete reason (`sign-in denied by allowlist`, `console access denied by allowlist`) with the decision that triggered it.
+The browser deliberately shows the same access-denied page when an address was never admitted, is locked, or was removed. This prevents the UI from revealing account status. Runtime auth logs retain the concrete reason for operators.
 
-## Resolve a Denial
+To resolve a denial:
 
-1. Run `caracal allowlist list` on the runtime host to see every entry and its status.
-2. For a locked entry, run `caracal allowlist unlock <email>`.
-3. For a missing or removed email you want to admit, run `caracal allowlist add <email>`. A previously removed person registers again from scratch.
-4. If the list is empty and you expected the deployment default to admit sign-ins, check `CARACAL_OPEN_REGISTRATION` and the deployment's `NODE_ENV` posture in [Environment Variables](/operations/env-vars/#web-console-bff).
+1. Run `caracal allowlist list` on the runtime host.
+2. Unlock a locked entry, or add an intended address.
+3. Check the configured email/password or OAuth sign-in method.
+4. If the allowlist is empty, check `CARACAL_OPEN_REGISTRATION` and the deployment environment.
+
+Being admitted to the console does not make a person a workload Subject. Console accounts authenticate operators. Subjects are identities that applications act for and are observed inside a selected zone.
 
 ## Next Step
 
-Configure a sign-in method for admitted emails in [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
-
-## Related Pages
-
-- [Choose the Right Surface](/runtime-console/cli-and-console/)
-- [First-Run Troubleshooting](/get-started/first-run-troubleshooting/)
-- [CLI Exit Codes](/reference/runtime-exit-codes/)
+[Use the Web Console](/runtime-console/console/).
