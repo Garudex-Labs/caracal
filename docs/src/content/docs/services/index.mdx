@@ -31,7 +31,7 @@ flowchart LR
   Control --> API
 ```
 
-All five runtime services expose health and readiness. Health means the process responds. Readiness includes dependencies and service-specific thresholds. Control has no separate process: it is an optional plugin on the API port.
+The packaged Compose and Helm topologies deploy all five runtime services together with Postgres and Redis; Control is the only optional management surface. All five runtime services expose health and readiness. Health means the process responds. Readiness includes dependencies and service-specific thresholds. Control has no separate process: it is an optional plugin on the API port.
 
 ## Direct-Call Rule
 

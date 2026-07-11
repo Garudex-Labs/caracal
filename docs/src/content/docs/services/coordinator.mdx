@@ -21,7 +21,7 @@ Do not place the operator Coordinator token in workload code. Do not write Coord
 | Readiness | `GET /ready`   |
 | Metrics   | `GET /metrics` |
 
-Use [Use Coordinator API](/api/coordinator/) for routes and SDK contracts.
+Use [Use Coordinator API](/api/coordinator/) for routes and SDK contracts. Service environment variables are cataloged in [Configure Service Environment](/operations/env-vars/).
 
 ## Operational Flow
 
@@ -41,4 +41,4 @@ Task Sessions expire by TTL. Service Sessions require heartbeat renewal. Sweeper
 
 ## Next Step
 
-[Coordinate Sessions](/architecture/delegation-flow/) for the cross-service flow or [Manage Runtime Authority](/runtime-console/agents/) for the operator workflow.
+[Issue Mandates](/services/sts/) for the authority path, [Coordinate Sessions](/architecture/delegation-flow/) for the cross-service flow, or [Manage Runtime Authority](/runtime-console/agents/) for the operator workflow.

@@ -16,11 +16,19 @@ STS authenticates application or workload proof, evaluates current authority, an
 | `GET /.well-known/jwks.json?zone_id=...`             | Verifiers                                     |
 | `GET /step-up/{id}`                                  | Waiting client with the required hold context |
 | `POST /step-up/{id}/decision`                        | Subject-plane end-user decision flow          |
-| `GET /health`, `/ready`, `/metrics`, `/metrics.json` | Probes and authorized monitoring              |
-
-STS listens on local port `8080`.
 
 Routes under `/internal/` for policy simulation/status and zone signing-key rotation are service-to-service APIs. Do not call or expose them as workload APIs; the API service owns those operations.
+
+## Runtime Contract
+
+| Item      | Local value                     |
+| --------- | ------------------------------- |
+| Port      | `8080`                          |
+| Liveness  | `GET /health`                   |
+| Readiness | `GET /ready`                    |
+| Metrics   | `GET /metrics`, `/metrics.json` |
+
+Service environment variables are cataloged in [Configure Service Environment](/operations/env-vars/).
 
 ## Identity Boundary
 
