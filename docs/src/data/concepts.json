@@ -1,112 +1,157 @@
 {
-  "principal": {
-    "title": "Principal",
-    "path": "/concepts/principal/",
-    "description": "The human, service, application, or agent identity requesting authority.",
-    "aliases": ["caller identity", "agent identity", "requester"],
-    "relations": {
-      "requests": ["mandate"],
-      "participates-in": ["delegation"],
-      "scoped-to": ["zone"]
-    }
-  },
-  "mandate": {
-    "title": "Mandate",
-    "path": "/concepts/mandate/",
-    "description": "A short-lived signed Caracal access token binding a principal to scoped authority.",
-    "aliases": ["Caracal access token", "authority token"],
-    "relations": {
-      "issued-by": ["sts"],
-      "bound-to": ["principal", "policy", "resource"],
-      "scoped-to": ["zone"],
-      "checked-by": ["gateway"]
-    }
-  },
-  "policy": {
-    "title": "Policy",
-    "path": "/concepts/policy/",
-    "description": "Versioned Rego evaluated by STS at token-exchange time.",
-    "aliases": ["authorization policy", "Rego policy"],
-    "relations": {
-      "evaluated-by": ["sts"],
-      "authorizes": ["mandate"],
-      "activated-through": ["policy-set"]
-    }
-  },
   "zone": {
     "title": "Zone",
     "path": "/concepts/zone/",
-    "description": "The isolation boundary that owns applications, resources, providers, policies, signing keys, and audit data.",
-    "aliases": ["tenant boundary", "authority boundary"],
+    "description": "The isolation boundary that owns applications, resources, providers, policy activation, signing keys, authority state, and audit evidence.",
+    "aliases": ["trust boundary", "authority boundary"],
     "relations": {
-      "contains": ["principal", "resource", "grant", "policy-set"],
-      "owns": ["signing-keys", "zone-kek"],
-      "managed-through": ["console", "api"]
+      "contains": ["application", "subject", "authority-record", "session", "resource", "provider", "policy", "delegation", "approval"],
+      "owns": ["signing-keys", "audit-ledger"]
     }
   },
-  "resource-grant": {
-    "title": "Resource and Grant",
-    "path": "/concepts/resource-grant/",
-    "description": "The protected target and scoped authorization record used during mandate issuance.",
-    "aliases": ["resource binding", "access grant"],
+  "application": {
+    "title": "Application",
+    "path": "/concepts/principal/",
+    "description": "Registered software identity that authenticates to Caracal and requests authority.",
+    "aliases": ["client application", "workload identity"],
     "relations": {
-      "resource-consumed-by": ["gateway"],
-      "grant-evaluated-by": ["sts"],
-      "scoped-to": ["zone"]
+      "belongs-to": ["zone"],
+      "authenticates": ["authority-record"],
+      "runs": ["session"],
+      "requests": ["mandate"]
     }
   },
-  "delegation": {
-    "title": "Delegation",
-    "path": "/concepts/delegation/",
-    "description": "A typed, auditable narrowing of authority between two execution sessions in the same zone.",
-    "aliases": ["delegation", "authority delegation"],
+  "subject": {
+    "title": "Subject",
+    "path": "/concepts/principal/",
+    "description": "Opaque external JWT subject federated for attribution, provider connections, lifecycle, revocation, and Subject Approval decisions.",
+    "aliases": ["end-user subject", "federated subject"],
     "relations": {
-      "connects": ["session"],
-      "constrained-by": ["constraint"],
-      "tracked-by": ["coordinator"]
+      "federated-into": ["authority-record"],
+      "attributed-to": ["session"],
+      "may-decide": ["approval"]
     }
   },
-  "constraint": {
-    "title": "Delegation Constraint",
-    "path": "/concepts/constraint/",
-    "description": "A typed restriction on delegated authority, such as resource, scope, TTL, or hop limits.",
-    "aliases": ["caveat", "attenuation"],
+  "authority-record": {
+    "title": "Authority Record",
+    "path": "/concepts/sessions-revocation/",
+    "description": "One STS exchange record that anchors authority ancestry, attribution, revocation, and audit.",
+    "aliases": ["exchange record", "authority anchor"],
     "relations": {
-      "limits": ["delegation"],
-      "validated-by": ["coordinator", "sts"]
+      "created-by": ["sts"],
+      "may-identify": ["application", "subject"],
+      "anchors": ["mandate", "session", "revocation"]
     }
   },
   "session": {
     "title": "Session",
     "path": "/concepts/sessions-revocation/",
-    "description": "A Coordinator-tracked execution session with lifecycle, lineage, and revocation state.",
-    "aliases": ["session", "execution session"],
+    "description": "A Coordinator-tracked governed execution with lifecycle, lineage, labels, optional Subject attribution, and revocation state.",
+    "aliases": ["execution session", "governed execution"],
     "relations": {
+      "owned-by": ["application"],
       "tracked-by": ["coordinator"],
-      "may-contain": ["delegation"],
-      "revoked-through": ["revocation"]
+      "may-carry": ["subject", "delegation"],
+      "anchors": ["mandate", "revocation"]
     }
   },
-  "audit-ledger": {
-    "title": "Audit Ledger",
-    "path": "/concepts/audit-ledger/",
-    "description": "Append-only evidence for authorization decisions, runtime activity, and incident review.",
-    "aliases": ["audit records", "audit evidence"],
+  "resource": {
+    "title": "Resource",
+    "path": "/concepts/resource-grant/",
+    "description": "A stable protected target with declared scopes, routing, and one upstream credential provider binding when Gateway-routed.",
+    "aliases": ["protected target", "resource audience"],
     "relations": {
-      "written-by": ["api", "sts", "gateway", "coordinator", "control"],
-      "stored-in": ["postgres"],
-      "ingested-by": ["audit"]
+      "belongs-to": ["zone"],
+      "authenticated-upstream-by": ["provider"],
+      "authorized-by": ["policy"],
+      "targeted-by": ["mandate"]
+    }
+  },
+  "provider": {
+    "title": "Provider",
+    "path": "/concepts/provider/",
+    "description": "The upstream authentication mode and sealed credential material Gateway applies after Caracal authority is accepted.",
+    "aliases": ["credential provider", "upstream provider"],
+    "relations": {
+      "belongs-to": ["zone"],
+      "bound-to": ["resource"],
+      "used-by": ["gateway"]
+    }
+  },
+  "policy": {
+    "title": "Policy",
+    "path": "/concepts/policy/",
+    "description": "Versioned policy data evaluated through Caracal's deny-by-default decision contract during STS exchange.",
+    "aliases": ["policy data", "authorization policy"],
+    "relations": {
+      "evaluated-by": ["sts"],
+      "decides": ["mandate", "approval"],
+      "references": ["application", "resource", "delegation"]
+    }
+  },
+  "mandate": {
+    "title": "Mandate",
+    "path": "/concepts/mandate/",
+    "description": "A short-lived, signed JWT carrying policy-approved authority and its revocation anchors.",
+    "aliases": ["Caracal access token", "authority token"],
+    "relations": {
+      "issued-by": ["sts"],
+      "bound-to": ["application", "authority-record", "session", "delegation", "resource"],
+      "checked-by": ["gateway", "verifier"]
+    }
+  },
+  "delegation": {
+    "title": "Delegation",
+    "path": "/concepts/delegation/",
+    "description": "A positive-TTL transfer or narrowing of authority between two Sessions, bounded by scopes, resource, expiry, and hop constraints.",
+    "aliases": ["delegated authority", "Delegation ID"],
+    "relations": {
+      "connects": ["session"],
+      "constrained-by": ["constraint"],
+      "validated-by": ["coordinator", "sts"],
+      "anchors": ["mandate", "revocation"]
+    }
+  },
+  "constraint": {
+    "title": "Delegation Constraint",
+    "path": "/concepts/constraint/",
+    "description": "A typed resource, scope, TTL, or hop bound applied to Delegation authority.",
+    "aliases": ["attenuation", "Delegation bound"],
+    "relations": {
+      "limits": ["delegation"],
+      "validated-by": ["coordinator", "sts"]
     }
   },
   "approval": {
     "title": "Approval",
     "path": "/concepts/step-up/",
-    "description": "A policy-raised hold that requires a human decision before STS issues authority.",
-    "aliases": ["interaction_required", "approval hold"],
+    "description": "A policy-raised, single-use hold that requires an authorized operator or federated Subject decision before STS issues a Mandate.",
+    "aliases": ["interaction_required", "approval hold", "challenge ID"],
     "relations": {
-      "requested-by": ["policy"],
-      "issued-by": ["sts"],
-      "satisfied-through": ["api"]
+      "raised-by": ["policy", "sts"],
+      "binds": ["application", "authority-record", "session", "delegation", "resource"],
+      "releases": ["mandate"]
+    }
+  },
+  "revocation": {
+    "title": "Revocation",
+    "path": "/concepts/sessions-revocation/",
+    "description": "Monotonic invalidation of Authority records, Sessions, or Delegations propagated to enforcement points; latency depends on the enforcement path and already-issued Mandate TTL.",
+    "aliases": ["authority invalidation", "revocation anchor"],
+    "relations": {
+      "invalidates": ["authority-record", "session", "delegation", "mandate"],
+      "consumed-by": ["gateway", "verifier"]
+    }
+  },
+  "audit-ledger": {
+    "title": "Audit Ledger",
+    "path": "/concepts/audit-ledger/",
+    "description": "Append-only, request-correlated evidence for authority decisions, protected actions, administration, and incidents.",
+    "aliases": ["audit records", "audit evidence"],
+    "relations": {
+      "written-by": ["api", "sts", "gateway", "coordinator", "control"],
+      "ingested-by": ["audit"],
+      "stored-in": ["postgres"]
     }
   }
 }

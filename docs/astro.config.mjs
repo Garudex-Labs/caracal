@@ -171,6 +171,7 @@ export default defineConfig({
             { label: 'Overview', link: '/guides/' },
             {
               label: 'Plan the Integration',
+              collapsed: true,
               items: [
                 { label: 'Model Your Application in Caracal', link: '/guides/modeling-recipes/' },
                 { label: 'Serve Your Own Customers', link: '/guides/serve-customers/' },
@@ -180,6 +181,7 @@ export default defineConfig({
             },
             {
               label: 'Authorization',
+              collapsed: true,
               items: [
                 { label: 'Author Policy Data', link: '/guides/author-policy/' },
                 { label: 'Activate a Policy Set', link: '/guides/activate-policy-set/' },
@@ -188,6 +190,7 @@ export default defineConfig({
             },
             {
               label: 'Integrate Application Code',
+              collapsed: true,
               items: [
                 { label: 'Integrate the TypeScript SDK', link: '/guides/sdk-typescript/' },
                 { label: 'Integrate the Python SDK', link: '/guides/sdk-python/' },
@@ -200,6 +203,7 @@ export default defineConfig({
             },
             {
               label: 'Protect Resource Servers',
+              collapsed: true,
               items: [
                 { label: 'Protect a Gateway-Routed HTTP API', link: '/guides/protect-gateway-http/' },
                 { label: 'Protect an Express App', link: '/guides/protect-express/' },
@@ -211,10 +215,11 @@ export default defineConfig({
             },
             {
               label: 'Operate and Extend',
+              collapsed: true,
               items: [
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
-                { label: 'Human Approvals', link: '/guides/step-up/' },
+                { label: 'Human Approval', link: '/guides/step-up/' },
                 { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
                 { label: 'Production Integration Patterns', link: '/guides/production-patterns/' },
               ],

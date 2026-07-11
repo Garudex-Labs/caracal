@@ -75,7 +75,7 @@ async function cleanup() {
 try {
   state.zone = await admin.zones.create({ name: 'Pied Piper Protected E2E', slug: `pied-piper-protected-${suffix}` })
   state.application = await admin.applications.create(state.zone.id, {
-    name: 'Son of Anton Protected E2E',
+    name: 'Anton Protected E2E',
     registration_method: 'managed',
   })
   state.provider = await admin.providers.create(state.zone.id, {
