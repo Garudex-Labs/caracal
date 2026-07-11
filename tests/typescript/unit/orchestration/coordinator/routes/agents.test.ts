@@ -701,7 +701,9 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const client = spawnClient({
       refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
-      insert: { rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
+      insert: {
+        rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null, lease_generation: '1' }],
+      },
       outbox: true,
     })
     db.connect.mockResolvedValueOnce(client)
@@ -712,6 +714,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service' },
     })
     expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ agent_session_id: 'agent-service', lease_generation: 1 })
     const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
     expect(insertCall?.[1]?.[5]).toBe('service')
   })
@@ -1085,6 +1088,42 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: guard rails', () => {
     expect(res.statusCode).toBe(404)
     expect(res.json()).toEqual({ error: 'session_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('requires a generation when a runtime holder terminates a service Session', async () => {
+    const { app, db } = buildApp([], 'app1')
+    const client = seqClient([
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ application_id: 'app1', lifecycle: 'service', lease_generation: '3' }] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/agents/a1' })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'lease_generation_required' })
+  })
+
+  it('fences runtime termination from a previous service generation', async () => {
+    const { app, db } = buildApp([], 'app1')
+    const client = seqClient([
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ application_id: 'app1', lifecycle: 'service', lease_generation: '3' }] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/v1/zones/z1/agents/a1',
+      payload: { lease_generation: 2 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_lease_fenced' })
   })
 })
 

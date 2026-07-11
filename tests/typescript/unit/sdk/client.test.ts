@@ -1084,6 +1084,42 @@ describe('Caracal.withApproval', () => {
     await expect(c.withApproval(fn)).rejects.toThrow('boom')
     expect(exchanger.waitForApproval).not.toHaveBeenCalled()
   })
+
+  it('threads approvalId through fetch so an approved hold authorizes the retry', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }))
+    const hold = new ApprovalRequiredError('Approval required', 'chal-7')
+    const mintMandate = vi.fn().mockRejectedValueOnce(hold).mockResolvedValue({ token: 'mandate-tok', expiresInSeconds: 300 })
+    const exchanger = stubExchanger({ mintMandate, waitForApproval: vi.fn().mockResolvedValue('approved') })
+    const c = new Caracal({
+      coordinator: { baseUrl: 'http://coord', fetchImpl: fetchImpl as never },
+      zoneId: 'z',
+      applicationId: 'app',
+      tokenSource: async () => 'tok',
+      exchanger: exchanger as never,
+      gatewayUrl: 'http://gateway',
+    })
+
+    const res = await c.withApproval((approvalId) =>
+      c.fetch('resource://pipernet', '/v1/refunds', { method: 'POST', scopes: ['funds:transfer'], asApplication: true, approvalId }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(mintMandate).toHaveBeenNthCalledWith(
+      1,
+      'resource://pipernet',
+      ['funds:transfer'],
+      expect.objectContaining({ approvalId: undefined, cache: false }),
+    )
+    expect(mintMandate).toHaveBeenNthCalledWith(
+      2,
+      'resource://pipernet',
+      ['funds:transfer'],
+      expect.objectContaining({ approvalId: 'chal-7', cache: false }),
+    )
+    const init = fetchImpl.mock.calls[0][1] as RequestInit
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer mandate-tok')
+    expect(new Headers(init.headers).get('X-Caracal-Resource')).toBe('resource://pipernet')
+  })
 })
 
 describe('isApprovalRequired', () => {

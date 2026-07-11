@@ -245,15 +245,18 @@ export interface CallOptions {
  * Transport behavior options. `scopes` switches gateway-routed requests from
  * the raw subject token to a scoped resource mandate minted for the routed
  * resource and the bound session identity; requires a client-secret
- * configuration. `timeoutMs` bounds every request the transport sends when
- * the caller supplies no signal of its own (combined when both are present).
- * `propagation` controls where the context envelope (traceparent, baggage)
- * is written: 'always' (the default) propagates to every host so downstream
- * Caracal-aware services can rebind context; 'gateway-only' keeps the
- * caracal.* correlation ids off third-party hosts.
+ * configuration. `approvalId` retries an approval-gated mint so the request
+ * proceeds once an authenticated approver has satisfied the hold. `timeoutMs`
+ * bounds every request the transport sends when the caller supplies no signal
+ * of its own (combined when both are present). `propagation` controls where
+ * the context envelope (traceparent, baggage) is written: 'always' (the
+ * default) propagates to every host so downstream Caracal-aware services can
+ * rebind context; 'gateway-only' keeps the caracal.* correlation ids off
+ * third-party hosts.
  */
 export interface TransportOptions extends CallOptions {
   scopes?: string[]
+  approvalId?: string
   timeoutMs?: number
   propagation?: 'always' | 'gateway-only'
 }
@@ -750,6 +753,7 @@ export class Caracal {
     const outer = this
     const appAllowed = opts.asApplication === true
     const scopes = opts.scopes
+    const approvalId = opts.approvalId
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const ctx = current()
       if (!ctx && !appAllowed) {
@@ -781,11 +785,11 @@ export class Caracal {
       const bounded = { ...init, signal, headers: merged }
       if (rewritten) {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes, approvalId)}`)
         return fetchImpl(request ? new Request(rewritten.url, new Request(request, bounded)) : rewritten.url, bounded)
       }
       if (gatewayBound) {
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes, approvalId)}`)
       }
       return fetchImpl(request ? new Request(request, bounded) : (input as URL), request ? undefined : bounded)
     }) as typeof fetch
@@ -803,6 +807,7 @@ export class Caracal {
     ctx: CaracalContext | undefined,
     resourceId: string | undefined,
     scopes: string[] | undefined,
+    approvalId?: string,
   ): Promise<string> {
     if (scopes?.length && resourceId) {
       const exchanger = this.config.exchanger
@@ -811,6 +816,7 @@ export class Caracal {
         const minted = await exchanger.mintMandate(resourceId, scopes, {
           sessionId: ctx?.sessionId,
           delegationId: ctx?.delegationId,
+          approvalId,
           cache: false,
         })
         return minted.token
@@ -928,17 +934,18 @@ export class Caracal {
   /**
    * One-call happy path: sends `init` to `path` on the given resource through the
    * Gateway with Caracal context and authority injected. Accepts the transport
-   * options inline: pass `scopes` to authorize with a scoped resource mandate and
+   * options inline: pass `scopes` to authorize with a scoped resource mandate,
+   * `approvalId` to retry an approval-gated call once its hold is satisfied, and
    * `asApplication` to call as the application's own identity. The resource header
    * always wins over any caller-supplied `X-Caracal-Resource`. No default timeout
-   * is applied; pass `signal` (e.g. AbortSignal.timeout) to bound a call.
+   * is applied; pass `timeoutMs` or `signal` (e.g. AbortSignal.timeout) to bound a call.
    */
   fetch(resourceId: string, path: string = '/', init: RequestInit & TransportOptions = {}): Promise<Response> {
-    const { scopes, asApplication, ...rest } = init
+    const { scopes, asApplication, approvalId, timeoutMs, propagation, ...rest } = init
     const request = this.gatewayRequest(resourceId, path)
     const headers = new Headers(rest.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
-    return this.transport({ scopes, asApplication })(request.url, { ...rest, headers })
+    return this.transport({ scopes, asApplication, approvalId, timeoutMs, propagation })(request.url, { ...rest, headers })
   }
 
   /**
