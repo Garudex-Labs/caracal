@@ -4,7 +4,12 @@ description: Follow the operator journey from starting Caracal through setup, wo
 pageType: landing
 ---
 
-Use this section after installation. It follows the work in the order an operator normally performs it, without mixing runtime lifecycle with product management.
+Use this section after installation. Operating Caracal involves two surfaces with a deliberate split:
+
+- **The `caracal` runtime CLI** manages the local stack's lifecycle - starting, stopping, checking, upgrading - and launches workload processes with injected credentials. It never touches product state.
+- **The web console** is the browser interface for everything product-shaped: zones, applications, providers, resources, policies, workloads, audit, and live intervention.
+
+The pages below follow the work in the order an operator normally performs it, without mixing runtime lifecycle with product management.
 
 ## Complete an Operator Journey
 
@@ -32,9 +37,9 @@ The runtime CLI does not provide zone, policy, session, delegation, approval, au
 
 ## Local Addresses
 
-After `caracal up`, open the packaged console at [http://localhost:3001](http://localhost:3001). Local services bind to loopback: API `3000`, Coordinator `4000`, STS `8080`, Gateway `8081`, and Audit `9090`.
+After `caracal up`, open the packaged console at [http://localhost:3001](http://localhost:3001). The full loopback port map lives in [Start and Check the Stack](/runtime-console/stack/#open-the-packaged-console).
 
-Do not call those service ports merely because they are reachable locally. The console, SDKs, Gateway, Control API, and documented API surfaces provide the supported paths for their respective tasks.
+Do not call service ports merely because they are reachable locally. The console, SDKs, Gateway, Control API, and documented API surfaces provide the supported paths for their respective tasks.
 
 ## Next Step
 
