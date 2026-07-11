@@ -6,6 +6,16 @@ pageType: workflow
 
 Research Agent is a `caracal run` example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `ResearchAgent/`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
 
+## When to use it
+
+Use it to evaluate one-shot runtime credential injection for an existing CLI that cannot accept an SDK transport. The launcher limits described in [Run an Agent with caracal run](/guides/runtime-run/) apply: do not use it for a long-running service or as proof of request-level Gateway enforcement.
+
+## Prerequisites
+
+- Three provider-backed resources with runtime injection enabled and least-privilege binding scopes.
+- A Launcher workload and owner-only workload secret.
+- Synthetic or development provider credentials; the offline test does not call third parties.
+
 ## What it demonstrates
 
 | Resource | Injected env | Used for |
@@ -85,6 +95,14 @@ pnpm test
 ```
 
 The tests do not contact Google, OpenAI, or Caracal.
+
+## Validate the launch
+
+Run the agent directly and expect exit `2`, then run it through `caracal run` and expect all three masked preflight entries. Confirm binding fetch and credential mints in Audit, then exit and verify credentials are absent from the parent shell.
+
+:::caution[Failure point: static authority]
+Injected API keys or bearer tokens can carry more upstream authority than Caracal binding scopes suggest. Scopes gate release; they cannot narrow a static provider credential. Prefer Gateway brokering for strong per-request enforcement.
+:::
 
 ## Next step
 

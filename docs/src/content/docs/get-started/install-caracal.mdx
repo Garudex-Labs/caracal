@@ -1,24 +1,37 @@
 ---
 title: Install Caracal
-description: Install the released Caracal runtime CLI, then verify Docker for the local stack.
+description: Install the caracal CLI, verify Docker, and start the local stack that the rest of Get Started uses.
 pageType: workflow
 ---
 
-Install the released runtime when you want to run Caracal as a product. The `caracal` CLI owns local runtime lifecycle, workload execution, upgrades, and the local web development launcher. The packaged web console is a deployable production service in Compose and Helm; it owns product management: zones, applications, resources, providers, policies, sessions, audit, diagnostics, and Control workflows.
+import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-## Install the Runtime CLI
+Running Caracal locally takes two pieces:
 
-Release assets include platform-specific `caracal-runtime-*` archives, `manifest.json`, and `SHA256SUMS`. The `install.sh` installer installs the runtime-only CLI from those assets; it does not install source-tree development tooling. You can use the installer or download the archive for your platform from the [Caracal releases](https://github.com/Garudex-Labs/caracal/releases), verify it, and place the `caracal` binary on your `PATH`.
+- **The `caracal` CLI** - a single executable that starts and stops the local stack and launches your programs under Caracal's control.
+- **Docker** - the local stack runs as containers: Caracal's services, a PostgreSQL database, a Redis cache, and the web console, the browser interface where you will create and manage everything in the next page.
 
-To install with the release script on Linux or macOS:
+You install one binary; Docker provides the rest. No source checkout, package build, or separate database install is required.
+
+## Prerequisites
+
+- a supported Linux, macOS, or Windows machine;
+- Docker 25 or later with Compose v2;
+- `curl` or a browser for downloading a release;
+- permission to install one executable on your `PATH`.
+
+## Install the CLI
+
+On Linux or macOS, the install script downloads the right release archive for your platform, verifies its checksum, and places `caracal` on your `PATH`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh
 ```
 
-To verify a download yourself, or to verify archives and container images fetched directly, follow [Verify a Release](/security/verify-releases/).
+Prefer to download and verify manually, on any platform? Each [release](https://github.com/Garudex-Labs/caracal/releases) ships platform archives (`caracal-runtime-*`), a `manifest.json`, and a `SHA256SUMS` file.
 
-### Linux and macOS
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
 ```sh
 gh release download vX.Y.Z \
@@ -30,9 +43,10 @@ tar -xzf caracal-runtime-linux-amd64-vX.Y.Z.tar.gz
 install -m 0755 caracal ~/.local/bin/caracal
 ```
 
-Choose the `linux-arm64`, `darwin-amd64`, or `darwin-arm64` archive when that matches your machine. Ensure the destination directory is on your `PATH`.
+Choose the `linux-arm64`, `darwin-amd64`, or `darwin-arm64` archive when that matches your machine, and make sure the destination directory is on your `PATH`.
 
-### Windows
+</TabItem>
+<TabItem label="Windows">
 
 ```powershell
 gh release download vX.Y.Z `
@@ -45,37 +59,29 @@ Expand-Archive .\caracal-runtime-windows-amd64-vX.Y.Z.zip -DestinationPath $env:
 
 Compare the PowerShell hash with the matching entry in `SHA256SUMS`, then add `%LOCALAPPDATA%\Programs\caracal` to the user `Path` and open a new shell.
 
-## Verify Installation
+</TabItem>
+</Tabs>
+
+For deeper supply-chain checks, signatures, and container image verification, see [Verify a Release](/security/verify-releases/).
+
+## Verify the Installation
+
+The same commands work in every shell:
 
 ```sh
 caracal --version
 caracal status --help
 ```
 
-On Windows PowerShell:
-
-```powershell
-caracal --version
-caracal status --help
-```
-
-Use `caracal` for local lifecycle, workload execution, and upgrades. Use the packaged web console at `http://localhost:3001` after `caracal up` for the standard local product-management path.
+Both commands should print without errors.
 
 ## Verify Docker
 
-Running the open-source stack locally requires Docker 25+ with the Compose v2 plugin:
-
 ```sh
 docker compose version
 ```
 
-On Windows PowerShell:
-
-```powershell
-docker compose version
-```
-
-The local stack includes PostgreSQL, Redis, and the packaged web console. You do not need to install those databases separately for Get Started.
+If this fails, install or start Docker Desktop (macOS, Windows) or Docker Engine with the Compose plugin (Linux) before continuing.
 
 ## Start the Local Stack
 
@@ -84,14 +90,21 @@ caracal up
 caracal status --ready
 ```
 
-On Windows PowerShell:
+`caracal up` pulls and starts the containers; `caracal status --ready` waits until every service reports healthy. When readiness succeeds, the web console is being served at [http://localhost:3001](http://localhost:3001).
 
-```powershell
-caracal up
-caracal status --ready
-```
+:::note
+Do not sign in yet. The console keeps registration closed by default, so the next page first allows your email from the terminal and configures a sign-in method, then walks you through everything in the browser.
+:::
 
-After readiness succeeds, open [http://localhost:3001](http://localhost:3001). Compose maps the host address `127.0.0.1:3001` to the web BFF container on port `3002`. Before your first sign-in, run `caracal allowlist add <email>` on the host to permit your email, and configure a console sign-in method as described in [First Protected Call](/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+## Common Mistakes
+
+- If the shell cannot find `caracal` after installation, reopen the shell or add the install directory to `PATH`.
+- Do not use `caracal purge` to recover from a normal startup error; it intentionally removes all local state.
+- If you have a Caracal source checkout for contribution work, keep it separate: this path uses the released `caracal` executable, not the source-tree `pnpm caracal` command.
+
+## Expected Outcome
+
+`caracal status --ready` exits successfully and [http://localhost:3001](http://localhost:3001) responds. Readiness proves the local services are up; nothing is protected yet - that is the next page.
 
 ## Platform Notes
 

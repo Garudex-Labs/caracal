@@ -1,22 +1,23 @@
 ---
 title: First-Run Troubleshooting
-description: Fix common install, readiness, profile, STS, Gateway, upstream, and audit issues during onboarding.
+description: Fix common install, readiness, sign-in, workload, token, Gateway, upstream, and audit issues during onboarding.
 pageType: workflow
 ---
 
-Use this page when the Get Started path fails before your first protected call or first SDK integration succeeds. For production incidents and deeper operational diagnosis, use [Troubleshoot by Symptom](/operations/troubleshooting/).
+Use this page when a Get Started step fails. Every request you make crosses the same boundaries in the same order, so <mark>diagnose in that order and stop at the first boundary that fails</mark> - do not change policy, credentials, and routing at the same time:
+
+```mermaid
+flowchart LR
+  Ready[Stack readiness] --> SignIn[Console sign-in] --> Identity[Workload identity] --> STS[Token service] --> GW[Gateway] --> Up[Upstream service] --> Audit[Audit trail]
+```
+
+Run the failing step once and keep its request ID or exact error, then start at the matching section below. For production incidents and deeper operational diagnosis, use [Troubleshoot by Symptom](/operations/troubleshooting/).
 
 ## Readiness Failures
 
-Run:
+The same command works in every shell:
 
 ```sh
-caracal status --ready --json
-```
-
-On Windows PowerShell:
-
-```powershell
 caracal status --ready --json
 ```
 
@@ -39,32 +40,18 @@ caracal status --ready --json
 
 | Symptom                             | Check                                                                                                                       |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `workload identity not found`       | Export `CARACAL_WORKLOAD_ID` and provide a workload secret source.                                                          |
+| `workload identity not found`       | Export `CARACAL_WORKLOAD_ID` and provide a workload secret source, exactly as in [Register a Workload](/get-started/first-protected-call/#register-a-workload). |
 | `no credential bindings configured` | Define launch bindings for the workload on the **Launcher** page in the web console.                                        |
 | Secret file is rejected             | Ensure the secret file exists and is readable only by the current user.                                                     |
 | SDK cannot load configuration       | Set `CARACAL_CONFIG` to your `caracal.toml` path, or pass the profile path using the SDK-supported configuration mechanism. |
 
-Linux and macOS:
-
-```sh
-export CARACAL_WORKLOAD_ID=<workload ID>
-export CARACAL_WORKLOAD_SECRET=<workload secret>
-```
-
-Windows PowerShell:
-
-```powershell
-$env:CARACAL_WORKLOAD_ID = "<workload ID>"
-$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
-```
-
 ## Lost Workload Secret
 
-The workload secret is held sealed in the Secret Store. If you lose your local copy, reveal it again from the web console **Launcher** page - each reveal is recorded in the zone audit timeline - or rotate the secret and update your secret file or environment with the new value.
+The workload secret is held sealed server-side. If you lose your local copy, reveal it again from the web console **Launcher** page - each reveal is recorded in the zone audit timeline - or rotate the secret and update your secret file or environment with the new value.
 
-## STS 403
+## Token Service Denials (STS 403)
 
-An STS 403 means the workload authenticated but did not receive a mandate.
+The STS is Caracal's token service: it checks policy and issues mandates. A 403 from it means your program authenticated successfully but policy did not allow what it asked for.
 
 | Check             | Fix                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------- |
@@ -72,18 +59,18 @@ An STS 403 means the workload authenticated but did not receive a mandate.
 | Resource ID       | Use the resource ID you created in guided setup.                                            |
 | Scopes            | Request only scopes covered by the starter policy.                                          |
 | Workload secret   | Rotate the workload secret if the configured secret file no longer matches the workload.    |
-| Audit request ID  | Open web console **Audit** or **explain** with the request ID to see the policy diagnostic. |
+| Audit request ID  | Open web console **Audit** with the request ID to see the policy diagnostic.                |
 
 ## Gateway 403
 
-A Gateway 403 means the Gateway rejected the request before forwarding it upstream.
+A Gateway 403 means policy already said yes and a token was issued, but the Gateway rejected the request before forwarding it upstream.
 
 | Check                | Fix                                                                       |
 | -------------------- | ------------------------------------------------------------------------- |
-| Authorization header | Send `Authorization: Bearer <Caracal access token>`.                      |
+| Authorization header | Send `Authorization: Bearer <the injected token>`.                        |
 | Resource header      | Send `X-Caracal-Resource` with the resource ID from guided setup.         |
-| Token freshness      | Rerun the workload to obtain a fresh short-lived mandate.                 |
-| Revocation           | Confirm the session, app, or Delegation was not revoked.                  |
+| Token freshness      | Mandates are short-lived by design; rerun the workload to obtain a fresh one. |
+| Revocation           | Confirm the session, application, or delegation was not revoked.          |
 | Route binding        | Confirm the resource has the Gateway route and upstream URL you intended. |
 
 ## Upstream Unreachable
@@ -92,7 +79,7 @@ A Gateway 403 means the Gateway rejected the request before forwarding it upstre
 | --------------------- | -------------------------------------------------------------------------------------------------- |
 | Connection refused    | The upstream service is not listening, or the Gateway cannot reach that host and port.             |
 | DNS failure           | Use a hostname visible from the Gateway container, not only from the host shell.                   |
-| Demo upstream missing | Start `caracalDemoUpstream` on the `caracalData` Docker network or use your own reachable service. |
+| Demo upstream missing | Confirm the resource's upstream URL is reachable from the Gateway container and the provider key sealed on the provider is current. |
 | Wrong path            | Use a known-good path on the upstream before trying custom paths.                                  |
 
 ## Missing Audit Events
@@ -103,6 +90,10 @@ A Gateway 403 means the Gateway rejected the request before forwarding it upstre
 | Wrong zone                           | Select the zone used by guided setup.                                             |
 | Request never reached STS or Gateway | Confirm the workload used your runtime configuration and the Gateway URL it sets. |
 | Audit ingestion lag                  | Wait briefly and refresh the web console audit view.                              |
+
+## Expected Outcome
+
+Repeat only the failed step. Success means readiness passes, the protected call returns the upstream response, and Audit contains both the authorization decision and the Gateway result under the same request trace.
 
 ## Next Step
 
