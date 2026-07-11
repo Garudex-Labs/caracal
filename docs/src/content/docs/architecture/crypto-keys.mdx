@@ -1,57 +1,46 @@
 ---
 title: Manage Keys
-description: Key material, signatures, HMACs, JWKS, and rotation boundaries in Caracal.
+description: Map each key to the boundary it protects and plan rotation without breaking issuance, verification, or evidence.
 pageType: architecture
 ---
 
-Caracal uses separate keys for encryption, mandate signing, audit integrity, stream integrity, and service-to-service exchange.
+Caracal separates keys so compromise or rotation at one boundary does not silently authorize another.
 
-## Key Map
+## Key-to-Boundary Map
 
-| Material                     | Used by                                         | Purpose                                                                                                                       |
-| ---------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Zone signing keys            | STS                                             | Sign mandate JWTs and publish public keys through JWKS.                                                                       |
-| `SECRET_STORE_KEK`           | API and STS                                     | Root key that seals Secret Store envelopes: provider credentials, zone signing material, connection tokens, and sink secrets. |
-| `AUDIT_HMAC_KEY`             | API, STS, Gateway, Audit, Control               | Protect audit event integrity.                                                                                                |
-| `STREAMS_HMAC_KEY`           | API, STS, Gateway, Coordinator, Audit/consumers | Sign Redis stream messages in published modes.                                                                                |
-| `GATEWAY_STS_HMAC_KEY`       | Gateway and STS                                 | Authenticate Gateway token-exchange requests to STS.                                                                          |
-| Admin and Coordinator tokens | API, Coordinator, Console, Control              | Authenticate management and Session/Delegation operations.                                                                    |
+| Material                              | Boundary                                                                                  | Failure implication                                                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Zone signing keys                     | STS mandate issuance to verifiers                                                         | Missing private material blocks issuance; stale JWKS caches can reject a rotated signer. |
+| `SECRET_STORE_KEK`                    | Services to sealed provider, signing, connection, sink, application, and workload secrets | Wrong key fingerprint prevents decryption; restore ciphertext and keyring together.      |
+| `AUDIT_HMAC_KEY`                      | Producers to Audit evidence                                                               | Mismatch creates HMAC failures and blocks trusted ingestion.                             |
+| `STREAMS_HMAC_KEY`                    | Stream producers to consumers                                                             | Mismatch blocks trusted propagation in published modes.                                  |
+| `GATEWAY_STS_HMAC_KEY`                | Gateway to STS exchange                                                                   | Mismatch denies every Gateway-authenticated exchange.                                    |
+| Admin/Coordinator/Control credentials | Operator clients to management surfaces                                                   | Missing or insufficient scope yields `401` or `403`; do not distribute to workloads.     |
 
-## Secret Envelopes
-
-Every stored secret is sealed into a self-describing envelope: a fresh data-encryption key encrypts the value with ChaCha20-Poly1305, and `SECRET_STORE_KEK` wraps that data key. Envelopes bind a key fingerprint and a purpose-specific associated-data string, so a value decrypts only under the correct key and in the context it was written for. The embedded fingerprint also routes each read to the right key while `SECRET_STORE_KEK_PREVIOUS` carries a retiring key through a rotation window. The KEK lives in the service environment, never beside the ciphertext, and startup rejects weak or short keys. [Configure Secret Backends](/operations/secret-backends/) covers where envelopes and user-entered credentials are stored and how the master key rotates.
-
-## Mandate Verification
+## Mandate Verification Flow
 
 ```mermaid
 sequenceDiagram
   participant STS
   participant Client
-  participant Resource
-  STS->>Client: signed mandate JWT
-  Resource->>STS: GET /.well-known/jwks.json
-  STS-->>Resource: public keys with cache headers
-  Client->>Resource: bearer mandate
-  Resource->>Resource: verify signature, issuer, audience, scopes, token use, revocation
+  participant Verifier
+  Verifier->>STS: GET /.well-known/jwks.json?zone_id=...
+  STS-->>Verifier: public keys + cache headers
+  STS->>Client: signed mandate
+  Client->>Verifier: bearer mandate
+  Verifier->>Verifier: verify signature, issuer, audience, use, scopes, expiry, revocation
 ```
 
-STS JWKS responses are cacheable; rotation plans must preserve overlap until verifier caches expire.
+Keep old public keys available until verifier caches and outstanding token TTLs no longer need them. Never copy private signing material to a verifier.
 
-## Gateway Exchange Signature
+## Secret Envelope Rotation
 
-Gateway signs STS exchange requests with timestamp, request ID, method, path, and form body. STS checks the signature, skew, request ID, and nonce before accepting the Gateway-authenticated path.
+Secret Store uses a fresh data-encryption key per value and wraps it with the configured KEK. The envelope records a key fingerprint and purpose-specific associated data. During KEK rotation, `SECRET_STORE_KEK_PREVIOUS` allows reads under the retiring key while data is rewrapped. Removing it too early makes old envelopes unreadable.
 
-## Published-Mode Requirements
+Published `rc` and `stable` modes require validated HMAC material rather than silently disabling integrity checks. A missing or short required key fails startup or readiness.
 
-In `rc` and `stable`, HMAC keys used by services must be present and at least 32 bytes where validated. Missing keys cause startup or readiness failure rather than silent downgrade.
+Use [Rotate Keys and Secrets](/operations/key-management/) for the operational procedure and [Configure Secret Backends](/operations/secret-backends/) for custody options.
 
 ## Next Step
 
-Use [Enforce Boundaries](/architecture/trust-boundaries/) to connect keys, services, commands, and data stores to trust boundaries.
-
-## Related Pages
-
-- [Rotate Keys and Secrets](/operations/key-management/)
-- [Configure Secret Backends](/operations/secret-backends/)
-- [Identity Package](/sdks/identity/)
-- [Enforce Boundaries](/architecture/trust-boundaries/)
+[Enforce Boundaries](/architecture/trust-boundaries/).
