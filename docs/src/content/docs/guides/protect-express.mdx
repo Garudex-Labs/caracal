@@ -5,6 +5,12 @@ description: Add the caracalAuth middleware to Express routes to verify mandates
 
 Use `@caracalai/express` when an Express app should verify Caracal mandates before route handlers run.
 
+## Prerequisites
+
+- A Caracal-mandate resource whose audience matches this service.
+- The zone STS issuer, zone ID, and a shared production revocation store.
+- A route-by-route scope and target map.
+
 ## Install
 
 ```bash
@@ -25,7 +31,7 @@ const app = express()
 
 const verifier = createMandateVerifier({
   issuer: process.env.CARACAL_ISSUER!,
-  audience: process.env.CARACAL_AUDIENCE!,
+  audience: 'resource://pipernet',
   zoneId: process.env.CARACAL_ZONE_ID!,
   revocations: new InMemoryRevocationStore(),
 })
@@ -38,7 +44,7 @@ app.use(
     { verifier },
     {
       requiredScopes: ['mcp:tool:call'],
-      requiredTargets: ['https://mcp.example.com'],
+      requiredTargets: ['resource://pipernet'],
     },
   ),
 )
@@ -70,4 +76,14 @@ The middleware attaches verified claims to `req.caracal` and `req.caracalClaims`
 3. Remove a required scope and confirm the route returns `403`.
 4. Revoke the session and confirm the route rejects the old mandate.
 
-Related pages: [Mandates](/concepts/mandate/) and [Sessions and Revocation](/concepts/sessions-revocation/).
+Expected result: missing or invalid credentials return `401`, valid but insufficient authority returns `403`, and protected handlers run only after `req.caracalClaims` and `req.caracalContext` are populated.
+
+:::caution[Failure point: revocation]
+`InMemoryRevocationStore` proves local behavior only. Every production replica must share the Redis-backed store and consume revocation events; otherwise one replica can continue accepting a revoked Session.
+:::
+
+For middleware option signatures, use [Express Adapter reference](/sdks/adapters/express/).
+
+## Next step
+
+Add route-specific requirements, then test the boundary with [Test Caracal Integrations](/guides/testing/).

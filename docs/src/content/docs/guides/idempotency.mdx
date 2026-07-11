@@ -7,6 +7,12 @@ Most developers can ignore idempotency. Caracal automatically protects its own s
 
 This guide explains the exceptional case: work delivered by a queue, webhook provider, workflow engine, or scheduler that can arrive again after the original process has stopped.
 
+## Prerequisites
+
+- The source system's immutable delivery, event, workflow, or schedule identifier.
+- The destination's idempotency or transactional deduplication mechanism.
+- A retry budget that distinguishes network/`5xx`/`408`/`425`/`429` from terminal authorization and validation failures.
+
 ## What Idempotency Means
 
 An operation is **idempotent** when repeating the same request has the same effect as performing it once. For example, asking Caracal twice to create the same governed Session should not create two Session records.
@@ -161,3 +167,15 @@ Monitor:
 - retention-cleaner failures and database storage growth.
 
 A conflict usually indicates a programming error or an operation namespace reused across different work. A sudden replay spike usually indicates source redelivery or network instability. Raw keys never appear in these metric labels.
+
+## Validate the retry design
+
+Deliver the same work twice with identical fields, then with one changed security field, then after the governed result becomes inactive. Expect a replayed Coordinator response, `409 idempotency_key_conflict`, and `409 idempotency_result_inactive` respectively. Separately prove the destination effect occurs once.
+
+:::caution[Failure point: Gateway calls]
+Caracal's Coordinator receipt does not deduplicate an upstream HTTP mutation. Forward the stable operation ID to the destination's `Idempotency-Key` or use a transactional inbox/outbox.
+:::
+
+## Next step
+
+Encode replay, conflict, and destination-dedup cases in [Test Caracal Integrations](/guides/testing/).

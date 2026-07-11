@@ -3,7 +3,19 @@ title: Govern Agent Frameworks
 description: Use Caracal with LangChain, LangGraph, and CrewAI by passing the governed transport into the model clients the framework already accepts.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
 Caracal does not ship framework connectors for LangChain, LangGraph, or CrewAI, because it does not need them. Frameworks orchestrate model and tool calls through the provider clients you construct; Caracal governs those clients through the [transport wiring](/guides/provider-recipes/#wire-the-transport-into-provider-clients). Configure the client once, and every chain, graph node, agent, and tool call the framework issues is authenticated, policy-checked, and audited - with no framework-version coupling to maintain.
+
+## When to use this guide
+
+Use it after a direct SDK-to-Gateway call works and before handing the governed client to an agent framework. It is not an onboarding path and does not govern arbitrary framework-local tool calls.
+
+## Prerequisites
+
+- One working provider recipe and resource binding per network host the framework can call.
+- A scoped SDK transport tested without the framework.
+- A Session and Delegation design for parallel agents and subagents.
 
 The pattern is always the same:
 
@@ -15,6 +27,9 @@ The pattern is always the same:
 ## LangChain
 
 LangChain model classes accept the same custom HTTP client hooks as the underlying provider SDKs.
+
+<Tabs syncKey="lang">
+<TabItem label="Python">
 
 ```python
 from caracalai import Caracal
@@ -34,6 +49,9 @@ llm = ChatOpenAI(
 )
 ```
 
+</TabItem>
+<TabItem label="TypeScript">
+
 ```ts
 import { Caracal } from '@caracalai/sdk'
 import { ChatOpenAI } from '@langchain/openai'
@@ -48,6 +66,9 @@ const llm = new ChatOpenAI({
     },
 })
 ```
+
+</TabItem>
+</Tabs>
 
 The `configuration` object forwards to the OpenAI SDK, so the governed `fetch` carries every LangChain invocation. Anthropic and Gemini model classes take the corresponding hooks from their provider recipes.
 
@@ -90,11 +111,11 @@ Set the sessions before constructing agents. Each provider LiteLLM reaches needs
 Tools are where agent traffic actually touches your systems, and they follow the same rule as models: build the tool's HTTP client from the transport.
 
 ```python
-tickets = caracal.transport(scopes=["tickets:read"])
+pipernet = caracal.transport(scopes=["pipernet:read"])
 
 
-async def fetch_ticket(ticket_id: str) -> dict:
-    response = await tickets.get(f"https://api.example.com/tickets/{ticket_id}")
+async def fetch_report(report_id: str) -> dict:
+    response = await pipernet.get(f"https://api.pipernet.example/reports/{report_id}")
     return response.json()
 ```
 
@@ -106,3 +127,15 @@ Build the transport once and share it: identity is resolved per request from the
 - [Integrate the Python SDK](/guides/sdk-python/)
 - [Integrate the TypeScript SDK](/guides/sdk-typescript/)
 - [Implement Multi-Agent Delegation](/guides/delegation/)
+
+## Validate the framework integration
+
+Capture every outbound host in a test run. Each governed host must route through Gateway under the expected resource; an unknown host must not receive Caracal headers. Run parallel branches and confirm distinct labeled Sessions in Audit.
+
+:::caution[Failure point: framework tools]
+Passing a governed model client does not govern a tool that constructs its own HTTP client. Inject a Caracal transport into every network client or protect the destination as a resource server.
+:::
+
+## Next step
+
+Add [multi-agent delegation](/guides/delegation/) only after single-Session transport and audit validation pass.

@@ -3,7 +3,13 @@ title: Guides
 description: Task-focused implementation guides for modeling, authorizing, integrating, protecting, operating, and extending Caracal.
 ---
 
-Use Guides after [Get Started](/get-started/) or the [Tutorials](/tutorials/) when you know the task you need to complete. You do not need to read every concept first; each guide links to the canonical concept page when the model matters.
+Use Guides after [Get Started](/get-started/) when you have a concrete integration job. These pages teach complete application-integrator and resource-server workflows; package and API pages remain the source for signatures and wire fields.
+
+## When to use this section
+
+- **Application integrators** start with an SDK guide, then route outbound calls through Gateway or `caracal run`.
+- **Resource-server integrators** start with Gateway routing or the adapter matching their server framework.
+- **Platform integrators** use the modeling, resource/provider, policy, testing, and audit workflows before production traffic.
 
 ## Choose by Task
 
@@ -18,8 +24,12 @@ Use Guides after [Get Started](/get-started/) or the [Tutorials](/tutorials/) wh
 | Run an existing process with Caracal tokens          | [Run an Agent with caracal run](/guides/runtime-run/)                                                                                                                                         |
 | Protect a Gateway-routed HTTP upstream               | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)                                                                                                                            |
 | Protect a resource server in process                 | [Express](/guides/protect-express/), [FastAPI](/guides/protect-fastapi/), [FastMCP](/guides/protect-fastmcp/), [Go net/http](/guides/protect-nethttp/), or [MCP server](/guides/protect-mcp/) |
-| Add delegation, audit export, or step-up             | [Delegation](/guides/delegation/), [Audit Stream](/guides/audit-stream/), or [Human Approval](/guides/step-up/)                                                                               |
-| Plan a production integration                        | [Production Integration Patterns](/guides/enterprise-runtime-patterns/)                                                                                                                       |
+| Add Delegation, audit export, or Approval            | [Delegation](/guides/delegation/), [Audit Stream](/guides/audit-stream/), or [Human Approval](/guides/step-up/)                                                                               |
+| Notify approvers when a hold is raised               | [Approval Notifications](/guides/approval-notifications/)                                                                                                                                    |
+| Make retries safe for side-effecting actions         | [Safe Retries and Idempotency](/guides/idempotency/)                                                                                                                                         |
+| Test an integration without a live stack             | [Test Caracal Integrations](/guides/testing/)                                                                                                                                                 |
+| Govern LangChain, LangGraph, or CrewAI               | [Govern Agent Frameworks](/guides/frameworks/)                                                                                                                                                |
+| Plan a production integration                        | [Production Integration Patterns](/guides/production-patterns/)                                                                                                                              |
 
 ## Recommended Order
 
@@ -42,7 +52,7 @@ Use the right surface for each task:
 
 | Surface                                                                       | Use for                                                                                                                        |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `caracal up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, `run`, `web` | Local runtime lifecycle, Console sign-in admission, and subprocess injection.                                                  |
+| `caracal up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, and `run`    | Local runtime lifecycle, Console sign-in admission, and subprocess injection.                                                  |
 | Console                                                                       | Human-facing zone, application, provider, resource, policy, session, audit, explanation, delegation, and diagnostic workflows. |
 | Admin API and `@caracalai/admin`                                              | Automation for the same control-plane objects.                                                                                 |
 | SDKs and adapters                                                             | Application integration, context propagation, mandate exchange, and mandate verification.                                      |
@@ -50,3 +60,15 @@ Use the right surface for each task:
 ## Before You Start
 
 You need a running Caracal runtime, a zone, an application, at least one resource, and an active policy set. [First Protected Call](/get-started/first-protected-call/) creates that baseline.
+
+## Expected result
+
+After following one path through the table, an allowed call reaches exactly one protected resource, a denied call fails before protected work runs, and both outcomes can be found by request ID in **Audit**.
+
+:::caution[Common mistake]
+Use the linked [SDK and package reference](/sdks/) for exact release signatures. Guides own sequencing, boundary choices, validation, and recovery—not duplicate API catalogs.
+:::
+
+## Next step
+
+Choose the first unfinished job in **Choose by Task**. For a new integration, start with [Model Your Application in Caracal](/guides/modeling-recipes/).

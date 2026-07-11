@@ -5,6 +5,12 @@ description: Add the CaracalASGIAuth middleware to FastAPI or any ASGI app to ve
 
 Use `caracalai-asgi` when a FastAPI, Starlette, or other ASGI app should verify Caracal mandates before request handlers run. This is the provider-side boundary: a partner serving Caracal-governed customers verifies each inbound mandate against the zone's keys before doing any work.
 
+## Prerequisites
+
+- A Caracal-mandate resource whose audience is `resource://pipernet` or another stable resource ID.
+- STS issuer and zone configuration plus a shared production revocation store.
+- Public health paths identified before middleware is enabled.
+
 ## Install
 
 ```bash
@@ -23,11 +29,11 @@ from fastapi import FastAPI, Request
 app = FastAPI()
 app.add_middleware(
     CaracalASGIAuth,
-    audience="resource://billing-api",
+    audience="resource://pipernet",
     revocations=InMemoryRevocationStore(),
-    required_scopes=["billing:read"],
+    required_scopes=["pipernet:read"],
     routes={
-        "/payouts": {"required_scopes": ["billing:payout"], "require_delegation": True},
+        "/payouts": {"required_scopes": ["pipernet:payout"], "require_delegation": True},
     },
     exclude=["/healthz"],
 )
@@ -59,4 +65,14 @@ With `CARACAL_STS_URL` and `CARACAL_ZONE_ID` set - the standard Caracal workload
 3. Remove a required scope and confirm the route returns `403`.
 4. Revoke the session and confirm the route rejects the old mandate.
 
-Related pages: [Mandates](/concepts/mandate/) and [Sessions and Revocation](/concepts/sessions-revocation/).
+Expected result: missing or invalid credentials return `401`, valid but insufficient authority returns `403`, excluded probes remain reachable, and handlers receive `request.state.caracal` only after verification.
+
+:::caution[Failure point: prefix matching]
+Route configuration uses path prefixes and the longest match wins. Test overlapping prefixes so a broad rule cannot hide a stricter operation rule.
+:::
+
+For every middleware field, use [ASGI Adapter reference](/sdks/adapters/asgi/).
+
+## Next step
+
+Replace the in-memory store with the Redis backend and run the revocation case in [Test Caracal Integrations](/guides/testing/).
