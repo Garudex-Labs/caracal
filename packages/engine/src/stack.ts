@@ -16,6 +16,9 @@ import {
   type ControlRuntimeSettings,
 } from './controlState.js'
 
+const DEV_NETWORK_NAME = 'caracalDevData'
+const DEV_NETWORK_BRIDGE = 'brCaracalDev'
+
 export interface StackPaths {
   composeFile: string
   envFiles: string[]
@@ -47,6 +50,10 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
   // source exists and is owned by the invoking user. Without this the Docker
   // daemon creates it as root, leaving the local operator unable to write the gate file.
   ensureControlGateDir(opts.paths.cwd)
+  const networkCode = ensureDevNetwork(opts)
+  if (networkCode !== 0) {
+    return { dispose: () => {}, exitCode: Promise.resolve(networkCode) }
+  }
   const build = opts.paths.mode === 'dev' && opts.build !== false
   const args = build ? ['up', '-d', '--build', '--remove-orphans', ...opts.args] : ['up', '-d', '--remove-orphans', ...opts.args]
   const handle = runExec({
@@ -67,6 +74,24 @@ export function stackUp(opts: StackComposeOpts): StackComposeHandle {
     return code
   })
   return { dispose: handle.dispose, exitCode }
+}
+
+function ensureDevNetwork(opts: StackComposeOpts): number {
+  if (opts.paths.mode !== 'dev') return 0
+  const env = { ...process.env, ...opts.env }
+  if (spawnSync('docker', ['network', 'inspect', DEV_NETWORK_NAME], { cwd: opts.paths.cwd, env, stdio: 'ignore' }).status === 0) {
+    return 0
+  }
+  const created = spawnSync(
+    'docker',
+    ['network', 'create', '--driver', 'bridge', '--opt', `com.docker.network.bridge.name=${DEV_NETWORK_BRIDGE}`, DEV_NETWORK_NAME],
+    { cwd: opts.paths.cwd, env, stdio: 'inherit' },
+  )
+  if (created.status === 0) return 0
+  if (spawnSync('docker', ['network', 'inspect', DEV_NETWORK_NAME], { cwd: opts.paths.cwd, env, stdio: 'ignore' }).status === 0) {
+    return 0
+  }
+  return created.status ?? 1
 }
 
 export function stackDown(opts: StackComposeOpts): StackComposeHandle {

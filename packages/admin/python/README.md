@@ -11,7 +11,7 @@ ensure_grants(
     "zone-id",
     grants=[
         ResourceGrant(
-            application_id="app-son-of-anton",
+            application_id="app-anton",
             resource_identifier="resource://pipernet",
             scopes=["data:read"],
         )
