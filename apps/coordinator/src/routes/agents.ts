@@ -50,6 +50,10 @@ const TerminateQuery = z.object({
   reason: z.string().min(1).max(256).default('requested'),
 })
 
+const TerminateBody = z.object({
+  lease_generation: z.number().int().min(1).optional(),
+})
+
 // Session start and cascade terminate serialize on one zone-wide advisory lock. Two
 // invariants depend on it: the zone and per-application capacity checks are
 // count-then-insert, which two concurrent starts would overshoot, and a start
@@ -312,14 +316,15 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         `INSERT INTO sessions
           (id, zone_id, application_id, parent_id, subject_authority_record_id, lifecycle, depth,
             labels, max_children, ttl_seconds, metadata_json,
-            last_heartbeat_at, heartbeat_deadline_at)
+            last_heartbeat_at, heartbeat_deadline_at, lease_generation)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
                   CASE WHEN $6 = 'service' THEN now() ELSE NULL END,
-                  CASE WHEN $6 = 'service' THEN now() + ($12::int * interval '1 second') ELSE NULL END)
+                  CASE WHEN $6 = 'service' THEN now() + ($12::int * interval '1 second') ELSE NULL END,
+                  CASE WHEN $6 = 'service' THEN 1 ELSE 0 END)
            RETURNING id AS agent_session_id, zone_id, application_id, parent_id,
                      subject_authority_record_id, lifecycle,
                      labels, status, depth, ttl_seconds,
-                     started_at, last_heartbeat_at, heartbeat_deadline_at`,
+                     started_at, last_heartbeat_at, heartbeat_deadline_at, lease_generation`,
         [
           id,
           zoneId,
@@ -351,7 +356,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         parent_id: body.parent_id,
         application_id: body.application_id,
       })
-      const response = { ...rows[0], delegation_edge_id: inherited.edgeId }
+      const response = { ...rows[0], lease_generation: Number(rows[0].lease_generation), delegation_edge_id: inherited.edgeId }
       if (receipt?.outcome === 'new') {
         await completeIdempotency(client, {
           operation: 'session.start.v2',
@@ -415,7 +420,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_authority_record_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
-                started_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at
+                started_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at, lease_generation
          FROM sessions WHERE ${conds.join(' AND ')}
        ORDER BY id DESC LIMIT ${limitPlaceholder}`,
       queryParams,
@@ -432,7 +437,7 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
       `SELECT id AS agent_session_id, zone_id, application_id, parent_id,
                 subject_authority_record_id, lifecycle,
                 labels, status, depth, ttl_seconds, metadata_json AS metadata,
-                started_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at
+                started_at, terminated_at, termination_reason, last_heartbeat_at, heartbeat_deadline_at, lease_generation
          FROM sessions WHERE id = $1 AND zone_id = $2`,
       [id, zoneId],
     )
@@ -585,12 +590,14 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
     const { zoneId, id } = params
     const query = TerminateQuery.safeParse(req.query)
     if (!query.success) return reply.code(400).send({ error: 'invalid_query' })
+    const body = TerminateBody.safeParse(req.body ?? {})
+    if (!body.success) return reply.code(400).send({ error: 'invalid_body' })
     const client = await fastify.db.connect()
     try {
       await client.query('BEGIN')
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [sessionLockKey(zoneId)])
       const { rows: own } = await client.query(
-        `SELECT application_id FROM sessions
+        `SELECT application_id, lifecycle, lease_generation FROM sessions
          WHERE id = $1 AND zone_id = $2 FOR UPDATE`,
         [id, zoneId],
       )
@@ -598,13 +605,27 @@ export const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         await client.query('ROLLBACK')
         return reply.code(404).send({ error: 'session_not_found' })
       }
+      const administrator = requireScope(req, 'coordinator.admin')
       if (
         !ownsApplication(req, own[0].application_id) &&
-        !requireScope(req, 'coordinator.admin') &&
+        !administrator &&
         !requireScope(req, `coordinator.spawn_for:${own[0].application_id}`)
       ) {
         await client.query('ROLLBACK')
         return reply.code(403).send({ error: 'application_ownership_required' })
+      }
+      // A service session is owned through its fenced lease: only the current
+      // generation holder (or an administrator) may retire it, so a stale
+      // process that lost a takeover can never tear down its successor.
+      if (own[0].lifecycle === 'service' && !administrator) {
+        if (body.data.lease_generation === undefined) {
+          await client.query('ROLLBACK')
+          return reply.code(400).send({ error: 'lease_generation_required' })
+        }
+        if (body.data.lease_generation !== Number(own[0].lease_generation)) {
+          await client.query('ROLLBACK')
+          return reply.code(409).send({ error: 'session_lease_fenced' })
+        }
       }
       const terminated = await terminateSubtree(client, zoneId, [id], query.data.reason)
       if (terminated === 0) {

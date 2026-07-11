@@ -17,7 +17,6 @@ import type {
   Application,
   ApplicationInput,
   ApplicationPatchInput,
-  AuditDetail,
   AuditRetention,
   AuditEvent,
   AuditQuery,
@@ -1369,7 +1368,7 @@ export const consoleApi = {
       return { rows: res.items, nextCursor: res.next_cursor };
     },
     byRequest: (zoneId: string, requestId: string) =>
-      request<AuditDetail[]>(
+      request<AuditEvent[]>(
         `/v1/zones/${encodeURIComponent(zoneId)}/audit/by-request/${encodeURIComponent(requestId)}`,
       ),
     explain: (zoneId: string, requestId: string) =>
