@@ -1,69 +1,58 @@
 ---
 title: Exchange Tokens
-description: How STS exchanges authority for scoped Caracal mandates.
+description: Trace authentication, policy, approval, issuance, and audit through the STS boundary.
 pageType: architecture
 ---
 
-STS implements the token exchange boundary. Workloads, SDKs, `caracal run`, and Gateway submit existing authority plus requested resources and receive scoped mandates.
+Use this flow when an SDK, `caracal run`, or Gateway cannot obtain authority.
 
-## Exchange Sequence
+## Request Flow
 
 ```mermaid
 sequenceDiagram
-  participant Client as SDK/caracal run/Gateway
+  participant Client as SDK / caracal run / Gateway
   participant STS
   participant PG as Postgres
   participant Redis
   participant Audit
-  Client->>STS: POST /oauth/2/token
-  STS->>PG: authenticate app, load grants/resources/policies/sessions
-  STS->>Redis: observe invalidation and revocation state
-  STS->>STS: evaluate policy and constraints
-  alt step-up required
-    STS-->>Client: interaction_required with challenge id
-  else allowed
-    STS-->>Client: mandate JWT
+  Client->>STS: POST /oauth/2/token or run credential request
+  STS->>PG: authenticate client; load resource, policy, authority, session, delegation
+  STS->>Redis: use invalidation and revocation state
+  STS->>STS: evaluate requested resource, scopes, operation, constraints
+  alt approval required
+    STS-->>Client: interaction_required + hold id + expiry
+  else denied
+    STS-->>Client: typed denial
     STS->>Redis: signed audit event
-    Redis->>Audit: audit-ingestor consumes
+  else allowed
+    STS-->>Client: scoped, short-lived mandate or provider credential
+    STS->>Redis: signed audit event
+    Redis->>Audit: ingest evidence
   end
 ```
 
-## Inputs
+## What the Integrator Supplies
 
-| Input                                                  | Purpose                                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `grant_type`                                           | OAuth token-exchange request type.                                        |
-| `subject_token`                                        | An existing Caracal session mandate whose authority the exchange narrows. |
-| `resource`                                             | Target resource identifiers.                                              |
-| `scope`                                                | Requested resource scopes.                                                |
-| `zone_id`                                              | Tenant boundary.                                                          |
-| `application_id` and `client_secret`                   | Authenticates the calling application.                                    |
-| `session_id`, `agent_session_id`, `delegation_edge_id` | Protocol names for Authority record ID, Session ID, and Delegation ID.    |
-| `challenge_id`                                         | Consumes an approved step-up hold during retry.                           |
+The caller authenticates an application or workload, identifies the zone and target resource, and requests scopes. A subject token can contribute a federated `sub`; a prior Caracal mandate can be narrowed. Session and Delegation identifiers supply execution lineage when the SDK flow created them.
 
-RFC 8693 `actor_token`, `client_assertion`, and `client_assertion_type` are not supported; STS rejects requests that carry them. The calling application's authenticated identity is published to policy input as `input.context.actor_claims.caracal_client_id`.
+The protocol fields `session_id`, `agent_session_id`, and `delegation_edge_id` refer respectively to an Authority record, a Coordinator Session, and a Delegation. They are not interchangeable IDs.
 
-## TTL Contracts
+## Approval Branch
 
-| Mandate type                | Contract                                                                   |
-| --------------------------- | -------------------------------------------------------------------------- |
-| Resource mandate            | Capped at 15 minutes.                                                      |
-| Session mandate             | Capped at 60 minutes.                                                      |
-| Runtime-injected credential | `caracal run` injects credentials capped at 15 minutes after STS exchange. |
+An Approval is a hold, not a credential. An eligible operator or end user decides it, then the waiting client retries with the hold ID. STS consumes an approved hold once while issuing the credential. Rejected, expired, undecided, or already-consumed holds deny.
 
-Gateway performs a per-request exchange and rejects inbound tokens that are too close to expiry before proxying.
+`caracal run` waits and retries once. SDK applications should follow their language SDK's interaction-required contract. See [Approvals](/concepts/step-up/) for the canonical model.
 
-## Gateway-Authenticated Exchange
+## Failure and TTL Implications
 
-Gateway exchanges with STS using a request signature, timestamp, and independent random nonce over the exact form body bytes STS consumes. Query parameters and duplicate singleton fields are rejected before the signed request is trusted. The request id, W3C trace id, mandate `jti`, and HMAC nonce remain separate correlation and replay domains.
+- Resource mandates are capped at 15 minutes; Session mandates are capped at 60 minutes.
+- Gateway rejects an inbound token that is too close to expiry before proxying.
+- Invalid client proof, subject issuer, resource, policy, Session, Delegation, operation, scope, or approval fails before issuance.
+- Gateway-authenticated exchanges are signed over the exact form body with a timestamp and nonce; query ambiguity and duplicate singleton fields are rejected.
+- Audit delivery is asynchronous, but STS and Gateway use replay storage when immediate Redis publication is unavailable.
+
+For exact request fields and errors, use [Use STS Endpoint](/api/sts/). Do not call STS internal policy or key-rotation routes; the API service owns those calls.
 
 ## Next Step
 
-Use [Coordinate Sessions](/architecture/delegation-flow/) to see how Sessions and Delegations feed token exchange.
-
-## Related Pages
-
-- [Issue Mandates](/services/sts/)
-- [Mandates](/concepts/mandate/)
-- [Step-Up Challenges](/concepts/step-up/)
-- [Use STS Endpoint](/api/sts/)
+[Coordinate Sessions](/architecture/delegation-flow/).

@@ -1,58 +1,43 @@
 ---
 title: Store State
-description: Durable Postgres tables, Redis streams, replay files, and ownership boundaries.
+description: Decide what to back up, what can be replayed, and what must never be treated as an application API.
 pageType: architecture
 ---
 
-Caracal separates durable state from propagation state.
+## Data Classes
 
-| Store                | Role                                                                    |
-| -------------------- | ----------------------------------------------------------------------- |
-| Postgres             | Durable product, authority, audit, coordination, and outbox state.      |
-| Redis Streams        | Event propagation, invalidation, revocation, and consumer coordination. |
-| Replay volumes       | Temporary audit emission buffer for STS and Gateway.                    |
-| Secret manager/files | Runtime credentials and HMAC/encryption material.                       |
+| State                                                                            | Store                                   | Operational implication                                                      |
+| -------------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------- |
+| Product, policy, authority, Session, Delegation, admin-audit, and audit evidence | Postgres                                | Primary durable backup and restore target.                                   |
+| Invalidation, revocation, lifecycle, audit delivery, consumer coordination       | Redis Streams                           | Preserve when possible; recover propagation from durable state and outboxes. |
+| Undelivered STS/Gateway audit events                                             | Replay volumes                          | Restore before discarding Redis state so evidence can drain.                 |
+| Provider, application, workload, signing, HMAC, and encryption secrets           | Secret backend and runtime secret files | Restore with matching key material; ciphertext alone is insufficient.        |
 
-## Postgres Ownership
+## Ownership Boundaries
 
-| Domain           | Tables                                                                                                                                                                                                         |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product model    | `zones`, `providers`, `applications`, `resources`, `workloads`                                                                                                                                                 |
-| Authority        | `authority_records`, `delegated_grants`, `provider_connections`, `step_up_challenges`, `secrets`, `secret_store`                                                                                               |
-| Policy           | `policies`, `policy_versions`, `policy_sets`, `policy_set_versions`, `policy_set_bindings`                                                                                                                     |
-| Audit            | `audit_events`, partitions, `audit_chain_rehash`, `audit_retention`, `audit_export_watermark`, `audit_ingest_alerts`, `admin_audit_events`                                                                     |
-| Sessions         | `sessions`, `agent_topology`, `agent_services`, `agent_invocations`, `delegation_edges`, `delegation_graph_epochs`                                                                                              |
-| Caracal Operator | `operator_conversations`, `operator_turns`, `operator_message_runs`, `operator_message_run_events`, `operator_plan_secrets`, `operator_zone_memory`, `operator_conversation_counters`, `operator_ai_providers` |
-| Operations       | `event_outbox`, `caracal_outbox`, `admin_tokens`                                                                                                                                                               |
+The API owns product and policy data. STS owns issuance behavior and Authority records. Coordinator owns Sessions and Delegations. Audit owns append-only evidence ingestion. Shared Postgres does not make one service's tables a supported API for another client.
 
-`agent_topology`, `agent_services`, `agent_invocations`, `delegation_edges`, and `delegation_graph_epochs` are retained internal schema names. Public APIs expose Sessions, Delegations, Session IDs, and Delegation IDs.
+Some schema names retain protocol history, including `agent_services`, `agent_invocations`, and `delegation_edges`. Public surfaces expose Sessions, invocations, and Delegations. Integrations must use public names and APIs rather than retained table names.
 
-## Integrity Controls
+## Integrity Guarantees
 
-- Migrations are forward-only in production tooling.
-- `schema_migrations` records applied versions.
-- Audit role cannot update or delete `audit_events`.
+- Production migrations move forward and are recorded in `schema_migrations`.
 - Policy versions are immutable.
-- Zone-scoped tables use fail-closed row-level security.
-- Audit partitions are maintained for the rolling window.
+- Zone-scoped reads use fail-closed row-level security.
+- The Audit database role cannot update or delete evidence rows.
+- Outboxes couple a state change to eventual event publication.
+- Secret envelopes bind encrypted values to key fingerprints and purposes.
 
-## Redis Ownership
+## Restore Order
 
-Redis keeps delivery state, pending entries, consumer groups, rate-limit coordination, and revocation/invalidation streams. Redis does not replace Postgres for durable product state.
+1. Restore Postgres and the runtime/secret-backend keys needed to decrypt it.
+2. Restore STS and Gateway audit replay volumes.
+3. Restore Redis streams and pending entries when available, or allow durable publishers and snapshots to rebuild propagation state.
+4. Reconnect audit exports and verify retention watermarks.
+5. Run readiness, Diagnostics, a policy simulation, a protected request, and an Audit trace.
 
-## Restore Priority
-
-1. Postgres and runtime secrets.
-2. STS/Gateway replay volumes.
-3. Redis streams/pending entries when available.
-4. Audit exports and SIEM archive.
+Use [Back Up and Retain Data](/operations/backup-retention/) for procedures. Do not use direct SQL as a management or migration shortcut.
 
 ## Next Step
 
-Use [Manage Keys](/architecture/crypto-keys/) to understand how signing, encryption, and HMAC keys protect stored and propagated state.
-
-## Related Pages
-
-- [Operate PostgreSQL](/operations/postgres/)
-- [Operate Redis Streams](/operations/redis/)
-- [Back Up and Retain Data](/operations/backup-retention/)
+[Manage Keys](/architecture/crypto-keys/).

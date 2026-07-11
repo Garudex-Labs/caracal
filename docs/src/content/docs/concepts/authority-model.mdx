@@ -5,6 +5,8 @@ sidebar:
   order: 3
 ---
 
+Use this page to choose where Caracal makes and enforces an authorization decision. First understand [Caracal Mental Model](/concepts/model-overview/).
+
 Caracal separates **granting authority** from **using authority**.
 
 - The STS grants authority by issuing a short-lived mandate after policy evaluation.
@@ -22,8 +24,8 @@ sequenceDiagram
   participant Audit as Audit ledger
 
   Client->>STS: Exchange subject token for resource scopes
-  STS->>OPA: Evaluate principal, session, grant, resource, delegation
-  OPA-->>STS: allow, deny, diagnostics, or step-up requirement
+  STS->>OPA: Evaluate Application, Session, grant data, Resource, Delegation
+  OPA-->>STS: allow, deny, diagnostics, or Approval requirement
   STS->>Audit: Record decision
   alt allowed
     STS-->>Client: Mandate JWT
@@ -31,7 +33,7 @@ sequenceDiagram
     Guard->>Guard: Verify signature, claims, expiry, scopes, revocation
     Guard->>Resource: Forward approved request
     Guard->>Audit: Record resource decision
-  else denied or step-up required
+  else denied or Approval required
     STS-->>Client: Error or interaction_required challenge
   end
 ```
@@ -41,15 +43,15 @@ sequenceDiagram
 | Layer              | Responsibility                                                   | Source of truth                    |
 | ------------------ | ---------------------------------------------------------------- | ---------------------------------- |
 | Zone               | Owns keys, policies, resources, sessions, and audit data.        | Console or Admin API               |
-| Grant              | Declares which application and user may request resource scopes. | Console or Admin API               |
-| Policy set         | Makes the final allow, deny, or step-up decision.                | Rego policy versions               |
+| Grant data         | Declares which Application roles may request Resource scopes.    | Console or Admin API               |
+| Policy set         | Makes the final allow, deny, or Approval decision.               | Rego policy versions               |
 | Mandate            | Carries approved authority as a short-lived signed JWT.          | STS                                |
 | Gateway or adapter | Verifies mandate claims and revocation before use.               | Runtime and resource server config |
 | Audit ledger       | Records decisions, diagnostics, and request correlation.         | API, Console, and storage          |
 
 ## Where Resource Authority Comes From
 
-A session never holds resource authority by itself: starting one grants only lifecycle authority - the right to exist, heartbeat, and be attributed. Resource authority always arrives over a delegation, and the STS mints resource mandates only along one of these paths:
+A Session does not receive Resource authority merely because it exists. Application-owned calls use the SDK's bounded call path. Agent work receives a narrowed Delegation. Both paths still require active policy approval before Caracal issues a Mandate.
 
 ```mermaid
 flowchart TD
@@ -62,14 +64,14 @@ flowchart TD
   Mint --> Mandate["Resource mandate<br/>(short-lived, resource-audienced JWT)"]
 ```
 
-This is why a mint from a plain session fails with `access_denied` and a lifecycle-only-authority hint: the session sits above the delegation layer, and nothing has issued it an edge yet. Narrow the session at start, accept a delegation from a peer, or call as the application - all three end at the same place, a bounded edge the STS can evaluate.
+Common mistake: treating a Session as a permission grant. A Session supplies lifecycle and attribution. Use an Application-owned call for ordinary app work, or attach a narrowed Delegation when a child or peer must hold less authority.
 
 ## Default Posture
 
 Caracal should be treated as deny-by-default:
 
 1. A resource must be registered.
-2. A principal must have an applicable grant or delegation path.
+2. The Application must have an applicable grant-data or Delegation path.
 3. The active policy set must allow the requested resource and scopes.
 4. The resource server must verify the mandate and revocation anchors.
 
@@ -87,13 +89,17 @@ The SDK exposes several call paths. They are not interchangeable: each does a di
 
 | Call path                                                                                    | Role          | Verifies the mandate?                                              | Use when                                                                         |
 | -------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `caracal.fetch` / `gateway_request` through the Gateway                                      | **Enforce**   | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally                           |
+| SDK request through the Gateway                                                             | **Enforce**   | Yes - the Gateway verifies claims and revocation before forwarding | Caracal fronts an HTTP upstream and mediates centrally                           |
 | Direct Gateway call (`curl` to the Gateway URL)                                              | **Enforce**   | Yes - same Gateway verification                                    | Non-SDK clients or debugging the enforced path                                   |
 | Adapter verify (`context_middleware(verifier=…)`, Express, FastMCP, net/http, verify engine) | **Enforce**   | Yes - the adapter verifies inside the resource server              | The resource server should enforce in its own framework                          |
 | `caracal.transport` / `context_middleware()` (no verifier)                                   | **Propagate** | No - carries and binds the envelope only                           | A Gateway or adapter already enforced upstream and you only need context to flow |
 | App-managed provider call (your code calls the provider SDK directly)                        | **Attribute** | No - Caracal records who acted, but does not gate the call         | You want audit attribution without routing through the Gateway                   |
 
 Rule of thumb: **use the Gateway or an adapter verifier to enforce; use transport/propagation to carry identity after enforcement; treat app-managed provider calls as attribution only.** If a path says "no" under _verifies the mandate_, something upstream must have already enforced it.
+
+## Outcome
+
+You should be able to name the decision point, the enforcement boundary, and whether a proposed call path enforces, propagates, or only attributes authority.
 
 ## Next Step
 
