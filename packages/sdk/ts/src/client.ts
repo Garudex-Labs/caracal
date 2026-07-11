@@ -205,7 +205,8 @@ export interface StartSessionOptions {
 
 export interface DelegateOptions {
   toSessionId: string
-  toApplicationId: string
+  /** Receiving application; defaults to the caller's own application for same-app delegation. */
+  toApplicationId?: string
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
@@ -506,15 +507,16 @@ export class Caracal {
 
   /**
    * Delegate a slice of the current session's authority to an existing peer
-   * session and return the created delegation. The receiving session accepts
-   * it with acceptDelegation.
+   * session and return the created delegation. The receiver defaults to the
+   * caller's own application; name toApplicationId only for cross-application
+   * delegation. The receiving session accepts it with acceptDelegation.
    */
-  delegate(opts: DelegateOptions): Promise<Delegation> {
+  async delegate(opts: DelegateOptions): Promise<Delegation> {
     this.ensureOpen()
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toSessionId: opts.toSessionId,
-      toApplicationId: opts.toApplicationId,
+      toApplicationId: opts.toApplicationId ?? (await this.identity()).applicationId,
       resourceId: opts.resourceId,
       scopes: opts.scopes,
       constraints: opts.constraints,

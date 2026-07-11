@@ -235,6 +235,45 @@ func TestDelegateAndAdoptDelegationFacade(t *testing.T) {
 	}
 }
 
+func TestDelegateDefaultsReceiverToOwnApplication(t *testing.T) {
+	var receiver string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations") {
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			receiver, _ = body["receiver_application_id"].(string)
+			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+	})
+	edge, err := c.Delegate(ctx, sdk.DelegateOptions{
+		ToSessionID: "agent-2",
+		Scopes:      []string{"tool:call"},
+		TTLSeconds:  30,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edge.DelegationID != "edge-1" || receiver != "app" {
+		t.Fatalf("expected the caller's application as receiver, got %+v receiver %q", edge, receiver)
+	}
+}
+
 func TestMintMandateCarriesBoundIdentityAndOptions(t *testing.T) {
 	if _, err := (&sdk.Caracal{SubjectToken: "tok"}).MintMandate(context.Background(), "resource://pipernet", []string{"data:read"}); err == nil || !strings.Contains(err.Error(), "client-secret configuration") {
 		t.Fatalf("expected client-secret guard, got %v", err)

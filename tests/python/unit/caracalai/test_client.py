@@ -869,6 +869,48 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 ttl_seconds=60,
             )
 
+    async def test_delegate_defaults_receiver_to_own_application(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
+            if request.method == "POST" and str(request.url).endswith("/delegations"):
+                return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+
+        async with c.session():
+            res = await c.delegate(
+                to_session_id="agent-2",
+                scopes=["tool:call"],
+                ttl_seconds=30,
+            )
+            self.assertEqual(res.delegation_id, "edge-1")
+
+        await client.aclose()
+        delegation = next(r for r in requests if str(r.url).endswith("/delegations"))
+        self.assertEqual(
+            json.loads(delegation.content)["receiver_application_id"], "app"
+        )
+
     async def test_task_option_recorded_as_metadata_task(self) -> None:
         requests: list[httpx.Request] = []
 

@@ -1383,7 +1383,8 @@ func (c *Caracal) StartSession(ctx context.Context, opts ...StartSessionOptions)
 	})
 }
 
-// DelegateOptions configures a delegation to a peer session.
+// DelegateOptions configures a delegation to a peer session. ToApplicationID
+// defaults to the caller's own application for same-app delegation.
 type DelegateOptions struct {
 	ToSessionID     string
 	ToApplicationID string
@@ -1458,9 +1459,10 @@ func (c *Caracal) AttachSession(ctx context.Context, sessionID string, opts ...A
 }
 
 // Delegate delegates a slice of the current session's authority to a peer
-// session and returns the created delegation. The caller's context is
-// unchanged; hand the delegation id to the receiving session, which presents
-// it with AcceptDelegation.
+// session and returns the created delegation. The receiver defaults to the
+// caller's own application; set ToApplicationID only for cross-application
+// delegation. The caller's context is unchanged; hand the delegation id to
+// the receiving session, which presents it with AcceptDelegation.
 func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegation, error) {
 	if err := c.ensureOpen(); err != nil {
 		return Delegation{}, err
@@ -1468,10 +1470,18 @@ func (c *Caracal) Delegate(ctx context.Context, opts DelegateOptions) (Delegatio
 	if opts.TTLSeconds <= 0 {
 		return Delegation{}, errors.New("caracal: Delegate TTLSeconds must be a positive integer")
 	}
+	toApplicationID := opts.ToApplicationID
+	if toApplicationID == "" {
+		_, appID, err := c.Identity(ctx)
+		if err != nil {
+			return Delegation{}, err
+		}
+		toApplicationID = appID
+	}
 	return Delegate(ctx, DelegateInput{
 		Coordinator:     c.Coordinator,
 		ToSessionID:     opts.ToSessionID,
-		ToApplicationID: opts.ToApplicationID,
+		ToApplicationID: toApplicationID,
 		ResourceID:      opts.ResourceID,
 		Scopes:          opts.Scopes,
 		Constraints:     opts.Constraints,

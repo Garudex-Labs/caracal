@@ -761,6 +761,32 @@ describe('session lifecycle and delegation', () => {
     })
   })
 
+  it('defaults the delegation receiver to the caller\u0027s own application', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), init })
+      if (init.method === 'POST' && String(input).endsWith('/agents')) {
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
+      }
+      if (init.method === 'POST' && String(input).endsWith('/delegations')) {
+        return new Response(JSON.stringify({ delegation_edge_id: 'edge-1' }), { status: 200 })
+      }
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'https://coordinator.example.com', fetchImpl: fakeFetch },
+    })
+
+    await c.session(async () => {
+      const delegation = await c.delegate({ toSessionId: 'agent-2', scopes: ['tool:call'], ttlSeconds: 30 })
+      expect(delegation.delegationId).toBe('edge-1')
+    })
+
+    const delegationCall = calls.find((call) => call.url.endsWith('/delegations'))
+    expect(JSON.parse(String(delegationCall!.init.body))).toMatchObject({ receiver_application_id: 'app' })
+  })
+
   it('starts a long-lived session that heartbeats and is not auto-terminated', async () => {
     const calls: { url: string; init: RequestInit }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {

@@ -4,7 +4,7 @@
 // Coordinator service entry point with graceful shutdown.
 
 import { buildApp } from './app.js'
-import { buildDB } from './db.js'
+import { assertSchemaCompatible, buildDB } from './db.js'
 import { buildRedis, closeRedis } from './redis.js'
 import { startOutboxPublisher } from './jobs/outbox-publisher.js'
 import { startTTLSweeper } from './jobs/ttl-sweeper.js'
@@ -48,6 +48,7 @@ shutdown.install()
 try {
   await withTimeout(redis.ping(), cfg.shutdownGraceMs, 'startup redis ping timed out')
   await withTimeout(db.query('SELECT 1'), cfg.shutdownGraceMs, 'startup postgres ping timed out')
+  await withTimeout(assertSchemaCompatible(db), cfg.shutdownGraceMs, 'startup schema compatibility probe timed out')
 
   const app = await buildApp({ cfg, db, redis, isDraining: () => shutdown.draining })
 

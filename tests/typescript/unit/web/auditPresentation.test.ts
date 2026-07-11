@@ -188,6 +188,19 @@ describe('auditReason', () => {
     expect(reason?.hint).toContain('decision trace')
   })
 
+  it('names the failed gate when the decision diagnostics carry it', () => {
+    const confined = auditReason({
+      ...event('token_exchange', 'deny', {}, 'complete'),
+      diagnostics_json: [{ reason: 'confinement_violation' }],
+    })
+    expect(confined?.label).toBe('A confinement rule caps this session below the requested scopes')
+    const role = auditReason({
+      ...event('token_exchange', 'deny', {}, 'complete'),
+      diagnostics_json: [{ reason: 'role_scope_mismatch' }],
+    })
+    expect(role?.label).toBe('No session role grants every requested scope')
+  })
+
   it('humanizes unknown codes without a hint', () => {
     const reason = auditReason(event('token_exchange', 'deny', { reason: 'quota_exceeded' }))
     expect(reason).toEqual({ label: 'quota exceeded', hint: null })

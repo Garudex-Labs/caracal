@@ -1136,18 +1136,22 @@ class Caracal:
         self,
         *,
         to_session_id: str,
-        to_application_id: str,
         scopes: list[str],
         ttl_seconds: int,
+        to_application_id: str | None = None,
         resource_id: str | None = None,
         constraints: DelegationConstraints | None = None,
     ) -> Delegation:
         """Delegate a slice of the bound session's authority to a peer session.
 
-        The caller is the issuer and its own context is unchanged; hand the
-        returned ``delegation_id`` to the receiving session, which presents
-        the delegation with :meth:`accept_delegation`."""
+        The caller is the issuer and its own context is unchanged; the receiver
+        defaults to the caller's own application, so ``to_application_id`` is
+        needed only for cross-application delegation. Hand the returned
+        ``delegation_id`` to the receiving session, which presents the
+        delegation with :meth:`accept_delegation`."""
         self._ensure_open()
+        if to_application_id is None:
+            _, to_application_id = self.identity()
         return await delegate(
             coordinator=self.config.coordinator,
             to_session_id=to_session_id,
