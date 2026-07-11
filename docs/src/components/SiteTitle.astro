@@ -13,7 +13,7 @@ import { docsHref } from '../../versioning.mjs'
 const { siteTitle } = Astro.locals.starlightRoute
 ---
 
-<a href={docsHref(Astro.url.pathname, '/')} class="site-title sl-flex">
+<a href={docsHref(Astro.url.pathname, '/')} class="site-title sl-flex" aria-label={siteTitle}>
   {
     config.logo && logos.dark && (
       <>
@@ -62,6 +62,12 @@ const { siteTitle } = Astro.locals.starlightRoute
       height: calc(var(--sl-nav-height) - 2 * var(--sl-nav-pad-y));
       object-fit: contain;
       object-position: 0 50%;
+    }
+
+    @media (max-width: 30rem) {
+      span {
+        display: none;
+      }
     }
   }
 </style>

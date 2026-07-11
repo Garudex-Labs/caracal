@@ -1,0 +1,35 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Mobile menu toggle that mirrors Starlight expansion state onto its button.
+ */
+
+import Default from '@astrojs/starlight/components/MobileMenuToggle.astro'
+---
+
+<Default />
+
+<script>
+  const syncMobileMenuState = () => {
+    document.querySelectorAll<HTMLElement>('starlight-menu-button').forEach((toggle) => {
+      if (toggle.dataset.ariaSync === 'true') return
+
+      const button = toggle.querySelector<HTMLButtonElement>('button[aria-controls="starlight__sidebar"]')
+      if (!button) return
+
+      const sync = () => button.setAttribute('aria-expanded', String(toggle.getAttribute('aria-expanded') === 'true'))
+      sync()
+      new MutationObserver(sync).observe(toggle, { attributeFilter: ['aria-expanded'] })
+      toggle.dataset.ariaSync = 'true'
+    })
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncMobileMenuState, { once: true })
+  } else {
+    syncMobileMenuState()
+  }
+  document.addEventListener('astro:page-load', syncMobileMenuState)
+</script>

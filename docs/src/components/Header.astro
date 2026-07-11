@@ -23,24 +23,6 @@ const isLanding = route?.entry?.data?.template === 'splash'
       </a>
       <div class="site-nav__end">
         <VersionSelect />
-        <details class="edition-menu">
-          <summary class="edition-menu__button">
-            <span>Open Source</span>
-            <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
-            </svg>
-          </summary>
-          <div class="edition-menu__panel">
-            <a class="edition-menu__item" href={docsHref(Astro.url.pathname, '/')}>
-              <span>Open Source</span>
-              <span class="edition-menu__current">Current</span>
-            </a>
-            <span class="edition-menu__item edition-menu__item--disabled" aria-disabled="true">
-              <span>Enterprise</span>
-              <span class="edition-menu__soon">Coming soon</span>
-            </span>
-          </div>
-        </details>
         <ThemeSelect />
       </div>
     </header>
@@ -134,17 +116,6 @@ const isLanding = route?.entry?.data?.template === 'splash'
     color: #fff;
   }
 
-  body:has(.landing-hero) .site-nav[data-over-hero='true'] .edition-menu__button {
-    border-color: #2a2f45;
-    background: #0d1020;
-    color: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
-  }
-
-  body:has(.landing-hero) .site-nav[data-over-hero='true'] .edition-menu__button:hover {
-    border-color: #eca8d6;
-    color: #fff;
-  }
 </style>
 
 <style>
@@ -228,102 +199,6 @@ const isLanding = route?.entry?.data?.template === 'splash'
     display: inline-flex;
     align-items: center;
     gap: 0.6rem;
-  }
-
-  .edition-menu {
-    position: relative;
-  }
-
-  .edition-menu__button {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    min-height: 2rem;
-    padding: 0 0.72rem;
-    border: 1px solid var(--caracal-border-strong);
-    border-radius: 6px;
-    background: var(--caracal-panel-strong);
-    color: var(--sl-color-text);
-    font-size: 0.82rem;
-    font-weight: 600;
-    line-height: 1;
-    list-style: none;
-    cursor: pointer;
-    box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
-    transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-  }
-
-  .edition-menu__button::-webkit-details-marker {
-    display: none;
-  }
-
-  .edition-menu__button:hover {
-    transform: translateY(-1px);
-    border-color: var(--caracal-link);
-    box-shadow: 0 4px 12px color-mix(in srgb, black 18%, transparent);
-  }
-
-  .edition-menu__button svg {
-    opacity: 0.68;
-    transition: transform 0.16s ease;
-  }
-
-  .edition-menu[open] .edition-menu__button svg {
-    transform: rotate(180deg);
-  }
-
-  .edition-menu__panel {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    right: 0;
-    min-width: 13rem;
-    padding: 0.35rem;
-    border: 1px solid var(--caracal-border-strong);
-    border-radius: 8px;
-    background: var(--caracal-panel-strong);
-    box-shadow: 0 14px 32px color-mix(in srgb, black 28%, transparent);
-  }
-
-  .edition-menu__item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.9rem;
-    padding: 0.62rem 0.7rem;
-    border-radius: 5px;
-    color: var(--sl-color-text);
-    font-size: 0.84rem;
-    font-weight: 600;
-    text-decoration: none;
-  }
-
-  .edition-menu__item:hover {
-    background: color-mix(in srgb, var(--caracal-link) 12%, transparent);
-  }
-
-  .edition-menu__item--disabled {
-    color: var(--caracal-text-subtle);
-    cursor: not-allowed;
-  }
-
-  .edition-menu__item--disabled:hover {
-    background: transparent;
-  }
-
-  .edition-menu__current,
-  .edition-menu__soon {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  .edition-menu__current {
-    color: var(--caracal-link);
-  }
-
-  .edition-menu__soon {
-    color: color-mix(in srgb, var(--caracal-text-subtle) 80%, transparent);
   }
 </style>
 

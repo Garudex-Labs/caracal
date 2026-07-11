@@ -51,7 +51,10 @@ const heroImageSrc = '/img/background.jpeg'
       <div class="landing-hero__layout">
         <div class="landing-hero__content">
           <p class="landing-hero__eyebrow">{eyebrow}</p>
-          <h1 class="landing-hero__title" data-text={title} set:html={title} />
+          <h1 id="_top" class="landing-hero__title" tabindex="-1">
+            <span class="sr-only">{title}</span>
+            <span class="landing-hero__title-visual" data-text={title} aria-hidden="true" set:html={title} />
+          </h1>
           <p class="landing-hero__tagline">{tagline}</p>
           {actions.length > 0 && (
             <div class="landing-hero__actions">

@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Landing footer with community and enterprise links plus a live repository star count.
+ * Landing footer with project, adoption, and community links plus a live repository star count.
  */
 
 import { docsHref } from '../../versioning.mjs'
@@ -67,11 +67,12 @@ const starLabel =
         </div>
       </div>
 
-      <!-- Enterprise -->
+      <!-- Adoption -->
       <div class="landing-footer__col">
-        <p class="landing-footer__col-title">Enterprise</p>
-        <a href="https://cal.com/rawx18/caracal-enterprise-sales" target="_blank" rel="noopener noreferrer">Book a call</a>
-        <a href={docsHref(Astro.url.pathname, '/enterprise/')}>Enterprise overview</a>
+        <p class="landing-footer__col-title">Adoption</p>
+        <a href={docsHref(Astro.url.pathname, '/get-started/')}>Get started</a>
+        <a href={docsHref(Astro.url.pathname, '/security/adoption-review/')}>Review OSS readiness</a>
+        <a href={docsHref(Astro.url.pathname, '/operations/')}>Operate Caracal</a>
       </div>
 
       <!-- Community -->
@@ -87,7 +88,7 @@ const starLabel =
 
     <div class="landing-footer__bar">
       <p>© 2026 <span class="landing-footer__accent">Garudex Labs</span>. All rights reserved.</p>
-      <p>Caracal Open Source Edition is <span class="landing-footer__accent">Apache-2.0</span> licensed.</p>
+      <p>Caracal is licensed under <span class="landing-footer__accent">Apache-2.0</span>.</p>
     </div>
   </div>
 </footer>
