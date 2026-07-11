@@ -5,7 +5,7 @@ sidebar:
   order: 12
 ---
 
-An approval is Caracal's way to pause a token exchange until a human decides it. Policy data classifies scopes into risk tiers; when a mint requests a gated scope, the STS creates a durable hold and returns `interaction_required` with a challenge id instead of a mandate. The mandate is released only after an authorized approver decides the hold.
+Read this page after [Policies and Policy Sets](/concepts/policy/). An Approval pauses a sensitive authority request until an eligible human decides it. Policy data maps scopes to risk tiers and identifies whether an operator, the federated Subject, or either may decide.
 
 Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one.
 
@@ -38,7 +38,7 @@ sequenceDiagram
 
 The tier's `approver` declaration picks the plane: `operator`, `subject`, or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
 
-A subject-only hold is the application's promise that only its own end user decides: the operator plane refuses it with `subject_approval_required`. Deciding it requires a user session minted through [subject federation](/api/sts/#subject-identity) - the application registers its identity system as a zone subject issuer, exchanges the end user's identity token for a user session mandate, and posts that user's decision to the STS. Declare `subject` tiers only for applications that federate their end users; without a registered subject issuer, a subject-reserved hold can only expire.
+A Subject-only Approval requires the Application to federate its end user through a registered Subject issuer. Without that federation, the Approval can only expire. This is a decision mechanism, not per-Subject Resource authorization: the original Application, policy, scopes, and Delegation still bound the resulting Mandate.
 
 ## Components
 
@@ -60,7 +60,7 @@ A subject-only hold is the application's promise that only its own end user deci
 | `expired`  | The approval window closed without a decision, or an approval lapsed before consumption. |
 | `consumed` | The approval released its one mandate; terminal.                                         |
 
-An approval releases at most one token. Its opaque binding covers the requesting principal, Authority record, governed Session, Delegation, application, canonical resource and scope sets, active policy-set manifest, and platform decision contract. A policy rollout or execution-context change therefore requires a fresh decision. Consumed and rejected are terminal and outrank expiry, so both planes report the same state for the same hold.
+An Approval releases at most one Mandate. Its binding covers the Application, Authority record, Session, Delegation, Resource, scopes, and active policy version. A policy rollout or execution-context change therefore requires a fresh decision. Consumed and rejected are terminal.
 
 ## Privacy Modes
 
@@ -76,7 +76,7 @@ The tier's `privacy` declaration controls what the decision record retains of a 
 
 ## Next Step
 
-Read [Mandates](/concepts/mandate/) to understand what the STS issues once an exchange is allowed or approved.
+Read [Session Delegation](/concepts/delegation/) to understand how approved authority can be narrowed for another Session.
 
 ## Related Pages
 

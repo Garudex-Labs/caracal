@@ -6,44 +6,52 @@ pageType: workflow
 
 ## Prerequisites
 
-| Tool | Version |
-| --- | --- |
-| Node.js | 24+ |
-| pnpm | 11.1.1 |
-| Docker + Compose v2 | 24+ |
-| Go | 1.26+ |
-| Python | 3.14+ |
-| Bun | latest stable used by package scripts |
+| Tool                | Version    |
+| ------------------- | ---------- |
+| Node.js             | 24+        |
+| pnpm                | 11.1.1     |
+| Docker + Compose v2 | Docker 25+ |
+| Go                  | 1.26+      |
+| Python              | 3.14+      |
+| Bun                 | 1.3.14     |
 
 ## Install Dependencies
 
 ```bash
 git clone https://github.com/Garudex-Labs/caracal.git
 cd caracal
-pnpm install
+pnpm run setup
 ```
 
-`pnpm install` is the standard dependency install command for the Node workspace. Run `pnpm run setup` when you need the full cross-platform developer environment: it runs `pnpm install`, downloads Go module dependencies, creates `.venv`, installs Python test and style tools, and installs local Python packages in editable mode.
+`pnpm run setup` installs the Node workspace, downloads Go modules, creates `.venv`, installs pinned Python test/style tools, and installs local Python packages in editable mode. Use plain `pnpm install` only when the Node workspace is the entire scope.
 
 Read [CONTRIBUTING.md](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md) in the repository root for the contributor policy, review expectations, and testing requirements.
 
 ## Start the Local Stack
 
 ```bash
-pnpm secrets:init
 pnpm caracal up
 pnpm caracal status --ready
 ```
 
-The local stack uses `infra/docker/docker-compose.yml`, builds local service images, and binds service ports to loopback.
+The runtime initializes its managed development secrets during startup, builds local service images, and binds host ports to loopback. Run `pnpm secrets:init` only when a focused infrastructure task explicitly needs the standalone secret initializer.
 
 ## Open the Web Console
 
 ```bash
-pnpm caracal web
+open http://localhost:3001
 ```
 
-Use the web console for zones, applications, providers, resources, policies, Authority records, Sessions, audit, Delegation, diagnostics, and Control. Do not expect top-level runtime CLI commands for product management.
+The packaged web console starts with the stack. Use `pnpm caracal web` only when developing the web console or auth BFF locally.
+
+## Verify the Checkout
+
+```bash
+pnpm run style
+scripts/testCi.sh --smoke
+```
+
+If either command fails on an untouched checkout, resolve the toolchain problem before editing source.
 
 ## Stop or Reset
 

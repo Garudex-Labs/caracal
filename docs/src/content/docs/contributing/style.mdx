@@ -8,23 +8,25 @@ Caracal style favors small, explicit boundaries and source-aligned documentation
 
 ## Language Style Guides
 
-| Language                  | Required style                                                                        | Enforcement                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| TypeScript and JavaScript | TypeScript Handbook style plus the repository Prettier profile in `.prettierrc.json`. | `pnpm run style` checks changed TS/JS source files with Prettier.               |
-| Go                        | Effective Go with canonical `gofmt` formatting.                                       | `pnpm run style` checks changed Go source files with `gofmt -l`.                |
-| Python                    | PEP 8 layout as formatted by Ruff.                                                    | `pnpm run style` checks changed Python source files with `ruff format --check`. |
+| Language                  | Required style                                                              | Enforcement                                                                     |
+| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| TypeScript and JavaScript | Existing repository patterns plus the pinned Prettier workspace dependency. | `pnpm run style` checks changed TS/JS source files with Prettier.               |
+| Go                        | Effective Go with canonical `gofmt` formatting.                             | `pnpm run style` checks changed Go source files with `gofmt -l`.                |
+| Python                    | PEP 8 layout as formatted by the pinned Ruff version.                       | `pnpm run style` checks changed Python source files with `ruff format --check`. |
 
 The pre-commit hook activated by `pnpm install` formats staged files automatically on every commit, and `pnpm run style:fix` formats changed files on demand. The gate always runs the Ruff version pinned in `scripts/pythonStyleRequirements.in`, so local formatting matches CI exactly. Pull requests run the same changed-file style gate automatically for primary-language source files.
 
 ## Code Conventions
 
-| Convention                  | Apply it                                                                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keep changes focused        | Avoid unrelated refactors in feature or docs PRs.                                                                                                             |
-| Prefer explicit validation  | Fail closed on auth, policy, config, stream, and key errors.                                                                                                  |
-| Preserve product boundaries | Do not couple open-source code to enterprise-only code.                                                                                                       |
-| Respect command ownership   | Runtime CLI is lifecycle and setup; Console is the human surface, the Admin API is the broad automation surface, and the Control API is zone-scoped dispatch. |
-| Use existing shared layers  | Reuse core config, errors, crypto, logging, engine dispatch, and SDK helpers.                                                                                 |
+| Convention                  | Apply it                                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keep changes focused        | Avoid unrelated refactors in feature or docs PRs.                                                                                                         |
+| Prefer explicit validation  | Fail closed on auth, policy, config, stream, and key errors.                                                                                              |
+| Preserve product boundaries | Do not couple open-source code to enterprise-only code.                                                                                                   |
+| Respect command ownership   | Runtime CLI is lifecycle and setup; the web console is the human surface, the Admin API is broad automation, and the Control API is Zone-scoped dispatch. |
+| Use existing shared layers  | Reuse core config, errors, crypto, logging, engine dispatch, and SDK helpers.                                                                             |
+| Preserve language parity    | SDK capability and wire changes in shared packages must land idiomatically in TypeScript, Python, and Go with equivalent tests.                           |
+| Preserve file headers       | Source files keep the repository copyright/product header in the language's comment syntax.                                                               |
 
 ## Documentation Conventions
 
@@ -39,14 +41,14 @@ Do not use docs to preserve stale command names, screenshots, package names, or 
 
 ## Project Boundaries
 
-- Top-level `caracal` commands are limited to runtime lifecycle, setup, and `caracal run`.
-- Product-management workflows for zones, policies, grants, audit, Sessions, Delegation, and Control belong in Console, Admin SDK, or Control API docs.
+- Top-level `caracal` commands are limited to runtime lifecycle, upgrade, purge, console admission, `caracal run`, and the optional web development launcher.
+- Product-management workflows for Zones, Policy, Grants, audit, Sessions, Delegation, and Control belong in the web console, Admin SDK, or Control API docs.
 - Open-source code must not import, reference, or depend on enterprise-only code.
 - Security-sensitive findings must follow [Report a Vulnerability](/security/disclosure/), not public issues.
 
 ## Naming
 
-Use canonical terms from [Glossary](/reference/glossary/): zone, principal, resource, grant, policy, policy set, mandate, Session, Delegation, audit ledger, Console, Control API, STS, Gateway.
+Use canonical terms from [Glossary](/reference/glossary/). Keep raw names such as `agent_session_id`, `delegation_edge_id`, and `/agents` at explicit protocol boundaries only.
 
 ## Next Step
 
