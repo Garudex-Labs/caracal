@@ -4,11 +4,9 @@
 # Unified release pipeline for rc and stable Caracal artifacts.
 
 name: release
+run-name: Caracal ${{ inputs.releaseVersion }} ${{ inputs.dryRun && 'dry-run' || 'publish' }}
 
 on:
-  push:
-    tags:
-      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       ref:
@@ -21,7 +19,7 @@ on:
         required: true
         type: string
       dryRun:
-        description: 'Dispatch release runs must stay dry-run only'
+        description: 'Build and validate without publishing'
         required: true
         type: boolean
         default: true
@@ -30,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.releaseVersion || github.ref }}
+  group: release-${{ github.event.inputs.releaseVersion }}
   cancel-in-progress: false
 
 env:
@@ -140,38 +138,36 @@ jobs:
       - name: Resolve release context
         id: resolve
         env:
-          EVENT_NAME: ${{ github.event_name }}
           DISPATCH_REF: ${{ github.event.inputs.ref }}
           DISPATCH_RELEASE: ${{ github.event.inputs.releaseVersion }}
           DISPATCH_DRY_RUN: ${{ github.event.inputs.dryRun }}
         run: |
           set -euo pipefail
           checkout_ref="${DISPATCH_REF:-${GITHUB_REF}}"
-          if [ "$EVENT_NAME" = "push" ]; then
-            release_tag="${GITHUB_REF_NAME}"
-            publish="true"
-            dry_run="false"
-          else
-            if [ -z "$DISPATCH_RELEASE" ]; then
-              echo "::error::workflow_dispatch requires releaseVersion."
-              exit 1
-            fi
-            if [ "$DISPATCH_DRY_RUN" != "true" ]; then
-              echo "::error::workflow_dispatch release runs must keep dryRun=true."
-              exit 1
-            fi
-            release_tag="$DISPATCH_RELEASE"
-            publish="false"
-            dry_run="true"
-            default_branch="${{ github.event.repository.default_branch }}"
-            if [[ "$checkout_ref" != "$default_branch" && "$checkout_ref" != "refs/heads/$default_branch" && "$checkout_ref" != "refs/tags/$release_tag" ]]; then
-              echo "::error::workflow_dispatch ref must be $default_branch or refs/tags/$release_tag."
-              exit 1
-            fi
+          if [ -z "$DISPATCH_RELEASE" ]; then
+            echo "::error::workflow_dispatch requires releaseVersion."
+            exit 1
           fi
+          release_tag="$DISPATCH_RELEASE"
           if ! echo "$release_tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$'; then
             echo "::error::Release tag '${release_tag}' must match vX.Y.Z, vX.Y.Z-rc.<number>, or vX.Y.Z-rc.sha<gitsha>."
             exit 1
+          fi
+          default_branch="${{ github.event.repository.default_branch }}"
+          if [ "$DISPATCH_DRY_RUN" = true ]; then
+            publish=false
+            dry_run=true
+            if [[ "$checkout_ref" != "$default_branch" && "$checkout_ref" != "refs/heads/$default_branch" && "$checkout_ref" != "refs/tags/$release_tag" ]]; then
+              echo "::error::Dry runs must use $default_branch or refs/tags/$release_tag."
+              exit 1
+            fi
+          else
+            publish=true
+            dry_run=false
+            if [[ "$checkout_ref" != "refs/tags/$release_tag" || "$GITHUB_REF" != "refs/tags/$release_tag" ]]; then
+              echo "::error::Publication requires workflow ref and input ref refs/tags/$release_tag."
+              exit 1
+            fi
           fi
           channel="stable"
           promote_stable="$publish"
@@ -187,8 +183,43 @@ jobs:
             echo "publish=${publish}"
             echo "dryRun=${dry_run}"
             echo "promoteStable=${promote_stable}"
-            echo "sha=$(git rev-parse --short HEAD)"
+            echo "sha=$(git rev-parse HEAD)"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Verify immutable release tag set
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.releaseTag }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          node scripts/releaseTags.mjs "$RELEASE_TAG" "$RELEASE_SHA"
+
+      - name: Require successful release dry run
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.releaseTag }}
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          title="Caracal ${RELEASE_TAG} dry-run"
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?head_sha=${RELEASE_SHA}&event=workflow_dispatch&status=success&per_page=100" \
+            --jq "[.workflow_runs[] | select(.display_title == \"${title}\")] | length")"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No successful ${title} workflow exists for ${RELEASE_SHA}."
+            exit 1
+          fi
+
+      - name: Verify clean source checkout
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)" || {
+            echo "::error::Release source checkout is dirty."
+            git status --short
+            exit 1
+          }
 
       - name: Validate release manifest
         env:
@@ -197,7 +228,28 @@ jobs:
           set -euo pipefail
           manifest="releases/${RELEASE_TAG}/manifest.json"
           test -f "$manifest" || { echo "::error::Missing release manifest: $manifest"; exit 1; }
-          CARACAL_VALIDATE_HELM_FILES=1 node scripts/validateReleaseManifest.mjs "$manifest"
+          CARACAL_VALIDATE_HELM_FILES=1 node scripts/validateReleaseManifest.mjs --product-version "$manifest"
+
+      - name: Require unpublished package versions
+        if: steps.resolve.outputs.publish == 'true'
+        run: node scripts/checkReleaseVersions.mjs
+
+      - name: Require unused GitHub Release tag
+        if: steps.resolve.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          error_file="$(mktemp)"
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>"$error_file"; then
+            echo "::error::GitHub Release ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+          if ! grep -q 'HTTP 404' "$error_file"; then
+            cat "$error_file" >&2
+            exit 1
+          fi
 
       - name: Validate stable documentation version
         if: steps.resolve.outputs.channel == 'stable'
@@ -242,7 +294,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.context.outputs.checkoutRef }}
+          ref: ${{ needs.context.outputs.sha }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -313,7 +365,14 @@ jobs:
             fi
             rm -rf "$stage"
           done
-          cp "releases/${RELEASE_TAG}/manifest.json" release-dist/manifest.json
+          source_timestamp="$(git show -s --format=%cI "${{ needs.context.outputs.sha }}")"
+          node scripts/finalizeReleaseManifest.mjs \
+            "releases/${RELEASE_TAG}/manifest.json" \
+            release-dist/manifest.json \
+            "${{ needs.context.outputs.sha }}" \
+            "$source_timestamp"
+          CARACAL_EXPECT_SOURCE_SHA="${{ needs.context.outputs.sha }}" \
+            node scripts/validateReleaseManifest.mjs release-dist/manifest.json
           cp install.sh install.ps1 release-dist/
           ls -la release-dist/
 
@@ -369,9 +428,42 @@ jobs:
           subject-path: |
             release-dist/caracal-runtime-*
 
+  ociPreflight:
+    name: Verify unused OCI version
+    needs: context
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        if: needs.context.outputs.publish == 'true'
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        if: needs.context.outputs.publish == 'true'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in Helm
+        if: needs.context.outputs.publish == 'true'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" --username "${{ github.actor }}" --password-stdin
+
+      - name: Require unpublished OCI artifacts
+        if: needs.context.outputs.publish == 'true'
+        run: node scripts/checkOciVersions.mjs --all
+
   serviceImages:
     name: Build service images
-    needs: context
+    needs: [context, ociPreflight]
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -387,7 +479,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.context.outputs.checkoutRef }}
+          ref: ${{ needs.context.outputs.sha }}
           persist-credentials: false
 
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -401,13 +493,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Recheck image version
+        if: needs.context.outputs.publish == 'true'
+        run: node scripts/checkOciVersions.mjs --image "${REGISTRY}/${IMAGE_OWNER}/caracal-${{ matrix.name }}:${{ needs.context.outputs.releaseTag }}"
+
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-${{ matrix.name }}
           tags: type=raw,value=${{ needs.context.outputs.releaseTag }}
 
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -420,9 +517,16 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        if: needs.context.outputs.publish == 'true'
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-${{ matrix.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
   runtimeImage:
     name: Build runtime image
-    needs: context
+    needs: [context, ociPreflight]
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -434,7 +538,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.context.outputs.checkoutRef }}
+          ref: ${{ needs.context.outputs.sha }}
           persist-credentials: false
 
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -448,13 +552,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Recheck image version
+        if: needs.context.outputs.publish == 'true'
+        run: node scripts/checkOciVersions.mjs --image "${REGISTRY}/${IMAGE_OWNER}/caracal-runtime:${{ needs.context.outputs.releaseTag }}"
+
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
           tags: type=raw,value=${{ needs.context.outputs.releaseTag }}
 
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - id: push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: apps/runtime/Dockerfile
@@ -470,18 +579,56 @@ jobs:
           cache-from: type=gha,scope=runtime-image
           cache-to: type=gha,mode=max,scope=runtime-image
 
-  verifyAssets:
-    name: Verify assets
-    needs: [context, archives]
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        if: needs.context.outputs.publish == 'true'
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  verifyPublishedOci:
+    name: Verify published OCI provenance
+    needs: [context, serviceImages, runtimeImage]
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+      packages: read
+      attestations: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.context.outputs.checkoutRef }}
+          ref: ${{ needs.context.outputs.sha }}
+          persist-credentials: false
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        if: needs.context.outputs.publish == 'true'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify image provenance
+        if: needs.context.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verifyOciRelease.mjs "${{ needs.context.outputs.sha }}" "${{ needs.context.outputs.releaseTag }}"
+
+  verifyAssets:
+    name: Verify assets
+    needs: [context, archives, verifyPublishedOci]
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -489,22 +636,69 @@ jobs:
           name: release-archives
           path: dist
 
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        if: needs.context.outputs.publish == 'true'
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        if: needs.context.outputs.publish == 'true'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record immutable image digests
+        if: needs.context.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          node scripts/finalizeImageDigests.mjs dist/manifest.json
+          (cd dist && sha256sum caracal-runtime-*.tar.gz caracal-runtime-*.zip manifest.json install.sh install.ps1 > SHA256SUMS)
+
       - name: Verify release assets
-        run: node scripts/verifyReleaseAssets.mjs "${{ needs.context.outputs.releaseTag }}" dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+          PUBLISH: ${{ needs.context.outputs.publish }}
+        run: |
+          set -euo pipefail
+          CARACAL_EXPECT_SOURCE_SHA="$RELEASE_SHA" node scripts/validateReleaseManifest.mjs dist/manifest.json
+          if [ "$PUBLISH" = true ]; then
+            CARACAL_EXPECT_SOURCE_SHA="$RELEASE_SHA" node scripts/validateReleaseManifest.mjs --image-digests dist/manifest.json
+          fi
+          node scripts/verifyReleaseAssets.mjs "${{ needs.context.outputs.releaseTag }}" dist
+          if [ "$PUBLISH" = true ]; then
+            for archive in dist/caracal-runtime-*; do
+              gh attestation verify "$archive" --repo Garudex-Labs/caracal --format json > provenance.json
+              jq -e \
+                --arg sha "$RELEASE_SHA" \
+                --arg ref "refs/tags/$RELEASE_TAG" \
+                'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
+                provenance.json >/dev/null
+            done
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
 
   helmChart:
     name: Publish Helm chart
-    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    needs: [context, verifyAssets, verifyPublishedOci]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ needs.context.outputs.checkoutRef }}
+          ref: ${{ needs.context.outputs.sha }}
           persist-credentials: false
 
       - name: Log in to GHCR
@@ -513,18 +707,42 @@ jobs:
       - name: Package chart
         run: helm package infra/helm/caracal --destination chart-dist
 
+      - name: Recheck chart version
+        run: node scripts/checkOciVersions.mjs --chart "oci://${REGISTRY}/${IMAGE_OWNER}/charts/caracal" "${{ needs.context.outputs.version }}"
+
+      - name: Attest chart source
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: chart-dist/caracal-*.tgz
+
       - name: Push chart
         run: helm push chart-dist/caracal-*.tgz "oci://${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/charts"
 
+      - name: Verify published chart
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir chart-published
+          helm pull "oci://${REGISTRY}/${IMAGE_OWNER}/charts/caracal" --version "${{ needs.context.outputs.version }}" --destination chart-published
+          cmp chart-dist/caracal-*.tgz chart-published/caracal-*.tgz
+          gh attestation verify chart-published/caracal-*.tgz --repo Garudex-Labs/caracal --format json > chart-provenance.json
+          jq -e \
+            --arg sha "${{ needs.context.outputs.sha }}" \
+            --arg ref "refs/tags/${{ needs.context.outputs.releaseTag }}" \
+            'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
+            chart-provenance.json >/dev/null
+
   publishNpmPackages:
     name: Publish npm packages
-    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    needs: [context, verifyAssets, verifyPublishedOci]
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishNpm.yml
     with:
       package: all
       dryRun: ${{ needs.context.outputs.dryRun == 'true' }}
       runner: ubuntu-24.04
+      releaseSha: ${{ needs.context.outputs.sha }}
     permissions:
       contents: read
       id-token: write
@@ -532,16 +750,18 @@ jobs:
 
   publishPypiPackages:
     name: Publish PyPI packages
-    needs: [context, verifyAssets, serviceImages, runtimeImage]
+    needs: [context, verifyAssets, verifyPublishedOci]
     if: github.repository == 'Garudex-Labs/caracal'
     uses: ./.github/workflows/publishPypi.yml
     with:
       package: all
       dryRun: ${{ needs.context.outputs.dryRun == 'true' }}
       runner: ubuntu-24.04
+      releaseSha: ${{ needs.context.outputs.sha }}
     permissions:
       contents: read
       id-token: write
+      attestations: write
     secrets: inherit
 
   githubRelease:
@@ -558,14 +778,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: release-archives
+          name: release-assets
           path: dist
 
-      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+      - name: Publish release candidate
+        if: needs.context.outputs.channel == 'rc'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ needs.context.outputs.releaseTag }}
           generate_release_notes: true
-          prerelease: ${{ needs.context.outputs.channel == 'rc' }}
+          prerelease: true
+          make_latest: false
           fail_on_unmatched_files: true
           files: |
             dist/caracal-runtime-*
@@ -573,6 +796,69 @@ jobs:
             dist/SHA256SUMS
             dist/install.sh
             dist/install.ps1
+
+      - name: Publish stable release
+        if: needs.context.outputs.channel == 'stable'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          tag_name: ${{ needs.context.outputs.releaseTag }}
+          generate_release_notes: true
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/caracal-runtime-*
+            dist/manifest.json
+            dist/SHA256SUMS
+            dist/install.sh
+            dist/install.ps1
+
+      - name: Verify release classification
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+          RELEASE_CHANNEL: ${{ needs.context.outputs.channel }}
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.prerelease')"
+          expected=false
+          [ "$RELEASE_CHANNEL" = rc ] && expected=true
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::GitHub release prerelease=${actual}; expected ${expected}."
+            exit 1
+          fi
+
+  postPublish:
+    name: Validate public release
+    needs: [context, githubRelease]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir published
+          gh release download "$RELEASE_TAG" --repo Garudex-Labs/caracal --dir published
+          (cd published && sha256sum --check SHA256SUMS)
+          CARACAL_EXPECT_SOURCE_SHA="$RELEASE_SHA" node scripts/validateReleaseManifest.mjs --image-digests published/manifest.json
+          node scripts/verifyReleaseAssets.mjs "$RELEASE_TAG" published
+          git fetch --force --tags origin
+          node scripts/releaseTags.mjs "$RELEASE_TAG" "$RELEASE_SHA"
 
   dryRunSummary:
     name: Dry-run summary
@@ -598,7 +884,7 @@ jobs:
 
   promoteStable:
     name: Promote stable tags
-    needs: [context, githubRelease]
+    needs: [context, postPublish]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.promoteStable == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

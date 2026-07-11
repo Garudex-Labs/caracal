@@ -1,2 +1,3 @@
 build==1.5.0
+pypi-attestations==0.0.29
 twine==6.2.0

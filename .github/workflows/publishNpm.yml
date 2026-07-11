@@ -28,7 +28,7 @@ on:
       dryRun:
         description: 'Build only.'
         required: false
-        default: false
+        default: true
         type: boolean
       runner:
         description: 'Publish runner.'
@@ -52,6 +52,10 @@ on:
         type: boolean
       runner:
         description: 'Publish runner.'
+        required: true
+        type: string
+      releaseSha:
+        description: 'Exact release commit supplied by release.yml.'
         required: true
         type: string
 
@@ -83,17 +87,28 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Validate dispatch ref and actor
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_DRY_RUN: ${{ inputs.dryRun }}
+          RELEASE_SHA: ${{ inputs.releaseSha }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_NAME}" != "${{ github.event.repository.default_branch }}" && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
             echo "::error::npm publishing must run from ${{ github.event.repository.default_branch }} or a Caracal release tag."
+            exit 1
+          fi
+          if [[ "$PUBLISH_DRY_RUN" != true && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
+            echo "::error::npm publication requires a Caracal release tag; the default branch supports dry runs only."
+            exit 1
+          fi
+          if [[ "$PUBLISH_DRY_RUN" != true && ( ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ || "$(git rev-parse HEAD)" != "$RELEASE_SHA" ) ]]; then
+            echo "::error::npm publication must be called by release.yml with its exact release commit."
             exit 1
           fi
           actor="${{ github.actor }}"
@@ -131,6 +146,18 @@ jobs:
             echo "hasPackages=$hasPackages"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Require unpublished versions
+        if: inputs.dryRun != true
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          args=(--ecosystem npm)
+          if [[ "$PACKAGE" != all ]]; then
+            args+=(--package "$PACKAGE")
+          fi
+          node scripts/checkReleaseVersions.mjs "${args[@]}"
+
   preflight:
     name: Check ${{ matrix.name }} on ${{ matrix.runner }}
     if: github.repository == 'Garudex-Labs/caracal' && needs.select.outputs.hasPackages == 'true'
@@ -145,7 +172,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source checkout
+        if: inputs.releaseSha != ''
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -226,7 +258,11 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           persist-credentials: false
+
+      - name: Verify source checkout
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -280,14 +316,16 @@ jobs:
           dist_tag="latest"
           [[ "$ver" == *"-rc."* ]] && dist_tag="rc"
           if npm view "${name}@${ver}" version >/dev/null 2>&1; then
-            echo "Skipping ${name}@${ver}; it is already published."
-            exit 0
+            echo "::error::${name}@${ver} is already published from another release attempt."
+            exit 1
           fi
           npm publish --access public --tag "$dist_tag" --provenance
 
       - name: Verify published package
         if: inputs.dryRun != true
         working-directory: ${{ matrix.dir }}
+        env:
+          RELEASE_SHA: ${{ inputs.releaseSha }}
         run: |
           set -euo pipefail
           name="$(node -p "require('./package.json').name")"
@@ -302,7 +340,7 @@ jobs:
             fi
             sleep 15
           done
-          echo "${name}@${ver} is published"
+          node "$GITHUB_WORKSPACE/scripts/verifyNpmRelease.mjs" "$name" "$ver" "$RELEASE_SHA" "$GITHUB_REF_NAME"
 
       - name: Dry-run summary
         if: inputs.dryRun == true
