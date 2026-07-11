@@ -5,30 +5,29 @@ sidebar:
   order: 14
 ---
 
-The audit ledger records what Caracal decided, why it decided it, and which request or run produced the event.
+Use this page when you need to explain one decision or prove one action. Audit records what Caracal decided, the context used, and which request or Session produced the event.
 
 ## What Gets Audited
 
 | Event area              | Examples                                                              |
 | ----------------------- | --------------------------------------------------------------------- |
-| Token exchange          | Allow, deny, step-up required, policy diagnostics.                    |
+| Token exchange          | Allow, deny, Approval required, and policy diagnostics.               |
 | Gateway and adapter use | Resource decision, mandate verification failure, request correlation. |
 | Policy lifecycle        | Policy creation, validation, policy-set activation, simulation.       |
 | Delegation              | Creation, traversal, impact, and revocation cascade.                  |
 | Sessions                | Start, terminate, revoke, expire.                                     |
 | Administration          | Zone, application, resource, provider, grant, and challenge changes.  |
 
-## Audit Flow
+## Evidence Flow
 
 ```mermaid
 flowchart LR
-  STS["STS"] --> Redis["Audit stream"]
-  Gateway["Gateway / adapters"] --> Redis
-  Admin["Admin API"] --> Redis
-  Redis --> Worker["Ingestion worker"]
-  Worker --> Postgres["Audit tables"]
-  Postgres --> Console["Console audit and explain views"]
-  Postgres --> API["Admin API audit endpoints"]
+  Decision["Authority decision"] --> Evidence["Audit evidence"]
+  Enforcement["Gateway or verified service"] --> Evidence
+  Admin["Administrative change"] --> Evidence
+  Evidence --> Trace["Request trace"]
+  Trace --> Console["Console"]
+  Trace --> API["Admin API"]
 ```
 
 ## How to Use Audit
@@ -39,7 +38,7 @@ flowchart LR
 | Which policy caused the decision?             | Determining policies and diagnostics.                                |
 | Did revocation propagate?                     | Session, delegation, and resource decision events.                   |
 | Which run made a request?                     | Request ID, Authority record ID, Session ID, and trace context.      |
-| Was an approval required, and who decided it? | Step-up issuance, decision, and consumption events.                  |
+| Was an Approval required, and who decided it? | Approval issuance, decision, and consumption events.                |
 
 ## Request IDs
 
@@ -48,6 +47,10 @@ Request IDs tie multiple events together. Keep the request ID from an SDK, Gatew
 ## Integrity and Retention
 
 Audit events should be treated as operational evidence. Configure retention, export, and SIEM forwarding according to your deployment requirements. Do not rely on local process logs as the only authority trail.
+
+## Outcome
+
+For one request ID, you should be able to identify the Application, optional Subject attribution, Session, Resource, scopes, policy version, Approval or Delegation context, decision, and enforcement result.
 
 ## Next Step
 

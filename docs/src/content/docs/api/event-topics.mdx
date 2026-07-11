@@ -6,6 +6,8 @@ pageType: api
 
 Caracal uses Redis Streams for propagation. Published modes sign stream messages with `STREAMS_HMAC_KEY`.
 
+**Internal wire API:** applications normally should not consume these topics. They are deployment contracts for Caracal services, audit exporters, and revocation backends. Topic names and payload fields are protocol-facing and may retain `agents` terminology.
+
 ## Topics
 
 | Topic                            | Producers                               | Consumers                                          |
@@ -36,6 +38,14 @@ Caracal uses Redis Streams for propagation. Published modes sign stream messages
 ## Message Integrity
 
 Signed stream messages include the `_sig` field. Consumers in published modes must reject unsigned or mismatched messages for streams that require origin verification.
+
+Messages use Redis Stream IDs and field/value maps. Consumers must validate required fields and bounds before applying state, deduplicate by the event identity carried by the producer, and acknowledge only after durable application. Poison messages go to the stream's bounded dead-letter path where implemented. Pending messages must be claimed and retried with consumer-group semantics rather than copied as a new logical event.
+
+Revocation and Delegation epoch updates are monotonic security state: delayed delivery must never reduce the recorded epoch. Audit events are append-only evidence and must preserve `request_id`, occurrence time, and signature fields unchanged.
+
+## Access and Stability
+
+Use a dedicated least-privilege Redis identity and private TLS connectivity. Do not expose Redis publicly or distribute Admin tokens to consumers. Consumer group names shown here are repository defaults, not a multi-tenant coordination API; independently deployed resource servers should use deployment-specific groups and unique consumer names.
 
 ## Related Pages
 

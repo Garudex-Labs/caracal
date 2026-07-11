@@ -5,7 +5,7 @@ sidebar:
   order: 10
 ---
 
-Delegation lets one Session pass a narrower, typed slice of authority to another Session.
+Read this page when one Session must give a child or peer less authority than the Application could otherwise request. A Delegation is a revocable, expiring authority relationship between Sessions.
 
 Authority follows the **application**. Sessions started under the same application already act under that application's authority. Create a Delegation in exactly two cases:
 
@@ -49,20 +49,20 @@ flowchart LR
 
 Expiry removes the edge's authority without terminating either endpoint Session. STS rejects the expired edge and caps every mandate minted through it so the mandate cannot outlive the edge. The target Session remains active but cannot use that Delegation again; it must receive another live Delegation before it can mint delegated authority. Revocation is different: it is an explicit monotonic action that cascades through downstream Delegations and affected Session subtrees.
 
-## What a Delegation Bounds - and What It Does Not
+## What Delegation Bounds
 
-A Delegation bounds **the token issued for that Delegation** and **any further Delegation chained from it**. It does **not** raise the application's authority ceiling. Internally and on the wire, Delegations are represented as graph edges.
+A Delegation bounds every Mandate issued through it and every later Delegation chained from it. It never raises the Application's policy ceiling.
 
-- When a child is created with a **narrowing grant**, a `source → child` edge is recorded. A token exchange that presents this edge is bounded to the edge's scopes. Coordinator prevents widening when an edge is created, and STS independently rechecks every adjacent ancestor and child for scope, resource, expiry, TTL, and hop attenuation before every delegated issuance.
-- When a child is started with **inherit** under a narrowed parent, Coordinator mirrors the parent's Delegation onto the child in the same creation transaction. Least privilege is transitive by default.
-- When a child is created with **inherit** under a **root parent** (one that holds the application's full authority with no inbound edge), no edge is recorded and the child runs under the application's policy-bounded authority. There is nothing narrower to carry forward - and because the decision contract mints resource mandates only over a Delegation, an edge-less session cannot present _delegated_ authority at all.
+- A narrowed child receives no more scopes, Resources, lifetime, or hop budget than its parent.
+- Inheriting from a narrowed parent preserves that narrowing for descendants.
+- Inheriting from an Application-root Session does not manufacture delegated Resource authority.
 
 Worked example: A starts B with `Authority.narrow([tickets:read])`, then B starts C.
 
 - If B starts C with **inherit**, Coordinator records a `B → C` edge mirroring B's `tickets:read` slice, so C remains bounded by B's narrowing.
 - If B starts C with narrower authority, Coordinator records a `B → C` edge and rejects it unless `C ⊆ B`.
 
-The consequence: the **application plus policy** is the hard, server-enforced boundary every session is contained by. Within one application, transitive inheritance keeps a narrowed subtree narrowed automatically. To place a subtree behind a real cross-application trust boundary, move it under a different application via `delegate()`. Creation records an offer and does not mutate the receiver's context. The receiver consents by possessing and presenting the opaque, target-Session-bound Delegation ID with `acceptDelegation()`; STS also verifies receiver application ownership and the live target Session before minting. All sessions of one application share a credential and a trust domain by design; transitive inheritance contains an _accidentally_ un-narrowed descendant, while a separate application contains a _mutually distrusting_ one.
+The Application and active policy remain the hard ceiling. Use a separate Application when the receiver needs a separate credential or trust boundary. A cross-Application receiver must explicitly accept the offered Delegation before using it.
 
 ## SDK Relationship
 
@@ -80,7 +80,7 @@ These helpers propagate session and delegation context so later token exchanges 
 
 ## Where You Interact With Delegation
 
-Delegation is authored **at runtime through the SDK**. There is intentionally no Console creation form; the Console remains an operator inspection and revocation surface. Call `session(authority=…)` or `delegate(to=…)`; Coordinator records and enforces the Delegation. Audit records the Delegation ID, hop chain, and scopes. See the [Coordinator protocol table](/api/coordinator/#delegation) for retained wire names.
+Create Delegations at runtime through the SDK. The console is an inspection and revocation surface, not a Delegation authoring form. Audit records the Delegation ID, chain, scopes, and outcome.
 
 ## Next Step
 

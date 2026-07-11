@@ -5,7 +5,7 @@ sidebar:
   order: 11
 ---
 
-Typed constraints make delegated authority explicit. Coordinator validates them at edge creation and STS revalidates the current edge and its authoritative ancestry at token exchange.
+Read [Session Delegation](/concepts/delegation/) first. Constraints state how far, how long, and for what a Delegation may be used. Caracal validates them when the Delegation is created and again before issuing a Mandate through it.
 
 ## Constraint Types
 
@@ -22,15 +22,15 @@ Typed constraints make delegated authority explicit. Coordinator validates them 
 
 ```json
 {
-  "resource": "https://api.example.com/tickets",
-  "scopes": ["tickets:read", "tickets:comment"],
+  "resource": "resource://piperchat",
+  "scopes": ["piperchat:read", "piperchat:comment"],
   "max_hops": 2,
   "expires_at": "2026-06-01T12:00:00Z",
   "policy_approved": true
 }
 ```
 
-Delegation constraints bound authority, lifetime, and propagation. They are not usage accounting. Use STS rate limits for exchange volume and a durable domain-specific quota when calls, work, or cost must be consumed atomically. `policy_approved` and `broad_reason` are metadata only.
+Delegation constraints bound authority, lifetime, and propagation. They are not quotas. Use a domain-specific store when calls, work, or cost must be consumed atomically. Approval metadata and broad-reason fields are audit annotations; they do not authorize the Delegation.
 
 Application-chain requirements are verifier options rather than edge constraints. Use `requireChainContains` at a resource boundary when a specific application must appear in the signed delegation chain.
 

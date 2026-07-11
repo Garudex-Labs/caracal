@@ -6,6 +6,14 @@ pageType: api
 
 Coordinator is served on port `4000`. It owns governed Session and Delegation graph state. This page documents the raw protocol, whose stable paths and fields retain `agents`, `agent_session_id`, and `delegation_edge_id` names.
 
+**Wire-facing API:** application code normally should not call Coordinator directly. The SDK owns credential selection, idempotency, retries, context binding, generation fencing, and cleanup.
+
+## Authentication and Errors
+
+Runtime routes require a Caracal bearer mandate whose zone matches `:zoneId`, whose application is active, and whose scope authorizes the operation. The configured operator token is accepted only on an allowlisted management subset; traversal and impact require `coordinator.admin`. `/v1/verify`, health, and readiness are exceptions documented below.
+
+Protocol errors are JSON with at least `error`; common statuses are `400` validation, `401` missing/invalid/expired bearer, `403` ownership or scope failure, `404` missing object, `409` lifecycle/idempotency conflict, `429` capacity or receipt limit, and `5xx` dependency failure.
+
 ## Health and Metrics
 
 | Method | Path       | Purpose                       |
@@ -26,6 +34,10 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 | `PATCH`  | `/zones/:zoneId/agents/:id/resume`   | Resume a suspended Session subtree.              |
 | `DELETE` | `/zones/:zoneId/agents/:id`          | Terminate a Session.                             |
 
+`POST /zones/:zoneId/agents` accepts `application_id`, protocol field `subject_session_id` (the Subject Authority-record ID), optional `parent_id`, `lifecycle` (`task` or `service`), `labels`, `ttl_seconds`, `parent_authority` (`inherit` or `none`), `inherit_parent_edge_id`, and `metadata`. Task TTL defaults to 3600 seconds and is bounded to 1–86400. Service lifetime is lease-based. The response carries protocol `agent_session_id`, optional inherited `delegation_edge_id`, and lifecycle/lease data.
+
+Lists accept `limit` (default 100, maximum 500), opaque `cursor`, and route-specific filters. Responses use `{ "items": [...], "next_cursor": string | null }`.
+
 ## Long-lived Sessions and Invocations
 
 | Method  | Path                                      | Purpose                                                                               |
@@ -38,6 +50,8 @@ Coordinator is served on port `4000`. It owns governed Session and Delegation gr
 | `PATCH` | `/zones/:zoneId/invocations/:id/start`    | Mark an invocation running.                                                           |
 | `PATCH` | `/zones/:zoneId/invocations/:id/cancel`   | Cancel an invocation.                                                                 |
 | `PATCH` | `/zones/:zoneId/invocations/:id/complete` | Complete an invocation.                                                               |
+
+`POST /zones/:zoneId/agents/:id/lease` acquires a new generation before an SDK attaches. Heartbeat must carry the current generation; an older holder is fenced with conflict. Terminal missing, expired, or fenced results stop SDK auto-heartbeat.
 
 ## Delegation
 
@@ -55,11 +69,21 @@ Runtime credentials see only Delegations where their application is the issuer o
 | `GET`   | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a Session.                                                           |
 | `PATCH` | `/zones/:zoneId/delegations/:id/revoke`                | Revoke delegated authority.                                                                          |
 
+Delegation creation requires `source_session_id`, `target_session_id`, issuer and receiver application IDs, and an expiry (`expires_at` or positive `ttl_seconds`). Optional narrowing includes `parent_edge_id`, `resource_id`, `scopes`, and strict constraints (`resources`, `max_depth`, `max_hops`, `budget`, `ttl_seconds`, `expires_at`, plus audit metadata). Self-Delegation is rejected. A resource-unbound edge requires an explicit broad-Delegation scope.
+
+## Idempotency and Retries
+
+Session and Delegation creation accept `Idempotency-Key`. Repeating the same canonical request returns the recorded result; reusing the key with different input returns `409 idempotency_key_conflict`. SDK-generated keys also carry `Idempotency-Key-Kind: generated`. Keep one key across retries of one logical operation and generate a new key for a new operation.
+
+The SDK retries transient Session creation twice and Delegation creation once. Direct callers must implement the same bounded policy and must not retry non-idempotent writes without a key. Honor `Retry-After` on retryable congestion responses.
+
 ## Language-Neutral Verification
 
 | Method | Path         | Purpose                                                                                       |
 | ------ | ------------ | --------------------------------------------------------------------------------------------- |
 | `POST` | `/v1/verify` | Verify a mandate through the configured identity verifier for language-neutral integrations. |
+
+`/v1/verify` is public in the HTTP routing sense but is a wire utility, not a replacement for local resource-server verification and shared revocation state.
 
 SDK lifecycle clients use the zone-scoped Session, lease, heartbeat, termination, and Delegation endpoints above. Coordinator exposes no parallel flat lifecycle or Delegation protocol.
 
