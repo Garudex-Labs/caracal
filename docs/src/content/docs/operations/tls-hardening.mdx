@@ -1,74 +1,35 @@
 ---
 title: Harden Production
-description: Harden network exposure, secrets, service processes, and upstream access for production Caracal.
+description: Apply verified network, TLS, secret, browser, container, and egress controls.
 pageType: workflow
 ---
 
-Production Caracal should run in published mode (`CARACAL_MODE=stable`, or `rc` for staging), use TLS at external boundaries, and keep stateful dependencies private. `rc` and `stable` enforce the same fail-closed trust boundary; `rc` is a release-candidate build that may be functionally unstable, so use `stable` for production.
+Use this checklist before a `stable` deployment receives real credentials or traffic.
 
-## Hardening Checklist
+## Prerequisites
 
-| Area | Required stance |
-| --- | --- |
-| External TLS | Terminate TLS at ingress, load balancer, service mesh, or Gateway TLS files. The web console public edge must be HTTPS. |
-| Internal services | Prefer private ClusterIP or bridge-network traffic. |
-| Secrets | Use mounted secret files, not inline env vars. |
-| Containers | Drop Linux capabilities, set no-new-privileges, use read-only filesystems where supported. |
-| NetworkPolicy | Admit only required ingress and egress, including explicit ingress-controller traffic to the web tier. |
-| Gateway upstreams | Keep private upstreams disabled unless explicitly allowed and allowlisted. |
-| Runtime CLI | Do not expose product management as top-level runtime CLI commands. |
+Own the TLS endpoint, DNS, runtime Secret, ingress or proxy, dependency firewall rules, and monitoring path. Caracal does not configure host firewalls or issue Compose certificates.
 
-## Web Console Edge
+## Procedure
 
-The production web tier is a same-origin deployment: the `caracal-web` image serves the built SPA and the backend-for-frontend from the same HTTPS origin. The BFF proxies `/api/console/*` to the internal API and Coordinator, so browser traffic does not reach those services directly and no cross-origin CORS or CSRF surface is needed for the standard deployment.
+1. Set `CARACAL_MODE=stable`; never expose `dev`.
+2. Keep Postgres, Redis, API, Coordinator, Audit, and Control private unless explicitly required.
+3. Expose the same-origin web BFF through HTTPS and set its exact public origin. Trust proxy headers only from a controlled direct proxy.
+4. Deliver secrets through files/projections and deny agents access to runtime secrets and Docker socket.
+5. Retain non-root, dropped-capability, read-only-filesystem, and `no-new-privileges` settings.
+6. Permit only required ingress and egress. Pin Gateway destinations with `UPSTREAM_HOST_ALLOWLIST` when appropriate.
+7. Require authenticated metrics and route critical audit/revocation alerts.
 
-Use HTTPS at the public edge and set `CARACAL_AUTH_URL` to that origin. The BFF pins `Secure`, `HttpOnly`, and `SameSite` session cookies, sets hardened response headers (`Content-Security-Policy` with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and HSTS when HTTPS is in use), enforces the request `Origin` on state-changing proxied calls, rate-limits credential endpoints, and validates proxied paths.
+Gateway blocks dangerous address classes and does not follow redirects, but operator-provisioned private upstreams are intentionally supported. Network policy remains the outer boundary.
 
-For a cross-site deployment where the browser site differs from the BFF site, set `CARACAL_WEB_ORIGIN` to the exact trusted browser origins and `CARACAL_AUTH_COOKIE_SAME_SITE=none`. This mode refuses to start unless cookies are Secure. A cross-origin deployment on sibling subdomains can keep the safer `lax` default when both origins are same-site. Packaged Helm and Compose serve the SPA same-origin.
+## Verify
 
-With Helm NetworkPolicy enabled, add a `networkPolicy.extraIngress` rule for the ingress controller to reach the web service on port `3002`. API, Coordinator, and Gateway should remain private unless a deployment requires their endpoints externally.
+Test HTTPS and issuer/JWKS identity, denied direct storage access, rejected cross-origin browser writes, rejected unauthenticated metrics, blocked upstreams, and revoked sessions denied before dispatch.
 
-## Gateway Upstream Safety
+## Rollback or Recovery
 
-Upstream hosts are operator-provisioned through the Control API, never client-supplied, so the
-Gateway routes to private and on-prem upstreams (internal tools, local MCPs) by default. Dangerous
-infrastructure ranges that are never a legitimate upstream - cloud metadata (`169.254.0.0/16`),
-loopback, carrier-grade NAT, and multicast - are always blocked, including under DNS rebinding.
+Revert the narrowest policy change while keeping services private. Never recover by switching to `dev`, disabling revocation safety, publishing storage, or placing secrets inline.
 
-To pin egress to an explicit set of hosts as a hardening control, set:
+## Next Action
 
-```bash
-UPSTREAM_HOST_ALLOWLIST=internal-api.example.svc,provider.example.com
-```
-
-Provider token endpoints and subject-issuer JWKS remain public-address-only by default. When an IdP is reachable over a private interconnect, set `CARACAL_PRIVATE_EGRESS_HOSTS` on API and STS to its exact DNS hostname. This exception permits private and unique-local addresses only for those names; loopback, metadata, link-local, multicast, and unspecified addresses remain blocked at resolution and connection time.
-
-## HMAC and Signing Keys
-
-Published modes require production-grade keys:
-
-| Key | Used for |
-| --- | --- |
-| `AUDIT_HMAC_KEY` | Audit event integrity. |
-| `STREAMS_HMAC_KEY` | Redis stream message signatures. |
-| `GATEWAY_STS_HMAC_KEY` | Gateway-to-STS service exchange. |
-| `SECRET_STORE_KEK` | Secret Store envelope encryption. |
-
-HMAC keys must be hex-encoded and at least 32 bytes where validated.
-
-## Kubernetes Controls
-
-The Helm chart sets non-root pods, RuntimeDefault seccomp, dropped capabilities, read-only root filesystem for service containers, optional NetworkPolicy, PDBs, HPAs, and optional Ingress TLS.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Published-mode startup fails | Missing or short HMAC key, unsafe URL, forbidden fail-open setting, or wrong service port. |
-| Gateway cannot reach upstream | NetworkPolicy egress, DNS egress, HTTPS egress, and upstream allowlist. |
-| Metrics endpoint denied | Confirm `METRICS_BEARER` and scraper configuration. |
-| TLS works externally but clients fail token validation | Confirm STS `ISSUER_URL` matches the URL clients use for JWKS and token issuer checks. |
-
-## Next Step
-
-Use [Rotate Keys and Secrets](/operations/key-management/) to plan secret storage, key overlap, and rotation evidence.
+Complete [Rotate Keys and Secrets](/operations/key-management/) and [Configure Alerts](/operations/alerts/).
