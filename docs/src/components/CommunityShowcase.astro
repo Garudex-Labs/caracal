@@ -3,28 +3,12 @@
  * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
  * Caracal, a product of Garudex Labs
  *
- * Compact community strip with the featured video, featured blog post, and blog and vlog links.
+ * Compact community strip with the featured video and external blog and vlog channels.
  */
 
-import { getCollection } from "astro:content";
 import community from "../data/community.json";
-import { docsHref, docsRouteVersion } from "../../versioning.mjs";
 
 const featured = community.vlogs.find((v) => v.featured);
-
-const routeVersion = docsRouteVersion(Astro.url.pathname);
-const blogPrefix = routeVersion ? `${routeVersion}/blog/` : "blog/";
-const posts = await getCollection("docs", (entry) => entry.id.startsWith(blogPrefix) && Boolean(entry.data.post));
-const featuredPost = posts
-  .sort((a, b) => new Date(b.data.post!.date).valueOf() - new Date(a.data.post!.date).valueOf())
-  .find((entry) => entry.data.post!.featured) ?? posts[0];
-const postMeta = featuredPost?.data.post;
-const postTint = postMeta
-  ? (community.blogCategories as { name: string; tint: string }[]).find((c) => c.name === postMeta.category)?.tint ?? "#60a5fa"
-  : "#60a5fa";
-const postDate = postMeta
-  ? new Date(postMeta.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-  : "";
 ---
 
 <section class="docs-strip" aria-labelledby="docs-strip-heading">
@@ -35,8 +19,8 @@ const postDate = postMeta
       <h2 id="docs-strip-heading" class="docs-strip__heading">We build this in the open</h2>
       <p class="docs-strip__lede">Talks, posts, and a weekly call where the roadmap actually gets decided.</p>
       <div class="docs-strip__actions">
-        <a class="landing-button landing-button--secondary" href={docsHref(Astro.url.pathname, "/blogs/")}>Read the blog</a>
-        <a class="landing-button landing-button--secondary" href={docsHref(Astro.url.pathname, "/vlogs/")}>Watch the vlogs</a>
+        <a class="landing-button landing-button--secondary" href="https://medium.com/@caracal.core" target="_blank" rel="noopener noreferrer">Read the blog</a>
+        <a class="landing-button landing-button--secondary" href="https://www.youtube.com/@CaracalAI" target="_blank" rel="noopener noreferrer">Watch the vlogs</a>
       </div>
     </div>
 
@@ -51,22 +35,6 @@ const postDate = postMeta
         <span class="docs-strip__video-meta">
           <span class="docs-strip__video-kicker">{featured.category}</span>
           <span class="docs-strip__video-title">{featured.title}</span>
-        </span>
-      </a>
-    )}
-
-    {featuredPost && postMeta && (
-      <a class="docs-strip__post" href={`/${featuredPost.id}/`} style={`--tint: ${postTint}`}>
-        <span class="docs-strip__post-kicker">
-          <span class="chip">{postMeta.category}</span>
-          <span class="docs-strip__post-label">From the blog</span>
-        </span>
-        <span class="docs-strip__post-title">{featuredPost.data.title}</span>
-        <span class="docs-strip__post-desc">{featuredPost.data.description}</span>
-        <span class="docs-strip__post-meta">
-          <span>{postMeta.author}</span>
-          <span>{postDate}</span>
-          {postMeta.readingTime && <span>{postMeta.readingTime}</span>}
         </span>
       </a>
     )}
