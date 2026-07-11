@@ -5,22 +5,22 @@ sidebar:
   order: 13
 ---
 
-Authority records, Sessions, and Delegations make Caracal authority temporary and revocable. A mandate includes their revocation anchors, and resource servers check those anchors before accepting it.
+Read this page after [Delegation Constraints](/concepts/constraint/). Authority records, Sessions, and Delegations make authority temporary and revocable. A Mandate refers to these records so the Gateway or verified service can reject authority that has ended.
 
 ## Identity and Execution Records
 
 | Record                | Role                                                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Subject               | Opaque JWT `sub` identity. The Console's **Subjects** page groups Authority records by this value.                                                              |
-| Authority record      | One STS exchange record, stored in `authority_records`. Its Authority record ID anchors revocation and audit.                                                    |
-| Root authority record | Root of an STS exchange ancestry chain. Its ID anchors ancestry-wide revocation.                                                                                 |
-| Session               | Governed Coordinator execution, stored in `sessions`. A delegated Session is a Session with an inbound Delegation, not a separate object type.                  |
+| Authority record      | Immutable record created by an identity or authority exchange; an audit and revocation anchor.                                                                  |
+| Root Authority record | First record in an authority ancestry; revoking it can end the descendant authority chain.                                                                      |
+| Session               | Governed execution. A delegated Session is still a Session, with an inbound Delegation.                                                                          |
 
 ## Subject Identity Is Federated
 
 Caracal does not generate Subjects, and **Subjects** is not a login surface. The `sub` on an Authority record is taken verbatim from the token the application exchanges. To federate end users, a zone registers the identity system as a Subject issuer and the application exchanges each identity token for an Authority record with no resource authority.
 
-A Session may attach that record through `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`. Session creation must also present the federated Subject mandate through `subjectAuthorityRecordToken`, `subject_authority_record_token`, or `SubjectAuthorityRecordToken`; a bare record ID is not proof of control. The verified user record remains the Session's immutable attribution and revocation anchor while application credentials rotate for lease maintenance. STS rejects Session-bound mints after that user record expires or is revoked, and Coordinator terminates a service Session when its next lease operation observes the inactive anchor. It does **not** by itself cause later resource mandates minted for the Session to carry the federated user's `sub`; callers that need the user's own mandate must present the federated mandate on the supported exchange or approval path.
+A Session may attach the federated Subject's Authority record only while presenting proof of control. That Subject remains immutable attribution and a revocation anchor for the Session. It does not automatically replace the Application identity on later Resource Mandates and does not create per-Subject scopes.
 
 ## Revocation Anchors
 
@@ -33,18 +33,16 @@ If any anchor is revoked, the mandate should be rejected as `session_revoked`.
 ```mermaid
 sequenceDiagram
   participant Control as Console or Admin API
-  participant Store as Postgres
-  participant Stream as Redis revocation stream
+  participant State as Authority state
+  participant Distribution as Revocation distribution
   participant Resource as Gateway or adapter
 
-  Control->>Store: Revoke grant, Authority record, Session, or Delegation
-  Store->>Stream: Publish revocation anchor
-  Resource->>Stream: Consume caracal.sessions.revoke
+  Control->>State: Revoke Authority record, Session, or Delegation
+  State->>Distribution: Publish revocation anchor
+  Resource->>Distribution: Consume revocation
   Resource->>Resource: Cache revoked anchor
   Resource-->>Resource: Reject matching mandates
 ```
-
-The Redis stream name is `caracal.sessions.revoke`. The Redis backend packages can consume the stream and populate local revocation stores.
 
 Suspension is reversible Session state, not permanent revocation. Gateway-routed requests perform a fresh STS exchange and reject a suspended Session immediately through authoritative Session validation. Already issued mandates checked directly by a resource verifier can remain usable until their mandate TTL expires; keep mandate TTLs within the documented 15-minute cap when suspension latency matters. Termination and Delegation revocation remain monotonic revocation events.
 

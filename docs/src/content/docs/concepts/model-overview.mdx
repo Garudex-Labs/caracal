@@ -1,11 +1,11 @@
 ---
 title: Caracal Mental Model
-description: Six nouns, three verbs, and one decision point that explain Caracal.
+description: Seven nouns, three verbs, and one decision point that explain Caracal.
 sidebar:
   order: 2
 ---
 
-Caracal answers one question: **should this principal or agent receive scoped authority for this resource right now?**
+Caracal answers one question: **should this Application receive scoped authority for this Resource right now?**
 
 It answers that question during token exchange, records the decision, and returns a mandate only when the active policy set allows the request.
 
@@ -19,20 +19,25 @@ flowchart TD
   Resource --> Exchange
   PolicySet --> Exchange
   Exchange -->|"allow"| Mandate["Mandate"]
-  Exchange -->|"deny / step-up"| Audit["Audit event"]
+  Exchange -->|"deny / approval"| Audit["Audit event"]
   Mandate --> Audit
 ```
 
-## Six Core Nouns
+## Before You Begin
 
-| Noun        | What it means                                                                     |
-| ----------- | --------------------------------------------------------------------------------- |
-| Zone        | The tenant boundary for configuration, signing keys, policy, sessions, and audit. |
-| Application | A registered client, service, or agent workload.                                  |
-| Principal   | The acting identity, such as a user, service, or agent.                           |
-| Resource    | The protected target: API, MCP server, tool group, or upstream service.           |
-| Policy      | Rego logic that evaluates the requested exchange.                                 |
-| Mandate     | The short-lived JWT that proves authority to a Gateway or adapter.                |
+Know the Application and Resource from Get Started. No protocol knowledge is required.
+
+## Seven Core Nouns
+
+| Noun        | What it means                                                                      |
+| ----------- | ---------------------------------------------------------------------------------- |
+| Zone        | The trust boundary for configuration, signing keys, policy, Sessions, and audit. |
+| Application | Registered software that authenticates to Caracal.                                |
+| Subject     | An optional identity federated from your identity provider for attribution.        |
+| Session     | One governed execution under an Application.                                       |
+| Resource    | The protected target: API, MCP server, tool group, or upstream service.            |
+| Policy      | Versioned data the platform decision contract evaluates during exchange.           |
+| Mandate     | The short-lived signed proof accepted by the Gateway or a verified service.        |
 
 Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
@@ -41,9 +46,9 @@ Most of these are configured directly. A _grant_ is a permission binding for res
 An application and a Session are different layers, and they scale differently:
 
 - An **application** is the credentialed security boundary - operator-provisioned or dynamically registered, holding the secret Caracal authenticates. It is created deliberately.
-- A **Session** is the governed execution unit - started the moment a workload acts, with no secret and no registration step.
+- A **Session** is the governed execution unit - started the moment your software acts, with no secret and no registration step.
 
-One application backs many Sessions. A durable workload registers **one managed application**, then starts, delegates, and fans out as many Sessions as it needs under that single credential. You do not create an application per AI agent; per-execution attribution comes from the Session, not a new application. See [Should I create one application per agent?](/reference/faq/#faq-006).
+One application backs many Sessions. A long-running service registers **one managed application**, then starts, delegates, and fans out as many Sessions as it needs under that single credential. You do not create an application per AI agent; per-execution attribution comes from the Session, not a new application. See [Should I create one application per agent?](/reference/faq/#faq-006).
 
 ## Three Runtime Verbs
 
@@ -55,7 +60,9 @@ One application backs many Sessions. A durable workload registers **one managed 
 
 ## One Decision Point
 
-The STS is the decision point. It evaluates the active policy set with the principal, Authority record, Session, resource, scopes, grant, delegation, and approval context. If policy allows the request, the STS signs a mandate. If policy denies the request, no mandate is issued.
+Caracal evaluates the active policy with the Application, Authority record, Session, Resource, scopes, Delegation, and Approval context. If policy allows the request, Caracal signs a Mandate. If policy denies it, no Mandate is issued.
+
+A federated Subject can be attached for attribution and supported Subject approval flows. Federation does not create a separate per-Subject permission system: Resource authority still comes from the Application, policy, and any Delegation.
 
 Resource servers still verify mandates locally through the Gateway or adapters. That keeps every request protected even after token exchange succeeds.
 
@@ -64,6 +71,10 @@ Resource servers still verify mandates locally through the Gateway or adapters. 
 - Long-lived provider secrets stay out of agents.
 - Authority expires quickly and can be revoked.
 - Delegation carries typed constraints instead of informal trust.
-- Every allow, deny, step-up, and revocation path is auditable.
+- Every allow, deny, Approval, and revocation path is auditable.
+
+## Outcome
+
+You should be able to separate durable Application identity, optional Subject attribution, temporary Session execution, and short-lived Mandates.
 
 Next, read [Authority and Enforcement](/concepts/authority-model/) to see where each enforcement layer fits.

@@ -5,14 +5,14 @@ sidebar:
   order: 9
 ---
 
-A mandate is the token Caracal issues after the STS approves an exchange. It is a short-lived JWT signed with the zone signing key and verified by the Gateway or resource adapters.
+Read this page after [Policies and Policy Sets](/concepts/policy/). A Mandate is the short-lived signed proof Caracal issues after policy allows a request. The Gateway or a verified service checks it before the action runs.
 
 ## What a Mandate Proves
 
 A valid mandate proves:
 
 - which zone issued it;
-- which application and principal are acting;
+- which Application is acting and which optional Subject context is present;
 - which session anchors are active;
 - which resource targets and scopes were approved;
 - which Authority record, Session, and Delegation supplied the authority;
@@ -38,9 +38,9 @@ flowchart LR
 | SDK outbound call  | Context propagation and mandate header injection.                              |
 | Delegated exchange | Session, Delegation, scopes, hop count, and constraints.                       |
 
-## Mandates Are Not API Keys
+## Mandates Are Not Credentials to Store
 
-Mandates are intentionally short lived and context bound. They should not be stored as durable credentials, copied into configuration files, or reused across unrelated resources.
+Mandates are intentionally short lived and context bound. Do not store them as durable credentials, copy them into configuration files, or reuse them across unrelated Resources.
 
 Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation checks for the Authority record ID, Root authority record ID, Session ID, and Delegation ID when those claims are present. See the [parsed claim mapping](/sdks/identity/#parsed-claim-names) for language-level and raw JWT names.
 
