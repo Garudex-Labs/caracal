@@ -4,13 +4,13 @@ description: Runtime profile, service environment, and deployment configuration 
 pageType: config
 ---
 
-Caracal has three configuration domains:
+Choose the consumer before choosing a key. Caracal has four configuration domains, and a key accepted by one layer is not automatically accepted by another.
 
 | Domain                     | Used by                                             | Choose it when                                                |
 | -------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
-| Workload identity          | `caracal run`.                                      | A workload launches with console-managed credential bindings. |
-| SDK profile                | SDK clients.                                        | An SDK workload needs Caracal-issued resource credentials.    |
-| Service environment config | API, STS, Gateway, Audit, Coordinator, and Control. | A service needs URLs, secrets, limits, or readiness settings. |
+| Workload identity          | `caracal run`.                                      | A Workload launches with server-side credential bindings.     |
+| SDK profile                | SDK clients.                                        | An Application needs Session, Delegation, or Resource access. |
+| Service environment config | API, STS, Gateway, Audit, Coordinator, and web BFF. | A service needs URLs, secrets, limits, or readiness settings. |
 | Deployment values          | Helm, Compose, Postgres, and Redis.                 | Operators size, schedule, expose, or secure infrastructure.   |
 
 ```mermaid
@@ -34,6 +34,7 @@ flowchart TD
 | `CARACAL_WORKLOAD_SECRET`      | Inline local-development workload secret.                                |
 | `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom mounted workload-secret file path.                          |
 | `CARACAL_STS_URL`              | Cloud/custom STS URL override.                                           |
+| `CARACAL_CONFIG_HOME`          | Optional OS config-root override for the default workload-secret path.   |
 
 Credential bindings, zone, scopes, and failure behavior come from the workload's launch bindings, authored in the web console. Local dev and stable launches can omit both secret variables and read the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`.
 
@@ -52,7 +53,7 @@ Credential bindings, zone, scopes, and failure behavior come from the workload's
 | `credentials[]`          | Resource audiences with optional upstream prefixes.   |
 | `optional_credentials[]` | Additional resource audiences and upstream prefixes.  |
 
-SDK credential entries use `resource` and optional `upstream_prefix`. SDKs do not read launcher fields or search the OS config directory. Set `CARACAL_CONFIG` to an explicit profile path.
+SDK credential entries use `resource` and optional `upstream_prefix`. SDKs do not read launcher fields or search the OS config directory. Set `CARACAL_CONFIG` to an explicit profile path. Environment loaders also support `CARACAL_BOOTSTRAP_TOKEN`, `CARACAL_RESOURCES_FILE`, `CARACAL_RESOURCES`, and `CARACAL_DEFAULT_TTL_SECONDS`.
 
 ## Core Service Environment Keys
 
@@ -71,10 +72,13 @@ SDK credential entries use `resource` and optional `upstream_prefix`. SDKs do no
 | `CARACAL_SECRET_BACKEND`                                               | API and STS; selects the secret backend, default `builtin`. |
 | `CARACAL_ADMIN_TOKEN` / `CARACAL_ADMIN_TOKEN_FILE`                     | API and management clients.                                 |
 | `CARACAL_COORDINATOR_TOKEN` / `CARACAL_COORDINATOR_TOKEN_FILE`         | Coordinator and Console Session/Delegation views.           |
+| `METRICS_BEARER` / `METRICS_BEARER_FILE`                               | Metrics authentication in published modes.                  |
 
 ## Deployment Values
 
 Helm values live under `infra/helm/caracal/values.yaml`. Compose environment and secrets are defined by `infra/docker/docker-compose.yml` and `infra/docker/runtime-compose.yml`.
+
+This page is the index. [Configure Service Environment](/operations/env-vars/) is canonical for each service's complete variable list, valid values, and published-mode requirements.
 
 ## Next Step
 

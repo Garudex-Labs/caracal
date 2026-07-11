@@ -9,7 +9,7 @@ pageType: config
 `caracal run` reads no profile file. It resolves only the workload identity:
 
 1. `CARACAL_WORKLOAD_ID` names the workload created on the console's Launcher page.
-2. The workload secret comes from `CARACAL_WORKLOAD_SECRET`, or `CARACAL_WORKLOAD_SECRET_FILE`, or (local dev and stable only) the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. Set at most one of the two variables.
+2. The workload secret comes from `CARACAL_WORKLOAD_SECRET`, or `CARACAL_WORKLOAD_SECRET_FILE`, or (eligible local modes only) the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. Setting both variables is an error.
 3. `CARACAL_STS_URL` overrides the STS endpoint; local dev and stable resolve it automatically.
 
 The credential bindings, zone, scopes, and failure behavior come from the workload's launch bindings, authored in the web console and served by STS at launch.
@@ -38,9 +38,11 @@ Resource bindings resolve from profile credentials, then
 same resource ID override earlier bindings, so a short environment override can
 replace one entry from a mounted JSON file without duplicating the file.
 
+Conflicting credential modes fail closed. A client-secret configuration and `CARACAL_BOOTSTRAP_TOKEN` are alternatives, not fallback layers.
+
 ## File-Secret Resolution
 
-Services support `*_FILE` variants for configured secret keys. File values are resolved before validation so deployment templates can mount secrets instead of placing sensitive material directly in environment variables.
+Services support `*_FILE` variants for configured secret keys. File values are resolved before validation so deployment templates can mount secrets instead of placing sensitive material directly in environment variables. Previous-key variables used during KEK or idempotency-key rotation are separate overlap inputs, not precedence fallbacks.
 
 ## Deployment Values
 
@@ -54,7 +56,7 @@ Services support `*_FILE` variants for configured secret keys. File values are r
 | Symptom                                | Check                                                                                     |
 | -------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Expected SDK profile is ignored        | Set `CARACAL_CONFIG` to the exact profile path; SDKs do not search default directories.   |
-| `caracal run` cannot find bindings     | Bindings live on the **Run** page in the web console, not in a local file.                |
+| `caracal run` cannot find bindings     | Bindings live on the **Launcher** page in the web console, not in a local file.           |
 | Service fails with missing secret      | Confirm the `*_FILE` variable name is supported by that service and the file is readable. |
 | Helm values render unexpected defaults | Check values file order and CLI overrides.                                                |
 
