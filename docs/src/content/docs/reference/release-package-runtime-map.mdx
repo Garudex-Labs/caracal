@@ -6,7 +6,7 @@ pageType: reference
 
 ## Repository Release Surfaces
 
-`release.config.json` `product.version` is authoritative. The current source state is `0.2.0`; release candidates append `-rc.N`.
+`release.config.json` `product.version` is authoritative. The current source state is `0.2.0-rc.1`; successive release candidates increment `-rc.N`.
 
 | Surface                | Current source                                                      |
 | ---------------------- | ------------------------------------------------------------------- |
@@ -51,6 +51,7 @@ Runtime Compose references `${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}<image>:v$
 ## Versioning Notes
 
 - One product release stamps every package, image, binary, chart, and generated release record with the same SemVer.
+- Every nested Go module uses `<module-directory>/vX.Y.Z[-rc.N]` at the same commit as the root product tag.
 - Pin exact image tags in production values.
 - Run migration and readiness validation after image or chart changes.
 - Do not use product-management runtime CLI aliases as release surfaces; broad automation belongs to the Admin API and zone-scoped dispatch belongs to the Control API.

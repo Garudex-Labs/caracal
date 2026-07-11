@@ -15,9 +15,10 @@ Download from official GitHub/GHCR. Install/authenticate GitHub CLI. Record tag 
 ```bash
 sha256sum --check SHA256SUMS
 gh attestation verify caracal-runtime-<platform>-<version>.tar.gz --repo Garudex-Labs/caracal
+jq '{release, sha, source, imageDigests}' manifest.json
 ```
 
-Use `shasum -a 256 --check` on macOS or `Get-FileHash` on PowerShell. Installers always verify checksum; provenance is opportunistic unless `CARACAL_REQUIRE_PROVENANCE=1`.
+Use `shasum -a 256 --check` on macOS or `Get-FileHash` on PowerShell. The manifest `sha` and `source.gitSha` must both equal the full commit behind the release tag, `source.dirty` must be `false`, and every deployed image must have an immutable `imageDigests` entry. Installers always verify checksum; provenance is opportunistic unless `CARACAL_REQUIRE_PROVENANCE=1`.
 
 ## Container Procedure
 
@@ -27,6 +28,8 @@ docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-go:<tag>
 ```
 
 Repeat for every deployed image and pin digests. Inspect available attestations; do not infer SBOM presence from provenance alone.
+
+Compare each inspected OCI index digest with the corresponding manifest `imageDigests` value. A matching tag without a matching digest is a different artifact and must not be admitted.
 
 ## Failure Recovery
 
