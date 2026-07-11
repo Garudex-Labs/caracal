@@ -42,6 +42,7 @@ export function ResourceWorkspace<T>({
   title,
   description,
   breadcrumbs,
+  titleAccessory,
   primaryAction,
   rows,
   loading,
@@ -63,6 +64,7 @@ export function ResourceWorkspace<T>({
   title: string;
   description: string;
   breadcrumbs: Crumb[];
+  titleAccessory?: ReactNode;
   primaryAction?: { label: string; onClick: () => void };
   rows: T[];
   loading: boolean;
@@ -203,7 +205,12 @@ export function ResourceWorkspace<T>({
   const noMatches = (searchActive || filtersActive) && paged.length === 0;
 
   return (
-    <ModulePage title={title} description={description} breadcrumbs={breadcrumbs}>
+    <ModulePage
+      title={title}
+      description={description}
+      breadcrumbs={breadcrumbs}
+      titleAccessory={titleAccessory}
+    >
       {headerExtra ? <div className="mb-4">{headerExtra}</div> : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

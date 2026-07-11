@@ -268,57 +268,57 @@ function FeaturesSection() {
   const feats = [
     {
       n: "01",
-      title: "No long-lived agent secrets.",
-      desc: "Scoped credentials are injected at runtime, never live in your code, and vanish the moment the agent stops.",
+      title: "Agents never hold API keys.",
+      desc: "Real credentials are attached server-side after approval and expire in minutes. Agent code, prompts, and logs have nothing to steal.",
       chip: <SecretsChip />,
     },
     {
       n: "02",
-      title: "Approve actions before they run.",
-      desc: "Every agent request is checked against your policy up front, not flagged in a log after something already happened.",
-      chip: <DecisionChip />,
+      title: "Every agent run gets its own identity.",
+      desc: "Unlimited agents under one credential, each individually attributed, policed, and revocable. No shared service accounts, no credential sprawl.",
+      chip: <SessionsChip />,
     },
     {
       n: "03",
-      title: "Authorization as code.",
-      desc: "Define what agents may do in one declarative policy, and change it without redeploying a single agent.",
-      chip: <PolicyChip />,
+      title: "Approve actions before they run.",
+      desc: "Every request is checked against your policy up front, down to the exact endpoint, and rules change without redeploying a single agent.",
+      chip: <DecisionChip />,
     },
     {
       n: "04",
-      title: "Delegation that can only narrow.",
-      desc: "Agents can hand work to other agents, but never with more access than they hold. Least privilege is enforced for you.",
-      chip: <DelegationChip />,
+      title: "Stolen tokens are useless.",
+      desc: "Access tokens live minutes and work exactly once. A leaked or replayed token is rejected at the gate and flagged in audit.",
+      chip: <ReplayChip />,
     },
     {
       n: "05",
-      title: "Revoke access instantly.",
-      desc: "Shut down a runaway agent and everything it started loses access at once, no waiting for tokens to expire.",
-      chip: <RevocationChip />,
+      title: "Delegation that can only narrow.",
+      desc: "Agents can hand work to sub-agents, never with more access than they hold. Every hop is re-verified on every call.",
+      chip: <DelegationChip />,
     },
     {
       n: "06",
-      title: "Audit you can hand to auditors.",
-      desc: "Every who, what, and why is written to an append-only, tamper-evident trail you can export for compliance.",
-      chip: <AuditChip />,
+      title: "One revocation kills the chain.",
+      desc: "Cut off a runaway agent and everything it delegated loses access at once, even responses already streaming stop mid-flight.",
+      chip: <RevocationChip />,
     },
     {
       n: "07",
-      title: "Guard your APIs and MCP tools.",
-      desc: "Put a verification gate in front of your services and MCP tools so only authorized agents ever reach them.",
-      chip: <ConnectorChip />,
-    },
-    {
-      n: "08",
-      title: "Step up for risky actions.",
-      desc: "Require fresh proof before an agent touches money or customer data. No standing exceptions, no blanket access.",
+      title: "Human sign-off for risky actions.",
+      desc: "Sensitive actions pause for approval. Each decision unlocks exactly one request and can never be reused for anything else.",
       chip: <StepUpChip />,
     },
     {
+      n: "08",
+      title: "Audit evidence, not just logs.",
+      desc: "Every allow, deny, and approval lands in an append-only, tamper-evident trail you can export and hand to auditors.",
+      chip: <AuditChip />,
+    },
+    {
       n: "09",
-      title: "Isolated by environment and tenant.",
-      desc: "Run prod, staging, and per-customer workloads side by side with separate keys, rules, and audit.",
-      chip: <ZoneChip />,
+      title: "Guard your APIs and MCP tools.",
+      desc: "Put a verification gate in front of any API or MCP server, or verify in-process with drop-in framework adapters.",
+      chip: <ConnectorChip />,
     },
   ];
   return (
@@ -431,15 +431,17 @@ function DecisionChip() {
     </div>
   );
 }
-function PolicyChip() {
+function ReplayChip() {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 font-mono text-[11px] leading-5">
-      <div>
-        <span className="text-accent-purple">allow</span> if {"{"}
+    <div className="space-y-1.5 font-mono text-[10px]">
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
+        <span className="text-muted-foreground">token · ttl 15m</span>
+        <span className="text-emerald-600">used once ✓</span>
       </div>
-      <div className="pl-3 text-muted-foreground">scope ⊆ grant</div>
-      <div className="pl-3 text-muted-foreground">agent.label == "trusted"</div>
-      <div>{"}"}</div>
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-1.5">
+        <span className="text-muted-foreground">same token again</span>
+        <span className="text-rose-600">replay rejected</span>
+      </div>
     </div>
   );
 }
@@ -521,15 +523,19 @@ function StepUpChip() {
     </div>
   );
 }
-function ZoneChip() {
-  const zones = ["prod", "staging", "customer:123"];
+function SessionsChip() {
   return (
-    <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
-      {zones.map((z) => (
-        <span key={z} className="rounded-full border border-border bg-card px-2 py-0.5">
-          {z}
-        </span>
-      ))}
+    <div className="space-y-1 font-mono text-[10px]">
+      <div className="flex items-center gap-2">
+        <span className="rounded-md border border-border bg-card px-2 py-1">son-of-anton</span>
+        <span className="text-muted-foreground">1 credential</span>
+      </div>
+      <div className="pl-4 text-muted-foreground">
+        ↳ agent-7f3a <span className="text-accent-purple">[triage]</span>
+      </div>
+      <div className="pl-4 text-muted-foreground">
+        ↳ agent-2c1b <span className="text-accent-purple">[refunds]</span>
+      </div>
     </div>
   );
 }
@@ -543,20 +549,20 @@ function FrameworkSection() {
   const steps = [
     {
       label: "CONNECT THE SDK",
-      desc: "new Caracal() loads your generated profile or environment config and prepares short-lived app-secret token exchange.",
+      desc: "new Caracal() loads your generated profile or environment config. Provider keys never appear in agent code.",
       code: {
         TypeScript: `import { Caracal } from "@caracalai/sdk"
 
-// Loads the generated profile or env config and
-// prepares short-lived app-secret token exchange.
+// Loads your profile or environment config.
+// No provider keys anywhere in your code.
 const caracal = new Caracal()`,
         Python: `from caracalai import Caracal
 
-# Loads the generated profile or env config and
-# prepares short-lived app-secret token exchange.
+# Loads your profile or environment config.
+# No provider keys anywhere in your code.
 caracal = Caracal()`,
-        Go: `// Loads the generated profile or env config and
-// prepares short-lived app-secret token exchange.
+        Go: `// Loads your profile or environment config.
+// No provider keys anywhere in your code.
 c, err := caracal.New()
 if err != nil {
     panic(err)
@@ -564,91 +570,54 @@ if err != nil {
       },
     },
     {
-      label: "RUN A SESSION",
-      desc: "session() opens a governed session around your code, binds its authority context, and tears it down the moment the block returns.",
+      label: "GET A GOVERNED CLIENT",
+      desc: "applicationTransport() builds bounded, revocable authority for one resource and hands back a drop-in HTTP client.",
       code: {
-        TypeScript: `// session() opens a governed session, binds its
-// authority context, and tears it down on exit.
-await caracal.session(async () => {
-  // every gateway call runs inside this session
+        TypeScript: `// Caracal provisions a bounded session pair and a
+// scoped delegation, then returns a drop-in fetch.
+const governed = caracal.applicationTransport("resource://pipernet", {
+  scopes: ["tickets:read"],
 })`,
-        Python: `import asyncio
-
-# session() opens a governed session, binds its
-# authority context, and tears it down on exit.
-async def main():
-    async with caracal.session():
-        ...  # gateway calls run inside this session
-
-asyncio.run(main())`,
-        Go: `// Session() opens a governed session, binds its
-// authority context, and tears it down on exit.
-err = c.Session(context.Background(), func(ctx context.Context) error {
-    // every gateway call runs inside this session
-    return nil
-})`,
-      },
-    },
-    {
-      label: "ROUTE THROUGH THE GATEWAY",
-      desc: "gatewayRequest() builds the Gateway URL and X-Caracal-Resource header so every call reaches the right resource.",
-      code: {
-        TypeScript: `const resourceId = process.env.CARACAL_RESOURCE_ID!
-const resourcePath = process.env.CARACAL_RESOURCE_PATH!
-
-// Builds the Gateway URL and X-Caracal-Resource header.
-const request = caracal.gatewayRequest(resourceId, resourcePath)`,
-        Python: `import os
-
-resource_id = os.environ["CARACAL_RESOURCE_ID"]
-resource_path = os.environ["CARACAL_RESOURCE_PATH"]
-
-# Builds the Gateway URL and X-Caracal-Resource header.
-request = caracal.gateway_request(resource_id, resource_path)`,
-        Go: `resourceID := os.Getenv("CARACAL_RESOURCE_ID")
-resourcePath := os.Getenv("CARACAL_RESOURCE_PATH")
-
-// Builds the Gateway URL and X-Caracal-Resource header.
-target, err := c.GatewayRequest(resourceID, resourcePath)
+        Python: `# Caracal provisions a bounded session pair and a
+# scoped delegation, then returns an httpx client.
+governed = caracal.application_transport(
+    "resource://pipernet",
+    scopes=["tickets:read"],
+)`,
+        Go: `// Caracal provisions a bounded session pair and a
+// scoped delegation, then returns an *http.Client.
+governed, err := c.ApplicationTransport(nil, "resource://pipernet",
+    caracal.ApplicationTransportOptions{
+        Scopes: []string{"tickets:read"},
+    })
 if err != nil {
     return err
 }`,
       },
     },
     {
-      label: "INJECT SECURE TRANSPORT",
-      desc: "transport() attaches Authorization, trace, and baggage headers and enforces Gateway routing on each request.",
+      label: "CALL THROUGH THE GATEWAY",
+      desc: "Every request carries a fresh single-use mandate; the Gateway verifies it, injects the real credential, and records the audit trail.",
       code: {
-        TypeScript: `// transport() attaches Authorization, trace, and
-// baggage headers and enforces Gateway routing.
-const response = await caracal.transport()(request.url, {
-  method: "POST",
-  headers: { ...request.headers, "Content-Type": "application/json" },
-  body: JSON.stringify({ amount: 1200 }),
-})
+        TypeScript: `// Each request mints a fresh single-use mandate;
+// the Gateway verifies it and injects the real key.
+const target = caracal.gatewayRequest("resource://pipernet", "/tickets")
+const response = await governed(target.url)
 
 console.log(await response.text())`,
-        Python: `# transport() attaches Authorization, trace, and
-# baggage headers and enforces Gateway routing.
-async with caracal.transport() as client:
-    response = await client.post(
-        request.url,
-        headers=request.headers,
-        json={"amount": 1200},
-    )
-    print(response.text)`,
-        Go: `// Transport() injects Authorization, trace, and baggage.
-req, err := http.NewRequestWithContext(
-    ctx, http.MethodPost, target.URL,
-    strings.NewReader(\`{"amount":1200}\`),
-)
+        Python: `# Each request mints a fresh single-use mandate;
+# the Gateway verifies it and injects the real key.
+target = caracal.gateway_request("resource://pipernet", "/tickets")
+response = await governed.get(target.url)
+
+print(response.text)`,
+        Go: `// Each request mints a fresh single-use mandate;
+// the Gateway verifies it and injects the real key.
+target, err := c.GatewayRequest("resource://pipernet", "/tickets")
 if err != nil {
     return err
 }
-req.Header = target.Header.Clone()
-req.Header.Set("Content-Type", "application/json")
-
-resp, err := c.Transport(nil).Do(req)
+resp, err := governed.Get(target.URL)
 if err != nil {
     return err
 }
@@ -840,47 +809,77 @@ function InfrastructureSection() {
   const services = [
     {
       title: "STS",
-      port: ":8080",
-      desc: "Issues short-lived, signed mandates.",
-      items: ["Token exchange", "Mandate issuance + JWKS", "Policy evaluation", "Approval status"],
+      role: "decides",
+      desc: "The decision point for all authority.",
+      items: [
+        "Policy-checked token exchange",
+        "Short-lived signed mandates",
+        "Human approval holds",
+        "End-user identity federation",
+      ],
     },
     {
       title: "Gateway",
-      port: ":8081",
-      desc: "Protected reverse proxy for upstreams.",
-      items: ["Per-request exchange", "Revocation checks", "Strips caller auth", "Upstream safety"],
+      role: "enforces",
+      desc: "Fronts your APIs and verifies every request.",
+      items: [
+        "Per-request mandate verification",
+        "Replay and revocation checks",
+        "Injects upstream credentials",
+        "Safe, audited egress",
+      ],
     },
     {
       title: "Coordinator",
-      port: ":4000",
-      desc: "Tracks the live authority graph.",
-      items: ["Sessions", "Service leases", "Delegations", "Invocations"],
+      role: "tracks",
+      desc: "Owns the live authority graph.",
+      items: [
+        "Agent sessions and leases",
+        "Delegation graph",
+        "Cascading termination",
+        "Lifecycle events",
+      ],
     },
     {
       title: "Audit",
-      port: ":9090",
-      desc: "Tamper-evident evidence pipeline.",
-      items: ["Ingestion + DLQ", "Tamper checks", "Retention", "Search"],
+      role: "proves",
+      desc: "Turns every decision into evidence.",
+      items: [
+        "Signed event ingestion",
+        "Tamper-evident hash chain",
+        "Retention and export",
+        "Query and search",
+      ],
     },
     {
       title: "Admin API",
-      port: ":3000",
-      desc: "Manages product and policy state.",
-      items: ["Zones, resources, providers", "Policies & grants", "Admin audit", "API outbox"],
+      role: "manages",
+      desc: "The programmable control plane.",
+      items: [
+        "Zones, applications, resources",
+        "Providers and their secrets",
+        "Policies and grants",
+        "Automation via Admin SDK",
+      ],
     },
     {
-      title: "Control",
-      port: ":8087",
-      desc: "Automatable remote management.",
-      items: ["Engine dispatch", "Replay-protected", "Rate-limited", "Fully audited"],
+      title: "Console",
+      role: "operates",
+      desc: "The operator surface for the platform.",
+      items: [
+        "Manage the whole platform",
+        "Inspect sessions and delegations",
+        "Decide pending approvals",
+        "Explain any request",
+      ],
     },
   ];
   return (
     <section className="border-b border-border px-4 py-10 sm:px-6 md:px-10 md:py-14">
       <SectionLabel>Infrastructure</SectionLabel>
       <p className="mt-6 max-w-3xl text-base leading-snug text-muted-foreground md:text-[1.1rem]">
-        Caracal ships as small, explicit services you run yourself. Each owns one bounded part of
-        the authority lifecycle and exposes health and readiness endpoints for operations.
+        Caracal is a small set of self-hosted services, each owning one bounded part of the
+        authority lifecycle. Backed by Postgres and Redis, deployed with Docker Compose or Helm.
       </p>
 
       <div className="mt-8 grid grid-cols-1 gap-px bg-border md:grid-cols-2 lg:grid-cols-3 [&>*]:bg-background">
@@ -888,7 +887,7 @@ function InfrastructureSection() {
           <div key={s.title} className="p-6">
             <div className="flex items-baseline justify-between gap-2">
               <h4 className="text-base font-semibold tracking-tight">{s.title}</h4>
-              <span className="font-mono text-xs text-accent-purple">{s.port}</span>
+              <span className="font-mono text-xs text-accent-purple">{s.role}</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">{s.desc}</p>
             <ul className="mt-4 space-y-1.5">

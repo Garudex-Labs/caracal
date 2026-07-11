@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file provides the shared application navigation shell.
 */
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 type NavItem = {
   label: string;
@@ -138,8 +138,6 @@ function LeftRail() {
           className="hidden h-auto w-52 max-w-full select-none dark:block"
         />
       </Link>
-
-      <VisionPanel />
 
       <div className="relative z-10 flex-1" />
 
@@ -429,76 +427,6 @@ function GradientBars({ numBars = 18 }: { numBars?: number }) {
         })}
       </div>
     </div>
-  );
-}
-
-function VisionPanel() {
-  return (
-    <div className="relative z-10 mt-8 border border-border bg-background/20 px-7 py-9 backdrop-blur-md">
-      <DotPattern width={12} height={12} cr={1} className="text-muted-foreground/30" />
-      <span className="absolute -left-1 -top-1 h-2 w-2 bg-accent-purple" />
-      <span className="absolute -right-1 -top-1 h-2 w-2 bg-accent-purple" />
-      <span className="absolute -bottom-1 -left-1 h-2 w-2 bg-accent-purple" />
-      <span className="absolute -bottom-1 -right-1 h-2 w-2 bg-accent-purple" />
-      <div className="relative z-10">
-        <span className="text-[11px] font-medium uppercase tracking-[0.25em] text-accent-purple">
-          We believe
-        </span>
-        <p className="mt-4 text-[1.75rem] font-light leading-[1.08] tracking-tight text-muted-foreground">
-          <span className="font-bold text-foreground">&ldquo;Authority</span> should be{" "}
-          <span className="font-bold text-foreground">earned,</span> delegation{" "}
-          <span className="font-bold text-foreground">scoped,</span> every{" "}
-          <span className="font-bold text-foreground">agent</span> acts with{" "}
-          <span className="font-bold text-foreground">proof.&rdquo;</span>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-type DotPatternProps = {
-  width?: number;
-  height?: number;
-  x?: number;
-  y?: number;
-  cx?: number;
-  cy?: number;
-  cr?: number;
-  className?: string;
-};
-
-function DotPattern({
-  width = 18,
-  height = 18,
-  x = 0,
-  y = 0,
-  cx = 1,
-  cy = 1,
-  cr = 1,
-  className = "",
-}: DotPatternProps) {
-  const id = useId();
-
-  return (
-    <svg
-      aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 h-full w-full fill-current ${className}`}
-    >
-      <defs>
-        <pattern
-          id={id}
-          width={width}
-          height={height}
-          patternUnits="userSpaceOnUse"
-          patternContentUnits="userSpaceOnUse"
-          x={x}
-          y={y}
-        >
-          <circle id="pattern-circle" cx={cx} cy={cy} r={cr} />
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" strokeWidth={0} fill={`url(#${id})`} />
-    </svg>
   );
 }
 

@@ -29,18 +29,25 @@ export function ZoneScopedPage({
   title,
   description,
   breadcrumbs,
+  titleAccessory,
   children,
 }: {
   title: string;
   description: string;
   breadcrumbs: Crumb[];
+  titleAccessory?: ReactNode;
   children: (zone: Zone) => ReactNode;
 }) {
   const status = useConsoleStatus();
   const { zones, activeZone } = useActiveZone();
 
   const frame = (body: ReactNode) => (
-    <ModulePage title={title} description={description} breadcrumbs={breadcrumbs}>
+    <ModulePage
+      title={title}
+      description={description}
+      breadcrumbs={breadcrumbs}
+      titleAccessory={titleAccessory}
+    >
       {body}
     </ModulePage>
   );
