@@ -4,9 +4,27 @@ description: Contributor guide for local setup, project standards, workflow, val
 pageType: landing
 ---
 
-Caracal uses a multi-language workspace: TypeScript apps/packages, Go services/packages, Python packages/examples, Docker/Helm infra, and Astro docs.
+Caracal welcomes bug reports, documentation fixes, tests, SDK improvements, and platform features. This section is the contributor journey from a fresh clone to a merged pull request; the canonical policy lives in [CONTRIBUTING.md](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md).
+
+## Repository Map
+
+The workspace is multi-language: TypeScript applications, Go services, multi-language SDK packages, Docker/Helm infrastructure, and Astro documentation.
+
+| Directory   | What lives there                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `apps/`     | TypeScript applications: the Admin API, Coordinator, runtime CLI, web console, and console auth backend.           |
+| `services/` | Go data-plane services: STS, Gateway, and Audit.                                                                   |
+| `packages/` | SDKs and shared libraries in TypeScript, Python, and Go: core, engine, SDK, identity, OAuth, verify, and adapters. |
+| `infra/`    | Docker, Helm, Postgres, Redis, and OpenTofu deployment assets.                                                     |
+| `docs/`     | This documentation site.                                                                                            |
+| `tests/`    | Cross-language test suites and shared fixtures.                                                                     |
+| `scripts/`  | Repository automation for setup, style, tests, and releases.                                                        |
+
+Each service, app, and package directory self-documents its rules in an `instructions.md` file.
 
 ## Contributor Path
+
+Follow the path in order; each page ends where the next begins.
 
 | Need                                            | Page                                             |
 | ----------------------------------------------- | ------------------------------------------------ |
@@ -22,20 +40,12 @@ Caracal uses a multi-language workspace: TypeScript apps/packages, Go services/p
 | Understand review, ownership, and security process | [Understand Governance](/contributing/governance/) |
 | Prepare, publish, or recover a release             | [Release Caracal](/contributing/release/)          |
 
-## Current Toolchain
-
-| Tool                | Version                                                             |
-| ------------------- | ------------------------------------------------------------------- |
-| Node.js             | 24+ for repository development; published packages support Node 22+ |
-| pnpm                | 11.1.1                                                              |
-| Docker + Compose v2 | Docker 25+                                                          |
-| Go                  | 1.26+                                                               |
-| Python              | 3.14+                                                               |
-| Bun                 | 1.3.14                                                              |
-
 ## Before You Start
 
-Follow the path in order: setup, standards, focused workflow, targeted validation, governance. Release ownership starts only after those contributor gates are understood.
+- File bugs, documentation gaps, and feature requests through the [issue templates](https://github.com/Garudex-Labs/caracal/issues/new/choose). A small focused fix can go straight to a pull request; medium and larger changes start with an issue or proposal before code, as sized in [Contribution Scale](/contributing/governance/#contribution-scale).
+- Report suspected vulnerabilities through [Report a Vulnerability](/security/disclosure/), never in public issues.
+- Interactions follow the repository [Code of Conduct](https://github.com/Garudex-Labs/caracal/blob/main/.github/CODE_OF_CONDUCT.md).
+- Toolchain versions are pinned in [Set Up Locally](/contributing/setup/#prerequisites); no prior knowledge of the repository is assumed beyond those tools.
 
 ## Next Step
 

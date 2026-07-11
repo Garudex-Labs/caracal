@@ -4,6 +4,8 @@ description: How to plan, implement, validate, and submit Caracal changes.
 pageType: workflow
 ---
 
+Match the process to the change size before writing code: a small focused fix can go straight to a pull request, a medium change starts with a [GitHub issue](https://github.com/Garudex-Labs/caracal/issues/new/choose), and a large one starts with a proposal, as sized in [Contribution Scale](/contributing/governance/#contribution-scale).
+
 ## Standard Flow
 
 1. Sync `main`, create a focused branch, and confirm the checkout passes its baseline targeted check.
@@ -13,7 +15,7 @@ pageType: workflow
 5. Add a regression test for every bug fix and tests for major new behavior.
 6. Run the narrowest relevant check first, then broaden only when a shared or security boundary changed.
 7. Review the diff for generated files, secrets, unrelated formatting, and documentation drift.
-8. Open a pull request with the problem, solution, exact validation commands/results, risks, and explicit follow-up items.
+8. Open a pull request with the repository template: a typed title (`feat`, `fix`, `docs`, ...), the linked issue where one exists, and the evidence below.
 
 ## Choose the Area
 
