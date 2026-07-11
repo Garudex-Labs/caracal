@@ -41,6 +41,10 @@ const legacyRedirects = {
   '/enterprise/': '/security/adoption-review/',
   '/enterprise/compliance-readiness/': '/security/adoption-review/',
   '/security/enterprise-readiness/': '/security/adoption-review/',
+  '/releases/': 'https://github.com/Garudex-Labs/caracal/releases',
+  '/blogs/': 'https://medium.com/@caracal.core',
+  '/blog/caracal-joins-lfx-mentorship/': 'https://medium.com/@caracal.core',
+  '/vlogs/': 'https://www.youtube.com/@CaracalAI',
 }
 
 export default defineConfig({
@@ -487,7 +491,7 @@ export default defineConfig({
               label: 'Versions and Contracts',
               collapsed: true,
               items: [
-                { label: 'Releases', link: '/releases/' },
+                { label: 'Releases', link: 'https://github.com/Garudex-Labs/caracal/releases' },
                 { label: 'Compatibility', link: '/reference/compatibility/' },
                 { label: 'Release Map', link: '/reference/release-package-runtime-map/' },
                 { label: 'Wire Contracts', link: '/reference/interoperability-contracts/' },
