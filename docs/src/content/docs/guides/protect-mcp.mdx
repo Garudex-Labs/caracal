@@ -3,9 +3,20 @@ title: Protect an MCP Server
 description: Gate MCP tool calls with Caracal mandate verification using the framework-neutral verify packages.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
 Use the verify packages when your MCP framework does not have a dedicated Caracal adapter or when you want to build your own boundary.
 
-## TypeScript verifier
+## Prerequisites
+
+- A resource mandate audience and tool-scope map.
+- Issuer, zone ID, shared revocation storage, and a hook that runs before tool dispatch.
+- A consistent mapping from verification errors to the framework's unauthorized/forbidden response.
+
+## Build the Verifier
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```bash
 npm install @caracalai/verify @caracalai/revocation
@@ -16,16 +27,16 @@ import { createMandateVerifier } from '@caracalai/verify'
 import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: 'https://sts.example.com',
-  audience: 'https://mcp.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: 'pied-piper-production',
   revocations: new InMemoryRevocationStore(),
 })
 
 export async function verifyToolRequest(authorization: string | undefined) {
   const result = await verifier.authorization(authorization, {
     requiredScopes: ['mcp:tool:call'],
-    requiredTargets: ['https://mcp.example.com'],
+    requiredTargets: ['resource://pipernet'],
     requireSession: true,
   })
 
@@ -37,7 +48,8 @@ export async function verifyToolRequest(authorization: string | undefined) {
 }
 ```
 
-## Python verifier
+</TabItem>
+<TabItem label="Python">
 
 ```bash
 pip install caracalai-verify caracalai-revocation
@@ -53,18 +65,21 @@ async def verify_tool_request(authorization: str | None):
     token = extract_bearer(authorization)
     result = await authenticate(
         token or "",
-        issuer="https://sts.example.com",
-        audience="https://mcp.example.com",
+        issuer="https://sts.pipernet.example",
+        audience="resource://pipernet",
         required_scopes=["mcp:tool:call"],
-        expected_zone_id="zone_prod",
+        expected_zone_id="pied-piper-production",
         revocations=revocations,
         require_session=True,
-        required_targets=["https://mcp.example.com"],
+        required_targets=["resource://pipernet"],
     )
     if result.error is not None:
         raise RuntimeError(f"{result.error.code}: {result.error.description}")
     return result.principal
 ```
+
+</TabItem>
+</Tabs>
 
 ## Verification checklist
 
@@ -86,4 +101,16 @@ Use Redis-backed revocation packages for multi-instance MCP servers:
 
 Run a consumer for the `caracal.sessions.revoke` stream so every resource server instance learns about revoked anchors.
 
-Related pages: [Protect an Express App](/guides/protect-express/) and [Protect a FastMCP App](/guides/protect-fastmcp/).
+## Validate the boundary
+
+Test missing token, wrong audience, wrong target, missing scope, required Session, required Delegation, hop limit, and revoked Session before enabling traffic. Expected result: no rejected call reaches tool code and every allowed principal is derived from verified claims rather than request metadata.
+
+:::caution[Failure point: unsigned context]
+Never authorize from baggage, trace headers, tool arguments, or a caller-provided subject. Verified mandate claims are authoritative; other fields are correlation only.
+:::
+
+For exact verifier functions and error types, use [Verify Package reference](/sdks/verify/).
+
+## Next step
+
+Wrap the framework hook, then run [Test Caracal Integrations](/guides/testing/) with a revoked-anchor case.

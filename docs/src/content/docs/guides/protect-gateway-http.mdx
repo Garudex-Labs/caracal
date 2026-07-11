@@ -5,6 +5,12 @@ description: Configure a resource route so Caracal Gateway verifies mandates, br
 
 Use Gateway-routed protection when the upstream is HTTP-routable and you want Caracal to enforce every request before it reaches the target. The agent receives a short-lived Caracal mandate; Gateway verifies it, resolves the resource route, attaches the configured upstream credential when needed, forwards the request, and writes action-result audit.
 
+## Prerequisites
+
+- Gateway, STS, Redis revocation state, audit ingestion, and the upstream report ready.
+- A resource with stable identifier, Gateway application, provider, scopes, and declared operations.
+- An active policy granting only the calling role and an application SDK configured for the same resource.
+
 ## When to Use Gateway
 
 | Use Gateway when                                                               | Use another guide when                                                      |
@@ -18,18 +24,14 @@ For in-process enforcement, use [Protect an Express App](/guides/protect-express
 
 ## Create or Select the Resource
 
-Open the web console:
-
-```sh
-caracal web
-```
+Open the web console for your deployment (`http://localhost:3001` on the packaged local stack).
 
 Create or select a resource with:
 
 | Field                        | Guidance                                                                                                            |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Resource identifier          | Stable audience URI, such as `resource://billing-api`.                                                              |
-| Scopes                       | Action-oriented scopes, such as `billing:read` and `billing:submit`.                                                |
+| Resource identifier          | Stable audience URI, such as `resource://pipernet`.                                                                 |
+| Scopes                       | Action-oriented scopes, such as `pipernet:read` and `pipernet:submit`.                                              |
 | Upstream URL                 | Network URL the Gateway can reach.                                                                                  |
 | Gateway application          | The Caracal application identity Gateway uses for upstream exchanges.                                               |
 | Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth token, API key, or bearer token. |
@@ -55,7 +57,7 @@ Gateway-routed requests include:
 
 | Request part         | Value                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------- |
-| URL                  | Gateway URL from your runtime profile (`http://localhost:8081` on the local stack). |
+| URL                  | Gateway URL from your runtime profile (`gateway_url`; `http://localhost:8081` on the local stack). |
 | `Authorization`      | `Bearer <Caracal mandate>`.                                                         |
 | `X-Caracal-Resource` | Resource identifier.                                                                |
 | Path                 | The protected path you configured for the upstream.                                 |
@@ -82,6 +84,8 @@ Run these checks before treating the route as ready:
 
 Open the web console **Audit** and filter by the request ID. A complete Gateway-routed call has both authorization evidence from STS and action-result evidence from Gateway.
 
+Gateway preserves the HTTP method, path, query, body, and streaming response. It replaces caller authorization with the selected provider credential, strips upgrade behavior, does not proxy WebSockets, and does not retry an upstream mutation. A stale revocation snapshot fails closed with `503` before forwarding.
+
 ## Troubleshooting
 
 | Symptom                                                       | Check                                                                    |
@@ -91,4 +95,10 @@ Open the web console **Audit** and filter by the request ID. A complete Gateway-
 | Provider credential not attached                              | Resource must bind exactly one upstream credential provider.             |
 | Authorization audit exists but action-result audit is missing | The request did not reach Gateway or failed before route execution.      |
 
-Related pages: [Debug Authorization Decisions](/guides/authorize-access/) and [Tail and Query the Audit Stream](/guides/audit-stream/).
+:::caution[Failure point: raw headers]
+`X-Caracal-Resource` routes the request; it does not authorize it. Send a scoped `use=gateway` bearer minted by the SDK transport. Do not send lifecycle headers or trust a client-supplied application ID.
+:::
+
+## Next step
+
+Run [Check Provider Readiness](/examples/provider-preflight/), then use [Debug Authorization Decisions](/guides/authorize-access/) for any deny.

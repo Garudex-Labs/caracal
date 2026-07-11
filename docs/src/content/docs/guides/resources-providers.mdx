@@ -3,7 +3,13 @@ title: Define Resources and Providers
 description: Register protected upstream resources and explicit provider auth modes from the web console.
 ---
 
-Resources tell Caracal what protected target is being accessed. Providers describe how Gateway authenticates to that target, including no-credential and Caracal mandate flows.
+Use this guide after modeling an upstream and before writing policy or application code. The workflow creates the routing and credential boundary that Gateway enforces. The [Admin package](/sdks/admin/) and [Admin API](/api/control-plane/) hold exact automation signatures.
+
+## Prerequisites
+
+- A zone and durable managed application for Gateway routing.
+- A stable resource identifier, action-oriented scopes, and an upstream URL reachable from Gateway.
+- The upstream's documented authentication method and a production secret source.
 
 ## When to create each object
 
@@ -21,11 +27,11 @@ Resource fields should answer “what is being protected and where does Gateway 
 
 ## Web Console Workflow
 
-1. Start the local runtime with `caracal up`.
-2. Open `caracal web`.
+1. Start the runtime for your deployment (locally, `caracal up`).
+2. Open the web console for your deployment.
 3. Select **Resources**.
 4. Create a resource with a stable identifier, such as `resource://pipernet`.
-5. Add action-oriented scopes, such as `payments:read` and `payments:refund`.
+5. Add action-oriented scopes, such as `pipernet:read` and `pipernet:refund`.
 6. Set the upstream URL, Gateway application, and upstream credential provider for the protected service.
 7. Select a `None` provider when Gateway should enforce Caracal access but the upstream expects no credential.
 8. Select `Caracal mandate` for resources that verify Caracal tokens directly, or choose a provider-native type when the upstream needs external credentials.
@@ -111,6 +117,12 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 - Author and activate a policy that allows the application and subject to request the scopes.
 - Send a Gateway request and inspect the audit event. For Caracal mandate upstreams, also confirm the resource uses a Caracal verifier or adapter.
 
+Expected result: OAuth provider checks pass where supported, the resource has one Gateway application and one provider binding, undeclared operations fail before the upstream, and an allowed request reaches only the configured host.
+
+:::caution[Failure point: operation mode]
+The API value is `enforced`, not `enforce`. An `enforced` resource with no operations is intentionally closed. Use `transport_uniform` only when every call shares one transport surface, such as MCP.
+:::
+
 ## Related guides
 
 - [Provider Recipes](/guides/provider-recipes/)
@@ -118,3 +130,7 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 - [Debug Authorization Decisions](/guides/authorize-access/)
 - [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)
 - [Activate a Policy Set](/guides/activate-policy-set/)
+
+## Next step
+
+Choose a concrete credential setup in [Provider Recipes](/guides/provider-recipes/), then run [Check Provider Readiness](/examples/provider-preflight/) before the first real call.

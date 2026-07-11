@@ -5,10 +5,20 @@ description: Run one Caracal deployment that serves many of your customers, with
 
 [Model Your Application in Caracal](/guides/modeling-recipes/) compares the isolation models at a high level. This page is the end-to-end pattern for the most common case: your application is a single product that serves many of _its own_ customers, and you want clean per-customer authority without standing up infrastructure for each customer.
 
+## When to use this pattern
+
+Use one shared zone only when customers share signing keys, policy ownership, audit storage, and operational rate limits. If any customer requires cryptographic or audit isolation, use a zone per customer and automate provisioning yourself.
+
+## Prerequisites
+
+- An application-owned, authenticated customer ID that is stable and non-personal.
+- A reviewed label vocabulary and grant/confinement data.
+- Capacity and audit filters tested against expected customer concurrency.
+
 The short answer: run **one zone for your deployment** and carry **each customer on the work itself** through a `customer:` label that policy confines and audit can filter. Keep `customer_id` metadata only when Coordinator inspection needs an additional business key. Customer separation lives below the zone - in Sessions, labels, and Delegation - which is exactly where Caracal models per-actor authority. You do not create a zone per customer.
 
 :::note[FAQ]
-[What should a zone represent?](/reference/faq/#faq-003) and [does the open-source edition include managed multi-tenancy?](/reference/faq/#faq-004)
+[What should a zone represent?](/reference/faq/#faq-003) and [does this repository implement managed multi-tenancy?](/reference/faq/#faq-004)
 :::
 
 ## Where Each Customer Lives in the Model
@@ -67,11 +77,11 @@ For fan-out work, give each child agent the least authority it needs with [deleg
 
 ### Customer Labels Drive Enforcement
 
-When policy must confine the work itself - a billing sweep, a dunning cycle, any job acting on one customer's records - carry the customer on the Session as a label:
+When policy must confine the work itself - a PiperNet report run, a retention cycle, or any job acting on one customer's records - carry the customer on the Session as a label:
 
 ```python
 async with caracal.session(
-  authority=Authority.narrow(["billing:collect"], ttl_seconds=600),
+  authority=Authority.narrow(["pipernet:process"], ttl_seconds=600),
     labels=[role, f"customer:{customer_id}"],
     metadata={"customer_id": customer_id},
 ) as ctx:
@@ -88,7 +98,7 @@ import rego.v1
 
 confinement := [{
   "label_prefix": "customer:",
-  "scopes": ["billing:collect", "billing:read"],
+  "scopes": ["pipernet:process", "pipernet:read"],
 }]
 ```
 
@@ -106,7 +116,7 @@ import rego.v1
 
 grants := {
   "resource://payouts": {
-    "application": "payments",
+    "application": "pipernet",
     "roles": {"scale-plan": ["payouts:run"]},
   },
 }
@@ -124,7 +134,7 @@ To cut a customer off, find Sessions by the `customer:` label, terminate them, a
 
 ## Limits to Plan For
 
-One shared zone serves many customers well, with two ceilings to design around. The agent concurrency caps and the rate-limit scope are in [Defaults and Limits](/reference/defaults-and-limits/#agent-and-delegation-limits).
+One shared Zone serves many customers well, with two ceilings to design around. Session concurrency caps and the rate-limit scope are in [Defaults and Limits](/reference/defaults-and-limits/#session-and-delegation-limits).
 
 - **Concurrent agents per zone** are capped, so a single zone bounds how many customer agents can run at once. If you need more simultaneous customer agents than one zone allows, add applications within the zone, or move the busiest customers to their own zone.
 - **STS rate limiting is per zone, resource, and acting application** - not per customer. Because customers share your application identity, one heavy customer draws on the shared budget. Keep this in mind for fairness, and isolate a customer into its own zone if it must have a guaranteed independent budget.
@@ -133,13 +143,19 @@ One shared zone serves many customers well, with two ceilings to design around. 
 
 Stay with one shared zone unless a customer genuinely requires hard isolation: independent signing keys, an audit trail that can never mix with others, or a policy change that can never affect another customer. Those needs are the **zone per customer** model in [Model Your Application in Caracal](/guides/modeling-recipes/#multiple-customers-or-workspaces).
 
-In the open-source edition you provision and automate those zones yourself through the Admin API, and your one application authenticates separately into each. A scoped Control key cannot create zones - it is bound to the single zone it was issued in. Managed per-tenant lifecycle, where customer onboarding mints and operates a zone automatically, is an Enterprise Edition feature; see [Compare Editions](/enterprise/).
+In this open-source product you provision and automate those Zones yourself through the Admin API, and your Application authenticates separately into each. A scoped Control key cannot create Zones because it is bound to the Zone that issued it. Automated managed-tenant lifecycle is not implemented in this repository.
 
 ## Validate the Pattern
 
 - Sign in as two different customers, run the same workflow, and confirm each produces a distinct Session carrying the correct `customer:` label in the web console.
 - Author grant data that gives one customer's role a resource and withholds it from another, then confirm both decisions in the audit trail.
 - Revoke one customer's session and confirm its in-flight agents lose authority while the other customer is unaffected.
+
+Expected result: customer A cannot mint customer B's resource authority, customer activity is discoverable by Session labels and IDs, and revoking A does not terminate B.
+
+:::caution[Failure point: metadata]
+Session metadata is not an authorization input. Enforce from reviewed labels and Delegation; use metadata only for Coordinator inspection. Caracal does not verify that a customer ID belongs to the caller—your application must authenticate and bind it before starting the Session.
+:::
 
 ## Related
 
@@ -150,3 +166,7 @@ In the open-source edition you provision and automate those zones yourself throu
 - [Author Policy Data](/guides/author-policy/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)
 - [Audit and Request Traces](/concepts/audit-ledger/)
+
+## Next step
+
+Implement label and confinement tests in [Test Caracal Integrations](/guides/testing/) before onboarding production customers.

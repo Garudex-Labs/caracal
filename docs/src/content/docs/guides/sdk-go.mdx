@@ -3,7 +3,13 @@ title: Integrate the Go SDK
 description: Install the Go SDK, load a runtime profile, run governed sessions with context.Context, delegate authority, and inject Caracal headers.
 ---
 
-Use the Go SDK in services and agents that need Caracal context propagation, Sessions, delegation, and Gateway-aware HTTP clients.
+Use the Go SDK in an application that must carry governed authority in `context.Context`, create Sessions, narrow Delegation, or route HTTP through Gateway. A resource server that only verifies inbound mandates should use [the net/http adapter](/guides/protect-nethttp/).
+
+## Prerequisites
+
+- A managed application credential, active policy, resource/provider binding, and Gateway route.
+- Request deadlines propagated through `context.Context`.
+- A destination idempotency strategy for mutating requests.
 
 ## Install
 
@@ -48,12 +54,12 @@ func main() {
 
 ```go
 httpClient := client.Transport(nil, caracal.CallOptions{
-	Scopes:      []string{"tickets:read"},
+	Scopes:      []string{"pipernet:read"},
 	Propagation: caracal.PropagationGatewayOnly,
 })
 
 err := client.Session(context.Background(), func(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/tickets", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.pipernet.example/reports", nil)
 	if err != nil {
 		return err
 	}
@@ -70,7 +76,7 @@ Daemons and workers that outlive a single request use `StartSession` instead of 
 
 ```go
 svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
-	Labels: []string{"billing-worker"},
+	Labels: []string{"fiona-worker"},
 })
 if err != nil {
 	return err
@@ -104,7 +110,7 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 		_, _ = client.Current(child)
 		return nil
 	}, caracal.SessionOptions{
-		Authority: caracal.AuthorityNarrow([]string{"tickets:read"}, caracal.NarrowOptions{
+		Authority: caracal.AuthorityNarrow([]string{"pipernet:read"}, caracal.NarrowOptions{
 			Constraints: &caracal.DelegationConstraints{MaxHops: 1},
 			TTLSeconds:  600,
 		}),
@@ -123,4 +129,16 @@ A plain `client.Session` runs the child under its parent's effective authority -
 | Delegation fails                | Ensure delegation runs from a context with an active Session.                                |
 | Gateway URL error               | Confirm the runtime profile includes `gateway_url`.                                          |
 
-Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Session Delegation](/concepts/delegation/).
+## Validate the integration
+
+Run allow, extra-scope deny, revoked Session, canceled context, and shutdown cases. Only the allow case may reach the upstream. Close every `SessionHandle`, then call `client.Close()` after transports have drained.
+
+:::caution[Failure point: context]
+Do not replace the callback or handle context with `context.Background()` inside governed work. That drops Session and Delegation authority even though the process still has application credentials.
+:::
+
+For exact exported types and options, use [Go SDK reference](/sdks/go/).
+
+## Next step
+
+Protect inbound handlers with [the net/http adapter](/guides/protect-nethttp/) or implement [multi-agent delegation](/guides/delegation/).

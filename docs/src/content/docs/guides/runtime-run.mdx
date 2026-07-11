@@ -5,6 +5,14 @@ description: Launch a workload with console-managed credential bindings injected
 
 `caracal run` starts a local subprocess with scoped, short-lived credentials injected as environment variables. The workload carries only its workload ID and secret; the credential bindings live in the web console. Use it for development, demos, and controlled local runs.
 
+Do not use it for a daemon that must renew credentials, for request-level Gateway enforcement, or as a process supervisor. Use an SDK for long-lived work.
+
+## Prerequisites
+
+- A ready runtime, Launcher workload, owner-only workload secret, and at least one launch binding.
+- A provider with `allow_runtime_injection=true` and an active policy permitting binding scopes.
+- A child process that reads the configured environment variable and can finish before credential expiry.
+
 ## Prepare the workload
 
 1. Run `caracal up`.
@@ -19,7 +27,7 @@ export CARACAL_WORKLOAD_ID=<workload_id>
 caracal run -- npm start
 ```
 
-The launcher fetches the workload's launch bindings from STS, mints a short-lived credential for each binding under only its selected scopes, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. Credentials are minted once at launch and never renewed; long-running workloads should use an SDK. If policy requires step-up approval for a binding, the launch pauses and emits an `approval_required` line on stderr until the challenge is decided. See [Run Workloads](/runtime-console/runtime/) for the full contract.
+The launcher fetches the workload's launch bindings from STS, mints a short-lived credential for each binding under only its selected scopes, and injects the results into the configured environment variables. The child environment is otherwise scrubbed: `CARACAL_*` configuration variables stay with the launcher, and only a small allowlist such as `PATH`, `HOME`, locale, and `XDG_*` directories is inherited. Credentials are minted once at launch and never renewed; long-running workloads should use an SDK. If Policy requires Approval for a binding, the launch pauses and emits an `approval_required` line on stderr until the hold is decided. See [Run Workloads](/runtime-console/runtime/) for the full contract.
 
 ## Validate the run
 
@@ -30,6 +38,8 @@ The launcher fetches the workload's launch bindings from STS, mints a short-live
 | First request succeeds | Send a request to a configured resource path. |
 | Audit captured the request | web console **Audit**. |
 
+Expected result: only configured binding variables and optional `<ENV>_EXPIRES_AT` values enter the child; workload identity and other `CARACAL_*` variables do not. The launcher exits with the child process's exit code.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -38,7 +48,13 @@ The launcher fetches the workload's launch bindings from STS, mints a short-live
 | `invalid workload credentials` | The workload ID or secret is wrong or was rotated; copy the current values from the **Launcher** page. |
 | `no credential bindings configured` | Define launch bindings for this workload on the console's **Launcher** page. |
 | Secret file rejected | Restrict file permissions and avoid setting both inline and file secrets. |
-| Launch pauses on `approval_required` | Approve the step-up challenge in the web console, or adjust the policy tier. |
+| Launch pauses on `approval_required` | Decide the Approval in the web console, or adjust the Policy tier. |
 | Request denied | Check policy-set activation, scopes, and audit diagnostics. |
 
-Related pages: [First Protected Call](/get-started/first-protected-call/), [Add SDK to Your App](/get-started/add-sdk-to-your-app/), and [Audit and Request Traces](/concepts/audit-ledger/).
+:::caution[Failure point: scope versus provider credential]
+Binding scopes govern whether STS releases a credential. A static upstream API key may still carry broader provider-native power. Prefer Gateway brokering when the upstream cannot issue a truly scoped credential.
+:::
+
+## Next step
+
+Run [Launch Research Agent](/examples/research-agent/) for the fixed example, or migrate a long-lived process to the matching [SDK guide](/guides/).
