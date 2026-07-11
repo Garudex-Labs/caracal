@@ -1,62 +1,40 @@
 ---
 title: Operate Caracal
-description: Operator runbooks for deploying, configuring, securing, observing, recovering, releasing, and handing off Caracal.
+description: Verified runbooks for deploying, observing, recovering, and changing the open-source Caracal runtime.
 pageType: landing
 ---
 
-Use Operations when Caracal is running as infrastructure: Docker Compose for self-hosted installs, Helm for Kubernetes, managed Postgres and Redis, production secrets, rollout gates, observability, incident handling, upgrades, and platform handoff.
+Use this section when you own a Caracal deployment. These runbooks describe behavior present in this repository; they do not promise an availability level, managed service, or compliance outcome.
 
-## Operating Model
+## Choose a Runbook
 
-```mermaid
-flowchart LR
-  Operator[Operator or platform team] --> Runtime[Runtime surface]
-  Runtime --> Compose[Docker Compose]
-  Runtime --> Helm[Helm release]
-  Runtime --> Secrets[Runtime secrets]
-  Runtime --> Checks[Health, readiness, smoke tests]
-  Checks --> Services[Web, API, STS, Gateway, Audit, Coordinator]
-  Services --> Postgres[(PostgreSQL)]
-  Services --> Redis[(Redis Streams)]
-```
-
-## Start by Role
-
-| Role | Start with |
+| Need | Start here |
 | --- | --- |
-| Local or self-hosted operator | [Deploy with Docker Compose](/operations/docker-compose/) |
-| Kubernetes platform team | [Deploy with Helm](/operations/kubernetes-helm/) and [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/) |
-| Security reviewer | [Harden Production](/operations/tls-hardening/) and [Rotate Keys and Secrets](/operations/key-management/) |
-| SRE or on-call engineer | [Monitor Health and Metrics](/operations/observability/), [Configure Alerts](/operations/alerts/), [Recover from Failures](/operations/failure-modes/), and [Run Failure Drills](/operations/failure-drills/) |
-| Release owner | [Plan a Platform Rollout](/operations/platform-rollout-kit/), [Deploy Policy Changes](/operations/policy-deployment/), and [Upgrade Caracal](/operations/upgrade/) |
+| Choose a substrate | [Choose a Deployment Profile](/operations/deployment-profiles/) |
+| Run one Docker host | [Deploy with Docker Compose](/operations/docker-compose/) |
+| Deploy the repository chart | [Deploy with Helm](/operations/kubernetes-helm/) |
+| Diagnose a failed request | [Troubleshoot by Symptom](/operations/troubleshooting/) |
+| Diagnose unhealthy infrastructure | [Debug Infrastructure Issues](/operations/debugging/) |
+| Recover a known failure | [Recover from Failures](/operations/failure-modes/) |
+| Back up or restore Compose state | [Back Up and Retain Data](/operations/backup-retention/) |
+| Change versions | [Upgrade Caracal](/operations/upgrade/) |
 
-## Deployment Choices
+## Operating Invariants
 
-| Environment | Recommended path | Notes |
-| --- | --- | --- |
-| Local development | `caracal up` / `infra/docker/docker-compose.yml` | Builds local images, binds service ports to `127.0.0.1`, writes local secrets, and serves the packaged web console at `http://localhost:3001`. |
-| Self-hosted runtime | `infra/docker/runtime-compose.yml` | Uses versioned GHCR images, mounted secrets, and the `caracal-web` browser entrypoint. |
-| Kubernetes | `infra/helm/caracal` | Uses Deployments/StatefulSets, pre-install/pre-upgrade migration Job, ClusterIP Services, web Ingress by default, optional API/Gateway Ingress, NetworkPolicy, PDBs, HPAs, ServiceMonitor, and PrometheusRule. |
+- Postgres is the durable system of record. Redis carries streams and correctness-critical revocation state.
+- `dev` is local-development posture. `rc` and `stable` enforce published-mode configuration; `rc` is not a production stability claim.
+- Compose publishes service ports on loopback. Expose them only through an operator-owned TLS proxy.
+- Helm and OpenTofu are deployment assets, not a managed Kubernetes, HA, backup, or SLO service.
+- Runtime lifecycle belongs to `caracal up`, `down`, `status`, `upgrade`, and `purge`. Product administration belongs to the web console, Admin SDK, or Control API.
 
-## Core Operational Invariants
+## Baseline Verification
 
-- Postgres is the durable control-plane store.
-- Redis Streams move audit, policy invalidation, session revocation, key invalidation, agent, invocation, and delegation events.
-- STS and Gateway keep audit replay directories so audit emission can drain after Redis/Audit recovery.
-- Published modes are `rc` and `stable`; they require production-grade HMAC keys and reject unsafe fallbacks.
-- Product-management operations happen through the web console, Admin SDK, or Control API; the top-level runtime CLI only manages local lifecycle, the development web launcher, and `caracal run`.
+For Compose, run `caracal status --ready`. For Kubernetes, inspect Jobs and pod readiness, then test required service endpoints. `/health` proves liveness; only `/ready` is a traffic gate.
 
-## Section Map
+## Recovery Boundary
 
-| Need | Page |
-| --- | --- |
-| Compose deployment | [Deploy with Docker Compose](/operations/docker-compose/) |
-| Helm deployment | [Deploy with Helm](/operations/kubernetes-helm/) |
-| Workload configuration | [Configure Service Environment](/operations/env-vars/) and [Choose a Cloud Profile](/operations/cloud-native-profiles/) |
-| Cloud deployment | [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/) |
-| Storage | [Operate PostgreSQL](/operations/postgres/) and [Operate Redis Streams](/operations/redis/) |
-| Hardening | [Harden Production](/operations/tls-hardening/) |
-| Rotation | [Rotate Keys and Secrets](/operations/key-management/) |
-| Scaling | [Scale Capacity](/operations/scale-capacity/) |
-| Observability | [Monitor Health and Metrics](/operations/observability/) and [Configure Alerts](/operations/alerts/) |
-| Recovery | [Recover from Failures](/operations/failure-modes/), [Run Failure Drills](/operations/failure-drills/), [Back Up and Retain Data](/operations/backup-retention/), and [Respond to Incidents](/operations/incident-response/) |
+Before a risky change, retain the current version, configuration, data backup, and secrets backup. Database migrations are forward-only; application rollback is safe only when the older version accepts the migrated schema.
+
+## Next Action
+
+Choose the substrate in [Choose a Deployment Profile](/operations/deployment-profiles/).

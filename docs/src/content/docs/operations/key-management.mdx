@@ -1,70 +1,34 @@
 ---
 title: Rotate Keys and Secrets
-description: Manage Caracal secret material, signing keys, HMAC keys, and rotation evidence.
+description: Rotate key classes without losing encrypted state, audit continuity, or service authentication.
 pageType: workflow
 ---
 
-Caracal uses secret material for zone encryption, mandate signing, audit integrity, stream signatures, service exchange, admin access, Coordinator access, database access, and Redis access.
+Rotate one class at a time. Inventory the KEK, zone signing keys, integrity HMACs, idempotency HMAC, Gateway-STS HMAC, service tokens, storage credentials, and web auth secret.
 
-## Key Inventory
+## Prerequisites
 
-| Material                     | Purpose                                                                                                            |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `SECRET_STORE_KEK`           | Root key for Secret Store envelopes: provider credentials, zone signing material, connection tokens, sink secrets. |
-| Zone signing keys            | Sign mandates exposed through STS JWKS.                                                                            |
-| `AUDIT_HMAC_KEY`             | Signs/verifies audit evidence.                                                                                     |
-| `STREAMS_HMAC_KEY`           | Signs Redis stream messages.                                                                                       |
-| `IDEMPOTENCY_HMAC_KEY`       | Digests Coordinator idempotency identifiers before storage.                                                        |
-| `GATEWAY_STS_HMAC_KEY`       | Authenticates Gateway exchanges to STS.                                                                            |
-| `CARACAL_ADMIN_TOKEN`        | Bootstrap/operator API access.                                                                                     |
-| `CARACAL_COORDINATOR_TOKEN`  | Coordinator Session and Delegation management.                                                                     |
-| Postgres and Redis passwords | Storage access.                                                                                                    |
+Keep current data and secret backups, owners for every producer/consumer, canary requests, and a documented overlap window where supported.
 
-## Storage Boundary
+## Safe Procedure
 
-Generated operator secrets are file-backed inside a private operator directory. Local development stores them outside the repository; released self-hosted runtimes store them under `$CARACAL_HOME/secrets` unless `CARACAL_SECRETS_DIR` points to another operator-managed directory. Cloud deployments should use the platform secret manager and mount secrets into services through `*_FILE` paths or `CARACAL_SECRETS_DIR`.
+1. Generate replacement material cryptographically.
+2. Use `SECRET_STORE_KEK_PREVIOUS` for envelope re-sealing and `IDEMPOTENCY_HMAC_KEY_PREVIOUS` for receipt overlap.
+3. Update every producer and consumer of a shared HMAC before retirement.
+4. Roll affected services and wait for readiness.
+5. Check audit, stream, replay, revocation, JWKS, and canary signals.
+6. Retire old material only after applicable token, cache, message, replay, or receipt windows.
 
-Never mount operator secrets into agent workspaces or containers. Agents should receive only application client secrets at provisioning time or short-lived resource mandates from `caracal run`.
+Keep the old idempotency key for at least `IDEMPOTENCY_RETENTION_SECONDS`.
 
-## Rotation Principles
+## Verify
 
-- Rotate one class of material at a time.
-- Keep old verification material available until existing tokens, stream messages, or audit replay windows drain.
-- Verify `/ready`, audit ingestion, revocation propagation, and Gateway exchange after each rotation.
-- Record who rotated, when, why, new secret location, and rollback window.
+Confirm retired credentials fail, envelopes decrypt, JWKS is expected, new stream/audit messages verify, pending entries drain, and Gateway-to-STS exchange succeeds.
 
-## Suggested Rotation Order
+## Recovery
 
-```mermaid
-flowchart LR
-  Prepare[Prepare new secret] --> Deploy[Deploy secret and config]
-  Deploy --> Roll[Roll dependent service]
-  Roll --> Verify[Verify readiness, audit, JWKS, and revocation]
-  Verify --> Retire[Retire old material after safety window]
-```
+Restore the retiring value before deletion if verification fails. Preserve logs, DLQ, and replay state. Never regenerate a lost KEK; restore its backup.
 
-## Rotation Checklist
+## Next Action
 
-| Key                         | Services to roll                                                                                                                                                                                                                      | Verify                                                                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `SECRET_STORE_KEK`          | API and STS with `SECRET_STORE_KEK_PREVIOUS` carrying the retiring key, then the re-seal sweep, then both services again without the previous key. [Configure Secret Backends](/operations/secret-backends/) documents the procedure. | Provider credentials decrypt, STS reads active signing material, and the sweep reports zero failures.                                  |
-| Zone signing key            | STS, then verifiers after JWKS cache windows.                                                                                                                                                                                         | JWKS exposes expected key IDs and old mandates expire or verify during overlap.                                                        |
-| `AUDIT_HMAC_KEY`            | Producers and Audit verifier: API, STS, Gateway, Audit, Control.                                                                                                                                                                      | Audit ingestion accepts new events and rejects mismatched signatures.                                                                  |
-| `STREAMS_HMAC_KEY`          | Producers and consumers: API, STS, Gateway, Coordinator, Audit.                                                                                                                                                                       | Consumers accept new stream messages and pending entries drain.                                                                        |
-| `IDEMPOTENCY_HMAC_KEY`      | Coordinator. Set the replacement as `IDEMPOTENCY_HMAC_KEY` and the retiring key as `IDEMPOTENCY_HMAC_KEY_PREVIOUS`; keep both for at least `IDEMPOTENCY_RETENTION_SECONDS`, then remove the previous key.                             | Existing receipts replay through the overlap; new receipt digests use only the replacement; conflict and replay metrics remain stable. |
-| `GATEWAY_STS_HMAC_KEY`      | API, STS, and Gateway.                                                                                                                                                                                                                | Gateway exchange succeeds and failed HMAC attempts are denied.                                                                         |
-| `CARACAL_ADMIN_TOKEN`       | API, Console/Control clients, Control plugin.                                                                                                                                                                                         | Old token fails; Console and automation authenticate with the replacement.                                                             |
-| `CARACAL_COORDINATOR_TOKEN` | Coordinator and Console/operator clients.                                                                                                                                                                                             | Session/Delegation views load and old token fails.                                                                                     |
-
-## Troubleshooting
-
-| Symptom                                     | Check                                                                |
-| ------------------------------------------- | -------------------------------------------------------------------- |
-| JWKS clients reject mandates after rotation | Issuer URL, JWKS cache age, key overlap window, and STS JWKS health. |
-| Audit DLQ grows                             | Producer and Audit `AUDIT_HMAC_KEY` mismatch.                        |
-| Stream consumers reject messages            | Producer and consumer `STREAMS_HMAC_KEY` mismatch.                   |
-| Gateway exchange fails                      | `GATEWAY_STS_HMAC_KEY` mismatch between Gateway and STS.             |
-
-## Next Step
-
-Use [Operate PostgreSQL](/operations/postgres/) and [Operate Redis Streams](/operations/redis/) to verify durable state and event propagation.
+Verify [PostgreSQL](/operations/postgres/) and [Redis Streams](/operations/redis/).

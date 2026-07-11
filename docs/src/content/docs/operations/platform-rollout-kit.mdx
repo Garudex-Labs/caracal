@@ -1,71 +1,32 @@
 ---
 title: Plan a Platform Rollout
-description: Plan, gate, execute, and roll back Caracal platform rollouts.
+description: Gate version, configuration, network, secret, and chart changes on measurable safety checks.
 pageType: workflow
 ---
 
-Use this runbook for version upgrades, configuration changes, chart changes, secret rotations, ingress changes, and policy rollout waves.
+Use this for infrastructure changes. Policy activation has a separate [Policy Deployment](/operations/policy-deployment/) procedure.
 
-## Rollout Gates
+## Prerequisites
 
-| Gate | Pass condition |
-| --- | --- |
-| Source verification | Values, env vars, ports, and secrets match current chart and service config. |
-| Render validation | `helm lint` and `helm template` succeed with environment values. |
-| Migration safety | Migrations are forward-only and complete before service rollout. |
-| Readiness | Web, API, STS, Gateway, Audit, and Coordinator readiness endpoints pass. |
-| Event health | Redis streams, outbox dispatch, audit ingestion, revocation propagation, and replay backlog are healthy. |
-| Rollback plan | Previous image tag, chart revision, values, and compatible schema plan are documented. |
+Retain current version, rendered config, values, secrets, data backup, and schema-compatibility decision. Prepare readiness, authorization, revocation, and audit checks.
 
-## Rollout Sequence
+## Procedure
 
-```mermaid
-sequenceDiagram
-  participant Owner as Release owner
-  participant Helm as Helm
-  participant DB as Postgres
-  participant Pods as Caracal pods
-  participant Obs as Observability
-  Owner->>Helm: render and diff
-  Helm->>DB: run migration Job
-  Helm->>Pods: roll services
-  Pods->>Obs: expose health, readiness, metrics
-  Owner->>Obs: confirm gates
-```
+1. Verify provenance and render exact configuration.
+2. Review migrations, Secret keys, endpoints, NetworkPolicies, volumes, resources, and alerts.
+3. Confirm storage/event health.
+4. Apply migrations, then roll via supported runtime or Helm path.
+5. Stop on migration, readiness, audit, outbox, policy, revocation, or STS-exchange failure.
+6. Resume only after canary authorization and audit evidence.
 
-## Execution
+## Verify
 
-```bash
-helm -n caracal diff upgrade caracal infra/helm/caracal -f values.production.yaml
-helm -n caracal upgrade caracal infra/helm/caracal -f values.production.yaml
-kubectl -n caracal rollout status deploy/caracal-web
-kubectl -n caracal rollout status deploy/caracal-api
-kubectl -n caracal rollout status deploy/caracal-audit
-kubectl -n caracal rollout status deploy/caracal-coordinator
-```
+Record migration, rollout, `/ready`, queues/replay, metrics, and allow/deny canary request IDs.
 
-When replay persistence is enabled, STS and Gateway render as StatefulSets:
+## Rollback or Recovery
 
-```bash
-kubectl -n caracal rollout status statefulset/caracal-sts
-kubectl -n caracal rollout status statefulset/caracal-gateway
-```
+Use prior app/config only when schema-compatible; otherwise roll forward. Restore data only for declared disaster recovery, not ordinary rollback.
 
-## Stop Conditions
+## Next Action
 
-Stop the rollout when any of these occur:
-
-- Migration Job fails.
-- Web, STS, or Gateway cannot prove readiness.
-- Audit DLQ grows or replay backlog ages.
-- Gateway revocation snapshot becomes stale.
-- API outbox dead messages appear.
-- Postgres pool saturation or Redis memory pressure persists.
-
-## Rollback
-
-Use `helm rollback` only after confirming the previous app version is compatible with the current database schema. If schema compatibility is uncertain, roll forward with a corrected app image instead of applying down migrations.
-
-## Next Step
-
-Use [Deploy Policy Changes](/operations/policy-deployment/) for policy-specific rollout gates, simulation, activation, and rollback.
+Complete [Platform Handoff](/operations/platform-team-handoff/).
