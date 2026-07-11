@@ -186,23 +186,23 @@ Go-based container builds strip debug symbols by default (`GO_LDFLAGS` defaults 
 
 ### Release flow
 
-Use the same flow for rc and stable: plan, dry-run, publish, validate. rc proves the exact artifacts downstream; stable promotes the approved release.
+Use the same flow for rc and stable: plan, dry-run, publish, validate. An rc proves the release architecture downstream; stable rebuilds from the approved source with stable version metadata.
 
 | Step | rc | stable |
 | --- | --- | --- |
-| Prepare | Set `product.version` to `X.Y.Z-rc.N` in `release.config.json`, then `scripts/release.sh rc prepare` | Set `product.version` to `X.Y.Z`, then `scripts/release.sh stamp` |
+| Prepare | Set `product.version` to `X.Y.Z-rc.N` in `release.config.json`, then `scripts/release.sh rc prepare` | Promote an approved RC or set `product.version` to `X.Y.Z`, then `scripts/release.sh stable prepare` |
 | Review | Commit the stamped files, manifest, and metadata. | Commit the stamped files and review the stable diff. |
-| Dry-run | `scripts/release.sh rc dry-run --local` for local simulation; remote dry-run requires the rc commit on the selected ref. | `scripts/release.sh stable --dry-run` |
-| Publish | Tag and push `vX.Y.Z-rc.N`. | `scripts/release.sh stable` |
+| Dry-run | Run `scripts/release.sh rc dry-run --local`, then `scripts/release.sh rc dry-run` from the pushed commit. | Run `scripts/release.sh stable --dry-run --local`, then `scripts/release.sh stable --dry-run` from the pushed commit. |
+| Publish | `scripts/release.sh rc publish` | `scripts/release.sh stable` |
 | Validate | Pre-publish gate proves artifacts before the tag is published. | Pre-publish gate proves artifacts before stable promotion. |
 
-Remote rc dry-runs dispatch `release.yml` without publishing. They only read the default branch or the exact release tag ref, and the working tree must be clean unless `--allow-dirty` is used deliberately.
+Remote dry-runs dispatch `release.yml` without publishing. They only read the default branch or the exact release tag ref, and the working tree must be clean. Publication is blocked until that exact commit has a successful release dry run.
 
 ### Release validation
 
-Validation happens before publishing. The `context` job verifies the release manifest and version stamps; `archives` proves reproducible builds, runs binary smoke tests, generates checksums, and attaches provenance; the npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. The publish jobs then self-verify that each version is live on its registry.
+Validation happens before publishing. The local publish command atomically creates the root and nested Go tags, then explicitly dispatches the workflow from the root tag. The `context` job rejects package versions already present in a registry, verifies every tag target, and verifies the release plan and version stamps. `archives` binds the published manifest to the full tag commit, proves reproducible packaging, runs binary smoke tests, generates checksums, and attaches provenance. The npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. The publish jobs fail on version collisions, publish provenance, and then verify that each version is live on its registry.
 
-`scripts/release.sh rc prepare`, `stable`, and `promote` also write the docs Releases record (`docs/src/data/releases/<tag>.json`) from the manifest, so release evidence is committed with the release rather than generated afterward.
+`scripts/release.sh rc prepare`, `stable`, and `promote` also write the docs Releases record (`docs/src/data/releases/<tag>.json`) from the release plan. CI finalizes the customer manifest from the immutable tag commit; a preparation checkout never claims the identity of a commit that does not exist yet.
 
 ### Package publishing
 
@@ -210,12 +210,10 @@ Validation happens before publishing. The `context` job verifies the release man
 pnpm release:plan
 pnpm release:stamp:check
 gh workflow run publishNpm.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
-gh workflow run publishNpm.yml -f package=all -f runner=ubuntu-24.04
 gh workflow run publishPypi.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
-gh workflow run publishPypi.yml -f package=all -f runner=ubuntu-24.04
 ```
 
-Protected workflows are the normal path for npm and PyPI. They read `release.config.json`, publish every publishable package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. Use `package=<name>` only to resume a partially failed publish. Local stable publishing requires approval and `CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1`.
+The explicitly dispatched root release workflow is the only production path for npm and PyPI. Manual package-workflow dispatches are dry-run only, and the local publisher supports TestPyPI only. The workflows read `release.config.json`, publish every package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. If any registry publication partially succeeds, the version is consumed and the release must roll forward; existing package versions are never silently reused.
 
 ### Published artifacts
 

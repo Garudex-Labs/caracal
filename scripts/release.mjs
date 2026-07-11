@@ -408,7 +408,7 @@ function simulateWorkflow(manifest) {
   const path = manifestPath(manifest)
   say(`rc dry-run: ${manifest.release}`)
   say(`workflow: .github/workflows/release.yml`)
-  say(`trigger: tag ${manifest.release}`)
+  say(`dispatch ref: ${manifest.release}`)
   say(`mode: ${manifest.mode}`)
   say('publishing: off')
   say()

@@ -20,7 +20,7 @@
     "test": "pnpm run test:typescript && pnpm run test:go && pnpm run test:python",
     "test:go": "node scripts/runGoTests.mjs",
     "test:python": "node scripts/runPythonTests.mjs",
-    "test:typescript": "node scripts/runTsTests.mjs",
+    "test:typescript": "vitest run tests/typescript/unit/release && node scripts/runTsTests.mjs",
     "docs:version:verify": "node scripts/docsVersion.mjs verify",
     "docs:version": "node scripts/docsVersion.mjs snapshot",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 tests/typescript",

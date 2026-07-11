@@ -3,7 +3,25 @@
   "$id": "https://github.com/Garudex-Labs/caracal/releases/schema/manifest.schema.json",
   "title": "Caracal release manifest",
   "type": "object",
-  "required": ["release", "mode", "binaries", "runtimeImage", "containers", "helm"],
+  "required": [
+    "release",
+    "mode",
+    "version",
+    "generatedAt",
+    "binaries",
+    "runtimeImage",
+    "containers",
+    "helm",
+    "images",
+    "pypi",
+    "npm",
+    "packages",
+    "githubRelease"
+  ],
+  "dependentRequired": {
+    "sha": ["source"],
+    "source": ["sha"]
+  },
   "properties": {
     "release": {
       "type": "string",
@@ -18,15 +36,26 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     },
     "version": { "type": "string" },
-    "sha": { "type": "string" },
+    "promotedFrom": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[0-9]+$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
     "generatedAt": {
       "type": "string"
     },
     "source": {
       "type": "object",
+      "required": ["gitSha", "dirty"],
       "properties": {
-        "gitSha": { "type": "string" },
-        "dirty": { "type": "boolean" }
+        "gitSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "dirty": { "const": false }
       },
       "additionalProperties": false
     },
@@ -59,6 +88,13 @@
       "type": "object",
       "additionalProperties": { "type": "string" }
     },
+    "imageDigests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
     "pypi": {
       "type": "object",
       "additionalProperties": { "type": "string" }
@@ -73,6 +109,7 @@
       "properties": {
         "published": {
           "type": "object",
+          "required": ["pypi", "npm", "go"],
           "properties": {
             "pypi": {
               "type": "object",
@@ -91,6 +128,7 @@
         },
         "unchanged": {
           "type": "object",
+          "required": ["pypi", "npm", "go"],
           "properties": {
             "pypi": {
               "type": "object",
