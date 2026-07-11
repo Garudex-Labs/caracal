@@ -527,7 +527,7 @@ function SessionsChip() {
   return (
     <div className="space-y-1 font-mono text-[10px]">
       <div className="flex items-center gap-2">
-        <span className="rounded-md border border-border bg-card px-2 py-1">son-of-anton</span>
+        <span className="rounded-md border border-border bg-card px-2 py-1">anton</span>
         <span className="text-muted-foreground">1 credential</span>
       </div>
       <div className="pl-4 text-muted-foreground">

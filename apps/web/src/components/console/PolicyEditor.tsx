@@ -24,13 +24,13 @@ import rego.v1
 
 # Map the application keys used in grants to control-plane application ids.
 app_ids := {
-\t"son-of-anton": "app-son-of-anton",
+\t"anton": "app-anton",
 }
 
 # Grant a scope set to each role on a resource view.
 grants := {
 \t"resource://pipernet": {
-\t\t"application": "son-of-anton",
+\t\t"application": "anton",
 \t\t"roles": {"pipernet-operator": ["pipernet:read"]},
 \t},
 }

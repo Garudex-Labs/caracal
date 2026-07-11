@@ -118,7 +118,7 @@ function exampleSimulationInput(zoneId: string): string {
   return JSON.stringify(
     {
       schema_version: INPUT_SCHEMA_VERSION,
-      principal: { zone_id: zoneId, id: "app-son-of-anton", traits: ["pipernet-operator"] },
+      principal: { zone_id: zoneId, id: "app-anton", traits: ["pipernet-operator"] },
       resource: { identifier: "resource://pipernet" },
       action: { scopes: ["pipernet:read"] },
       context: {},

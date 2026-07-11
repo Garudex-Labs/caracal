@@ -674,7 +674,7 @@ function CreateApplicationModal({
         <Field
           label="Name"
           info="Human-readable name for this managed application identity, shown across the console. Use a short operational name, not an internal ID."
-          placeholder="Son of Anton"
+          placeholder="Anton"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
