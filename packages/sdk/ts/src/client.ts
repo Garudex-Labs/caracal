@@ -1204,7 +1204,8 @@ export class Caracal {
     } catch {
       return null
     }
-    if (sameOrigin(parsed, gw)) return { url: parsed.toString(), resourceId: explicitResource ?? '' }
+    if (pathContainsTraversal(parsed.pathname)) return null
+    if (targetsGatewayPath(parsed, gw)) return { url: parsed.toString(), resourceId: explicitResource ?? '' }
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
@@ -1230,7 +1231,7 @@ export class Caracal {
     if (!gw) return false
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
     try {
-      return sameOrigin(new URL(raw), gw)
+      return targetsGatewayPath(new URL(raw), gw)
     } catch {
       return false
     }
@@ -1812,13 +1813,33 @@ function resourcesFromCredentials(credentials: CredentialEntry[]): ProfileResour
   return { resources: values, bindings }
 }
 
-function sameOrigin(a: URL, b: string): boolean {
+function targetsGatewayPath(target: URL, gatewayUrl: string): boolean {
+  let gateway: URL
   try {
-    const o = new URL(b)
-    return a.protocol === o.protocol && a.host === o.host
+    gateway = new URL(gatewayUrl)
   } catch {
     return false
   }
+  if (target.protocol !== gateway.protocol || target.host !== gateway.host) return false
+  if (pathContainsTraversal(target.pathname)) return false
+  const base = gateway.pathname.replace(/\/$/, '') || '/'
+  return base === '/' || target.pathname === base || target.pathname.startsWith(`${base}/`)
+}
+
+function pathContainsTraversal(pathname: string): boolean {
+  let decoded = pathname
+  for (let i = 0; i < 8; i += 1) {
+    if (decoded.includes('\\') || decoded.split('/').some((segment) => segment === '.' || segment === '..')) return true
+    let next: string
+    try {
+      next = decodeURIComponent(decoded)
+    } catch {
+      return true
+    }
+    if (next === decoded) return false
+    decoded = next
+  }
+  return true
 }
 
 function joinGatewayPath(gatewayUrl: string, path: string): string {
@@ -1832,7 +1853,7 @@ function joinGatewayPath(gatewayUrl: string, path: string): string {
   const query = queryIndex === -1 ? '' : normalized.slice(queryIndex + 1)
   // Dot segments could climb out of a base-pathed gateway once the URL
   // normalizes, so the path must arrive already resolved.
-  if (pathname.split('/').some((segment) => segment === '.' || segment === '..')) {
+  if (pathContainsTraversal(pathname)) {
     throw new Error('Caracal.gatewayRequest(): path must not contain dot segments')
   }
   const base = gateway.origin + gateway.pathname.replace(/\/$/, '')
