@@ -1,55 +1,34 @@
 ---
 title: Harden Security Posture
-description: Security hardening guidance for production Caracal deployments.
-pageType: reference
+description: Verify a deployed environment against implemented security boundaries.
+pageType: workflow
 ---
 
-Use this checklist before exposing Caracal to production workloads or protected upstreams.
+Use after operational hardening and before production traffic.
 
-## Deployment Mode
+## Prerequisites
 
-| Check      | Expected                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| Mode       | `CARACAL_MODE=stable` or `rc`; never rely on `dev` defaults for production.                   |
-| Ports      | Public ingress exposes only required API/Gateway endpoints; storage remains private.          |
-| Network    | NetworkPolicy or equivalent restricts ingress and egress.                                     |
-| Containers | Non-root, dropped capabilities, no-new-privileges, read-only root filesystem where supported. |
+Use a pinned verified release, stable mode, complete Secret, private storage, TLS ingress, authenticated metrics, and tested backup/incident paths.
 
-## Secrets and Keys
+## Procedure
 
-| Check                    | Expected                                                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Secret delivery          | Mounted secret files or platform secret manager, not inline production secrets.                                                          |
-| HMAC keys                | `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, `IDEMPOTENCY_HMAC_KEY`, and `GATEWAY_STS_HMAC_KEY` are strong and rotated under control.           |
-| Idempotency receipts     | Plaintext keys never enter PostgreSQL or metric labels; changed-payload key reuse fails with `409`; retention is explicit and monitored. |
-| Secret Store KEK         | `SECRET_STORE_KEK` is strong, held outside the database, and backed up alongside it.                                                     |
-| Admin/Coordinator tokens | Stored privately, rotated, and scoped to operator need.                                                                                  |
-| Runtime secrets          | Client-secret files and SDK `caracal.toml` profiles are owner-only when written locally.                                                 |
+1. Expose only required endpoints; keep storage, Audit, Coordinator, and Control private.
+2. Retain non-root, read-only, dropped-capability, seccomp, and no-new-privileges settings.
+3. Confirm secrets are projected, restricted, separately backed up, and inaccessible to agents.
+4. Verify browser origins, cookies, registration allowlist, password/SMTP policy, and proxy trust.
+5. Verify STS deny cases for credentials, scope, revocation, replay, and Approval.
+6. Verify Gateway binding/header, egress, dangerous addresses, redirects, revocation, and pre-dispatch denial.
+7. Verify stream/audit HMAC, tamper, DLQ/replay, and metrics auth.
+8. Reserve bootstrap admin credentials for break-glass.
 
-## Access Enforcement
+## Verification
 
-| Check            | Expected                                                                                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| STS              | Fails closed on invalid client credentials, policy denial, revoked sessions, replay, invalid delegation, and undecided step-up holds.                                                                          |
-| Gateway          | Requires bearer token and `X-Caracal-Resource`, validates binding, rejects path traversal and unsafe upstreams. Pin egress hosts with `UPSTREAM_HOST_ALLOWLIST=api.internal.example,billing.internal.example`. |
-| Control          | Disabled unless explicitly needed; invoke endpoint requires gate, JWT, replay protection, rate limit, and audit.                                                                                               |
-| Resource servers | Verify mandate signature, issuer, audience, scopes, token use, Session and Delegation requirements, hop limits, and revocation.                                                                                |
+Retain negative-test IDs, readiness, rendered settings, network results, provenance, alert test, and restore evidence.
 
-## Audit and Recovery
+## Recovery
 
-| Check         | Expected                                                         |
-| ------------- | ---------------------------------------------------------------- |
-| Audit stream  | `caracal.audit.events` and DLQ are monitored.                    |
-| Tamper checks | Audit tamper alerts page the security/on-call path.              |
-| Backups       | Postgres, runtime secrets, and audit exports are restorable.     |
-| Replay        | STS/Gateway audit replay volumes are preserved through rollouts. |
+Remove affected endpoint/workload from traffic, restore verified config, and open an incident for possible exposure. Never switch to dev or disable safety checks.
 
-## Next Step
+## Next Action
 
-Use [Report a Vulnerability](/security/disclosure/) if hardening review uncovers a suspected vulnerability.
-
-## Related Pages
-
-- [Harden Production](/operations/tls-hardening/)
-- [Rotate Keys and Secrets](/operations/key-management/)
-- [Back Up and Retain Data](/operations/backup-retention/)
+Verify artifacts with [Verify a Release](/security/verify-releases/).

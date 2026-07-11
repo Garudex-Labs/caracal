@@ -1,50 +1,45 @@
 ---
 title: Ingest Audit Evidence
-description: Service reference for audit ingestion, DLQ, tamper checks, retention, search, and metrics.
+description: Understand the evidence pipeline, supported read surfaces, delayed delivery, integrity failures, and recovery signals.
 pageType: reference
 ---
 
-Audit consumes signed audit events from Redis, verifies integrity, writes append-only audit rows to Postgres, manages DLQ, and exposes operator search and metrics.
+Audit consumes signed events from Redis, verifies them, writes append-only evidence to Postgres, manages failed delivery, and exposes operator search and metrics on local port `9090`.
 
-## Runtime
+## Supported Read Paths
 
-| Property | Value |
-| --- | --- |
-| Port | `9090` |
-| Health/readiness | `GET /health`, `GET /ready` |
-| Metrics | `GET /metrics`, `GET /metrics.json` |
-| Search | `GET /api/audit/search` |
-| DLQ | `GET /api/audit/dlq`, `GET /api/audit/dlq/{id}`, `POST /api/audit/dlq/replay` |
+Human operators use the console **Audit** workspace. Zone-scoped automation uses the API service's documented audit routes. The Audit service's direct search and DLQ routes are operator endpoints protected by `AUDIT_ADMIN_TOKEN`; when that token is not configured, they return `404`.
 
-Search and DLQ routes require the `AUDIT_ADMIN_TOKEN` bearer. When the token is not configured, these routes return `404`. For zone-scoped audit reads with admin tokens, use `GET /v1/zones/:zoneId/audit` on the API service (port `3000`) instead; see [Use the Admin API](/api/control-plane/).
+| Route                                       | Purpose                               |
+| ------------------------------------------- | ------------------------------------- |
+| `GET /health`, `/ready`                     | Liveness and dependency/lag readiness |
+| `GET /metrics`, `/metrics.json`             | Authorized monitoring                 |
+| `GET /api/audit/search`                     | Direct operator search                |
+| `GET /api/audit/dlq`, `/api/audit/dlq/{id}` | Inspect failed events                 |
+| `POST /api/audit/dlq/replay`                | Retry selected failed evidence        |
 
-## Consumer Behavior
+Do not send application audit records to these routes. Caracal services publish the signed event contract.
 
-Audit consumes `caracal.audit.events` with the `audit-ingestor` consumer group. On startup it drains pending entries for its consumer, periodically claims orphaned entries, retries until `AUDIT_MAX_DELIVERIES`, and moves permanent failures to `caracal.audit.events.dlq`.
+## Delivery and Recovery
 
-## Integrity Controls
+Audit consumes `caracal.audit.events` in the `audit-ingestor` group. It drains its pending entries, claims orphaned work, retries failures, and moves events beyond the delivery limit to the DLQ. STS and Gateway replay volumes preserve events that could not reach Redis at emission time.
 
-| Control | Meaning |
-| --- | --- |
-| `AUDIT_HMAC_KEY` | Verifies producer-signed events in published modes. |
-| Tamper checks | Detect content hash mismatch, chain breaks, and HMAC failures. |
-| Append-only database role | Audit role cannot update or delete `audit_events`. |
-| Retention | `AUDIT_RETENTION_DAYS`, partitions, and optional export watermarks. |
+## Integrity and Readiness
 
-## Readiness Signals
+`AUDIT_HMAC_KEY` verifies producer signatures in published modes. Content-hash mismatch, chain breaks, and HMAC failures are security signals, not retryable formatting issues. The database role cannot update or delete evidence rows.
 
-| Signal | Meaning |
-| --- | --- |
-| DLQ threshold | `AUDIT_READY_DLQ_MAX` controls readiness tolerance. |
-| Consumer lag | `AUDIT_READY_LAG_MAX` controls accepted stream lag. |
-| PEL age | `AUDIT_READY_PEL_OLDEST_SECS_MAX` controls pending-entry staleness. |
+Readiness considers DLQ size, consumer lag, and oldest pending-entry age. A healthy HTTP process can therefore be not ready because evidence is no longer being retained within the configured operating bounds.
+
+## Operator Response
+
+1. Check Audit readiness and metrics.
+2. Check Redis connectivity, lag, pending entries, and replay volume growth.
+3. Inspect DLQ detail before replaying.
+4. Treat integrity failures as incidents; do not replay tampered payloads as trusted evidence.
+5. Confirm recovery with a fresh protected request and console decision trace.
+
+Use [Audit and Request Traces](/concepts/audit-ledger/) for evidence semantics and [Configure Alerts](/operations/alerts/) for thresholds.
 
 ## Next Step
 
-Use [Automate Management](/services/control/) when remote automation needs the same product-management operations available in Console.
-
-## Related Pages
-
-- [Audit and Request Traces](/concepts/audit-ledger/)
-- [Export Audit Evidence](/operations/compliance-audit-integration/)
-- [Configure Alerts](/operations/alerts/)
+[Automate Management](/services/control/) when a trusted remote client needs product-management automation.

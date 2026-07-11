@@ -1,55 +1,35 @@
 ---
 title: Secure Caracal
-description: Review Caracal security boundaries, harden production deployments, and report vulnerabilities responsibly.
+description: Review, verify, harden, and respond to security risks in the open-source runtime.
 pageType: landing
 ---
 
-Security in Caracal centers on pre-execution authority: STS issues scoped mandates, Gateway enforces protected-resource access, Coordinator tracks agent/delegation state, Audit preserves evidence, and Operations keeps storage, streams, secrets, and releases recoverable.
+This section covers OSS code and assets in this repository, not enterprise code, customer infrastructure, external identity providers/upstreams, or model behavior.
 
-## Security Model
+## Choose a Review
 
-```mermaid
-flowchart LR
-  Operator[Operator] --> API[API and Console]
-  Workload[Workload] --> STS[STS]
-  Request[Protected request] --> Gateway[Gateway]
-  Agent[Agent SDK] --> Coordinator[Coordinator]
-  API --> Audit[Audit evidence]
-  STS --> Audit
-  Gateway --> Audit
-  Coordinator --> Audit
-  Audit --> Postgres[(Append-only audit)]
-```
-
-## Security Review Path
-
-| Need | Page |
+| Goal | Page |
 | --- | --- |
-| Understand assets, boundaries, threats, and mitigations | [Review the Threat Model](/security/threat-model/) |
-| Harden a production deployment | [Harden Security Posture](/security/hardening/) |
-| Verify a release before installing | [Verify a Release](/security/verify-releases/) |
-| Demonstrate assurance to a reviewer or auditor | [Generate an Evidence Pack](/security/evidence-pack/) |
-| Report a vulnerability privately | [Report a Vulnerability](/security/disclosure/) |
-| Operate a security incident | [Respond to Incidents](/operations/incident-response/) |
-| Evaluate the project for enterprise adoption | [Enterprise Security Readiness](/security/enterprise-readiness/) |
+| Assets, boundaries, threats, residual risk | [Threat Model](/security/threat-model/) |
+| Deployed environment review | [Hardening](/security/hardening/) |
+| Artifact verification | [Verify a Release](/security/verify-releases/) |
+| Repository evidence | [Evidence Pack](/security/evidence-pack/) |
+| Private reporting | [Report a Vulnerability](/security/disclosure/) |
+| Adoption controls and non-claims | [Review OSS Adoption Readiness](/security/adoption-review/) |
 
-## Core Invariants
+## Security Invariants
 
-- STS must fail closed on policy, key, session, revocation, replay, step-up, and signing errors.
-- Gateway must never trust caller-supplied destinations and must deny before upstream dispatch when authority or routing is unsafe.
-- Redis stream messages require HMAC signing in published modes where configured.
-- Audit evidence must remain append-only, tamper-evident, and recoverable through replay/DLQ paths.
-- Secrets must come from secret files or platform secret managers in production.
-- The open-source product must not depend on enterprise-only code or controls.
+- STS fails closed on Policy, key, replay, revocation, Session, Approval, and signing failures.
+- Gateway authorizes before dispatch and applies binding, egress, redirect, replay, and revocation controls.
+- Published modes require integrity keys and authenticated metrics.
+- Audit is append-only/tamper-evident with replay and DLQ paths.
+- Runtime secrets remain outside untrusted application/agent workspaces.
+- OSS behavior does not depend on enterprise code.
 
-## Next Step
+## Review Completion
 
-Read [Review the Threat Model](/security/threat-model/) before hardening a deployment.
+Tie every claim to version, config, source/test evidence, and observed result. Repository controls do not replace host hardening, identity governance, recovery testing, or compliance programs.
 
-## Related Sections
+## Next Action
 
-- [Enforce Boundaries](/architecture/trust-boundaries/)
-- [Harden Production](/operations/tls-hardening/)
-- [Rotate Keys and Secrets](/operations/key-management/)
-- [Configure Alerts](/operations/alerts/)
-- [Compare Editions](/enterprise/)
+Start with [Review the Threat Model](/security/threat-model/).

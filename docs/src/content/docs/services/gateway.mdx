@@ -1,21 +1,14 @@
 ---
 title: Protect Upstreams
-description: Service reference for protected reverse proxying, STS exchange, revocation checks, and upstream safety.
+description: Understand the Gateway request boundary, deny-before-upstream behavior, synchronous STS dependency, and protocol limits.
 pageType: reference
 ---
 
-Gateway is the protected-resource ingress. It validates inbound Caracal authority, checks replay and revocation, exchanges with STS, and forwards to configured upstreams only after safety checks pass.
+Gateway is the HTTP enforcement boundary for configured upstream resources. It listens on local port `8081`.
 
-## Runtime
+## Supported Request
 
-| Property | Value |
-| --- | --- |
-| Port | `8081` |
-| Health/readiness | `/health`, `/ready` |
-| Metrics | `/metrics`, `/metrics.json` |
-| Revocation reload | `POST /internal/revocations/reload` |
-
-## Request Path
+A client sends an authorization bearer mandate, `X-Caracal-Resource`, and the intended HTTP request. Gateway resolves the configured zone/resource binding; callers do not select an arbitrary upstream.
 
 ```mermaid
 sequenceDiagram
@@ -23,49 +16,40 @@ sequenceDiagram
   participant Gateway
   participant STS
   participant Upstream
-  participant Audit
-  Client->>Gateway: one-shot use=gateway mandate + X-Caracal-Resource
-  Gateway->>Gateway: verify JWT, jti, revocation, binding, path, upstream safety
+  Client->>Gateway: mandate + resource + HTTP request
+  Gateway->>Gateway: verify token, replay, revocation, operation, path, binding
   Gateway->>STS: signed per-request exchange
-  STS-->>Gateway: use=resource mandate + private upstream directive
-  Gateway->>Upstream: proxied request
-  Gateway->>Audit: audit event or replay file
+  STS-->>Gateway: resource authority + private upstream directive
+  Gateway->>Upstream: sanitized request + configured credential
+  Upstream-->>Gateway: HTTP response or stream
+  Gateway-->>Client: proxied response
 ```
 
-## Deny-Before-Upstream Checks
+## Deny Before Upstream
 
-- Missing, malformed, oversized, expiring, replayed, revoked, or signature-invalid bearer token.
-- Missing `X-Caracal-Resource`.
-- No binding for `(zone_id, resource)`.
-- Client-supplied `X-Caracal-Client-ID`.
-- Path traversal.
-- Operation (method and path) not declared on an enforced resource, or missing the operation's required scope.
-- STS exchange failure or open STS circuit.
-- Unsafe upstream destination.
+Gateway does not contact the upstream when the bearer is missing, malformed, oversized, expiring, replayed, revoked, or signature-invalid; the resource header or binding is missing; an enforced operation/scope is absent; the path traverses; STS fails or its circuit is open; or host safety rejects the destination.
 
-## Protocol Boundary
+It rejects caller-supplied `X-Caracal-Client-ID`, strips hop-by-hop and caller authorization headers, and applies only the upstream credential returned through the trusted exchange.
 
-Gateway proxies HTTP request/response traffic, including streamed responses such as SSE, with revocation re-checked on every streamed chunk. It does not proxy WebSocket connections: hop-by-hop headers, including `Upgrade`, are stripped before forwarding, so upgrade handshakes never reach the upstream. Enforce mandates for WebSocket workloads in-process at the service edge with the verification engine or a framework adapter.
+## Runtime and Protocol Limits
 
-Gateway replicas consume revocations through a stable per-host consumer group, with one process-specific consumer in that group. A startup Postgres snapshot establishes current state before the group begins at the stream tail; pending recovery claims messages left by a crashed process on the same host identity. This preserves replica broadcast without creating a fresh group or replaying full history on every restart.
+| Item               | Behavior                                                            |
+| ------------------ | ------------------------------------------------------------------- |
+| Liveness/readiness | `/health`, `/ready`                                                 |
+| Monitoring         | `/metrics`, `/metrics.json`                                         |
+| Request size       | `MAX_REQUEST_BYTES`, 10 MiB by default                              |
+| HTTP streaming     | Supported, including SSE; revocation is rechecked between chunks    |
+| WebSocket upgrade  | Not supported; upgrade headers are stripped                         |
+| Revocation reload  | `POST /internal/revocations/reload`, service/operator-internal only |
 
-## Configuration Highlights
+Protect WebSocket services in process with a verification package or framework adapter.
 
-| Variable | Purpose |
-| --- | --- |
-| `STS_URL` | STS endpoint for exchange and JWKS. |
-| `GATEWAY_STS_HMAC_KEY` | Signs Gateway exchange requests. |
-| `MAX_REQUEST_BYTES` | Request body limit, default 10 MiB. |
-| `UPSTREAM_HOST_ALLOWLIST` | Optional egress allowlist pinning upstreams to named hosts. |
-| `JTI_FAIL_OPEN` | Forbidden in published modes. |
-| `AUDIT_REPLAY_DIR` | Replay directory for audit events. |
+## Dependency Implications
+
+Gateway depends synchronously on STS and needs Postgres/Redis-backed binding, key, replay, and revocation state. It buffers audit evidence in replay storage if Redis/Audit delivery is unavailable. In published modes, replay/JTI and authority uncertainty fail closed; `JTI_FAIL_OPEN` is forbidden.
+
+Use [Proxy Through Gateway](/api/gateway/) for the client contract and [Harden Production](/operations/tls-hardening/) for network placement.
 
 ## Next Step
 
-Use [Ingest Audit Evidence](/services/audit/) to understand how Gateway, STS, API, Coordinator, and Control evidence becomes searchable audit state.
-
-## Related Pages
-
-- [Proxy Through Gateway](/api/gateway/)
-- [Enforce Boundaries](/architecture/trust-boundaries/)
-- [Harden Production](/operations/tls-hardening/)
+[Ingest Audit Evidence](/services/audit/).

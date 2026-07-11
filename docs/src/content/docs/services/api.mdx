@@ -1,50 +1,59 @@
 ---
 title: Manage Product State
-description: Service reference for the Caracal API service.
+description: Understand when to use the API service and how its storage, outbox, and authentication failures appear to operators.
 pageType: reference
 ---
 
-The API service owns product-management state and route handlers for zones, applications, providers, resources, policies, policy sets, grants, step-up challenges, policy templates, and zone events.
+The API owns Zones, Applications, workloads, Providers, Resources, Policies, Policy sets, Grants, Subject issuers, Subjects, Authority records, Approval holds, admin audit, and related management state.
 
-## Runtime
+## Who Calls It
 
-| Property            | Value                             |
-| ------------------- | --------------------------------- |
-| Port                | `3000`                            |
-| Health              | `GET /health`                     |
-| Readiness           | `GET /ready`                      |
-| Metrics             | `GET /metrics`                    |
-| Main route prefix   | `/v1`                             |
-| Optional docs route | `/docs` when API docs are enabled |
+Human operators use the web console; its auth backend calls the API with derived operator credentials. Trusted automation uses the Admin SDK or documented `/v1` Admin API. The optional Control plugin dispatches into the same management implementation.
 
-## Dependencies
+Workloads must not receive the API admin token or use management routes as a data-plane credential source.
 
-| Dependency      | Purpose                                                                                     |
-| --------------- | ------------------------------------------------------------------------------------------- |
-| Postgres        | Product state, admin tokens, policy versions, grants, sessions, outbox, audit admin events. |
-| Redis           | Event streams and outbox dispatch.                                                          |
-| STS             | Service URL used by management flows that need STS coordination.                            |
-| Runtime secrets | Admin token, zone KEK, stream HMAC, audit HMAC, Gateway-STS HMAC, database and Redis URLs.  |
+## Runtime Contract
 
-## Event Output
+| Item                      | Local value          |
+| ------------------------- | -------------------- |
+| Port                      | `3000`               |
+| Liveness                  | `GET /health`        |
+| Readiness                 | `GET /ready`         |
+| Metrics                   | `GET /metrics`       |
+| Management prefix         | `/v1`                |
+| Optional interactive docs | `/docs` when enabled |
 
-API writes `event_outbox` rows in the same transaction as product-state changes. The dispatcher signs payloads with `STREAMS_HMAC_KEY` and publishes Redis stream events such as policy invalidation and audit records.
+Use [Use the Admin API](/api/control-plane/) for route and auth reference rather than treating this service page as an endpoint catalog.
 
-## Operational Signals
+## Write and Propagation Flow
 
-| Signal                      | Meaning                                                                                             |
-| --------------------------- | --------------------------------------------------------------------------------------------------- |
-| API readiness               | Database, Redis, outbox dead rows, and service config are healthy enough for management operations. |
-| `API_READY_OUTBOX_DEAD_MAX` | Readiness threshold for dead outbox rows.                                                           |
-| Admin auth failures         | Token, scope, or rate-limit issue for Console/Admin clients.                                        |
-| Outbox age/dead metrics     | Redis or dispatcher is not draining management events.                                              |
+```mermaid
+sequenceDiagram
+  participant Client as Console / Admin SDK / Control
+  participant API
+  participant PG as Postgres
+  participant Redis
+  Client->>API: authenticated management request
+  API->>PG: validate zone and commit state + outbox
+  API-->>Client: resource or typed error
+  API->>Redis: dispatch signed outbox event
+```
+
+The state change and outbox row commit together. Redis publication follows asynchronously. A successful API response can therefore precede policy reload, revocation, or audit consumption by a short interval.
+
+## Failure Implications
+
+| Failure                     | User impact                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| Postgres unavailable        | Reads/writes and readiness fail.                                                                 |
+| Redis unavailable           | Readiness or outbox signals degrade; committed state remains in Postgres for retry.              |
+| Dead/old outbox rows        | Consumers may retain stale policy, revocation, or audit state; Diagnostics surfaces the backlog. |
+| Missing/invalid admin token | `401`; the console may report not connected or unauthorized.                                     |
+| Valid token without scope   | `403`; narrow the operation or grant the required operator scope.                                |
+| Secret backend unavailable  | Secret-bearing create, reveal, rotation, or dependent issuance fails closed.                     |
+
+Do not call the API's STS-coordination or internal service routes directly. The owning console or Admin SDK workflow supplies the required authentication and validation.
 
 ## Next Step
 
-Use [Coordinate Session State](/services/coordinator/) to understand Sessions, invocations, and delegation runtime state.
-
-## Related Pages
-
-- [Use the Admin API](/api/control-plane/)
-- [Manage Product Objects](/runtime-console/admin/)
-- [Operate PostgreSQL](/operations/postgres/)
+[Coordinate Session State](/services/coordinator/) or [Manage Product Objects](/runtime-console/admin/).
