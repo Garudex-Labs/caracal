@@ -3,13 +3,15 @@ title: Author Policy Data
 description: Author the grant, binding, and confinement data the platform decision contract reads, and validate it before activation.
 ---
 
-The platform decision contract owns every authorization decision inside the STS. You do not write `result` - you author **policy data documents** that tell the contract which application owns a resource, which roles hold which scopes, and how to confine or restrict authority. This guide writes those documents and validates them before activation.
+Use this guide after resources and applications exist and before activating production access. You author only data consumed by Caracal's signed decision contract; you do not replace decision logic or define `result`.
 
 ## Prerequisites
 
 - A zone, application, and resource.
 - Access to the Console or Admin API.
 - The resource identifier and scopes you want to grant.
+- The real application ID and the Session labels the application emits.
+- Representative allow and deny inputs for simulation.
 
 ## Start from a grant
 
@@ -204,3 +206,15 @@ fields to the input before simulating.
 - Split policies by ownership only when separate review or activation is useful.
 
 Next, [activate the policy in a policy set](/guides/activate-policy-set/).
+
+## Validate the authored data
+
+Validation must return `valid: true`; preview must list only intended data rules; simulation must allow the intended role and deny a missing role, extra scope, wrong resource, and confinement escape. Syntax validity alone is not production readiness.
+
+:::caution[Failure point: identity fields]
+The acting application is `input.principal.id`; Session labels are `input.principal.labels`. Do not invent `input.user`, `input.application`, or an authoritative subject field. Federated subject identity is a separate explicit flow, not default policy authority.
+:::
+
+## Next step
+
+[Activate a Policy Set](/guides/activate-policy-set/) with the allow and deny simulations used here.

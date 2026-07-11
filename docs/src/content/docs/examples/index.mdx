@@ -10,6 +10,12 @@ Examples show Caracal integrated into concrete applications and automation scrip
 git clone https://github.com/Garudex-Labs/examples.git caracal-examples
 ```
 
+## Prerequisites
+
+- Complete [First Protected Call](/get-started/first-protected-call/) and know whether you are integrating an application or a resource server.
+- Use an isolated development zone and synthetic credentials.
+- Run the example's offline tests before connecting it to a live runtime.
+
 ## Choose an example
 
 | Goal                                                                                        | Start here                                                | Code path                                                                                 |
@@ -38,6 +44,12 @@ git clone https://github.com/Garudex-Labs/examples.git caracal-examples
 - Run each example's offline tests before adapting it.
 - Do not commit provider secrets, admin tokens, or real third-party credentials.
 
+Expected result: each example proves one job and leaves a request ID, test output, or drift report. Examples are not production libraries and must be adapted with your own identity, secret, retry, timeout, and deployment controls.
+
+:::caution[Fixed example names]
+`ResearchAgent` and `lynxCapital` are checked-in source names and remain unchanged. New configuration around them should use approved Pied Piper/Hooli names.
+:::
+
 ## Related sections
 
 - [Get Started](/get-started/)
@@ -45,3 +57,7 @@ git clone https://github.com/Garudex-Labs/examples.git caracal-examples
 - [Guides](/guides/)
 - [SDKs](/sdks/)
 - [Runtime and Console](/runtime-console/)
+
+## Next step
+
+Choose one row in **Choose an example**; do not run the full reference lab when a smaller example proves the required boundary.

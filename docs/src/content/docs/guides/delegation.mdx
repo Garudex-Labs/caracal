@@ -5,6 +5,12 @@ description: Start child Sessions, attach typed constraints, inspect graph impac
 
 Use Delegation when one Session needs to hand a narrower slice of authority to another Session. The SDK creates the Delegation and carries the context; the web console shows the graph and impact.
 
+## Prerequisites
+
+- Two live Sessions and a parent that already holds the resource authority being delegated.
+- A specific resource, scope subset, positive TTL, and intended maximum hop count.
+- An authenticated work channel for transferring the opaque Delegation ID to the target Session.
+
 `session()` always starts the child under the **same application** as the parent. Narrow the child's authority only when it should hold less than the parent. To hand authority across applications, use `delegate()` with a peer Session under the other application; it returns the Delegation, and the receiver presents it with `acceptDelegation()`.
 
 ## Implementation flow
@@ -18,6 +24,8 @@ flowchart LR
   Exchange --> Audit["Inspect audit and graph"]
 ```
 
+Python uses `Authority.narrow(...)`, `await caracal.delegate(...)`, and `async with caracal.accept_delegation(edge_id, validate=True)`. Go uses `AuthorityNarrow(...)`, `Delegate`, and `AcceptDelegation`. The [language SDK references](/sdks/) define exact option types; the workflow and wire authority are equivalent.
+
 ## TypeScript example
 
 ```ts
@@ -29,10 +37,10 @@ await caracal.session(async () => {
   await caracal.session(
     async () => {
       const headers = await caracal.headersAsync()
-      await fetch('https://api.example.com/tickets', { headers })
+      await fetch('https://api.pipernet.example/reports', { headers })
     },
     {
-      authority: Authority.narrow(['tickets:read'], {
+      authority: Authority.narrow(['pipernet:read'], {
         resourceId: 'resource://pipernet',
         constraints: { maxHops: 1 },
         ttlSeconds: 600,
@@ -44,7 +52,7 @@ await caracal.session(async () => {
 
 ## Review the graph
 
-1. Open `caracal web`.
+1. Open the web console for your deployment.
 2. Select **Delegation**.
 3. Inspect active edges, inbound edges, outbound edges, and traversal.
 4. Use impact before revoking an edge.
@@ -72,4 +80,14 @@ The issuer and receiver share the opaque Delegation ID over their authenticated 
 | Chain validation fails                | Confirm authoritative parent links are continuous; configure `requireChainContains` separately at verifiers when needed. |
 | Revocation did not affect child       | Confirm cascade revocation and resource-server revocation consumers. |
 
-Related pages: [Session Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).
+## Validate the delegation
+
+Mint the allowed subset, attempt one broader scope, revoke the edge, and retry. The subset must succeed; broadening must fail server-side; after revocation neither the child nor descendants may mint or pass resource verification.
+
+:::caution[Failure point: lifetime]
+A Delegation can expire before its target Session. The Session may remain observable but cannot mint through the expired edge. Size the edge TTL to the work and handle terminal authorization failure rather than widening authority.
+:::
+
+## Next step
+
+Inspect the graph and request trace in [Tail and Query the Audit Stream](/guides/audit-stream/).

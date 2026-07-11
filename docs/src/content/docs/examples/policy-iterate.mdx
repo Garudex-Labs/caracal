@@ -6,6 +6,12 @@ pageType: workflow
 
 Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input - and prove it does not change other decisions - before activation.
 
+## Prerequisites
+
+- A denied request ID with an explainable audit trace.
+- A staged immutable policy-set version and current active version recorded for rollback.
+- Regression cases covering nearby allow and deny behavior.
+
 ## Loop
 
 1. **Diagnose** - a request is denied and you capture its audit `request_id`. The audit explain endpoint reconstructs the denied `policy_input` along with the diagnostics and determining policies.
@@ -45,6 +51,14 @@ npm test
 ```
 
 The tests inject the Admin API transport and do not call a live Caracal stack.
+
+## Validate the iteration
+
+Keep `ACTIVATE` unset first. Expect the candidate to repair the target denial while every regression retains its decision. Only then activate and wait for `loaded`; verify the first real exchange names the candidate manifest.
+
+:::caution[Failure point: reconstructed input]
+Audit reconstruction is redaction-safe and omits actor/subject claims. If a decision depends on implemented federated claims, supply them explicitly in a reviewed regression case; never guess them from a display name.
+:::
 
 ## Next step
 

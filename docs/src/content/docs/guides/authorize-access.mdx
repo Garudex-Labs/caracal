@@ -5,6 +5,12 @@ description: Diagnose denied exchanges, missing scopes, inactive policy sets, st
 
 Use this guide when a request is denied, unexpectedly allowed, missing audit evidence, or routed to the wrong protected resource. For production incidents and dependency failures, use [Troubleshoot by Symptom](/operations/troubleshooting/).
 
+## Prerequisites
+
+- The request ID, zone, application, resource, scopes, and approximate timestamp.
+- Access to Audit and active policy-set status.
+- A safe way to reproduce without changing production data.
+
 ## Debug Flow
 
 ```mermaid
@@ -73,3 +79,15 @@ Feed that input into [simulation](/guides/activate-policy-set/) against a candid
 - [Resources and Grants](/concepts/resource-grant/)
 - [Policies and Policy Sets](/concepts/policy/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)
+
+## Validation and expected result
+
+Reproduce once after correction. The trace must name the intended resource, Session/Delegation, active manifest, determining data, final decision, and Gateway result. A deny fix is complete only when nearby negative cases still deny.
+
+:::caution[Failure point: changing several layers]
+Do not edit resource scopes, policy data, application labels, and Gateway routing simultaneously. Trace from request ID inward and change the first incorrect boundary; otherwise the new allow cannot be explained.
+:::
+
+## Next step
+
+Use [Iterate Policy Safely](/examples/policy-iterate/) for policy-data correction or [Check Provider Readiness](/examples/provider-preflight/) for route/provider failures.

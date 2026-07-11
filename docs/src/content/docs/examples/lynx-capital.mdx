@@ -11,6 +11,16 @@ providers, with every agent and every provider call governed by Caracal. It is t
 reference for modelling permission boundaries, Sessions for agents, providers, resources, and
 policies on Caracal.
 
+## When to use it
+
+Use this fixed-name reference only after a smaller example works. Study it for multi-application permission boundaries, per-agent Sessions, provider views, policy data, and test organization; do not copy its finance domain or dependency pins blindly.
+
+## Prerequisites
+
+- Python, Docker, OPA, an isolated development zone, and a scoped provisioning Control key.
+- Capacity to run offline policy and Python suites before live provisioning.
+- Separate secrets for every managed application boundary.
+
 ## Architecture
 
 | Building block | Role                                                                                                                                                                                                                             |
@@ -134,6 +144,12 @@ The tests cover the policy decision suite, the identity-model and provisioning-p
 builders, the runner and authority seams, and the provider transports, topology, and
 lifecycle of the bundled workload.
 
+Expected result: policy and Python suites pass offline; provisioning is idempotent; the reference run produces labeled Sessions and narrowed Delegations under expected application boundaries; teardown removes only example-owned state.
+
+:::caution[Failure point: source drift]
+The checked-in example is authoritative for its package versions and commands. If its manifest differs from this page, follow the repository manifest and report the ambiguity rather than forcing current workspace package assumptions onto the external example.
+:::
+
 ## Bundled demo workload
 
 The repository ships the FastAPI and LangGraph swarm with a simulated payout cycle against
@@ -152,3 +168,7 @@ per-boundary-application, provider, resource-view, and policy-library flow.
 
 - [Run Echo Upstream](/examples/echo-upstream/)
 - [Launch Research Agent](/examples/research-agent/)
+
+## Next step
+
+Map one Lynx pattern—not the whole domain—onto [Model Your Application in Caracal](/guides/modeling-recipes/) and add equivalent tests to your integration.

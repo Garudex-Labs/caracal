@@ -6,6 +6,15 @@ pageType: workflow
 
 Echo Upstream is a zero-dependency HTTP service in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `echoUpstream/`. It stands in for the API you would put behind Caracal, so you can verify a Gateway-mediated request end to end without hosting your own upstream. Every response states whether the call was brokered by the Gateway or hit the service directly, and shows the evidence behind that verdict.
 
+## When to use it
+
+Use it as a disposable resource server while validating Gateway routing, provider injection, headers, and audit. It does not verify Caracal mandates itself and is not a production authorization boundary.
+
+## Prerequisites
+
+- A ready Caracal runtime and Docker network access from Gateway.
+- A `resource://pipernet` resource, provider, operations, active policy, and scoped caller mandate.
+
 ## What it demonstrates
 
 | Area | Behavior |
@@ -73,6 +82,12 @@ Calling `http://127.0.0.1:8088/` directly returns `"viaGateway": false`, which m
 cd caracal-examples/echoUpstream
 npm test
 ```
+
+Expected result: direct traffic reports `viaGateway: false`; the Gateway path reports `viaGateway: true`, redacts credentials, and provides a request ID that resolves to STS and Gateway evidence.
+
+:::caution[Failure point: direct port]
+Host port `8088` deliberately bypasses Gateway. Never interpret a successful direct curl as proof of authorization, and do not expose an equivalent bypass in production.
+:::
 
 ## Next step
 

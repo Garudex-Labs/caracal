@@ -5,6 +5,12 @@ description: Push approval lifecycle events to your own systems with signed, ret
 
 Approval holds are decided fastest when the right person hears about them immediately. A notification sink is a zone-scoped webhook endpoint that Caracal pushes approval lifecycle events to: your relay turns the delivery into a page, a chat message, or a ticket in whatever system your team watches. Sinks are optional - a zone without one loses nothing except the push, since the Console badges pending holds and the [Approvals page](/guides/step-up/#decide-as-an-operator) remains the decision surface.
 
+## Prerequisites
+
+- A public HTTPS receiver with raw-body access, durable delivery-ID deduplication, and a secret manager.
+- An operational owner for retries, abandoned deliveries, and secret rotation.
+- Approval tiers already validated end to end without notifications.
+
 ## Create a sink
 
 Open **Settings → Notifications** in the Console and add a sink with a name, an HTTPS endpoint, and the event types it should receive. The response reveals the signing secret exactly once - store it in your receiver's secret manager before closing the dialog, because Caracal keeps only a sealed copy it cannot show again. For automation, the Admin API exposes the same lifecycle:
@@ -85,3 +91,15 @@ Delivery is at-least-once with per-sink ordering by the zone audit sequence. A n
 Rotating the secret (Console or `POST …/notification-sinks/{id}/rotate-secret`) invalidates the old value immediately and reveals the replacement once; update the receiver in the same change window. Sink creation, edits, rotations, and deletions are themselves recorded in the zone audit stream, with secret material redacted.
 
 Related pages: [Human Approval](/guides/step-up/) and [Tail and Query the Audit Stream](/guides/audit-stream/).
+
+## Validate the sink
+
+Send a test hold, verify the raw-body signature and timestamp, return a temporary failure, and confirm retry plus delivery-ID deduplication. Rotate the secret and confirm the old signature immediately fails. Expected result: the receiver acknowledges within ten seconds and performs slow paging or ticket creation asynchronously.
+
+:::caution[Failure point: notification versus decision]
+A valid webhook proves Caracal emitted an event; it is not authority to approve it. Decisions still require the Console/Admin operator plane or a valid federated subject mandate.
+:::
+
+## Next step
+
+Create alerts for abandoned deliveries and test the operator decision path in [Human Approval](/guides/step-up/).
