@@ -1,86 +1,45 @@
 ---
 title: Troubleshoot by Symptom
-description: Start from the symptom of a failing or denied Caracal call, locate the surface that failed, inspect the right object, and use the matching diagnostic tool.
+description: Triage an application-visible failure and route it to authorization, configuration, or infrastructure diagnosis.
 pageType: workflow
 ---
 
-Most Caracal failures are easy to fix once you know **where** they happened. This page starts from the symptom you can see - usually an SDK error or an HTTP status - and routes you to the failing surface, the object to inspect, and the tool that confirms it. It complements [Debug Infrastructure Issues](/operations/debugging/), which works from infrastructure inward; start here when you have an application-level failure and an error or request ID.
+Use this when an SDK, HTTP request, console action, or protected call failed. It identifies the failed surface; it does not repair infrastructure.
 
-## Locate the Surface First
+## Prerequisites
 
-```mermaid
-flowchart TD
-  Start[SDK or HTTP call failed] --> HasID{Have a request ID?}
-  HasID -->|Yes| Trace[Open Console request trace]
-  HasID -->|No| Status{caracal status --ready healthy?}
-  Status -->|No| Infra[Infrastructure or readiness issue]
-  Status -->|Yes| Symptom{What did you get back?}
-  Symptom -->|Config or startup error| Config[SDK / runtime config]
-  Symptom -->|401| AuthN[Authentication surface]
-  Symptom -->|403 at token exchange| STS[STS policy decision]
-  Symptom -->|403 at the resource| Verifier[Gateway or in-process verifier]
-  Symptom -->|Call succeeded, no audit| Audit[Audit pipeline]
-  Trace --> Symptom
-```
+Capture timestamp, request ID, zone, application, resource, operation, status, error code, and version. Redact credentials.
 
-The web console **Audit** decision trace is the fastest disambiguator: filter by one request ID to tie it to the resource, subject, scopes, determining policies, diagnostics, and result, so you can see whether the denial came from STS policy or from a resource verifier.
+## Triage Procedure
 
-:::note[FAQ]
-[What is the difference between a 403 from STS and a 403 from Gateway?](/reference/faq/#faq-016)
-:::
+1. Check readiness. If any service is NotReady, use [Debug Infrastructure Issues](/operations/debugging/).
+2. For client startup failure, verify explicit profile, endpoints, IDs, and credential file.
+3. For `401`, verify credential type, issuer, expiry, and intended surface.
+4. For STS `403`, inspect Grants, Resource/scopes, Policy set, Session, Delegation, and Approval.
+5. For resource/Gateway `403`, verify mandate issuer, audience, scope, `X-Caracal-Resource`, binding, revocation, and verifier.
+6. Search Audit by request ID. If absent, confirm the request reached enforcement, then inspect the audit path.
 
-## Route by Symptom
+## Verification
 
-| Symptom                                                       | Surface                        | Inspect                                                                                        | Tool                                                           |
-| ------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| SDK throws `config_missing` or cannot start                   | SDK / runtime config           | Runtime profile, secret file, and required environment variables.                              | `caracal status --json`, profile file                          |
-| `401` from API or Console                                     | Authentication                 | Admin or Control token, or workload credential source.                                         | [Use the Console](/runtime-console/console/) credential inputs |
-| `403` from a token exchange (`access_denied`)                 | STS policy                     | Active policy-set activation, application ID, subject, requested scopes, and grant.            | `request trace`, Console `audit`                               |
-| `403` at the resource (`invalid_token`, `scope_insufficient`) | Gateway or in-process verifier | Mandate validity, issuer/JWKS trust, `X-Caracal-Resource`, binding, and verifier scope checks. | [Proxy Through Gateway](/api/gateway/), verifier logs          |
-| `scope_insufficient` even after a policy allow                | Resource definition            | Whether the resource defines the scope and the policy authorizes it.                           | Console `resource`, `request trace`                            |
-| Call works but no audit event appears                         | Audit pipeline                 | Selected zone, time window, Redis stream health, and Audit readiness.                          | Console `diagnostics`, `audit`                                 |
-| Access continues after revocation                             | Resource verifier              | Whether revocation consumers run on the resource server.                                       | [Sessions and Revocation](/concepts/sessions-revocation/)      |
+Repeat one safe request and confirm its expected status and audit subject/resource/scopes/policy/result.
 
-## Denied SDK Call Steps
+## Recovery Boundary
 
-When an SDK call returns access denied and you are not sure why, walk these in order. Each step either fixes the problem or hands you to the next surface.
-
-1. **Confirm the runtime is healthy.** Run `caracal status --ready`. If a dependency is down, fix that first.
-2. **Confirm configuration.** Check the runtime profile, secret file, selected zone, and resource identifier the SDK is using. A wrong resource ID or zone produces denials that look like policy failures.
-3. **Trace the request.** Open web console **Audit**, filter by the request ID, and open its decision trace. It shows the resource, subject, requested scopes, determining policies, and result.
-4. **Check the grant and policy.** Confirm a grant binds the application and subject to the resource scopes, and that the active policy set authorizes them. See [Debug Authorization Decisions](/guides/authorize-access/).
-5. **Check policy-set activation.** A policy that exists but is not the active set will not take effect. See [Activate a Policy Set](/guides/activate-policy-set/).
-6. **Check the requested scopes.** Confirm the SDK requests scopes the resource defines and the policy allows; a typo'd scope denies silently.
-7. **Check the Gateway route or verifier.** If STS allowed the exchange but the resource rejected it, inspect the resource's upstream URL, or the in-process verifier's scope and identity checks. See [Proxy Through Gateway](/api/gateway/).
-8. **Confirm the audit trace.** Open Console `audit` for the request ID to read the final decision and diagnostics.
+Do not widen policy, bypass Gateway, disable revocation, or replace credentials until the surface is identified.
 
 ## Diagnostic Bundle
 
-Caracal exposes the triage bundle through existing surfaces rather than a separate command. Gather these together when you open an incident or escalate:
+Caracal exposes diagnosis through existing supported surfaces rather than a separate `doctor` command:
 
-| Item                                          | Where                                                     |
-| --------------------------------------------- | --------------------------------------------------------- |
-| Config summary and selected zone              | `caracal status --json`, runtime profile                  |
-| Service readiness and dependencies            | Console `diagnostics` (Doctor: `health`, `readiness`)     |
-| Visible zones, resources, and policy sets     | Console `diagnostics` (Doctor: `zones`)                   |
-| Deployment and operator environment checks    | Console `diagnostics` (Doctor: `preflight`)               |
-| Resource-to-provider binding and policy allow | [Check Provider Readiness](/examples/provider-preflight/) |
-| Last denial and request trace                 | Console `audit` and `request trace`                       |
+| Evidence | Surface |
+| --- | --- |
+| Runtime health and readiness | `caracal status --json` and `caracal status --ready --json` |
+| Service, Zone, and provider checks | Web console **Diagnostics** |
+| Recent decisions and operational events | Web console **Audit** or the Admin API audit list |
+| One correlated authorization path | Request trace by request ID |
 
-The Console `diagnostics` Doctor view runs `health`, `readiness`, `zones`, and `preflight` in one place, including strict readiness for automation gates. Use it as the single bundle the rest of this page points back to.
+Capture those outputs with the timestamp, version, Zone, and request ID. Redact credentials before attaching the bundle to an incident.
 
-:::note[FAQ]
-[Where is the diagnostic bundle or doctor command?](/reference/faq/#faq-017)
-:::
+## Next Action
 
-## Related Pages
-
-- [Error Codes](/reference/errors/)
-- [Debug Infrastructure Issues](/operations/debugging/)
-- [Inspect Diagnostics and Audit](/runtime-console/observability/)
-- [Debug Authorization Decisions](/guides/authorize-access/)
-- [Recover from Failures](/operations/failure-modes/)
-
-## Next Step
-
-Use [Debug Infrastructure Issues](/operations/debugging/) when the symptom points to readiness, storage, streams, service configuration, or deployment state.
+Use [Infrastructure Diagnosis](/operations/debugging/) or [Authorization Diagnosis](/guides/authorize-access/).

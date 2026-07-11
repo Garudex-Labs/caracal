@@ -5,6 +5,8 @@ description: Express 5 middleware for Caracal mandate verification.
 
 `@caracalai/express` protects Express routes by parsing the bearer token, verifying the mandate through `@caracalai/verify`, and attaching Caracal claims to the request.
 
+Use it for Express 5 ingress. Do not use it as outbound SDK middleware or as a replacement for Gateway.
+
 ## Install
 
 ```bash
@@ -46,6 +48,8 @@ app.use(
 ## Request shape
 
 The middleware attaches Caracal claims to `req.caracal` and `req.caracalClaims` when verification succeeds. Use the exported `CaracalRequest` type when a handler needs typed access.
+
+`caracalAuth(options, routeOverrides?)` is the public middleware entry point. Pass either verify dependencies or `{ verifier }`. `bindContext` defaults to true and also sets `req.caracalContext`; set it false only when ambient SDK context is intentionally unwanted.
 
 ```ts
 import type { CaracalRequest } from '@caracalai/express'

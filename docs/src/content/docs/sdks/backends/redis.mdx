@@ -3,7 +3,9 @@ title: Redis Revocation Store
 description: Shared Redis revocation stores and revocation stream consumers.
 ---
 
-The Redis backends provide shared revocation state for resource servers. They let multiple service instances reject mandates after sessions, roots, agents, or Delegations are revoked.
+The Redis backends provide shared revocation state for resource servers. They let multiple service instances reject mandates after Authority records, root Authority records, Sessions, or Delegations are revoked.
+
+Use this backend only for verification state. It is not a general Caracal data client and must not receive Admin API credentials.
 
 The resource server does not need to share a network with Caracal services. For separate VPC, cluster, or cloud deployments, give the resource workload private TLS connectivity to the managed Redis endpoint that carries Caracal streams, authenticate it with a dedicated least-privilege Redis identity, and run the consumer beside the verifier. Do not expose Redis publicly or distribute Caracal administrative tokens to resource applications.
 
@@ -24,6 +26,8 @@ The resource server does not need to share a network with Caracal services. For 
 | Revocation TTL    | 24 hours                                        |
 | Signature support | Optional HMAC verification for stream messages. |
 | Dead-letter bound | Approximately 10,000 poison entries per `.dead` stream. |
+
+The store and consumers are long-lived resources. Start stream consumers with service startup, use unique consumer names, stop polling on shutdown, and close the caller-owned Redis connection. Verification should fail closed when the backend is unavailable.
 
 ## TypeScript store
 

@@ -5,6 +5,8 @@ description: Framework adapters for Caracal-protected resource servers.
 
 Framework adapters bind the lower-level identity and verify packages to common server frameworks. Use them before reaching for lower-level verification APIs.
 
+Adapters are inbound enforcement only. They do not start Sessions, mint mandates, proxy to Gateway, or manage product state.
+
 ## Adapter Map
 
 | Adapter | Package | Use it for |
@@ -33,6 +35,8 @@ Every HTTP adapter maps verification failures through one canonical status funct
 - **403** - the mandate verified but its authority is insufficient for the route: `insufficient_scope`, `session_required`, `delegation_required`, `chain_mismatch`, `hop_count_exceeded`.
 
 Adapters never re-derive these status codes; they consume the shared mapping.
+
+All adapters require trusted issuer, audience, zone, and route-authority requirements. In-memory revocation is suitable only for tests or one process; replicated deployments need a shared backend.
 
 ## Related State Backends
 

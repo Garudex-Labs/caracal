@@ -5,6 +5,8 @@ description: Go middleware for protecting HTTP handlers with Caracal mandate ver
 
 The Go net/http adapter wraps handlers with verify-engine verification and stores verified claims in the request context.
 
+Use it for inbound `net/http` handlers. It does not create outbound Caracal context or replace the Go application SDK.
+
 ## Install
 
 ```bash
@@ -53,6 +55,8 @@ handler := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
 | `Middleware(opts)` | Return middleware that verifies the bearer token and rejects failed requests. |
 | `VerifierMiddleware(verifier)` | Return middleware backed by a reusable verifier with shared defaults. |
 | `ClaimsFromContext(ctx)` | Retrieve verified Caracal claims inside a handler. |
+
+`Middleware` constructs a verifier from `verify.Options`; `VerifierMiddleware` reuses an existing verifier. A nil verifier produces a verifier with empty options and therefore cannot establish a properly configured production boundary; always pass trusted issuer, audience, zone, and revocation settings.
 
 ## Failure behavior
 

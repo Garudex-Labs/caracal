@@ -1,41 +1,33 @@
 ---
 title: Report a Vulnerability
-description: How to report Caracal security vulnerabilities responsibly.
-pageType: reference
+description: Submit a suspected vulnerability through the private channel appropriate to its scope.
+pageType: workflow
 ---
 
-Report suspected vulnerabilities privately. Do not open public issues for credential exposure, policy bypass, unsafe execution, exploitable operational failures, or other security defects.
+Do not open public issues or pull requests for credential exposure, policy bypass, unsafe execution/routing, audit compromise, malicious artifacts, or exploitable failures.
 
-## Reporting Channels
+## Choose a Channel
 
-| Channel | Use for |
+| Scope | Channel |
 | --- | --- |
-| GitHub private advisory | Open-source Caracal vulnerabilities: `https://github.com/Garudex-Labs/caracal/security/advisories/new` |
-| Email | Sensitive reports, attachments, patches, exploit demonstrations, or enterprise-related reports: `support@caracal.run` |
+| OSS code | `https://github.com/Garudex-Labs/caracal/security/advisories/new` |
+| Sensitive attachments/context | `support@caracal.run` |
+| Enterprise-only/private customer context | Email only; outside this workspace |
 
-Enterprise-related vulnerabilities must be reported by email, not GitHub advisories.
+## Report Procedure
 
-## Email Format
+Include summary, version/commit, boundary, prerequisites, minimal reproduction, observed/expected, impact, and mitigation if known. Redact credentials/customer data.
 
-```text
-Subject: [SECURITY][caracal] Short description
+Maintainers aim to respond within up to seven days; this is not a resolution SLA.
 
-1. Summary
-2. Steps to reproduce
-3. Impact
-4. Affected area
-5. Suggested fix
-6. Attachments
-```
+## Verify Submission
 
-Keep reports clear, reproducible, and private. Do not include secrets in public channels or public pull requests.
+Retain identifier and sanitized copy. Continue through the same private channel.
 
-## Response and Disclosure
+## Recovery and Disclosure
 
-The maintainers aim to review and respond within up to 7 days. Resolution timing depends on complexity and validation needs. Public disclosure should wait until a fix or mitigation is available or maintainers decide not to address the issue.
+Keep private until fix/mitigation or coordinated outcome. For active exploitation, contain with [Incident Response](/operations/incident-response/).
 
-## Related Pages
+## Next Action
 
-- [Security Policy in the repository](https://github.com/Garudex-Labs/caracal/blob/main/.github/SECURITY.md)
-- [Respond to Incidents](/operations/incident-response/)
-- [Review the Threat Model](/security/threat-model/)
+Review [Threat Model](/security/threat-model/).

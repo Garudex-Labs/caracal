@@ -5,6 +5,8 @@ description: Public API reference for the Go Caracal SDK.
 
 The Go SDK provides Session lifecycle, Delegation, Gateway routing, and context propagation for Go services.
 
+Use it for application authority, not management CRUD. Use [Admin Package](/sdks/admin/) for control-plane automation.
+
 ## Install
 
 ```bash
@@ -108,6 +110,10 @@ client.OnEvent(func(event oauth.Event) {
 ```
 
 The Go module ships as a single flat package: the envelope codec, context plumbing, Coordinator functions (`StartCoordinatorSession`, `AcquireSessionLease`, `CreateDelegation`, `HeartbeatSession`, `ListInboundDelegations`, `TerminateSession`), and Session primitives (`Session`, `StartSession`, `AttachSession`, `Delegate`) sit beside the `Caracal` client rather than behind a separate advanced entrypoint.
+
+## Retries and Cleanup
+
+Session creation retries transient Coordinator failures twice under one generated idempotency key; Delegation creation retries once. STS exchange and Gateway requests are not automatically replayed. Always use the callback context passed to `Session`, close long-lived handles, and call `Close()` during shutdown. `Close()` is idempotent and terminal.
 
 ## Transport Security and Credential Handling
 

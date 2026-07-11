@@ -1,41 +1,39 @@
 ---
 title: Use Reference
-description: Lookup pages for answers, terms, errors, configuration, defaults, compatibility, releases, and wire contracts.
+description: Search exact Caracal terms, configuration, limits, errors, compatibility, release surfaces, and wire contracts.
 pageType: landing
 ---
 
-Reference pages are for exact names, defaults, limits, compatibility claims, and schema contracts. Use them after you understand the workflow or when validating automation.
+Use Reference when you need an exact value or contract. Use [Guides](/guides/) for procedures and [API Reference](/api/) for endpoint behavior.
 
-## Find Answers
+## Find the Canonical Answer
 
-| Need | Page |
-| --- | --- |
-| Direct answers to common questions | [FAQ](/reference/faq/) |
-| Canonical terms | [Glossary](/reference/glossary/) |
-| Error response codes | [Error Codes](/reference/errors/) |
+| Question                                                 | Canonical page                                           |
+| -------------------------------------------------------- | -------------------------------------------------------- |
+| What does this public term mean?                         | [Glossary](/reference/glossary/)                         |
+| Why did this request fail?                               | [Error Codes](/reference/errors/)                        |
+| Which setting controls this behavior?                    | [Configuration Keys](/reference/configuration/)          |
+| Which configuration source wins?                         | [Configuration Order](/reference/config-precedence/)     |
+| What is the current default or limit?                    | [Defaults and Limits](/reference/defaults-and-limits/)   |
+| What exit status does automation receive?                | [CLI Exit Codes](/reference/runtime-exit-codes/)         |
+| Which runtimes and version combinations are supported?   | [Compatibility](/reference/compatibility/)               |
+| Which packages and images belong to one release?         | [Release Map](/reference/release-package-runtime-map/)   |
+| Which bytes and JSON fields are interoperable?           | [Wire Contracts](/reference/interoperability-contracts/) |
+| How do I answer a likely product or operations question? | [FAQ](/reference/faq/)                                   |
 
-## Configure and Run
+## Read Values by Layer
 
-| Need | Page |
-| --- | --- |
-| Runtime and service configuration keys | [Configuration Keys](/reference/configuration/) |
-| Configuration source order | [Configuration Order](/reference/config-precedence/) |
-| Ports, TTLs, limits | [Defaults and Limits](/reference/defaults-and-limits/) |
-| Runtime CLI exit behavior | [CLI Exit Codes](/reference/runtime-exit-codes/) |
+- **Product language** is the terminology shown in the web console and SDK facades.
+- **Runtime configuration** controls the CLI, SDK loaders, and deployed services.
+- **Protocol behavior** covers HTTP fields, raw JWT claims, status codes, and schemas.
+- **Release behavior** covers SemVer, package lockstep, images, and documentation versions.
 
-## Versions and Contracts
+Do not substitute a protocol name for its public product term. Public surfaces use **Session ID** and **Delegation ID** while raw Coordinator and JWT contracts retain fields such as `agent_session_id` and `delegation_edge_id`.
 
-| Need | Page |
-| --- | --- |
-| Supported runtimes and deployment targets | [Compatibility](/reference/compatibility/) |
-| Package, image, and release naming | [Release Map](/reference/release-package-runtime-map/) |
-| JSON schemas and fixtures | [Wire Contracts](/reference/interoperability-contracts/) |
-| Community and Enterprise feature boundary | [Compare Editions](/enterprise/) |
+## Source of Truth
 
-## Source-of-Truth Rule
+Code, package manifests, deployment configuration, and checked-in schemas are authoritative. This section explains those sources; it does not create a second contract.
 
-When Reference conflicts with API, Operations, or SDK pages, treat code and generated schemas as source of truth and update the docs section coherently.
+## Next Action
 
-## Next Step
-
-Start with [FAQ](/reference/faq/) for recurring modeling, runtime, troubleshooting, and edition questions.
+Search [FAQ](/reference/faq/) for a question, or open [Glossary](/reference/glossary/) before naming a product concept in code or documentation.
