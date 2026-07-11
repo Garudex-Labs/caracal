@@ -5,6 +5,8 @@ description: JWT verification packages for mandate claims, scopes, targets, agen
 
 The identity packages verify Caracal mandate JWTs. Use them when you are building an adapter or custom resource-server boundary that accepts mandates directly.
 
+Do not use identity verification alone as a production authorization boundary when revocation must take effect before token expiry; compose it through [Verify Package](/sdks/verify/) with a shared revocation store.
+
 ## Install
 
 | Ecosystem  | Package                                                       |
@@ -86,6 +88,8 @@ Go and Python identity packages also cache issuer JWKS metadata in memory and ca
 | `DelegationRequiredError`    | The verifier requires delegated authority.                                             |
 | `ChainMismatchError`         | The delegation chain is missing a required application.                                |
 | `HopCountExceededError`      | The mandate exceeds the configured hop limit.                                          |
+
+Verification is local except for JWKS retrieval. It does not call STS to refresh or exchange a token, and it does not retry application work. Zone ID, issuer, audience, required use, scopes, targets, Session, Delegation, chain, and hop requirements are security inputs and must come from trusted service configuration.
 
 ## When to Use Verify Package
 

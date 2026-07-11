@@ -1,62 +1,52 @@
 ---
 title: Inspect Diagnostics and Audit
-description: Inspect diagnostics, audit events, and request traces through the web console.
-pageType: reference
+description: Read dashboard posture, diagnose service readiness, and trace authority and management decisions.
+pageType: workflow
 ---
 
-Observability workflows live in the web console because they need operator context, selected zones, and structured API responses.
+Start at the dashboard, then choose Diagnostics for platform posture or Audit for a specific decision.
 
-## Diagnostics
+## Read the Dashboard
 
-Open **Diagnostics**. The Doctor view runs the shared engine diagnostics across four sections:
+The selected-zone dashboard summarizes product readiness, pending Approvals, object counts, and recent activity. Use it to decide which detail workspace to open next. A count is navigation context, not proof of correctness; verify policy with simulation and verify a real request in Audit.
 
-| Section       | Checks                                                                                                          |
-| ------------- | --------------------------------------------------------------------------------------------------------------- |
-| **Health**    | API reachability, admin authentication, and operator clock skew against the platform.                           |
-| **Readiness** | Per-service `/ready` probes plus threshold evaluation of STS, Gateway, audit, and Coordinator operator metrics. |
-| **Zones**     | Visible zones, resources, policy sets, and audit queryability.                                                  |
-| **Preflight** | Local secrets, keys, TLS material, and Postgres/Redis reachability.                                             |
+## Run Diagnostics
 
-Doctor does more than report liveness: it evaluates the operator metrics it collects and raises a warning or failure when a signal needs action. Notable deeper checks include:
+**Diagnostics** runs shared Doctor checks across:
 
-| Signal                                                       | Result | Why it matters                                                                             |
-| ------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------ |
-| Clock skew vs the API exceeds 30s                            | `fail` | Token `iat`/`nbf`/`exp` validation and audit ordering break when hosts are not NTP-synced. |
-| STS OPA `compile_errors` > 0                                 | `fail` | A policy bundle will not compile, so token exchanges deny or run on a stale bundle.        |
-| Audit `tamper_mismatch_total` or `chain_breaks` > 0          | `fail` | Audit chain integrity is broken - treat as a security incident.                            |
-| Audit `dlq_size` or `hmac_failures` > 0                      | `warn` | Events are failing processing or HMAC verification before they age out.                    |
-| Coordinator outbox `dead` rows, or a large `pending` backlog | `warn` | Session-start and revocation events are not propagating downstream.                        |
+| Group     | What it establishes                                                              |
+| --------- | -------------------------------------------------------------------------------- |
+| Health    | API reachability, management authentication, and clock alignment.                |
+| Readiness | Service readiness and operator metrics for STS, Gateway, Audit, and Coordinator. |
+| Zones     | Visible zones, resources, active policy state, and audit queryability.           |
+| Preflight | Local secrets, keys, TLS material, Postgres, and Redis reachability.             |
 
-Useful Doctor controls include reload, all-zones or selected-zone checks, preflight-only checks, and strict readiness where warnings fail automation gates. The `Next actions` block collects the advice for every non-passing check.
+`caracal status --ready` answers whether the stack can accept work. Diagnostics goes deeper: policy compilation, audit integrity, event backlog, and clock skew. Treat audit chain mismatch as a security incident. Treat dead outbox rows, DLQ entries, stale pending events, and large lag as propagation failures even if HTTP health still passes.
 
-This view is deeper than `caracal status`: `status` answers "is the stack up", while Doctor inspects internal health - policy compilation, audit integrity, event propagation, clock alignment, and local key material - that keeps the platform working correctly over time.
+## Trace a Request
 
-## Audit
+1. Open **Audit** in the correct zone.
+2. Choose **Activity** for authority/resource events or **Admin** for management changes.
+3. Filter by request ID when one is available. Otherwise narrow by time, decision, event type, application, Authority record, or Session.
+4. Open the event group or decision trace.
+5. Read the resource, Subject, requested scopes, determining policy, diagnostics, and result.
 
-Open **Audit**. Audit records tie STS, Gateway, Coordinator, policy, and Control decisions to request IDs and authority anchors. Use the audit view to filter recent events, inspect denials, and gather incident context.
+Audit evidence and live state answer different questions. Audit shows what happened and why. Subjects, Sessions, Delegations, and Approvals show what authority remains live.
 
-The audit view opens recent events immediately and streams new ones as they arrive. Advanced filters include decision, event type, time window, request ID, Session, agent label, and result limit. Time-window fields accept a relative window such as `15m`, `2h`, or `7d`, an ISO timestamp, or a date. Use row actions to open the full event group or the decision trace for the selected request.
+Secret reveal and rotation actions appear in admin audit. Secret values do not belong in the event payload.
 
-Audit is an event ledger: it records what authorization decided. It is distinct from the session views, which show the live state of subjects, sessions, and delegations. Filter audit by `session` or `agent label` to connect a decision back to the session that made it.
+## Follow Dependency Failures
 
-## Request Trace
+| Symptom                        | First check                     | Then                                           |
+| ------------------------------ | ------------------------------- | ---------------------------------------------- |
+| Management pages fail          | API readiness and auth          | Postgres, Redis, and API outbox                |
+| Mandate issuance fails         | STS readiness and policy state  | Postgres, Redis invalidation, keys             |
+| Gateway denies before upstream | Gateway trace and STS readiness | Binding, mandate, revocation, upstream safety  |
+| Audit event is delayed         | Audit readiness                 | Redis lag, pending entries, DLQ, replay volume |
+| Session state is stale         | Coordinator readiness           | Postgres, Redis, outbox, lease sweepers        |
 
-When you already have a request ID - from a log line, error response, or Gateway header - filter **Audit** by that request ID and open the decision trace from the row, without scanning the full list. Trace output connects the request, selected resource, subject, scopes, determining policies, diagnostics, and result.
-
-## Troubleshooting
-
-| Symptom                        | Check                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------- |
-| Diagnostics cannot reach API   | Run `caracal status --ready`; custom deployments should confirm the admin API URL override. |
-| Zone diagnostics show no zones | Confirm the admin token has visibility into the expected zone.                              |
-| Audit records are missing      | Confirm the selected zone, time window, and audit service readiness.                        |
-
-For a symptom-first path from a failing application call to the right surface and tool, see [Troubleshoot by Symptom](/operations/troubleshooting/).
-
-:::note[FAQ]
-[Why is an audit event missing?](/reference/faq/#faq-018)
-:::
+Use [Troubleshoot by Symptom](/operations/troubleshooting/) for the canonical symptom-first workflow.
 
 ## Next Step
 
-Use [Manage Sessions and Delegation](/runtime-console/agents/) when a request involves Sessions, child Sessions, or delegated authority.
+[Manage Runtime Authority](/runtime-console/agents/).

@@ -5,6 +5,8 @@ description: Automation clients for the Caracal Admin API and Coordinator manage
 
 The admin package is the automation client for control-plane objects. It mirrors Console management workflows for scripts and services, and ships in three languages: `@caracalai/admin` (TypeScript), `caracalai-admin` (Python), and `github.com/garudex-labs/caracal/packages/admin/go` (Go).
 
+Use it from trusted operator automation. Do not embed admin tokens in agent or resource-server processes, and do not use this client for the SDK Session lifecycle.
+
 ## Install
 
 ```bash
@@ -184,6 +186,10 @@ Rotation is rejected with `client_secret_not_configured` if the application has 
 ## Error handling
 
 Failed HTTP responses throw `AdminApiError` (TypeScript and Python) or return `*AdminAPIError` (Go) with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.
+
+The default request timeout is 30 seconds and the default read retry budget is three. Retry handling honors `Retry-After` up to 30 seconds. Collection helpers follow `next_cursor` and stop after a bounded number of pages. Writes require caller-owned idempotency or reconciliation; the client does not replay them.
+
+Core groups and reconcilers are implemented in all three languages with idiomatic names. Do not infer that a newly introduced group exists in another language until its public package exports it; the raw [Admin API](/api/control-plane/) remains the wire source of truth.
 
 ## Boundary
 
