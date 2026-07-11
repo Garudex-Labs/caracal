@@ -1,89 +1,137 @@
 ---
 title: Protect Your First Real API
-description: Put a Caracal-enforced boundary in front of one real HTTP service or provider route.
+description: Protect an HTTP service you own with Caracal, then prove it allows the permitted call and denies everything else.
 pageType: workflow
 ---
 
-This tutorial moves from the demo resource in Get Started to one API-style resource that belongs to your stack. The recommended first boundary is Gateway-routed HTTP because it centralizes mandate verification, replay and revocation checks, provider credential brokering, routing, and action-result audit.
+import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-Use adapter-verified services only when you own the service boundary and can preserve the same enforcement contract inside that service.
+In Get Started, your agent called an LLM provider through Caracal. In this tutorial you protect a service that matters to you - and, just as important, you watch Caracal *refuse* a request that policy does not allow. By the end you will have proven both halves of enforcement: the allow and the deny.
 
-## 1. Choose What Caracal Should Protect
+You will:
 
-| Boundary | Use when | What writes action-result audit |
+1. pick one HTTP service the Gateway can reach;
+2. register it in Caracal as a resource named `resource://pipernet`;
+3. write one policy rule allowing your application to read it;
+4. prove the allowed call works end to end;
+5. prove a disallowed request is denied before it ever reaches your service.
+
+## Prerequisites
+
+- Complete [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
+- Keep the stack running (`caracal status --ready` succeeds) and your `caracal.toml` profile from Get Started.
+
+## 1. Pick the Service to Protect
+
+Choose one HTTP endpoint you own: an internal REST API, a staging service, or a route on a provider you use. Two things matter:
+
+- **The Gateway must be able to reach it.** The upstream URL is resolved from inside the Gateway's container, so `localhost` there means the Gateway itself. Use a hostname or IP the Gateway can resolve - the same rule you met in [First Protected Call](/get-started/first-protected-call/).
+- **Know whether it needs its own credential.** In Get Started the LLM provider needed one, held by a Caracal provider. Internal services often accept any request. Note which kind yours is - it decides one form field in the next step.
+
+No suitable service handy? Start another disposable container on the stack's network and treat it as your "real" API; every step still teaches the same skills:
+
+```sh
+docker run --rm -d --name pipernetUpstream --network caracalData nginx:stable-alpine
+```
+
+Its Gateway-visible URL is `http://pipernetUpstream:80`.
+
+**After this step:** you have one upstream URL and you know whether it needs a credential.
+
+## 2. Register It as a Resource
+
+A resource is Caracal's record of what it protects and where to forward verified requests - you created one in guided setup; now you create one from the everyday form. In the web console at [http://localhost:3001](http://localhost:3001), open **Resources** and create:
+
+| Field | Value | Why |
 | --- | --- | --- |
-| Gateway-routed HTTP | The resource is HTTP, REST, MCP-over-HTTP, or another Gateway-routable upstream. | Gateway. |
-| In-process adapter | You own the service process and can verify mandates there. | Your service or adapter after adapter verification. |
+| Resource identifier | `resource://pipernet` | The stable name everything else refers to: policy, SDK code, Gateway headers, and audit events. |
+| Scopes | `pipernet:read` | The one named permission you will allow. Add more actions later, one at a time. |
+| Upstream URL | Your Gateway-reachable URL from step 1 | Where the Gateway forwards verified requests. |
+| Provider | See below | How the Gateway attaches your service's own credential, if it needs one. |
 
-Start with Gateway-routed HTTP unless your service must enforce directly in process.
+You met providers in Get Started, where one held your LLM key: a **provider** is a credential source you configure once - the upstream's API key or OAuth client - so the Gateway can attach that credential to verified requests on the way through. Your program never sees it.
 
-## 2. Create or Select the Real Resource
+- If your service needs no credential (including the disposable container), choose the `None` provider: the Gateway still enforces policy and records audit, it just attaches nothing.
+- If your service needs a key or token, create a provider for it first and select it on the resource. [Define Resources and Providers](/guides/resources-providers/) covers the provider forms; you can also start with `None` now and attach a provider later.
 
-Open the web console at [http://localhost:3001](http://localhost:3001).
+**After this step:** `resource://pipernet` appears in the Resources list. Nothing can call it yet - that is the point of the next step.
 
-Use **Guided setup** for a first resource or open **Resources** when you are adding one to an existing zone.
+## 3. Allow Your Application to Read It
 
-Define:
+Caracal denies everything not explicitly allowed, so a new resource starts unreachable. Open **Policies** and add the rule allowing your existing application (Anton from Get Started) to request `pipernet:read` on `resource://pipernet`, then activate the change.
 
-| Field | Guidance |
-| --- | --- |
-| Resource identifier | Use a stable ID, for example `resource://billing-api`. |
-| Scopes | Use short action names such as `billing:read` or `billing:submit`. |
-| Upstream URL | Use a URL reachable from the Gateway. |
-| Provider | Select one for the route. Use a `None` provider only when Gateway should enforce access but the upstream needs no brokered credential. |
+A good first rule names exactly four things - the application, the resource, the scopes, and the zone - and nothing more. The [policy contract](/guides/author-policy/) and [activation workflow](/guides/activate-policy-set/) go deeper when you need real policy structure.
 
-Keep the resource ID. SDK code, policy, Gateway headers, and audit events all refer to it.
+**After this step:** the active policy set includes your new rule. The Policies page shows which set is active.
 
-## 3. Allow This App to Use This Resource
+## 4. Prove the Allowed Call
 
-Caracal denies by default. Use web console **Guided setup** to create the starter policy, or open **Policies** to register and activate a Rego policy set for the zone.
+Your SDK example from Get Started is already wired for this - it reads its target from environment variables. Point it at the new resource:
 
-A complete first policy should allow only:
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
-- the expected agent app;
-- the expected resource;
-- the expected scopes;
-- the expected zone.
+```sh
+export CARACAL_CONFIG=/path/to/caracal.toml
+export CARACAL_RESOURCE_ID=resource://pipernet
+export CARACAL_RESOURCE_PATH=/
+export CARACAL_RESOURCE_SCOPE=pipernet:read
+```
 
-See [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/) for the policy contract.
+</TabItem>
+<TabItem label="Windows">
 
-## 4. Choose Gateway or In-Process Enforcement
+```powershell
+$env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+$env:CARACAL_RESOURCE_ID = "resource://pipernet"
+$env:CARACAL_RESOURCE_PATH = "/"
+$env:CARACAL_RESOURCE_SCOPE = "pipernet:read"
+```
 
-### Gateway-routed HTTP
+</TabItem>
+</Tabs>
 
-For Gateway-routed calls, the resource route needs an upstream URL and, when required, a provider credential source. The Gateway receives:
+Run the example. It should print your service's response - the same code that reached the LLM provider now reaches your real API, because authority comes from configuration and policy, not from the code.
 
-| Request part | Meaning |
-| --- | --- |
-| `Authorization: Bearer <mandate>` | The Caracal access token issued by STS. |
-| `X-Caracal-Resource: <resource-id>` | The stable resource identifier. |
+**After this step:** web console **Audit** shows two events for your request ID: the authorization decision and the Gateway's action result.
 
-Use [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) when you need the durable implementation guide for routes, provider auth modes, and validation.
+## 5. Prove the Deny
 
-### In-process adapter
+Enforcement you have never seen fail is enforcement you cannot trust. Request a permission your policy does not allow:
 
-For services you own, mount the adapter at the request boundary:
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
-| Runtime | Guide |
-| --- | --- |
-| Express | [Protect an Express App](/guides/protect-express/) |
-| FastMCP | [Protect a FastMCP App](/guides/protect-fastmcp/) |
-| Go `net/http` | [Protect a Go net/http Service](/guides/protect-nethttp/) |
-| MCP server | [Protect an MCP Server](/guides/protect-mcp/) |
+```sh
+export CARACAL_RESOURCE_SCOPE=pipernet:write
+```
 
-Adapter verification is not enough by itself for a complete production boundary. The protected service must also handle replay protection where applicable, revocation checks, and result audit for accepted work.
+</TabItem>
+<TabItem label="Windows">
 
-## 5. Verify Allowed, Denied, and Audited Calls
+```powershell
+$env:CARACAL_RESOURCE_SCOPE = "pipernet:write"
+```
 
-Call the resource from an app configured with your runtime profile or environment variables.
+</TabItem>
+</Tabs>
 
-| Outcome | What to expect |
-| --- | --- |
-| Allowed | The call reaches the upstream and audit shows authorization plus action-result evidence. |
-| Denied | STS returns a denial and the decision trace shows which policy or missing state caused it. |
+Run the example again. This time it fails: policy allows `pipernet:read` only, so Caracal's token service refuses to issue a mandate for `pipernet:write`, and the request never reaches your service. The SDK surfaces the denial with a request ID.
 
-Open the web console **Audit** and filter by the request ID. If an accepted Gateway-routed call has authorization audit but no action-result audit, check the Gateway route and resource header. If a adapter-verified call lacks result audit, the service-side enforcement path is incomplete.
+Set the scope back to `pipernet:read` afterward.
+
+**After this step:** Audit contains a deny decision with your request ID. Keep that ID - the [next tutorial](../inspect-a-run/) dissects one just like it.
+
+## Expected Outcome
+
+The same SDK flow that reached the LLM provider now reaches your real API through the Gateway, and you have seen both outcomes in Audit: an allow with an action result, and a deny that stopped before the upstream. You did not change a line of code to switch targets - only configuration and policy.
+
+## Common Mistakes
+
+- Do not reuse `resource://openai` for a different target; each protected service gets its own identifier.
+- Do not put an upstream secret in application code; bind a credential provider to the resource instead.
+- Do not treat a successful direct call to the upstream as enforcement proof - only the Gateway path checks anything.
 
 ## Next Step
 
-Continue with [Connect Your App with the SDK](../connect-an-agent/) to wire application code through the resource you just protected.
+Continue with [Connect Your App with the SDK](../connect-an-agent/) to make your app's runs identifiable in the audit trail.

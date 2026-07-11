@@ -1,68 +1,43 @@
 ---
 title: Issue Mandates
-description: Service reference for token exchange, mandate issuance, JWKS, policy evaluation, and step-up status.
+description: Understand supported STS calls, synchronous authority dependencies, approvals, and fail-closed issuance.
 pageType: reference
 ---
 
-STS is the authority issuance boundary. It authenticates applications, validates sessions and delegated authority, evaluates policies, handles step-up challenges, and returns scoped mandate JWTs.
+STS authenticates application or workload proof, evaluates current authority, and issues short-lived mandates or configured provider credentials.
 
-STS federates subject identity rather than managing it: it never authenticates end users and never generates a `sub`. The subject recorded on a minted session is the `sub` of the exchanged subject token - an opaque, stable identifier owned by the application's own identity system - or the application id itself when the exchange carries no subject token. A zone registers **subject issuers** (external issuer, JWKS URL, audience) to accept end-user identity tokens directly; see [Use STS Endpoint](/api/sts/#subject-identity) for the exchange contract.
+## Supported Callers and Routes
 
-## Endpoints
+| Route                                                | Caller                                        |
+| ---------------------------------------------------- | --------------------------------------------- |
+| `POST /oauth/2/token`                                | SDK, documented token client, Gateway         |
+| `POST /v1/run/manifest`                              | `caracal run`                                 |
+| `POST /v1/run/credential`                            | `caracal run`                                 |
+| `GET /.well-known/jwks.json?zone_id=...`             | Verifiers                                     |
+| `GET /step-up/{id}`                                  | Waiting client with the required hold context |
+| `POST /step-up/{id}/decision`                        | Subject-plane end-user decision flow          |
+| `GET /health`, `/ready`, `/metrics`, `/metrics.json` | Probes and authorized monitoring              |
 
-STS listens on port `8080`.
+STS listens on local port `8080`.
 
-| Method and path                             | Purpose                                                                   |
-| ------------------------------------------- | ------------------------------------------------------------------------- |
-| `POST /oauth/2/token`                       | Token exchange that issues mandates.                                      |
-| `POST /v1/run/manifest`                     | Binding manifest for `caracal run` workloads.                             |
-| `POST /v1/run/credential`                   | Credential minting for `caracal run` workloads.                           |
-| `GET /.well-known/jwks.json?zone_id={zone}` | Public signing keys.                                                      |
-| `GET /step-up/{id}`                         | Step-up hold status.                                                      |
-| `POST /step-up/{id}/decision`               | Subject-plane step-up decision (federated user session mandate required). |
-| `GET /health`, `GET /ready`                 | Liveness and readiness.                                                   |
-| `GET /metrics`, `GET /metrics.json`         | Service metrics.                                                          |
+Routes under `/internal/` for policy simulation/status and zone signing-key rotation are service-to-service APIs. Do not call or expose them as workload APIs; the API service owns those operations.
 
-### Internal Endpoints
+## Identity Boundary
 
-Only other Caracal services call these routes. Do not expose them to workloads or the public network.
+STS does not authenticate end users and does not invent a user `sub`. It accepts a token only from a configured subject issuer, then treats its stable `sub` as opaque. Without a subject token, application identity is the Subject.
 
-| Method and path                                    | Purpose                                        |
-| -------------------------------------------------- | ---------------------------------------------- |
-| `POST /internal/policy/simulate`                   | Policy-set simulation for the API service.     |
-| `GET /internal/policy/status/{zoneID}`             | Policy activation status for the API service.  |
-| `POST /internal/zones/{zoneID}/signing-key/rotate` | Zone signing-key rotation for the API service. |
+## Synchronous Dependencies
 
-## Dependencies
-
-| Dependency       | Purpose                                                                                |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| Postgres         | Applications, grants, resources, policies, sessions, step-up challenges, signing keys. |
-| Redis            | Policy/key invalidation, revocation, provider coordination, audit emission.            |
-| Zone KEK         | Decrypt signing and secret material.                                                   |
-| Gateway HMAC key | Verify Gateway-authenticated exchanges.                                                |
-| Audit replay dir | Persist audit events while Redis/Audit is unavailable.                                 |
-
-## Issuance Rules
-
-| Rule                    | Behavior                                                               |
-| ----------------------- | ---------------------------------------------------------------------- |
-| Resource mandate TTL    | Capped at 15 minutes.                                                  |
-| Session mandate TTL     | Capped at 60 minutes.                                                  |
-| `MAX_GRANT_TTL_SECONDS` | Defaults to `3600`.                                                    |
-| `OPA_POLL_SECONDS`      | Defaults to `60`, capped at `300`.                                     |
-| Published modes         | Require `GATEWAY_STS_HMAC_KEY` and audit/stream keys where configured. |
+Issuance needs Postgres product, policy, authority, Session, Delegation, approval, signing, and secret state. It also consumes Redis invalidation and revocation state, requires the Secret Store KEK, verifies Gateway HMAC proof on the Gateway path, and emits audit evidence to Redis or replay storage.
 
 ## Failure Posture
 
-Invalid client credentials, missing resources, invalid subject tokens, revoked sessions, undecided step-up holds, policy denial, invalid delegation, and failed Gateway signatures deny exchange. Gateway-authenticated mandate use is additionally held to the resource's native operation floor: an operation that is not declared on an enforced resource, or whose required scope is absent from the mandate, is denied with `operation_not_permitted` independently of policy.
+Invalid client proof, subject issuer, resource, policy, operation, scope, Authority record, Session, Delegation, approval, signing key, or Gateway signature denies issuance. There is no fallback token. Resource mandates are capped at 15 minutes and Session mandates at 60 minutes.
+
+An `interaction_required` response means policy raised an Approval hold. Approval alone is not issuance; the client retries and consumes the hold once.
+
+Use [Use STS Endpoint](/api/sts/) for exact request and error contracts and [Exchange Tokens](/architecture/token-exchange-flow/) for the trust flow.
 
 ## Next Step
 
-Use [Protect Upstreams](/services/gateway/) to understand how Gateway validates inbound authority and performs per-request STS exchange.
-
-## Related Pages
-
-- [Exchange Tokens](/architecture/token-exchange-flow/)
-- [Use STS Endpoint](/api/sts/)
-- [Step-Up Challenges](/concepts/step-up/)
+[Protect Upstreams](/services/gateway/).
