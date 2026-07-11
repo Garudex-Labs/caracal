@@ -75,7 +75,7 @@ describe('GET /v1/zones/:zoneId/audit', () => {
           event_type: 'token_exchange',
           decision: 'allow',
           occurred_at: '2026-05-01T00:00:00.000Z',
-          metadata_json: { application_name: 'Son of Anton', resource: 'resource://pipernet', token: 'leak-me' },
+          metadata_json: { application_name: 'Anton', resource: 'resource://pipernet', token: 'leak-me' },
         },
       ],
     })
@@ -91,7 +91,7 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     expect(body.items[0]).toEqual({
       occurred_at: '2026-05-01T00:00:00.000Z',
       event_type: 'token_exchange',
-      application_name: 'Son of Anton',
+      application_name: 'Anton',
       resource: 'resource://pipernet',
     })
   })

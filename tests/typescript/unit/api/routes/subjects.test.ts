@@ -76,7 +76,7 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
           {
             session_id: 'session-1',
             application_id: 'app-1',
-            application_name: 'Son of Anton',
+            application_name: 'Anton',
             lifecycle: 'task',
             status: 'active',
             started_at: '2026-07-01T00:00:00.000Z',
@@ -108,7 +108,7 @@ describe('GET /v1/zones/:zoneId/subjects/overview', () => {
     expect(body.subject.subject_id).toBe(SUBJECT_ROW.subject_id)
     expect(body.governed).toMatchObject({ active: 1, total: 4 })
     expect(body.governed.recent[0].session_id).toBe('session-1')
-    expect(body.governed.recent[0].application_name).toBe('Son of Anton')
+    expect(body.governed.recent[0].application_name).toBe('Anton')
     expect(body.approvals).toEqual({ pending: 1, total: 3 })
     expect(body.connections[0].provider_name).toBe('Hooli OIDC')
   })

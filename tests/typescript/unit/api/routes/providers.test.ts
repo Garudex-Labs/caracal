@@ -1528,7 +1528,7 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
     return {
       token_endpoint: 'https://oauth2.googleapis.example/token',
-      client_id: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      client_id: 'anton@pied-piper.iam.gserviceaccount.example',
       grant_type: 'jwt_bearer',
       private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
       scopes: ['https://www.googleapis.example/auth/cloud-platform'],
@@ -1631,8 +1631,8 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
     const assertion = form.get('assertion') ?? ''
     const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString()) as Record<string, unknown>
     expect(claims).toMatchObject({
-      iss: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
-      sub: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      iss: 'anton@pied-piper.iam.gserviceaccount.example',
+      sub: 'anton@pied-piper.iam.gserviceaccount.example',
       aud: 'https://oauth2.googleapis.example/token',
       scope: 'https://www.googleapis.example/auth/cloud-platform',
     })

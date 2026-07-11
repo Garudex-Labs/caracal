@@ -124,7 +124,23 @@ describe('documentation version routing', () => {
         '/': '/v0.3/',
         '/guide/': '/v0.3/guide/',
         '/old/': '/v0.3/guide/',
+        '/v0.3/old/': '/v0.3/guide/',
       })
+    } finally {
+      rmSync(source, { recursive: true, force: true })
+    }
+  })
+
+  it('does not redirect a legacy path owned by the current snapshot', () => {
+    const source = mkdtempSync(join(tmpdir(), 'caracal-docs-'))
+    try {
+      mkdirSync(join(source, 'v0.3', 'old'), { recursive: true })
+      writeFileSync(join(source, 'index.mdx'), '---\ntitle: Home\n---\n')
+      writeFileSync(join(source, 'v0.3', 'old', 'index.mdx'), '---\ntitle: Historical page\n---\n')
+
+      const redirects = versionedRedirects({ '/old/': '/guide/' }, source, released)
+      expect(redirects['/old/']).toBe('/v0.3/guide/')
+      expect(redirects['/v0.3/old/']).toBeUndefined()
     } finally {
       rmSync(source, { recursive: true, force: true })
     }
@@ -141,6 +157,24 @@ describe('documentation version routing', () => {
         '/': '/v0.2/',
         '/guide/': '/v0.2/guide/',
       })
+
+      expect(versionedRedirects({ '/old/': '/guide/' }, source, targeted)).toMatchObject({
+        '/old/': '/v0.2/guide/',
+        '/v0.2/old/': '/v0.2/guide/',
+      })
+    } finally {
+      rmSync(source, { recursive: true, force: true })
+    }
+  })
+
+  it('passes external redirect destinations through unversioned', () => {
+    const source = mkdtempSync(join(tmpdir(), 'caracal-docs-'))
+    try {
+      writeFileSync(join(source, 'index.mdx'), '---\ntitle: Home\n---\n')
+
+      const redirects = versionedRedirects({ '/releases/': 'https://github.com/Garudex-Labs/caracal/releases' }, source, targeted)
+      expect(redirects['/releases/']).toBe('https://github.com/Garudex-Labs/caracal/releases')
+      expect(redirects['/v0.2/releases/']).toBe('https://github.com/Garudex-Labs/caracal/releases')
     } finally {
       rmSync(source, { recursive: true, force: true })
     }

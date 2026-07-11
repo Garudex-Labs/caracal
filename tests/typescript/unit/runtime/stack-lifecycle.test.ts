@@ -132,6 +132,35 @@ describe('stack lifecycle compose commands', () => {
       '-f',
     ])
     expect(ensureControlGateDirMock).toHaveBeenCalledWith(dir)
+    expect(spawnSyncMock).toHaveBeenCalledWith('docker', ['network', 'inspect', 'caracalDevData'], {
+      cwd: dir,
+      env: expect.objectContaining({ CARACAL_MODE: 'dev', CARACAL_DEV_SHA: 'abc123' }),
+      stdio: 'ignore',
+    })
+  })
+
+  it('creates the external dev network before compose when it is missing', async () => {
+    spawnSyncMock.mockReturnValueOnce({ status: 1, stdout: '' }).mockReturnValueOnce({ status: 0, stdout: '' })
+
+    const handle = stackUp({
+      paths: paths('dev', []),
+      args: [],
+      env: { CARACAL_MODE: 'dev' },
+    })
+    await expect(handle.exitCode).resolves.toBe(0)
+
+    expect(spawnSyncMock).toHaveBeenNthCalledWith(1, 'docker', ['network', 'inspect', 'caracalDevData'], {
+      cwd: dir,
+      env: expect.objectContaining({ CARACAL_MODE: 'dev' }),
+      stdio: 'ignore',
+    })
+    expect(spawnSyncMock).toHaveBeenNthCalledWith(
+      2,
+      'docker',
+      ['network', 'create', '--driver', 'bridge', '--opt', 'com.docker.network.bridge.name=brCaracalDev', 'caracalDevData'],
+      { cwd: dir, env: expect.objectContaining({ CARACAL_MODE: 'dev' }), stdio: 'inherit' },
+    )
+    expect(calls[0].argv).toEqual(['docker', 'compose', '-f', join(dir, 'dev.yml'), 'up', '-d', '--build', '--remove-orphans'])
   })
 
   it('starts rc and stable stacks without build and skips missing env files', async () => {

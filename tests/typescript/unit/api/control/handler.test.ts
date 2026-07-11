@@ -331,7 +331,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
-      payload: { command: 'app', subcommand: 'create', flags: { name: 'Son of Anton' } },
+      payload: { command: 'app', subcommand: 'create', flags: { name: 'Anton' } },
     })
 
     expect(res.statusCode).toBe(200)

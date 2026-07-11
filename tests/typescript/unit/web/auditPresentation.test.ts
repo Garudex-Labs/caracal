@@ -76,7 +76,7 @@ describe('auditCategory', () => {
 
 describe('auditActor', () => {
   it('prefers the application name over ids', () => {
-    expect(auditActor(event('token_exchange', 'allow', { application_name: 'Son of Anton', application_id: 'app-1' }))).toBe('Son of Anton')
+    expect(auditActor(event('token_exchange', 'allow', { application_name: 'Anton', application_id: 'app-1' }))).toBe('Anton')
   })
 
   it('falls back to application id, then subject', () => {
@@ -86,7 +86,7 @@ describe('auditActor', () => {
   })
 
   it('resolves the workload name for run events', () => {
-    expect(auditActor(event('run_launch', 'allow', { workload_name: 'Son of Anton', workload_id: 'wl-1' }))).toBe('Son of Anton')
+    expect(auditActor(event('run_launch', 'allow', { workload_name: 'Anton', workload_id: 'wl-1' }))).toBe('Anton')
     expect(auditActor(event('run_launch', 'deny', { workload_id: 'wl-1' }))).toBe('wl-1')
   })
 })
@@ -95,12 +95,12 @@ describe('auditSummary', () => {
   it('narrates an issued credential with delegation hops', () => {
     const summary = auditSummary(
       event('token_exchange', 'allow', {
-        application_name: 'Son of Anton',
+        application_name: 'Anton',
         resource: 'resource://pipernet',
         delegation_hop_count: 2,
       }),
     )
-    expect(summary).toBe('Son of Anton was issued a credential for resource://pipernet via delegation (2 hops)')
+    expect(summary).toBe('Anton was issued a credential for resource://pipernet via delegation (2 hops)')
   })
 
   it('narrates a denied exchange with its humanized reason', () => {
@@ -122,19 +122,19 @@ describe('auditSummary', () => {
   })
 
   it('narrates approval lifecycle events', () => {
-    expect(auditSummary(event('step_up_issued', 'pending', { application_name: 'Son of Anton', tier: 'money' }))).toBe(
-      'A human approval hold was raised for Son of Anton (money tier); the exchange waits on an approver',
+    expect(auditSummary(event('step_up_issued', 'pending', { application_name: 'Anton', tier: 'money' }))).toBe(
+      'A human approval hold was raised for Anton (money tier); the exchange waits on an approver',
     )
     expect(
       auditSummary(
         event('step_up_decided', 'rejected', {
-          application_name: 'Son of Anton',
+          application_name: 'Anton',
           approver_subject_id: 'user:monica.hall@piedpiper.example',
         }),
       ),
-    ).toBe('Approver user:monica.hall@piedpiper.example rejected the hold for Son of Anton')
-    expect(auditSummary(event('step_up_consumed', 'consumed', { application_name: 'Son of Anton' }))).toBe(
-      'Son of Anton redeemed an approved hold to complete the exchange',
+    ).toBe('Approver user:monica.hall@piedpiper.example rejected the hold for Anton')
+    expect(auditSummary(event('step_up_consumed', 'consumed', { application_name: 'Anton' }))).toBe(
+      'Anton redeemed an approved hold to complete the exchange',
     )
   })
 
@@ -154,7 +154,7 @@ describe('auditSummary', () => {
   it('narrates a gateway transport failure', () => {
     const summary = auditSummary(
       event('gateway_resource_request', 'allow', {
-        application_name: 'Son of Anton',
+        application_name: 'Anton',
         resource: 'resource://hoolibox',
         error_kind: 'transport_error',
       }),
@@ -204,14 +204,14 @@ describe('auditEntities', () => {
     const entities = auditEntities(
       event('token_exchange', 'allow', {
         application_id: 'app-1',
-        application_name: 'Son of Anton',
+        application_name: 'Anton',
         resource: 'resource://pipernet',
         agent_session_id: 'agent-7',
         delegation_edge_id: 'edge-3',
       }),
     )
     expect(entities).toEqual([
-      { kind: 'application', id: 'app-1', label: 'Son of Anton' },
+      { kind: 'application', id: 'app-1', label: 'Anton' },
       { kind: 'resource', id: 'resource://pipernet', label: 'resource://pipernet' },
       { kind: 'session', id: 'agent-7', label: 'agent-7' },
       { kind: 'delegation', id: 'edge-3', label: 'edge-3' },

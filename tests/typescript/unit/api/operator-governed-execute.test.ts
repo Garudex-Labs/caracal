@@ -210,7 +210,7 @@ describe('executeViaControlPlane', () => {
       client,
       [
         { id: 's1', capability: 'listApplications', args: {} },
-        { id: 's2', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's2', capability: 'registerApplication', args: { name: 'Anton' } },
         { id: 's3', capability: 'listProviders', args: {} },
       ],
       {},

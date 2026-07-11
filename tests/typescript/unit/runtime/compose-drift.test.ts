@@ -59,6 +59,7 @@ describe('docker-compose default substitutions', () => {
   it('dev compose uses a network name isolated from the runtime stack', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
     expect(yaml).toContain('name: caracal-dev')
+    expect(yaml).toContain('external: true')
     expect(yaml).toContain('name: caracalDevData')
     expect(yaml).not.toMatch(/\n\s+name: caracalData\n/)
   })

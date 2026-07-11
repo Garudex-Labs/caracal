@@ -239,10 +239,10 @@ describe('buildInvocation', () => {
   })
 
   it('builds updateApplication as a rename patch', () => {
-    expect(CONTROL_CAPABILITIES.updateApplication.buildInvocation({ application_id: 'app-1', name: 'Son of Anton' })).toEqual({
+    expect(CONTROL_CAPABILITIES.updateApplication.buildInvocation({ application_id: 'app-1', name: 'Anton' })).toEqual({
       command: 'app',
       subcommand: 'patch',
-      flags: { id: 'app-1', name: 'Son of Anton' },
+      flags: { id: 'app-1', name: 'Anton' },
     })
   })
 

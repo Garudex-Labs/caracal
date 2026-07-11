@@ -460,20 +460,18 @@ describe('ensureActivePolicySet', () => {
 describe('authorGrantsDocument', () => {
   it('renders the app_ids and grants data documents the decision contract reads', () => {
     const content = authorGrantsDocument([
-      { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'], role: 'operator' },
+      { applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'], role: 'operator' },
     ])
     expect(content).toContain('# caracal:data-document')
     expect(content).toContain('package caracal.authz')
-    expect(content).toContain('app_ids := {"operator":"app-son-of-anton"}')
+    expect(content).toContain('app_ids := {"operator":"app-anton"}')
     expect(content).toContain('grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}')
   })
 
   it('defaults the role to the application id, matching the governed transport label default', () => {
-    const content = authorGrantsDocument([
-      { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
-    ])
-    expect(content).toContain('app_ids := {"app-son-of-anton":"app-son-of-anton"}')
-    expect(content).toContain('"roles":{"app-son-of-anton":["data:read"]}')
+    const content = authorGrantsDocument([{ applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }])
+    expect(content).toContain('app_ids := {"app-anton":"app-anton"}')
+    expect(content).toContain('"roles":{"app-anton":["data:read"]}')
   })
 
   it('is deterministic: grant order, scope order, and duplicate scopes never change the content', () => {
@@ -527,14 +525,12 @@ describe('ensureGrants', () => {
   it('converges the default-named policy and set to the authored grant document', async () => {
     const client = admin()
     await ensureGrants(client as unknown as AdminClient, ZONE, {
-      grants: [{ applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }],
+      grants: [{ applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }],
     })
 
     expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
       name: 'application-grants',
-      content: authorGrantsDocument([
-        { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
-      ]),
+      content: authorGrantsDocument([{ applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }]),
     })
     expect(client.policySets.create).toHaveBeenCalledWith(ZONE, 'application-grant-policy')
     expect(client.policySets.activate).toHaveBeenCalled()
@@ -604,7 +600,7 @@ describe('ensureGovernedUpstreams', () => {
       scopes: ['data:read'],
       upstream_url: 'https://api.pipernet.example',
     },
-    grants: [{ applicationId: 'app-son-of-anton', scopes: ['data:read'] }],
+    grants: [{ applicationId: 'app-anton', scopes: ['data:read'] }],
   }
 
   it('converges provider, resource, and grants in dependency order', async () => {
@@ -626,9 +622,7 @@ describe('ensureGovernedUpstreams', () => {
     })
     expect(client.policies.create).toHaveBeenCalledWith(ZONE, {
       name: 'application-grants',
-      content: authorGrantsDocument([
-        { applicationId: 'app-son-of-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] },
-      ]),
+      content: authorGrantsDocument([{ applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }]),
     })
     expect(results).toHaveLength(1)
     expect(results[0].providerId).toBe('prov-created')
