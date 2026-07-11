@@ -212,8 +212,12 @@ CREATE TABLE public.sessions (
     last_heartbeat_at timestamp with time zone,
     heartbeat_deadline_at timestamp with time zone,
     termination_reason text,
+    lease_generation bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT sessions_lease_generation_check CHECK ((lease_generation >= 0)),
     CONSTRAINT sessions_lifecycle_check CHECK ((lifecycle = ANY (ARRAY['task'::text, 'service'::text]))),
-    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text])))
+    CONSTRAINT sessions_lifecycle_fields_check CHECK ((((lifecycle = 'task'::text) AND (ttl_seconds IS NOT NULL) AND (ttl_seconds > 0) AND (last_heartbeat_at IS NULL) AND (heartbeat_deadline_at IS NULL)) OR ((lifecycle = 'service'::text) AND (ttl_seconds IS NULL) AND (last_heartbeat_at IS NOT NULL) AND (heartbeat_deadline_at IS NOT NULL)))),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'terminated'::text, 'expired'::text]))),
+    CONSTRAINT sessions_terminal_fields_check CHECK ((((status = ANY (ARRAY['terminated'::text, 'expired'::text])) AND (terminated_at IS NOT NULL)) OR ((status = ANY (ARRAY['active'::text, 'suspended'::text])) AND (terminated_at IS NULL))))
 );
 
 
@@ -442,6 +446,7 @@ CREATE TABLE public.delegation_edges (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     parent_edge_id text,
     CONSTRAINT delegation_edges_check CHECK ((source_session_id <> target_session_id)),
+    CONSTRAINT delegation_edges_revocation_fields_check CHECK ((((status = 'revoked'::text) AND (revoked_at IS NOT NULL)) OR ((status = ANY (ARRAY['active'::text, 'expired'::text])) AND (revoked_at IS NULL)))),
     CONSTRAINT delegation_edges_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
@@ -1183,6 +1188,14 @@ ALTER TABLE ONLY public.delegation_edges
 
 
 --
+-- Name: delegation_edges delegation_edges_zone_id_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.delegation_edges
+    ADD CONSTRAINT delegation_edges_zone_id_id_unique UNIQUE (zone_id, id);
+
+
+--
 -- Name: delegation_graph_epochs delegation_graph_epochs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1573,6 +1586,13 @@ CREATE INDEX coordinator_idempotency_expiry_idx ON public.coordinator_idempotenc
 --
 
 CREATE INDEX sessions_last_active_at_idx ON public.sessions USING btree (last_active_at) WHERE (status = 'active'::text);
+
+
+--
+-- Name: sessions_terminal_retention_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_terminal_retention_idx ON public.sessions USING btree (terminated_at, id) WHERE (status = ANY (ARRAY['terminated'::text, 'expired'::text]));
 
 
 --
@@ -2213,6 +2233,13 @@ CREATE TRIGGER policy_versions_immutable BEFORE DELETE OR UPDATE ON public.polic
 
 
 --
+-- Name: policy_set_versions policy_set_versions_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER policy_set_versions_immutable BEFORE DELETE OR UPDATE ON public.policy_set_versions FOR EACH ROW EXECUTE FUNCTION public.reject_policy_version_mutation();
+
+
+--
 -- Name: admin_tokens admin_tokens_zone_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2405,11 +2432,11 @@ ALTER TABLE ONLY public.delegated_grants
 
 
 --
--- Name: delegation_edges delegation_edges_parent_edge_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: delegation_edges delegation_edges_zone_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.delegation_edges
-    ADD CONSTRAINT delegation_edges_parent_edge_id_fkey FOREIGN KEY (parent_edge_id) REFERENCES public.delegation_edges(id) ON DELETE SET NULL;
+    ADD CONSTRAINT delegation_edges_zone_parent_fk FOREIGN KEY (zone_id, parent_edge_id) REFERENCES public.delegation_edges(zone_id, id) ON DELETE SET NULL (parent_edge_id);
 
 
 --
@@ -3101,7 +3128,7 @@ GRANT SELECT,INSERT,DELETE ON TABLE public.coordinator_idempotency_receipts TO c
 -- Name: TABLE sessions; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT,INSERT,UPDATE ON TABLE public.sessions TO caracalcoordinator;
+GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.sessions TO caracalcoordinator;
 GRANT SELECT,UPDATE ON TABLE public.sessions TO caracalapi;
 
 

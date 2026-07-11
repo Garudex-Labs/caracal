@@ -62,15 +62,25 @@ bootstrap_exchange if {
 # Session and its Delegation, must not carry a subject token, and every requested
 # scope must sit inside the edge's narrowed grant. This subset check is the delegation
 # narrowing floor: removing it would let an agent mint authority its parent never held.
-delegated_mint if {
+# The request shape, the narrowing subset, and confinement are separate rules so a
+# denial can name exactly the gate that failed.
+delegated_mint_request if {
 	input.delegation_edge.id
 	input.context.agent_session_id
 	not input.context.subject_claims
 	count(input.context.requested_scopes) > 0
 	not "agent:lifecycle" in input.context.requested_scopes
+}
+
+delegation_scopes_narrowed if {
 	every scope in input.context.requested_scopes {
 		scope in input.delegation_edge.scopes
 	}
+}
+
+delegated_mint if {
+	delegated_mint_request
+	delegation_scopes_narrowed
 	confinement_satisfied
 }
 
@@ -131,13 +141,18 @@ workload_mint if {
 # delegation-bound and name this resource in its target audience, and the Gateway
 # exchange requests no scopes: authority rides in the mandate claims. Every carried
 # scope is rechecked against the current role grant, so policy narrowing takes effect
-# before an unexpired mandate can reach the upstream.
-mandate_use if {
+# before an unexpired mandate can reach the upstream. Presentation shape and target
+# binding are separate rules so a denial can name a mistargeted mandate precisely.
+mandate_presented if {
 	input.context.subject_claims.delegation_edge_id != ""
-	some target in input.context.subject_claims.target
-	target == input.resource.identifier
 	not requested_scopes_present
 	count(presented_scopes) > 0
+}
+
+mandate_use if {
+	mandate_presented
+	some target in input.context.subject_claims.target
+	target == input.resource.identifier
 }
 
 requested_scopes_present if {
@@ -299,4 +314,107 @@ result := allow_result(sprintf("caracal-%s-use", [principal_app])) if {
 	mandate_use
 	use_role_allowed
 	not restriction_denied
+}
+
+# Gate-specific denials. Every deny below still resolves to the same fail-closed
+# decision; only the diagnostics name which gate refused the request, so an operator
+# reads the failed gate from the audit trail instead of re-deriving the contract by
+# hand. Each rule negates every gate evaluated before it, so at most one reason can
+# ever be defined and the deny result can never conflict with an allow: an allow rule
+# requires exactly the gates whose failure defines each reason.
+deny_result(reason) := {
+	"decision": "deny",
+	"evaluation_status": "complete",
+	"determining_policies": [],
+	"diagnostics": [{"reason": reason}],
+}
+
+data_documents_malformed if malformed_risk_rules
+
+data_documents_malformed if malformed_approval_declarations
+
+mint_attempt if delegated_mint_request
+
+mint_attempt if workload_mint
+
+# An active restriction entry freezes the zone: every request denies here first.
+deny_reason := "restriction_active" if {
+	restriction_denied
+}
+
+# Malformed risk or approval data fails every mint closed until the data is repaired.
+deny_reason := "malformed_risk_data" if {
+	not restriction_denied
+	not bootstrap_exchange
+	mint_attempt
+	malformed_risk_rules
+}
+
+deny_reason := "malformed_approval_data" if {
+	not restriction_denied
+	not bootstrap_exchange
+	mint_attempt
+	not malformed_risk_rules
+	malformed_approval_declarations
+}
+
+# The grants document does not bind this resource to the acting application.
+deny_reason := "resource_not_granted" if {
+	not restriction_denied
+	not data_documents_malformed
+	delegated_mint_request
+	not principal_owns_resource
+}
+
+# The mint asks for a scope its Delegation never granted: the narrowing floor.
+deny_reason := "delegation_scope_exceeded" if {
+	not restriction_denied
+	not data_documents_malformed
+	delegated_mint_request
+	principal_owns_resource
+	not delegation_scopes_narrowed
+}
+
+# A confinement rule matching the Session's labels caps it below the requested scopes.
+deny_reason := "confinement_violation" if {
+	not restriction_denied
+	not data_documents_malformed
+	delegated_mint_request
+	principal_owns_resource
+	delegation_scopes_narrowed
+	not confinement_satisfied
+}
+
+# No role label on the Session grants every requested scope on this resource.
+deny_reason := "role_scope_mismatch" if {
+	not restriction_denied
+	not data_documents_malformed
+	delegated_mint
+	principal_owns_resource
+	not mint_role_allowed
+}
+
+# A mandate presented for a resource outside its target audience.
+deny_reason := "mandate_target_mismatch" if {
+	not restriction_denied
+	mandate_presented
+	not mandate_use
+}
+
+deny_reason := "resource_not_granted" if {
+	not restriction_denied
+	mandate_use
+	not principal_owns_resource
+}
+
+# The presenting Session's role no longer grants every scope the mandate carries.
+deny_reason := "role_scope_mismatch" if {
+	not restriction_denied
+	mandate_use
+	principal_owns_resource
+	not use_role_allowed
+}
+
+result := deny_result(deny_reason) if {
+	deny_reason
 }

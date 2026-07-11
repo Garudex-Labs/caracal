@@ -285,7 +285,7 @@ export default defineConfig({
             { label: 'Run Workloads', link: '/runtime-console/runtime/' },
             { label: 'Manage Product Objects', link: '/runtime-console/admin/' },
             { label: 'Inspect Diagnostics and Audit', link: '/runtime-console/observability/' },
-            { label: 'Manage Sessions and Delegation', link: '/runtime-console/agents/' },
+            { label: 'Manage Runtime Authority', link: '/runtime-console/agents/' },
           ],
         },
         {
@@ -318,7 +318,7 @@ export default defineConfig({
               label: 'Agent Authority',
               collapsed: true,
               items: [
-                { label: 'Agent Delegation', link: '/concepts/delegation/' },
+                { label: 'Session Delegation', link: '/concepts/delegation/' },
                 { label: 'Delegation Constraints', link: '/concepts/constraint/' },
                 { label: 'Sessions and Revocation', link: '/concepts/sessions-revocation/' },
               ],
@@ -515,7 +515,7 @@ export default defineConfig({
               items: [
                 { label: 'Map the System', link: '/architecture/system-topology/' },
                 { label: 'Exchange Tokens', link: '/architecture/token-exchange-flow/' },
-                { label: 'Coordinate Agents', link: '/architecture/delegation-flow/' },
+                { label: 'Coordinate Sessions', link: '/architecture/delegation-flow/' },
               ],
             },
             {
@@ -540,7 +540,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Manage Product State', link: '/services/api/' },
-                { label: 'Coordinate Agent State', link: '/services/coordinator/' },
+                { label: 'Coordinate Session State', link: '/services/coordinator/' },
               ],
             },
             {
