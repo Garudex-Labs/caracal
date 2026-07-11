@@ -4,13 +4,13 @@ description: Lockstep SemVer releases, package publishing, protected workflows, 
 pageType: reference
 ---
 
-Every Caracal release artifact shares one Semantic Version from `release.config.json` `product.version`. The current source state is `0.2.0-rc.1`; successive release candidates increment `-rc.N`. `scripts/release.sh stamp` propagates the configured version to owned artifact metadata.
+Every Caracal release artifact shares one Semantic Version from `release.config.json` `product.version`. The current source state is `0.2.0-rc.2`; successive release candidates increment `-rc.N`. `scripts/release.sh stamp` propagates the configured version to owned artifact metadata.
 
 ## Release Surfaces
 
 | Surface         | Source                                                                                    |
 | --------------- | ----------------------------------------------------------------------------------------- |
-| Product version | `release.config.json` `product.version`, currently `0.2.0`.                               |
+| Product version | `release.config.json` `product.version`, currently `0.2.0-rc.2`.                          |
 | Runtime binary  | `apps/runtime/dist/caracal-*`.                                                            |
 | Containers      | Shared Go/Node role images, Web, Postgres, Redis, and Runtime from `release.config.json`. |
 | Helm            | `infra/helm/caracal`.                                                                     |
@@ -30,16 +30,15 @@ Go-based service container builds strip debug symbols by default (`GO_LDFLAGS` d
 | RC prepare     | Set `product.version` to `X.Y.Z-rc.N`, then `scripts/release.sh rc prepare`  |
 | RC dry run     | `scripts/release.sh rc dry-run --local`, then `scripts/release.sh rc dry-run` |
 | RC publish     | `scripts/release.sh rc publish`                                                |
-| Stable prepare | Set `product.version` to `X.Y.Z`, then `scripts/release.sh stable prepare`   |
 | Stable dry run | Add `--local` first, then run `scripts/release.sh stable --dry-run` remotely  |
 | Stable publish | `scripts/release.sh stable`                                                  |
 | Prepare stable | `scripts/release.sh promote --from vX.Y.Z-rc.N`, review, and commit          |
 
-Run `pnpm release:plan` and `pnpm release:stamp:check` before publication. Preparation generates a source-neutral release plan and the docs release record. The publish command atomically creates the root tag and every nested Go module tag at the same commit, then explicitly dispatches CI from that tag. CI rejects occupied registry versions and finalizes the customer manifest with the full tag commit. Do not author release evidence as an independent source of truth.
+Run `pnpm release:plan` and `pnpm release:stamp:check` before publication. Preparation generates a source-neutral release plan and the docs release record. On its first invocation, the publish command atomically creates the root tag and every nested Go module tag, then queues a dry run from that immutable tag. Invoke the same publish command again after the dry run succeeds; only then can CI publish and finalize the customer manifest with the full tag commit. Do not author release evidence as an independent source of truth.
 
 Publication requires a successful release-workflow dry run for the exact commit. A green branch test run is necessary but does not replace the archive, image, package, and documentation preflight performed by that dry run.
 
-The root release workflow publishes npm and PyPI packages only from a complete, verified tag set. Every release publishes all publishable packages at the shared version. Existing versions are errors, and Python distributions publish registry attestations. A partial registry publication consumes that version and requires a roll-forward release rather than an in-place retry. Manual package workflows are dry-run only, and the local publisher supports TestPyPI only.
+The root release workflow publishes npm and PyPI packages only from a complete, verified tag set. Every release publishes all publishable packages at the shared version, and Python distributions publish registry attestations. A retry reuses an existing package, image, chart, or GitHub Release only after its digest and provenance verify against the exact release tag and commit. Any mismatch consumes the version and requires a roll-forward release. Manual package workflows are dry-run only, and the local publisher supports TestPyPI only.
 
 ## Documentation Versions
 

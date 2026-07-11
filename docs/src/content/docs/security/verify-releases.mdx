@@ -29,7 +29,7 @@ docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-go:<tag>
 
 Repeat for every deployed image and pin digests. Inspect available attestations; do not infer SBOM presence from provenance alone.
 
-Compare each inspected OCI index digest with the corresponding manifest `imageDigests` value. A matching tag without a matching digest is a different artifact and must not be admitted.
+Compare each inspected OCI index digest with the corresponding manifest `imageDigests` value and compare the chart digest with `helm.digest`. A matching tag without a matching digest is a different artifact and must not be admitted.
 
 ## Failure Recovery
 

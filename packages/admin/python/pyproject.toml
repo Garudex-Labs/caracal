@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-admin"
-version = "0.2.0rc1"
+version = "0.2.0rc2"
 description = "Caracal admin client for Python: control-plane invocation, admin API access, and idempotent provisioning reconcilers"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

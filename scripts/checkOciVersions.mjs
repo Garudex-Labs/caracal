@@ -21,8 +21,15 @@ function inspect(command, args, artifact) {
 
 function parseArgs(argv) {
   const artifacts = []
+  let versionOverride = ''
+  let all = false
   for (let index = 0; index < argv.length; index += 1) {
     switch (argv[index]) {
+      case '--version':
+        if (!argv[index + 1]) throw new Error('--version requires a value')
+        versionOverride = argv[index + 1].replace(/^v/, '')
+        index += 1
+        break
       case '--image':
         if (!argv[index + 1]) throw new Error('--image requires a reference')
         artifacts.push({ kind: 'image', reference: argv[index + 1] })
@@ -34,18 +41,21 @@ function parseArgs(argv) {
         index += 2
         break
       case '--all': {
-        const config = JSON.parse(readFileSync(resolve('release.config.json'), 'utf8'))
-        const registry = (process.env.CARACAL_OCI_REGISTRY ?? 'ghcr.io/garudex-labs').replace(/\/$/, '')
-        const version = config.product.version
-        for (const image of config.product.containers) {
-          artifacts.push({ kind: 'image', reference: `${registry}/caracal-${image.name}:v${version}` })
-        }
-        artifacts.push({ kind: 'chart', reference: `oci://${registry}/charts/caracal`, version })
+        all = true
         break
       }
       default:
         throw new Error(`unknown argument: ${argv[index]}`)
     }
+  }
+  if (all) {
+    const config = JSON.parse(readFileSync(resolve('release.config.json'), 'utf8'))
+    const registry = (process.env.CARACAL_OCI_REGISTRY ?? 'ghcr.io/garudex-labs').replace(/\/$/, '')
+    const version = versionOverride || config.product.version
+    for (const image of config.product.containers) {
+      artifacts.push({ kind: 'image', reference: `${registry}/caracal-${image.name}:v${version}` })
+    }
+    artifacts.push({ kind: 'chart', reference: `oci://${registry}/charts/caracal`, version })
   }
   if (artifacts.length === 0) throw new Error('specify --all, --image, or --chart')
   return artifacts

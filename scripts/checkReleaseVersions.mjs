@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pypiFromNpm } from './lib/stamp.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -16,6 +17,7 @@ function parseArgs(argv) {
     npmRegistry: process.env.CARACAL_NPM_REGISTRY ?? 'https://registry.npmjs.org/',
     pypiApi: process.env.CARACAL_PYPI_API ?? 'https://pypi.org/pypi/',
     packages: [],
+    version: '',
   }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
@@ -39,6 +41,11 @@ function parseArgs(argv) {
       case '--pypi-api':
         if (!value) throw new Error('--pypi-api requires a URL')
         options.pypiApi = value
+        index += 1
+        break
+      case '--version':
+        if (!value) throw new Error('--version requires a value')
+        options.version = value.replace(/^v/, '')
         index += 1
         break
       default:
@@ -80,7 +87,10 @@ export async function findPublished(packages, options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2))
-  const packages = plan(options).matrix.include
+  const packages = plan(options).matrix.include.map((pkg) => ({
+    ...pkg,
+    version: options.version ? (pkg.ecosystem === 'pypi' ? pypiFromNpm(options.version) : options.version) : pkg.version,
+  }))
   const published = await findPublished(packages, options)
   if (published.length > 0) {
     throw new Error(`release versions already published:\n${published.map((value) => `  ${value}`).join('\n')}`)

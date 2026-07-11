@@ -148,18 +148,6 @@ jobs:
             echo "hasPackages=$hasPackages"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Require unpublished versions
-        if: inputs.dryRun != true
-        env:
-          PACKAGE: ${{ inputs.package }}
-        run: |
-          set -euo pipefail
-          args=(--ecosystem pypi)
-          if [[ "$PACKAGE" != all ]]; then
-            args+=(--package "$PACKAGE")
-          fi
-          node scripts/checkReleaseVersions.mjs "${args[@]}"
-
   preflight:
     name: Check ${{ matrix.name }} on ${{ matrix.runner }}
     if: github.repository == 'Garudex-Labs/caracal' && needs.select.outputs.hasPackages == 'true'
@@ -230,7 +218,47 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install publication tools
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
+          python -m py_compile "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py"
+          pypi-attestations --version
+
+      - name: Check published package
+        id: state
+        working-directory: ${{ matrix.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+        run: |
+          set -euo pipefail
+          name="$(awk -F'"' '/^name = /{print $2; exit}' pyproject.toml)"
+          ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
+          state="$(python - "$name" "$ver" <<'PY'
+          import sys
+          import urllib.error
+          import urllib.request
+
+          name, version = sys.argv[1:]
+          try:
+              with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/{version}/json", timeout=30):
+                  print("published")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              print("missing")
+          PY
+          )"
+          if [ "$state" = published ]; then
+            python "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$GITHUB_REF_NAME"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build distribution
+        if: steps.state.outputs.published != 'true'
         working-directory: ${{ matrix.dir }}
         run: |
           set -euo pipefail
@@ -239,19 +267,18 @@ jobs:
             echo "::error::Dev version blocked: ${ver}"
             exit 1
           fi
-          python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
           rm -rf dist build ./*.egg-info
           python -m build
           python -m twine check dist/*
 
       - name: Attest distribution source
-        if: inputs.dryRun != true
+        if: steps.state.outputs.published != 'true'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ${{ matrix.dir }}/dist/*
 
       - name: Publish package
-        if: inputs.dryRun != true
+        if: steps.state.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: ${{ matrix.dir }}/dist
@@ -262,6 +289,7 @@ jobs:
         if: inputs.dryRun != true
         working-directory: ${{ matrix.dir }}
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_SHA: ${{ inputs.releaseSha }}
         run: |
           set -euo pipefail

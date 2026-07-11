@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `0.2.0-dev.sha<sha>`                                     | `0.2.0-rc.1`                                                | `0.2.0`                                                    |
-| Container images      | `localhost/caracal-{svc}:0.2.0-dev.sha<sha>`             | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0-rc.1`            | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0`                |
+| Version               | `0.2.0-dev.sha<sha>`                                     | `0.2.0-rc.2`                                                | `0.2.0`                                                    |
+| Container images      | `localhost/caracal-{svc}:0.2.0-dev.sha<sha>`             | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0-rc.2`            | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0`                |
 
 </details>
 
@@ -190,7 +190,7 @@ Use the same flow for rc and stable: plan, dry-run, publish, validate. An rc pro
 
 | Step | rc | stable |
 | --- | --- | --- |
-| Prepare | Set `product.version` to `X.Y.Z-rc.N` in `release.config.json`, then `scripts/release.sh rc prepare` | Promote an approved RC or set `product.version` to `X.Y.Z`, then `scripts/release.sh stable prepare` |
+| Prepare | Set `product.version` to `X.Y.Z-rc.N` in `release.config.json`, then `scripts/release.sh rc prepare` | `scripts/release.sh promote --from vX.Y.Z-rc.N`, then review and commit |
 | Review | Commit the stamped files, manifest, and metadata. | Commit the stamped files and review the stable diff. |
 | Dry-run | Run `scripts/release.sh rc dry-run --local`, then `scripts/release.sh rc dry-run` from the pushed commit. | Run `scripts/release.sh stable --dry-run --local`, then `scripts/release.sh stable --dry-run` from the pushed commit. |
 | Publish | `scripts/release.sh rc publish` | `scripts/release.sh stable` |
@@ -200,7 +200,7 @@ Remote dry-runs dispatch `release.yml` without publishing. They only read the de
 
 ### Release validation
 
-Validation happens before publishing. The local publish command atomically creates the root and nested Go tags, then explicitly dispatches the workflow from the root tag. The `context` job rejects package versions already present in a registry, verifies every tag target, and verifies the release plan and version stamps. `archives` binds the published manifest to the full tag commit, proves reproducible packaging, runs binary smoke tests, generates checksums, and attaches provenance. The npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. The publish jobs fail on version collisions, publish provenance, and then verify that each version is live on its registry.
+Validation happens before publishing. On its first invocation, the local publish command atomically creates the root and nested Go tags and queues a dry run whose workflow definition and checkout both come from that immutable tag commit. After that dry run succeeds, invoke the same publish command again to queue publication. The `context` job verifies every tag target, the release plan, and version stamps. `archives` binds the published manifest to the full tag commit, proves reproducible packaging, runs binary smoke tests, generates checksums, and attaches provenance. The npm and PyPI `preflight` jobs build and pack-check every package on Ubuntu, macOS, and Windows before any publish step runs. Publish retries reuse only exact-provenance artifacts.
 
 `scripts/release.sh rc prepare`, `stable`, and `promote` also write the docs Releases record (`docs/src/data/releases/<tag>.json`) from the release plan. CI finalizes the customer manifest from the immutable tag commit; a preparation checkout never claims the identity of a commit that does not exist yet.
 
@@ -213,7 +213,7 @@ gh workflow run publishNpm.yml -f package=all -f dryRun=true -f runner=ubuntu-24
 gh workflow run publishPypi.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
 ```
 
-The explicitly dispatched root release workflow is the only production path for npm and PyPI. Manual package-workflow dispatches are dry-run only, and the local publisher supports TestPyPI only. The workflows read `release.config.json`, publish every package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. If any registry publication partially succeeds, the version is consumed and the release must roll forward; existing package versions are never silently reused.
+The explicitly dispatched root release workflow is the only production path for npm and PyPI. Manual package-workflow dispatches are dry-run only, and the local publisher supports TestPyPI only. The workflows read `release.config.json`, publish every package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. A retry reuses an existing package, image, chart, or GitHub Release only after its digest and provenance verify against the exact release tag and commit. Any mismatch consumes the version and requires a roll-forward release.
 
 ### Published artifacts
 

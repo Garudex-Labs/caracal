@@ -5,12 +5,12 @@
 // Unified release workflow for stable and rc versioning, manifests, and dry-runs.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { productArchiveTargets, productContainers, releaseInventory } from './releaseInventory.mjs'
-import { ensureRemoteReleaseTags, releaseTags, verifyRemoteReleaseTags } from './releaseTags.mjs'
+import { ensureRemoteReleaseTags, releaseTags } from './releaseTags.mjs'
+import { verifyReleasePromotion } from './verifyReleasePromotion.mjs'
 import { applyStamp, computeStamp, pypiFromNpm } from './lib/stamp.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -79,7 +79,7 @@ function headSha() {
 }
 
 function remoteSha(ref) {
-  const refs = [`refs/heads/${ref}`, `refs/tags/${ref}`]
+  const refs = [`refs/heads/${ref}`, `refs/tags/${ref}^{}`, `refs/tags/${ref}`]
   for (const candidate of refs) {
     const out = run('git', ['ls-remote', 'origin', candidate]).trim()
     if (out) return out.split(/\s+/, 1)[0]
@@ -158,6 +158,7 @@ function makeManifest(options = {}) {
 }
 
 function makeStableManifest(version, tag, options = {}, promotedFrom) {
+  if (!promotedFrom) die('stable manifests require a promotedFrom release candidate')
   const { npm, pypi, go } = packageVersions(version)
   const reg = registries(options)
   const manifest = {
@@ -183,7 +184,7 @@ function makeStableManifest(version, tag, options = {}, promotedFrom) {
       assets: `${reg.githubReleases.replace(/\/$/, '')}/${tag}`,
     },
   }
-  if (promotedFrom) manifest.promotedFrom = promotedFrom
+  manifest.promotedFrom = promotedFrom
   return manifest
 }
 
@@ -205,11 +206,37 @@ function writeReleaseRecord(manifest) {
   })
 }
 
-function dispatchRelease(tag) {
+function dispatchRelease(tag, dryRun) {
+  const sha = headSha()
   execFileSync(
     'gh',
-    ['workflow', 'run', 'release.yml', '--ref', tag, '-f', `ref=refs/tags/${tag}`, '-f', `releaseVersion=${tag}`, '-f', 'dryRun=false'],
+    [
+      'workflow',
+      'run',
+      'release.yml',
+      '--ref',
+      tag,
+      '-f',
+      `ref=${dryRun ? sha : `refs/tags/${tag}`}`,
+      '-f',
+      `releaseVersion=${tag}`,
+      '-f',
+      `sourceSha=${sha}`,
+      '-f',
+      `dryRun=${dryRun}`,
+    ],
     { cwd: repoRoot, stdio: 'inherit' },
+  )
+}
+
+function successfulReleaseRun(tag, sha, mode) {
+  const title = `Caracal ${tag} ${mode} ${sha}`
+  const runs = JSON.parse(
+    run('gh', ['api', `repos/Garudex-Labs/caracal/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&per_page=100`]),
+  ).workflow_runs
+  return runs.some(
+    (workflow) =>
+      workflow.display_title === title && workflow.head_branch === tag && workflow.head_sha === sha && workflow.conclusion === 'success',
   )
 }
 
@@ -219,7 +246,14 @@ function publishRelease(version) {
   const tags = releaseTags(inventory.config, version)
   const result = ensureRemoteReleaseTags(repoRoot, tags, sha)
   say(`${result.created ? 'published' : 'verified'} ${tags.length} release tags at ${sha}`)
-  dispatchRelease(tag)
+  if (!successfulReleaseRun(tag, sha, 'dry-run')) {
+    dispatchRelease(tag, true)
+    say(`queued immutable release dry-run for ${tag}`)
+    say('rerun this publish command after the dry-run succeeds')
+    say('monitor: gh run list --workflow release.yml --limit 5')
+    return
+  }
+  dispatchRelease(tag, false)
   say(`queued release workflow for ${tag}`)
   say('monitor: gh run list --workflow release.yml --limit 5')
 }
@@ -239,6 +273,8 @@ function stable(options) {
   const tag = `v${version}`
   const manifest = join('releases', tag, 'manifest.json')
   if (!existsSync(join(repoRoot, manifest))) die(`manifest missing for ${tag}; prepare and commit the stable release first`)
+  const releaseManifest = JSON.parse(readFileSync(join(repoRoot, manifest), 'utf8'))
+  if (!releaseManifest.promotedFrom) die(`${tag} must be prepared from a published release candidate`)
   execFileSync('node', ['scripts/validateReleaseManifest.mjs', '--product-version', manifest], {
     cwd: repoRoot,
     stdio: 'inherit',
@@ -247,9 +283,9 @@ function stable(options) {
   const drift = computeStamp()
   if (drift.length > 0) {
     for (const change of drift) say(`drift: ${change.path}`)
-    die('artifact files do not match release.config.json; run scripts/release.sh stable prepare and commit')
+    die('artifact files do not match release.config.json; run scripts/release.sh promote and commit')
   }
-  execFileSync('node', ['scripts/checkReleaseVersions.mjs'], { cwd: repoRoot, stdio: 'inherit' })
+  verifyReleasePromotion(repoRoot, releaseManifest.promotedFrom, tag)
   say(`stable: ${tag}`)
   execFileSync('node', ['scripts/docsVersion.mjs', 'verify'], { cwd: repoRoot, stdio: 'inherit' })
   if (dryRun) {
@@ -263,7 +299,21 @@ function stable(options) {
     if (!remote || remote !== headSha()) die('origin/main differs from HEAD; push the stable release commit before dry-run')
     execFileSync(
       'gh',
-      ['workflow', 'run', 'release.yml', '--ref', branch, '-f', `ref=${branch}`, '-f', `releaseVersion=${tag}`, '-f', 'dryRun=true'],
+      [
+        'workflow',
+        'run',
+        'release.yml',
+        '--ref',
+        branch,
+        '-f',
+        `ref=${headSha()}`,
+        '-f',
+        `releaseVersion=${tag}`,
+        '-f',
+        `sourceSha=${headSha()}`,
+        '-f',
+        'dryRun=true',
+      ],
       { cwd: repoRoot, stdio: 'inherit' },
     )
     say(`queued stable dry-run for ${tag}`)
@@ -294,7 +344,8 @@ function prepare(options) {
   const version = numberedRcVersion()
   const tag = `v${version}`
   if (remoteSha(tag)) die(`remote tag already exists: ${tag}`)
-  execFileSync('node', ['scripts/checkReleaseVersions.mjs'], { cwd: repoRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/checkReleaseVersions.mjs', '--version', version], { cwd: repoRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/checkOciVersions.mjs', '--all'], { cwd: repoRoot, stdio: 'inherit' })
   const diff = computeStamp()
   applyStamp(diff)
   for (const change of diff) say(`stamped: ${change.path}`)
@@ -302,24 +353,6 @@ function prepare(options) {
   const path = writeManifest(manifest)
   writeReleaseRecord(manifest)
   say(`prepared: ${manifest.release}`)
-  say(path)
-}
-
-function prepareStable(options) {
-  if (dirtyTree() && !options.flags.has('allow-dirty')) die('dirty tree; commit/stash or pass --allow-dirty')
-  const version = inventory.config.product.version
-  if (version.includes('-rc.')) die(`product.version ${version} is an rc; use rc prepare or promote`)
-  const tag = `v${version}`
-  if (remoteSha(tag)) die(`remote tag already exists: ${tag}`)
-  execFileSync('node', ['scripts/checkReleaseVersions.mjs'], { cwd: repoRoot, stdio: 'inherit' })
-  const diff = computeStamp()
-  applyStamp(diff)
-  for (const change of diff) say(`stamped: ${change.path}`)
-  prepareDocsVersion(version)
-  const manifest = makeStableManifest(version, tag, options.values)
-  const path = writeManifest(manifest)
-  writeReleaseRecord(manifest)
-  say(`prepared: ${tag}`)
   say(path)
 }
 
@@ -344,7 +377,6 @@ function publishRc() {
     for (const change of drift) say(`drift: ${change.path}`)
     die('artifact files do not match release.config.json; run rc prepare and commit')
   }
-  execFileSync('node', ['scripts/checkReleaseVersions.mjs'], { cwd: repoRoot, stdio: 'inherit' })
   publishRelease(version)
 }
 
@@ -352,7 +384,8 @@ function printVersion(options) {
   const version = numberedRcVersion()
   const tag = `v${version}`
   if (remoteSha(tag)) die(`remote tag already exists: ${tag}`)
-  execFileSync('node', ['scripts/checkReleaseVersions.mjs'], { cwd: repoRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/checkReleaseVersions.mjs', '--version', version], { cwd: repoRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/checkOciVersions.mjs', '--all'], { cwd: repoRoot, stdio: 'inherit' })
   const manifest = makeManifest(options.values)
   const path = writeManifest(manifest)
   say(JSON.stringify({ manifest: path, ...manifest }, null, 2))
@@ -365,7 +398,8 @@ function dryRun(options) {
     return
   }
   const ref = options.values.ref ?? process.env.CARACAL_WORKFLOW_REF ?? currentBranch()
-  const checkoutRef = releaseTagPattern.test(ref) ? `refs/tags/${ref}` : ref
+  const sourceSha = releaseTagPattern.test(ref) ? remoteSha(ref) : headSha()
+  if (!sourceSha) die(`origin ref not found: ${ref}`)
   const args = [
     'workflow',
     'run',
@@ -373,9 +407,11 @@ function dryRun(options) {
     '--ref',
     ref,
     '-f',
-    `ref=${checkoutRef}`,
+    `ref=${sourceSha}`,
     '-f',
     `releaseVersion=${manifest.release}`,
+    '-f',
+    `sourceSha=${sourceSha}`,
     '-f',
     'dryRun=true',
   ]
@@ -390,7 +426,6 @@ function dryRun(options) {
     die(`dirty tree; commit/stash, use --local, or pass --allow-dirty`)
   }
   const remote = remoteSha(ref)
-  if (!remote) die(`origin ref not found: ${ref}`)
   if (!options.flags.has('allow-stale-ref') && ref === currentBranch() && remote !== headSha()) {
     die(`origin/${ref} differs from HEAD; push, choose --ref, or pass --allow-stale-ref`)
   }
@@ -479,39 +514,10 @@ function promote(options) {
   if (!fromTag) die('--from <rc-tag> required')
   const stableTag = options.values.to ?? stableTagFromRc(fromTag)
   const stableVersion = stableTag.replace(/^v/, '')
-  const rcManifestPath = join(repoRoot, 'releases', fromTag, 'manifest.json')
-  if (!existsSync(rcManifestPath)) die(`rc manifest not found: ${rcManifestPath}`)
-  const rcManifest = JSON.parse(readFileSync(rcManifestPath, 'utf8'))
-  if (rcManifest.mode !== 'rc') die(`source manifest is not rc: ${rcManifest.mode}`)
-  if (rcManifest.release !== fromTag) die(`manifest release ${rcManifest.release} does not match ${fromTag}`)
-  execFileSync('node', ['scripts/validateReleaseManifest.mjs', '--product-version', rcManifestPath], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  })
-  execFileSync('git', ['fetch', '--tags', '--quiet', 'origin'], { cwd: repoRoot, stdio: 'inherit' })
-  const rcSha = run('git', ['rev-list', '-n', '1', `refs/tags/${fromTag}`]).trim()
-  if (!rcSha) die(`release tag not found: ${fromTag}`)
-  verifyRemoteReleaseTags(repoRoot, releaseTags(inventory.config, rcManifest.version), rcSha)
-  const published = JSON.parse(run('gh', ['api', `repos/Garudex-Labs/caracal/releases/tags/${fromTag}`]))
-  if (published.prerelease !== true || published.draft === true) die(`${fromTag} is not a published GitHub prerelease`)
-  const evidence = mkdtempSync(join(tmpdir(), 'caracal-promotion-'))
-  try {
-    execFileSync(
-      'gh',
-      ['release', 'download', fromTag, '--repo', 'Garudex-Labs/caracal', '--pattern', 'manifest.json', '--dir', evidence],
-      {
-        cwd: repoRoot,
-        stdio: 'inherit',
-      },
-    )
-    execFileSync(
-      'node',
-      ['scripts/validateReleaseManifest.mjs', '--source-sha', rcSha, '--image-digests', join(evidence, 'manifest.json')],
-      { cwd: repoRoot, stdio: 'inherit' },
-    )
-  } finally {
-    rmSync(evidence, { recursive: true, force: true })
-  }
+  if (remoteSha(stableTag)) die(`remote tag already exists: ${stableTag}`)
+  verifyReleasePromotion(repoRoot, fromTag, stableTag, true)
+  execFileSync('node', ['scripts/checkReleaseVersions.mjs', '--version', stableVersion], { cwd: repoRoot, stdio: 'inherit' })
+  execFileSync('node', ['scripts/checkOciVersions.mjs', '--version', stableVersion, '--all'], { cwd: repoRoot, stdio: 'inherit' })
   const configPath = join(repoRoot, 'release.config.json')
   const config = JSON.parse(readFileSync(configPath, 'utf8'))
   config.product.version = stableVersion
@@ -532,7 +538,6 @@ function main() {
   const raw = process.argv.slice(2)
   let normalized = raw
   if (raw[0] === 'rc' && !['-h', '--help', undefined].includes(raw[1])) normalized = [`rc-${raw[1]}`, ...raw.slice(2)]
-  if (raw[0] === 'stable' && raw[1] === 'prepare') normalized = ['stable-prepare', ...raw.slice(2)]
   const options = parseArgs(normalized)
   switch (options.command) {
     case 'rc':
@@ -547,9 +552,6 @@ Commands:
       break
     case 'stable':
       stable(options)
-      break
-    case 'stable-prepare':
-      prepareStable(options)
       break
     case 'stamp':
       stamp(options)
@@ -578,7 +580,6 @@ Commands:
       say(`Usage: scripts/release.sh <command> [options]
 
 Commands:
-  stable prepare          Stamp and write a stable release plan.
   stable [--dry-run]      Publish a prepared stable release.
   stamp [--check]         Stamp artifact files from release.config.json.
   promote --from TAG      Prepare a stable rebuild from an approved rc.

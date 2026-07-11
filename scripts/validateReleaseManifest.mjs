@@ -3,7 +3,7 @@
 //
 // Release manifest validator for committed Caracal release metadata.
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { releaseInventory } from './releaseInventory.mjs'
 import { pypiFromNpm } from './lib/stamp.mjs'
@@ -42,10 +42,9 @@ function fail(message) {
 
 function manifestFiles() {
   if (files.length > 0) return files
-  const releases = join(repoRoot, 'releases')
-  return readdirSync(releases, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith('v'))
-    .map((entry) => join(releases, entry.name, 'manifest.json'))
+  const path = join(repoRoot, 'releases', `v${inventory.config.product.version}`, 'manifest.json')
+  if (!existsSync(path)) fail(`current release manifest is missing: ${path}`)
+  return [path]
 }
 
 function assertVersions(group, values, expected) {
@@ -57,10 +56,11 @@ function assertVersions(group, values, expected) {
 }
 
 function assertKeys(group, values, expected) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) fail(`${group} must be an object`)
   const actual = Object.keys(values).sort()
   const names = [...expected].sort()
   if (JSON.stringify(actual) !== JSON.stringify(names)) {
-    fail(`${group} package names ${actual.join(', ') || '<empty>'} do not match ${names.join(', ')}`)
+    fail(`${group} keys ${actual.join(', ') || '<empty>'} do not match ${names.join(', ')}`)
   }
 }
 
@@ -88,11 +88,26 @@ function validate(path) {
   const go = packages.go
   if (manifest.mode !== mode) fail(`${path}: mode ${manifest.mode} does not match ${mode}`)
   if (manifest.version !== version) fail(`${path}: version ${manifest.version} does not match ${version}`)
+  if (mode === 'stable') {
+    if (typeof manifest.promotedFrom !== 'string') fail(`${path}: stable releases require promotedFrom`)
+    if (!manifest.promotedFrom.startsWith(`${manifest.release}-rc.`)) {
+      fail(`${path}: promotedFrom ${manifest.promotedFrom} does not match stable release ${manifest.release}`)
+    }
+  } else if (manifest.promotedFrom !== undefined) {
+    fail(`${path}: release candidates must not declare promotedFrom`)
+  }
   if (requireProductVersion && version !== inventory.config.product.version) {
     fail(`${path}: version ${version} does not match product.version ${inventory.config.product.version}`)
   }
+  const binaryNames = Object.keys(inventory.config.product.binaries)
+  const containerNames = inventory.config.product.containers
+    .filter((container) => container.name !== 'runtime')
+    .map((container) => container.name)
+  const imageNames = inventory.config.product.containers.map((container) => container.name)
   assertVersions('binaries', manifest.binaries, version)
   assertVersions('containers', manifest.containers, version)
+  assertKeys('binaries', manifest.binaries, binaryNames)
+  assertKeys('containers', manifest.containers, containerNames)
   assertVersions('npm', npm, version)
   assertVersions('pypi', pypi, pypiFromNpm(version))
   assertVersions('go', go, version)
@@ -123,6 +138,15 @@ function validate(path) {
     inventory.packages.go.filter((pkg) => pkg.publish).map((pkg) => pkg.module),
   )
   if (manifest.runtimeImage !== version) fail(`${path}: runtimeImage ${manifest.runtimeImage} does not match ${version}`)
+  if (typeof manifest.registries?.oci !== 'string' || manifest.registries.oci.length === 0) {
+    fail(`${path}: registries.oci is required`)
+  }
+  assertKeys('images', manifest.images, imageNames)
+  const registry = manifest.registries.oci.replace(/\/$/, '')
+  for (const name of imageNames) {
+    const expected = `${registry}/caracal-${name}:v${version}`
+    if (manifest.images[name] !== expected) fail(`${path}: image ${name} ${manifest.images[name]} does not match ${expected}`)
+  }
   if (requireImageDigests) {
     if (!manifest.images || !manifest.imageDigests) fail(`${path}: finalized image references and digests are required`)
     assertKeys('image digests', manifest.imageDigests, Object.keys(manifest.images))
@@ -134,6 +158,13 @@ function validate(path) {
   if (manifest.helm.chartVersion !== version) fail(`${path}: helm chartVersion ${manifest.helm.chartVersion} does not match ${version}`)
   if (manifest.helm.appVersion !== version) fail(`${path}: helm appVersion ${manifest.helm.appVersion} does not match ${version}`)
   if (manifest.helm.imageTag !== version) fail(`${path}: helm imageTag ${manifest.helm.imageTag} does not match ${version}`)
+  if (requireImageDigests && !/^sha256:[0-9a-f]{64}$/.test(manifest.helm.digest ?? '')) {
+    fail(`${path}: finalized Helm digest is invalid`)
+  }
+  if (manifest.githubRelease?.tag !== manifest.release) fail(`${path}: GitHub release tag does not match ${manifest.release}`)
+  if (typeof manifest.githubRelease?.assets !== 'string' || !manifest.githubRelease.assets.endsWith(`/${manifest.release}`)) {
+    fail(`${path}: GitHub release asset base does not end with ${manifest.release}`)
+  }
   if (process.env.CARACAL_VALIDATE_HELM_FILES === '1') {
     const chart = readFileSync(join(repoRoot, 'infra/helm/caracal/Chart.yaml'), 'utf8')
     const chartFileVersion = chart.match(/^version: ([^ \n]+)/m)?.[1]

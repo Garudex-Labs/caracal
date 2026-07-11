@@ -8,6 +8,7 @@
     "mode",
     "version",
     "generatedAt",
+    "registries",
     "binaries",
     "runtimeImage",
     "containers",
@@ -22,6 +23,16 @@
     "sha": ["source"],
     "source": ["sha"]
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "mode": { "const": "stable" } },
+        "required": ["mode"]
+      },
+      "then": { "required": ["promotedFrom"] },
+      "else": { "not": { "required": ["promotedFrom"] } }
+    }
+  ],
   "properties": {
     "release": {
       "type": "string",
@@ -80,7 +91,11 @@
       "properties": {
         "chartVersion": { "type": "string" },
         "appVersion": { "type": "string" },
-        "imageTag": { "type": "string" }
+        "imageTag": { "type": "string" },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
       },
       "additionalProperties": false
     },

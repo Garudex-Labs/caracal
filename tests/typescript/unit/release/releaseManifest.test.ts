@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { findPublished } from '../../../../scripts/checkReleaseVersions.mjs'
 import { finalizeManifest } from '../../../../scripts/finalizeReleaseManifest.mjs'
+import { fetchPublicGitHubRelease, validateGitHubRelease } from '../../../../scripts/verifyGitHubRelease.mjs'
 import { releaseInventory } from '../../../../scripts/releaseInventory.mjs'
 import { ensureRemoteReleaseTags } from '../../../../scripts/releaseTags.mjs'
 import { validateProvenance } from '../../../../scripts/verifyNpmRelease.mjs'
@@ -22,18 +23,39 @@ const inventory = releaseInventory()
 const npm = Object.fromEntries(inventory.packages.npm.filter((pkg) => pkg.publish).map((pkg) => [pkg.name, '9.9.9-rc.1']))
 const pypi = Object.fromEntries(inventory.packages.pypi.filter((pkg) => pkg.publish).map((pkg) => [pkg.name, '9.9.9rc1']))
 const go = Object.fromEntries(inventory.packages.go.filter((pkg) => pkg.publish).map((pkg) => [pkg.module, '9.9.9-rc.1']))
+const containers = Object.fromEntries(
+  inventory.config.product.containers
+    .filter((container) => container.name !== 'runtime')
+    .map((container) => [container.name, '9.9.9-rc.1']),
+)
+const images = Object.fromEntries(
+  inventory.config.product.containers.map((container) => [container.name, `ghcr.io/garudex-labs/caracal-${container.name}:v9.9.9-rc.1`]),
+)
 const manifest = {
   release: 'v9.9.9-rc.1',
   mode: 'rc',
   version: '9.9.9-rc.1',
   generatedAt: '2026-07-11T00:00:00.000Z',
+  registries: {
+    npm: 'https://registry.npmjs.org/',
+    pypi: 'https://pypi.org/simple/',
+    oci: 'ghcr.io/garudex-labs',
+    githubReleases: 'https://github.com/Garudex-Labs/caracal/releases/download',
+  },
   binaries: { runtime: '9.9.9-rc.1' },
   runtimeImage: '9.9.9-rc.1',
-  containers: { node: '9.9.9-rc.1' },
+  containers,
   helm: { chartVersion: '9.9.9-rc.1', appVersion: '9.9.9-rc.1', imageTag: '9.9.9-rc.1' },
+  images,
+  npm,
+  pypi,
   packages: {
     published: { npm, pypi, go },
     unchanged: { npm: {}, pypi: {}, go: {} },
+  },
+  githubRelease: {
+    tag: 'v9.9.9-rc.1',
+    assets: 'https://github.com/Garudex-Labs/caracal/releases/download/v9.9.9-rc.1',
   },
 }
 
@@ -129,6 +151,22 @@ describe('release manifest finalization', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('does not match product.version')
   })
+
+  it('rejects an incomplete image inventory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'caracal-release-'))
+    const path = join(dir, 'manifest.json')
+    const incomplete = structuredClone(manifest)
+    Reflect.deleteProperty(incomplete.images, 'runtime')
+    writeFileSync(path, `${JSON.stringify(incomplete)}\n`)
+
+    const result = spawnSync(process.execPath, ['scripts/validateReleaseManifest.mjs', path], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('images keys')
+  })
 })
 
 describe('release registry preflight', () => {
@@ -196,6 +234,39 @@ describe('npm release provenance', () => {
         { name, version, sha, tag },
       ),
     ).not.toThrow()
+  })
+})
+
+describe('GitHub Release publication', () => {
+  it('rejects a draft or incorrect release classification', () => {
+    expect(() => validateGitHubRelease({ tag_name: 'v9.9.9-rc.1', draft: true, prerelease: true }, 'v9.9.9-rc.1', 'rc')).toThrow(
+      'still a draft',
+    )
+    expect(() => validateGitHubRelease({ tag_name: 'v9.9.9-rc.1', draft: false, prerelease: false }, 'v9.9.9-rc.1', 'rc')).toThrow(
+      'expected true',
+    )
+  })
+
+  it('verifies public visibility without sending authorization', async () => {
+    let authorization: string | undefined
+    let accept: string | undefined
+    const server = createServer((request, response) => {
+      authorization = request.headers.authorization
+      accept = request.headers.accept
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ tag_name: 'v9.9.9-rc.1', draft: false, prerelease: true }))
+    })
+    servers.push(server)
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('test GitHub API did not bind a TCP port')
+
+    await expect(fetchPublicGitHubRelease(`http://127.0.0.1:${address.port}/release`, 'v9.9.9-rc.1', 'rc')).resolves.toMatchObject({
+      draft: false,
+      prerelease: true,
+    })
+    expect(authorization).toBeUndefined()
+    expect(accept).toBe('application/vnd.github+json')
   })
 })
 
