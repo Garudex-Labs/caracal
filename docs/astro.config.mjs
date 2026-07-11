@@ -6,6 +6,7 @@
  */
 
 import { defineConfig } from 'astro/config'
+import { unified } from '@astrojs/markdown-remark'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
@@ -18,7 +19,7 @@ import { docsShellPlugin, docsSnapshotMode, docsVersionState, starlightVersionsC
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
-  'The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.'
+  'Caracal gives agents and automated workloads short-lived, policy-approved authority for protected resources.'
 const legacyRedirects = {
   '/get-started/choose-your-path/': '/get-started/',
   '/get-started/welcome/': '/get-started/',
@@ -34,14 +35,19 @@ const legacyRedirects = {
   '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
   '/guides/model-application/': '/guides/modeling-recipes/',
   '/guides/debug-authorization/': '/guides/authorize-access/',
-  '/guides/production-integration-patterns/': '/guides/enterprise-runtime-patterns/',
+  '/guides/production-integration-patterns/': '/guides/production-patterns/',
+  '/guides/enterprise-runtime-patterns/': '/guides/production-patterns/',
+  '/operations/enterprise-install-kit/': '/operations/install-kit/',
+  '/enterprise/': '/security/adoption-review/',
+  '/enterprise/compliance-readiness/': '/security/adoption-review/',
+  '/security/enterprise-readiness/': '/security/adoption-review/',
 }
 
 export default defineConfig({
   output: 'static',
   redirects: docsSnapshotMode ? {} : versionedRedirects(legacyRedirects, new URL('./src/content/docs/', import.meta.url).pathname),
   markdown: {
-    remarkPlugins: [remarkGfm, remarkMermaid, remarkDocsRoutes],
+    processor: unified({ remarkPlugins: [remarkGfm, remarkMermaid, remarkDocsRoutes] }),
   },
   site,
   trailingSlash: 'always',
@@ -111,7 +117,7 @@ export default defineConfig({
             author: { '@type': 'Organization', name: 'Garudex Labs' },
             license: 'https://www.apache.org/licenses/LICENSE-2.0',
             applicationCategory: 'DeveloperApplication',
-            operatingSystem: 'Linux, macOS',
+            operatingSystem: 'Linux, macOS, Windows',
             programmingLanguage: ['Go', 'TypeScript', 'Python'],
           }),
         },
@@ -126,6 +132,7 @@ export default defineConfig({
         Head: './src/components/Head.astro',
         Header: './src/components/Header.astro',
         Hero: './src/components/Hero.astro',
+        MobileMenuToggle: './src/components/MobileMenuToggle.astro',
         SiteTitle: './src/components/SiteTitle.astro',
         ThemeSelect: './src/components/ThemeSelectWithVersion.astro',
         Footer: './src/components/DocFooter.astro',
@@ -205,7 +212,7 @@ export default defineConfig({
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
                 { label: 'Human Approvals', link: '/guides/step-up/' },
                 { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
-                { label: 'Production Integration Patterns', link: '/guides/enterprise-runtime-patterns/' },
+                { label: 'Production Integration Patterns', link: '/guides/production-patterns/' },
               ],
             },
           ],
@@ -334,7 +341,7 @@ export default defineConfig({
                 { label: 'Provision with OpenTofu', link: '/operations/opentofu/' },
                 { label: 'Choose a Cloud Profile', link: '/operations/cloud-native-profiles/' },
                 { label: 'Deploy on Managed Kubernetes', link: '/operations/cloud-reference-deployments/' },
-                { label: 'Package an Install Kit', link: '/operations/enterprise-install-kit/' },
+                { label: 'Package an Install Kit', link: '/operations/install-kit/' },
               ],
             },
             {
@@ -392,8 +399,8 @@ export default defineConfig({
             { label: 'Harden Security Posture', link: '/security/hardening/' },
             { label: 'Verify a Release', link: '/security/verify-releases/' },
             { label: 'Generate an Evidence Pack', link: '/security/evidence-pack/' },
+            { label: 'Review OSS Adoption Readiness', link: '/security/adoption-review/' },
             { label: 'Report a Vulnerability', link: '/security/disclosure/' },
-            { label: 'Enterprise Security Readiness', link: '/security/enterprise-readiness/' },
           ],
         },
         {
@@ -484,14 +491,6 @@ export default defineConfig({
                 { label: 'Compatibility', link: '/reference/compatibility/' },
                 { label: 'Release Map', link: '/reference/release-package-runtime-map/' },
                 { label: 'Wire Contracts', link: '/reference/interoperability-contracts/' },
-              ],
-            },
-            {
-              label: 'Enterprise Adoption',
-              collapsed: true,
-              items: [
-                { label: 'Compare Editions', link: '/enterprise/' },
-                { label: 'Compliance and Operations Readiness', link: '/enterprise/compliance-readiness/' },
               ],
             },
           ],

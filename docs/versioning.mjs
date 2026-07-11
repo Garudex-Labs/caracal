@@ -137,12 +137,15 @@ export function versionedRedirects(legacyRedirects, sourceDir, state = docsVersi
   const version = state.current ?? state.target
   if (!version) return legacyRedirects
 
-  const redirects = Object.fromEntries(
-    Object.entries(legacyRedirects).map(([source, destination]) => [
-      source,
-      destination.startsWith('/') ? `/${version}${destination}` : destination,
-    ]),
-  )
+  const snapshotDir = join(sourceDir, version)
+  const snapshotRoutes = existsSync(snapshotDir) ? new Set(sourceDocRoutes(snapshotDir, state)) : new Set()
+  const redirects = {}
+
+  for (const [source, destination] of Object.entries(legacyRedirects)) {
+    const target = destination.startsWith('/') ? `/${version}${destination}` : destination
+    redirects[source] = target
+    if (!snapshotRoutes.has(source)) redirects[`/${version}${source}`] = target
+  }
 
   for (const route of sourceDocRoutes(sourceDir, state)) {
     redirects[route] = route === '/' ? `/${version}/` : `/${version}${route}`
