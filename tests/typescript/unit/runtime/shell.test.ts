@@ -16,7 +16,6 @@ const state = vi.hoisted(() => ({
   upgradeCommand: vi.fn(),
   purgeCommand: vi.fn(),
   allowlistCommand: vi.fn(),
-  configCommand: vi.fn(),
   webCommand: vi.fn(),
   webInterfaceAvailable: vi.fn(() => true),
 }))
@@ -33,7 +32,6 @@ vi.mock('@caracalai/engine/commands', () => ({
     { name: 'purge', summary: 'purge', group: 'runtime' },
     { name: 'allowlist', summary: 'allowlist', group: 'stack', requiresArgs: true },
     { name: 'run', summary: 'run', group: 'runtime', requiresArgs: true, requiresConfig: true },
-    { name: 'config', summary: 'config', group: 'runtime' },
     { name: 'web', summary: 'web', group: 'runtime' },
   ],
 }))
@@ -51,7 +49,6 @@ vi.mock('../../../../apps/runtime/src/commands/stack.ts', () => ({
 }))
 vi.mock('../../../../apps/runtime/src/commands/purge.ts', () => ({ purgeCommand: state.purgeCommand }))
 vi.mock('../../../../apps/runtime/src/commands/allowlist.ts', () => ({ allowlistCommand: state.allowlistCommand }))
-vi.mock('../../../../apps/runtime/src/commands/config.ts', () => ({ configCommand: state.configCommand }))
 vi.mock('../../../../apps/runtime/src/commands/web.ts', () => ({
   webCommand: state.webCommand,
   webInterfaceAvailable: state.webInterfaceAvailable,
