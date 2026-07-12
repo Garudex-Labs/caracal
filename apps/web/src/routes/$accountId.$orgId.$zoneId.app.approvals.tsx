@@ -22,6 +22,7 @@ import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import { Badge, Button, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { appLink } from "@/platform/nav/appLink";
 import { relativeTime } from "@/lib/time";
+import { requestedAuthority, sessionLineage } from "@/lib/approvalMetadata";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
 import {
   useApplications,
@@ -87,29 +88,6 @@ function isDecidable(challenge: StepUpChallenge): boolean {
 // The instant a hold reached its recorded state, used to order settled holds in the list.
 function decidedAt(challenge: StepUpChallenge): string | null {
   return challenge.consumed_at ?? challenge.rejected_at ?? challenge.satisfied_at;
-}
-
-// Requested scopes and resources travel in the challenge metadata as authorization facts.
-// Anything else in the metadata stays visible through the raw record, not the summary.
-function requestedAuthority(challenge: StepUpChallenge): { scopes: string[]; resources: string[] } {
-  const meta = challenge.metadata_json;
-  const pick = (key: string): string[] => {
-    const value = meta?.[key];
-    if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
-    return typeof value === "string" && value ? [value] : [];
-  };
-  return { scopes: pick("requested_scopes"), resources: pick("resources") };
-}
-
-// The requesting session run, when the exchange carried lineage. Lets an approver jump from
-// the hold to the exact run asking for authority before deciding.
-function sessionLineage(challenge: StepUpChallenge): { session?: string; edge?: string } {
-  const meta = challenge.metadata_json;
-  if (!meta) return {};
-  return {
-    session: typeof meta.id === "string" ? meta.id : undefined,
-    edge: typeof meta.delegation_edge_id === "string" ? meta.delegation_edge_id : undefined,
-  };
 }
 
 function ApprovalsPage({ zoneId }: { zoneId: string }) {

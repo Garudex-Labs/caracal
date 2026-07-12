@@ -967,8 +967,11 @@ function EndpointStatusBar() {
       <Card>
         <div className="text-sm font-medium text-foreground">Management unavailable</div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Control endpoint management is unavailable on this host. Keys can still be created and
-          used against a running Control endpoint.
+          The console can enable or disable the Control endpoint only from the host that holds the
+          managed admin credential, which this deployment keeps off the web tier. Turn it on where
+          the stack runs by creating the Control gate marker (the runtime CONTROL_GATE_FILE, i.e.
+          control/enabled under the Caracal home directory); it takes effect without a restart. Keys
+          can still be created below and used once the endpoint is running.
         </p>
       </Card>
     );

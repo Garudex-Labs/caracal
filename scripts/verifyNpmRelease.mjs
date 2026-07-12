@@ -11,7 +11,8 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 function packageUrl(name, version) {
-  return `https://registry.npmjs.org/${encodeURIComponent(name).replace('%40', '@')}/${encodeURIComponent(version)}`
+  const path = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name)
+  return `https://registry.npmjs.org/${path}/${encodeURIComponent(version)}`
 }
 
 function packagePurl(name, version) {

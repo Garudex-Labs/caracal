@@ -63,7 +63,7 @@ function plan(options) {
 
 function endpoint(pkg, options) {
   if (pkg.ecosystem === 'npm') {
-    const name = encodeURIComponent(pkg.name).replace('%40', '@')
+    const name = pkg.name.startsWith('@') ? `@${encodeURIComponent(pkg.name.slice(1))}` : encodeURIComponent(pkg.name)
     return new URL(`${name}/${encodeURIComponent(pkg.version)}`, ensureSlash(options.npmRegistry))
   }
   return new URL(`${encodeURIComponent(pkg.name)}/${encodeURIComponent(pkg.version)}/json`, ensureSlash(options.pypiApi))
