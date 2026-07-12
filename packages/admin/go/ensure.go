@@ -252,6 +252,7 @@ type ResourceEnsure struct {
 	Scopes               []string
 	UpstreamURL          *string
 	CredentialProviderID *string
+	Operations           []ResourceOperation
 	OperationEnforcement *string
 }
 
@@ -273,6 +274,9 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 		if value != nil {
 			desired[key] = *value
 		}
+	}
+	if input.Operations != nil {
+		desired["operations"] = input.Operations
 	}
 	resources, err := client.Resources.List(ctx, zoneID)
 	if err != nil {
@@ -306,10 +310,34 @@ func EnsureResource(ctx context.Context, client *AdminClient, zoneID string, inp
 			drifted = true
 		}
 	}
+	if input.Operations != nil && !sameOperations(existing.Operations, input.Operations) {
+		drifted = true
+	}
 	if !drifted {
 		return existing, nil
 	}
 	return client.Resources.Patch(ctx, zoneID, existing.ID, desired)
+}
+
+func sameOperations(live, desired []ResourceOperation) bool {
+	canonical := func(ops []ResourceOperation) []string {
+		lines := make([]string, 0, len(ops))
+		for _, op := range ops {
+			lines = append(lines, strings.ToUpper(op.Method)+" "+op.Path+" "+op.Scope)
+		}
+		sort.Strings(lines)
+		return lines
+	}
+	left, right := canonical(live), canonical(desired)
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // ActivePolicySetEnsure is the desired state for EnsureActivePolicySet.
@@ -426,9 +454,12 @@ type ResourceGrant struct {
 // AuthorGrantsDocument authors the zone's grant data document: the platform
 // decision contract reads app_ids and grants to authorize data-plane
 // exchanges, and this renders them so no caller ever touches the document
-// format. Deterministic - roles, resources, and scopes are sorted and
-// rendered as canonical JSON - so an unchanged grant set produces an
-// identical document and the reconciler adds no new policy version.
+// format. app_ids binds one key per application - the application id itself -
+// so an application holding several roles across resources still resolves to
+// a single binding key. Deterministic - applications, roles, resources, and
+// scopes are sorted and rendered as canonical JSON - so an unchanged grant
+// set produces an identical document and the reconciler adds no new policy
+// version.
 func AuthorGrantsDocument(grants []ResourceGrant) (string, error) {
 	appIDs := map[string]string{}
 	type resourceEntry struct {
@@ -441,14 +472,14 @@ func AuthorGrantsDocument(grants []ResourceGrant) (string, error) {
 		if role == "" {
 			role = grant.ApplicationID
 		}
-		if owner, ok := appIDs[role]; ok && owner != grant.ApplicationID {
-			return "", fmt.Errorf("grant role '%s' is claimed by two applications", role)
-		}
-		appIDs[role] = grant.ApplicationID
+		appIDs[grant.ApplicationID] = grant.ApplicationID
 		entry, ok := byResource[grant.ResourceIdentifier]
 		if !ok {
-			entry = &resourceEntry{application: role, roles: map[string]map[string]struct{}{}}
+			entry = &resourceEntry{application: grant.ApplicationID, roles: map[string]map[string]struct{}{}}
 			byResource[grant.ResourceIdentifier] = entry
+		}
+		if entry.application != grant.ApplicationID {
+			return "", fmt.Errorf("resource '%s' is claimed by two applications", grant.ResourceIdentifier)
 		}
 		scopes, ok := entry.roles[role]
 		if !ok {

@@ -243,7 +243,8 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	result, evalErr := s.opa.Evaluate(ctx, opaInput)
 	bundle := s.opa.BundleInfo(zoneID)
 	if evalErr != nil {
-		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{}, resourceMeta, bundle); auditErr != nil {
+		s.log.Error().Err(evalErr).Str("request_id", requestID).Str("zone_id", zoneID).Msg("policy evaluation failed")
+		if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", policyEvalFailure(evalErr), resourceMeta, bundle); auditErr != nil {
 			writeError(w, http.StatusInternalServerError, auditErr)
 			return
 		}

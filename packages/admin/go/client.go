@@ -348,13 +348,22 @@ type Provider struct {
 // Resource is the admin API resource row subset the provisioning surface
 // reads. Nullable columns are pointers so absence and empty stay distinct.
 type Resource struct {
-	ID                   string   `json:"id"`
-	Name                 string   `json:"name"`
-	Identifier           string   `json:"identifier"`
-	Scopes               []string `json:"scopes"`
-	UpstreamURL          *string  `json:"upstream_url"`
-	CredentialProviderID *string  `json:"credential_provider_id"`
-	OperationEnforcement *string  `json:"operation_enforcement"`
+	ID                   string              `json:"id"`
+	Name                 string              `json:"name"`
+	Identifier           string              `json:"identifier"`
+	Scopes               []string            `json:"scopes"`
+	UpstreamURL          *string             `json:"upstream_url"`
+	CredentialProviderID *string             `json:"credential_provider_id"`
+	Operations           []ResourceOperation `json:"operations"`
+	OperationEnforcement *string             `json:"operation_enforcement"`
+}
+
+// ResourceOperation binds one upstream HTTP operation to the scope a mandate
+// must carry to use it.
+type ResourceOperation struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Scope  string `json:"scope"`
 }
 
 // Policy is the admin API policy list row.

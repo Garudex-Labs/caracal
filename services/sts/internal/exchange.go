@@ -627,7 +627,9 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 		result, evalErr := s.opa.Evaluate(ctx, opaInput)
 		if evalErr != nil {
-			if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", &OPAResult{},
+			s.log.Error().Err(evalErr).Str("request_id", requestID).Str("zone_id", zoneID).
+				Str("resource", resource.Identifier).Msg("policy evaluation failed")
+			if auditErr := s.emitAuditEventWithBundle(requestID, zoneID, "deny", "policy_eval_failed", policyEvalFailure(evalErr),
 				mergeAuditMeta(appMeta, map[string]any{"resource": resource.Identifier}), bundle); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
@@ -1611,6 +1613,18 @@ func isControlKeyExchange(app *Application, req TokenExchangeRequest, resource *
 
 func (s *Server) emitAuditEvent(requestID, zoneID, decision, status string, result *OPAResult, meta map[string]any) *sharederr.CaracalError {
 	return s.emitAuditEventWithBundle(requestID, zoneID, decision, status, result, meta, ZoneBundleInfo{})
+}
+
+// policyEvalFailure shapes an engine evaluation error as the audit-visible result of a
+// failed decision, so a policy_eval_failed event names its cause instead of carrying
+// empty diagnostics an operator cannot act on. The error text describes the evaluation
+// fault (a data document multiplying rule outputs, an engine limit), never a secret.
+func policyEvalFailure(evalErr error) *OPAResult {
+	return &OPAResult{
+		Decision:         "deny",
+		EvaluationStatus: "policy_eval_failed",
+		Diagnostics:      []map[string]any{{"error": evalErr.Error()}},
+	}
 }
 
 // emitStepUpAudit records a step-up lifecycle transition (issued, decided, consumed) as

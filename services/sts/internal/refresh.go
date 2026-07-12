@@ -13,6 +13,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
@@ -25,7 +26,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
@@ -623,6 +626,9 @@ func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Clien
 		},
 		TLSHandshakeTimeout: timeout,
 	}
+	if pool := extraCARoots(); pool != nil {
+		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
@@ -630,6 +636,38 @@ func safeHTTPClient(timeout time.Duration, privateHosts ...[]string) *http.Clien
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// extraCARoots resolves the trust roots for STS egress TLS once per process. When
+// CARACAL_TLS_EXTRA_CA_FILE names a readable PEM bundle, its certificates are appended
+// to the system pool, so a deployment can trust a private certificate authority - a
+// subject issuer or provider endpoint behind internal PKI - without replacing public
+// trust. Absent configuration keeps the system pool untouched; a named file that
+// cannot be loaded fails egress closed rather than silently ignoring the operator's
+// stated trust intent.
+var extraCARoots = sync.OnceValue(func() *x509.CertPool {
+	return loadExtraCARoots(strings.TrimSpace(os.Getenv("CARACAL_TLS_EXTRA_CA_FILE")))
+})
+
+func loadExtraCARoots(path string) *x509.CertPool {
+	if path == "" {
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	bundle, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(bundle) {
+		return x509.NewCertPool()
+	}
+	return pool
 }
 
 func hostAllowed(host string, allowed []string) bool {
