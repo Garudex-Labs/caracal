@@ -49,12 +49,12 @@ Every `caracal` command - `up`, `web`, and `run` - loads one operator env file a
 | **Released (host)** | `$CARACAL_HOME/caracal.env` (created `0600` on first `caracal up`), or a path you set with `CARACAL_ENV_FILE` | Inline in that file, or `CARACAL_WORKLOAD_SECRET_FILE` |
 | **Cloud** | Orchestrator env - a Kubernetes `env` block (Helm `web.extraEnv`) or an ECS task definition | A secret manager mounted read-only (`defaultMode: 0400`) via `CARACAL_WORKLOAD_SECRET_FILE`, or `valueFrom.secretKeyRef` |
 
-Edit the host file from any OS with `caracal config`:
+On a released host the file lives outside your project, so open it in your editor - it is plain `KEY=VALUE`:
 
 ```bash
-caracal config set CARACAL_WORKLOAD_ID fiona
-caracal config list          # secret values are masked
-caracal config path          # print the file location
+${EDITOR:-nano} ~/.local/share/caracal/caracal.env                 # Linux
+${EDITOR:-nano} ~/Library/Application\ Support/caracal/caracal.env  # macOS
+notepad $env:LOCALAPPDATA\caracal\caracal.env                      # Windows (PowerShell)
 ```
 
 For release and cloud, set `CARACAL_ENV=production`: it disables the auto-detected local secret file so a launch fails closed unless it names an explicit secret source. Caracal never auto-loads a `.env` from the current working directory (a footgun for a credential tool) and requires secret files to be owner-only.
