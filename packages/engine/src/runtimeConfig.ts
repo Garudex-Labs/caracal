@@ -42,7 +42,7 @@ const BLOCKED_CREDENTIAL_ENV = new Set([
 ])
 
 const CONFIG_MISSING_MESSAGE =
-  'workload identity not found; caracal run authenticates with a workload id and secret. Create a launcher workload in the Caracal web console, define its credential bindings, then set CARACAL_WORKLOAD_ID and provide the secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the owner-only default file under the OS Caracal config directory. Set CARACAL_STS_URL only when STS is not the local default.'
+  'workload identity not found; set CARACAL_WORKLOAD_ID and provide its secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the owner-only default file. Create the launcher workload and its bindings in the web console.'
 
 export class RuntimeConfigValidationError extends CaracalError {
   readonly source: string

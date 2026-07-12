@@ -278,10 +278,8 @@ function printWebUsage(): void {
     '  --allow-offline      Launch the sign-in UI without Console data when the stack is down',
     '  -h, --help           Show help',
     '',
-    'The web console proxies the local control plane started by `caracal up`.',
-    'It serves on the same port as the packaged console (3001); while it runs it stops the',
-    'packaged web container so the two never contend for the port. The container stays stopped',
-    'after you quit, so run `caracal up` to bring the packaged console back.',
+    'Serves on the packaged console port (3001); while it runs it stops the packaged',
+    'web container to avoid a clash, so run `caracal up` afterward to restore it.',
     '',
   ]
   process.stdout.write(lines.join('\n') + '\n')

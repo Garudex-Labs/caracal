@@ -12,36 +12,22 @@ import { printError } from '../style.ts'
 
 const RUN_HELP = `Usage: caracal run [--] <command> [args...]
 
-Launch <command> with short-lived provider credentials injected as environment variables.
-
-caracal run launches workloads. It authenticates with the workload id and
-secret (a workload is the launcher identity for software started this way),
-fetches the credential bindings authored for that workload in the web console,
-mints each bound provider credential under least-privilege scopes, injects
-them into the environment variables named by the bindings, starts the command
-with a scrubbed environment (PATH-like allowlist plus injected credentials, no
-other variables), forwards SIGINT/SIGTERM/SIGHUP/SIGQUIT, and exits with the
-command's exit code.
-
-It does not manage zones, applications, resources, policies, or providers (use the
-web console), does not renew credentials after launch (long-running workloads use a
-Caracal SDK, which re-exchanges on demand), and does not supervise or restart the
-command.
-
-Use -- to separate Caracal from the command when the command takes its own flags.
+Runs <command> with short-lived provider credentials injected as environment
+variables, then exits with its status. Credentials are not renewed after launch;
+long-running workloads should use a Caracal SDK. Use -- before commands that take
+their own flags.
 
 Examples:
   caracal run -- node agent.js --model=gpt-4o-mini
   caracal run python tool.py --serve
-  caracal run -- printenv OPENAI_API_KEY
 
 Configuration:
-  The workload carries only its identity. Set CARACAL_WORKLOAD_ID and provide
-  the secret via CARACAL_WORKLOAD_SECRET, CARACAL_WORKLOAD_SECRET_FILE, or the
-  owner-only default file under the OS Caracal config directory. Everything
-  else (zone, resources, scopes, env names) lives in the launcher's bindings on
-  the Launcher page in the web console. Set CARACAL_STS_URL only when STS is
-  not the local default.
+  CARACAL_WORKLOAD_ID          Workload identity (required)
+  CARACAL_WORKLOAD_SECRET      Workload secret (or _FILE, or the default file)
+  CARACAL_STS_URL              STS endpoint (only if not the local default)
+
+Bindings (zone, resources, scopes, env names) live on the Launcher page in the
+web console.
 `
 
 function isHelpToken(arg: string | undefined): boolean {
