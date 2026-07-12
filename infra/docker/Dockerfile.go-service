@@ -4,7 +4,7 @@
 # Unified Go service image carrying the sts, gateway, and audit binaries; the run command selects the role.
 
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS builder
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS builder
 ARG CGO_ENABLED=0
 ARG CC
 ARG CFLAGS
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     done && \
     cd /healthcheck && GOWORK=off go build -mod=readonly -trimpath ${GO_BUILDFLAGS} -ldflags="${GO_LDFLAGS}" -o /healthcheck-bin ./
 
-FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS rootfs
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS rootfs
 ARG STATE_DIRS="audit-replay"
 RUN set -e; mkdir -p /rootfs/var/lib/caracal; \
     for d in ${STATE_DIRS}; do mkdir -p "/rootfs/var/lib/caracal/${d}"; done
