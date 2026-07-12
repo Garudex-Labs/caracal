@@ -120,6 +120,44 @@ describe('applications list', () => {
   })
 })
 
+describe('delegations impact mapping', () => {
+  it('maps the coordinator snake_case impact envelope to the DelegationImpact shape the inspector reads', async () => {
+    // The coordinator returns edge_id/affected_edges/affected_sessions/affected_authority_records; the
+    // inspector reads delegationId/affectedDelegations/affectedSessions/affectedAuthorityRecords and calls
+    // .length on affectedDelegations. Without this mapping affectedDelegations is undefined and the
+    // delegation detail view crashes the whole console page.
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(200, {
+        edge_id: 'edge-1',
+        affected_edges: [
+          { id: 'edge-1', source_session_id: 'sess-a', target_session_id: 'sess-b', depth: 1 },
+          { id: 'edge-2', source_session_id: 'sess-b', target_session_id: 'sess-c', depth: 2 },
+        ],
+        affected_sessions: ['sess-b', 'sess-c'],
+        affected_authority_records: ['auth-1'],
+      }),
+    )
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const impact = await consoleApi.delegations.impact('z1', 'edge-1')
+
+    expect(impact.delegationId).toBe('edge-1')
+    expect(impact.affectedDelegations).toHaveLength(2)
+    expect(impact.affectedDelegations[0]).toMatchObject({ id: 'edge-1', target_session_id: 'sess-b', depth: 1 })
+    expect(impact.affectedSessions).toEqual(['sess-b', 'sess-c'])
+    expect(impact.affectedAuthorityRecords).toEqual(['auth-1'])
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/coord/zones/z1/delegations/edge-1/impact')
+  })
+
+  it('coerces missing arrays to empty so the inspector never reads length of undefined', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(200, { edge_id: 'edge-9' })) as unknown as typeof fetch
+    const impact = await consoleApi.delegations.impact('z1', 'edge-9')
+    expect(impact.affectedDelegations).toEqual([])
+    expect(impact.affectedSessions).toEqual([])
+    expect(impact.affectedAuthorityRecords).toEqual([])
+  })
+})
+
 describe('operator capabilities', () => {
   it('reports whether the operator service is enabled', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(200, { enabled: false }))

@@ -1337,10 +1337,20 @@ export const consoleApi = {
       request<DelegationHop[]>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/traverse`,
       ),
-    impact: (zoneId: string, id: string) =>
-      request<DelegationImpact>(
-        `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/impact`,
-      ),
+    impact: async (zoneId: string, id: string): Promise<DelegationImpact> => {
+      const raw = await request<{
+        edge_id: string;
+        affected_edges: DelegationHop[];
+        affected_sessions: string[];
+        affected_authority_records: string[];
+      }>(`/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/impact`);
+      return {
+        delegationId: raw.edge_id,
+        affectedDelegations: raw.affected_edges ?? [],
+        affectedSessions: raw.affected_sessions ?? [],
+        affectedAuthorityRecords: raw.affected_authority_records ?? [],
+      };
+    },
     revoke: (zoneId: string, id: string) =>
       request<DelegationEdge>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/revoke`,

@@ -8,7 +8,7 @@
 
 <div align="center">
 
-**Authority, not credentials: the identity and authorization layer for AI agents**
+**Authority, not credentials: Policy-checked, attributable, revocable, provable AI agent authorization.**
 
 </div>
 
