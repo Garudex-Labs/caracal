@@ -24,6 +24,8 @@ Open **Subjects** and search by identity or kind. A Subject detail groups Author
 
 Use the Subject kill switch for credential compromise or offboarding when individual cleanup would be unsafe. The implemented cascade revokes live Authority records, terminates linked Sessions, revokes Delegations, and revokes provider connections. Confirm the selected Subject and zone before acting.
 
+The kill switch ends authority that already exists; it does not disable the credential behind it. A Subject backed by an application can establish fresh authority on its next exchange, so containing a compromised application credential also requires rotating that application's secret from its detail panel in the same intervention.
+
 Subjects are supplied by the application's identity system or fall back to application identity when no accepted subject token is exchanged. The console does not authenticate those end users.
 
 ## Intervene in Sessions
