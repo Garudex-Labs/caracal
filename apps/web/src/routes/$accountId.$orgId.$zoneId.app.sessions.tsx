@@ -39,7 +39,7 @@ import { cx } from "@/lib/cx";
 import { auditDecisionTone, auditEventContext, auditEventLabel } from "@/lib/auditPresentation";
 import { relativeTime } from "@/lib/time";
 import { ConsoleApiError } from "@/platform/api/client";
-import { coordinatorErrorMessage as errorMessage } from "@/platform/api/errors";
+import { coordinatorErrorMessage } from "@/platform/api/errors";
 import {
   useSessionActivity,
   useSessionChildren,
@@ -360,7 +360,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         action === "suspend" ? "suspended" : action === "resume" ? "resumed" : "terminated";
       toast({ tone: action === "terminate" ? "info" : "success", title: `Session ${verb}` });
     } catch (err) {
-      toast({ tone: "error", title: "Action failed", description: errorMessage(err) });
+      toast({ tone: "error", title: "Action failed", description: coordinatorErrorMessage(err) });
     }
   }
 
@@ -513,7 +513,7 @@ function SessionsPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
         empty={{
           title: feed.isError ? "Could not load sessions" : "No sessions",
           description: feed.isError
-            ? errorMessage(feed.error)
+            ? coordinatorErrorMessage(feed.error)
             : "Sessions appear here as the Coordinator starts them in this zone.",
         }}
         detail={{
@@ -740,7 +740,7 @@ function DelegationPage({ zoneId, tabs }: { zoneId: string; tabs: ReactNode }) {
       empty={{
         title: feed.isError ? "Could not load delegations" : "No active delegations",
         description: feed.isError
-          ? errorMessage(feed.error)
+          ? coordinatorErrorMessage(feed.error)
           : "When sessions delegate authority to one another, the active delegations appear here with their chains and impact.",
       }}
       detail={{
@@ -1048,7 +1048,9 @@ function AuthorityEnvelope({
       {authority.isLoading ? (
         <Skeleton className="mt-3 h-20 w-full" />
       ) : authority.isError ? (
-        <p className="mt-2 text-sm text-muted-foreground">{errorMessage(authority.error)}</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {coordinatorErrorMessage(authority.error)}
+        </p>
       ) : authority.data ? (
         (() => {
           const a = authority.data;
