@@ -105,14 +105,16 @@ export async function dispatch(opts: DispatchOptions, rawArgs: readonly string[]
   }
 
   const binding = opts.registry.byName.get(command)!
-  // A leading help token, or a missing required operand, must reach the command's own
-  // help/usage path without first demanding runtime config the user has no chance to supply.
+  // Only commands that declare requiresConfig resolve the workload identity; every other
+  // command ignores cfg, and resolving it would fail whenever a workload id is present in the
+  // operator env file without a matching secret. A leading help token or a missing required
+  // operand still reaches the command's own help/usage path first.
   const operands = rest[0] === '--' ? rest.slice(1) : rest
   const skipConfig = isHelpToken(rest[0]) || ((binding.descriptor.requiresArgs ?? false) && operands.length === 0)
   let cfg: RuntimeIdentity | undefined
-  if (opts.loadConfig && !skipConfig) {
+  if (opts.loadConfig && (binding.descriptor.requiresConfig ?? false) && !skipConfig) {
     try {
-      cfg = loadConfig(binding.descriptor.requiresConfig ?? false)
+      cfg = loadConfig(true)
     } catch (err) {
       if (err instanceof RuntimeConfigMissingError || err instanceof RuntimeConfigValidationError) {
         printError(err.message)

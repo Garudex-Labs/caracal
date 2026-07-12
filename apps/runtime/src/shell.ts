@@ -11,13 +11,20 @@ import { runCommand } from './commands/run.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { allowlistCommand } from './commands/allowlist.ts'
+import { configCommand } from './commands/config.ts'
 import { webCommand, webInterfaceAvailable } from './commands/web.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { SHELL_COMMANDS } from '@caracalai/engine/commands'
+import { loadOperatorEnv } from '@caracalai/engine/operatorEnv'
 import { buildRegistry, type Executor } from './registry.ts'
 import { dispatch } from './dispatcher.ts'
 
 installCrashHandlers('caracal')
+
+// Load the operator env file ($CARACAL_HOME/caracal.env, or CARACAL_ENV_FILE) so run, web,
+// and up share one configuration source. Runs after scrubCwdEnv strips untrusted
+// working-directory dotenv values, and never overrides variables already in the environment.
+loadOperatorEnv()
 
 const executors: Record<string, Executor> = {
   up: (argv) => upCommand([...argv]),
@@ -27,6 +34,7 @@ const executors: Record<string, Executor> = {
   purge: (argv) => purgeCommand([...argv]),
   allowlist: (argv) => allowlistCommand([...argv]),
   run: (argv, cfg) => runCommand([...argv], cfg),
+  config: (argv) => configCommand([...argv]),
   web: (argv) => {
     void webCommand([...argv])
   },
@@ -36,7 +44,17 @@ const executors: Record<string, Executor> = {
 // exists in the canonical surface and the workspace packages are present, so the
 // registry's descriptor/executor symmetry holds in every build.
 const webAvailable = webInterfaceAvailable() && SHELL_COMMANDS.some((command) => command.name === 'web')
-const availableCommands = new Set(['up', 'down', 'status', 'upgrade', 'purge', 'allowlist', 'run', ...(webAvailable ? ['web'] : [])])
+const availableCommands = new Set([
+  'up',
+  'down',
+  'status',
+  'upgrade',
+  'purge',
+  'allowlist',
+  'run',
+  'config',
+  ...(webAvailable ? ['web'] : []),
+])
 const shellCommands = SHELL_COMMANDS.filter((command) => availableCommands.has(command.name))
 const shellExecutors = Object.fromEntries(Object.entries(executors).filter(([name]) => availableCommands.has(name)))
 const registry = buildRegistry(shellCommands, shellExecutors)

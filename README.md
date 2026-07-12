@@ -144,14 +144,14 @@ caracal down                          # stop; add -v to remove volumes
 caracal purge                         # interactive cleanup (containers, volumes, config, runtime, caches)
 ```
 
-Before the first sign-in, configure a sign-in method (Google/GitHub OAuth or email/password with SMTP) in `$CARACAL_HOME/caracal.env`, then allowlist your email. See [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
+Before your first sign-in, enable Google/GitHub OAuth or email/password (with SMTP) in `$CARACAL_HOME/caracal.env`, then allowlist your email. See [First Protected Call](https://docs.caracal.run/get-started/first-protected-call/#sign-in-and-create-your-first-zone).
 
 ```bash
 caracal allowlist add you@example.com # admit your first console user
+caracal web                           # Console Web UI
+
 caracal run -- node worker.js         # workload execution
 ```
-
-Open the console at `http://localhost:3001`.
 
 ---
 

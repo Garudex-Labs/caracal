@@ -25,10 +25,8 @@ const { bootstrapSecrets, prepareDevSecrets } = await import(pathToFileURL(engin
 const paths = prepareDevSecrets(repoRoot)
 const report = bootstrapSecrets(paths)
 
-if (report.envCreated) console.log('created infra/docker/.env from .env.example')
 for (const name of report.filesCreated) console.log(`wrote ${name}`)
-if (report.envUpdated && !report.envCreated) console.log('synced secrets → infra/docker/.env')
-if (!report.envCreated && !report.envUpdated && report.filesCreated.length === 0) {
+if (report.filesCreated.length === 0) {
   console.log('all secrets already provisioned')
 }
 
