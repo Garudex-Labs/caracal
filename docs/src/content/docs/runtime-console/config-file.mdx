@@ -39,6 +39,26 @@ chmod 600 ~/.config/caracal/runtime/<workload_id>/secret
 
 The config directory defaults to `$XDG_CONFIG_HOME/caracal` or `~/.config/caracal` on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. `CARACAL_CONFIG_HOME` overrides it.
 
+### One file for every command
+
+Every `caracal` command - `up`, `web`, and `run` - loads one operator env file at startup, so you set workload identity, STS URL, the web console's sign-in settings, and any stack override in one place. Variables already in the environment always win over the file, so a secret manager, CI, or a plain `export` overrides any value.
+
+| Deployment | Config file or mechanism | Workload secret |
+| --- | --- | --- |
+| **Dev (repo)** | `.env` at the repo root - copy the committed `.env.example` | Inline in `.env`, or the default `<config dir>/runtime/<workload_id>/secret` |
+| **Released (host)** | `$CARACAL_HOME/caracal.env` (created `0600` on first `caracal up`), or a path you set with `CARACAL_ENV_FILE` | Inline in that file, or `CARACAL_WORKLOAD_SECRET_FILE` |
+| **Cloud** | Orchestrator env - a Kubernetes `env` block (Helm `web.extraEnv`) or an ECS task definition | A secret manager mounted read-only (`defaultMode: 0400`) via `CARACAL_WORKLOAD_SECRET_FILE`, or `valueFrom.secretKeyRef` |
+
+Edit the host file from any OS with `caracal config`:
+
+```bash
+caracal config set CARACAL_WORKLOAD_ID fiona
+caracal config list          # secret values are masked
+caracal config path          # print the file location
+```
+
+For release and cloud, set `CARACAL_ENV=production`: it disables the auto-detected local secret file so a launch fails closed unless it names an explicit secret source. Caracal never auto-loads a `.env` from the current working directory (a footgun for a credential tool) and requires secret files to be owner-only.
+
 A binding with no selected scopes requests the resource's configured scope set. Required binding failure prevents launch. Configure an optional binding's unavailable behavior on the Launcher page when the process may continue without it.
 
 ## Configure an SDK Profile

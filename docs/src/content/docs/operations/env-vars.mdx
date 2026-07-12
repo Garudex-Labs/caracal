@@ -8,7 +8,7 @@ Use this page before first start or after a release adds configuration. Service 
 
 ## Precedence and Locations
 
-Process environment overrides Compose env files. An installed runtime reads `$CARACAL_HOME/caracal.env`; repository development also uses `infra/docker/local.env` over development defaults. For a supported secret, `NAME_FILE` is resolved before `NAME`.
+Every `caracal` command loads one operator env file: `$CARACAL_HOME/caracal.env` on an installed host (override with `CARACAL_ENV_FILE`), or `.env` at the repository root in development, where `infra/docker/dev.env` holds the Compose defaults. A variable already set in the process environment always wins over the file. Edit the host file from any OS with `caracal config`. For a supported secret, `NAME_FILE` is resolved before `NAME`.
 
 Use `CARACAL_MODE=dev` only locally. `rc` and `stable` share fail-closed configuration checks; `rc` denotes release maturity, not weaker security.
 
