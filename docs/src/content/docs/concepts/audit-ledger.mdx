@@ -38,7 +38,7 @@ flowchart LR
 | Which policy caused the decision?             | Determining policies and diagnostics.                                |
 | Did revocation propagate?                     | Session, delegation, and resource decision events.                   |
 | Which run made a request?                     | Request ID, Authority record ID, Session ID, and trace context.      |
-| Was an Approval required, and who decided it? | Approval issuance, decision, and consumption events.                |
+| Was an Approval required, and who decided it? | The `step_up_issued`, `step_up_decided`, and `step_up_consumed` events; filter the audit list by those `event_type` values. |
 
 ## Request IDs
 

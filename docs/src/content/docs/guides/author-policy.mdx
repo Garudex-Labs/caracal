@@ -45,7 +45,9 @@ This is the canonical "application A may call resource B with scopes C" pattern,
 expressed as data. The platform contract allows a mint only when the acting
 application owns the view, the agent's role label grants the scope, and the
 Delegation narrows to it. You declare the grant; the contract enforces the
-narrowing.
+narrowing. Several `app_ids` keys may bind to one application id - the contract
+treats them as one identity - but one binding key per application keeps grant
+review straightforward, and the Admin SDK's grant helpers author exactly that.
 
 ## Gate scopes on human approval
 
