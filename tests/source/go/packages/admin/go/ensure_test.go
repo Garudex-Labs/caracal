@@ -507,8 +507,8 @@ func TestAuthorGrantsDocumentRendersDecisionContractInputs(t *testing.T) {
 		"# caracal:data-document",
 		"package caracal.authz",
 		"import rego.v1",
-		`app_ids := {"operator":"app-anton"}`,
-		`grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}`,
+		`app_ids := {"app-anton":"app-anton"}`,
+		`grants := {"resource://pipernet":{"application":"app-anton","roles":{"operator":["data:read"]}}}`,
 	} {
 		if !strings.Contains(document, fragment) {
 			t.Fatalf("missing fragment %q in:\n%s", fragment, document)
@@ -562,10 +562,29 @@ func TestAuthorGrantsDocumentMergesScopesForOneRole(t *testing.T) {
 	}
 }
 
-func TestAuthorGrantsDocumentRejectsRoleClaimedByTwoApplications(t *testing.T) {
+func TestAuthorGrantsDocumentBindsOneKeyPerApplication(t *testing.T) {
+	document, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
+		{ApplicationID: "app-1", ResourceIdentifier: "resource://a", Scopes: []string{"a:read"}, Role: "coordination"},
+		{ApplicationID: "app-1", ResourceIdentifier: "resource://b", Scopes: []string{"b:export"}, Role: "support-liaison"},
+	})
+	if err != nil {
+		t.Fatalf("author: %v", err)
+	}
+	for _, fragment := range []string{
+		`app_ids := {"app-1":"app-1"}`,
+		`"resource://a":{"application":"app-1","roles":{"coordination":["a:read"]}}`,
+		`"resource://b":{"application":"app-1","roles":{"support-liaison":["b:export"]}}`,
+	} {
+		if !strings.Contains(document, fragment) {
+			t.Fatalf("missing fragment %q in:\n%s", fragment, document)
+		}
+	}
+}
+
+func TestAuthorGrantsDocumentRejectsResourceClaimedByTwoApplications(t *testing.T) {
 	_, err := admin.AuthorGrantsDocument([]admin.ResourceGrant{
 		{ApplicationID: "app-anton", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "operator"},
-		{ApplicationID: "app-fiona", ResourceIdentifier: "resource://not-hotdog", Scopes: []string{"data:read"}, Role: "operator"},
+		{ApplicationID: "app-fiona", ResourceIdentifier: "resource://pipernet", Scopes: []string{"data:read"}, Role: "reader"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "claimed by two applications") {
 		t.Fatalf("expected conflict error, got %v", err)

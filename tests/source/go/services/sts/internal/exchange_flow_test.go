@@ -10,6 +10,7 @@ import (
 	"crypto/elliptic"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -301,6 +302,19 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 		_, _, code, apiErr := srv.exchange(context.Background(), baseExchangeRequest(), "req-1")
 		if code != http.StatusServiceUnavailable || apiErr == nil || apiErr.Code != sharederr.PolicyEvalFailed {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
+		}
+	})
+
+	// An engine evaluation error must land in audit as an actionable event: the
+	// failure result names policy_eval_failed and carries the engine error text,
+	// so the fault is diagnosable from evidence alone.
+	t.Run("policy eval failure carries the engine error in diagnostics", func(t *testing.T) {
+		failure := policyEvalFailure(errors.New("eval_conflict_error: complete rules must not produce multiple outputs"))
+		if failure.Decision != "deny" || failure.EvaluationStatus != "policy_eval_failed" {
+			t.Fatalf("failure result = %#v", failure)
+		}
+		if len(failure.Diagnostics) != 1 || !strings.Contains(fmt.Sprint(failure.Diagnostics[0]["error"]), "multiple outputs") {
+			t.Fatalf("diagnostics must carry the engine error, got %#v", failure.Diagnostics)
 		}
 	})
 

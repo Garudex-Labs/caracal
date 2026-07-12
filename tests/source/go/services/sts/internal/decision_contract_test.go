@@ -84,6 +84,68 @@ func TestDecisionContractDelegatedMintAllow(t *testing.T) {
 	}
 }
 
+// One application may hold several binding keys in app_ids: an application that owns
+// two resource views under two keys must evaluate cleanly, and the determining policy
+// must name the owning key of the resource being minted.
+func TestDecisionContractAliasedAppIDsMintAllow(t *testing.T) {
+	aliased := `package caracal.authz
+
+import rego.v1
+
+grants := {
+	"resource://nucleus": {"application": "payments", "roles": {"payment-execution": ["nucleus:pay"]}},
+	"resource://piperchat": {"application": "support", "roles": {"support-liaison": ["piperchat:read"]}},
+}
+app_ids := {"payments": "app-payments", "support": "app-payments"}
+`
+	res := simulateContract(t, OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"support-liaison"}},
+		Resource:       OPAResource{Identifier: "resource://piperchat"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"piperchat:read"}},
+		Context: OPAContext{
+			SessionID:       "agent-1",
+			RequestedScopes: []string{"piperchat:read"},
+			ActorClaims:     map[string]any{},
+		},
+	}, []OPAPolicyModule{{ID: "grants", Content: aliased}})
+	if res.Decision != "allow" {
+		t.Fatalf("aliased app_ids mint must allow, got %q diagnostics %v", res.Decision, res.Diagnostics)
+	}
+	if len(res.DeterminingPolicies) != 1 || res.DeterminingPolicies[0]["policy"] != "caracal-support-mint" {
+		t.Fatalf("determining policy must name the owning key, got %v", res.DeterminingPolicies)
+	}
+}
+
+// An alias never widens authority: a key bound to a different application id cannot
+// make that application's resource mintable for this principal.
+func TestDecisionContractAliasedAppIDsCannotCrossApplications(t *testing.T) {
+	aliased := `package caracal.authz
+
+import rego.v1
+
+grants := {
+	"resource://nucleus": {"application": "payments", "roles": {"payment-execution": ["nucleus:pay"]}},
+	"resource://piperchat": {"application": "support", "roles": {"support-liaison": ["piperchat:read"]}},
+}
+app_ids := {"payments": "app-payments", "support": "app-other"}
+`
+	res := simulateContract(t, OPAInput{
+		Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"support-liaison"}},
+		Resource:       OPAResource{Identifier: "resource://piperchat"},
+		Action:         OPAAction{ID: "token_exchange"},
+		DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"piperchat:read"}},
+		Context: OPAContext{
+			SessionID:       "agent-1",
+			RequestedScopes: []string{"piperchat:read"},
+			ActorClaims:     map[string]any{},
+		},
+	}, []OPAPolicyModule{{ID: "grants", Content: aliased}})
+	if res.Decision != "deny" {
+		t.Fatalf("foreign-owned resource must deny, got %q", res.Decision)
+	}
+}
+
 // TestDecisionContractDelegatedMintNarrowing is the floor that the hand-authored Rego
 // silently lost across adopters: a scope the Delegation never granted must never
 // be mintable, even when the role grant and resource would otherwise allow it.
