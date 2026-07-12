@@ -24,6 +24,7 @@ import { appLink } from "@/platform/nav/appLink";
 import { relativeTime } from "@/lib/time";
 import { requestedAuthority, sessionLineage } from "@/lib/approvalMetadata";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useApplications,
   useApprovalCounts,
@@ -47,15 +48,6 @@ function ApprovalsRoute() {
       {(zone) => <ApprovalsPage zoneId={zone.id} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code;
-  }
-  return "Unexpected error.";
 }
 
 function stateTone(state: StepUpState): "warning" | "success" | "danger" | "muted" | "neutral" {

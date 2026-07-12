@@ -31,7 +31,8 @@ import {
 } from "@/components/ui";
 import { highlightCode, TERMINAL_HIGHLIGHT } from "@/lib/codeHighlight";
 import { cx } from "@/lib/cx";
-import { consoleApi, ConsoleApiError } from "@/platform/api/client";
+import { consoleApi } from "@/platform/api/client";
+import { errorMessage as classifyError } from "@/platform/api/errors";
 import {
   useActivatePolicySet,
   useAddPolicySetVersion,
@@ -99,14 +100,9 @@ function PolicyWorkspaceRoute() {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    if (error.code === "policy_set_name_conflict")
-      return "A policy set with this name already exists in this zone.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
+  return classifyError(error, {
+    policy_set_name_conflict: "A policy set with this name already exists in this zone.",
+  });
 }
 
 // Mirrors the backend OPA input contract (OPA_INPUT_SCHEMA_VERSION). The simulate

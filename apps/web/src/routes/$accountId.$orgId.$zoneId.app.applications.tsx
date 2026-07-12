@@ -30,7 +30,7 @@ import {
   useToast,
   type Column,
 } from "@/components/ui";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage as classifyError } from "@/platform/api/errors";
 import {
   useApplications,
   useCreateApplication,
@@ -88,16 +88,10 @@ function credentialRank(app: Application): number {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    if (error.code === "application_name_taken")
-      return "An application with this name already exists in this zone.";
-    if (error.code === "client_secret_not_stored")
-      return "No stored secret for this application. Rotate to store one.";
-    return error.code;
-  }
-  return "Unexpected error.";
+  return classifyError(error, {
+    application_name_taken: "An application with this name already exists in this zone.",
+    client_secret_not_stored: "No stored secret for this application. Rotate to store one.",
+  });
 }
 
 function ApplicationsPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {

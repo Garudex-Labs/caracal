@@ -1,18 +1,12 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Unit tests for Delegation formatting: identity shortening, status tone/label, and error messages.
+// Unit tests for Delegation formatting: identity shortening and status tone/label.
 
 import { describe, expect, it } from 'vitest'
 
-import { ConsoleApiError } from '../../../../apps/web/src/platform/api/client.ts'
 import type { DelegationEdge } from '../../../../apps/web/src/platform/api/types.ts'
-import {
-  delegationErrorMessage,
-  edgeStatusLabel,
-  edgeStatusTone,
-  shortId,
-} from '../../../../apps/web/src/components/console/delegationFormat.ts'
+import { edgeStatusLabel, edgeStatusTone, shortId } from '../../../../apps/web/src/components/console/delegationFormat.ts'
 
 function edge(overrides: Partial<DelegationEdge>): DelegationEdge {
   return {
@@ -43,22 +37,6 @@ describe('shortId', () => {
     expect(shortId('0123456789abcdef0123')).toBe('01234567…0123')
     expect(shortId('short')).toBe('short')
     expect(shortId('123456789012')).toBe('123456789012')
-  })
-})
-
-describe('delegationErrorMessage', () => {
-  it('translates known coordinator error codes', () => {
-    expect(delegationErrorMessage(new ConsoleApiError(503, 'coordinator_not_configured'))).toBe('Coordinator service not connected.')
-    expect(delegationErrorMessage(new ConsoleApiError(502, 'upstream_unreachable'))).toBe('Coordinator service unreachable.')
-  })
-
-  it('humanizes an unknown ConsoleApiError code', () => {
-    expect(delegationErrorMessage(new ConsoleApiError(400, 'scope_not_granted'))).toBe('scope not granted')
-  })
-
-  it('returns a generic message for non-API errors', () => {
-    expect(delegationErrorMessage(new Error('boom'))).toBe('Unexpected error.')
-    expect(delegationErrorMessage(undefined)).toBe('Unexpected error.')
   })
 })
 

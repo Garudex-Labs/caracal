@@ -38,7 +38,7 @@ import { CsvExportButton } from "@/components/console/CsvExportButton";
 import { cx } from "@/lib/cx";
 import { relativeTime } from "@/lib/time";
 import { appLink } from "@/platform/nav/appLink";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useRevokeSubject,
   useAuthorityRecord,
@@ -70,15 +70,6 @@ function SubjectsRoute() {
       {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} recordId={record} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code;
-  }
-  return "Unexpected error.";
 }
 
 type EffectiveStatus = "active" | "expired" | "revoked";

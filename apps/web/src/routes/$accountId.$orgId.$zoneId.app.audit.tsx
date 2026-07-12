@@ -35,7 +35,7 @@ import {
   auditSummary,
   type AuditEntity,
 } from "@/lib/auditPresentation";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useAdminAuditFeed,
   useApplications,
@@ -387,15 +387,6 @@ function ExportDialog({
       </Modal>
     </>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code;
-  }
-  return "Unexpected error.";
 }
 
 function decisionTone(decision: string | null): "success" | "danger" | "warning" | "muted" {

@@ -4,17 +4,7 @@ Caracal, a product of Garudex Labs
 
 This file provides formatting helpers for delegation identity, status, and errors.
 */
-import { ConsoleApiError } from "@/platform/api/client";
 import type { DelegationEdge } from "@/platform/api/types";
-
-export function delegationErrorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.code === "coordinator_not_configured") return "Coordinator service not connected.";
-    if (error.code === "upstream_unreachable") return "Coordinator service unreachable.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
-}
 
 export function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;

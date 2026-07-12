@@ -38,6 +38,7 @@ import {
   type SortState,
 } from "@/components/ui";
 import { ConsoleApiError, consoleApi } from "@/platform/api/client";
+import { errorMessage as classifyError } from "@/platform/api/errors";
 import {
   selectZone,
   useCreateZone,
@@ -56,13 +57,7 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/zones")({
 });
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    if (error.code === "zone_slug_conflict") return "That slug is already taken.";
-    return error.code;
-  }
-  return "Unexpected error.";
+  return classifyError(error, { zone_slug_conflict: "That slug is already taken." });
 }
 
 // The control plane is the authority on live dynamic clients: a PATCH that disables DCR

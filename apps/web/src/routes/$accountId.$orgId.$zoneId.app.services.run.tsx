@@ -32,7 +32,7 @@ import {
   useToast,
   type Column,
 } from "@/components/ui";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage as classifyError } from "@/platform/api/errors";
 import {
   useCreateWorkload,
   useDeleteWorkload,
@@ -80,20 +80,12 @@ function RunRoute() {
 type StateFilter = "all" | "ready" | "unconfigured";
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    if (error.code === "workload_name_taken")
-      return "A workload with this name already exists in this zone.";
-    if (error.code === "invalid_credential_env")
-      return "That environment variable name is reserved or invalid.";
-    if (error.code === "duplicate_credential_env")
-      return "Each binding must use a unique environment variable name.";
-    if (error.code === "workload_secret_not_stored")
-      return "No stored secret for this workload. Rotate to store one.";
-    return error.code;
-  }
-  return "Unexpected error.";
+  return classifyError(error, {
+    workload_name_taken: "A workload with this name already exists in this zone.",
+    invalid_credential_env: "That environment variable name is reserved or invalid.",
+    duplicate_credential_env: "Each binding must use a unique environment variable name.",
+    workload_secret_not_stored: "No stored secret for this workload. Rotate to store one.",
+  });
 }
 
 function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {

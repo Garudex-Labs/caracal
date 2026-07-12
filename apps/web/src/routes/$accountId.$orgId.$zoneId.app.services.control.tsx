@@ -35,8 +35,8 @@ import {
   CONTROL_MAX_TTL_SECONDS,
   CONTROL_MIN_TTL_SECONDS,
   CONTROL_PERMISSIONS,
-  ConsoleApiError,
 } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useControlKeys,
   useControlStatus,
@@ -67,15 +67,6 @@ function ControlRoute() {
       {(zone) => <ControlPage zoneId={zone.id} zoneSlug={zone.slug} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
 }
 
 type TabId = "keys" | "auth" | "reference" | "settings";

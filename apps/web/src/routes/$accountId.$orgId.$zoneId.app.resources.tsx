@@ -29,7 +29,7 @@ import {
   type Column,
   type FilterGroup,
 } from "@/components/ui";
-import { ConsoleApiError } from "@/platform/api/client";
+import { errorMessage } from "@/platform/api/errors";
 import {
   useCreateResource,
   useDeleteResource,
@@ -59,15 +59,6 @@ function ResourcesRoute() {
       {(zone) => <ResourcesPage zoneId={zone.id} />}
     </ZoneScopedPage>
   );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ConsoleApiError) {
-    if (error.notConfigured) return "Control plane not connected.";
-    if (error.unreachable) return "Control plane unreachable.";
-    return error.code.replace(/_/g, " ");
-  }
-  return "Unexpected error.";
 }
 
 type EnforcementFilter = "all" | "enforced" | "transport_uniform";

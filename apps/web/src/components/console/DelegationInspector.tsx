@@ -6,15 +6,11 @@ This file provides the shared delegation inspector with chain, impact, and revoc
 */
 import { useMemo, useState } from "react";
 
-import {
-  delegationErrorMessage,
-  edgeStatusLabel,
-  edgeStatusTone,
-  shortId,
-} from "@/components/console/delegationFormat";
+import { edgeStatusLabel, edgeStatusTone, shortId } from "@/components/console/delegationFormat";
 import { DetailField, DetailGroup, Mono } from "@/components/console/ResourceWorkspace";
 import { Badge, Button, ConfirmDialog, Skeleton, useToast } from "@/components/ui";
 import { consoleApi } from "@/platform/api/client";
+import { coordinatorErrorMessage } from "@/platform/api/errors";
 import { useApplications, useResources, useRevokeDelegation } from "@/platform/api/hooks";
 import type { DelegationEdge, DelegationHop, DelegationImpact } from "@/platform/api/types";
 
@@ -86,7 +82,7 @@ export function DelegationInspector({
         setChain(traverseRows);
         setImpact(impactRes);
       })
-      .catch((err) => setError(delegationErrorMessage(err)))
+      .catch((err) => setError(coordinatorErrorMessage(err)))
       .finally(() => setLoading(false));
   }
 
@@ -248,7 +244,7 @@ export function DelegationInspector({
             toast({
               tone: "error",
               title: "Revoke failed",
-              description: delegationErrorMessage(err),
+              description: coordinatorErrorMessage(err),
             });
           }
         }}
