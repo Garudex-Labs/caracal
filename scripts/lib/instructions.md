@@ -4,7 +4,7 @@
 - Covers shared helper modules under `scripts/lib/` for shell and Node automation.
 
 ## Architecture Design
-- Helpers provide reusable Console style and selection primitives for root automation scripts.
+- Helpers provide reusable Console style primitives for root automation scripts.
 - `stamp.mjs` is the single writer that propagates `release.config.json` versions into package and Helm files.
 - `releaseSpec.mjs` is the single source for release repo identity, tag and digest patterns, registry defaults, image and chart references, run-name formats, and atomic JSON writes.
 - `oci.mjs` is the single source for image and chart inspection with transient-failure retries.
