@@ -15,7 +15,7 @@ import { finalizeManifest } from '../../../../scripts/finalizeReleaseManifest.mj
 import { fetchPublicGitHubRelease, validateGitHubRelease } from '../../../../scripts/verifyGitHubRelease.mjs'
 import { releaseInventory } from '../../../../scripts/releaseInventory.mjs'
 import { ensureRemoteReleaseTags } from '../../../../scripts/releaseTags.mjs'
-import { isRegistryPropagationError, validateProvenance } from '../../../../scripts/verifyNpmRelease.mjs'
+import { fetchJsonWhenVisible, isRegistryPropagationError, validateProvenance } from '../../../../scripts/verifyNpmRelease.mjs'
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)))
 const sha = 'a'.repeat(40)
@@ -209,6 +209,31 @@ describe('npm release provenance', () => {
     expect(isRegistryPropagationError('npm provenance source commit does not match the release commit')).toBe(false)
   })
 
+  it('waits out attestation propagation delays but fails fast on other errors', async () => {
+    let hits = 0
+    const server = createServer((request, response) => {
+      if (request.url?.includes('flaky')) {
+        hits += 1
+        response.statusCode = hits < 3 ? 404 : 200
+        response.end(hits < 3 ? '' : '{"ok":true}')
+        return
+      }
+      response.statusCode = request.url?.includes('gone') ? 404 : 500
+      response.end('')
+    })
+    servers.push(server)
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('test registry did not bind a TCP port')
+    const base = `http://127.0.0.1:${address.port}`
+
+    await expect(fetchJsonWhenVisible(`${base}/flaky`, 'flaky attestations', 5_000, 10)).resolves.toEqual({ ok: true })
+    await expect(fetchJsonWhenVisible(`${base}/gone`, 'gone attestations', 0, 10)).rejects.toThrow('gone attestations returned HTTP 404')
+    await expect(fetchJsonWhenVisible(`${base}/broken`, 'broken attestations', 5_000, 10)).rejects.toThrow(
+      'broken attestations returned HTTP 500',
+    )
+  })
+
   it('binds the signed package subject to the release workflow and commit', () => {
     const name = '@caracalai/sdk'
     const version = '9.9.9-rc.1'
@@ -260,6 +285,7 @@ describe('GitHub Release publication', () => {
 
     expect(releaseWorkflow).toContain('gh workflow run publishPypi.yml')
     expect(releaseWorkflow).toContain('--ref "$DEFAULT_BRANCH"')
+    expect(releaseWorkflow).toContain('GH_REPO: ${{ github.repository }}')
     expect(pypiWorkflow).toContain('releaseTag:')
     expect(pypiWorkflow).toContain('https://caracal.run/attestations/release-source/v1')
     expect(resumeWorkflow).toContain('gh run download "${{ inputs.sourceRunId }}" --name release-assets')

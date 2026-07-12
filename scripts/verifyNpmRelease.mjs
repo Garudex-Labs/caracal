@@ -55,6 +55,21 @@ export function isRegistryPropagationError(output) {
   return /\bETARGET\b|No matching version found|notarget/i.test(output)
 }
 
+export async function fetchJsonWhenVisible(url, description, timeout = 300_000, interval = 15_000) {
+  const deadline = Date.now() + timeout
+  let attempt = 0
+  while (true) {
+    attempt += 1
+    const response = await fetch(url, { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } })
+    if (response.ok) return response.json()
+    if (response.status !== 404 || Date.now() >= deadline) {
+      throw new Error(`${description} returned HTTP ${response.status}`)
+    }
+    process.stdout.write(`${description} is not visible yet; retrying verification (${attempt})\n`)
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, interval))
+  }
+}
+
 async function installForVerification(directory, timeout = 300_000) {
   const deadline = Date.now() + timeout
   let attempt = 0
@@ -82,20 +97,10 @@ async function main() {
   if (!name || !version || !/^[0-9a-f]{40}$/.test(sha ?? '') || !tag) {
     throw new Error('usage: verifyNpmRelease.mjs <package> <version> <source-sha> <release-tag>')
   }
-  const metadata = await fetch(packageUrl(name, version), { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } }).then(
-    async (response) => {
-      if (!response.ok) throw new Error(`${name}@${version} metadata returned HTTP ${response.status}`)
-      return response.json()
-    },
-  )
+  const metadata = await fetchJsonWhenVisible(packageUrl(name, version), `${name}@${version} metadata`)
   const attestationUrl = metadata.dist?.attestations?.url
   if (!attestationUrl) throw new Error(`${name}@${version} has no npm attestation URL`)
-  const attestations = await fetch(attestationUrl, { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } }).then(
-    async (response) => {
-      if (!response.ok) throw new Error(`${name}@${version} attestations returned HTTP ${response.status}`)
-      return response.json()
-    },
-  )
+  const attestations = await fetchJsonWhenVisible(attestationUrl, `${name}@${version} attestations`)
   const directory = mkdtempSync(join(tmpdir(), 'caracal-npm-'))
   try {
     writeFileSync(join(directory, 'package.json'), `${JSON.stringify({ private: true, dependencies: { [name]: version } })}\n`)
