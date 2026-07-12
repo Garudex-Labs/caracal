@@ -811,6 +811,7 @@ jobs:
       releaseSha: ${{ needs.context.outputs.sha }}
       releaseTag: ${{ needs.context.outputs.releaseTag }}
     permissions:
+      artifact-metadata: write
       contents: read
       id-token: write
       attestations: write
