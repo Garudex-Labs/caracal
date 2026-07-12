@@ -37,6 +37,15 @@ describe('dispatch', () => {
     expect(run).toHaveBeenCalledWith(['--detach'], undefined)
   })
 
+  it('does not resolve runtime identity for commands that do not require config', async () => {
+    // A workload id present in the operator env file without a secret must not fail commands
+    // like status/up/config that never use it.
+    vi.stubEnv('CARACAL_WORKLOAD_ID', 'fiona')
+    const run = vi.fn() as Executor
+    await dispatch({ ...makeOpts(run), loadConfig: true }, ['status'])
+    expect(run).toHaveBeenCalledWith([], undefined)
+  })
+
   it('strips a leading -- separator', async () => {
     const run = vi.fn() as Executor
     await dispatch(makeOpts(run), ['--', 'status'])
