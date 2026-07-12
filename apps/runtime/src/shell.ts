@@ -11,7 +11,6 @@ import { runCommand } from './commands/run.ts'
 import { upCommand, downCommand, statusCommand, upgradeCommand } from './commands/stack.ts'
 import { purgeCommand } from './commands/purge.ts'
 import { allowlistCommand } from './commands/allowlist.ts'
-import { configCommand } from './commands/config.ts'
 import { webCommand, webInterfaceAvailable } from './commands/web.ts'
 import { CARACAL_MODE, CARACAL_SHA, CARACAL_VERSION } from './runtime/version.gen.ts'
 import { SHELL_COMMANDS } from '@caracalai/engine/commands'
@@ -34,7 +33,6 @@ const executors: Record<string, Executor> = {
   purge: (argv) => purgeCommand([...argv]),
   allowlist: (argv) => allowlistCommand([...argv]),
   run: (argv, cfg) => runCommand([...argv], cfg),
-  config: (argv) => configCommand([...argv]),
   web: (argv) => {
     void webCommand([...argv])
   },

@@ -39,6 +39,17 @@ export function renderOperatorTemplate(mode: StackMode): string {
   lines.push('# Uncomment a line and edit the value to override; pinned variables')
   lines.push('# (mode, version, registry) are managed by the release and cannot be set here.')
   lines.push('')
+  // Workload identity for `caracal run`. These are CLI-side, not stack variables, so they are
+  // documented here for installed hosts that have no repository .env.example to copy.
+  lines.push('# caracal run: launch workloads with `caracal run`. Create the workload and its')
+  lines.push('# bindings on the web console Launcher page, then set the id and a secret below.')
+  lines.push('# CARACAL_WORKLOAD_ID=')
+  lines.push('# CARACAL_STS_URL=http://localhost:8080')
+  lines.push('# Set one secret source, or store the secret at the owner-only default file')
+  lines.push('# <config dir>/runtime/<workload_id>/secret.')
+  lines.push('# CARACAL_WORKLOAD_SECRET=')
+  lines.push('# CARACAL_WORKLOAD_SECRET_FILE=')
+  lines.push('')
   for (const [key, spec] of envEntries()) {
     if (spec.secret || !spec.exposed) continue
     if (spec.pinned?.includes(mode)) continue
