@@ -46,6 +46,15 @@ vulnerabilities:
     statement: "os.Root API unused by upstream gosu inside postgres:18-alpine; unreachable, and the third-party binary cannot be remediated by pinning."
     expired_at: 2026-08-11
 
+# The same gosu binary is flagged for CVE-2026-42505, a crypto/tls Encrypted
+# Client Hello information disclosure. gosu performs no network or TLS I/O - it
+# resolves a user, drops privileges, and execs the target process - so the
+# crypto/tls handshake path is never invoked. Third-party binary; needs an
+# upstream rebuild on Go 1.26.5+, which Caracal's own Go images already use.
+  - id: CVE-2026-42505
+    statement: "gosu inside postgres:18-alpine performs no TLS I/O; the crypto/tls Encrypted Client Hello path is unreachable, and the third-party binary cannot be remediated by pinning."
+    expired_at: 2026-08-11
+
 # The postgres:18-alpine base image carries c-ares as a transitive dependency.
 # CVE-2026-33630 is a use-after-free reachable only through ares_getaddrinfo()
 # over TCP against an attacker-controlled DNS responder. Caracal's postgres
