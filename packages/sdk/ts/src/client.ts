@@ -1220,7 +1220,7 @@ export class Caracal {
         if (!suffix.startsWith('/')) suffix = '/' + suffix
       }
     }
-    const base = gateway.origin + gateway.pathname.replace(/\/$/, '')
+    const base = gateway.origin + gateway.pathname.replace(/\/+$/, '')
     const target = base + suffix
     return { url: target, resourceId: binding?.resourceId ?? explicitResource! }
   }
@@ -1822,7 +1822,7 @@ function targetsGatewayPath(target: URL, gatewayUrl: string): boolean {
   }
   if (target.protocol !== gateway.protocol || target.host !== gateway.host) return false
   if (pathContainsTraversal(target.pathname)) return false
-  const base = gateway.pathname.replace(/\/$/, '') || '/'
+  const base = gateway.pathname.replace(/\/+$/, '') || '/'
   return base === '/' || target.pathname === base || target.pathname.startsWith(`${base}/`)
 }
 
@@ -1856,7 +1856,7 @@ function joinGatewayPath(gatewayUrl: string, path: string): string {
   if (pathContainsTraversal(pathname)) {
     throw new Error('Caracal.gatewayRequest(): path must not contain dot segments')
   }
-  const base = gateway.origin + gateway.pathname.replace(/\/$/, '')
+  const base = gateway.origin + gateway.pathname.replace(/\/+$/, '')
   return `${base}${pathname || '/'}${query ? `?${query}` : ''}`
 }
 
