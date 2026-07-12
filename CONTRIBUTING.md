@@ -23,8 +23,8 @@
 |                       | Dev                                                      | RC                                                          | Stable                                                     |
 | --------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | Purpose               | Development builds                                      | rc builds                                                   | Released production versions                               |
-| Version               | `0.2.0-dev.sha<sha>`                                     | `0.2.0-rc.2`                                                | `0.2.0`                                                    |
-| Container images      | `localhost/caracal-{svc}:0.2.0-dev.sha<sha>`             | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0-rc.2`            | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0`                |
+| Version               | `0.2.0-dev.sha<sha>`                                     | `0.2.0-rc.3`                                                | `0.2.0`                                                    |
+| Container images      | `localhost/caracal-{svc}:0.2.0-dev.sha<sha>`             | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0-rc.3`            | `ghcr.io/garudex-labs/caracal-{svc}:v0.2.0`                |
 
 </details>
 

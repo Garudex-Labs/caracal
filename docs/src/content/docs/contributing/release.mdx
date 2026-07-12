@@ -4,13 +4,13 @@ description: Lockstep SemVer releases, package publishing, protected workflows, 
 pageType: reference
 ---
 
-Every Caracal release artifact shares one Semantic Version from `release.config.json` `product.version`. The current source state is `0.2.0-rc.2`; successive release candidates increment `-rc.N`. `scripts/release.sh stamp` propagates the configured version to owned artifact metadata.
+Every Caracal release artifact shares one Semantic Version from `release.config.json` `product.version`. The current source state is `0.2.0-rc.3`; successive release candidates increment `-rc.N`. `scripts/release.sh stamp` propagates the configured version to owned artifact metadata.
 
 ## Release Surfaces
 
 | Surface         | Source                                                                                    |
 | --------------- | ----------------------------------------------------------------------------------------- |
-| Product version | `release.config.json` `product.version`, currently `0.2.0-rc.2`.                          |
+| Product version | `release.config.json` `product.version`, currently `0.2.0-rc.3`.                          |
 | Runtime binary  | `apps/runtime/dist/caracal-*`.                                                            |
 | Containers      | Shared Go/Node role images, Web, Postgres, Redis, and Runtime from `release.config.json`. |
 | Helm            | `infra/helm/caracal`.                                                                     |
