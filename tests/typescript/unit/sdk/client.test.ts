@@ -601,6 +601,50 @@ describe('caracal.transport', () => {
     expect(parseTraceparent(calls[1].headers.get(HeaderTraceparent)!)).toBeTruthy()
   })
 
+  it('keeps authority off same-origin paths outside the gateway base path', async () => {
+    const calls: { url: string; headers: Headers }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), headers: new Headers(init.headers) })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy',
+    })
+    const send = c.transport({ asApplication: true, propagation: 'gateway-only' })
+
+    await send('https://gateway.example.com/unrelated')
+    await send('https://gateway.example.com/proxy/%252e%252e/admin')
+    await send('https://gateway.example.com/proxy/..%2fadmin')
+    await send('https://gateway.example.com/proxyEVIL/admin')
+
+    for (const call of calls) {
+      expect(call.headers.get(HeaderAuthorization)).toBeNull()
+      expect(call.headers.get(HeaderTraceparent)).toBeNull()
+      expect(call.headers.get(HeaderBaggage)).toBeNull()
+    }
+  })
+
+  it('attaches authority to in-mount paths and tolerates redundant gateway trailing slashes', async () => {
+    const calls: { url: string; headers: Headers }[] = []
+    const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push({ url: String(input), headers: new Headers(init.headers) })
+      return new Response(null, { status: 204 })
+    }) as unknown as typeof fetch
+    const c = new Caracal({
+      ...baseConfig,
+      coordinator: { baseUrl: 'http://c', fetchImpl: fakeFetch },
+      gatewayUrl: 'https://gateway.example.com/proxy//',
+    })
+
+    await c.transport({ asApplication: true })('https://gateway.example.com/proxy/v1/models')
+
+    expect(calls[0].url).toBe('https://gateway.example.com/proxy/v1/models')
+    expect(calls[0].headers.get(HeaderAuthorization)).toBe('Bearer tok')
+    expect(parseTraceparent(calls[0].headers.get(HeaderTraceparent)!)).toBeTruthy()
+  })
+
   it('routes bound provider calls through the configured gateway', async () => {
     const calls: { url: string; headers: Headers }[] = []
     const fakeFetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
