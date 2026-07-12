@@ -94,6 +94,12 @@ export const SHELL_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     requiresArgs: true,
   },
   {
+    name: 'config',
+    group: 'runtime',
+    summary: 'Read and write the operator env file',
+    subcommands: ['set', 'get', 'unset', 'list', 'path', 'edit'],
+  },
+  {
     name: 'web',
     group: 'runtime',
     summary: 'Open the Caracal Console',

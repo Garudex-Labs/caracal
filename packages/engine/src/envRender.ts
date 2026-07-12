@@ -34,6 +34,7 @@ export function renderOperatorTemplate(mode: StackMode): string {
   const lines: string[] = []
   lines.push(...HEADER)
   lines.push(`# Operator overrides for the Caracal ${mode} stack.`)
+  lines.push('# Loaded by every `caracal` command (run, web, up); real environment variables win.')
   lines.push('# Every entry below is commented out and shows the built-in default.')
   lines.push('# Uncomment a line and edit the value to override; pinned variables')
   lines.push('# (mode, version, registry) are managed by the release and cannot be set here.')
