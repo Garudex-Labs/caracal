@@ -39,16 +39,29 @@ export function verifyReleasePromotion(cwd, fromTag, stableTag, requireProductVe
     ]),
   ).workflow_runs
   const title = `Caracal ${fromTag} publish ${sourceSha}`
-  if (
-    !runs.some(
-      (workflow) =>
-        workflow.display_title === title &&
-        workflow.head_branch === fromTag &&
-        workflow.head_sha === sourceSha &&
-        workflow.conclusion === 'success',
-    )
-  ) {
-    throw new Error(`${fromTag} has no successful exact-source publication workflow`)
+  const publishedByRelease = runs.some(
+    (workflow) =>
+      workflow.display_title === title &&
+      workflow.head_branch === fromTag &&
+      workflow.head_sha === sourceSha &&
+      workflow.conclusion === 'success',
+  )
+  const resumeRuns = JSON.parse(
+    run(cwd, 'gh', [
+      'api',
+      `repos/Garudex-Labs/caracal/actions/workflows/resumeRelease.yml/runs?event=workflow_dispatch&status=success&per_page=100`,
+    ]),
+  ).workflow_runs
+  const resumeTitle = `Caracal ${fromTag} resume-publish ${sourceSha}`
+  const publishedByResume = resumeRuns.some(
+    (workflow) =>
+      workflow.path === '.github/workflows/resumeRelease.yml' &&
+      workflow.display_title === resumeTitle &&
+      workflow.head_branch === 'main' &&
+      workflow.conclusion === 'success',
+  )
+  if (!publishedByRelease && !publishedByResume) {
+    throw new Error(`${fromTag} has no successful exact-source publication or resume workflow`)
   }
   const published = JSON.parse(run(cwd, 'gh', ['api', `repos/Garudex-Labs/caracal/releases/tags/${fromTag}`]))
   if (published.prerelease !== true || published.draft === true) throw new Error(`${fromTag} is not a published GitHub prerelease`)

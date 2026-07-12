@@ -4,6 +4,7 @@
 # Publishes selected Python packages to PyPI from a protected CI environment.
 
 name: publishPypi
+run-name: Caracal PyPI ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }} ${{ inputs.dryRun && 'dry-run' || 'publish' }}
 
 on:
   workflow_dispatch:
@@ -39,6 +40,16 @@ on:
           - ubuntu-24.04
           - macos-15
           - windows-2022
+      releaseTag:
+        description: 'Release tag whose packages are being published.'
+        required: false
+        default: ''
+        type: string
+      releaseSha:
+        description: 'Exact release source commit.'
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       package:
@@ -58,6 +69,10 @@ on:
         description: 'Exact release commit supplied by release.yml.'
         required: true
         type: string
+      releaseTag:
+        description: 'Exact release tag supplied by release.yml.'
+        required: true
+        type: string
 permissions:
   contents: read
 
@@ -66,7 +81,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: publish-pypi-${{ inputs.package }}
+  group: publish-pypi-${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref }}-${{ inputs.package }}
   cancel-in-progress: false
 
 env:
@@ -95,6 +110,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_DRY_RUN: ${{ inputs.dryRun }}
           RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -102,18 +118,25 @@ jobs:
             echo "::error::PyPI publishing must run from ${{ github.event.repository.default_branch }} or a Caracal release tag."
             exit 1
           fi
-          if [[ "$PUBLISH_DRY_RUN" != true && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
-            echo "::error::PyPI publication requires a Caracal release tag; the default branch supports dry runs only."
+          if [[ -z "$RELEASE_TAG" ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
+            echo "::error::Invalid Caracal release tag: $RELEASE_TAG"
             exit 1
           fi
           if [[ "$PUBLISH_DRY_RUN" != true && ( ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ || "$(git rev-parse HEAD)" != "$RELEASE_SHA" ) ]]; then
-            echo "::error::PyPI publication must be called by release.yml with its exact release commit."
+            echo "::error::PyPI publication requires the exact release commit."
             exit 1
+          fi
+          if [[ "$PUBLISH_DRY_RUN" != true ]]; then
+            git fetch --force --tags origin
+            node scripts/releaseTags.mjs "$RELEASE_TAG" "$RELEASE_SHA"
           fi
           actor="${{ github.actor }}"
           maintainers="$(mktemp)"
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
-          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
+          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
             exit 0
           fi
           if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
@@ -165,6 +188,13 @@ jobs:
           ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           persist-credentials: false
 
+      - name: Check out publication tooling
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-tools
+          persist-credentials: false
+
       - name: Verify source checkout
         if: inputs.releaseSha != ''
         run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
@@ -183,7 +213,7 @@ jobs:
             exit 1
           fi
           python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
-          python -m py_compile "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py"
+          python -m py_compile "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py"
           pypi-attestations --version
           rm -rf dist build ./*.egg-info
           python -m build
@@ -199,6 +229,7 @@ jobs:
       name: pypi
       url: https://pypi.org/project/${{ matrix.name }}
     permissions:
+      artifact-metadata: write
       contents: read
       id-token: write
       attestations: write
@@ -209,6 +240,13 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out publication tooling
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-tools
           persist-credentials: false
 
       - name: Verify source checkout
@@ -222,7 +260,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
-          python -m py_compile "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py"
+          python -m py_compile "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py"
           pypi-attestations --version
 
       - name: Check published package
@@ -231,6 +269,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
         run: |
           set -euo pipefail
           name="$(awk -F'"' '/^name = /{print $2; exit}' pyproject.toml)"
@@ -251,7 +290,7 @@ jobs:
           PY
           )"
           if [ "$state" = published ]; then
-            python "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$GITHUB_REF_NAME"
+            python "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$RELEASE_TAG"
             echo 'published=true' >> "$GITHUB_OUTPUT"
           else
             echo 'published=false' >> "$GITHUB_OUTPUT"
@@ -273,9 +312,16 @@ jobs:
 
       - name: Attest distribution source
         if: steps.state.outputs.published != 'true'
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: ${{ matrix.dir }}/dist/*
+          predicate-type: https://caracal.run/attestations/release-source/v1
+          predicate: |
+            {
+              "sourceRepositoryURI": "https://github.com/Garudex-Labs/caracal",
+              "sourceRepositoryDigest": "${{ inputs.releaseSha }}",
+              "sourceRepositoryRef": "refs/tags/${{ inputs.releaseTag }}"
+            }
 
       - name: Publish package
         if: steps.state.outputs.published != 'true'
@@ -291,11 +337,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
         run: |
           set -euo pipefail
           name="$(awk -F'"' '/^name = /{print $2; exit}' pyproject.toml)"
           ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
-          python "$GITHUB_WORKSPACE/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$GITHUB_REF_NAME"
+          python "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$RELEASE_TAG"
 
       - name: Dry-run summary
         if: inputs.dryRun == true

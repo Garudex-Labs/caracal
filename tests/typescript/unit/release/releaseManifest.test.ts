@@ -15,7 +15,7 @@ import { finalizeManifest } from '../../../../scripts/finalizeReleaseManifest.mj
 import { fetchPublicGitHubRelease, validateGitHubRelease } from '../../../../scripts/verifyGitHubRelease.mjs'
 import { releaseInventory } from '../../../../scripts/releaseInventory.mjs'
 import { ensureRemoteReleaseTags } from '../../../../scripts/releaseTags.mjs'
-import { validateProvenance } from '../../../../scripts/verifyNpmRelease.mjs'
+import { isRegistryPropagationError, validateProvenance } from '../../../../scripts/verifyNpmRelease.mjs'
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)))
 const sha = 'a'.repeat(40)
@@ -204,6 +204,11 @@ describe('release registry preflight', () => {
 })
 
 describe('npm release provenance', () => {
+  it('retries registry propagation errors but not provenance failures', () => {
+    expect(isRegistryPropagationError('npm error code ETARGET\nNo matching version found for @caracalai/core@0.2.0-rc.2')).toBe(true)
+    expect(isRegistryPropagationError('npm provenance source commit does not match the release commit')).toBe(false)
+  })
+
   it('binds the signed package subject to the release workflow and commit', () => {
     const name = '@caracalai/sdk'
     const version = '9.9.9-rc.1'
@@ -248,6 +253,23 @@ describe('npm release provenance', () => {
 })
 
 describe('GitHub Release publication', () => {
+  it('dispatches PyPI through its trusted workflow and supports verified release resumption', () => {
+    const releaseWorkflow = readFileSync(join(root, '.github', 'workflows', 'release.yml'), 'utf8')
+    const pypiWorkflow = readFileSync(join(root, '.github', 'workflows', 'publishPypi.yml'), 'utf8')
+    const resumeWorkflow = readFileSync(join(root, '.github', 'workflows', 'resumeRelease.yml'), 'utf8')
+
+    expect(releaseWorkflow).toContain('gh workflow run publishPypi.yml')
+    expect(releaseWorkflow).toContain('--ref "$DEFAULT_BRANCH"')
+    expect(pypiWorkflow).toContain('releaseTag:')
+    expect(pypiWorkflow).toContain('https://caracal.run/attestations/release-source/v1')
+    expect(resumeWorkflow).toContain('gh run download "${{ inputs.sourceRunId }}" --name release-assets')
+    expect(resumeWorkflow).toContain('scripts/verifyPypiRelease.py')
+    expect(resumeWorkflow).toContain('group: release-${{ inputs.releaseTag }}')
+    expect(resumeWorkflow).toContain("jq -r '.npm | to_entries[]")
+    expect(resumeWorkflow).toContain("jq -r '.pypi | to_entries[]")
+    expect(resumeWorkflow.match(/overwrite_files: false/g)).toHaveLength(2)
+  })
+
   it('rejects a draft or incorrect release classification', () => {
     expect(() => validateGitHubRelease({ tag_name: 'v9.9.9-rc.1', draft: true, prerelease: true }, 'v9.9.9-rc.1', 'rc')).toThrow(
       'still a draft',

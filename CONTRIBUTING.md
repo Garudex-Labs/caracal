@@ -213,7 +213,9 @@ gh workflow run publishNpm.yml -f package=all -f dryRun=true -f runner=ubuntu-24
 gh workflow run publishPypi.yml -f package=all -f dryRun=true -f runner=ubuntu-24.04
 ```
 
-The explicitly dispatched root release workflow is the only production path for npm and PyPI. Manual package-workflow dispatches are dry-run only, and the local publisher supports TestPyPI only. The workflows read `release.config.json`, publish every package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. A retry reuses an existing package, image, chart, or GitHub Release only after its digest and provenance verify against the exact release tag and commit. Any mismatch consumes the version and requires a roll-forward release.
+The root release workflow owns production publication. npm package workflow dispatches are dry-run only. PyPI production publication is dispatched by the release orchestrator through the protected `publishPypi.yml` Trusted Publisher workflow with an exact release tag and source SHA. The local publisher supports TestPyPI only. The workflows read `release.config.json`, publish every package at the shared version, preflight Ubuntu/macOS/Windows, and publish once from the selected `runner`. A retry reuses an existing package, image, chart, or GitHub Release only after its digest and provenance verify against the exact release tag and commit. Any mismatch consumes the version and requires a roll-forward release.
+
+PyPI publication is dispatched directly through `publishPypi.yml`, matching its Trusted Publisher identity. If a release stops after some immutable artifacts are public, `resumeRelease.yml` verifies the original release-assets artifact and every npm, PyPI, OCI, and Helm artifact before creating the missing GitHub Release. It never rebuilds or replaces an existing artifact.
 
 ### Published artifacts
 

@@ -4,7 +4,7 @@
 //
 // Verifies a published npm package signature and exact source provenance.
 
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -50,6 +50,32 @@ export function validateProvenance(metadata, attestations, expected) {
   }
 }
 
+export function isRegistryPropagationError(output) {
+  return /\bETARGET\b|No matching version found|notarget/i.test(output)
+}
+
+async function installForVerification(directory, timeout = 300_000) {
+  const deadline = Date.now() + timeout
+  let attempt = 0
+  while (true) {
+    attempt += 1
+    const result = spawnSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], {
+      cwd: directory,
+      encoding: 'utf8',
+    })
+    if (result.status === 0) {
+      process.stdout.write(result.stdout)
+      return
+    }
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    if (!isRegistryPropagationError(output) || Date.now() >= deadline) {
+      throw new Error(`npm install failed after ${attempt} attempts:\n${output}`)
+    }
+    process.stdout.write(`npm registry dependencies are not visible yet; retrying verification (${attempt})\n`)
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 15_000))
+  }
+}
+
 async function main() {
   const [name, version, sha, tag] = process.argv.slice(2)
   if (!name || !version || !/^[0-9a-f]{40}$/.test(sha ?? '') || !tag) {
@@ -72,7 +98,7 @@ async function main() {
   const directory = mkdtempSync(join(tmpdir(), 'caracal-npm-'))
   try {
     writeFileSync(join(directory, 'package.json'), `${JSON.stringify({ private: true, dependencies: { [name]: version } })}\n`)
-    execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: directory, stdio: 'inherit' })
+    await installForVerification(directory)
     execFileSync('npm', ['audit', 'signatures'], { cwd: directory, stdio: 'inherit' })
   } finally {
     rmSync(directory, { recursive: true, force: true })

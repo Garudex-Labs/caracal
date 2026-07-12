@@ -799,21 +799,56 @@ jobs:
       id-token: write
     secrets: inherit
 
-  publishPypiPackages:
-    name: Publish PyPI packages
+  preflightPypiPackages:
+    name: Preflight PyPI packages
     needs: [context, verifyAssets, verifyPublishedOci]
-    if: github.repository == 'Garudex-Labs/caracal'
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.dryRun == 'true'
     uses: ./.github/workflows/publishPypi.yml
     with:
       package: all
-      dryRun: ${{ needs.context.outputs.dryRun == 'true' }}
+      dryRun: true
       runner: ubuntu-24.04
       releaseSha: ${{ needs.context.outputs.sha }}
+      releaseTag: ${{ needs.context.outputs.releaseTag }}
     permissions:
       contents: read
       id-token: write
       attestations: write
     secrets: inherit
+
+  publishPypiPackages:
+    name: Publish PyPI packages
+    needs: [context, verifyAssets, verifyPublishedOci]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch trusted PyPI publisher
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          run_output="$(GH_FORCE_TTY=0 gh workflow run publishPypi.yml \
+            --ref "$DEFAULT_BRANCH" \
+            -f package=all \
+            -f dryRun=false \
+            -f runner=ubuntu-24.04 \
+            -f releaseTag="$RELEASE_TAG" \
+            -f releaseSha="$RELEASE_SHA")"
+          run_url="$(grep -Eo 'https://github.com/[^[:space:]]+/actions/runs/[0-9]+' <<< "$run_output" | tail -1)"
+          run_id="${run_url##*/}"
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { printf '%s\n' "$run_output"; echo "::error::Could not resolve PyPI workflow run."; exit 1; }
+          gh run watch "$run_id" --exit-status
+          gh run view "$run_id" --json displayTitle,headBranch,status,conclusion > pypi-run.json
+          jq -e --arg branch "$DEFAULT_BRANCH" --arg title "Caracal PyPI $RELEASE_TAG publish" \
+            '.displayTitle == $title and .headBranch == $branch and .status == "completed" and .conclusion == "success"' \
+            pypi-run.json >/dev/null
 
   githubRelease:
     name: Publish GitHub Release
@@ -870,6 +905,7 @@ jobs:
           generate_release_notes: true
           prerelease: true
           make_latest: false
+          overwrite_files: false
           fail_on_unmatched_files: true
           files: |
             dist/caracal-runtime-*
@@ -886,6 +922,7 @@ jobs:
           generate_release_notes: true
           prerelease: false
           make_latest: true
+          overwrite_files: false
           fail_on_unmatched_files: true
           files: |
             dist/caracal-runtime-*
@@ -960,7 +997,7 @@ jobs:
 
   dryRunSummary:
     name: Dry-run summary
-    needs: [context, publishNpmPackages, publishPypiPackages]
+    needs: [context, publishNpmPackages, preflightPypiPackages]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.dryRun == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5

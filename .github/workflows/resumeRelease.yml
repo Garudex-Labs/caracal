@@ -1,0 +1,249 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# Verifies and finalizes a partially published release without rebuilding artifacts.
+
+name: resumeRelease
+run-name: Caracal ${{ inputs.releaseTag }} resume-${{ inputs.dryRun && 'dry-run' || 'publish' }} ${{ inputs.sourceSha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseTag:
+        description: 'Existing immutable release tag.'
+        required: true
+        type: string
+      sourceSha:
+        description: 'Exact commit behind the release tag.'
+        required: true
+        type: string
+      sourceRunId:
+        description: 'Release workflow run containing the validated release-assets artifact.'
+        required: true
+        type: string
+      dryRun:
+        description: 'Verify all public artifacts without creating the GitHub Release.'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.releaseTag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify published release state
+    if: github.repository == 'Garudex-Labs/caracal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14'
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Verify immutable release context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+          SOURCE_RUN_ID: ${{ inputs.sourceRunId }}
+          SOURCE_SHA: ${{ inputs.sourceSha }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || { echo "::error::Invalid release tag."; exit 1; }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid source SHA."; exit 1; }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::Invalid source run ID."; exit 1; }
+          git fetch --force --tags origin
+          node scripts/releaseTags.mjs "$RELEASE_TAG" "$SOURCE_SHA"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > source-run.json
+          jq -e --arg sha "$SOURCE_SHA" --arg tag "$RELEASE_TAG" \
+            '.path == ".github/workflows/release.yml" and .head_sha == $sha and .head_branch == $tag and .event == "workflow_dispatch" and .status == "completed"' \
+            source-run.json >/dev/null
+
+      - name: Download validated release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "${{ inputs.sourceRunId }}" --name release-assets --dir dist
+
+      - name: Verify release assets and OCI digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ inputs.sourceSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check SHA256SUMS)
+          CARACAL_EXPECT_SOURCE_SHA="$RELEASE_SHA" node scripts/validateReleaseManifest.mjs --image-digests dist/manifest.json
+          node scripts/verifyReleaseAssets.mjs "$RELEASE_TAG" dist
+          node scripts/verifyOciDigests.mjs dist/manifest.json
+          mkdir chart-published
+          helm pull "oci://ghcr.io/garudex-labs/charts/caracal" --version "${RELEASE_TAG#v}" --destination chart-published
+          gh attestation verify chart-published/caracal-*.tgz --repo Garudex-Labs/caracal --format json > chart-provenance.json
+          jq -e \
+            --arg sha "$RELEASE_SHA" \
+            --arg ref "refs/tags/$RELEASE_TAG" \
+            'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
+            chart-provenance.json >/dev/null
+          for asset in dist/*; do
+            gh attestation verify "$asset" --repo Garudex-Labs/caracal --format json > provenance.json
+            jq -e \
+              --arg sha "$RELEASE_SHA" \
+              --arg ref "refs/tags/$RELEASE_TAG" \
+              'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
+              provenance.json >/dev/null
+          done
+
+      - name: Verify npm packages
+        env:
+          RELEASE_SHA: ${{ inputs.sourceSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          jq -r '.npm | to_entries[] | [.key, .value] | @tsv' dist/manifest.json | while IFS=$'\t' read -r name version; do
+            node scripts/verifyNpmRelease.mjs "$name" "$version" "$RELEASE_SHA" "$RELEASE_TAG"
+          done
+
+      - name: Install PyPI verification tools
+        run: python -m pip install --require-hashes --requirement scripts/publishPypiRequirements.lock
+
+      - name: Verify PyPI packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ inputs.sourceSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          jq -r '.pypi | to_entries[] | [.key, .value] | @tsv' dist/manifest.json | while IFS=$'\t' read -r name version; do
+            python scripts/verifyPypiRelease.py "$name" "$version" "$RELEASE_SHA" "$RELEASE_TAG"
+          done
+
+  githubRelease:
+    name: Publish GitHub Release
+    needs: verify
+    if: github.repository == 'Garudex-Labs/caracal' && inputs.dryRun != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ contains(inputs.releaseTag, '-rc.') && 'rc-release' || 'release-approval' }}
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.releaseTag }}
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download validated release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "${{ inputs.sourceRunId }}" --name release-assets --dir dist
+
+      - name: Check existing GitHub Release
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          channel=stable
+          [[ "$RELEASE_TAG" == *-rc.* ]] && channel=rc
+          error_file="$(mktemp)"
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > release.json 2>"$error_file"; then
+            node scripts/verifyGitHubRelease.mjs file --tag "$RELEASE_TAG" --channel "$channel" --path release.json
+            mkdir existing
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir existing
+            diff -u <(find dist -maxdepth 1 -type f -printf '%f\n' | sort) <(find existing -maxdepth 1 -type f -printf '%f\n' | sort)
+            for asset in dist/*; do
+              cmp "$asset" "existing/$(basename "$asset")"
+            done
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          elif grep -q 'HTTP 404' "$error_file"; then
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          else
+            cat "$error_file" >&2
+            exit 1
+          fi
+
+      - name: Publish release candidate
+        if: contains(inputs.releaseTag, '-rc.') && steps.state.outputs.published != 'true'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          tag_name: ${{ inputs.releaseTag }}
+          generate_release_notes: true
+          prerelease: true
+          make_latest: false
+          overwrite_files: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/caracal-runtime-*
+            dist/manifest.json
+            dist/SHA256SUMS
+            dist/install.sh
+            dist/install.ps1
+
+      - name: Publish stable release
+        if: ${{ !contains(inputs.releaseTag, '-rc.') && steps.state.outputs.published != 'true' }}
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          tag_name: ${{ inputs.releaseTag }}
+          generate_release_notes: true
+          prerelease: false
+          make_latest: true
+          overwrite_files: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/caracal-runtime-*
+            dist/manifest.json
+            dist/SHA256SUMS
+            dist/install.sh
+            dist/install.ps1
+
+      - name: Validate public GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          channel=stable
+          [[ "$RELEASE_TAG" == *-rc.* ]] && channel=rc
+          node scripts/verifyGitHubRelease.mjs public \
+            --tag "$RELEASE_TAG" \
+            --channel "$channel" \
+            --url "https://api.github.com/repos/Garudex-Labs/caracal/releases/tags/${RELEASE_TAG}"
+          mkdir published
+          gh release download "$RELEASE_TAG" --repo Garudex-Labs/caracal --dir published
+          (cd published && sha256sum --check SHA256SUMS)
+          diff -u <(find dist -maxdepth 1 -type f -printf '%f\n' | sort) <(find published -maxdepth 1 -type f -printf '%f\n' | sort)
+          for asset in dist/*; do
+            cmp "$asset" "published/$(basename "$asset")"
+          done
+
+  dryRunSummary:
+    name: Resume dry-run summary
+    needs: verify
+    if: github.repository == 'Garudex-Labs/caracal' && inputs.dryRun == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "Verified all published artifacts for ${{ inputs.releaseTag }} without creating the GitHub Release." >> "$GITHUB_STEP_SUMMARY"

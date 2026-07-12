@@ -17,6 +17,8 @@ from pathlib import Path
 
 REPOSITORY = "Garudex-Labs/caracal"
 REPOSITORY_URL = f"https://github.com/{REPOSITORY}"
+SOURCE_PREDICATE = "https://caracal.run/attestations/release-source/v1"
+PUBLISHER_URI = f"{REPOSITORY_URL}/.github/workflows/publishPypi.yml@refs/heads/main"
 
 
 def request_json(url: str) -> dict:
@@ -42,20 +44,40 @@ def release_files(name: str, version: str, timeout: int = 300) -> list[dict]:
         time.sleep(15)
 
 
-def verify_github_provenance(path: Path, source_sha: str, release_tag: str) -> None:
-    output = subprocess.check_output(
-        ["gh", "attestation", "verify", str(path), "--repo", REPOSITORY, "--format", "json"],
-        text=True,
-    )
-    results = json.loads(output)
+def has_release_source_provenance(results: list[dict], source_sha: str, release_tag: str) -> bool:
     for result in results:
         certificate = result.get("verificationResult", {}).get("signature", {}).get("certificate", {})
+        predicate = result.get("verificationResult", {}).get("statement", {}).get("predicate", {})
+        signer = certificate.get("buildSignerURI") or certificate.get("subjectAlternativeName", "")
         if (
-            certificate.get("sourceRepositoryDigest") == source_sha
-            and certificate.get("sourceRepositoryRef") == f"refs/tags/{release_tag}"
-            and certificate.get("sourceRepositoryURI") == REPOSITORY_URL
+            certificate.get("sourceRepositoryURI") == REPOSITORY_URL
+            and signer == PUBLISHER_URI
+            and predicate.get("sourceRepositoryURI") == REPOSITORY_URL
+            and predicate.get("sourceRepositoryDigest") == source_sha
+            and predicate.get("sourceRepositoryRef") == f"refs/tags/{release_tag}"
         ):
-            return
+            return True
+    return False
+
+
+def verify_github_provenance(path: Path, source_sha: str, release_tag: str) -> None:
+    output = subprocess.check_output(
+        [
+            "gh",
+            "attestation",
+            "verify",
+            str(path),
+            "--repo",
+            REPOSITORY,
+            "--predicate-type",
+            SOURCE_PREDICATE,
+            "--format",
+            "json",
+        ],
+        text=True,
+    )
+    if has_release_source_provenance(json.loads(output), source_sha, release_tag):
+        return
     raise RuntimeError(f"{path.name} has no GitHub provenance for {release_tag} at {source_sha}")
 
 
