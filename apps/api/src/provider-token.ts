@@ -12,7 +12,7 @@ import { providerSecretConfigRef, type SecretBackend } from '@caracalai/server-c
 const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
 const PROVIDER_TOKEN_EXCHANGE_MAX_BODY_BYTES = 64 * 1024
 
-function privateEgressHosts(): Set<string> {
+export function privateEgressHosts(): Set<string> {
   return new Set(
     (process.env.CARACAL_PRIVATE_EGRESS_HOSTS ?? '')
       .split(',')

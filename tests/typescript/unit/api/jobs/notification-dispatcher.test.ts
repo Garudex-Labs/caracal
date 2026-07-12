@@ -100,6 +100,19 @@ describe('notification sink destination safety', () => {
       ),
     ).rejects.toThrow('restricted address')
   })
+
+  it('relaxes private and ULA ranges only when the host is on the egress allowlist, never loopback or metadata', () => {
+    // Default posture blocks every private range; the allowlist flag relaxes exactly the
+    // operator-routable private ranges so an internal receiver can be reached deliberately.
+    for (const address of ['10.0.0.1', '172.17.0.1', '192.168.1.1', '100.64.0.1', 'fd00::1']) {
+      expect(isUnsafeSinkAddress(address), address).toBe(true)
+      expect(isUnsafeSinkAddress(address, true), address).toBe(false)
+    }
+    // Allowlisting a private receiver must never open loopback, link-local, metadata, or multicast.
+    for (const address of ['127.0.0.1', '169.254.169.254', '::1', 'fe80::1', '224.0.0.1']) {
+      expect(isUnsafeSinkAddress(address, true), address).toBe(true)
+    }
+  })
 })
 
 interface FakeDbOptions {

@@ -14,6 +14,7 @@ import { newTraceContext, runWithTrace } from '@caracalai/core'
 import { AAD_NOTIFICATION_SINK_SECRET, openSecretEnvelope } from '@caracalai/server-core'
 import type { DB } from '../db.js'
 import { withTransaction } from '../db.js'
+import { privateEgressHosts } from '../provider-token.js'
 
 const DISPATCH_LOCK_KEY = '7163920485318484'
 const FANOUT_SINK_BATCH = 200
@@ -119,20 +120,20 @@ function nat64EmbeddedIpv4(value: string): string | null {
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
 }
 
-export function isUnsafeSinkAddress(value: string): boolean {
+export function isUnsafeSinkAddress(value: string, privateAllowed = false): boolean {
   const nat64 = nat64EmbeddedIpv4(value)
-  if (nat64) return isUnsafeSinkAddress(nat64)
+  if (nat64) return isUnsafeSinkAddress(nat64, privateAllowed)
   const ip = value.toLowerCase().startsWith('::ffff:') ? value.slice(7) : value
   if (isIP(ip) === 4) {
     const parts = ip.split('.').map(Number)
     return (
       parts[0] === 0 ||
-      parts[0] === 10 ||
+      (parts[0] === 10 && !privateAllowed) ||
       parts[0] === 127 ||
-      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) ||
+      (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127 && !privateAllowed) ||
       (parts[0] === 169 && parts[1] === 254) ||
-      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-      (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 && !privateAllowed) ||
+      (parts[0] === 192 && parts[1] === 168 && !privateAllowed) ||
       parts[0] >= 224
     )
   }
@@ -141,8 +142,8 @@ export function isUnsafeSinkAddress(value: string): boolean {
     isIP(ip) !== 6 ||
     lower === '::' ||
     lower === '::1' ||
-    lower.startsWith('fc') ||
-    lower.startsWith('fd') ||
+    (lower.startsWith('fc') && !privateAllowed) ||
+    (lower.startsWith('fd') && !privateAllowed) ||
     lower.startsWith('fe80:') ||
     lower.startsWith('ff')
   )
@@ -166,7 +167,8 @@ export async function postNotificationSink(
   const loopbackDevelopment =
     target.protocol === 'http:' &&
     (target.hostname === 'localhost' || target.hostname === '127.0.0.1' || target.hostname === '[::1]' || target.hostname === '::1')
-  if (!loopbackDevelopment && addresses.some((entry) => isUnsafeSinkAddress(entry.address))) {
+  const privateAllowed = privateEgressHosts().has(target.hostname.toLowerCase())
+  if (!loopbackDevelopment && addresses.some((entry) => isUnsafeSinkAddress(entry.address, privateAllowed))) {
     throw new Error('sink host resolves to a restricted address')
   }
   const address = addresses[0]
