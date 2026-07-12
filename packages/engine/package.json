@@ -33,6 +33,10 @@
     "./scrubCwdEnv": {
       "import": "./dist/scrubCwdEnv.js",
       "types": "./dist/scrubCwdEnv.d.ts"
+    },
+    "./operatorEnv": {
+      "import": "./dist/operatorEnv.js",
+      "types": "./dist/operatorEnv.d.ts"
     }
   },
   "files": [
