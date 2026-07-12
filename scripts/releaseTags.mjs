@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { commitPattern, releaseTagPattern } from './lib/releaseSpec.mjs'
 
 function git(cwd, args, options = {}) {
   const output = execFileSync('git', args, { cwd, encoding: 'utf8', ...options })
@@ -48,17 +49,19 @@ export function verifyRemoteReleaseTags(cwd, tags, expectedSha, remote = 'origin
 }
 
 export function ensureRemoteReleaseTags(cwd, tags, expectedSha, remote = 'origin') {
-  const remoteCommits = tags.map((tag) => remoteTagCommit(cwd, remote, tag))
-  const published = remoteCommits.filter(Boolean).length
-  if (published > 0) {
-    if (published !== tags.length) throw new Error(`remote ${remote} has only ${published} of ${tags.length} release tags`)
+  const remoteCommits = new Map(tags.map((tag) => [tag, remoteTagCommit(cwd, remote, tag)]))
+  for (const [tag, commit] of remoteCommits) {
+    if (commit && commit !== expectedSha) throw new Error(`${tag} resolves to ${commit}; expected ${expectedSha}`)
+  }
+  const missing = tags.filter((tag) => !remoteCommits.get(tag))
+  if (missing.length === 0) {
     verifyRemoteReleaseTags(cwd, tags, expectedSha, remote)
     return { created: false, tags }
   }
 
   const created = []
   try {
-    for (const tag of tags) {
+    for (const tag of missing) {
       const actual = localTagCommit(cwd, tag)
       if (actual && actual !== expectedSha) throw new Error(`local ${tag} resolves to ${actual}; expected ${expectedSha}`)
       if (!actual) {
@@ -66,8 +69,8 @@ export function ensureRemoteReleaseTags(cwd, tags, expectedSha, remote = 'origin
         created.push(tag)
       }
     }
-    verifyLocalReleaseTags(cwd, tags, expectedSha)
-    git(cwd, ['push', '--atomic', remote, ...tags.map((tag) => `refs/tags/${tag}`)], { stdio: 'inherit' })
+    verifyLocalReleaseTags(cwd, missing, expectedSha)
+    git(cwd, ['push', '--atomic', remote, ...missing.map((tag) => `refs/tags/${tag}`)], { stdio: 'inherit' })
     verifyRemoteReleaseTags(cwd, tags, expectedSha, remote)
     return { created: true, tags }
   } catch (error) {
@@ -78,10 +81,10 @@ export function ensureRemoteReleaseTags(cwd, tags, expectedSha, remote = 'origin
 
 function main() {
   const [tag, expectedSha] = process.argv.slice(2)
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.(?:sha[0-9A-Za-z]+|[0-9]+))?$/.test(tag ?? '')) {
+  if (!releaseTagPattern.test(tag ?? '')) {
     throw new Error(`invalid release tag: ${tag ?? '<empty>'}`)
   }
-  if (!/^[0-9a-f]{40}$/.test(expectedSha ?? '')) throw new Error(`invalid source commit: ${expectedSha ?? '<empty>'}`)
+  if (!commitPattern.test(expectedSha ?? '')) throw new Error(`invalid source commit: ${expectedSha ?? '<empty>'}`)
   const cwd = process.cwd()
   const config = JSON.parse(readFileSync(resolve(cwd, 'release.config.json'), 'utf8'))
   verifyLocalReleaseTags(cwd, releaseTags(config, tag.slice(1)), expectedSha)

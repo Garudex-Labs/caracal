@@ -11,7 +11,7 @@
   "ignoreFiles": [
     "packages/engine/scripts/render-dev-env.mjs"
   ],
-  "ignoreBinaries": ["build", "sync-embedded", "go", "python", "scripts/release.sh"],
+  "ignoreBinaries": ["build", "sync-embedded", "gh", "go", "python", "scripts/release.sh"],
   "ignoreDependencies": [
     "@caracalai/core",
     "@caracalai/engine",

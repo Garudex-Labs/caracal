@@ -97,20 +97,7 @@ jobs:
           node scripts/verifyOciDigests.mjs dist/manifest.json
           mkdir chart-published
           helm pull "oci://ghcr.io/garudex-labs/charts/caracal" --version "${RELEASE_TAG#v}" --destination chart-published
-          gh attestation verify chart-published/caracal-*.tgz --repo Garudex-Labs/caracal --format json > chart-provenance.json
-          jq -e \
-            --arg sha "$RELEASE_SHA" \
-            --arg ref "refs/tags/$RELEASE_TAG" \
-            'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-            chart-provenance.json >/dev/null
-          for asset in dist/*; do
-            gh attestation verify "$asset" --repo Garudex-Labs/caracal --format json > provenance.json
-            jq -e \
-              --arg sha "$RELEASE_SHA" \
-              --arg ref "refs/tags/$RELEASE_TAG" \
-              'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-              provenance.json >/dev/null
-          done
+          node scripts/verifyAttestation.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG" chart-published/caracal-*.tgz dist/*
 
       - name: Verify npm packages
         env:
@@ -245,5 +232,7 @@ jobs:
     if: github.repository == 'Garudex-Labs/caracal' && inputs.dryRun == true
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - run: echo "Verified all published artifacts for ${{ inputs.releaseTag }} without creating the GitHub Release." >> "$GITHUB_STEP_SUMMARY"

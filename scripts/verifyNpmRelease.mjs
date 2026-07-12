@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { commitPattern, releaseWorkflowPath, repoUrl } from './lib/releaseSpec.mjs'
 
 function packageUrl(name, version) {
   const path = name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name)
@@ -34,15 +35,11 @@ export function validateProvenance(metadata, attestations, expected) {
   if (!attestation) throw new Error('npm package has no SLSA provenance attestation')
   const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, 'base64').toString('utf8'))
   const workflow = statement.predicate?.buildDefinition?.externalParameters?.workflow
-  if (
-    workflow?.repository !== 'https://github.com/Garudex-Labs/caracal' ||
-    workflow?.path !== '.github/workflows/release.yml' ||
-    workflow?.ref !== `refs/tags/${expected.tag}`
-  ) {
+  if (workflow?.repository !== repoUrl || workflow?.path !== releaseWorkflowPath || workflow?.ref !== `refs/tags/${expected.tag}`) {
     throw new Error('npm provenance was not produced by the expected Caracal release workflow')
   }
   const dependency = statement.predicate?.buildDefinition?.resolvedDependencies?.find(
-    (value) => value.uri === `git+https://github.com/Garudex-Labs/caracal@refs/tags/${expected.tag}`,
+    (value) => value.uri === `git+${repoUrl}@refs/tags/${expected.tag}`,
   )
   if (dependency?.digest?.gitCommit !== expected.sha) throw new Error('npm provenance source commit does not match the release commit')
   const subject = statement.subject?.find((value) => value.name === packagePurl(expected.name, expected.version))
@@ -94,7 +91,7 @@ async function installForVerification(directory, timeout = 300_000) {
 
 async function main() {
   const [name, version, sha, tag] = process.argv.slice(2)
-  if (!name || !version || !/^[0-9a-f]{40}$/.test(sha ?? '') || !tag) {
+  if (!name || !version || !commitPattern.test(sha ?? '') || !tag) {
     throw new Error('usage: verifyNpmRelease.mjs <package> <version> <source-sha> <release-tag>')
   }
   const metadata = await fetchJsonWhenVisible(packageUrl(name, version), `${name}@${version} metadata`)

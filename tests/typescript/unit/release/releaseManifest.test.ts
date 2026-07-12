@@ -283,9 +283,9 @@ describe('GitHub Release publication', () => {
     const pypiWorkflow = readFileSync(join(root, '.github', 'workflows', 'publishPypi.yml'), 'utf8')
     const resumeWorkflow = readFileSync(join(root, '.github', 'workflows', 'resumeRelease.yml'), 'utf8')
 
-    expect(releaseWorkflow).toContain('gh workflow run publishPypi.yml')
-    expect(releaseWorkflow).toContain('--ref "$DEFAULT_BRANCH"')
+    expect(releaseWorkflow).toContain('node scripts/dispatchPypiRelease.mjs "$RELEASE_TAG" "$RELEASE_SHA"')
     expect(releaseWorkflow).toContain('GH_REPO: ${{ github.repository }}')
+    expect(releaseWorkflow).toContain('DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}')
     expect(pypiWorkflow).toContain('releaseTag:')
     expect(pypiWorkflow).toContain('https://caracal.run/attestations/release-source/v1')
     expect(resumeWorkflow).toContain('gh run download "${{ inputs.sourceRunId }}" --name release-assets')
@@ -339,12 +339,25 @@ describe('release tag publication', () => {
     for (const tag of tags) expect(git(work, ['ls-remote', 'origin', `refs/tags/${tag}^{}`])).toContain(sha)
   })
 
-  it('rejects a partial remote release tag set', () => {
+  it('converges a partial remote tag set at the exact release commit', () => {
     const { work, sha } = releaseRepository()
     git(work, ['tag', '-a', tags[0], sha, '-m', tags[0]])
     git(work, ['push', 'origin', `refs/tags/${tags[0]}`])
 
-    expect(() => ensureRemoteReleaseTags(work, tags, sha)).toThrow('only 1 of 2 release tags')
+    expect(ensureRemoteReleaseTags(work, tags, sha)).toMatchObject({ created: true, tags })
+    for (const tag of tags) expect(git(work, ['ls-remote', 'origin', `refs/tags/${tag}^{}`])).toContain(sha)
+  })
+
+  it('rejects a partial remote tag set at a different commit', () => {
+    const { work, sha } = releaseRepository()
+    writeFileSync(join(work, 'release.txt'), 'diverged\n')
+    git(work, ['add', 'release.txt'])
+    git(work, ['commit', '-m', 'diverged'])
+    const diverged = git(work, ['rev-parse', 'HEAD'])
+    git(work, ['tag', '-a', tags[0], diverged, '-m', tags[0]])
+    git(work, ['push', 'origin', `refs/tags/${tags[0]}`])
+
+    expect(() => ensureRemoteReleaseTags(work, tags, sha)).toThrow(`expected ${sha}`)
   })
 
   it('removes only tags created by a rejected atomic push', () => {

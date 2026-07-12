@@ -6,10 +6,14 @@
 ## Architecture Design
 - Helpers provide reusable Console style and selection primitives for root automation scripts.
 - `stamp.mjs` is the single writer that propagates `release.config.json` versions into package and Helm files.
+- `releaseSpec.mjs` is the single source for release repo identity, tag and digest patterns, registry defaults, image and chart references, run-name formats, and atomic JSON writes.
+- `oci.mjs` is the single source for image and chart inspection with transient-failure retries.
 
 ## Required
 - Must keep shell helpers sourceable by POSIX-compatible scripts that opt into them.
 - Must keep `stamp.mjs` the only module that mutates artifact versions; consumers diff via `computeStamp` and write via `applyStamp`.
+- Must import release patterns, registry defaults, and run-name formats from `releaseSpec.mjs` instead of redefining them.
+- Must route OCI inspections through `oci.mjs` instead of invoking `docker buildx imagetools` or `helm show` directly.
 - Must keep function names short, explicit, and non-conflicting with shell builtins.
 - Must avoid side effects at source or import time except defining constants and functions.
 

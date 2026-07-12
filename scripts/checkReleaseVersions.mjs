@@ -7,6 +7,8 @@
 import { execFileSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
+import { registryDefaults } from './lib/releaseSpec.mjs'
 import { pypiFromNpm } from './lib/stamp.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -14,8 +16,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 function parseArgs(argv) {
   const options = {
     ecosystem: 'all',
-    npmRegistry: process.env.CARACAL_NPM_REGISTRY ?? 'https://registry.npmjs.org/',
-    pypiApi: process.env.CARACAL_PYPI_API ?? 'https://pypi.org/pypi/',
+    npmRegistry: process.env.CARACAL_NPM_REGISTRY ?? registryDefaults.npm,
+    pypiApi: process.env.CARACAL_PYPI_API ?? registryDefaults.pypiApi,
     packages: [],
     version: '',
   }
@@ -75,12 +77,19 @@ function ensureSlash(value) {
 
 export async function findPublished(packages, options) {
   const published = []
+  const attempts = 3
   for (const pkg of packages) {
     const url = endpoint(pkg, options)
-    const response = await fetch(url, { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } })
-    if (response.status === 404) continue
-    if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`)
-    published.push(`${pkg.name}@${pkg.version}`)
+    for (let attempt = 1; ; attempt += 1) {
+      const response = await fetch(url, { headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } })
+      if (response.status === 404) break
+      if (response.ok) {
+        published.push(`${pkg.name}@${pkg.version}`)
+        break
+      }
+      if (response.status < 500 || attempt >= attempts) throw new Error(`${url} returned HTTP ${response.status}`)
+      await delay(5_000)
+    }
   }
   return published
 }

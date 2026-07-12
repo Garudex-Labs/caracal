@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
+import { releaseTagPattern } from './lib/releaseSpec.mjs'
 
 const [releaseTag, dir = 'dist'] = process.argv.slice(2)
 
@@ -15,7 +16,7 @@ function fail(message) {
   process.exit(1)
 }
 
-if (!releaseTag || !/^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/.test(releaseTag)) {
+if (!releaseTag || !releaseTagPattern.test(releaseTag)) {
   fail(`expected release tag argument, got ${releaseTag ?? '<empty>'}`)
 }
 
@@ -47,6 +48,7 @@ for (const line of sumLines) {
   const match = /^([0-9a-f]{64}) [ *](.+)$/.exec(line)
   if (!match) fail(`malformed SHA256SUMS entry: ${line}`)
   const [, expected, name] = match
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) fail(`SHA256SUMS entry escapes the asset directory: ${name}`)
   const path = resolve(root, name)
   if (!existsSync(path)) fail(`SHA256SUMS references missing file: ${name}`)
   const actual = createHash('sha256').update(readFileSync(path)).digest('hex')

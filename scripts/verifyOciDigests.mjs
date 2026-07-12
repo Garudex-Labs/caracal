@@ -4,35 +4,29 @@
 //
 // Compares release manifest OCI digests with public image and chart state.
 
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { imageDigest } from './lib/oci.mjs'
+import { chartRef } from './lib/releaseSpec.mjs'
 
-function inspectDigest(reference) {
-  const output = execFileSync('docker', ['buildx', 'imagetools', 'inspect', reference, '--format', '{{json .Manifest}}'], {
-    encoding: 'utf8',
-  })
-  const digest = JSON.parse(output).digest
-  if (!/^sha256:[0-9a-f]{64}$/.test(digest ?? '')) throw new Error(`${reference} returned invalid digest ${digest}`)
-  return digest
-}
-
-export function verifyOciDigests(manifest) {
+export async function verifyOciDigests(manifest) {
   if (!manifest.images || !manifest.imageDigests) throw new Error('manifest image references and digests are required')
   for (const [name, reference] of Object.entries(manifest.images)) {
     const expected = manifest.imageDigests[name]
-    const actual = inspectDigest(reference)
+    const actual = await imageDigest(reference)
     if (actual !== expected) throw new Error(`${reference} digest ${actual} does not match manifest ${expected}`)
     process.stdout.write(`${reference}@${actual}: OK\n`)
   }
-  const registry = manifest.registries?.oci?.replace(/\/$/, '')
-  if (!registry) throw new Error('manifest registries.oci is required')
-  const chart = `${registry}/charts/caracal:${manifest.version}`
-  const actual = inspectDigest(chart)
+  if (!manifest.registries?.oci) throw new Error('manifest registries.oci is required')
+  const chart = `${chartRef(manifest.registries.oci)}:${manifest.version}`
+  const actual = await imageDigest(chart)
   if (actual !== manifest.helm?.digest) throw new Error(`${chart} digest ${actual} does not match manifest ${manifest.helm?.digest}`)
   process.stdout.write(`${chart}@${actual}: OK\n`)
 }
 
-const [path] = process.argv.slice(2)
-if (!path) throw new Error('usage: verifyOciDigests.mjs <manifest>')
-verifyOciDigests(JSON.parse(readFileSync(resolve(path), 'utf8')))
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const [path] = process.argv.slice(2)
+  if (!path) throw new Error('usage: verifyOciDigests.mjs <manifest>')
+  await verifyOciDigests(JSON.parse(readFileSync(resolve(path), 'utf8')))
+}

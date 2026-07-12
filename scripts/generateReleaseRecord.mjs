@@ -6,8 +6,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { releaseTagPattern } from './lib/releaseSpec.mjs'
 
-const tagPattern = /^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
 const archivePlatforms = ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']
 const zipPlatform = 'windows-amd64'
 const extras = ['manifest.json', 'install.sh', 'install.ps1', 'SHA256SUMS']
@@ -26,7 +26,7 @@ if (!existsSync(manifestPath)) fail(`manifest not found: ${manifestPath}`)
 
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
 const release = manifest.release
-if (!tagPattern.test(release ?? '')) fail(`invalid manifest release tag: ${release}`)
+if (!releaseTagPattern.test(release ?? '')) fail(`invalid manifest release tag: ${release}`)
 
 const channel = manifest.mode ?? (release.includes('-rc.') ? 'rc' : 'stable')
 const date = manifest.publishedAt ?? manifest.generatedAt?.slice(0, 10)

@@ -11,17 +11,9 @@ on:
       - main
   pull_request:
     paths:
-      - '.github/workflows/test.yml'
-      - '.github/workflows/deploy.yml'
-      - '.github/workflows/release.yml'
+      - '.github/workflows/**'
       - '.prettierrc.json'
-      - 'scripts/checkStyle.mjs'
-      - 'scripts/docsVersion.mjs'
-      - 'scripts/pythonStyleRequirements.in'
-      - 'scripts/pythonStyleRequirements.lock'
-      - 'scripts/pythonTestRequirements.in'
-      - 'scripts/pythonTestRequirements.lock'
-      - 'scripts/setupDev.mjs'
+      - 'scripts/**'
       - 'apps/**'
       - 'docs/**'
       - 'infra/**'
@@ -33,6 +25,7 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
+      - 'release.config.json'
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -103,6 +96,7 @@ jobs:
       postgres: ${{ steps.paths.outputs.postgres }}
       helm: ${{ steps.paths.outputs.helm }}
       infra: ${{ steps.paths.outputs.infra }}
+      workflows: ${{ steps.paths.outputs.workflows }}
     steps:
       - name: Checkout
         if: github.event_name == 'pull_request'
@@ -125,6 +119,7 @@ jobs:
               echo 'postgres=true'
               echo 'helm=true'
               echo 'infra=true'
+              echo 'workflows=true'
               exit 0
             fi
 
@@ -137,15 +132,21 @@ jobs:
             postgres=false
             helm=false
             infra=false
+            workflows=false
             # bash case patterns are not pathname-aware: * matches across '/',
             # so these globs intentionally over-match and err toward running an
             # extra job rather than skipping a needed one. Detection never
             # under-triggers; precision is traded for safety.
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/test.yml|.prettierrc.json|scripts/checkStyle.mjs|scripts/docsVersion.mjs|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
+                .github/workflows/test.yml|.prettierrc.json|scripts/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|release.config.json|apps/**|packages/engine/**|packages/*/ts/**|packages/adapters/*/ts/**|packages/backends/*/ts/**|tests/typescript/**)
                   typescript=true
                   style=true
+                  ;;
+              esac
+              case "$path" in
+                .github/workflows/**|scripts/validateWorkflows.mjs|scripts/lib/releaseSpec.mjs)
+                  workflows=true
                   ;;
               esac
               case "$path" in
@@ -190,7 +191,40 @@ jobs:
             echo "postgres=$postgres"
             echo "helm=$helm"
             echo "infra=$infra"
+            echo "workflows=$workflows"
           } >> "$GITHUB_OUTPUT"
+
+  workflows:
+    name: Workflow invariants
+    needs: changes
+    if: |
+      always() && github.repository == 'Garudex-Labs/caracal' &&
+      ((github.event_name == 'pull_request' && needs.changes.outputs.workflows == 'true') || github.event_name != 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Validate workflow invariants
+        run: node scripts/validateWorkflows.mjs
 
   style:
     name: Style checks

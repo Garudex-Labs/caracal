@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { releaseInventory } from './releaseInventory.mjs'
 import { pypiFromNpm } from './lib/stamp.mjs'
+import { commitPattern, imageDigestPattern, releaseTagPattern } from './lib/releaseSpec.mjs'
 
 const repoRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 const inventory = releaseInventory()
@@ -15,8 +16,6 @@ const files = []
 let expectedSourceSha = process.env.CARACAL_EXPECT_SOURCE_SHA ?? ''
 let requireProductVersion = false
 let requireImageDigests = false
-const releaseTagPattern = /^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
-const sourceShaPattern = /^[0-9a-f]{40}$/
 
 for (let index = 0; index < args.length; index += 1) {
   if (args[index] === '--source-sha') {
@@ -32,7 +31,7 @@ for (let index = 0; index < args.length; index += 1) {
   }
 }
 
-if (expectedSourceSha && !sourceShaPattern.test(expectedSourceSha)) {
+if (expectedSourceSha && !commitPattern.test(expectedSourceSha)) {
   fail(`expected source SHA must be a full lowercase Git commit, got ${expectedSourceSha}`)
 }
 
@@ -151,14 +150,14 @@ function validate(path) {
     if (!manifest.images || !manifest.imageDigests) fail(`${path}: finalized image references and digests are required`)
     assertKeys('image digests', manifest.imageDigests, Object.keys(manifest.images))
     for (const [name, digest] of Object.entries(manifest.imageDigests)) {
-      if (!/^sha256:[0-9a-f]{64}$/.test(digest)) fail(`${path}: image digest ${name} is invalid`)
+      if (!imageDigestPattern.test(digest)) fail(`${path}: image digest ${name} is invalid`)
     }
   }
   if (!manifest.helm || typeof manifest.helm !== 'object') fail(`${path}: helm metadata is required`)
   if (manifest.helm.chartVersion !== version) fail(`${path}: helm chartVersion ${manifest.helm.chartVersion} does not match ${version}`)
   if (manifest.helm.appVersion !== version) fail(`${path}: helm appVersion ${manifest.helm.appVersion} does not match ${version}`)
   if (manifest.helm.imageTag !== version) fail(`${path}: helm imageTag ${manifest.helm.imageTag} does not match ${version}`)
-  if (requireImageDigests && !/^sha256:[0-9a-f]{64}$/.test(manifest.helm.digest ?? '')) {
+  if (requireImageDigests && !imageDigestPattern.test(manifest.helm.digest ?? '')) {
     fail(`${path}: finalized Helm digest is invalid`)
   }
   if (manifest.githubRelease?.tag !== manifest.release) fail(`${path}: GitHub release tag does not match ${manifest.release}`)
@@ -178,8 +177,8 @@ function validate(path) {
   const hasSource = Object.hasOwn(manifest, 'source')
   if (hasSha !== hasSource) fail(`${path}: sha and source must either both be present or both be absent`)
   if (hasSha) {
-    if (!sourceShaPattern.test(manifest.sha)) fail(`${path}: sha must be a full lowercase Git commit`)
-    if (!sourceShaPattern.test(manifest.source?.gitSha ?? '')) fail(`${path}: source.gitSha must be a full lowercase Git commit`)
+    if (!commitPattern.test(manifest.sha)) fail(`${path}: sha must be a full lowercase Git commit`)
+    if (!commitPattern.test(manifest.source?.gitSha ?? '')) fail(`${path}: source.gitSha must be a full lowercase Git commit`)
     if (manifest.sha !== manifest.source.gitSha) {
       fail(`${path}: sha ${manifest.sha} does not match source.gitSha ${manifest.source.gitSha}`)
     }

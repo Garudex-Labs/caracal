@@ -6,6 +6,9 @@
 ## Architecture Design
 - Root scripts orchestrate release, publish, and CI workflows.
 - Shared shell presentation and selection helpers live under `scripts/lib/`.
+- Release identity, tag patterns, registry defaults, and run-name contracts live only in `scripts/lib/releaseSpec.mjs`.
+- Release provenance verification lives only in `scripts/verifyAttestation.mjs`; workflows must call it instead of inlining `gh attestation` checks.
+- Workflow invariants are enforced by `scripts/validateWorkflows.mjs`; it must pass before any workflow change merges.
 - Release records for the docs Releases page are generated from manifests by `scripts/generateReleaseRecord.mjs`.
 - Documentation minor snapshots and immutable digests are managed by `scripts/docsVersion.mjs`.
 

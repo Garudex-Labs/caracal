@@ -60,7 +60,7 @@ jobs:
       dryRun: ${{ steps.resolve.outputs.dryRun }}
       promoteStable: ${{ steps.resolve.outputs.promoteStable }}
       sha: ${{ steps.resolve.outputs.sha }}
-      serviceContainers: ${{ steps.containers.outputs.service }}
+      containerMatrix: ${{ steps.containers.outputs.matrix }}
       containerNames: ${{ steps.containers.outputs.names }}
     permissions:
       contents: read
@@ -85,57 +85,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          actor="${RELEASE_ACTOR}"
-          maintainers="$(mktemp)"
-          gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
-          if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
-            echo "::error::$actor is not listed in .github/MAINTAINERS on ${{ github.event.repository.default_branch }} and cannot run releases."
-            exit 1
-          fi
-
-      - name: Require green tests
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          sha="$(git rev-parse HEAD)"
-          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/runs"
-          deadline=$(( $(date +%s) + 3600 ))
-          grace=$(( $(date +%s) + 600 ))
-          while :; do
-            success="$(gh api "${runs_api}?head_sha=${sha}&status=success&per_page=1" --jq '.total_count')"
-            if [ "$success" -gt 0 ]; then
-              echo "Test workflow is green for ${sha}."
-              break
-            fi
-            total="$(gh api "${runs_api}?head_sha=${sha}&per_page=1" --jq '.total_count')"
-            pending="$(gh api "${runs_api}?head_sha=${sha}&per_page=30" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
-            now="$(date +%s)"
-            if [ "$total" -eq 0 ]; then
-              if [ "$now" -ge "$grace" ]; then
-                echo "::error::No test workflow run exists for ${sha}. Push the release commit to main and let CI start before releasing."
-                exit 1
-              fi
-            elif [ "$pending" -eq 0 ]; then
-              echo "::error::The test workflow completed without success for ${sha}. Fix CI before releasing."
-              exit 1
-            fi
-            if [ "$now" -ge "$deadline" ]; then
-              echo "::error::Timed out waiting for a green test workflow run for ${sha}."
-              exit 1
-            fi
-            echo "Waiting for the test workflow on ${sha} (pending runs: ${pending})..."
-            sleep 30
-          done
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/authorizeReleaseActor.mjs --actor "$RELEASE_ACTOR" --branch "$DEFAULT_BRANCH"
 
       - name: Resolve container set
         id: containers
         run: |
           set -euo pipefail
           {
-            echo "service=$(jq -c '[.product.containers[] | select(.name != "runtime") | {name, context, dockerfile}]' release.config.json)"
+            echo "matrix=$(jq -c '[.product.containers[] | {name, context, dockerfile}]' release.config.json)"
             echo "names=$(jq -c '[.product.containers[].name]' release.config.json)"
           } >> "$GITHUB_OUTPUT"
 
@@ -213,7 +171,7 @@ jobs:
         run: |
           set -euo pipefail
           title="Caracal ${RELEASE_TAG} dry-run ${RELEASE_SHA}"
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&per_page=100" \
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&head_sha=${RELEASE_SHA}&per_page=100" \
             --jq "[.workflow_runs[] | select(.display_title == \"${title}\" and .head_branch == \"${RELEASE_TAG}\" and .head_sha == \"${RELEASE_SHA}\")] | length")"
           if [ "$count" -eq 0 ]; then
             echo "::error::No successful ${title} workflow exists for ${RELEASE_SHA}."
@@ -278,6 +236,41 @@ jobs:
 
       - name: Stamp drift
         run: node scripts/release.mjs stamp --check
+
+      - name: Require green tests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/test.yml/runs"
+          deadline=$(( $(date +%s) + 3600 ))
+          grace=$(( $(date +%s) + 600 ))
+          while :; do
+            success="$(gh api "${runs_api}?head_sha=${sha}&status=success&per_page=1" --jq '.total_count')"
+            if [ "$success" -gt 0 ]; then
+              echo "Test workflow is green for ${sha}."
+              break
+            fi
+            total="$(gh api "${runs_api}?head_sha=${sha}&per_page=1" --jq '.total_count')"
+            pending="$(gh api "${runs_api}?head_sha=${sha}&per_page=30" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            now="$(date +%s)"
+            if [ "$total" -eq 0 ]; then
+              if [ "$now" -ge "$grace" ]; then
+                echo "::error::No test workflow run exists for ${sha}. Push the release commit to main and let CI start before releasing."
+                exit 1
+              fi
+            elif [ "$pending" -eq 0 ]; then
+              echo "::error::The test workflow completed without success for ${sha}. Fix CI before releasing."
+              exit 1
+            fi
+            if [ "$now" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for a green test workflow run for ${sha}."
+              exit 1
+            fi
+            echo "Waiting for the test workflow on ${sha} (pending runs: ${pending})..."
+            sleep 30
+          done
 
   archives:
     name: Build archives
@@ -426,8 +419,8 @@ jobs:
           subject-path: |
             release-dist/caracal-runtime-*
 
-  serviceImages:
-    name: Build service images
+  images:
+    name: Build images
     needs: context
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
@@ -440,7 +433,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.context.outputs.serviceContainers) }}
+        include: ${{ fromJSON(needs.context.outputs.containerMatrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -463,23 +456,18 @@ jobs:
         if: needs.context.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
-          reference="${REGISTRY}/${IMAGE_OWNER}/caracal-${{ matrix.name }}:sha-${{ needs.context.outputs.sha }}"
+          reference="${REGISTRY}/${IMAGE_OWNER}/caracal-${{ matrix.name }}:sha-${RELEASE_SHA}"
           set +e
           output="$(docker buildx imagetools inspect "$reference" 2>&1)"
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
-            if gh attestation verify "oci://$reference" --repo Garudex-Labs/caracal --format json > provenance.json 2>/dev/null && \
-              jq -e --arg sha "${{ needs.context.outputs.sha }}" --arg ref "refs/tags/${{ needs.context.outputs.releaseTag }}" \
-                'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-                provenance.json >/dev/null; then
-              echo 'published=true' >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::$reference exists without exact release provenance."
-              exit 1
-            fi
+            node scripts/verifyAttestation.mjs --oci --sha "$RELEASE_SHA" --tag "$RELEASE_TAG" "$reference"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
           elif grep -qi 'not found' <<< "$output"; then
             echo 'published=false' >> "$GITHUB_OUTPUT"
           else
@@ -500,6 +488,9 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            ${{ matrix.name == 'runtime' && format('CARACAL_RELEASE_VERSION={0}', needs.context.outputs.version) || '' }}
+            ${{ matrix.name == 'runtime' && format('CARACAL_DEV_SHA={0}', needs.context.outputs.sha) || '' }}
           push: ${{ needs.context.outputs.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: |
@@ -518,100 +509,9 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  runtimeImage:
-    name: Build runtime image
-    needs: context
-    if: github.repository == 'Garudex-Labs/caracal'
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ needs.context.outputs.sha }}
-          persist-credentials: false
-
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
-        if: needs.context.outputs.publish == 'true'
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check source image
-        id: state
-        if: needs.context.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          reference="${REGISTRY}/${IMAGE_OWNER}/caracal-runtime:sha-${{ needs.context.outputs.sha }}"
-          set +e
-          output="$(docker buildx imagetools inspect "$reference" 2>&1)"
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            if gh attestation verify "oci://$reference" --repo Garudex-Labs/caracal --format json > provenance.json 2>/dev/null && \
-              jq -e --arg sha "${{ needs.context.outputs.sha }}" --arg ref "refs/tags/${{ needs.context.outputs.releaseTag }}" \
-                'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-                provenance.json >/dev/null; then
-              echo 'published=true' >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::$reference exists without exact release provenance."
-              exit 1
-            fi
-          elif grep -qi 'not found' <<< "$output"; then
-            echo 'published=false' >> "$GITHUB_OUTPUT"
-          else
-            printf '%s\n' "$output" >&2
-            exit "$status"
-          fi
-
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
-          tags: type=raw,value=sha-${{ needs.context.outputs.sha }}
-
-      - id: push
-        if: needs.context.outputs.publish != 'true' || steps.state.outputs.published != 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: apps/runtime/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            CARACAL_RELEASE_VERSION=${{ needs.context.outputs.version }}
-            CARACAL_DEV_SHA=${{ needs.context.outputs.sha }}
-          push: ${{ needs.context.outputs.publish == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: |
-            ${{ steps.meta.outputs.labels }}
-            org.opencontainers.image.version=${{ needs.context.outputs.releaseTag }}
-            org.opencontainers.image.revision=${{ needs.context.outputs.sha }}
-          provenance: true
-          sbom: true
-          cache-from: type=gha,scope=runtime-image
-          cache-to: type=gha,mode=max,scope=runtime-image
-
-      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        if: needs.context.outputs.publish == 'true' && steps.state.outputs.published != 'true'
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/caracal-runtime
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
-
   verifyPublishedOci:
-    name: Publish verified OCI images
-    needs: [context, serviceImages, runtimeImage]
+    name: Promote verified OCI images
+    needs: [context, images]
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -694,14 +594,7 @@ jobs:
           fi
           node scripts/verifyReleaseAssets.mjs "${{ needs.context.outputs.releaseTag }}" dist
           if [ "$PUBLISH" = true ]; then
-            for archive in dist/caracal-runtime-*; do
-              gh attestation verify "$archive" --repo Garudex-Labs/caracal --format json > provenance.json
-              jq -e \
-                --arg sha "$RELEASE_SHA" \
-                --arg ref "refs/tags/$RELEASE_TAG" \
-                'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-                provenance.json >/dev/null
-            done
+            node scripts/verifyAttestation.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG" dist/caracal-runtime-*
           fi
 
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
@@ -772,17 +665,14 @@ jobs:
         if: needs.context.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.context.outputs.sha }}
+          RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
         run: |
           set -euo pipefail
           mkdir -p chart-published
           helm pull "oci://${REGISTRY}/${IMAGE_OWNER}/charts/caracal" --version "${{ needs.context.outputs.version }}" --destination chart-published
           cmp chart-dist/caracal-*.tgz chart-published/caracal-*.tgz
-          gh attestation verify chart-published/caracal-*.tgz --repo Garudex-Labs/caracal --format json > chart-provenance.json
-          jq -e \
-            --arg sha "${{ needs.context.outputs.sha }}" \
-            --arg ref "refs/tags/${{ needs.context.outputs.releaseTag }}" \
-            'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-            chart-provenance.json >/dev/null
+          node scripts/verifyAttestation.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG" chart-published/caracal-*.tgz
 
   publishNpmPackages:
     name: Publish npm packages
@@ -822,11 +712,16 @@ jobs:
     needs: [context, verifyAssets, verifyPublishedOci]
     if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     permissions:
       actions: write
       contents: read
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.context.outputs.sha }}
+          persist-credentials: false
+
       - name: Dispatch trusted PyPI publisher
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -834,23 +729,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_SHA: ${{ needs.context.outputs.sha }}
           RELEASE_TAG: ${{ needs.context.outputs.releaseTag }}
-        run: |
-          set -euo pipefail
-          run_output="$(GH_FORCE_TTY=0 gh workflow run publishPypi.yml \
-            --ref "$DEFAULT_BRANCH" \
-            -f package=all \
-            -f dryRun=false \
-            -f runner=ubuntu-24.04 \
-            -f releaseTag="$RELEASE_TAG" \
-            -f releaseSha="$RELEASE_SHA")"
-          run_url="$(grep -Eo 'https://github.com/[^[:space:]]+/actions/runs/[0-9]+' <<< "$run_output" | tail -1)"
-          run_id="${run_url##*/}"
-          [[ "$run_id" =~ ^[0-9]+$ ]] || { printf '%s\n' "$run_output"; echo "::error::Could not resolve PyPI workflow run."; exit 1; }
-          gh run watch "$run_id" --exit-status
-          gh run view "$run_id" --json displayTitle,headBranch,status,conclusion > pypi-run.json
-          jq -e --arg branch "$DEFAULT_BRANCH" --arg title "Caracal PyPI $RELEASE_TAG publish" \
-            '.displayTitle == $title and .headBranch == $branch and .status == "completed" and .conclusion == "success"' \
-            pypi-run.json >/dev/null
+        run: node scripts/dispatchPypiRelease.mjs "$RELEASE_TAG" "$RELEASE_SHA"
 
   githubRelease:
     name: Publish GitHub Release
@@ -986,14 +865,7 @@ jobs:
           CARACAL_EXPECT_SOURCE_SHA="$RELEASE_SHA" node scripts/validateReleaseManifest.mjs --image-digests published/manifest.json
           node scripts/verifyOciDigests.mjs published/manifest.json
           node scripts/verifyReleaseAssets.mjs "$RELEASE_TAG" published
-          for asset in published/*; do
-            gh attestation verify "$asset" --repo Garudex-Labs/caracal --format json > provenance.json
-            jq -e \
-              --arg sha "$RELEASE_SHA" \
-              --arg ref "refs/tags/$RELEASE_TAG" \
-              'any(.[]; .verificationResult.signature.certificate.sourceRepositoryDigest == $sha and .verificationResult.signature.certificate.sourceRepositoryRef == $ref)' \
-              provenance.json >/dev/null
-          done
+          node scripts/verifyAttestation.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG" published/*
           git fetch --force --tags origin
           node scripts/releaseTags.mjs "$RELEASE_TAG" "$RELEASE_SHA"
 
@@ -1051,3 +923,74 @@ jobs:
               -t "${image}:latest" \
               "${image}:${RELEASE_TAG}"
           done
+
+  publishSummary:
+    name: Publish summary
+    needs: [context, postPublish, promoteStable]
+    if: github.repository == 'Garudex-Labs/caracal' && needs.context.outputs.publish == 'true' && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - run: |
+          {
+            echo "## Release published"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Release | \`${{ needs.context.outputs.releaseTag }}\` |"
+            echo "| Channel | \`${{ needs.context.outputs.channel }}\` |"
+            echo "| Source | \`${{ needs.context.outputs.sha }}\` |"
+            echo "| GitHub Release | https://github.com/${{ github.repository }}/releases/tag/${{ needs.context.outputs.releaseTag }} |"
+            echo "| Floating image tags | \`${{ needs.context.outputs.promoteStable == 'true' && 'latest + series promoted' || 'rc: none' }}\` |"
+            echo ""
+            echo "Binaries, images, Helm chart, npm, and PyPI packages were published and verified against this exact source."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  failureReport:
+    name: Failure report
+    needs:
+      [
+        context,
+        archives,
+        images,
+        verifyPublishedOci,
+        helmChart,
+        verifyAssets,
+        publishNpmPackages,
+        preflightPypiPackages,
+        publishPypiPackages,
+        githubRelease,
+        postPublish,
+        promoteStable,
+      ]
+    if: github.repository == 'Garudex-Labs/caracal' && failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Summarize failed jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GH_REPO}/actions/runs/${{ github.run_id }}/jobs?per_page=100" > jobs.json
+          {
+            echo "## Release failure report"
+            echo ""
+            echo "Release \`${{ needs.context.outputs.releaseTag }}\` (\`${{ needs.context.outputs.dryRun == 'true' && 'dry-run' || 'publish' }}\`) at \`${{ needs.context.outputs.sha }}\`."
+            echo ""
+            echo "| Failed job | Failed step | Logs |"
+            echo "|---|---|---|"
+            jq -r '.jobs[] | select(.conclusion == "failure") | "| \(.name) | \((.steps[]? | select(.conclusion == "failure") | .name) // "startup") | \(.html_url) |"' jobs.json
+            echo ""
+            echo "Recovery guidance:"
+            echo "- Failed publish jobs are safe to rerun: every publish step verifies already-published state before acting."
+            echo "- A workflow bug tagged into an immutable release cannot be fixed by rerunning; recover with resumeRelease.yml after fixing main."
+            echo "- Registry propagation delays are retried automatically; a propagation timeout usually resolves on rerun."
+            echo "- Validate workflow changes locally with: node scripts/validateWorkflows.mjs"
+          } >> "$GITHUB_STEP_SUMMARY"

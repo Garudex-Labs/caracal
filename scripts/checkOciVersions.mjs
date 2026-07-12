@@ -4,20 +4,10 @@
 //
 // Rejects release image and chart versions that already exist in an OCI registry.
 
-import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-
-const missingPattern = /(?:manifest unknown|name unknown|not found)/i
-
-function inspect(command, args, artifact) {
-  const result = spawnSync(command, args, { encoding: 'utf8' })
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  if (result.error) throw result.error
-  if (result.status === 0) throw new Error(`release artifact already published: ${artifact}`)
-  if (!missingPattern.test(output)) throw new Error(`could not verify ${artifact}: ${output.trim()}`)
-  process.stdout.write(`unpublished: ${artifact}\n`)
-}
+import { chartExists, imageExists } from './lib/oci.mjs'
+import { chartRef, imageRef, ociRegistry } from './lib/releaseSpec.mjs'
 
 function parseArgs(argv) {
   const artifacts = []
@@ -50,21 +40,20 @@ function parseArgs(argv) {
   }
   if (all) {
     const config = JSON.parse(readFileSync(resolve('release.config.json'), 'utf8'))
-    const registry = (process.env.CARACAL_OCI_REGISTRY ?? 'ghcr.io/garudex-labs').replace(/\/$/, '')
     const version = versionOverride || config.product.version
     for (const image of config.product.containers) {
-      artifacts.push({ kind: 'image', reference: `${registry}/caracal-${image.name}:v${version}` })
+      artifacts.push({ kind: 'image', reference: imageRef(image.name, `v${version}`, ociRegistry()) })
     }
-    artifacts.push({ kind: 'chart', reference: `oci://${registry}/charts/caracal`, version })
+    artifacts.push({ kind: 'chart', reference: `oci://${chartRef(ociRegistry())}`, version })
   }
   if (artifacts.length === 0) throw new Error('specify --all, --image, or --chart')
   return artifacts
 }
 
 for (const artifact of parseArgs(process.argv.slice(2))) {
-  if (artifact.kind === 'image') {
-    inspect('docker', ['buildx', 'imagetools', 'inspect', artifact.reference], artifact.reference)
-  } else {
-    inspect('helm', ['show', 'chart', artifact.reference, '--version', artifact.version], `${artifact.reference}:${artifact.version}`)
-  }
+  const published =
+    artifact.kind === 'image' ? await imageExists(artifact.reference) : await chartExists(artifact.reference, artifact.version)
+  const label = artifact.kind === 'image' ? artifact.reference : `${artifact.reference}:${artifact.version}`
+  if (published) throw new Error(`release artifact already published: ${label}`)
+  process.stdout.write(`unpublished: ${label}\n`)
 }

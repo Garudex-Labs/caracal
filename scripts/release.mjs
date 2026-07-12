@@ -12,6 +12,7 @@ import { productArchiveTargets, productContainers, releaseInventory } from './re
 import { ensureRemoteReleaseTags, releaseTags } from './releaseTags.mjs'
 import { verifyReleasePromotion } from './verifyReleasePromotion.mjs'
 import { applyStamp, computeStamp, pypiFromNpm } from './lib/stamp.mjs'
+import { registryDefaults, releaseRunName, releaseTagPattern, repoSlug } from './lib/releaseSpec.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const inventory = releaseInventory()
@@ -23,7 +24,6 @@ const productImages = productContainers(inventory.config)
 const containers = productImages.filter((image) => image.name !== 'runtime').map((image) => image.name)
 const archiveTargets = productArchiveTargets(inventory.config).map((target) => `caracal-runtime-${target.os}-${target.arch}`)
 const imageBuilds = productImages.map((image) => [image.name, image.context, image.dockerfile])
-const releaseTagPattern = /^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$/
 
 function die(message) {
   process.stderr.write(`release: ${message}\n`)
@@ -116,13 +116,10 @@ function packageVersions(version) {
 
 function registries(options) {
   return {
-    npm: options['npm-registry'] ?? process.env.CARACAL_NPM_REGISTRY ?? 'https://registry.npmjs.org/',
-    pypi: options['pypi-index'] ?? process.env.CARACAL_PYPI_INDEX ?? 'https://pypi.org/simple/',
-    oci: options['oci-registry'] ?? process.env.CARACAL_OCI_REGISTRY ?? 'ghcr.io/garudex-labs',
-    githubReleases:
-      options['github-release-base'] ??
-      process.env.CARACAL_GITHUB_RELEASE_BASE ??
-      'https://github.com/Garudex-Labs/caracal/releases/download',
+    npm: options['npm-registry'] ?? process.env.CARACAL_NPM_REGISTRY ?? registryDefaults.npm,
+    pypi: options['pypi-index'] ?? process.env.CARACAL_PYPI_INDEX ?? registryDefaults.pypi,
+    oci: options['oci-registry'] ?? process.env.CARACAL_OCI_REGISTRY ?? registryDefaults.oci,
+    githubReleases: options['github-release-base'] ?? process.env.CARACAL_GITHUB_RELEASE_BASE ?? registryDefaults.githubReleases,
   }
 }
 
@@ -230,9 +227,12 @@ function dispatchRelease(tag, dryRun) {
 }
 
 function successfulReleaseRun(tag, sha, mode) {
-  const title = `Caracal ${tag} ${mode} ${sha}`
+  const title = releaseRunName(tag, mode, sha)
   const runs = JSON.parse(
-    run('gh', ['api', `repos/Garudex-Labs/caracal/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&per_page=100`]),
+    run('gh', [
+      'api',
+      `repos/${repoSlug}/actions/workflows/release.yml/runs?event=workflow_dispatch&status=success&head_sha=${sha}&per_page=100`,
+    ]),
   ).workflow_runs
   return runs.some(
     (workflow) =>
@@ -240,7 +240,31 @@ function successfulReleaseRun(tag, sha, mode) {
   )
 }
 
-function publishRelease(version) {
+function latestReleaseRun(tag, sha, mode) {
+  const title = releaseRunName(tag, mode, sha)
+  const runs = JSON.parse(
+    run('gh', ['api', `repos/${repoSlug}/actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha=${sha}&per_page=100`]),
+  ).workflow_runs
+  return (
+    runs
+      .filter((workflow) => workflow.display_title === title && workflow.head_sha === sha)
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null
+  )
+}
+
+function watchRun(tag, sha, mode) {
+  const discoverDeadline = Date.now() + 5 * 60 * 1000
+  let workflow = latestReleaseRun(tag, sha, mode)
+  while (!workflow) {
+    if (Date.now() >= discoverDeadline) die(`no ${mode} run appeared for ${tag} at ${sha}`)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000)
+    workflow = latestReleaseRun(tag, sha, mode)
+  }
+  say(`watching ${mode} run ${workflow.id}: ${workflow.html_url}`)
+  execFileSync('gh', ['run', 'watch', String(workflow.id), '--exit-status', '--interval', '30'], { cwd: repoRoot, stdio: 'inherit' })
+}
+
+function publishRelease(version, watch = false) {
   const tag = `v${version}`
   const sha = headSha()
   const tags = releaseTags(inventory.config, version)
@@ -249,12 +273,20 @@ function publishRelease(version) {
   if (!successfulReleaseRun(tag, sha, 'dry-run')) {
     dispatchRelease(tag, true)
     say(`queued immutable release dry-run for ${tag}`)
-    say('rerun this publish command after the dry-run succeeds')
-    say('monitor: gh run list --workflow release.yml --limit 5')
-    return
+    if (!watch) {
+      say('rerun this publish command after the dry-run succeeds, or pass --watch to run both phases')
+      say('monitor: gh run list --workflow release.yml --limit 5')
+      return
+    }
+    watchRun(tag, sha, 'dry-run')
   }
   dispatchRelease(tag, false)
   say(`queued release workflow for ${tag}`)
+  if (watch) {
+    watchRun(tag, sha, 'publish')
+    say(`release ${tag} published`)
+    return
+  }
   say('monitor: gh run list --workflow release.yml --limit 5')
 }
 
@@ -320,7 +352,7 @@ function stable(options) {
     say('monitor: gh run list --workflow release.yml --limit 5')
     return
   }
-  publishRelease(version)
+  publishRelease(version, options.flags.has('watch'))
 }
 
 function loadManifest(pathOrTag) {
@@ -356,7 +388,7 @@ function prepare(options) {
   say(path)
 }
 
-function publishRc() {
+function publishRc(options) {
   if (dirtyTree()) die('dirty tree; commit or stash first')
   const version = numberedRcVersion()
   const tag = `v${version}`
@@ -377,7 +409,7 @@ function publishRc() {
     for (const change of drift) say(`drift: ${change.path}`)
     die('artifact files do not match release.config.json; run rc prepare and commit')
   }
-  publishRelease(version)
+  publishRelease(version, options.flags.has('watch'))
 }
 
 function printVersion(options) {
@@ -461,13 +493,10 @@ function simulateWorkflow(manifest) {
   say('    archives:')
   for (const name of archiveTargets) say(`      ${name}-${manifest.release}.${name.includes('windows') ? 'zip' : 'tar.gz'}`)
   say('    checksums, smoke tests, provenance')
-  say(`  serviceImages`)
-  for (const [name, context, dockerfile] of imageBuilds.filter(([name]) => name !== 'runtime')) {
+  say(`  images`)
+  for (const [name, context, dockerfile] of imageBuilds) {
     say(`    ${name}: ${dockerfile} (${context})`)
   }
-  say('    push only on release publish dispatch')
-  say(`  runtimeImage`)
-  say(`    apps/runtime/Dockerfile -> ${manifest.images.runtime}`)
   say('    push only on release publish dispatch')
   say(`  githubRelease`)
   say(`    prerelease: ${manifest.release}`)
@@ -547,7 +576,7 @@ Commands:
   dry-run                Queue release.yml without publishing.
   version                Write an rc manifest.
   prepare                Stamp files and write the rc manifest.
-  publish                Create and atomically push the release and Go module tags.
+  publish [--watch]      Create and atomically push the release and Go module tags.
   clean --manifest PATH  Remove an rc manifest.`)
       break
     case 'stable':
@@ -569,7 +598,7 @@ Commands:
       prepare(options)
       break
     case 'rc-publish':
-      publishRc()
+      publishRc(options)
       break
     case 'rc-clean':
       clean(options)
@@ -580,13 +609,13 @@ Commands:
       say(`Usage: scripts/release.sh <command> [options]
 
 Commands:
-  stable [--dry-run]      Publish a prepared stable release.
+  stable [--dry-run] [--watch] Publish a prepared stable release.
   stamp [--check]         Stamp artifact files from release.config.json.
   promote --from TAG      Prepare a stable rebuild from an approved rc.
   rc dry-run              Queue release.yml without publishing.
   rc version              Write an rc manifest.
   rc prepare              Stamp files and write the rc manifest.
-  rc publish              Create and atomically push rc tags.
+  rc publish [--watch]    Create and atomically push rc tags.
   rc clean --manifest PATH Remove an rc manifest.
 
 Options:
@@ -600,6 +629,7 @@ Options:
   --github-release-base   GitHub asset base.
   --local                 Print local simulation.
   --print-command         Print gh command.
+  --watch                 Watch the queued dry-run and auto-dispatch the publish.
   --allow-dirty           Dispatch even with local changes.
   --allow-stale-ref       Allow remote/local ref drift.`)
       break

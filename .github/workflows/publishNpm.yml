@@ -80,6 +80,8 @@ jobs:
     if: github.repository == 'Garudex-Labs/caracal'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       preflightMatrix: ${{ steps.matrix.outputs.preflightMatrix }}
@@ -96,11 +98,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_DRY_RUN: ${{ inputs.dryRun }}
           RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF_NAME}" != "${{ github.event.repository.default_branch }}" && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
-            echo "::error::npm publishing must run from ${{ github.event.repository.default_branch }} or a Caracal release tag."
+          if [[ "${GITHUB_REF_NAME}" != "$DEFAULT_BRANCH" && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
+            echo "::error::npm publishing must run from ${DEFAULT_BRANCH} or a Caracal release tag."
             exit 1
           fi
           if [[ "$PUBLISH_DRY_RUN" != true && ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
@@ -111,13 +115,7 @@ jobs:
             echo "::error::npm publication must be called by release.yml with its exact release commit."
             exit 1
           fi
-          actor="${{ github.actor }}"
-          maintainers="$(mktemp)"
-          gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
-          if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
-            echo "::error::$actor is not listed in .github/MAINTAINERS on ${{ github.event.repository.default_branch }} and cannot publish npm packages."
-            exit 1
-          fi
+          node scripts/authorizeReleaseActor.mjs --actor "$RELEASE_ACTOR" --branch "$DEFAULT_BRANCH"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -127,6 +125,8 @@ jobs:
         shell: bash
         env:
           PACKAGE: ${{ inputs.package }}
+          PUBLISH_DRY_RUN: ${{ inputs.dryRun }}
+          PUBLISH_RUNNER: ${{ inputs.runner }}
         run: |
           set -euo pipefail
           args=(--ecosystem npm --format github-matrix)
@@ -135,7 +135,12 @@ jobs:
           fi
           selected="$(node scripts/releasePlan.mjs "${args[@]}")"
           hasPackages="$(node -e "const m = JSON.parse(process.argv[1]); console.log(m.include.length > 0 ? 'true' : 'false')" "$selected")"
-          preflight="$(node -e "const m = JSON.parse(process.argv[1]); const os = ['ubuntu-24.04', 'macos-15', 'windows-2022']; console.log(JSON.stringify({ include: m.include.flatMap((pkg) => os.map((runner) => ({ ...pkg, runner }))) }));" "$selected")"
+          if [[ "$PUBLISH_DRY_RUN" == true ]]; then
+            runners='["ubuntu-24.04", "macos-15", "windows-2022"]'
+          else
+            runners="[\"$PUBLISH_RUNNER\"]"
+          fi
+          preflight="$(RUNNERS="$runners" node -e "const m = JSON.parse(process.argv[1]); const os = JSON.parse(process.env.RUNNERS); console.log(JSON.stringify({ include: m.include.flatMap((pkg) => os.map((runner) => ({ ...pkg, runner }))) }));" "$selected")"
           {
             echo 'matrix<<JSON'
             printf '%s\n' "$selected"
