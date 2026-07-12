@@ -98,6 +98,10 @@ export function installRuntimeAssets(paths: RuntimePaths = runtimePaths(), mode:
     throw new RuntimeDowngradeError(paths.home, installed, version)
   }
   mkdirSync(paths.home, { recursive: true })
+  // Operator trust directory for the STS extra-CA mount: dropping a PEM at
+  // ca/extra-ca.pem lets the stack trust internal-PKI subject issuers and
+  // provider endpoints. It ships empty; an absent bundle changes nothing.
+  mkdirSync(join(paths.home, 'ca'), { recursive: true })
   let created = false
 
   let existingCompose: string | null = null

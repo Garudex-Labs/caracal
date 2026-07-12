@@ -184,6 +184,62 @@ export const ENV_SCHEMA = {
     default: '',
     exposed: true,
   },
+  CARACAL_PRIVATE_EGRESS_HOSTS: {
+    kind: 'string',
+    description:
+      'STS: comma-separated hosts on private address ranges that subject-issuer JWKS and provider token endpoints may reach. Empty blocks private-range egress.',
+    default: '',
+    exposed: true,
+  },
+
+  // ─── Web console sign-in ─────────────────────────────────────────────────────
+  // The console fails closed: an allowlisted email still needs one configured
+  // sign-in method. Configure OAuth (Google or GitHub) or password sign-up with
+  // a mail transport for the required verification email.
+  CARACAL_PASSWORD_SIGNUP: {
+    kind: 'bool',
+    description:
+      'Enable email/password registration on the web console. Requires CARACAL_SMTP_URL and CARACAL_SMTP_FROM so verification email can be delivered.',
+    default: '',
+    exposed: true,
+  },
+  CARACAL_SMTP_URL: {
+    kind: 'string',
+    description:
+      'SMTP transport for console verification and reset email, e.g. smtp://mail.internal:25 or smtps://user:pass@mail.example:465.',
+    default: '',
+    exposed: true,
+  },
+  CARACAL_SMTP_FROM: {
+    kind: 'string',
+    description: 'From address on console verification and reset email.',
+    default: '',
+    exposed: true,
+  },
+  GOOGLE_CLIENT_ID: {
+    kind: 'string',
+    description: 'Google OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/google.',
+    default: '',
+    exposed: true,
+  },
+  GOOGLE_CLIENT_SECRET: {
+    kind: 'string',
+    description: 'Google OAuth client secret for console sign-in.',
+    default: '',
+    exposed: true,
+  },
+  GITHUB_CLIENT_ID: {
+    kind: 'string',
+    description: 'GitHub OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/github.',
+    default: '',
+    exposed: true,
+  },
+  GITHUB_CLIENT_SECRET: {
+    kind: 'string',
+    description: 'GitHub OAuth client secret for console sign-in.',
+    default: '',
+    exposed: true,
+  },
 
   // ─── Audit Parquet export (optional) ───────────────────────────────────────
   AUDIT_EXPORT_S3_ENDPOINT: {

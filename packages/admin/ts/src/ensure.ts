@@ -10,6 +10,7 @@ import type {
   ProviderIdentifier,
   Resource,
   ResourceInput,
+  ResourceOperation,
   ResourceOperationEnforcement,
 } from './types.js'
 
@@ -150,6 +151,7 @@ export interface EnsureResourceInput {
   scopes: string[]
   upstream_url?: string | null
   credential_provider_id?: string | null
+  operations?: ResourceOperation[]
   operation_enforcement?: ResourceOperationEnforcement
 }
 
@@ -164,6 +166,7 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
   const desired: Partial<ResourceInput> = { scopes: input.scopes }
   if (input.upstream_url !== undefined) desired.upstream_url = input.upstream_url
   if (input.credential_provider_id !== undefined) desired.credential_provider_id = input.credential_provider_id
+  if (input.operations !== undefined) desired.operations = input.operations
   if (input.operation_enforcement !== undefined) desired.operation_enforcement = input.operation_enforcement
   const resources = await client.resources.list(zoneId)
   const existing = resources.find((resource) => resource.identifier === input.identifier)
@@ -174,9 +177,19 @@ export async function ensureResource(client: AdminClient, zoneId: string, input:
     !sameStringSet(existing.scopes, input.scopes) ||
     (desired.upstream_url !== undefined && existing.upstream_url !== desired.upstream_url) ||
     (desired.credential_provider_id !== undefined && existing.credential_provider_id !== desired.credential_provider_id) ||
+    (desired.operations !== undefined && !sameOperations(existing.operations, desired.operations)) ||
     (desired.operation_enforcement !== undefined && existing.operation_enforcement !== desired.operation_enforcement)
   if (!drifted) return existing
   return client.resources.patch(zoneId, existing.id, desired)
+}
+
+function sameOperations(live: ResourceOperation[] | undefined, desired: ResourceOperation[]): boolean {
+  const canonical = (ops: ResourceOperation[]) =>
+    ops
+      .map((op) => `${op.method.toUpperCase()} ${op.path} ${op.scope}`)
+      .sort()
+      .join('\n')
+  return canonical(live ?? []) === canonical(desired)
 }
 
 export interface EnsureActivePolicySetInput {
@@ -253,26 +266,28 @@ const GRANT_POLICY_SET_NAME = 'application-grant-policy'
 
 // Authors the zone's grant data document: the platform decision contract reads app_ids and
 // grants to authorize data-plane exchanges, and this renders them so no caller ever touches
-// the document format. Deterministic - roles, resources, and scopes are sorted and rendered
-// as canonical JSON - so an unchanged grant set produces an identical document and the
-// reconciler adds no new policy version.
+// the document format. app_ids binds one key per application - the application id itself -
+// so an application holding several roles across resources still resolves to a single
+// binding key. Deterministic - applications, roles, resources, and scopes are sorted and
+// rendered as canonical JSON - so an unchanged grant set produces an identical document and
+// the reconciler adds no new policy version.
 export function authorGrantsDocument(grants: ResourceGrant[]): string {
   const appIds: Record<string, string> = {}
   const byResource = new Map<string, { application: string; roles: Record<string, string[]> }>()
   for (const grant of grants) {
     const role = grant.role ?? grant.applicationId
-    if (appIds[role] !== undefined && appIds[role] !== grant.applicationId) {
-      throw new Error(`grant role '${role}' is claimed by two applications`)
+    appIds[grant.applicationId] = grant.applicationId
+    const entry = byResource.get(grant.resourceIdentifier) ?? { application: grant.applicationId, roles: {} }
+    if (entry.application !== grant.applicationId) {
+      throw new Error(`resource '${grant.resourceIdentifier}' is claimed by two applications`)
     }
-    appIds[role] = grant.applicationId
-    const entry = byResource.get(grant.resourceIdentifier) ?? { application: role, roles: {} }
     entry.roles[role] = [...new Set([...(entry.roles[role] ?? []), ...grant.scopes])].sort()
     byResource.set(grant.resourceIdentifier, entry)
   }
   const sortedAppIds = Object.fromEntries(
     Object.keys(appIds)
       .sort()
-      .map((role) => [role, appIds[role]]),
+      .map((application) => [application, appIds[application]]),
   )
   const sortedGrants: Record<string, unknown> = {}
   for (const identifier of [...byResource.keys()].sort()) {

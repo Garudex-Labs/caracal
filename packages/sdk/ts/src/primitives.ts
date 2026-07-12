@@ -207,7 +207,9 @@ async function establishSession(input: EstablishInput, lifecycle?: Lifecycle): P
     subjectAuthorityRecordToken: input.subjectAuthorityRecordToken,
     parentId,
     lifecycle,
-    ttlSeconds: input.ttlSeconds,
+    // Service sessions live by lease renewal, never by TTL: the coordinator
+    // rejects a service start that names one, so the field is task-only.
+    ttlSeconds: lifecycle === Lifecycle.Service ? undefined : input.ttlSeconds,
     metadata: input.metadata,
     labels: input.labels,
     // Narrowed (or none) authority suppresses server-side inheritance: the
@@ -490,7 +492,6 @@ export interface StartSessionInput {
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   authority?: Authority
-  ttlSeconds?: number
   metadata?: JsonObject
   labels?: string[]
   traceId?: string

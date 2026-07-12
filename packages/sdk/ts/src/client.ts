@@ -174,7 +174,6 @@ export interface SessionOptions {
 
 export interface StartSessionOptions {
   authority?: Authority
-  ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
   /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
@@ -486,7 +485,6 @@ export class Caracal {
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
-      ttlSeconds: opts.ttlSeconds ?? 60,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
       subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,

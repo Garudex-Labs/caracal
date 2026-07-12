@@ -25,17 +25,30 @@ export const MAX_SESSION_LABEL_LENGTH = 64
 export const Lifecycle = z.enum(['task', 'service'])
 export const SessionLabels = z.array(z.string().trim().min(1).max(MAX_SESSION_LABEL_LENGTH)).max(MAX_SESSION_LABELS).default([])
 
-const StartBody = z.object({
-  application_id: z.string().min(1),
-  subject_session_id: z.string().min(1).optional(),
-  parent_id: z.string().nullable().default(null),
-  lifecycle: Lifecycle.optional(),
-  labels: SessionLabels,
-  ttl_seconds: z.number().int().min(1).max(86400).optional(),
-  parent_authority: z.enum(['inherit', 'none']).default('inherit'),
-  inherit_parent_edge_id: z.string().min(1).optional(),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-})
+const StartBody = z
+  .object({
+    application_id: z.string().min(1),
+    subject_session_id: z.string().min(1).optional(),
+    parent_id: z.string().nullable().default(null),
+    lifecycle: Lifecycle.optional(),
+    labels: SessionLabels,
+    ttl_seconds: z.number().int().min(1).max(86400).optional(),
+    parent_authority: z.enum(['inherit', 'none']).default('inherit'),
+    inherit_parent_edge_id: z.string().min(1).optional(),
+    metadata: z.record(z.string(), z.unknown()).default({}),
+  })
+  .superRefine((body, ctx) => {
+    // A service session lives by lease renewal; a TTL on it would violate the
+    // sessions lifecycle constraint at insert, so the shape is rejected here
+    // with a nameable issue instead of surfacing as a storage error.
+    if (body.lifecycle === 'service' && body.ttl_seconds !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ttl_seconds'],
+        message: 'service sessions are lease-renewed and do not accept ttl_seconds',
+      })
+    }
+  })
 
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
