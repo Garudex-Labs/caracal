@@ -123,6 +123,52 @@ describe('stack commands', () => {
     expect(engineMocks.stackUp).not.toHaveBeenCalled()
   })
 
+  it('fails up with actionable guidance when a foreign stack holds the caracalData network', async () => {
+    engineMocks.resolveStackPaths.mockReturnValue({
+      mode: 'rc',
+      composeFile: '/tmp/caracal/compose.yml',
+      envFiles: [],
+      cwd: '/tmp/caracal',
+      secretsDir: '/tmp/caracal-secrets',
+    })
+    spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === 'network' && args.includes('{{index .Labels "com.docker.compose.project"}}')) {
+        return { status: 0, stdout: 'caracal-dev\n' }
+      }
+      if (args[0] === 'network' && args.includes('{{range .Containers}}{{.Name}} {{end}}')) {
+        return { status: 0, stdout: 'caracal-dev-audit-1 caracal-dev-sts-1 \n' }
+      }
+      return { status: 0 }
+    })
+
+    await expect(upCommand([])).rejects.toThrow('exit:1')
+
+    expect(stderr).toContain('the caracalData network is held by another Caracal stack (compose project "caracal-dev")')
+    expect(stderr).toContain('caracal-dev-audit-1 caracal-dev-sts-1')
+    expect(stderr).toContain('docker rm -f caracal-dev-audit-1 caracal-dev-sts-1')
+    expect(engineMocks.stackUp).not.toHaveBeenCalled()
+  })
+
+  it('starts the rc stack when caracalData is owned by the runtime project', async () => {
+    engineMocks.resolveStackPaths.mockReturnValue({
+      mode: 'rc',
+      composeFile: '/tmp/caracal/compose.yml',
+      envFiles: [],
+      cwd: '/tmp/caracal',
+      secretsDir: '/tmp/caracal-secrets',
+    })
+    spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === 'network' && args.includes('{{index .Labels "com.docker.compose.project"}}')) {
+        return { status: 0, stdout: 'caracal\n' }
+      }
+      return { status: 0 }
+    })
+
+    await expect(upCommand(['api'])).rejects.toThrow('exit:0')
+
+    expect(engineMocks.stackUp).toHaveBeenCalledWith(expect.objectContaining({ args: ['api'] }))
+  })
+
   it('runs up when Docker Compose is available', async () => {
     await expect(upCommand(['api'])).rejects.toThrow('exit:0')
 

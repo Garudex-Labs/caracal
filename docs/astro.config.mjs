@@ -345,6 +345,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Choose a Deployment Profile', link: '/operations/deployment-profiles/' },
+                { label: 'Performance and Scalability', link: '/operations/performance-benchmarks/' },
                 { label: 'Deploy with Docker Compose', link: '/operations/docker-compose/' },
                 { label: 'Deploy with Helm', link: '/operations/kubernetes-helm/' },
                 { label: 'Provision with OpenTofu', link: '/operations/opentofu/' },

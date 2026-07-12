@@ -241,6 +241,13 @@ async function removeImagesStep(images: string[], ctx: PurgeContext): Promise<nu
 
 async function runComposeAll(args: string[], ctx: PurgeContext): Promise<void> {
   for (const stack of ctx.stacks) {
+    // Compose can only tear down a project through its compose file. When the file is
+    // absent (runtime assets never provisioned, or already removed) there is nothing for
+    // compose to stop, so the stack is skipped instead of failing the rest of the purge.
+    if (!existsSync(stack.composeFile)) {
+      process.stdout.write(`  ${style.label(`(skip) ${stack.label}:`)} ${stack.composeFile} ${style.label('- not present')}\n`)
+      continue
+    }
     if (ctx.stacks.length > 1) {
       process.stdout.write(`  ${style.label(`[${stack.label}]`)} ${stack.composeFile}\n`)
     }

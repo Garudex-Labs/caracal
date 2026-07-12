@@ -223,6 +223,20 @@ describe('purgeCommand', () => {
     expect(engineMocks.composeRun).not.toHaveBeenCalled()
   })
 
+  it('skips compose teardown when the compose file is absent instead of failing', async () => {
+    rmSync(join(repoRoot, 'infra', 'docker', 'docker-compose.yml'), { force: true })
+    rmSync(join(runtimeHome, 'compose.yml'), { force: true })
+
+    await purgeCommand(['stack', '--yes'])
+
+    const out = stdout.mock.calls.map((c) => c[0]).join('')
+    expect(out).toContain('not present')
+    expect(out).toContain('Purge complete.')
+    expect(engineMocks.composeRun).not.toHaveBeenCalled()
+    expect(stderr).not.toHaveBeenCalled()
+    expect(exit).not.toHaveBeenCalled()
+  })
+
   it('removes resolved dev secret directories including explicit and legacy locations', async () => {
     const explicitSecrets = mkdtempSync(join(tmpdir(), 'caracal-purge-secrets-'))
     const devSecrets = mkdtempSync(join(tmpdir(), 'caracal-purge-dev-secrets-'))

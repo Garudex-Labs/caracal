@@ -95,6 +95,39 @@ function requireBuildKit(): void {
   process.exit(1)
 }
 
+// The runtime stack shares one fixed Docker network so operators can attach upstream
+// containers by name (`docker run --network caracalData ...`). The network and the compose
+// project that owns it are defined in infra/docker/runtime-compose.yml.
+const RUNTIME_NETWORK = 'caracalData'
+const RUNTIME_PROJECT = 'caracal'
+
+// Compose recreates a shared network whose project label does not match the stack it is
+// starting. When a superseded or foreign stack still owns caracalData and its containers
+// are running, that recreation fails deep inside `up` with a raw daemon error, after every
+// image has already been pulled. Detecting the conflict first turns it into one clear,
+// actionable message before any expensive work starts. Dev runs on caracalDevData, which
+// stackUp provisions itself, so this guard applies only to installed rc/stable stacks.
+function requireRuntimeNetworkClear(paths: StackPaths): void {
+  if (paths.mode === 'dev') return
+  const owner = spawnSync('docker', ['network', 'inspect', RUNTIME_NETWORK, '--format', '{{index .Labels "com.docker.compose.project"}}'], {
+    encoding: 'utf8',
+  })
+  if (owner.status !== 0) return
+  const project = (owner.stdout ?? '').trim()
+  if (project === '' || project === '<no value>' || project === RUNTIME_PROJECT) return
+  const attached = spawnSync('docker', ['network', 'inspect', RUNTIME_NETWORK, '--format', '{{range .Containers}}{{.Name}} {{end}}'], {
+    encoding: 'utf8',
+  })
+  const containers = (attached.stdout ?? '').split(/\s+/).filter(Boolean)
+  if (containers.length === 0) return
+  printError(
+    `the ${RUNTIME_NETWORK} network is held by another Caracal stack (compose project "${project}") whose containers are still running: ${containers.join(', ')}. ` +
+      `They belong to a superseded stack and block the ${paths.mode} stack from managing the shared network. ` +
+      `Remove them, then run \`caracal up\` again:\n  docker rm -f ${containers.join(' ')}`,
+  )
+  process.exit(1)
+}
+
 function printBanner(paths: StackPaths): void {
   const tag = paths.mode === 'dev' ? `dev (sha ${CARACAL_SHA})` : `${paths.mode} (${CARACAL_VERSION})`
   process.stdout.write(`${style.label('caracal mode:')} ${style.header(tag)}\n`)
@@ -123,6 +156,7 @@ export function composeEnv(paths: StackPaths): Record<string, string | undefined
 export async function upCommand(argv: string[]): Promise<void> {
   const paths = resolvePaths()
   requireDockerCompose()
+  requireRuntimeNetworkClear(paths)
   if (paths.mode === 'dev') requireBuildKit()
   printBanner(paths)
   lockStack(paths)
