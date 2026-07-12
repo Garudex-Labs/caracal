@@ -806,11 +806,15 @@ describe('session lifecycle and delegation', () => {
 
     const svc = await c.startSession({ labels: ['billing-worker'] })
     expect(svc.sessionId).toBe('svc-1')
-    expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
+    const startBody = JSON.parse(String(calls[0].init.body))
+    expect(startBody).toMatchObject({
       application_id: 'app',
       lifecycle: 'service',
       labels: ['billing-worker'],
     })
+    // Service sessions live by lease renewal: the wire body must not carry a
+    // TTL, which the coordinator rejects for the service lifecycle.
+    expect(startBody).not.toHaveProperty('ttl_seconds')
 
     await svc.heartbeat()
     await svc.close()

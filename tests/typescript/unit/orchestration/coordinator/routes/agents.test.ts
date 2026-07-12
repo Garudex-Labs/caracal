@@ -732,6 +732,41 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
+  it('rejects a service session that names a ttl before spawning', async () => {
+    const { app, db } = buildApp()
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service', ttl_seconds: 60 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_body' })
+    expect(db.connect).not.toHaveBeenCalled()
+  })
+
+  it('accepts a task session with an explicit ttl', async () => {
+    const { app, db } = buildApp()
+    const client = spawnClient({
+      refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
+      count: { app_n: '0', zone_n: '0' },
+      insert: {
+        rows: [{ agent_session_id: 'agent-task', zone_id: 'z1', application_id: 'app-1', parent_id: null, lease_generation: '0' }],
+      },
+      outbox: true,
+    })
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents',
+      payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'task', ttl_seconds: 120 },
+    })
+    expect(res.statusCode).toBe(201)
+    const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
+    expect(insertCall?.[1]?.[9]).toBe(120)
+  })
+
   it('rejects overlong label values before spawning', async () => {
     const { app, db } = buildApp()
     await app.ready()

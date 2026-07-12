@@ -464,14 +464,24 @@ describe('authorGrantsDocument', () => {
     ])
     expect(content).toContain('# caracal:data-document')
     expect(content).toContain('package caracal.authz')
-    expect(content).toContain('app_ids := {"operator":"app-anton"}')
-    expect(content).toContain('grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}')
+    expect(content).toContain('app_ids := {"app-anton":"app-anton"}')
+    expect(content).toContain('grants := {"resource://pipernet":{"application":"app-anton","roles":{"operator":["data:read"]}}}')
   })
 
   it('defaults the role to the application id, matching the governed transport label default', () => {
     const content = authorGrantsDocument([{ applicationId: 'app-anton', resourceIdentifier: 'resource://pipernet', scopes: ['data:read'] }])
     expect(content).toContain('app_ids := {"app-anton":"app-anton"}')
     expect(content).toContain('"roles":{"app-anton":["data:read"]}')
+  })
+
+  it('binds one app_ids key for an application holding several roles across resources', () => {
+    const content = authorGrantsDocument([
+      { applicationId: 'app-1', resourceIdentifier: 'resource://a', scopes: ['a:read'], role: 'coordination' },
+      { applicationId: 'app-1', resourceIdentifier: 'resource://b', scopes: ['b:export'], role: 'support-liaison' },
+    ])
+    expect(content).toContain('app_ids := {"app-1":"app-1"}')
+    expect(content).toContain('"resource://a":{"application":"app-1","roles":{"coordination":["a:read"]}}')
+    expect(content).toContain('"resource://b":{"application":"app-1","roles":{"support-liaison":["b:export"]}}')
   })
 
   it('is deterministic: grant order, scope order, and duplicate scopes never change the content', () => {
@@ -494,11 +504,11 @@ describe('authorGrantsDocument', () => {
     expect(content).toContain('"roles":{"operator":["data:read","data:write"]}')
   })
 
-  it('rejects one role claimed by two applications', () => {
+  it('rejects one resource claimed by two applications', () => {
     expect(() =>
       authorGrantsDocument([
         { applicationId: 'app-1', resourceIdentifier: 'resource://a', scopes: ['x'], role: 'operator' },
-        { applicationId: 'app-2', resourceIdentifier: 'resource://b', scopes: ['x'], role: 'operator' },
+        { applicationId: 'app-2', resourceIdentifier: 'resource://a', scopes: ['x'], role: 'reader' },
       ]),
     ).toThrow(/claimed by two applications/)
   })
