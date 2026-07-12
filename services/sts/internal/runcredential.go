@@ -286,7 +286,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error()))
 				return
 			}
-			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", resolved, result.Bundle, boundResources, scopes)
+			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", resolved, result.Bundle, boundResources, scopes, nil)
 			if holdErr != nil {
 				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed"))
 				return

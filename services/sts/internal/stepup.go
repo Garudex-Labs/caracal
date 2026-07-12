@@ -249,7 +249,7 @@ func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
 // requesting agent run before deciding. The second return reports whether a new hold was
 // created.
-func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes []string) (*StepUpChallengePG, bool, error) {
+func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes, labels []string) (*StepUpChallengePG, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, false, err
@@ -264,6 +264,9 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 	}
 	if sessionID != "" {
 		meta["agent_session_id"] = sessionID
+	}
+	if len(labels) > 0 {
+		meta["agent_labels"] = labels
 	}
 	if delegationEdgeID != "" {
 		meta["delegation_edge_id"] = delegationEdgeID
