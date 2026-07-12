@@ -64,7 +64,7 @@ function SubjectsRoute() {
   return (
     <ZoneScopedPage
       title="Subjects"
-      description="The identities your applications act for: federated end users and application identities, with the authority each one holds right now."
+      description="The identities your applications act for, and the authority each holds now."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
     >
       {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} recordId={record} />}

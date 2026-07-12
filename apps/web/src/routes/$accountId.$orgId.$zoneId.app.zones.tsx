@@ -276,7 +276,7 @@ function ZonesPage() {
   return (
     <ModulePage
       title="Zones"
-      description="Zones are Caracal's primary trust boundary. Each zone is owned by your account and isolates its own applications, resources, policies, and audit."
+      description="Your account's trust boundaries. Each isolates its own applications, resources, policies, and audit."
       breadcrumbs={[{ label: "Console", to: appLink() }, { label: "Zones" }]}
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">

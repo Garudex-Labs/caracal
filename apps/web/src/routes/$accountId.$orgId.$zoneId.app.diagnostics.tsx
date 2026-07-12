@@ -47,7 +47,7 @@ function DiagnosticsPage() {
   return (
     <ModulePage
       title="Diagnostics"
-      description="Operational status of your Caracal deployment: platform components, dependencies, and every zone you own."
+      description="Platform components, dependencies, and every zone you own."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Diagnostics" }]}
       actions={<SyncIndicator report={report} fetching={diagnostics.isFetching} />}
     >

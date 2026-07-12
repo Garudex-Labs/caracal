@@ -175,7 +175,7 @@ function CaracalOperatorPage() {
   return (
     <ModulePage
       title="Caracal Operator"
-      description="Operate your entire Caracal control plane in natural language. The Operator plans, previews, and safely applies changes through audited, guarded APIs."
+      description="Operate the control plane in natural language. The Operator plans, previews, and applies changes through guarded, audited APIs."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Caracal Operator" }]}
       titleAccessory={
         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-purple">

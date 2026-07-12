@@ -28,6 +28,7 @@ import {
   useUpdateNotificationSink,
 } from "@/platform/api/hooks";
 import type { NotificationSink, SinkDelivery } from "@/platform/api/types";
+import { config } from "@/platform/config";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/settings/notifications")({
   component: NotificationsPage,
@@ -112,7 +113,7 @@ function NotificationsPage() {
     <div>
       <SettingsGroup
         title="Webhook sinks"
-        description="Push this zone's approval activity to the systems your team already watches. Caracal signs and POSTs each event to the endpoint; a relay on your side can fan it out to chat, paging, or ticketing. Approvals never depend on a sink: this is visibility, not enforcement."
+        description="Signed, retried webhook deliveries of this zone's approval events. Visibility only, never enforcement."
         action={
           <Button size="sm" mutating disabled={!zoneId} onClick={() => setFormOpen(true)}>
             Add sink
@@ -127,7 +128,7 @@ function NotificationsPage() {
           <Skeleton className="h-24 w-full" />
         ) : rows.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            No sinks yet. Add one to be notified the moment an approval hold parks a Session.
+            No sinks yet.
           </p>
         ) : (
           <div className="divide-y divide-border rounded-lg border border-border">
@@ -150,28 +151,21 @@ function NotificationsPage() {
 
       <SettingsGroup
         title="Delivery contract"
-        description="What a receiving endpoint should expect and verify."
+        description="Verify each delivery before acting on it."
       >
-        <ul className="max-w-2xl list-disc space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
-          <li>
-            Events arrive as JSON POSTs. Each carries an{" "}
-            <code className="font-mono text-xs">X-Caracal-Signature</code> header of the form{" "}
-            <code className="font-mono text-xs">v1=HMAC-SHA256(secret, timestamp.body)</code>, with
-            the timestamp in <code className="font-mono text-xs">X-Caracal-Timestamp</code>. Verify
-            it before trusting the payload, and reject stale timestamps to block replays.
-          </li>
-          <li>
-            Any 2xx response marks the event delivered. Anything else retries with exponential
-            backoff for up to 8 attempts, then the delivery is abandoned. Each event is delivered at
-            least once per sink; use the delivery id in{" "}
-            <code className="font-mono text-xs">X-Caracal-Delivery</code> to deduplicate.
-          </li>
-          <li>
-            Payloads carry authorization facts only: who asked, what authority, which hold, never
-            request bodies or business data. A paused sink keeps its cursor and resumes without
-            gaps.
-          </li>
-        </ul>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          Signed JSON POSTs. Verify the{" "}
+          <code className="font-mono text-xs">X-Caracal-Signature</code> HMAC, reject stale
+          timestamps, and dedupe on <code className="font-mono text-xs">X-Caracal-Delivery</code>.{" "}
+          <a
+            className="font-medium text-foreground underline underline-offset-4"
+            href={`${config.docsUrl}/guides/approval-notifications/`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Full contract
+          </a>
+        </p>
       </SettingsGroup>
 
       <SinkFormModal
