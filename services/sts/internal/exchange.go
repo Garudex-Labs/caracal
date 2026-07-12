@@ -675,7 +675,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if resolveErr != nil {
 			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error())
 		}
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolved, bundle, req.Resources, scopes)
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolved, bundle, req.Resources, scopes, sessionLabels(session))
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
@@ -1667,6 +1667,9 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 				if value, ok := stored[key].(string); ok && value != "" {
 					meta[key] = value
 				}
+			}
+			if labels, ok := stored["agent_labels"].([]any); ok && len(labels) > 0 {
+				meta["agent_labels"] = labels
 			}
 		}
 	}

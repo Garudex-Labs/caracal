@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -50,6 +51,9 @@ func KEKID(kek []byte) []byte {
 func Seal(kek, plaintext []byte, aad string) ([]byte, error) {
 	if len(kek) != keyBytes {
 		return nil, fmt.Errorf("kek must be %d bytes", keyBytes)
+	}
+	if len(plaintext) > math.MaxInt-minEnvelopeLen() {
+		return nil, errors.New("plaintext too large to seal")
 	}
 	dek := make([]byte, keyBytes)
 	if _, err := rand.Read(dek); err != nil {

@@ -214,13 +214,20 @@ func TestStepUpAuditMetaOptionalFields(t *testing.T) {
 	if _, ok := meta["session_id"]; ok {
 		t.Fatal("empty session id must be omitted")
 	}
+	if _, ok := meta["agent_labels"]; ok {
+		t.Fatal("absent labels must be omitted")
+	}
 	base.ApplicationID = "app1"
 	base.AuthorityRecordID = "sess-1"
-	base.MetadataJSON = []byte(`{"agent_session_id":"agent-1","delegation_edge_id":"edge-1"}`)
+	base.MetadataJSON = []byte(`{"agent_session_id":"agent-1","delegation_edge_id":"edge-1","agent_labels":["case:CASE-1","payout-execution"]}`)
 	meta = stepUpAuditMeta(base)
 	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" ||
 		meta["agent_session_id"] != "agent-1" || meta["delegation_edge_id"] != "edge-1" {
 		t.Fatalf("populated meta = %#v", meta)
+	}
+	labels, ok := meta["agent_labels"].([]any)
+	if !ok || len(labels) != 2 || labels[0] != "case:CASE-1" || labels[1] != "payout-execution" {
+		t.Fatalf("agent labels not surfaced to approvers: %#v", meta["agent_labels"])
 	}
 }
 
