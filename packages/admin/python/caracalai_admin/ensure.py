@@ -192,6 +192,7 @@ def ensure_resource(
     scopes: list[str],
     upstream_url: str | None = _UNSET,
     credential_provider_id: str | None = _UNSET,
+    operations: list[dict[str, str]] = _UNSET,
     operation_enforcement: str = _UNSET,
 ) -> Any:
     """Converges a resource to the given desired fields, creating it when
@@ -207,6 +208,8 @@ def ensure_resource(
         desired["upstream_url"] = upstream_url
     if credential_provider_id is not _UNSET:
         desired["credential_provider_id"] = credential_provider_id
+    if operations is not _UNSET:
+        desired["operations"] = operations
     if operation_enforcement is not _UNSET:
         desired["operation_enforcement"] = operation_enforcement
     resources = client.resources.list(zone_id)
@@ -226,9 +229,25 @@ def ensure_resource(
             "operation_enforcement",
         )
     )
+    if "operations" in desired and not _same_operations(
+        existing.get("operations"), desired["operations"]
+    ):
+        drifted = True
     if not drifted:
         return existing
     return client.resources.patch(zone_id, existing["id"], desired)
+
+
+def _same_operations(
+    live: list[dict[str, str]] | None, desired: list[dict[str, str]]
+) -> bool:
+    def canonical(ops: list[dict[str, str]]) -> list[str]:
+        return sorted(
+            f"{op.get('method', '').upper()} {op.get('path', '')} {op.get('scope', '')}"
+            for op in ops
+        )
+
+    return canonical(live or []) == canonical(desired)
 
 
 def ensure_active_policy_set(
@@ -305,24 +324,29 @@ def _canonical_json(value: Any) -> str:
 def author_grants_document(grants: Sequence[ResourceGrant]) -> str:
     """Authors the zone's grant data document: the platform decision contract
     reads app_ids and grants to authorize data-plane exchanges, and this
-    renders them so no caller ever touches the document format. Deterministic
-    - roles, resources, and scopes are sorted and rendered as canonical JSON -
-    so an unchanged grant set produces an identical document and the
-    reconciler adds no new policy version."""
+    renders them so no caller ever touches the document format. app_ids binds
+    one key per application - the application id itself - so an application
+    holding several roles across resources still resolves to a single binding
+    key. Deterministic - applications, roles, resources, and scopes are sorted
+    and rendered as canonical JSON - so an unchanged grant set produces an
+    identical document and the reconciler adds no new policy version."""
     app_ids: dict[str, str] = {}
     by_resource: dict[str, dict[str, Any]] = {}
     for grant in grants:
         role = grant.role if grant.role is not None else grant.application_id
-        if role in app_ids and app_ids[role] != grant.application_id:
-            raise ValueError(f"grant role '{role}' is claimed by two applications")
-        app_ids[role] = grant.application_id
+        app_ids[grant.application_id] = grant.application_id
         entry = by_resource.setdefault(
-            grant.resource_identifier, {"application": role, "roles": {}}
+            grant.resource_identifier,
+            {"application": grant.application_id, "roles": {}},
         )
+        if entry["application"] != grant.application_id:
+            raise ValueError(
+                f"resource '{grant.resource_identifier}' is claimed by two applications"
+            )
         entry["roles"][role] = sorted(
             set(entry["roles"].get(role, [])) | set(grant.scopes)
         )
-    sorted_app_ids = {role: app_ids[role] for role in sorted(app_ids)}
+    sorted_app_ids = {app: app_ids[app] for app in sorted(app_ids)}
     sorted_grants: dict[str, Any] = {}
     for identifier in sorted(by_resource):
         entry = by_resource[identifier]

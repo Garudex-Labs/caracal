@@ -39,13 +39,17 @@ mint_allow(policy) := {
 # nothing. The contract reads these documents; adopters never author the rules below.
 resource_grant := data.caracal.authz.grants[input.resource.identifier]
 
-principal_app := key if {
+# Every binding key that names the acting application. app_ids may bind several
+# readable keys to one application id; the set form treats them as one identity,
+# so aliased data changes nothing about authority and can never multiply rule
+# outputs into an evaluation error.
+principal_keys := {key |
 	some key, id in data.caracal.authz.app_ids
 	id == input.principal.id
 }
 
 principal_owns_resource if {
-	resource_grant.application == principal_app
+	resource_grant.application in principal_keys
 }
 
 # An application bootstrapping its session mandate with its client secret. The only
@@ -288,8 +292,10 @@ result := allow_result("caracal-bootstrap") if {
 }
 
 # A governed Session minting a resource mandate, narrowed by its Delegation, confined
-# by its labels, and bound to a role its grants allow.
-result := mint_allow(sprintf("caracal-%s-mint", [principal_app])) if {
+# by its labels, and bound to a role its grants allow. The determining policy is named
+# by the resource's owning binding key, which is single-valued even when app_ids
+# aliases several keys to the acting application.
+result := mint_allow(sprintf("caracal-%s-mint", [resource_grant.application])) if {
 	principal_owns_resource
 	delegated_mint
 	mint_role_allowed
@@ -309,7 +315,7 @@ result := mint_allow("caracal-workload-mint") if {
 
 # A governed Session presenting its minted mandate at the Gateway, bound to a role its
 # grants allow on the named resource.
-result := allow_result(sprintf("caracal-%s-use", [principal_app])) if {
+result := allow_result(sprintf("caracal-%s-use", [resource_grant.application])) if {
 	principal_owns_resource
 	mandate_use
 	use_role_allowed

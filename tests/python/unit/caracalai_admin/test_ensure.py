@@ -593,9 +593,9 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
         )
         self.assertIn("# caracal:data-document", content)
         self.assertIn("package caracal.authz", content)
-        self.assertIn('app_ids := {"operator":"app-anton"}', content)
+        self.assertIn('app_ids := {"app-anton":"app-anton"}', content)
         self.assertIn(
-            'grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}',
+            'grants := {"resource://pipernet":{"application":"app-anton","roles":{"operator":["data:read"]}}}',
             content,
         )
 
@@ -666,7 +666,34 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
         )
         self.assertIn('"roles":{"operator":["data:read","data:write"]}', content)
 
-    def test_rejects_role_claimed_by_two_applications(self):
+    def test_one_binding_key_for_multi_role_application(self):
+        content = author_grants_document(
+            [
+                ResourceGrant(
+                    application_id="app-1",
+                    resource_identifier="resource://a",
+                    scopes=["a:read"],
+                    role="coordination",
+                ),
+                ResourceGrant(
+                    application_id="app-1",
+                    resource_identifier="resource://b",
+                    scopes=["b:export"],
+                    role="support-liaison",
+                ),
+            ]
+        )
+        self.assertIn('app_ids := {"app-1":"app-1"}', content)
+        self.assertIn(
+            '"resource://a":{"application":"app-1","roles":{"coordination":["a:read"]}}',
+            content,
+        )
+        self.assertIn(
+            '"resource://b":{"application":"app-1","roles":{"support-liaison":["b:export"]}}',
+            content,
+        )
+
+    def test_rejects_resource_claimed_by_two_applications(self):
         with self.assertRaisesRegex(ValueError, "claimed by two applications"):
             author_grants_document(
                 [
@@ -678,9 +705,9 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
                     ),
                     ResourceGrant(
                         application_id="app-2",
-                        resource_identifier="resource://b",
+                        resource_identifier="resource://a",
                         scopes=["x"],
-                        role="operator",
+                        role="reader",
                     ),
                 ]
             )

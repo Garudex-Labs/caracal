@@ -321,11 +321,16 @@ services:
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
+      CARACAL_TLS_EXTRA_CA_FILE: /etc/caracal/ca/extra-ca.pem
       PORT: 8080
     ports:
       - '127.0.0.1:8080:8080'
     volumes:
       - stsReplay:/var/lib/caracal
+      # Operator-supplied private CA bundle. Drop a PEM at $CARACAL_HOME/ca/extra-ca.pem
+      # to let STS trust internal-PKI subject issuers and provider endpoints; the
+      # directory ships empty and an absent file keeps public system trust untouched.
+      - ./ca:/etc/caracal/ca:ro
     healthcheck:
       test: ['CMD', '/healthcheck']
       interval: 5s
