@@ -1,0 +1,172 @@
+---
+title: Performance and Scalability
+description: Measured throughput, latency, resource, failure, and sizing results from the v0.2.0 production validation, under stated test conditions.
+pageType: reference
+keywords:
+  - benchmarks
+  - performance
+  - scalability
+  - capacity planning
+  - sizing
+  - throughput
+  - latency
+---
+
+These are results from the Caracal **v0.2.0** production validation. Every figure below was observed on the test bench described in [Test Conditions](#test-conditions); none is extrapolated or theoretical.
+
+Treat these as a **reference baseline for sizing and evaluation, not a service-level guarantee.** Throughput and latency depend on your hardware, workload shape, and upstreams. Establish your own baseline with [Scale Capacity](/operations/scale-capacity/) before committing to a limit.
+
+## Test Conditions
+
+| Attribute | Value |
+| --- | --- |
+| Release under test | `v0.2.0`, all eight service images |
+| Deployment | Packaged Docker Compose, single host, loopback-bound |
+| Host | 16 vCPU, 60 GiB RAM, NVMe SSD, Linux (Fedora 43) |
+| Load model | Closed-loop client, published TypeScript SDK, one in-flight governed request per worker |
+| Upstream | Local mock HTTP service (isolates Caracal overhead) |
+| "Profile" below | The **STS container** CPU and memory limit, the throughput-critical component |
+
+A governed request performs one single-use, replay-protected mandate mint at the STS plus one Gateway hop. An application transport provisions its session and delegation once per credential lifetime (four control-plane calls), then mints per request.
+
+## Throughput and Scaling
+
+Governed throughput scales **linearly with STS CPU** at roughly **12 governed requests per second per vCPU**. Memory determines stability under concurrency (see [Resource Usage](#resource-usage-and-stability)).
+
+| STS profile (vCPU / memory) | Sustained governed req/s | p50 latency | Result |
+| --- | --- | --- | --- |
+| 0.5 / 1 GB | 5.7 | 380 ms | Stable |
+| 1 / 512 MB *(shipped default)* | 12.7 (single agent) | 86 ms | Unstable under concurrency* |
+| 2 / 2 GB | 23.4 | 333 ms | 8-minute soak, 100% success |
+| 4 / 4 GB | 41.8 | 584 ms | Stable |
+
+\* The 512 MB default is memory-bound under concurrent load; see [Resource Usage](#resource-usage-and-stability).
+
+Two ceilings apply together:
+
+- **Per resource:** a single `(zone, resource, application)` pair is capped at **16.6 req/s** (1000 mints/minute) by a built-in rate limit. Spread load across resources or applications to exceed it.
+- **Per STS instance:** CPU-bound at **≈ 12 req/s per vCPU**, reached by distributing across resources. Add STS replicas to scale horizontally.
+
+Session lifecycle is independent of the mint path: the Coordinator sustained **192 session create-and-close cycles per second** (p50 20 ms) before lock contention flattened throughput.
+
+## Latency
+
+Measured below the rate ceiling on the default profile. The governance decision itself is negligible; cost is concentrated in the cryptographic mint.
+
+| Operation | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| Governed request (warm) | 52-65 ms | 449 ms† | 515 ms† |
+| Governed request (cold, first call) | 133-174 ms | — | — |
+| Mandate mint, per request | 46 ms | — | — |
+| Gateway mandate verification | 3.7 ms | — | — |
+| Policy (OPA) evaluation | 0.39 ms | — | — |
+| Session create | 13-20 ms | — | — |
+| Delegation create | 17.5 ms | — | — |
+| Application create | 72 ms | 79 ms | 162 ms |
+| Provider create | 8.1 ms | 13.6 ms | 17.2 ms |
+| Audit query (50 rows) | 8.5 ms | 12 ms | 108 ms |
+| Audit query (filtered) | 2.8 ms | 7.5 ms | — |
+| List applications / sessions | 1.2 ms / 3.7 ms | — | — |
+
+† Tail latency measured under an 8-agent saturating load on 2 vCPU, where requests queue behind a CPU-bound STS. At or below the sustainable rate, p50 stays in the 52-65 ms range.
+
+The mint dominates because it verifies identity and traverses the delegation graph cryptographically. Policy evaluation and Gateway verification are sub-millisecond to low-single-digit milliseconds.
+
+## Resource Usage and Stability
+
+Measured during an **8-minute sustained soak** (8 agents, 2 vCPU / 2 GB STS): **23.4 req/s, 11,256 requests, 100% success, zero failures.**
+
+| Signal | Observation |
+| --- | --- |
+| STS memory | Healthy garbage-collection sawtooth, floor 337 MB / peak 792 MB (39% of 2 GB). No leak, no unbounded growth. |
+| STS restarts during soak | 0 |
+| Postgres connections | Stable ~30 of 100 ceiling; no connection leak |
+| Audit events dropped | 0 |
+
+:::note[Size STS memory deliberately]
+The STS hashes credentials with Argon2id, which allocates **64 MB per in-flight verification**. On the shipped **512 MB** default, sustained multi-agent load exhausts the container memory limit and the STS is restarted by the container runtime (fail-closed, automatic, ~2-5 s). Raising the STS memory limit to **2 GB eliminated this entirely** in validation. Provision **at least 1.5-2 GB of STS memory** for any concurrent workload.
+:::
+
+## Failure and Recovery
+
+Each dependency was failed in isolation while a continuous governed probe ran. Every failure was **fail-closed** — no request ever succeeded without valid authority — and every recovery was **automatic**, with no manual intervention.
+
+| Injected failure | Live governed traffic | Recovery | Data loss |
+| --- | --- | --- | --- |
+| Redis unavailable (brief) | Requests block, then drain on return | Automatic, immediate | None |
+| Postgres unavailable (brief) | Requests block, then drain on return | Automatic, immediate | None |
+| STS process killed | Immediate fail-closed (connection refused) | Next request after restart; restart-to-healthy 0.6 s | None |
+| Gateway process killed | Requests fail closed | Automatic; restart-to-healthy 0.6 s | None |
+| Coordinator process killed | **Continues unbroken** (established transports mint against the STS) | No impact to live traffic | None |
+| Audit process killed | **Continues unbroken** (asynchronous write path) | Events buffer and drain; hash chain verified continuous | None |
+
+This separates the request path from the control and evidence paths:
+
+- **Required for live governed traffic:** STS, Gateway, Postgres, Redis.
+- **Not required for live governed traffic:** Coordinator (needed only to provision new sessions and delegations) and Audit (asynchronous). Their outages are invisible to established transports.
+
+Brief database or cache interruptions shorter than the request timeout are absorbed as **latency, not errors**. For diagnosis and recovery order, see [Recover from Failures](/operations/failure-modes/).
+
+## Startup and Operational Timings
+
+| Operation | Time |
+| --- | --- |
+| Download, checksum-verify, and install the runtime | 9.0 s |
+| Cold start (`caracal up`: image pull, migrate, readiness gate) | 17.7 s |
+| Warm restart (`caracal down` then `up`) | 4.1 s + 3.7 s |
+| Single service restart to healthy | 0.6 s |
+| `caracal status` | 37-87 ms |
+| Web console response | 3.6 ms |
+
+## Storage and Capacity Growth
+
+| Metric | Measured |
+| --- | --- |
+| Audit storage per event | 1,843 bytes (including indexes) |
+| Audit events per governed call | ~1.4 |
+| Audit query scaling | Flat with total volume (keyset pagination over monthly partitions) |
+| Database footprint (end of run) | 176 MB for 49,498 audit events, 8,450 sessions, 186 applications, 186 providers, 33 resources |
+| Postgres connections | 100 ceiling; 50 peak under full load; no lock contention |
+| Audit retention | Enforced ceiling of 365 days |
+
+At a sustained governed rate, audit disk grows at approximately `rate × 1.4 × 1843` bytes per second — for example, ~62 KB/s (~5.3 GB/day) at 24 req/s. Plan audit storage and [retention](/operations/backup-retention/) for your rate.
+
+## Known Product Limits
+
+Defaults are deliberately conservative safety limits. The throughput figures above were reached by raising the capacity-shaping limits for the test workload.
+
+| Limit | Default | Behavior when exceeded |
+| --- | --- | --- |
+| STS mint rate, per `(zone, resource, app)` | 1000 / minute (16.6 req/s) | Denied, fail-closed; recorded as `rate_limited` in audit |
+| STS repeated authentication failures, per application | 60 / minute | Temporary block |
+| Coordinator requests, per client IP | 600 / minute | `429 rate_limited` |
+| Live sessions per zone | 50 | `429 session_zone_limit_exceeded` |
+| Live sessions per application | 200 | `429 session_limit_exceeded` |
+| Control API calls, per client | 60 / minute | `429` |
+
+To operate at the throughput and concurrency in this report, raise the per-zone session cap and the applicable rate limits to your target, then confirm the change with [Scale Capacity](/operations/scale-capacity/). Configure limits and container resources in [Configure Service Environment](/operations/env-vars/).
+
+## Recommended Starting Profiles
+
+Sizing is driven by the STS (throughput and memory) and Postgres (durability). STS throughput figures are measured; size the supporting stores with headroom above the measured footprint and validate before production.
+
+| Workload target | STS | Gateway | Postgres | Redis |
+| --- | --- | --- | --- | --- |
+| Small — ≤ 10 req/s, ≤ 50 sessions | 1 vCPU / 1 GB | 1 vCPU / 512 MB | 2 vCPU / 2 GB | 0.5 vCPU / 512 MB |
+| Standard — ~25 req/s, hundreds of sessions | 2 vCPU / 2 GB | 2 vCPU / 1 GB | 4 vCPU / 4 GB (SSD) | 1 vCPU / 768 MB |
+| Large — ~40 req/s per instance | 4 vCPU / 4 GB | 2 vCPU / 2 GB | 8 vCPU / 8 GB (NVMe) | 1 vCPU / 1 GB |
+| High throughput | STS replicas at 4 vCPU / 4 GB, sharded across resources | 4 vCPU / 2 GB | 8 vCPU / 16 GB + read replica | 2 vCPU / 2 GB |
+
+The shipped default (STS 1 vCPU / 512 MB) is suitable for a single low-rate agent only. Every other profile raises STS memory above the default for the reason in [Resource Usage](#resource-usage-and-stability). Postgres used up to roughly one vCPU-equivalent and 461 MB with 50 connections at 24 req/s; provision it with headroom above that and prefer SSD or NVMe storage.
+
+## Production Recommendations
+
+- **Give the STS at least 1.5-2 GB of memory.** This is the single most important sizing input; the 512 MB default is not safe under concurrency.
+- **Raise the per-zone session cap** to your concurrent-agent count before load; the default is 50.
+- **Shard across resources or applications** to exceed 16.6 req/s per resource; then add STS replicas to scale beyond one instance.
+- **Provision Postgres as the second bottleneck** after STS CPU: SSD or NVMe storage, connection headroom below the 100 default, and roughly twice the STS vCPU.
+- **Alert on the STS memory limit, Postgres connections, and audit lag**, and validate every limit change against your own workload.
+
+## Next Step
+
+Turn these results into a sized deployment with [Choose a Deployment Profile](/operations/deployment-profiles/), then validate your own baseline in [Scale Capacity](/operations/scale-capacity/).
