@@ -5,6 +5,8 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
+import { createServer } from 'node:http'
+import { getDefaultAutoSelectFamily, setDefaultAutoSelectFamily, type AddressInfo } from 'node:net'
 
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
 process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'
@@ -111,6 +113,44 @@ describe('notification sink destination safety', () => {
     // Allowlisting a private receiver must never open loopback, link-local, metadata, or multicast.
     for (const address of ['127.0.0.1', '169.254.169.254', '::1', 'fe80::1', '224.0.0.1']) {
       expect(isUnsafeSinkAddress(address, true), address).toBe(true)
+    }
+  })
+
+  it('delivers to a hostname receiver through the pinned lookup under autoSelectFamily', async () => {
+    // A hostname sink resolves through the custom lookup, which autoSelectFamily invokes with
+    // { all: true } and so requires the array form. The scalar-only callback failed every
+    // hostname delivery with "Invalid IP address: undefined"; only literal-IP receivers, which
+    // skip resolution, ever succeeded.
+    const received: string[] = []
+    const server = createServer((request, response) => {
+      let body = ''
+      request.on('data', (chunk) => (body += chunk))
+      request.on('end', () => {
+        received.push(body)
+        response.writeHead(200).end('ok')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    const priorAutoSelect = getDefaultAutoSelectFamily()
+    setDefaultAutoSelectFamily(true)
+    try {
+      const result = await postNotificationSink(
+        `http://localhost:${port}/hook`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"ok":true}',
+          redirect: 'error',
+          signal: AbortSignal.timeout(2_000),
+        },
+        async () => [{ address: '127.0.0.1', family: 4 }],
+      )
+      expect(result.status).toBe(200)
+      expect(received).toEqual(['{"ok":true}'])
+    } finally {
+      setDefaultAutoSelectFamily(priorAutoSelect)
+      await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   })
 })

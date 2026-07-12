@@ -73,6 +73,7 @@ interface DecidedRow {
   approver_class: string
   privacy_mode: string
   binding: string
+  metadata_json: Record<string, unknown> | null
   satisfied_at: string | null
   rejected_at: string | null
   decision_reason: string | null
@@ -102,7 +103,7 @@ async function enqueueDecisionAudit(
   decision: 'approved' | 'rejected',
   row: DecidedRow,
 ): Promise<void> {
-  const metadata: Record<string, string> = {
+  const metadata: Record<string, unknown> = {
     challenge_id: row.id,
     tier: row.tier ?? '',
     approver_class: row.approver_class,
@@ -114,6 +115,10 @@ async function enqueueDecisionAudit(
   }
   if (row.application_id) metadata.application_id = row.application_id
   if (row.decision_reason) metadata.reason = row.decision_reason
+  // The requesting agent's business labels ride the decision event so the operator plane records
+  // the same case and settlement context the STS emits on issue and consume.
+  const agentLabels = row.metadata_json?.agent_labels
+  if (Array.isArray(agentLabels)) metadata.agent_labels = agentLabels
   const data = JSON.stringify({
     id: uuidv7(),
     zone_id: zoneId,
@@ -231,7 +236,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
            AND satisfied_at IS NULL AND rejected_at IS NULL AND consumed_at IS NULL
            AND expires_at > now()
          RETURNING id, session_id, application_id, tier, approver_class, privacy_mode,
-                   encode(resource_set_hash, 'hex') AS binding,
+                   encode(resource_set_hash, 'hex') AS binding, metadata_json,
                    satisfied_at, rejected_at, decision_reason, approver_subject_id`,
         [params.id, params.zoneId, approver, body.data.reason ?? null],
       )

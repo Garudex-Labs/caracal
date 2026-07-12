@@ -17,6 +17,7 @@ const DECIDED_ROW = {
   approver_class: 'operator',
   privacy_mode: 'identified',
   binding: 'aa11',
+  metadata_json: null,
   satisfied_at: '2026-05-05T00:00:00.000Z',
   rejected_at: null,
   decision_reason: null,
@@ -150,6 +151,28 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
       metadata_json: { challenge_id: 'challenge-1', approver_plane: 'operator', approver_subject_id: 'admin:op-1', binding: 'aa11' },
     })
     expect(client.query.mock.calls.map((c) => String(c[0])).at(-1)).toBe('COMMIT')
+  })
+
+  it('carries the requesting agent labels from the challenge into the decision audit', async () => {
+    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const labels = ['payout-execution', 'case:CASE-RESTART-01', 'settlement:stl_90002']
+    const client = txClient((sql) => {
+      if (sql.includes('UPDATE step_up_challenges')) {
+        return { rows: [{ ...DECIDED_ROW, metadata_json: { agent_session_id: 's-1', agent_labels: labels } }] }
+      }
+      return undefined
+    })
+    db.connect.mockResolvedValueOnce(client)
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+
+    expect(res.statusCode).toBe(200)
+    const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE step_up_challenges'))
+    expect(String(update?.[0])).toContain('metadata_json')
+    const outbox = client.query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO event_outbox'))
+    const payload = JSON.parse(String((outbox?.[1] as unknown[])[2]))
+    expect(JSON.parse(payload.data).metadata_json.agent_labels).toEqual(labels)
   })
 
   it('rejects a live hold and records the rationale', async () => {

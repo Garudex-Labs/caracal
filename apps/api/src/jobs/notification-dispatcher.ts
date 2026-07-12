@@ -179,7 +179,12 @@ export async function postNotificationSink(
         method: init.method,
         headers: init.headers,
         signal: init.signal,
-        lookup: (_host, _options, callback) => callback(null, address.address, address.family),
+        // The connection pins to the address the resolver already vetted. autoSelectFamily calls
+        // lookup with { all: true } and requires the array form; the scalar form serves the rest.
+        lookup: (_host, options, callback) =>
+          options.all
+            ? callback(null, [{ address: address.address, family: address.family }])
+            : callback(null, address.address, address.family),
       },
       (response) => {
         response.resume()
