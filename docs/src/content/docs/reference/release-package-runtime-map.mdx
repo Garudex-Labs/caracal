@@ -1,10 +1,12 @@
 ---
 title: Release Map
-description: Release, package, runtime, and service image naming map.
+description: Lockstep SemVer mapping for packages, images, binaries, chart, release records, and documentation.
 pageType: reference
 ---
 
 ## Repository Release Surfaces
+
+`release.config.json` `product.version` is authoritative. The current source state is `0.2.0-rc.2`; successive release candidates increment `-rc.N`.
 
 | Surface                | Current source                                                      |
 | ---------------------- | ------------------------------------------------------------------- |
@@ -16,16 +18,16 @@ pageType: reference
 
 ## Service Images
 
-Caracal ships two application images. Each runs multiple roles selected by the
-container `command`; this keeps the trust boundary (separate processes/pods per
-role) while cutting build, signing, and supply-chain surface.
+Caracal shares built images across roles, but each role remains a separate process or pod.
 
-| Image name         | Roles               | Runtime |
-| ------------------ | ------------------- | ------- |
-| `caracal-node`     | API, Coordinator    | Node    |
-| `caracal-go`       | STS, Gateway, Audit | Go      |
-| `caracal-postgres` | Postgres            | -       |
-| `caracal-redis`    | Redis               | -       |
+| Image name         | Roles                      | Runtime  |
+| ------------------ | -------------------------- | -------- |
+| `caracal-node`     | API, Coordinator           | Node     |
+| `caracal-go`       | STS, Gateway, Audit        | Go       |
+| `caracal-web`      | Web console, auth BFF      | Node     |
+| `caracal-postgres` | Postgres, migrations       | -        |
+| `caracal-redis`    | Redis, stream provisioning | -        |
+| `caracal-runtime`  | Runtime distribution       | Node/Bun |
 
 Role selection:
 
@@ -39,6 +41,8 @@ Runtime Compose references `${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}<image>:v$
 | Area          | TypeScript              | Python                 | Go                                                       |
 | ------------- | ----------------------- | ---------------------- | -------------------------------------------------------- |
 | SDK           | `@caracalai/sdk`        | `caracalai-sdk`        | `github.com/garudex-labs/caracal/packages/sdk/go`        |
+| Admin         | `@caracalai/admin`      | `caracalai-admin`      | `github.com/garudex-labs/caracal/packages/admin/go`      |
+| Core          | `@caracalai/core`       | `caracalai-core`       | `github.com/garudex-labs/caracal/packages/core/go`       |
 | Identity      | `@caracalai/identity`   | `caracalai-identity`   | `github.com/garudex-labs/caracal/packages/identity/go`   |
 | OAuth         | `@caracalai/oauth`      | `caracalai-oauth`      | `github.com/garudex-labs/caracal/packages/oauth/go`      |
 | Revocation    | `@caracalai/revocation` | `caracalai-revocation` | `github.com/garudex-labs/caracal/packages/revocation/go` |
@@ -46,9 +50,18 @@ Runtime Compose references `${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}<image>:v$
 
 ## Versioning Notes
 
+- One product release stamps every package, image, binary, chart, and generated release record with the same SemVer.
+- Every nested Go module uses `<module-directory>/vX.Y.Z[-rc.N]` at the same commit as the root product tag.
 - Pin exact image tags in production values.
 - Run migration and readiness validation after image or chart changes.
 - Do not use product-management runtime CLI aliases as release surfaces; broad automation belongs to the Admin API and zone-scoped dispatch belongs to the Control API.
+
+## Documentation Mapping
+
+- Before stable `v0.2.0`, unversioned source is served at `/v0.2/`; no `v0.2` snapshot directory exists.
+- Stable `v0.2.0` creates the writable `v0.2` snapshot.
+- `v0.2.x` patches update that same current minor after release; they never create patch-specific documentation trees.
+- A later stable minor archives unversioned source as the new current snapshot, exposes ongoing work at `/next/`, and locks the superseded minor with its SHA-256 digest.
 
 ## Next Step
 

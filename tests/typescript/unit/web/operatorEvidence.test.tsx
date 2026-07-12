@@ -21,11 +21,11 @@ describe('OperatorEvidence', () => {
         capability: 'listApplications',
         domain: 'application',
         count: 1,
-        rows: [{ id: 'app-1', name: 'Son of Anton', registration_method: 'oidc', created_at: '2026-01-01T00:00:00Z' }],
+        rows: [{ id: 'app-1', name: 'Anton', registration_method: 'oidc', created_at: '2026-01-01T00:00:00Z' }],
       },
     ])
     expect(html).toContain('Applications')
-    expect(html).toContain('Son of Anton')
+    expect(html).toContain('Anton')
     expect(html).toContain('oidc')
     // A single domain renders as one card, not a tab switcher.
     expect(html).not.toContain('role="tablist"')
@@ -80,7 +80,7 @@ describe('OperatorEvidence', () => {
         rows: [
           {
             id: 'grant-1',
-            application_name: 'Son of Anton',
+            application_name: 'Anton',
             resource_name: 'PiperNet',
             scopes: ['read', 'write'],
             status: 'active',
@@ -89,7 +89,7 @@ describe('OperatorEvidence', () => {
         ],
       },
     ])
-    expect(html).toContain('Son of Anton')
+    expect(html).toContain('Anton')
     expect(html).toContain('PiperNet')
     expect(html).toContain('read')
     expect(html).toContain('active')

@@ -1,56 +1,34 @@
 ---
 title: Debug Infrastructure Issues
-description: Diagnose Caracal deployment, configuration, token exchange, Gateway, audit, and delegation issues.
+description: Diagnose an unhealthy deployment from orchestration through storage, streams, services, and safety state.
 pageType: workflow
 ---
 
-Debug from the boundary inward: runtime lifecycle, readiness, storage, streams, service config, then request-specific audit evidence.
+Use this after readiness, rollout, or dependency failure. It diagnoses infrastructure; recovery is separate.
 
-For an application-level failure where you have an error or request ID but not the failing surface, start from the symptom-first [Troubleshoot by Symptom](/operations/troubleshooting/) instead.
+## Prerequisites
 
-## Triage Flow
+Preserve the first failing readiness response, deployment/config diff, workload status, logs, and alert timeline before restart.
 
-```mermaid
-flowchart TD
-  Symptom[Symptom] --> Ready[caracal status --ready or Kubernetes readiness]
-  Ready --> Storage[Postgres and Redis]
-  Storage --> Streams[Redis streams and outboxes]
-  Streams --> Service[Service logs and metrics]
-  Service --> Audit[Audit/explain request evidence]
-  Audit --> Fix[Apply focused remediation]
-```
+## Diagnosis Procedure
 
-## Commands
+1. Inspect Compose containers or Kubernetes pods, Jobs, events, and rollout.
+2. Compare mode, Secret keys, URLs, ports, origins, and release pin with the release.
+3. Test Postgres connectivity, migrations, pools, and outbox age.
+4. Test Redis connectivity, `noeviction`, persistence, groups, and pending entries.
+5. Read exact readiness reason and correlated logs.
+6. Inspect policy age, STS circuit, revocation snapshot, audit DLQ/replay, and evidence-loss latch.
 
-| Environment | Commands                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------------- |
-| Local       | `caracal status --ready`, `docker compose ps`, `docker compose logs <service>`                                   |
-| Helm        | `kubectl -n caracal get pods,svc,jobs`, `kubectl -n caracal describe pod <pod>`, `kubectl -n caracal logs <pod>` |
-| Storage     | `infra/postgres/scripts/validateMigrations.sh`, `infra/redis/scripts/verify.sh`                                  |
-| App-level   | Console `diagnostics`, `audit`, and `request trace`                                                              |
+Start with `caracal status --json`, Compose status/logs, or Kubernetes get/describe/logs.
 
-## Common Cases
+## Verification
 
-| Symptom                       | Likely area                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `401` or `403` from API       | Admin token, scope, Control token, or workload credential source.                                        |
-| STS exchange fails            | Zone ID, application ID, grant, policy, client secret, step-up, or STS readiness.                        |
-| Gateway fails before upstream | Mandate verification, STS exchange, binding, revocation snapshot, or upstream allowlist.                 |
-| Session views fail            | Coordinator URL/token, selected zone, or Coordinator readiness.                                          |
-| Audit event missing           | Redis stream health, Audit readiness, DLQ, replay backlog, or request never reaching protected boundary. |
+Diagnosis is complete when one dependency, value, ceiling, or safety invariant explains readiness with log/metric evidence.
 
-## Request Investigation
+## Recovery Boundary
 
-1. Capture request ID, zone ID, subject, resource, and timestamp.
-2. Open Console `audit` or `request trace`.
-3. Confirm policy decision, scopes, target resource, Authority record, Session, and Delegation.
-4. Compare token claims with resource-server verifier settings.
-5. Check revocation and step-up state when authority appears valid but access fails.
-
-## Escalation Bundle
-
-Include readiness output, relevant logs, service versions, Helm values diff, Redis stream status, Postgres migration status, request ID, audit explanation, and any recent secret or policy changes.
+Do not delete volumes, reset streams, restore data, or clear evidence before selecting recovery.
 
 ## Next Step
 
-Use [Recover from Failures](/operations/failure-modes/) when infrastructure debugging identifies a degraded dependency, service, stream, or safety guarantee.
+Apply [Recover from Failures](/operations/failure-modes/).

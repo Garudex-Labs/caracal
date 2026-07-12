@@ -440,7 +440,7 @@ describe('createOrchestrator', () => {
     // those, merges the evidence, and runs the planner again, which now proposes a real plan.
     const plan = {
       summary: 'Register the application',
-      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } }],
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Anton' } }],
     }
     const completeObject = vi
       .fn()

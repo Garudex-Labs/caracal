@@ -439,7 +439,7 @@ function CreateControlKeyModal({
       <div className="flex flex-col gap-4">
         <Field
           label="Name"
-          placeholder="Son of Anton CI"
+          placeholder="Anton CI"
           value={name}
           onChange={(e) => setName(e.target.value)}
           autoFocus

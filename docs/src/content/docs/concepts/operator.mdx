@@ -5,7 +5,7 @@ sidebar:
   order: 15
 ---
 
-Caracal Operator lets you operate the control plane by describing what you want instead of navigating each console page by hand. It turns intent into a reviewed plan, then applies it through the same guarded APIs you use manually - within your operator scope and recorded in the audit log. Every change it makes is one you could have made yourself; it introduces no new authority.
+Read this page only if you plan to use the optional Caracal Operator in the web console. It turns natural-language intent into a previewed plan and applies that plan through the same guarded APIs available to the human operator. It introduces no new authority.
 
 ## Why It Exists
 
@@ -33,7 +33,7 @@ flowchart LR
 
 ## Authority and Isolation
 
-The Operator runs under its own reserved identity, distinct from the human operator who approves a plan. When a plan applies, your approval is recorded in the admin audit log, while the execution record names the Operator's reserved principal as the authority that made the change - a delegated, attenuated form of your own authority.
+The Operator runs as a reserved Application, distinct from the human operator who approves a plan. Audit records both the human decision and the Operator Application that executes the change.
 
 That delegated authority is least-privilege: the Operator may execute only the capabilities explicitly granted to it. A plan that asks for a capability outside its grant is refused as forbidden, before execution. The Operator is also bounded by zone isolation - it will not open a session in, or execute against, a [system zone](/concepts/zone/#system-zone), keeping its authority away from the infrastructure that runs Caracal itself.
 
@@ -60,13 +60,19 @@ Every draft is validated and previewed against the same contract the platform en
 
 ## Natural-Language Provider
 
-Turning your words into a plan needs a language model, and that model is something you supply. The Operator is built on the [Vercel AI SDK](https://ai-sdk.dev) and talks to any OpenAI-compatible endpoint, so you can bring a hosted provider key, point at a local model server, or list several providers tried in order for resilience. The provider layer is **optional and off by default**: with nothing configured, the rest of the console is unaffected and the Operator simply runs without natural-language assistance.
+Turning words into a plan requires a model endpoint supplied by the operator. Open **Settings → AI Operator → Models** to add an OpenAI chat-completions-compatible endpoint, model IDs, optional context window, and key placement. The API key is accepted only when the provider is created or rotated, sealed into a credential Provider in the reserved `caracal.sys` Zone, and never returned to the browser. Operator model calls use the governed Gateway route for that Resource.
 
-Configure providers through the API service's `API_OPERATOR_AI_*` settings - see [Environment Variables](/operations/env-vars/#api-operator-and-control). Keys are read from the API service environment and never stored in or returned by the console.
+The settings page can edit provider metadata, rotate the sealed key, delete a provider, and run a real connectivity check. Multiple providers and models participate in failover. Direct API-process `API_OPERATOR_AI_*` configuration also remains implemented, but the packaged-runtime workflow is console management; see [Configure Service Environment](/operations/env-vars/#api-operator-and-control) for that narrower path.
 
 ## Where to Use It
 
-The Operator is a console surface. For the full workspace behavior - the execution timeline, plan cards, composed requests, and long-session memory - see [Caracal Operator](/runtime-console/console/#caracal-operator) in the Web Console reference.
+Open **Caracal Operator** from the console utility rail or command palette. For the workspace and provider-management paths, see [Caracal Operator](/runtime-console/console/#caracal-operator) in the web console reference.
+
+## Common Mistakes
+
+- Ask mode is read-only; it cannot produce or apply a change plan.
+- Approval of one plan does not widen the Operator Application's capability grant.
+- Autopilot changes who satisfies the plan Approval; it does not bypass validation, Zone isolation, or audit.
 
 ## Related Pages
 

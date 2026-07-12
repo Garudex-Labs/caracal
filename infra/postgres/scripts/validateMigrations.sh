@@ -33,15 +33,15 @@ fi
 echo "  down migrations are not referenced by production tooling"
 
 echo ""
-echo "=== Migration: pre-release schema is one consolidated baseline ==="
-mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -printf '%f\n' | sort)
-expected_files=("0001_baseline.down.sql" "0001_baseline.up.sql")
-if [ "${migration_files[*]}" != "${expected_files[*]}" ]; then
-    echo "FAIL: pre-release migrations must contain only the consolidated 0001 baseline pair" >&2
-    printf '  found: %s\n' "${migration_files[*]}" >&2
+echo "=== Migration: unreleased schema stays in one baseline ==="
+mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sort)
+expected_migrations=("0001_baseline.down.sql" "0001_baseline.up.sql")
+if [ "${migration_files[*]}" != "${expected_migrations[*]}" ]; then
+    echo "FAIL: before the first stable release, migrations must remain consolidated in the 0001 baseline pair" >&2
+    printf '  found: %s\n' "${migration_files[*]:-none}" >&2
     exit 1
 fi
-echo "  baseline pair is the only migration"
+echo "  baseline-only layout OK"
 
 echo ""
 echo "=== Migration: version prefixes are unique ==="

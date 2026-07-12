@@ -85,7 +85,7 @@ func runCredentialWorkload() *Workload {
 	return &Workload{
 		ID:       "wl-1",
 		ZoneID:   "z1",
-		Name:     "Son of Anton",
+		Name:     "Anton",
 		Bindings: []byte(`[{"env": "PIPERNET_TOKEN", "resource": "resource://pipernet", "scopes": ["pipernet:read"]}]`),
 	}
 }
@@ -122,6 +122,31 @@ func TestRunCredentialRequiresParams(t *testing.T) {
 	w := runCredentialRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {"ws_good"}})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestRunCredentialRequiresBodyOnlyFormEncoding(t *testing.T) {
+	cases := []struct {
+		name        string
+		target      string
+		contentType string
+		body        string
+		wantStatus  int
+	}{
+		{"query rejected", "/v1/run/credential?workload_id=wl-1", "application/x-www-form-urlencoded", "secret=ws_good&env=PIPERNET_TOKEN", http.StatusBadRequest},
+		{"wrong content type", "/v1/run/credential", "application/json", `{}`, http.StatusUnsupportedMediaType},
+		{"duplicate environment", "/v1/run/credential", "application/x-www-form-urlencoded", "workload_id=wl-1&secret=ws_good&env=PIPERNET_TOKEN&env=HOOLIBOX_TOKEN", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			(&Server{}).handleRunCredential(w, req)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+		})
 	}
 }
 

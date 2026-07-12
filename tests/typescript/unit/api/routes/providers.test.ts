@@ -404,6 +404,18 @@ describe('POST /v1/zones/:zoneId/providers', () => {
         header_name: 'Authorization Header',
         api_key: 'hooli-api-key',
       },
+      ...[
+        'Host',
+        'Connection',
+        'Content-Length',
+        'Transfer-Encoding',
+        'X-Caracal-Identity',
+        'X-Forwarded-For',
+        'Proxy-Authorization',
+        'Traceparent',
+        'Baggage',
+        'X-Request-Id',
+      ].map((header_name) => ({ header_name, api_key: 'hooli-api-key' })),
       {
         header_name: 'Authorization',
         auth_scheme: 'Bearer Token',
@@ -501,6 +513,18 @@ describe('POST /v1/zones/:zoneId/providers', () => {
         bearer_token: 'hooli-provider-token',
         auth_header: 'Authorization Header',
       },
+      ...[
+        'Host',
+        'Connection',
+        'Content-Length',
+        'Transfer-Encoding',
+        'X-Caracal-Identity',
+        'X-Forwarded-For',
+        'Proxy-Authorization',
+        'Traceparent',
+        'Baggage',
+        'X-Request-Id',
+      ].map((auth_header) => ({ bearer_token: 'hooli-provider-token', auth_header })),
       {
         bearer_token: 'hooli-provider-token',
         auth_scheme: 'Bearer Token',
@@ -1504,7 +1528,7 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
     return {
       token_endpoint: 'https://oauth2.googleapis.example/token',
-      client_id: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      client_id: 'anton@pied-piper.iam.gserviceaccount.example',
       grant_type: 'jwt_bearer',
       private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string,
       scopes: ['https://www.googleapis.example/auth/cloud-platform'],
@@ -1607,8 +1631,8 @@ describe('POST /v1/zones/:zoneId/providers with jwt_bearer grant type', () => {
     const assertion = form.get('assertion') ?? ''
     const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString()) as Record<string, unknown>
     expect(claims).toMatchObject({
-      iss: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
-      sub: 'son-of-anton@pied-piper.iam.gserviceaccount.example',
+      iss: 'anton@pied-piper.iam.gserviceaccount.example',
+      sub: 'anton@pied-piper.iam.gserviceaccount.example',
       aud: 'https://oauth2.googleapis.example/token',
       scope: 'https://www.googleapis.example/auth/cloud-platform',
     })

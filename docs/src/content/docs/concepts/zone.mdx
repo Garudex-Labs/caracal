@@ -5,14 +5,14 @@ sidebar:
   order: 4
 ---
 
-A zone is the main isolation boundary in Caracal. It groups the configuration and runtime state needed to decide, issue, verify, revoke, and audit authority.
+Use this page when deciding what must be isolated from what. A Zone is Caracal's main trust boundary: it groups the identities, policy, Resources, keys, runtime authority, and audit evidence that must share one administrative boundary.
 
 ## What a Zone Owns
 
 | Area          | Zone-owned data                                                              |
 | ------------- | ---------------------------------------------------------------------------- |
 | Identity      | Applications, credentials, Authority records, and Sessions.                  |
-| Authorization | Resources, providers, grants, policies, policy sets, and step-up challenges. |
+| Authorization | Resources, Providers, grants, policies, policy sets, and Approvals.           |
 | Cryptography  | Zone signing keys and JWKS used to verify mandates.                          |
 | Delegation    | Delegations, constraints, depth limits, and cascade revocation state.        |
 | Audit         | Decision events, diagnostics, request IDs, and explain traces.               |
@@ -52,18 +52,18 @@ Zone setup is normally managed through the web console. The Admin API exposes th
 
 Each zone has its own signing-key and JWKS context. Resource servers verify mandates against the issuer, audience, and expected zone. Policy activation is also zone-scoped: activating a policy set in one zone does not affect another zone.
 
-## Dynamic Client Registration
+## Advanced Application Registration
 
-A zone gates whether workloads may self-register short-lived [DCR applications](/concepts/principal/#managed-and-dcr-applications). DCR is **off by default**; an operator turns it on per zone (`dcr_enabled`). While enabled, a control-plane workload holding an admin token can mint auto-expiring application identities through the zone DCR endpoint - Console never creates them.
+A Zone can allow programmatic registration of auto-expiring **DCR Applications** (Dynamic Client Registration). This is off by default and is for separate credential boundaries, not ordinary Session fan-out. The console does not create these Applications.
 
-Disabling DCR on a zone that still has live DCR applications requires an explicit decision, because turning the gate off does not by itself revoke identities already issued:
+Disabling registration while live DCR Applications exist requires an explicit decision:
 
 | Choice      | Effect                                                                                                                                 |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Keep live   | Blocks new registrations; existing DCR applications stay valid until their own expiry.                                                 |
 | Revoke live | Blocks new registrations and immediately archives live DCR applications, revoking their sessions and terminating related agent access. |
 
-The Console prompts for this choice when you disable DCR with live applications, and the Admin API takes the same decision through the `dcr_shutdown` field on a zone patch (`zones.patch(id, { dcr_enabled: false, dcr_shutdown: 'keep_live' | 'revoke_live' })`). Use `zones.dcrStatus(id)` to read the live DCR application count before deciding.
+The console prompts for this choice. Use the Admin API reference when automating it.
 
 ## System Zone
 

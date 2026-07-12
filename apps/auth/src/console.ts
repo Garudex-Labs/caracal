@@ -319,6 +319,11 @@ async function computeDiagnostics(account: string | undefined): Promise<Diagnost
     // The signed account assertion scopes the zone inventory and per-zone checks to the
     // operator's own zones, so the report never enumerates another account's zones.
     headers: account ? { [ACCOUNT_ASSERTION_HEADER]: account } : undefined,
+    // The BFF is a control-plane surface, not a data-plane host: it never holds sealing keys,
+    // database, or cache credentials, so it skips the local runtime-environment preflight and
+    // probes each service for readiness only where a URL is configured, keeping the panel a
+    // truthful view of reachable platform health instead of the BFF's own missing configuration.
+    localEnvironment: false,
   })
   const generatedAt = new Date().toISOString()
   return { at: Date.now(), generation, payload: { ...report, generatedAt } }

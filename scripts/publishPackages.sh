@@ -17,14 +17,12 @@ ecosystem="all"
 repo="pypi"
 host="pypi.org"
 select=0
-npmrc=""
 venv=""
 python_cmd=""
 
 cleanup() {
-    [[ -n "${npmrc:-}" ]] && rm -f "$npmrc"
     [[ -n "${venv:-}" ]] && rm -rf "$venv"
-    unset NPM_TOKEN NPM_OTP NPM_CONFIG_USERCONFIG PYPI_API_TOKEN TWINE_USERNAME TWINE_PASSWORD
+    unset PYPI_API_TOKEN TWINE_USERNAME TWINE_PASSWORD
 }
 trap cleanup EXIT
 
@@ -82,9 +80,15 @@ if [[ ${#npm_packages[@]} -eq 0 && ${#pypi_packages[@]} -eq 0 ]]; then
     exit 0
 fi
 
-npmField() {
-    node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))[process.argv[2]] ?? '')" "$1/package.json" "$2"
-}
+if [[ ${#npm_packages[@]} -gt 0 ]]; then
+    say_error "Local npm publication is disabled; publish through release.yml."
+    exit 1
+fi
+
+if [[ "$repo" == "pypi" && ${#pypi_packages[@]} -gt 0 ]]; then
+    say_error "Local production PyPI publication is disabled; publish through release.yml."
+    exit 1
+fi
 
 pyField() {
     awk -v key="$2" -F'"' '$0 ~ "^" key " = " {print $2; exit}' "$1/pyproject.toml"
@@ -114,78 +118,9 @@ venvPython() {
     fi
 }
 
-publishNpm() {
-    [[ ${#npm_packages[@]} -gt 0 ]] || return 0
-    say_info "npm packages: ${#npm_packages[@]}"
-    for d in "${npm_packages[@]}"; do
-        ver="$(npmField "$d" version)"
-        if [[ "$ver" != *"-rc."* && "${CARACAL_ALLOW_LOCAL_STABLE_PUBLISH:-}" != "1" ]]; then
-            say_error "Stable npm publish must use publishNpm.yml."
-            say_label "Emergency local publish: set CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1 after approval."
-            exit 1
-        fi
-    done
-    if [[ -z "${NPM_TOKEN:-}" ]]; then
-        read -r -s -p "$(printf '%snpm token:%s ' "${C_PROMPT}" "${C_RESET}")" NPM_TOKEN
-        echo
-    fi
-    if [[ -z "$NPM_TOKEN" ]]; then
-        say_error "NPM_TOKEN is required."
-        exit 1
-    fi
-    npmrc="$(mktemp)"
-    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$npmrc"
-    export NPM_CONFIG_USERCONFIG="$npmrc"
-    say_step "Verifying npm token"
-    npm whoami
-    if [[ -z "${NPM_OTP:-}" ]]; then
-        read -r -p "$(printf '%snpm OTP (optional):%s ' "${C_PROMPT}" "${C_RESET}")" NPM_OTP
-    fi
-    say_step "Building TypeScript"
-    pnpm install --frozen-lockfile --prefer-offline
-    pnpm run build:typescript
-    say_header "Publishing npm"
-    for d in "${npm_packages[@]}"; do
-        name="$(npmField "$d" name)"
-        ver="$(npmField "$d" version)"
-        if [[ "$ver" == *"dev.sha"* || "$ver" == *"dev."* ]]; then
-            say_error "Dev version blocked: ${name}@${ver}"
-            exit 1
-        fi
-        dist_tag="latest"
-        [[ "$ver" == *"-rc."* ]] && dist_tag="rc"
-        if npm view "${name}@${ver}" version >/dev/null 2>&1; then
-            say_warn "Already published: ${name}@${ver}"
-            continue
-        fi
-        say_step "${name}@${ver} -> ${dist_tag}"
-        while true; do
-            otp_args=()
-            [[ -n "${NPM_OTP:-}" ]] && otp_args=(--otp "$NPM_OTP")
-            if ( cd "$d" && npm publish --access public --tag "$dist_tag" ${otp_args[@]+"${otp_args[@]}"} ); then
-                say_success "${name}@${ver}"
-                break
-            fi
-            read -r -p "$(printf '%sPublish failed. New OTP or empty to abort:%s ' "${C_PROMPT}" "${C_RESET}")" NPM_OTP
-            [[ -z "$NPM_OTP" ]] && { say_error "npm publish aborted"; exit 1; }
-        done
-    done
-    rm -f "$npmrc"
-    npmrc=""
-    unset NPM_TOKEN NPM_OTP NPM_CONFIG_USERCONFIG
-}
-
 publishPypi() {
     [[ ${#pypi_packages[@]} -gt 0 ]] || return 0
     say_info "PyPI packages: ${#pypi_packages[@]}"
-    for d in "${pypi_packages[@]}"; do
-        ver="$(pyField "$d" version)"
-        if [[ "$repo" == "pypi" && "$ver" != *"rc"* && "${CARACAL_ALLOW_LOCAL_STABLE_PUBLISH:-}" != "1" ]]; then
-            say_error "Stable PyPI publish must use publishPypi.yml."
-            say_label "Emergency local publish: set CARACAL_ALLOW_LOCAL_STABLE_PUBLISH=1 after approval."
-            exit 1
-        fi
-    done
     if [[ -z "${PYPI_API_TOKEN:-}" ]]; then
         read -r -s -p "$(printf '%s%s token:%s ' "${C_PROMPT}" "${repo}" "${C_RESET}")" PYPI_API_TOKEN
         echo
@@ -210,8 +145,8 @@ publishPypi() {
             exit 1
         fi
         if curl -fsSL -o /dev/null "https://${host}/pypi/${name}/${ver}/json"; then
-            say_warn "Already published: ${name}==${ver}"
-            continue
+            say_error "Already published: ${name}==${ver}"
+            exit 1
         fi
         say_step "Build $d"
         rm -rf "$d/dist" "$d/build" "$d"/*.egg-info
@@ -219,7 +154,7 @@ publishPypi() {
         say_step "Check $d"
         "$pypi_python" -m twine check "$d"/dist/*
         say_step "${name}==${ver} -> ${repo}"
-        "$pypi_python" -m twine upload --skip-existing --repository "${repo}" "$d"/dist/*
+        "$pypi_python" -m twine upload --repository "${repo}" "$d"/dist/*
         say_success "${name}==${ver}"
         rm -rf "$d/dist" "$d/build" "$d"/*.egg-info
         say_label "Wait ${delay}s"
@@ -230,6 +165,5 @@ publishPypi() {
     unset PYPI_API_TOKEN TWINE_USERNAME TWINE_PASSWORD
 }
 
-publishNpm
 publishPypi
 say_success "Publish complete."

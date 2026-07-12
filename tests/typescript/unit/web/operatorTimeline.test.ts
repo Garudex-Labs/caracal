@@ -349,7 +349,7 @@ describe('buildTimeline', () => {
       schemaVersion: '2026-01',
       provenance: {
         aiAssisted: true,
-        model: 'son-of-anton',
+        model: 'anton',
         generatedAt: '2026-01-01T00:00:00Z',
         sourceMessage: 'grant operators read on pipernet',
       },
@@ -381,7 +381,7 @@ describe('buildTimeline', () => {
     ])
     expect(note.policy.simulations[0]).toMatchObject({ name: 'operator reads', expectedDecision: 'allow' })
     expect(note.policy.activation).toMatchObject({ ready: false, blockers: ['No policy set yet.'] })
-    expect(note.policy.provenance).toMatchObject({ aiAssisted: true, model: 'son-of-anton' })
+    expect(note.policy.provenance).toMatchObject({ aiAssisted: true, model: 'anton' })
   })
 
   it('parses a clarification-only policy draft with no documents', () => {
@@ -450,7 +450,7 @@ describe('buildTimeline', () => {
               capability: 'listApplications',
               domain: 'application',
               count: 1,
-              rows: [{ id: 'app-1', name: 'Son of Anton', scopes: ['read', 7, 'write'], config: { nested: true } }],
+              rows: [{ id: 'app-1', name: 'Anton', scopes: ['read', 7, 'write'], config: { nested: true } }],
             },
             { capability: 'listResources', domain: 'resource', rows: [{ id: 'res-1', name: 'PiperNet' }] },
             { domain: 'provider', count: 3 },
@@ -468,7 +468,7 @@ describe('buildTimeline', () => {
       capability: 'listApplications',
       domain: 'application',
       count: 1,
-      rows: [{ id: 'app-1', name: 'Son of Anton', scopes: ['read', 'write'] }],
+      rows: [{ id: 'app-1', name: 'Anton', scopes: ['read', 'write'] }],
     })
     expect(note.evidence?.[0]?.rows[0]).not.toHaveProperty('config')
     // A missing count falls back to the number of rows that survived.

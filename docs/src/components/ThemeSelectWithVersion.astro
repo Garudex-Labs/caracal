@@ -1,0 +1,30 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Header controls combining documentation version and theme selection.
+ */
+
+import ThemeSelect from './ThemeSelect.astro'
+import VersionSelect from './VersionSelect.astro'
+---
+
+<div class="header-controls">
+  <VersionSelect />
+  <ThemeSelect />
+</div>
+
+<style>
+  .header-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  @media (max-width: 30rem) {
+    .header-controls {
+      gap: 0.35rem;
+    }
+  }
+</style>

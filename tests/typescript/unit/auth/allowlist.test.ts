@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { enforceDenial, resolveAccess } from '../../../../apps/auth/src/allowlist.ts'
+import { logger } from '../../../../apps/auth/src/logger.ts'
 
 let dir: string
 let allowlistPath: string
@@ -47,6 +48,25 @@ describe('posture fallback', () => {
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
     writeFileSync(allowlistPath, JSON.stringify({ emails: ['richard.hendricks@piedpiper.example'] }))
     expect(resolveAccess('richard.hendricks@piedpiper.example', cfg())).toBe('denied')
+  })
+
+  it('logs an explicit error and fails closed when the file exists but is unreadable', () => {
+    // A directory at the file path deterministically raises a non-ENOENT read error (EISDIR),
+    // standing in for the permission failure a bind-mounted file causes for the container user.
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg({ path: dir }))).toBe('denied')
+    expect(errorSpy).toHaveBeenCalledWith('operator allowlist is present but unreadable; denying all access until fixed', {
+      path: dir,
+      code: expect.any(String),
+    })
+    errorSpy.mockRestore()
+  })
+
+  it('stays silent for an absent file, following posture instead', () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined)
+    expect(resolveAccess('richard.hendricks@piedpiper.example', cfg({ openRegistration: true }))).toBe('allowed')
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 
   it('never resolves removed from absence, so a wiped file can only deny', () => {

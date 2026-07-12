@@ -41,7 +41,6 @@ func TestDelegationConstraintsWireShapeCarriesAllFields(t *testing.T) {
 			MaxDepth:       3,
 			MaxHops:        2,
 			TTLSeconds:     60,
-			Budget:         5,
 			PolicyApproved: true,
 			ExpiresAt:      "2026-07-05T00:00:00Z",
 			BroadReason:    "batch import",
@@ -58,7 +57,6 @@ func TestDelegationConstraintsWireShapeCarriesAllFields(t *testing.T) {
 		"max_depth":       float64(3),
 		"max_hops":        float64(2),
 		"ttl_seconds":     float64(60),
-		"budget":          float64(5),
 		"policy_approved": true,
 		"expires_at":      "2026-07-05T00:00:00Z",
 		"broad_reason":    "batch import",
@@ -89,6 +87,27 @@ func TestCoordinatorUsesInjectedHTTPClient(t *testing.T) {
 	}
 	if !used {
 		t.Fatal("injected client must carry the request")
+	}
+}
+
+func TestCoordinatorSendsSubjectProofWithoutReplacingBearer(t *testing.T) {
+	var body map[string]any
+	var authorization string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+	}))
+	defer srv.Close()
+	_, err := sdk.StartCoordinatorSession(context.Background(), &sdk.CoordinatorClient{BaseURL: srv.URL}, "application-mandate", sdk.StartSessionRequest{
+		ZoneID: "z", ApplicationID: "app", SubjectAuthorityRecordID: "subject-record", SubjectAuthorityRecordToken: "subject-mandate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "Bearer application-mandate" || body["subject_session_id"] != "subject-record" || body["subject_token"] != "subject-mandate" {
+		t.Fatalf("unexpected Subject proof request: auth=%q body=%#v", authorization, body)
 	}
 }
 
@@ -152,7 +171,8 @@ func TestCoordinatorErrorCapsBodyInMessage(t *testing.T) {
 		t.Fatalf("expected CoordinatorError, got %v", err)
 	}
 	msg := coordErr.Error()
-	if !strings.Contains(msg, "(truncated)") || len(msg) > 2300 {
+	wantBody := strings.Repeat("x", 2048) + "\u2026 (truncated)"
+	if !strings.HasSuffix(msg, wantBody) {
 		t.Fatalf("expected a capped error body, got %d chars", len(msg))
 	}
 }
@@ -195,18 +215,84 @@ func TestHeartbeatSessionDefaultsStatusToHealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z"}}`))
+		_, _ = w.Write([]byte(`{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z","lease_generation":1}}`))
 	}))
 	defer srv.Close()
 	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
-	res, err := sdk.HeartbeatSession(context.Background(), client, "tok", "z", "session-1", "")
+	res, err := sdk.HeartbeatSession(context.Background(), client, "tok", "z", "session-1", 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if body["status"] != "healthy" {
 		t.Fatalf("empty status must default to healthy: %#v", body)
 	}
+	if body["lease_generation"] != float64(1) {
+		t.Fatalf("lease generation missing: %#v", body)
+	}
 	if res.Status != "active" || res.HeartbeatDeadlineAt != "2026-07-05T00:00:00Z" {
 		t.Fatalf("unexpected response: %+v", res)
+	}
+}
+
+func TestCoordinatorLifecyclePropagatesTraceWithFreshSpans(t *testing.T) {
+	var traceparents []string
+	var tracestates []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceparents = append(traceparents, r.Header.Get("Traceparent"))
+		tracestates = append(tracestates, r.Header.Get("Tracestate"))
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			_, _ = w.Write([]byte(`{"agent":{"status":"active","lease_generation":1}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"agent_session_id":"session-1","lease_generation":1}`))
+	}))
+	defer srv.Close()
+	traceID := strings.Repeat("1", 32)
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{TraceID: traceID, TraceFlags: "01", TraceState: "vendor=value"})
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+	if _, err := sdk.StartCoordinatorSession(ctx, client, "tok", sdk.StartSessionRequest{ZoneID: "z", ApplicationID: "app", Lifecycle: sdk.LifecycleService}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sdk.HeartbeatSession(ctx, client, "tok", "z", "session-1", 1, "healthy"); err != nil {
+		t.Fatal(err)
+	}
+	if len(traceparents) != 2 || strings.Split(traceparents[0], "-")[1] != traceID || strings.Split(traceparents[1], "-")[1] != traceID {
+		t.Fatalf("trace IDs were not preserved: %v", traceparents)
+	}
+	if strings.Split(traceparents[0], "-")[2] == strings.Split(traceparents[1], "-")[2] {
+		t.Fatalf("span IDs must differ: %v", traceparents)
+	}
+	if tracestates[0] != "vendor=value" || tracestates[1] != "vendor=value" {
+		t.Fatalf("tracestate was not preserved: %v", tracestates)
+	}
+}
+
+func TestAcquireSessionLeaseAndFencedTerminate(t *testing.T) {
+	var terminateBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodDelete {
+			_ = json.NewDecoder(r.Body).Decode(&terminateBody)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"active","heartbeat_deadline_at":"2026-07-05T00:00:00Z","lease_generation":4}`))
+	}))
+	defer srv.Close()
+	client := &sdk.CoordinatorClient{BaseURL: srv.URL}
+
+	lease, err := sdk.AcquireSessionLease(context.Background(), client, "tok", "z", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.LeaseGeneration != 4 {
+		t.Fatalf("expected generation 4, got %+v", lease)
+	}
+	if err := sdk.TerminateSession(context.Background(), client, "tok", "z", "session-1", lease.LeaseGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if terminateBody["lease_generation"] != float64(4) {
+		t.Fatalf("terminate generation missing: %#v", terminateBody)
 	}
 }

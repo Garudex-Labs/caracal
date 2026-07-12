@@ -1,54 +1,47 @@
 ---
 title: Manage Product Objects
-description: Manage zones, applications, providers, resources, policies, Subjects, Sessions, and Control through the web console.
-pageType: reference
+description: Maintain zone configuration in the console and hand repeatable workflows to supported automation surfaces.
+pageType: workflow
 ---
 
-The web console is the supported human interface for product management. Launch it with:
+Use the console for human management after guided setup. Keep work inside the active ordinary zone.
 
-```bash
-caracal web
-```
-
-## Management Flow
+## Maintain the Access Chain
 
 ```text
-zone -> application -> provider -> resource -> policy -> policy set -> Subject/Session/audit
+application + provider + resource + active policy → authorized access
 ```
 
-Web console **Guided setup** walks the first version of that flow, opening the real create form at each step. Bind launch credentials on the **Run** page; the workload then needs only its application ID and client secret.
+| Area                    | Operator task                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Applications**        | Register managed application identities and rotate or reveal client secrets.                                             |
+| **Providers**           | Configure the upstream credential mode and rotate provider secrets.                                                      |
+| **Resources**           | Define `resource://` identifiers, operations/scopes, upstream URLs, Gateway application bindings, and provider bindings. |
+| **Policies**            | Author and validate policy versions.                                                                                     |
+| **Policy Sets**         | Compose, simulate, and activate the policy that STS evaluates.                                                           |
+| **Services → Launcher** | Create workload identities and launch bindings.                                                                          |
+| **Services → Control**  | Enable scoped remote automation and manage Control credentials.                                                          |
 
-## Web Console Workflows
+Follow [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/) for the canonical policy workflow rather than duplicating it here.
 
-| Section          | What it manages                                                                                                                                    |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Zones**        | Zone records and active zone selection.                                                                                                            |
-| **Applications** | Confidential agent applications and their client secrets.                                                                                          |
-| **Providers**    | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
-| **Resources**    | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings.                    |
-| **Policies**     | Policy content and versions.                                                                                                                       |
-| **Policy Sets**  | Policy-set composition, simulation, and activation.                                                                                                |
-| **Subjects**     | Subjects and their Authority record histories.                                                                                                     |
-| **Sessions**     | Governed Coordinator executions and lifecycle state.                                                                                               |
-| **Control**      | Control API exposure and Control credentials.                                                                                                      |
+## Treat Secrets as Audited Operations
 
-## Secrets and Credentials
+Application and workload secrets are sealed after creation. A reveal action retrieves the current value from Secret Store custody and writes an admin-audit record. A rotation invalidates the previous value. Copy the replacement directly into the consuming secret store; do not place it in source, screenshots, chat, or audit annotations.
 
-Application client secrets and workload secrets are held sealed in the Secret Store: copy one at creation, or reveal it later from the object's detail panel - every reveal is recorded in the zone audit timeline. Provider secrets are accepted only in provider create or rotation-style edit flows and are stored sealed by the Control API. The web console masks secret-shaped fields and error output.
+Provider secret fields remain masked and are accepted only by the supported credential create or rotation flow.
 
-## Automation Handoff
+## Hand Off to Automation
 
-Use the web console's **Control** section when management needs to move from interactive operations to automation. Control API calls are authenticated and audited. They use the same product-management boundary as the web console; they are not exposed as top-level runtime CLI commands.
+Use the Admin SDK for trusted direct management clients. Use **Services → Control** when remote automation needs a zone-bound credential and the optional Control endpoint is enabled.
 
-## Troubleshooting
+Control credentials are scoped to management nouns and verbs. Control calls are replay-protected, rate-limited, and audited. They do not receive the root admin token. Control is not a top-level `caracal` command and does not manage stack lifecycle.
 
-| Symptom                                      | Check                                                                                                                                    |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| A page says a zone is required               | Select a zone before opening zone-scoped pages.                                                                                          |
-| A created client secret is no longer visible | Reveal it from the application's detail panel (the reveal is audited); applications created before credential custody must rotate first. |
-| Policy activation fails                      | Run simulation, inspect validation errors, and confirm the policy set references the intended policy versions.                           |
-| Control API calls fail                       | Confirm Control is enabled from the web console's **Control** section and the automation token targets the Control resource.             |
+See [Automate Management](/services/control/) for dependency and failure implications, and [Use the Admin API](/api/control-plane/) for endpoint reference.
+
+## System Zone
+
+The reserved system-zone viewer is read-only. It exists to expose Caracal-owned state for transparency, not as a management target. Return to an ordinary selected zone before creating, editing, revealing, rotating, deciding, or deleting anything.
 
 ## Next Step
 
-Use [Inspect Diagnostics and Audit](/runtime-console/observability/) when you need health checks, audit records, or request traces.
+[Manage Runtime Authority](/runtime-console/agents/) for Subjects, Authority records, Sessions, Delegations, and Approvals.

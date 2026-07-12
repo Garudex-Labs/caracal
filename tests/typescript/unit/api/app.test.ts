@@ -147,6 +147,34 @@ describe('security response headers', () => {
   })
 })
 
+describe('operator credential rotation lifecycle', () => {
+  it('registers shutdown cleanup before the server starts listening', async () => {
+    const db = makeDb()
+    const lock = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })), release: vi.fn() }
+    vi.mocked(db.connect).mockResolvedValue(lock as never)
+    const cfg = makeCfg({
+      coordinatorUrl: 'http://127.0.0.1:1',
+      gatewayUrl: 'http://127.0.0.1:1',
+      control: {
+        jwksUrl: 'http://127.0.0.1:1/.well-known/jwks.json',
+        issuer: 'http://127.0.0.1:1',
+        audience: 'caracal-control',
+        apiUrl: 'http://127.0.0.1:1',
+        apiToken: 'test-token',
+        rateCapacity: 60,
+        rateWindowSec: 60,
+        ipRateLimitPerMin: 0,
+        replayTtlSec: 3600,
+        gateFile: undefined,
+      },
+    })
+    const app = await buildApp({ cfg, db, redis: makeRedis() })
+
+    await expect(app.listen({ host: '127.0.0.1', port: 0 })).resolves.toMatch(/^http:/)
+    await expect(app.close()).resolves.toBeUndefined()
+  })
+})
+
 describe('/metrics endpoint', () => {
   it('returns Prometheus text exposition with observability counters', async () => {
     process.env.CARACAL_MODE = 'dev'

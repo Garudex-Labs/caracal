@@ -33,8 +33,6 @@ type TokenExchangeRequest struct {
 	ZoneID               string
 	ApplicationID        string
 	ClientSecret         string
-	ClientAssertion      string
-	ClientAssertionType  string
 	ChallengeID          string // identifier of a previously issued step-up challenge
 	AuthorityRecordID    string
 	SessionID            string
@@ -138,6 +136,7 @@ type OPAResult struct {
 	DeterminingPolicies []map[string]any `json:"determining_policies"`
 	EvaluationStatus    string           `json:"evaluation_status"`
 	Diagnostics         []map[string]any `json:"diagnostics"`
+	Bundle              ZoneBundleInfo   `json:"-"`
 }
 
 // StepUpChallenge describes the 401 response body for interaction_required. State is

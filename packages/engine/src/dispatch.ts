@@ -4,7 +4,7 @@
 // Shared command dispatcher: validates management requests and forwards them to AdminClient for Control automation.
 
 import { AdminApiError, type AdminClient } from '@caracalai/admin'
-import { MANAGEMENT_COMMANDS, findCommand, scopeName, scopeFor, type CommandDescriptor, type ScopeVerb } from './commands.js'
+import { MANAGEMENT_COMMANDS, findCommand, scopeName, type CommandDescriptor, type ScopeVerb } from './commands.js'
 import { reconcile, ensure, parseDesiredState, OBJECT_KINDS, type ReconcileDeps, type ReconcileReport } from './reconcile.js'
 
 export type FlagValue = string | number | boolean | null | readonly (string | number | boolean | null)[]

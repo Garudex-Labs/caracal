@@ -60,6 +60,15 @@ export interface DoctorOptions {
   // signed per-account assertion here so the zone inventory and per-zone checks are scoped to
   // the requesting operator's own zones rather than the whole deployment.
   headers?: Record<string, string>
+  // Whether the process running the checks is a data-plane host that owns the runtime
+  // environment. `caracal doctor` runs on such a host and leaves this true, so it validates
+  // local secret, database, and cache provisioning and reports a missing service URL as a
+  // configuration failure. The Console BFF sets it false: it is a control-plane surface that
+  // never holds sealing keys or storage credentials, so evaluating them there only fabricates
+  // failures. With it false, the local runtime-environment preflight is skipped and a service
+  // is probed for readiness only when its URL is explicitly configured, so the report reflects
+  // real reachability instead of the checker's own missing configuration.
+  localEnvironment?: boolean
 }
 
 interface MetricEvaluation {
@@ -313,7 +322,11 @@ function serviceTarget(
   devDefault: string,
   metricsPath: string,
   evaluateMetrics: (value: unknown) => MetricEvaluation,
+  skipIfUnset = false,
 ): ServiceTarget | undefined {
+  // A control-plane vantage only knows the services whose URL it was explicitly given. Rather
+  // than fabricate a configuration failure for a service it was never meant to reach, omit it.
+  if (skipIfUnset && !envKeys.some((key) => process.env[key])) return undefined
   try {
     return { name, baseUrl: serviceUrl(envKeys, devDefault), metricsPath, evaluateMetrics }
   } catch (err) {
@@ -380,13 +393,18 @@ async function runProtectedMetrics(
   }
 }
 
-async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<void> {
+async function runServiceChecks(
+  checks: DoctorCheck[],
+  apiUrl: string,
+  opts: { skipUnsetServices: boolean; probeMetrics: boolean } = { skipUnsetServices: false, probeMetrics: true },
+): Promise<void> {
+  const skip = opts.skipUnsetServices
   const targets = [
     { name: 'api', baseUrl: apiUrl },
-    serviceTarget(checks, 'sts', ['CARACAL_STS_URL', 'CARACAL_ZONE_URL'], DEFAULT_ZONE_URL, '/metrics.json', evaluateSTS),
-    serviceTarget(checks, 'gateway', ['CARACAL_GATEWAY_URL'], DEFAULT_GATEWAY_URL, '/metrics.json', evaluateGateway),
-    serviceTarget(checks, 'audit', ['CARACAL_AUDIT_URL'], 'http://localhost:9090', '/metrics.json', evaluateAudit),
-    serviceTarget(checks, 'coordinator', ['CARACAL_COORDINATOR_URL'], DEFAULT_COORDINATOR_URL, '/stats', evaluateCoordinator),
+    serviceTarget(checks, 'sts', ['CARACAL_STS_URL', 'CARACAL_ZONE_URL'], DEFAULT_ZONE_URL, '/metrics.json', evaluateSTS, skip),
+    serviceTarget(checks, 'gateway', ['CARACAL_GATEWAY_URL'], DEFAULT_GATEWAY_URL, '/metrics.json', evaluateGateway, skip),
+    serviceTarget(checks, 'audit', ['CARACAL_AUDIT_URL'], 'http://localhost:9090', '/metrics.json', evaluateAudit, skip),
+    serviceTarget(checks, 'coordinator', ['CARACAL_COORDINATOR_URL'], DEFAULT_COORDINATOR_URL, '/stats', evaluateCoordinator, skip),
   ].filter((target): target is ServiceTarget => target !== undefined)
   // Services are independent; probe them concurrently so one slow or timing-out service
   // never delays the rest of the report, then append results in target order so the
@@ -401,7 +419,9 @@ async function runServiceChecks(checks: DoctorCheck[], apiUrl: string): Promise<
         async () => fetchOk(`${target.baseUrl}/ready`),
         `Inspect ${target.name} logs and confirm the service is bound to ${target.baseUrl}.`,
       )
-      if (target.metricsPath) {
+      // Protected metrics need an operator bearer the control-plane vantage is not issued, so it
+      // reports service reachability from readiness alone rather than a spurious protected warning.
+      if (target.metricsPath && opts.probeMetrics) {
         const headers = target.name === 'coordinator' ? coordinatorTokenHeaders() : metricsBearerHeaders()
         await runProtectedMetrics(local, target, headers, `Confirm ${target.name} exposes operator metrics on ${target.metricsPath}.`)
       }
@@ -638,6 +658,7 @@ async function runHealthAndZoneChecks(
 export async function runDoctorDiagnostics(options: DoctorOptions = {}): Promise<DoctorReport> {
   const strict = options.strict ?? false
   const preflightOnly = options.preflightOnly ?? false
+  const localEnvironment = options.localEnvironment ?? true
   const mode: DoctorMode = preflightOnly ? 'preflight' : 'system'
   const checks: DoctorCheck[] = []
   let apiUrl = normalizeHttpUrl(resolveServiceUrl('CARACAL_API_URL', DEFAULT_API_URL), 'CARACAL_API_URL')
@@ -652,12 +673,14 @@ export async function runDoctorDiagnostics(options: DoctorOptions = {}): Promise
     zoneId = zoneId ?? ctx?.zoneId
     // The health/zone walk, the service probes, and the local preflight touch disjoint
     // targets; run them concurrently into separate buffers and merge in section order so
-    // the report stays deterministic while total latency tracks the slowest branch.
+    // the report stays deterministic while total latency tracks the slowest branch. The
+    // local runtime-environment preflight only runs on a data-plane host that owns those
+    // values; a control-plane vantage skips it rather than fail on secrets it never holds.
     const serviceChecks: DoctorCheck[] = []
     const [zoneResult] = await Promise.all([
       runHealthAndZoneChecks(checks, ctx, zoneId),
-      runServiceChecks(serviceChecks, apiUrl),
-      runPreflightSection(preflightChecks),
+      runServiceChecks(serviceChecks, apiUrl, { skipUnsetServices: !localEnvironment, probeMetrics: localEnvironment }),
+      localEnvironment ? runPreflightSection(preflightChecks) : Promise.resolve(),
     ])
     zoneScope = zoneResult.zoneScope
     zoneIds = zoneResult.zoneIds

@@ -1,2 +1,5 @@
 build==1.5.0
+colorama==0.4.6
+pywin32-ctypes==0.2.3
+pypi-attestations==0.0.29
 twine==6.2.0

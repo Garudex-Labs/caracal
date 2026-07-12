@@ -33,6 +33,8 @@ const (
 	replayDirPerm     = 0o700
 )
 
+var ErrEvidenceLost = errors.New("audit: evidence lost")
+
 // Streamer is the minimal Redis-stream interface the client needs. Any concrete
 // Redis wrapper that exposes XAdd can satisfy it; this keeps the client free of
 // a hard dependency on a particular client library.
@@ -212,10 +214,13 @@ func (c *Client) Dropped() uint64 {
 	return c.dropped.Load()
 }
 
-// Ready verifies the replay directory is writable.
+// Ready verifies that no evidence was lost and the replay directory is writable.
 func (c *Client) Ready() error {
 	if c == nil {
 		return errors.New("audit: client unavailable")
+	}
+	if c.Dropped() > 0 {
+		return ErrEvidenceLost
 	}
 	info, err := os.Stat(c.cfg.ReplayDir)
 	if err != nil {
@@ -312,12 +317,18 @@ func (c *Client) recordLoss(count uint64, err error) {
 	c.cfg.Logger.Error().Err(err).Uint64("count", count).Msg("audit events lost: stream and disk persistence both failed")
 }
 
-// persistBatch appends events to a per-process ndjson file for later replay. Returns
-// an error when the replay file could not be written; a replay directory sync
-// failure is logged but does not fail the batch, since the file itself is durable.
+// persistBatch writes events to a per-process ndjson file for later replay.
 func (c *Client) persistBatch(batch []Event) error {
 	if len(batch) == 0 {
 		return nil
+	}
+	lines := make([][]byte, len(batch))
+	for i, ev := range batch {
+		data, err := json.Marshal(ev)
+		if err != nil {
+			return fmt.Errorf("marshal audit event %q: %w", ev.ID, err)
+		}
+		lines[i] = append(data, '\n')
 	}
 	name := fmt.Sprintf("pending-%d-%d%s", os.Getpid(), time.Now().UnixNano(), replayFileExt)
 	path := filepath.Join(c.cfg.ReplayDir, name)
@@ -335,13 +346,8 @@ func (c *Client) persistBatch(batch []Event) error {
 		}
 	}()
 	w := bufio.NewWriter(f)
-	for _, ev := range batch {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			c.cfg.Logger.Error().Err(err).Str("id", ev.ID).Msg("marshal audit event")
-			continue
-		}
-		if _, err := w.Write(append(data, '\n')); err != nil {
+	for _, line := range lines {
+		if _, err := w.Write(line); err != nil {
 			c.cfg.Logger.Error().Err(err).Msg("audit replay file write")
 			return err
 		}
@@ -362,6 +368,7 @@ func (c *Client) persistBatch(batch []Event) error {
 	closed = true
 	if err := c.syncReplayDir(c.cfg.ReplayDir); err != nil {
 		c.cfg.Logger.Error().Err(err).Str("dir", c.cfg.ReplayDir).Msg("audit replay dir sync")
+		return err
 	}
 	if c.cfg.Metrics.OnReplayPersisted != nil {
 		c.cfg.Metrics.OnReplayPersisted(uint64(len(batch)))

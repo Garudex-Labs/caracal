@@ -7,7 +7,6 @@
 
 import { describe, it, expect } from 'vitest'
 import { Caracal } from '../../../../packages/sdk/ts/src/index.js'
-import { createAdvancedClientFromCredentials } from '../../../../packages/sdk/ts/src/advanced.js'
 
 const STS = 'http://sts.test'
 const COORD = 'http://coord.test'
@@ -19,6 +18,8 @@ interface RecordedCall {
   method: string
   headers: Record<string, string>
   body?: string
+  redirect?: RequestRedirect
+  signal?: AbortSignal | null
 }
 
 function json(body: unknown): Response {
@@ -41,7 +42,7 @@ function fakeFetch(): { fetchImpl: typeof fetch; calls: RecordedCall[]; counters
       headers[key] = value
     })
     const body = init?.body != null ? String(init.body) : request ? await request.clone().text() : undefined
-    calls.push({ url, method, headers, body })
+    calls.push({ url, method, headers, body, redirect: init?.redirect ?? request?.redirect, signal: init?.signal ?? request?.signal })
 
     if (url === `${STS}/oauth/2/token`) {
       const form = new URLSearchParams(body ?? '')
@@ -112,6 +113,20 @@ describe('Caracal.applicationTransport', () => {
     expect(calls.filter((c) => c.url.endsWith('/agents') && c.method === 'POST')).toHaveLength(2)
     expect(calls.filter((c) => c.url.endsWith('/delegations'))).toHaveLength(1)
     expect(calls.at(-1)!.url).toBe(`${GATEWAY}/v1/things`)
+    expect(calls.at(-1)!.headers.traceparent).toMatch(/^00-/)
+    expect(calls.at(-1)!.headers.baggage).toContain('caracal.agent_session=agent-2')
+    expect(calls.at(-1)!.headers.baggage).toContain('caracal.delegation_edge=edge-1')
+    expect(calls.at(-1)!.redirect).toBe('manual')
+  })
+
+  it('applies one timeout signal across provisioning, final mint, and dispatch', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'], timeoutMs: 5000 })
+
+    await appFetch(`${GATEWAY}/v1/things`)
+
+    expect(calls).not.toHaveLength(0)
+    for (const call of calls) expect(call.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('narrows the delegation to the requested scopes on the resource and mints on the target session', async () => {
@@ -154,34 +169,25 @@ describe('Caracal.applicationTransport', () => {
 
     await c.close()
     expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(2)
+    expect(() => c.gatewayRequest(RESOURCE, '/things')).toThrow('Caracal client is closed')
   })
 
-  it('separates authority provisioning started after close advances the generation', async () => {
+  it('rejects in-flight and subsequent requests once close begins', async () => {
     const { fetchImpl: platformFetch, calls, counters } = fakeFetch()
-    let delegationCount = 0
     let markFirstDelegation!: () => void
     let releaseFirstDelegation!: () => void
-    let markSecondDelegation!: () => void
     const firstDelegation = new Promise<void>((resolve) => {
       markFirstDelegation = resolve
     })
     const firstRelease = new Promise<void>((resolve) => {
       releaseFirstDelegation = resolve
     })
-    const secondDelegation = new Promise<void>((resolve) => {
-      markSecondDelegation = resolve
-    })
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
       const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
       if (url.endsWith('/delegations') && method === 'POST') {
-        delegationCount += 1
-        if (delegationCount === 1) {
-          markFirstDelegation()
-          await firstRelease
-        } else if (delegationCount === 2) {
-          markSecondDelegation()
-        }
+        markFirstDelegation()
+        await firstRelease
       }
       return platformFetch(input, init)
     }) as typeof fetch
@@ -190,25 +196,14 @@ describe('Caracal.applicationTransport', () => {
 
     const firstRequest = appFetch(`${GATEWAY}/first`)
     await firstDelegation
-    let closing: Promise<void> | undefined
-    let secondRequest: Promise<Response> | undefined
-    let failure: unknown
-    try {
-      closing = caracal.close()
-      secondRequest = appFetch(`${GATEWAY}/second`)
-      releaseFirstDelegation()
-      await secondDelegation
+    const closing = caracal.close()
+    const secondRequest = appFetch(`${GATEWAY}/second`)
+    releaseFirstDelegation()
 
-      expect(counters.spawn).toBe(4)
-      expect((await secondRequest).status).toBe(200)
-    } finally {
-      releaseFirstDelegation()
-      const completion = await Promise.allSettled([firstRequest, ...(closing ? [closing] : []), ...(secondRequest ? [secondRequest] : [])])
-      failure = completion.find((result) => result.status === 'rejected')?.reason
-    }
-
-    if (failure) throw failure
-    expect(counters.spawn).toBe(4)
+    await expect(firstRequest).rejects.toThrow('Caracal client is closed')
+    await expect(secondRequest).rejects.toThrow('Caracal client is closed')
+    await closing
+    expect(counters.spawn).toBe(2)
     expect(calls.filter((call) => call.method === 'DELETE').map((call) => call.url.split('/').at(-1))).toEqual(['agent-1', 'agent-2'])
   })
 
@@ -349,7 +344,7 @@ describe('Caracal.applicationTransport', () => {
 
 describe('advanced credentials resolver', () => {
   function resolverClient(fetchImpl: typeof fetch, resolve: () => { zoneId: string; applicationId: string; clientSecret: string } | null) {
-    return createAdvancedClientFromCredentials({
+    return Caracal.fromClientSecret({
       coordinatorUrl: COORD,
       stsUrl: STS,
       gatewayUrl: GATEWAY,
@@ -423,7 +418,7 @@ describe('advanced credentials resolver', () => {
   it('keeps the resolver path separate from static credentials, and rejects a session path without resources', async () => {
     const { fetchImpl } = fakeFetch()
     expect(() =>
-      createAdvancedClientFromCredentials({
+      Caracal.fromClientSecret({
         coordinatorUrl: COORD,
         stsUrl: STS,
         zoneId: 'zone-1',

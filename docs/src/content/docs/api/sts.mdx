@@ -1,10 +1,12 @@
 ---
 title: Use STS Endpoint
-description: OAuth token exchange, JWKS, step-up, and internal policy endpoints served by STS.
+description: OAuth token exchange, JWKS, Approval, and internal policy endpoints served by STS.
 pageType: api
 ---
 
 STS is served on port `8080` and issues scoped Caracal mandate JWTs.
+
+Applications normally call it through the OAuth or application SDK. The public exchange follows RFC 8693 framing with Caracal parameters; internal policy and signing-key endpoints are service-to-service only.
 
 ## Public Endpoints
 
@@ -12,7 +14,7 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | ------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
 | `POST` | `/oauth/2/token`                        | OAuth token exchange for resource, session, Gateway, or delegated mandates.           |
 | `GET`  | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone.                        |
-| `GET`  | `/step-up/{id}`                         | Step-up hold state; `?wait={seconds}` long-polls until the state changes.             |
+| `GET`  | `/step-up/{id}`                         | Approval hold state; `?wait={seconds}` long-polls until the state changes.            |
 | `POST` | `/step-up/{id}/decision`                | Subject-plane approval decision, authenticated with a federated user session mandate. |
 | `GET`  | `/health`                               | Liveness check.                                                                       |
 | `GET`  | `/ready`                                | Readiness check.                                                                      |
@@ -21,7 +23,7 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 
 ## Token Exchange Request
 
-`POST /oauth/2/token` accepts form-encoded parameters.
+`POST /oauth/2/token` accepts body-only `application/x-www-form-urlencoded` parameters. Query parameters, duplicate singleton fields, and other media types are rejected. Repeated `resource` fields are allowed; STS trims, exact-deduplicates, and sorts them before evaluation.
 
 | Parameter                                                    | Purpose                                                                                               |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
@@ -31,12 +33,26 @@ STS is served on port `8080` and issues scoped Caracal mandate JWTs.
 | `scope`                                                      | Requested scopes.                                                                                     |
 | `zone_id`                                                    | Zone boundary.                                                                                        |
 | `application_id`                                             | Calling application.                                                                                  |
-| `client_secret`, `client_assertion`, `client_assertion_type` | Application authentication.                                                                           |
+| `client_secret`                                             | Application authentication.                                                                           |
 | `session_id`, `agent_session_id`, `delegation_edge_id`       | Protocol names for Authority record ID, Session ID, and Delegation ID. They are distinct identifiers. |
 | `ttl_seconds`                                                | Requested TTL.                                                                                        |
-| `challenge_id`                                               | Consumes an approved step-up hold during retry.                                                       |
+| `challenge_id`                                               | Consumes an approved Approval hold during retry.                                                      |
 
-RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. The acting application authenticates with its own client credentials, and its identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
+`grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`. `subject_token_type` must match the presented token class. `scope` is a space-delimited string. `ttl_seconds` must be a positive integer within server limits. Resource identifiers, zone, application, Session, Authority-record, and Delegation bindings are validated server-side; caller-supplied identifiers never establish authority by themselves.
+
+RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. Public `client_assertion` and `client_assertion_type` fields are also rejected; application authentication uses `client_secret`. The acting application's identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
+
+A minimal application-principal exchange:
+
+```bash
+curl -s http://localhost:8080/oauth/2/token \
+  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  --data-urlencode "zone_id=$CARACAL_ZONE_ID" \
+  --data-urlencode "application_id=$CARACAL_APPLICATION_ID" \
+  --data-urlencode "client_secret=$CARACAL_APP_CLIENT_SECRET" \
+  --data-urlencode 'resource=resource://pipernet' \
+  --data-urlencode 'scope=pipernet:read'
+```
 
 ## Subject Identity
 
@@ -65,6 +81,23 @@ Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails,
 
 Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
 
+```json
+{
+	"access_token": "<mandate JWT>",
+	"token_type": "Bearer",
+	"expires_in": 900,
+	"target_resources": ["resource://pipernet"]
+}
+```
+
+Public clients never receive Gateway's private upstream directive or provider credential.
+
+## Retry and Idempotency
+
+The exchange endpoint has no public idempotency key. SDK OAuth clients make one network attempt because the STS may mint before a response is lost. Do not automatically replay a timed-out exchange. Approval retry is different: after an approved hold, send the exact `challenge_id` with the same bound resource/scope request; consumed, rejected, expired, or mismatched holds fail.
+
+`GET /step-up/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Subject decision endpoint requires the federated Subject mandate and exact challenge binding.
+
 ## Internal Endpoints
 
 | Method | Path                                          | Purpose                     |
@@ -74,6 +107,8 @@ Successful exchanges return an OAuth-style token response with `access_token`, `
 | `POST` | `/internal/zones/{zoneID}/signing-key/rotate` | Rotate zone signing key.    |
 
 Internal endpoints are for service/admin integration, not normal application traffic.
+
+They require the service authentication configured for API-to-STS calls and carry no external stability guarantee.
 
 ## Next Step
 

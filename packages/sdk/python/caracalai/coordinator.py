@@ -12,6 +12,8 @@ from email.utils import parsedate_to_datetime
 from enum import StrEnum
 from time import monotonic
 import time
+import re
+import secrets
 from urllib.parse import quote
 
 import httpx
@@ -25,6 +27,28 @@ from .json_types import JsonObject, JsonValue
 class Lifecycle(StrEnum):
     TASK = "task"
     SERVICE = "service"
+
+
+def _trace_headers(
+    trace_id: str | None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
+) -> dict[str, str]:
+    if (
+        not trace_id
+        or not re.fullmatch(r"[0-9a-f]{32}", trace_id)
+        or trace_id == "0" * 32
+    ):
+        return {}
+    flags = (
+        trace_flags
+        if trace_flags and re.fullmatch(r"[0-9a-f]{2}", trace_flags)
+        else "01"
+    )
+    return {
+        "traceparent": f"00-{trace_id}-{secrets.token_hex(8)}-{flags}",
+        **({"tracestate": trace_state} if trace_state else {}),
+    }
 
 
 @dataclass
@@ -216,17 +240,12 @@ def _sync_call(
 
 @dataclass
 class DelegationConstraints:
-    """Typed Delegation limits. ``budget`` is the maximum distinct requested
-    scopes per token exchange; repeated exchanges do not consume it.
-
-    ``policy_approved`` and ``broad_reason`` are audit and display metadata.
-    """
+    """Typed Delegation limits and audit metadata."""
 
     resources: list[str] | None = None
     max_depth: int | None = None
     max_hops: int | None = None
     ttl_seconds: int | None = None
-    budget: int | None = None
     policy_approved: bool | None = None
     expires_at: str | None = None
     broad_reason: str | None = None
@@ -241,8 +260,6 @@ class DelegationConstraints:
             out["max_hops"] = self.max_hops
         if self.ttl_seconds is not None:
             out["ttl_seconds"] = self.ttl_seconds
-        if self.budget is not None:
-            out["budget"] = self.budget
         if self.policy_approved is not None:
             out["policy_approved"] = self.policy_approved
         if self.expires_at is not None:
@@ -257,6 +274,7 @@ class StartSessionRequest:
     zone_id: str
     application_id: str
     subject_authority_record_id: str | None = None
+    subject_authority_record_token: str | None = None
     parent_id: str | None = None
     lifecycle: Lifecycle | None = None
     ttl_seconds: int | None = None
@@ -266,6 +284,9 @@ class StartSessionRequest:
     idempotency_key_generated: bool = False
     parent_authority: str | None = None
     inherit_parent_edge_id: str | None = None
+    trace_id: str | None = None
+    trace_flags: str | None = None
+    trace_state: str | None = None
 
 
 @dataclass
@@ -273,6 +294,7 @@ class StartSessionResponse:
     session_id: str
     delegation_id: str | None = None
     heartbeat_deadline_at: str | None = None
+    lease_generation: int = 0
 
 
 @dataclass
@@ -288,6 +310,9 @@ class DelegationRequest:
     constraints: DelegationConstraints | None = None
     ttl_seconds: int | None = None
     idempotency_key: str | None = None
+    trace_id: str | None = None
+    trace_flags: str | None = None
+    trace_state: str | None = None
 
 
 @dataclass
@@ -312,6 +337,7 @@ class InboundDelegation:
 class HeartbeatResponse:
     status: str | None = None
     heartbeat_deadline_at: str | None = None
+    lease_generation: int = 0
 
 
 def _session_body(req: StartSessionRequest) -> dict[str, JsonValue]:
@@ -322,6 +348,8 @@ def _session_body(req: StartSessionRequest) -> dict[str, JsonValue]:
         body["lifecycle"] = str(req.lifecycle)
     if req.subject_authority_record_id:
         body["subject_session_id"] = req.subject_authority_record_id
+    if req.subject_authority_record_token:
+        body["subject_token"] = req.subject_authority_record_token
     if req.parent_id:
         body["parent_id"] = req.parent_id
     if req.ttl_seconds:
@@ -341,10 +369,14 @@ def _parse_session(data: dict[str, JsonValue]) -> StartSessionResponse:
     session_id = data.get("agent_session_id")
     if not session_id:
         raise ValueError("coordinator session response missing agent_session_id")
+    lease_generation = data.get("lease_generation", 0)
+    if not isinstance(lease_generation, int) or isinstance(lease_generation, bool):
+        raise ValueError("coordinator session response missing valid lease_generation")
     return StartSessionResponse(
         session_id=str(session_id),
         delegation_id=data.get("delegation_edge_id"),
         heartbeat_deadline_at=data.get("heartbeat_deadline_at"),
+        lease_generation=lease_generation,
     )
 
 
@@ -363,6 +395,10 @@ async def start_coordinator_session(
         if req.idempotency_key
         else None
     )
+    headers = {
+        **(headers or {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
 
     resp = await _call(
         client,
@@ -372,13 +408,19 @@ async def start_coordinator_session(
         json_body=_session_body(req),
         headers=headers,
     )
-    return _parse_session(resp.json())
+    parsed = _parse_session(resp.json())
+    if req.lifecycle == Lifecycle.SERVICE and parsed.lease_generation < 1:
+        raise ValueError("coordinator session response missing valid lease_generation")
+    return parsed
 
 
 def sync_start_coordinator_session(
     client: CoordinatorClient, http: httpx.Client, bearer: str, req: StartSessionRequest
 ) -> StartSessionResponse:
-    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+    headers = {
+        **({"idempotency-key": req.idempotency_key} if req.idempotency_key else {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
 
     resp = _sync_call(
         client,
@@ -389,17 +431,33 @@ def sync_start_coordinator_session(
         json_body=_session_body(req),
         headers=headers,
     )
-    return _parse_session(resp.json())
+    parsed = _parse_session(resp.json())
+    if req.lifecycle == Lifecycle.SERVICE and parsed.lease_generation < 1:
+        raise ValueError("coordinator session response missing valid lease_generation")
+    return parsed
 
 
 async def terminate_session(
-    client: CoordinatorClient, bearer: str, zone_id: str, session_id: str
+    client: CoordinatorClient,
+    bearer: str,
+    zone_id: str,
+    session_id: str,
+    lease_generation: int | None = None,
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
 ) -> None:
     await _call(
         client,
         "DELETE",
         f"/zones/{quote(zone_id, safe='')}/agents/{quote(session_id, safe='')}",
         bearer,
+        json_body=(
+            {"lease_generation": lease_generation}
+            if lease_generation is not None
+            else None
+        ),
+        headers=_trace_headers(trace_id, trace_flags, trace_state),
     )
 
 
@@ -409,6 +467,10 @@ def sync_terminate_session(
     bearer: str,
     zone_id: str,
     session_id: str,
+    lease_generation: int | None = None,
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
 ) -> None:
     _sync_call(
         client,
@@ -416,6 +478,12 @@ def sync_terminate_session(
         "DELETE",
         f"/zones/{quote(zone_id, safe='')}/agents/{quote(session_id, safe='')}",
         bearer,
+        json_body=(
+            {"lease_generation": lease_generation}
+            if lease_generation is not None
+            else None
+        ),
+        headers=_trace_headers(trace_id, trace_flags, trace_state),
     )
 
 
@@ -424,7 +492,11 @@ async def heartbeat_session(
     bearer: str,
     zone_id: str,
     session_id: str,
+    lease_generation: int,
     status: str = "healthy",
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
 ) -> HeartbeatResponse:
     """Renew a long-lived Session's lease. The Session is reaped by the
     coordinator if it stops heartbeating before the lease expires; the
@@ -434,14 +506,57 @@ async def heartbeat_session(
         "POST",
         f"/zones/{quote(zone_id, safe='')}/agents/{quote(session_id, safe='')}/heartbeat",
         bearer,
-        json_body={"status": status},
+        json_body={"status": status, "lease_generation": lease_generation},
+        headers=_trace_headers(trace_id, trace_flags, trace_state),
     )
     if resp.status_code == 204 or not resp.content:
         return HeartbeatResponse()
     agent = resp.json().get("agent") or {}
+    generation = agent.get("lease_generation")
+    if (
+        not isinstance(generation, int)
+        or isinstance(generation, bool)
+        or generation < 1
+    ):
+        raise ValueError(
+            "coordinator heartbeat response missing valid lease_generation"
+        )
     return HeartbeatResponse(
         status=agent.get("status"),
         heartbeat_deadline_at=agent.get("heartbeat_deadline_at"),
+        lease_generation=generation,
+    )
+
+
+async def acquire_session_lease(
+    client: CoordinatorClient,
+    bearer: str,
+    zone_id: str,
+    session_id: str,
+    trace_id: str | None = None,
+    trace_flags: str | None = None,
+    trace_state: str | None = None,
+) -> HeartbeatResponse:
+    """Acquire a new generation for an active long-lived Session lease."""
+    resp = await _call(
+        client,
+        "POST",
+        f"/zones/{quote(zone_id, safe='')}/agents/{quote(session_id, safe='')}/lease",
+        bearer,
+        headers=_trace_headers(trace_id, trace_flags, trace_state),
+    )
+    data = resp.json()
+    generation = data.get("lease_generation")
+    if (
+        not isinstance(generation, int)
+        or isinstance(generation, bool)
+        or generation < 1
+    ):
+        raise ValueError("coordinator lease response missing valid lease_generation")
+    return HeartbeatResponse(
+        status=data.get("status"),
+        heartbeat_deadline_at=data.get("heartbeat_deadline_at"),
+        lease_generation=generation,
     )
 
 
@@ -478,7 +593,10 @@ def _parse_delegation(data: dict[str, JsonValue]) -> DelegationResponse:
 async def create_delegation(
     client: CoordinatorClient, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
-    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+    headers = {
+        **({"idempotency-key": req.idempotency_key} if req.idempotency_key else {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
     resp = await _call(
         client,
         "POST",
@@ -559,7 +677,10 @@ async def get_inbound_delegation(
 def sync_create_delegation(
     client: CoordinatorClient, http: httpx.Client, bearer: str, req: DelegationRequest
 ) -> DelegationResponse:
-    headers = {"idempotency-key": req.idempotency_key} if req.idempotency_key else None
+    headers = {
+        **({"idempotency-key": req.idempotency_key} if req.idempotency_key else {}),
+        **_trace_headers(req.trace_id, req.trace_flags, req.trace_state),
+    }
     resp = _sync_call(
         client,
         http,

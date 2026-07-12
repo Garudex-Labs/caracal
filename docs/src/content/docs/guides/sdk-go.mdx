@@ -3,7 +3,13 @@ title: Integrate the Go SDK
 description: Install the Go SDK, load a runtime profile, run governed sessions with context.Context, delegate authority, and inject Caracal headers.
 ---
 
-Use the Go SDK in services and agents that need Caracal context propagation, Sessions, delegation, and Gateway-aware HTTP clients.
+Use the Go SDK in an application that must carry governed authority in `context.Context`, create Sessions, narrow Delegation, or route HTTP through Gateway. A resource server that only verifies inbound mandates should use [the net/http adapter](/guides/protect-nethttp/).
+
+## Prerequisites
+
+- A managed application credential, active policy, resource/provider binding, and Gateway route.
+- Request deadlines propagated through `context.Context`.
+- A destination idempotency strategy for mutating requests.
 
 ## Install
 
@@ -13,11 +19,13 @@ go get github.com/garudex-labs/caracal/packages/sdk/go
 
 ## Connect
 
+The smallest protected call needs no session code at all: `ApplicationTransport` pins an `*http.Client` to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
+
 ```go
 package main
 
 import (
-	"context"
+	"io"
 	"log"
 
 	caracal "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -28,17 +36,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer client.Close()
 
-	if err := client.Session(context.Background(), func(ctx context.Context) error {
-		headers, err := client.Headers(ctx)
-		if err != nil {
-			return err
-		}
-		_ = headers
-		return nil
-	}); err != nil {
+	// nil base: the SDK constructs its own HTTP client.
+	governed, err := client.ApplicationTransport(nil, "resource://pipernet", caracal.ApplicationTransportOptions{
+		Scopes: []string{"pipernet:read"},
+	})
+	if err != nil {
 		log.Fatal(err)
 	}
+	target, err := client.GatewayRequest("resource://pipernet", "/reports")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp, err := governed.Get(target.URL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	log.Println(string(body))
 }
 ```
 
@@ -47,10 +65,13 @@ func main() {
 ## Use an HTTP client
 
 ```go
-httpClient := client.Transport(nil)
+httpClient := client.Transport(nil, caracal.CallOptions{
+	Scopes:      []string{"pipernet:read"},
+	Propagation: caracal.PropagationGatewayOnly,
+})
 
 err := client.Session(context.Background(), func(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.com/tickets", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.pipernet.example/reports", nil)
 	if err != nil {
 		return err
 	}
@@ -59,15 +80,15 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 })
 ```
 
-The transport injects Caracal envelope headers from `context.Context`. For explicit Gateway routing, use `GatewayRequest()`.
+The transport mints the scoped Gateway-ingress mandate and injects Caracal envelope headers from `context.Context`. For explicit routing metadata, use `GatewayRequest()` and send the resulting request through the scoped transport; the helper alone does not authenticate it.
 
-## Long-lived long-lived Sessions
+## Long-lived Sessions
 
-Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. A long-lived Session is reaped if it stops heartbeating before its lease expires; its stored protocol lifecycle is `service`.
+Daemons and workers that outlive a single request use `StartSession` instead of `Session`. It returns a handle you own: the SDK renews the lease from a background goroutine by default, and you retire the Session with `Close`. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination; its stored protocol lifecycle is `service`.
 
 ```go
 svc, err := client.StartSession(context.Background(), caracal.StartSessionOptions{
-	Labels: []string{"billing-worker"},
+	Labels: []string{"fiona-worker"},
 })
 if err != nil {
 	return err
@@ -79,11 +100,11 @@ for running {
 }
 ```
 
-The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. Transient renewal errors are logged and retried on the next tick; if the coordinator reports the session permanently gone, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
+The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Set `StartSessionOptions.HeartbeatInterval` to a positive duration to fix the cadence, or a negative one to disable the background goroutine and call `Heartbeat` yourself. `LeaseGeneration()` exposes the monotonic ownership token sent by every heartbeat and `Close`, so an earlier holder cannot renew or terminate the Session after another process takes ownership. Transient renewal errors are logged and retried on the next tick; if the Coordinator reports the Session permanently gone or fenced, the goroutine stops and `StartSessionOptions.OnLeaseLost` fires once so the worker can resign instead of spinning.
 
 `Status()` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `OnStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `AttachSession` to restart lease renewal. `OnLeaseLost` remains reserved for terminal loss.
 
-A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `*CoordinatorError`, telling the worker to start a new one - and returns the same handle `StartSession` does:
+A worker that restarts does not need a fresh session: persist `svc.SessionID()` and re-attach with `AttachSession`. Attach atomically acquires a new lease generation and renews the deadline, fencing every older handle. A Session the Coordinator no longer holds live fails with `*CoordinatorError`; a suspended Session must be resumed through the control plane before attachment. The returned handle behaves like one from `StartSession`:
 
 ```go
 svc, err := client.AttachSession(ctx, persistedSessionID, caracal.AttachSessionOptions{
@@ -101,15 +122,29 @@ err := client.Session(context.Background(), func(ctx context.Context) error {
 		_, _ = client.Current(child)
 		return nil
 	}, caracal.SessionOptions{
-		Authority: caracal.AuthorityNarrow([]string{"tickets:read"}, caracal.NarrowOptions{
-			Constraints: &caracal.DelegationConstraints{MaxHops: 1, Budget: 5},
+		Authority: caracal.AuthorityNarrow([]string{"pipernet:read"}, caracal.NarrowOptions{
+			Constraints: &caracal.DelegationConstraints{MaxHops: 1},
 			TTLSeconds:  600,
 		}),
 	})
 })
 ```
 
-A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)`. Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+A plain `client.Session` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Set `SessionOptions.Authority` to `caracal.AuthorityNarrow([]string{...})` only when the child should hold a least-privilege subset, or `caracal.AuthorityNone()` for a child with no inherited authority. Use `client.Delegate` to grant authority to a Session that already exists, typically in another application: it returns the edge, and the receiving session presents it with `client.AcceptDelegation(ctx, edgeID)` - the full two-sided flow is in [Implement Multi-Agent Delegation](/guides/delegation/). Use `Current(ctx)` to inspect the bound Caracal context and `Headers(ctx)` to project it to outbound HTTP headers.
+
+## Handle approvals
+
+A mint whose scope is approval-gated returns `*oauth.ApprovalRequiredError`. `caracal.WithApproval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call:
+
+```go
+mandate, err := caracal.WithApproval(ctx, client, 10*time.Minute,
+	func(ctx context.Context, approvalID string) (oauth.MintedMandate, error) {
+		return client.MintMandate(ctx, "resource://pipernet", []string{"pipernet:admin"},
+			caracal.MintMandateOptions{ApprovalID: approvalID})
+	})
+```
+
+A rejected, expired, or already-consumed decision returns the original `*oauth.ApprovalRequiredError`; its `ApprovalID` lets you resume waiting later with `client.WaitForApproval(ctx, approvalID, timeout)`, which returns the typed final state. [Human Approval](/guides/step-up/) covers the tiers and decision paths.
 
 ## Troubleshooting
 
@@ -120,4 +155,16 @@ A plain `client.Session` runs the child under its parent's effective authority -
 | Delegation fails                | Ensure delegation runs from a context with an active Session.                                |
 | Gateway URL error               | Confirm the runtime profile includes `gateway_url`.                                          |
 
-Related pages: [Protect a Go net/http Service](/guides/protect-nethttp/) and [Session Delegation](/concepts/delegation/).
+## Validate the integration
+
+Run allow, extra-scope deny, revoked Session, canceled context, and shutdown cases. Only the allow case may reach the upstream. Close every `SessionHandle`, then call `client.Close()` after transports have drained.
+
+:::caution[Failure point: context]
+Do not replace the callback or handle context with `context.Background()` inside governed work. That drops Session and Delegation authority even though the process still has application credentials.
+:::
+
+For exact exported types and options, use [Go SDK reference](/sdks/go/).
+
+## Next Step
+
+Protect inbound handlers with [the net/http adapter](/guides/protect-nethttp/) or implement [multi-agent delegation](/guides/delegation/).

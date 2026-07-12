@@ -5,8 +5,8 @@
 // Runs the Go test suite with race detection, staged source-package tests, and optional merged coverage output.
 
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -100,19 +100,20 @@ function runWithStagedSourceTests(args) {
   try {
     for (const source of collectTestFiles(sourceDir).sort()) {
       const target = join(root, relative(sourceDir, source))
-      if (existsSync(target)) {
-        continue
-      }
+      const existing = existsSync(target) ? readFileSync(target) : null
       mkdirSync(dirname(target), { recursive: true })
       copyFileSync(source, target)
-      staged.push(target)
+      staged.push({ existing, target })
     }
     status = runStatus('go', args)
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     status = 1
   } finally {
-    for (const target of staged) rmSync(target, { force: true })
+    for (const { existing, target } of staged) {
+      if (existing === null) rmSync(target, { force: true })
+      else writeFileSync(target, existing)
+    }
   }
   if (status !== 0) process.exit(status)
 }

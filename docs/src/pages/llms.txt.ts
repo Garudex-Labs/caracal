@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from 'astro:content'
+import { logicalDocId, publishedDocs, publishedPath } from '../../versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 
@@ -39,13 +40,15 @@ const sections: Record<string, string[]> = {
     'guides/runtime-run',
     'guides/protect-gateway-http',
     'guides/protect-express',
+    'guides/protect-fastapi',
     'guides/protect-fastmcp',
     'guides/protect-nethttp',
     'guides/protect-mcp',
     'guides/audit-stream',
     'guides/delegation',
     'guides/step-up',
-    'guides/enterprise-runtime-patterns',
+    'guides/approval-notifications',
+    'guides/production-patterns',
   ],
   'Core Concepts': [
     'concepts',
@@ -54,6 +57,7 @@ const sections: Record<string, string[]> = {
     'concepts/zone',
     'concepts/principal',
     'concepts/resource-grant',
+    'concepts/provider',
     'concepts/policy',
     'concepts/step-up',
     'concepts/mandate',
@@ -61,14 +65,17 @@ const sections: Record<string, string[]> = {
     'concepts/constraint',
     'concepts/sessions-revocation',
     'concepts/audit-ledger',
+    'concepts/operator',
   ],
   'Operations': [
     'operations',
+    'operations/deployment-profiles',
     'operations/docker-compose',
     'operations/kubernetes-helm',
     'operations/cloud-native-profiles',
     'operations/cloud-reference-deployments',
-    'operations/enterprise-install-kit',
+    'operations/opentofu',
+    'operations/install-kit',
     'operations/env-vars',
     'operations/tls-hardening',
     'operations/key-management',
@@ -104,6 +111,7 @@ const sections: Record<string, string[]> = {
     'runtime-console/cli-and-console',
     'runtime-console/stack',
     'runtime-console/console',
+    'runtime-console/console-access',
     'runtime-console/config-file',
     'runtime-console/runtime',
     'runtime-console/admin',
@@ -130,22 +138,30 @@ const sections: Record<string, string[]> = {
   ],
   'API Reference': ['api', 'api/control-plane', 'api/coordinator', 'api/sts', 'api/gateway', 'api/event-topics'],
   'Services': ['services', 'services/api', 'services/coordinator', 'services/sts', 'services/gateway', 'services/audit', 'services/control'],
-  'Security': ['security', 'security/threat-model', 'security/hardening', 'security/disclosure'],
+  'Security and Adoption': [
+    'security',
+    'security/threat-model',
+    'security/hardening',
+    'security/verify-releases',
+    'security/evidence-pack',
+    'security/adoption-review',
+    'security/disclosure',
+  ],
   'Examples': ['examples', 'examples/echo-upstream', 'examples/control-bootstrap', 'examples/provider-preflight', 'examples/policy-iterate', 'examples/research-agent', 'examples/lynx-capital'],
-  'Reference': ['reference', 'reference/faq', 'reference/glossary', 'reference/errors', 'reference/configuration', 'reference/config-precedence', 'reference/defaults-and-limits', 'reference/runtime-exit-codes', 'reference/compatibility', 'reference/release-package-runtime-map', 'reference/interoperability-contracts', 'enterprise'],
+  'Reference': ['reference', 'reference/faq', 'reference/glossary', 'reference/errors', 'reference/configuration', 'reference/config-precedence', 'reference/defaults-and-limits', 'reference/runtime-exit-codes', 'reference/compatibility', 'reference/release-package-runtime-map', 'reference/interoperability-contracts'],
   'Contributing': ['contributing', 'contributing/setup', 'contributing/style', 'contributing/workflow', 'contributing/testing', 'contributing/governance', 'contributing/release'],
 }
 
 export async function GET() {
-  const docs = await getCollection('docs')
-  const byId = new Map(docs.map((d) => [d.id, d]))
+  const docs = publishedDocs(await getCollection('docs'))
+  const byId = new Map(docs.map((d) => [logicalDocId(d.id), d]))
 
   const lines: string[] = [
     '# Caracal',
     '',
-    '> The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.',
+    '> Caracal gives agents and automated workloads short-lived, policy-approved authority for protected resources.',
     '',
-    'Caracal is an open-source system built by Garudex Labs. It issues short-lived signed mandates that bind agents and workloads to policy before protected-resource access. The core primitives are: Subject, Authority record, Session, Delegation, principal, mandate, policy, zone, resource, grant, constraint, approval, and audit ledger.',
+    'Caracal is an open-source system built by Garudex Labs. Applications request scoped authority, STS evaluates the active policy set, Gateway or an in-process verifier enforces the issued Mandate, Coordinator owns Sessions and Delegations, and Audit records decisions and outcomes. Subjects and Authority records provide optional external identity attribution and revocation anchors.',
     '',
     'The runtime includes API (port 3000), STS (port 8080), Gateway (port 8081), Audit (port 9090), and Coordinator (port 4000). Control runs as an optional in-process plugin inside API. Runtime lifecycle uses the top-level caracal runtime CLI; product management uses Console, Admin SDK, or Control API.',
     '',
@@ -162,7 +178,7 @@ export async function GET() {
     for (const id of ids) {
       const doc = byId.get(id)
       if (!doc) continue
-      entries.push(`- [${doc.data.title}](${site}/${id}/) ([Markdown](${site}/markdown/${id}.md)): ${doc.data.description}`)
+      entries.push(`- [${doc.data.title}](${site}${publishedPath(doc.id)}) ([Markdown](${site}/markdown/${doc.id}.md)): ${doc.data.description}`)
     }
     if (entries.length === 0) continue
     lines.push(`## ${sectionTitle}`)

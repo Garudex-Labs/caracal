@@ -1,159 +1,128 @@
 ---
-title: Connect Your App with the SDK
-description: Wire app code through the SDK so protected calls carry Caracal authority and audit context.
+title: Make Runs Identifiable with Labels
+description: Label the protected calls your code makes so each agent's work is identifiable in the audit trail.
 pageType: workflow
 ---
 
-This tutorial connects application code to Caracal. The examples use a runtime profile, open one Session, and call a Gateway-protected resource.
+import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-## 1. Confirm the App and Profile
+Your SDK example works, but imagine it a month from now: one application identity backing a dozen agents, all making protected calls. When something misbehaves, which run was it? This tutorial solves that by adding a **label** - a short tag your code attaches to its runs - so the audit trail can tell your agents' work apart.
 
-In the Console, confirm that the selected zone has:
+You will:
 
-- one confidential agent app;
-- a client secret stored in the secret file named by your runtime profile;
-- one protected resource with an active policy;
-- a Gateway URL and resource binding when using Gateway-routed HTTP.
+1. point your working example at the resource from the previous tutorial;
+2. add one label to the transport call;
+3. find that label in the audit trail and understand what it does and does not do.
 
-Set the profile path and the resource target for the examples:
+## Prerequisites
+
+- Complete [Protect Your First Real API](../protect-an-api/).
+- Keep the working profile and SDK example from Get Started.
+
+## 1. Point the Example at Your Real Resource
+
+If your shell still has the variables from the previous tutorial, you are already set. Otherwise:
+
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
 ```sh
 export CARACAL_CONFIG=/path/to/caracal.toml
-export CARACAL_RESOURCE_ID=resource://billing-api
-export CARACAL_RESOURCE_PATH=/charge
+export CARACAL_RESOURCE_ID=resource://pipernet
+export CARACAL_RESOURCE_PATH=/
+export CARACAL_RESOURCE_SCOPE=pipernet:read
 ```
 
-On Windows PowerShell:
+</TabItem>
+<TabItem label="Windows">
 
 ```powershell
 $env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
-$env:CARACAL_RESOURCE_ID = "resource://billing-api"
-$env:CARACAL_RESOURCE_PATH = "/charge"
+$env:CARACAL_RESOURCE_ID = "resource://pipernet"
+$env:CARACAL_RESOURCE_PATH = "/"
+$env:CARACAL_RESOURCE_SCOPE = "pipernet:read"
 ```
 
-## 2. Connect with the SDK
+</TabItem>
+</Tabs>
 
-The client constructor is the standard entry point. It loads the runtime profile when available, then falls back to environment configuration. See [Configuration Order](/reference/config-precedence/) for the exact resolution order.
+Run the example once, unchanged, to confirm the baseline still works.
 
-### TypeScript
+**After this step:** the example prints your service's response, exactly as at the end of the previous tutorial.
 
-```sh
-npm install @caracalai/sdk
-```
+## 2. Add a Label to the Transport
+
+Keep the complete example from [Add SDK to Your App](/get-started/add-sdk-to-your-app/). Change only the transport options: add the label `pipernet-reader`.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```typescript
-import { Caracal } from '@caracalai/sdk'
-
-const caracal = new Caracal()
-const resourceId = process.env.CARACAL_RESOURCE_ID!
-const resourcePath = process.env.CARACAL_RESOURCE_PATH!
-
-await caracal.session(async () => {
-  const request = caracal.gatewayRequest(resourceId, resourcePath)
-  const response = await caracal.transport()(request.url, {
-    method: 'POST',
-    headers: { ...request.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: 1200 }),
-  })
-
-  console.log(await response.text())
+const governedFetch = caracal.applicationTransport(resourceId, {
+    scopes: [resourceScope],
+    labels: ['pipernet-reader'],
 })
 ```
 
-### Python
-
-```sh
-pip install caracalai-sdk
-```
+</TabItem>
+<TabItem label="Python">
 
 ```python
-import asyncio
-import os
-
-from caracalai import Caracal
-
-caracal = Caracal()
-resource_id = os.environ["CARACAL_RESOURCE_ID"]
-resource_path = os.environ["CARACAL_RESOURCE_PATH"]
-
-async def main():
-    async with caracal.session():
-        request = caracal.gateway_request(resource_id, resource_path)
-        async with caracal.transport() as client:
-            response = await client.post(
-                request.url,
-                headers=request.headers,
-                json={"amount": 1200},
-            )
-            print(response.text)
-
-asyncio.run(main())
+async with caracal.application_transport(
+    resource_id,
+    scopes=[resource_scope],
+    labels=["pipernet-reader"],
+) as governed:
+    response = await governed.get(target.url)
 ```
 
-### Go
-
-```sh
-go get github.com/garudex-labs/caracal/packages/sdk/go
-```
+</TabItem>
+<TabItem label="Go">
 
 ```go
-c, err := caracal.New()
-if err != nil {
-    panic(err)
-}
-
-resourceID := os.Getenv("CARACAL_RESOURCE_ID")
-resourcePath := os.Getenv("CARACAL_RESOURCE_PATH")
-
-err = c.Session(context.Background(), func(ctx context.Context) error {
-    target, err := c.GatewayRequest(resourceID, resourcePath)
-    if err != nil {
-        return err
-    }
-
-    req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, strings.NewReader(`{"amount":1200}`))
-    if err != nil {
-        return err
-    }
-    req.Header = target.Header.Clone()
-    req.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.Transport(nil).Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-    return nil
+governed, err := c.ApplicationTransport(nil, resourceID, caracal.ApplicationTransportOptions{
+    Scopes: []string{resourceScope},
+    Labels: []string{"pipernet-reader"},
 })
 if err != nil {
     panic(err)
 }
 ```
 
-## 3. Understand the Runtime Behavior
+</TabItem>
+</Tabs>
 
-| SDK call                                | What happens                                                                                   |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `new Caracal()` / `Caracal()` / `New()` | Loads configuration and prepares app-secret token exchange.                                    |
-| `session()` / `Session()`               | Creates a Session, binds context, and tears it down after the block returns.                   |
-| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header.                                        |
-| `transport()` / `Transport()`           | Injects trace and baggage context, Gateway routing, and Authorization on Gateway-routed calls. |
+Run the example again.
 
-`session()` is the session boundary. If the function exits or raises, the SDK terminates the Session and active authority for that session is revoked.
+**After this step:** the call succeeds exactly as before - the label changes nothing about what is allowed. It changes what is *recorded*.
 
-One application credential backs every Session you start. A workload registers one application, then opens a Session per unit of work - you do not register a new application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
+## 3. Find the Label in Audit
 
-If your app starts a Session for each child agent or delegates work, continue to [Implement Multi-Agent Delegation](/guides/delegation/) after this tutorial path.
+Open web console **Audit** and locate the request you just made. A complete Gateway-routed call produces two events - the authorization decision and the Gateway's action result - and the run now carries your `pipernet-reader` label alongside its session IDs.
 
-## 4. Verify Audit
+That is the payoff. In an app with many agents, give each agent role its own label (`report-writer`, `calendar-sync`, ...) and the audit trail stays separable while everything runs under one application identity.
 
-Open web console **Audit** and find the request. A complete Gateway-routed call produces:
+Two boundaries to keep straight:
 
-1. an authorization event from STS;
-2. an action-result event from Gateway.
+- **Labels describe; they never authorize.** Access still comes from scopes and the active policy. A label like `admin` grants nothing.
+- **Labels group; sessions identify.** As introduced in [What Each Call Does](/get-started/add-sdk-to-your-app/#what-each-call-does), the SDK opens a session for each run. Many runs can share a label; each run's session ID is unique. When exact attribution matters, use the session ID from Audit.
 
-Open **explain** with the request ID to confirm the application, resource, scopes, policy, policy set version, and decision.
+**After this step:** you can find a run by its label in Audit and read its session IDs from the event detail.
+
+## Expected Outcome
+
+Audit shows your application, the `pipernet-reader` label, distinct session IDs, and the Gateway result for `resource://pipernet`. You know which of those facts identifies the run (the session ID) and which merely describes it (the label).
+
+## Common Mistakes
+
+- Labels do not authorize access. Keep `pipernet:read` in the active policy.
+- Do not wrap `applicationTransport` in a session of your own expecting that session to grant resource authority; the transport provisions its own bounded path.
+- Do not reach for per-agent applications to get attribution; labels and session IDs exist so one application serves all your agents.
+
+## Going Further
+
+If your app hands work from one agent to another and the receiving agent should hold *less* authority, that hand-off is a delegation - the narrowing mechanism you met briefly in Get Started. [Implement Multi-Agent Delegation](/guides/delegation/) covers it after this tutorial path.
 
 ## Next Step
 
-Continue with [Trace One Protected Request](../inspect-a-run/) to investigate the request you just made.
+Continue with [Trace One Protected Request](../inspect-a-run/) to dissect the request you just made - and the deny you produced earlier.

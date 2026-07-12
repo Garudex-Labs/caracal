@@ -175,6 +175,8 @@ spec:
               value: {{ $root.Values.secrets.idempotency.retentionSeconds | quote }}
             - name: GENERATED_IDEMPOTENCY_RETENTION_SECONDS
               value: {{ $root.Values.secrets.idempotency.generatedRetentionSeconds | quote }}
+            - name: SESSION_RETENTION_DAYS
+              value: {{ $service.sessionRetentionDays | quote }}
             - name: IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE
               value: {{ $root.Values.secrets.idempotency.maxReceiptsPerScope | quote }}
             - name: COORDINATOR_BODY_LIMIT_BYTES

@@ -3,7 +3,7 @@
 //
 // Tests for account/org/zone Console link building: identity prefix, sentinel org, and flat-path conversion.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../../../../apps/web/src/platform/state/localInstall', () => ({
   getProfile: () => ({ accountId: 'CRC-AAA-BBB-CCC', fullName: '', displayName: '', avatar: '' }),

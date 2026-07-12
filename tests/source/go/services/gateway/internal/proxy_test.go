@@ -458,12 +458,33 @@ func TestTrustedProxyPreservesSanitizedClientAndScheme(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
 	r.Header.Set("X-Forwarded-Proto", "https")
 	upstream, _ := url.Parse("https://upstream.example")
-	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{}, nil, "request-1", true)
+	req, err := buildUpstreamRequestWithProxy(r, upstream, "token", corests.UpstreamDirective{AuthMode: "none"}, nil, "request-1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if req.Header.Get("X-Forwarded-For") != "203.0.113.10" || req.Header.Get("X-Forwarded-Proto") != "https" {
 		t.Fatalf("unexpected forwarding metadata: %#v", req.Header)
+	}
+}
+
+func TestBuildUpstreamRequestRejectsUnsafeCredentialDirectives(t *testing.T) {
+	inbound := httptest.NewRequest(http.MethodGet, "/", nil)
+	upstream, _ := url.Parse("https://api.pipernet.example")
+	cases := []struct {
+		name      string
+		directive corests.UpstreamDirective
+	}{
+		{"unknown auth mode", corests.UpstreamDirective{AuthMode: "future_mode"}},
+		{"reserved host header", corests.UpstreamDirective{AuthMode: "provider_apikey", AuthHeader: "Host", ProviderToken: "secret"}},
+		{"reserved Caracal header", corests.UpstreamDirective{AuthMode: "provider_apikey", AuthHeader: "X-Caracal-Identity", ProviderToken: "secret"}},
+		{"reserved forwarded header", corests.UpstreamDirective{AuthMode: "provider_oauth", AuthHeader: "X-Forwarded-For", ProviderToken: "secret"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := buildUpstreamRequest(inbound, upstream, "mandate", tc.directive, nil, "request-1"); err == nil {
+				t.Fatal("expected unsafe directive to fail")
+			}
+		})
 	}
 }
 

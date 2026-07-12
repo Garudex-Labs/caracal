@@ -12,7 +12,6 @@ import { cfg } from '../config.js'
 import { redisMinuteBucket } from '../redis.js'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { completeIdempotency, parseIdempotencyKey, startIdempotency } from '../idempotency.js'
-import { SESSION_LIVE_SQL } from '../sessionLiveness.js'
 
 const RetryPolicy = z
   .object({
@@ -400,7 +399,8 @@ async function loadInvocationSessions(
      WHERE zone_id = $1
        AND id = ANY($2::text[])
        AND status = 'active'
-      AND ${SESSION_LIVE_SQL}
+       AND ttl_seconds IS NOT NULL
+       AND started_at + (ttl_seconds * interval '1 second') > now()
      FOR SHARE`,
     [zoneId, ids],
   )

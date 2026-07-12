@@ -51,19 +51,25 @@ func TestActiveSessionLifecycles(t *testing.T) {
 	now := time.Now()
 	heartbeat := now.Add(time.Minute)
 	stale := now.Add(-time.Minute)
+	userExpiry := now.Add(time.Minute)
+	expiredUser := now.Add(-time.Minute)
 	cases := map[string]struct {
 		session *Session
 		want    bool
 	}{
-		"nil session":          {nil, false},
-		"wrong zone":           {&Session{ZoneID: "other", Status: "active"}, false},
-		"inactive status":      {&Session{ZoneID: "zone1", Status: "revoked"}, false},
-		"service without beat": {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
-		"service stale beat":   {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
-		"service live beat":    {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
-		"task without ttl":     {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
-		"task expired ttl":     {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
-		"task live ttl":        {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now, TTLSeconds: 600}, true},
+		"nil session":                {nil, false},
+		"wrong zone":                 {&Session{ZoneID: "other", Status: "active"}, false},
+		"inactive status":            {&Session{ZoneID: "zone1", Status: "revoked"}, false},
+		"service without beat":       {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service"}, false},
+		"service stale beat":         {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &stale}, false},
+		"service live beat":          {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat}, true},
+		"service live user":          {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat, SubjectAuthorityRecordType: "user", SubjectAuthorityRecordStatus: "active", SubjectAuthorityRecordExpiresAt: userExpiry}, true},
+		"service expired user":       {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat, SubjectAuthorityRecordType: "user", SubjectAuthorityRecordStatus: "active", SubjectAuthorityRecordExpiresAt: expiredUser}, false},
+		"service revoked user":       {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat, SubjectAuthorityRecordType: "user", SubjectAuthorityRecordStatus: "revoked", SubjectAuthorityRecordExpiresAt: userExpiry}, false},
+		"service application anchor": {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "service", HeartbeatDeadlineAt: &heartbeat, SubjectAuthorityRecordType: "application", SubjectAuthorityRecordStatus: "expired", SubjectAuthorityRecordExpiresAt: expiredUser}, true},
+		"task without ttl":           {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task"}, false},
+		"task expired ttl":           {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now.Add(-time.Hour), TTLSeconds: 60}, false},
+		"task live ttl":              {&Session{ZoneID: "zone1", Status: "active", Lifecycle: "task", StartedAt: now, TTLSeconds: 600}, true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -210,8 +216,10 @@ func TestStepUpAuditMetaOptionalFields(t *testing.T) {
 	}
 	base.ApplicationID = "app1"
 	base.AuthorityRecordID = "sess-1"
+	base.MetadataJSON = []byte(`{"agent_session_id":"agent-1","delegation_edge_id":"edge-1"}`)
 	meta = stepUpAuditMeta(base)
-	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" {
+	if meta["application_id"] != "app1" || meta["session_id"] != "sess-1" ||
+		meta["agent_session_id"] != "agent-1" || meta["delegation_edge_id"] != "edge-1" {
 		t.Fatalf("populated meta = %#v", meta)
 	}
 }

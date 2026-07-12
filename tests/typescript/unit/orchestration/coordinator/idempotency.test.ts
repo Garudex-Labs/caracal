@@ -66,8 +66,10 @@ describe('key storage digest', () => {
 describe('rotation serialization', () => {
   it('uses one per-key lock across old, new, and overlap key configurations', async () => {
     const locks: string[] = []
+    const queries: string[] = []
     const db = {
       query: async (sql: string, params?: unknown[]) => {
+        queries.push(sql)
         if (sql.includes('pg_advisory_xact_lock')) locks.push(String(params?.[0]))
         if (sql.includes('SELECT COUNT')) return { rows: [{ n: '0' }] }
         return { rows: [], rowCount: 0 }
@@ -88,6 +90,7 @@ describe('rotation serialization', () => {
     }
     expect(new Set(locks)).toHaveLength(1)
     expect(locks[0]).toMatch(/^session\.start\.v2:z1:app1:[a-f0-9]{64}$/)
+    expect(queries.some((sql) => sql.includes('coordinator_idempotency_receipts') && sql.includes('FOR UPDATE'))).toBe(false)
   })
 
   it('does not serialize unrelated idempotency keys in one scope', async () => {

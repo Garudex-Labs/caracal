@@ -1,11 +1,11 @@
 ---
 title: Resources and Grants
-description: Resources expose protected targets and scopes; grants bind principals to subsets of those scopes.
+description: Resources define protected targets; grant data maps Application roles to Resource scopes.
 sidebar:
   order: 6
 ---
 
-A resource is something Caracal protects. A grant is a configured permission binding that says an application and user may request specific scopes for that resource.
+Use this page to separate the protected target from the policy data used to evaluate access. A Resource is something Caracal protects. Grant data maps an Application role to scopes for that Resource.
 
 ## Resources
 
@@ -30,24 +30,18 @@ Resources describe protected targets such as:
 
 ## Grants
 
-A grant binds:
+A grant data entry binds an Application key and role to a Resource and one or more scopes. It is not a Mandate and it is not a per-Subject permission assignment.
 
-1. a zone;
-2. an application;
-3. a user or subject;
-4. a resource;
-5. one or more scopes.
+Grants are not the final decision. They are one input to Policy. The active Policy set can still deny, require Approval, or constrain the exchange.
 
-Grants are not the final decision. They are one input to policy. The active policy set can still deny, require step-up, or constrain the exchange.
-
-Caracal expresses grants in two related forms. The platform decision contract reads grants as a policy **data document** in `package caracal.authz`, keyed by resource and mapping each role to its allowed scopes; see [Policy](/concepts/policy/) for the exact shape. The control plane also stores managed **delegated grants** (the `delegated_grants` table, authored through the Admin or Control API): administrative records of subject-level assignments whose revocation immediately ends the subject's active sessions. The decision contract reads the policy data document, not this table - delegated grants govern lifecycle and revocation, not per-exchange scope decisions. Per-subject upstream accounts live separately as **provider connections** (the `provider_connections` table, authored under Providers).
+Caracal also stores administrative records associated with Subjects for lifecycle and revocation workflows. Those records do not feed per-exchange scope decisions. Subject-specific upstream accounts are credential Provider connections, not Caracal authorization grants.
 
 ## Exchange Relationship
 
 ```mermaid
 flowchart LR
   App["Application"] --> Grant["Grant"]
-  User["User / subject"] --> Grant
+  Role["Application role"] --> Grant
   Resource["Resource"] --> Grant
   Grant --> STS["STS policy input"]
   Policy["Active policy set"] --> STS
@@ -60,11 +54,11 @@ Prefer small, action-oriented scopes:
 
 | Good | Avoid |
 | --- | --- |
-| `payments:read` | `admin` |
-| `tickets:comment` | `write_all` |
-| `mcp:tool:call` | `tools` |
+| `pipernet:read` | `admin` |
+| `piperchat:comment` | `write_all` |
+| `nucleus:tool:call` | `tools` |
 
-Use resource identifiers for targets and scopes for actions. Do not encode environment, tenant, or user identity into scope names when those belong in the zone, principal, or policy input.
+Use Resource identifiers for targets and scopes for actions. Do not encode environment, tenant, or Subject identity into scope names when those belong in the Zone or decision context.
 
 :::note[FAQ]
 [How should I design scopes?](/reference/faq/#faq-011) and [do I manage grants directly?](/reference/faq/#faq-012)

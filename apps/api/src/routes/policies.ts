@@ -9,7 +9,7 @@ import { sha256Hex } from '@caracalai/server-core'
 import { v7 as uuidv7 } from 'uuid'
 import { ZoneIdParams, ZoneParams, parseParams } from './params.js'
 import { zoneExists } from '../zone-guard.js'
-import { withTransaction, TxAbort } from '../db.js'
+import { withTransaction } from '../db.js'
 import { OPA_INPUT_SCHEMA_VERSION, previewAuthzPolicy, validateAuthzPolicy } from '../rego.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
@@ -100,7 +100,7 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const contentSHA = sha256Hex(body.content)
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
 
-    return withTransaction(fastify.db, async (client) => {
+    const version = await withTransaction(fastify.db, async (client) => {
       await client.query(
         `INSERT INTO policies (id, zone_id, name, description, created_by, created_via_operator)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -112,14 +112,16 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
          RETURNING id, policy_id, version, content_sha256, schema_version, created_at`,
         [versionId, policyId, body.content, contentSHA, OPA_INPUT_SCHEMA_VERSION, attribution.actor, attribution.viaOperator],
       )
-      return reply.code(201).send({
-        id: policyId,
-        version_id: rows[0].id,
-        zone_id: params.zoneId,
-        name: body.name,
-        description: body.description ?? null,
-        version: rows[0],
-      })
+      return rows[0]
+    })
+    // Reply only after COMMIT so a client that immediately builds a policy set reads a committed version.
+    return reply.code(201).send({
+      id: policyId,
+      version_id: version.id,
+      zone_id: params.zoneId,
+      name: body.name,
+      description: body.description ?? null,
+      version,
     })
   })
 
@@ -133,13 +135,13 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
     const versionId = uuidv7()
     const contentSHA = sha256Hex(body.content)
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)
-    return withTransaction(fastify.db, async (client) => {
+    const outcome = await withTransaction(fastify.db, async (client) => {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [params.id])
       const { rows: policyRows } = await client.query(`SELECT id FROM policies WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`, [
         params.id,
         params.zoneId,
       ])
-      if (!policyRows[0]) throw new TxAbort(reply.code(404).send({ error: 'policy_not_found' }))
+      if (!policyRows[0]) return { notFound: true as const }
       const { rows } = await client.query(
         `WITH next AS (
            SELECT COALESCE(MAX(version), 0) + 1 AS v
@@ -154,8 +156,11 @@ export const policiesRoutes: FastifyPluginAsync = async (fastify) => {
         `UPDATE policies SET updated_by = $3, updated_via_operator = $4, updated_at = now() WHERE id = $1 AND zone_id = $2`,
         [params.id, params.zoneId, attribution.actor, attribution.viaOperator],
       )
-      return reply.code(201).send({ version_id: rows[0].id, ...rows[0] })
+      return { row: rows[0] }
     })
+    if ('notFound' in outcome) return reply.code(404).send({ error: 'policy_not_found' })
+    // Reply only after COMMIT so a client that immediately activates reads a committed version.
+    return reply.code(201).send({ version_id: outcome.row.id, ...outcome.row })
   })
 
   fastify.delete('/zones/:zoneId/policies/:id', async (req, reply) => {

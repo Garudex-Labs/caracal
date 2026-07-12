@@ -42,12 +42,11 @@ class ControlClientError(RuntimeError):
 
     @property
     def definitive(self) -> bool:
-        """Whether the failure provably applied nothing: any token-stage
-        failure (no token was minted, so nothing was invoked) or an invoke the
-        control plane rejected with a client error. An invoke-stage server
-        error or lost response is not definitive - the command may already
-        have applied - so a caller must never blindly retry it."""
-        return self.stage == "token" or 400 <= self.status < 500
+        """Whether the server definitively rejected the request before
+        accepting it. Lost responses and server failures are outcome-ambiguous
+        at both stages: STS may have minted a token, or Control may have applied
+        the command."""
+        return 400 <= self.status < 500
 
 
 def _read_json(res: httpx.Response) -> Any:
@@ -114,20 +113,12 @@ class ControlClient:
 
     def _mint_token(self, scopes: Sequence[str]) -> str:
         """Exchanges the identity's client credentials for a control token
-        scoped to exactly the requested scopes. A transient failure (a server
-        error or a lost response) is retried once: a failed mint is always
-        definitive - no token exists and nothing was applied - so the retry is
-        safe for every caller."""
-        try:
-            return self._exchange_token(scopes)
-        except ControlClientError as err:
-            if err.status >= 500 or err.status == 0:
-                return self._exchange_token(scopes)
-            raise
+        scoped to exactly the requested scopes."""
+        return self._exchange_token(scopes)
 
     def _exchange_token(self, scopes: Sequence[str]) -> str:
         form = {
-            "grant_type": "client_credentials",
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "application_id": self._application_id,
             "client_secret": self._client_secret,
             "resource": self._audience,

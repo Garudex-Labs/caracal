@@ -179,7 +179,19 @@ const AUTHORITY_RECORD_CSV_COLUMNS = [
   'revoked_reason',
 ] as const
 
-const AUDIT_ROW_FIELDS = ['id', 'occurred_at', 'event_type', 'decision', 'evaluation_status', 'request_id', 'ingested_at'] as const
+const AUDIT_ROW_FIELDS = [
+  'id',
+  'occurred_at',
+  'event_type',
+  'decision',
+  'evaluation_status',
+  'request_id',
+  'ingested_at',
+  'policy_set_id',
+  'policy_set_version_id',
+  'manifest_sha',
+  'determining_policies',
+] as const
 
 const AUDIT_METADATA_FIELDS = [
   'application_id',
@@ -217,6 +229,15 @@ const AUDIT_METADATA_FIELDS = [
 ] as const
 
 const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]
+
+// The contract-boundary names of the policies that decided an event, flattened
+// from the stored [{"policy": name}] wire shape for exports and projections.
+function determiningPolicyNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry) => (entry && typeof entry === 'object' ? (entry as { policy?: unknown }).policy : undefined))
+    .filter((name): name is string => typeof name === 'string')
+}
 
 const ADMIN_AUDIT_ROW_FIELDS = [
   'id',
@@ -332,8 +353,10 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     values.push(q.limit)
 
     const { rows } = await fastify.db.query(
-      `SELECT id, zone_id, event_type, request_id, decision, evaluation_status,
-              metadata_json, occurred_at, ingested_at
+      `SELECT id, zone_id, event_type, request_id, decision, policy_set_id,
+              policy_set_version_id, manifest_sha, evaluation_status,
+              determining_policies_json, diagnostics_json, metadata_json,
+              occurred_at, ingested_at
        FROM audit_events
        WHERE ${conds.join(' AND ')}
        ORDER BY occurred_at DESC, id DESC
@@ -346,7 +369,14 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv; charset=utf-8')
       reply.header('content-disposition', `attachment; filename="audit-${params.zoneId}.csv"`)
-      const flat = redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json'))
+      const flat = redacted.map((r) =>
+        projectRow(
+          { ...r, determining_policies: determiningPolicyNames(r.determining_policies_json) },
+          fields,
+          AUDIT_ROW_FIELDS,
+          'metadata_json',
+        ),
+      )
       return reply.send(csvDocument(fields, flat))
     }
 
@@ -354,7 +384,14 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     const next = redacted.length === q.limit && last ? encodeCursor(new Date(last.occurred_at).toISOString(), last.id) : null
     if (q.fields) {
       return {
-        items: redacted.map((r) => projectRow(r, fields, AUDIT_ROW_FIELDS, 'metadata_json')),
+        items: redacted.map((r) =>
+          projectRow(
+            { ...r, determining_policies: determiningPolicyNames(r.determining_policies_json) },
+            fields,
+            AUDIT_ROW_FIELDS,
+            'metadata_json',
+          ),
+        ),
         next_cursor: next,
       }
     }

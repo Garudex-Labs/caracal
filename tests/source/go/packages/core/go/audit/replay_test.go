@@ -129,7 +129,7 @@ func TestXAddSurfacesMarshalError(t *testing.T) {
 	}
 }
 
-func TestPersistBatchSkipsEmptyAndUnmarshalableEvents(t *testing.T) {
+func TestPersistBatchMarshalsAllEventsBeforeCreatingFile(t *testing.T) {
 	c, _, dir := newTestClient(t, nil, false)
 	if err := c.persistBatch(nil); err != nil {
 		t.Fatalf("empty batch: %v", err)
@@ -137,20 +137,29 @@ func TestPersistBatchSkipsEmptyAndUnmarshalableEvents(t *testing.T) {
 	if stats := ReplayStatsForDir(dir, time.Now()); stats.Files != 0 {
 		t.Fatalf("empty batch must write nothing: %+v", stats)
 	}
-	batch := []Event{
-		{ID: "bad", DiagnosticsJSON: json.RawMessage("{")},
-		{ID: "good"},
+	batch := []Event{{ID: "good"}, {ID: "bad", DiagnosticsJSON: json.RawMessage("{")}}
+	if err := c.persistBatch(batch); err == nil {
+		t.Fatal("unmarshalable event must fail the whole batch")
 	}
-	if err := c.persistBatch(batch); err != nil {
-		t.Fatalf("persist: %v", err)
+	if stats := ReplayStatsForDir(dir, time.Now()); stats.Files != 0 {
+		t.Fatalf("marshal failure must happen before file creation: %+v", stats)
 	}
-	data, err := os.ReadFile(replayFilePath(t, dir))
-	if err != nil {
+}
+
+func TestSuccessfulSpillRemainsReadyAndDefinitiveLossDoesNot(t *testing.T) {
+	c, _, dir := newTestClient(t, nil, false)
+	if err := c.persistBatch([]Event{{ID: "persisted"}}); err != nil {
 		t.Fatal(err)
 	}
-	var ev Event
-	if err := json.Unmarshal(data[:len(data)-1], &ev); err != nil || ev.ID != "good" {
-		t.Fatalf("persisted line: %q err=%v", data, err)
+	if err := c.Ready(); err != nil {
+		t.Fatalf("durable spill must remain ready: %v", err)
+	}
+	c.recordLoss(1, errors.New("disk failed"))
+	if err := c.Ready(); !errors.Is(err, ErrEvidenceLost) {
+		t.Fatalf("definitive loss readiness error = %v", err)
+	}
+	if stats := ReplayStatsForDir(dir, time.Now()); stats.Files != 1 {
+		t.Fatalf("durable spill must remain available: %+v", stats)
 	}
 }
 

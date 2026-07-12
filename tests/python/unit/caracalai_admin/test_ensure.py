@@ -584,7 +584,7 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
         content = author_grants_document(
             [
                 ResourceGrant(
-                    application_id="app-son-of-anton",
+                    application_id="app-anton",
                     resource_identifier="resource://pipernet",
                     scopes=["data:read"],
                     role="operator",
@@ -593,7 +593,7 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
         )
         self.assertIn("# caracal:data-document", content)
         self.assertIn("package caracal.authz", content)
-        self.assertIn('app_ids := {"operator":"app-son-of-anton"}', content)
+        self.assertIn('app_ids := {"operator":"app-anton"}', content)
         self.assertIn(
             'grants := {"resource://pipernet":{"application":"operator","roles":{"operator":["data:read"]}}}',
             content,
@@ -603,14 +603,14 @@ class AuthorGrantsDocumentTests(unittest.TestCase):
         content = author_grants_document(
             [
                 ResourceGrant(
-                    application_id="app-son-of-anton",
+                    application_id="app-anton",
                     resource_identifier="resource://pipernet",
                     scopes=["data:read"],
                 )
             ]
         )
-        self.assertIn('app_ids := {"app-son-of-anton":"app-son-of-anton"}', content)
-        self.assertIn('"roles":{"app-son-of-anton":["data:read"]}', content)
+        self.assertIn('app_ids := {"app-anton":"app-anton"}', content)
+        self.assertIn('"roles":{"app-anton":["data:read"]}', content)
 
     def test_deterministic_across_order_and_duplicates(self):
         a = author_grants_document(
@@ -691,7 +691,7 @@ class EnsureGrantsTests(unittest.TestCase):
         client = policy_admin()
         grants = [
             ResourceGrant(
-                application_id="app-son-of-anton",
+                application_id="app-anton",
                 resource_identifier="resource://pipernet",
                 scopes=["data:read"],
             )
@@ -782,9 +782,7 @@ def pipernet_upstream(api_key="sk-pipernet"):
             upstream_url="https://api.pipernet.example",
         ),
         grants=[
-            GovernedUpstreamGrant(
-                application_id="app-son-of-anton", scopes=["data:read"]
-            )
+            GovernedUpstreamGrant(application_id="app-anton", scopes=["data:read"])
         ],
     )
 
@@ -827,7 +825,7 @@ class EnsureGovernedUpstreamsTests(unittest.TestCase):
                 "content": author_grants_document(
                     [
                         ResourceGrant(
-                            application_id="app-son-of-anton",
+                            application_id="app-anton",
                             resource_identifier="resource://pipernet",
                             scopes=["data:read"],
                         )

@@ -4,16 +4,16 @@ description: Maintainer ownership, contribution process, security process, and c
 pageType: reference
 ---
 
-Caracal is maintained by Garudex Labs. Maintainers listed in `.github/MAINTAINERS` are the primary decision-makers for project areas, reviews, triage, standards, and releases.
+Caracal is maintained by Garudex Labs. `.github/MAINTAINERS` names maintainers; `.github/CODEOWNERS` routes path ownership and review requests.
 
 ## Contribution Scale
 
-| Change size | Expected process |
-| --- | --- |
-| Small focused fix | Pull request with clear validation. |
-| Medium bug or feature | GitHub issue with context and expected outcome before implementation. |
+| Change size                   | Expected process                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| Small focused fix             | Pull request with clear validation.                                                                |
+| Medium bug or feature         | GitHub issue with context and expected outcome before implementation.                              |
 | Large or cross-cutting change | Proposal with problem statement, alternatives, trade-offs, open questions, and smaller sub-issues. |
-| Security-sensitive change | Private security process and maintainer coordination. |
+| Security-sensitive change     | Private security process and maintainer coordination.                                              |
 
 ## Maintainer Responsibilities
 
@@ -27,13 +27,21 @@ Caracal is maintained by Garudex Labs. Maintainers listed in `.github/MAINTAINER
 
 Every change is proposed as a pull request and reviewed before merge or release.
 
-| Requirement | Expectation |
-| --- | --- |
-| Independent review | At least one maintainer other than the author approves each pull request; authors do not approve or merge their own changes. |
-| Area ownership | `.github/CODEOWNERS` owners are requested automatically for their paths. |
+| Requirement          | Expectation                                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Independent review   | At least one maintainer other than the author approves each pull request; authors do not approve or merge their own changes.                                                                                        |
+| Area ownership       | `.github/CODEOWNERS` owners are requested automatically for their paths.                                                                                                                                            |
 | What reviewers check | Correctness and edge cases, focused scope, Testing Policy compliance with passing CI, the `pnpm run style` gate, input validation and trust boundaries, secret hygiene, OSS/enterprise isolation, and updated docs. |
-| Acceptance bar | One approving non-author review, all required CI checks green, resolved comments, and a judgment that the change is worthwhile and free of known disqualifying defects. |
-| Release approval | Stable releases require `release-approval` from a maintainer other than the release preparer. |
+| Acceptance bar       | One approving non-author review, all required CI checks green, resolved comments, and a judgment that the change is worthwhile and free of known disqualifying defects.                                             |
+| Release approval     | Stable releases require `release-approval` from a maintainer other than the release preparer.                                                                                                                       |
+
+Maintainers own the decision to merge, not just the mechanics. They must reject changes whose security, compatibility, product-isolation, or operational risk is unresolved even when tests pass.
+
+## Release Ownership
+
+- The release preparer stamps and validates the candidate but cannot supply the independent stable approval.
+- The approving maintainer verifies version consistency, release manifest evidence, documentation version plan, registry preflight, and rollback posture.
+- Published tags are immutable. Recovery is a roll-forward release, not tag deletion or artifact replacement.
 
 The full contributor-facing policy lives in [`./CONTRIBUTING.md`](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md#code-review).
 

@@ -18,6 +18,7 @@ import httpx
 from caracalai import (
     Caracal,
     ResourceBinding,
+    VerifiedClaims,
 )
 from caracalai.advanced import (
     CaracalASGIMiddleware,
@@ -568,6 +569,13 @@ class WithApprovalTests(unittest.IsolatedAsyncioTestCase):
             await client.with_approval(fn)
 
 
+def _token_with_use(use: str) -> str:
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"use": use}).encode()).decode().rstrip("=")
+    )
+    return f"eyJhbGciOiJFUzI1NiJ9.{payload}.signature"
+
+
 def _build_caracal() -> Caracal:
     return Caracal(
         CaracalConfig(
@@ -598,8 +606,9 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
         c = _build_caracal()
         seen: list[str] = []
 
-        async def verifier(token: str) -> None:
+        async def verifier(token: str) -> VerifiedClaims:
             seen.append(token)
+            return VerifiedClaims(zone_id="z", application_id="app", hop=0)
 
         async with c.bind_from_headers(
             {HEADER_AUTHORIZATION: "Bearer inbound"}, verifier=verifier
@@ -616,14 +625,55 @@ class HeadersTests(unittest.IsolatedAsyncioTestCase):
             ):
                 pass
 
+        async def malformed(_token: str) -> VerifiedClaims:
+            return VerifiedClaims(zone_id="z", application_id="app", hop=11)
+
+        with self.assertRaisesRegex(ValueError, "hop must be an integer from 0 to 10"):
+            async with c.bind_from_headers(
+                {HEADER_AUTHORIZATION: "Bearer inbound"}, verifier=malformed
+            ):
+                pass
+
     async def test_bind_from_headers_allows_trusted_root_and_resets_context(
         self,
     ) -> None:
         c = _build_caracal()
-        async with c.bind_from_headers({}, as_application=True) as ctx:
+        async with c.bind_from_headers(
+            {
+                HEADER_BAGGAGE: (
+                    "caracal.agent_session=forged,"
+                    "caracal.delegation_edge=forged-edge,caracal.hop=9"
+                )
+            },
+            as_application=True,
+        ) as ctx:
             self.assertEqual(ctx.subject_token, "tok")
+            self.assertIsNone(ctx.session_id)
+            self.assertIsNone(ctx.delegation_id)
+            self.assertEqual(ctx.hop, 0)
             self.assertIs(c.current(), ctx)
         self.assertIsNone(c.current())
+
+    async def test_bind_from_headers_requires_explicit_production_trust(self) -> None:
+        c = _build_caracal()
+        previous = os.environ.get("CARACAL_ENV")
+        os.environ["CARACAL_ENV"] = "production"
+        try:
+            with self.assertRaisesRegex(ValueError, "production ingress requires"):
+                async with c.bind_from_headers(
+                    {HEADER_AUTHORIZATION: "Bearer inbound"}
+                ):
+                    pass
+            async with c.bind_from_headers(
+                {HEADER_AUTHORIZATION: "Bearer inbound"},
+                trusted_propagation=True,
+            ) as ctx:
+                self.assertEqual(ctx.subject_token, "inbound")
+        finally:
+            if previous is None:
+                os.environ.pop("CARACAL_ENV", None)
+            else:
+                os.environ["CARACAL_ENV"] = previous
 
     def test_context_middleware_factory_captures_allow_root(self) -> None:
         c = _build_caracal()
@@ -663,7 +713,9 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(204)
 
         async with c.transport(
-            transport=httpx.MockTransport(handler), as_application=True
+            transport=httpx.MockTransport(handler),
+            as_application=True,
+            propagation="always",
         ) as client:
             response = await client.get("https://api.example.com/v1/events?limit=10")
 
@@ -724,7 +776,7 @@ class GatewayRoutingTests(unittest.IsolatedAsyncioTestCase):
             await client.get("https://api.unbound.example.com/data")
 
         self.assertIsNone(seen["auth"])
-        self.assertIsNotNone(parse_traceparent(seen["traceparent"]))
+        self.assertIsNone(seen["traceparent"])
 
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -734,7 +786,10 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
             if request.method == "POST" and str(request.url).endswith("/delegations"):
                 return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
             if request.method == "DELETE":
@@ -814,13 +869,58 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 ttl_seconds=60,
             )
 
+    async def test_delegate_defaults_receiver_to_own_application(self) -> None:
+        requests: list[httpx.Request] = []
+
+        async def handler(request):
+            requests.append(request)
+            if request.method == "POST" and str(request.url).endswith("/agents"):
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
+            if request.method == "POST" and str(request.url).endswith("/delegations"):
+                return httpx.Response(200, json={"delegation_edge_id": "edge-1"})
+            if request.method == "DELETE":
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(
+                    base_url="https://coordinator.example.com", http_client=client
+                ),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+            )
+        )
+
+        async with c.session():
+            res = await c.delegate(
+                to_session_id="agent-2",
+                scopes=["tool:call"],
+                ttl_seconds=30,
+            )
+            self.assertEqual(res.delegation_id, "edge-1")
+
+        await client.aclose()
+        delegation = next(r for r in requests if str(r.url).endswith("/delegations"))
+        self.assertEqual(
+            json.loads(delegation.content)["receiver_application_id"], "app"
+        )
+
     async def test_task_option_recorded_as_metadata_task(self) -> None:
         requests: list[httpx.Request] = []
 
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "agent-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "agent-1", "lease_generation": 1},
+                )
             return httpx.Response(204)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -920,9 +1020,15 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def handler(request):
             requests.append(request)
             if request.method == "POST" and str(request.url).endswith("/agents"):
-                return httpx.Response(200, json={"agent_session_id": "svc-1"})
+                return httpx.Response(
+                    200,
+                    json={"agent_session_id": "svc-1", "lease_generation": 1},
+                )
             if request.method == "POST" and str(request.url).endswith("/heartbeat"):
-                return httpx.Response(200, json={"agent": {"id": "svc-1"}})
+                return httpx.Response(
+                    200,
+                    json={"agent": {"id": "svc-1", "lease_generation": 1}},
+                )
             if request.method == "DELETE":
                 return httpx.Response(204)
             return httpx.Response(404)
@@ -1037,10 +1143,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
-                    "agent": {
-                        "status": "active",
-                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
-                    }
+                    "status": "active",
+                    "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    "lease_generation": 2,
                 },
             )
 
@@ -1065,7 +1170,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handle.session_id, "agent-persisted")
         self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
         self.assertTrue(
-            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/lease")
         )
         await handle.aclose()
         await client.aclose()
@@ -1201,6 +1306,53 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await client.get("https://api.example.com/v1/events")
 
+    async def test_transport_rejects_lifecycle_mandate_at_gateway(self) -> None:
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token=_token_with_use("session"),
+                gateway_url="https://gateway.example.com/proxy",
+            )
+        )
+        calls = 0
+
+        async def handler(request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(204)
+
+        async with c.transport(
+            transport=httpx.MockTransport(handler), as_application=True
+        ) as client:
+            with self.assertRaisesRegex(RuntimeError, "use=gateway.*use=session"):
+                await client.get(
+                    "https://gateway.example.com/proxy/events",
+                    headers={"X-Caracal-Resource": "resource://calendar"},
+                )
+        self.assertEqual(calls, 0)
+
+    async def test_transport_requires_resource_for_scopes(self) -> None:
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                gateway_url="https://gateway.example.com/proxy",
+            )
+        )
+        async with c.transport(
+            transport=httpx.MockTransport(lambda request: httpx.Response(204)),
+            as_application=True,
+            scopes=["events:read"],
+        ) as client:
+            with self.assertRaisesRegex(
+                RuntimeError, "scopes require X-Caracal-Resource"
+            ):
+                await client.get("https://gateway.example.com/proxy/events")
+
     async def test_transport_root_allowed_when_opted_in(self) -> None:
         c = Caracal(
             CaracalConfig(
@@ -1312,6 +1464,10 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             c.gateway_request("resource://calendar", "/events/../admin")
         with self.assertRaises(ValueError):
             c.gateway_request("resource://calendar", "./events")
+        with self.assertRaises(ValueError):
+            c.gateway_request("resource://calendar", "/events/%252e%252e/admin")
+        with self.assertRaises(ValueError):
+            c.gateway_request("resource://calendar", "/events#fragment")
 
     async def test_unmatched_provider_call_is_not_routed(self) -> None:
         c = Caracal(
@@ -1339,7 +1495,7 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
             seen, {"url": "https://other.example.com/v1/events", "resource": None}
         )
 
-    async def test_gateway_only_propagation_skips_third_party_hosts(self) -> None:
+    async def test_default_propagation_skips_third_party_hosts(self) -> None:
         calls: list[dict[str, str | None]] = []
 
         async def handler(request):
@@ -1365,7 +1521,6 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
         async with c.transport(
             transport=httpx.MockTransport(handler),
             as_application=True,
-            propagation="gateway-only",
         ) as client:
             await client.get("https://third-party.example.com/data")
             await client.get("https://api.example.com/v1/events")
@@ -1373,6 +1528,50 @@ class TransportRootGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(calls[0]["baggage"])
         self.assertEqual(calls[1]["url"], "https://gateway.example.com/proxy/events")
         self.assertIsNotNone(calls[1]["traceparent"])
+
+    async def test_same_origin_paths_outside_gateway_base_receive_no_authority(
+        self,
+    ) -> None:
+        calls: list[dict[str, str | None]] = []
+
+        async def handler(request):
+            calls.append(
+                {
+                    "authorization": request.headers.get("authorization"),
+                    "traceparent": request.headers.get("traceparent"),
+                }
+            )
+            return httpx.Response(204)
+
+        c = Caracal(
+            CaracalConfig(
+                coordinator=CoordinatorClient(base_url="http://coord"),
+                zone_id="z",
+                application_id="app",
+                subject_token="tok",
+                gateway_url="https://gateway.example.com/proxy",
+            )
+        )
+        async with c.transport(
+            transport=httpx.MockTransport(handler),
+            as_application=True,
+            propagation="gateway-only",
+        ) as client:
+            await client.get("https://gateway.example.com/unrelated")
+            await client.get("https://gateway.example.com/proxy/%252e%252e/admin")
+
+        self.assertEqual(
+            calls,
+            [
+                {"authorization": None, "traceparent": None},
+                {"authorization": None, "traceparent": None},
+            ],
+        )
+
+    async def test_transport_rejects_automatic_redirects(self) -> None:
+        c = _build_caracal()
+        with self.assertRaisesRegex(ValueError, "redirects cannot be followed"):
+            c.transport(follow_redirects=True)
 
     async def test_explicit_unbound_resource_routes_to_gateway(self) -> None:
         c = Caracal(

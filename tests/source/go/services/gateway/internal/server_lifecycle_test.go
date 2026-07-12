@@ -118,6 +118,26 @@ func TestHandleReadyReportsEachDependencyFailure(t *testing.T) {
 	}
 
 	s = newGatewayTestServer(t)
+	replayDir = t.TempDir()
+	client, err := audit.NewClient(&fakeGatewayRedis{}, audit.ClientConfig{
+		ReplayDir: replayDir,
+		Logger:    zerolog.Nop(),
+		BufferCap: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Emit(audit.Event{ID: "queued"})
+	if err := os.RemoveAll(replayDir); err != nil {
+		t.Fatal(err)
+	}
+	client.Emit(audit.Event{ID: "lost"})
+	s.audit = client
+	if _, reason := readyReason(t, s); reason != "audit_evidence_lost" {
+		t.Fatalf("reason = %q", reason)
+	}
+
+	s = newGatewayTestServer(t)
 	s.sts = nil
 	if _, reason := readyReason(t, s); reason != "sts_unavailable" {
 		t.Fatalf("reason = %q", reason)

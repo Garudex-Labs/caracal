@@ -5,9 +5,11 @@
  * Caracal: drop-in bound client wrapping zone, application, subject token, and coordinator.
  */
 
-import { bind, contextBearer, fromEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
+import { bind, fromEnvelope, fromVerifiedEnvelope, toEnvelope, current, type CaracalContext, type VerifiedClaims } from './context.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHmac, randomBytes } from 'node:crypto'
+import { homedir, platform } from 'node:os'
+import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { decodeEnvelope, encodeEnvelope, toHeaders, HeaderAuthorization, type Envelope, type HeaderGetter } from './envelope.js'
 import {
@@ -24,8 +26,7 @@ import {
 } from './primitives.js'
 import {
   createDelegation,
-  getInboundDelegation,
-  revokeDelegation,
+  listInboundDelegations,
   startCoordinatorSession,
   terminateSession,
   type CoordinatorCallEvent,
@@ -52,6 +53,7 @@ interface AppAuthorityEntry {
   zoneId: string
   applicationId: string
   credentialGeneration: string
+  ttlSeconds: number
   targetSessionId: string
   delegationId: string
   expiresAt: number
@@ -149,6 +151,8 @@ export interface SessionOptions {
   ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -170,8 +174,11 @@ export interface SessionOptions {
 
 export interface StartSessionOptions {
   authority?: Authority
+  ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
+  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
   /** What this session is for, in operator terms; recorded as metadata.task and shown wherever the session is inspected. */
@@ -198,7 +205,8 @@ export interface StartSessionOptions {
 
 export interface DelegateOptions {
   toSessionId: string
-  toApplicationId: string
+  /** Receiving application; defaults to the caller's own application for same-app delegation. */
+  toApplicationId?: string
   resourceId?: string
   scopes: string[]
   constraints?: DelegationConstraints
@@ -238,15 +246,18 @@ export interface CallOptions {
  * Transport behavior options. `scopes` switches gateway-routed requests from
  * the raw subject token to a scoped resource mandate minted for the routed
  * resource and the bound session identity; requires a client-secret
- * configuration. `timeoutMs` bounds every request the transport sends when
- * the caller supplies no signal of its own (combined when both are present).
- * `propagation` controls where the context envelope (traceparent, baggage)
- * is written: 'always' (the default) propagates to every host so downstream
- * Caracal-aware services can rebind context; 'gateway-only' keeps the
- * caracal.* correlation ids off third-party hosts.
+ * configuration. `approvalId` retries an approval-gated mint so the request
+ * proceeds once an authenticated approver has satisfied the hold. `timeoutMs`
+ * bounds every request the transport sends when the caller supplies no signal
+ * of its own (combined when both are present). `propagation` controls where
+ * the context envelope (traceparent, baggage) is written: 'always' (the
+ * default) propagates to every host so downstream Caracal-aware services can
+ * rebind context; 'gateway-only' keeps the caracal.* correlation ids off
+ * third-party hosts.
  */
 export interface TransportOptions extends CallOptions {
   scopes?: string[]
+  approvalId?: string
   timeoutMs?: number
   propagation?: 'always' | 'gateway-only'
 }
@@ -272,18 +283,22 @@ export interface ApplicationTransportOptions {
   scopes: string[]
   labels?: string[]
   mandateTtlSeconds?: number
+  approvalId?: string
+  timeoutMs?: number
 }
 
 export interface BindOptions extends CallOptions {
   verify?: (token: string) => void | VerifiedClaims | Promise<void | VerifiedClaims>
 }
 
-interface ClientOptions {
+export interface ClientSecretOptions {
   coordinatorUrl: string
   stsUrl: string
+  /** Static credential triple; pass `credentials` instead when the credential is rotated or provisioned at runtime. */
   zoneId?: string
   applicationId?: string
   clientSecret?: string
+  /** Dynamic credential source, resolved per operation; exactly one of this or the static triple is required. */
   credentials?: CredentialsResolver
   /**
    * Resources this client mints lifecycle tokens for and routes through the
@@ -298,16 +313,10 @@ interface ClientOptions {
   fetchImpl?: typeof fetch
 }
 
-export interface ClientSecretOptions {
-  coordinatorUrl: string
-  stsUrl: string
-  zoneId: string
-  applicationId: string
-  clientSecret: string
-  resources?: Array<string | ResourceBinding>
-  gatewayUrl?: string
-  defaultTtlSeconds?: number
-  fetchImpl?: typeof fetch
+export interface CaracalOptions {
+  env?: NodeJS.ProcessEnv
+  configPath?: string
+  clientSecret?: Partial<ClientSecretOptions>
 }
 
 export interface GatewayTarget {
@@ -324,13 +333,17 @@ export class Caracal {
   private appInflight = new Map<string, Promise<AppAuthorityEntry>>()
   private appGeneration = 0
   private appProvisionTail: Promise<void> = Promise.resolve()
+  private closed = false
   private unverifiedBoundaryWarned = false
 
   /**
-   * Creates a Caracal client from `CARACAL_CONFIG` when set, otherwise from
-   * `CARACAL_*` environment variables. No implicit profile paths are read.
+   * Creates a Caracal client. With no arguments, credentials are
+   * auto-detected from `CARACAL_CONFIG`, the default generated profile, or
+   * environment variables. Pass `CaracalOptions` to steer detection or a
+   * `CaracalConfig` for full programmatic control.
    */
-  constructor(config: CaracalConfig = detectConfig(process.env)) {
+  constructor(opts: CaracalConfig | CaracalOptions = {}) {
+    const config = 'coordinator' in opts ? opts : detectConfig(opts)
     if ((config.subjectToken === undefined) === (config.tokenSource === undefined)) {
       throw new Error('CaracalConfig requires exactly one of subjectToken or tokenSource')
     }
@@ -345,8 +358,16 @@ export class Caracal {
     this.config.exchanger?.onEvent((e) => this.emitEvent(e))
   }
 
+  static fromEnv(env: NodeJS.ProcessEnv = process.env): Caracal {
+    return new Caracal(configFromEnv(env))
+  }
+
   static fromClientSecret(opts: ClientSecretOptions): Caracal {
     return new Caracal(configFromClientSecret(opts))
+  }
+
+  static fromConfig(path = defaultProfilePath(), env: NodeJS.ProcessEnv = process.env): Caracal {
+    return new Caracal(configFromProfile(path, env))
   }
 
   /**
@@ -358,6 +379,8 @@ export class Caracal {
    * simply mints fresh state.
    */
   async close(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
     ++this.appGeneration
     const pending = [...this.appInflight.values()]
     const entries = [...this.appAuthorities.values()].filter((entry) => entry.sessions.length)
@@ -382,6 +405,10 @@ export class Caracal {
     sink(message, err)
   }
 
+  private ensureOpen(): void {
+    if (this.closed) throw new Error('Caracal client is closed')
+  }
+
   /**
    * The zone and application this client acts as: the static configuration
    * when present, otherwise resolved through the credentials source, which
@@ -389,6 +416,7 @@ export class Caracal {
    * metric labels.
    */
   async identity(): Promise<{ zoneId: string; applicationId: string }> {
+    this.ensureOpen()
     const { zoneId, applicationId, exchanger } = this.config
     if (zoneId && applicationId) return { zoneId, applicationId }
     return exchanger!.identity()
@@ -413,14 +441,12 @@ export class Caracal {
    * @example Narrowed child session
    * ```ts
    * await caracal.session(work, {
-   *   authority: Authority.narrow(['tickets:read'], {
-   *     resourceId: 'resource://pipernet',
-   *     ttlSeconds: 600,
-   *   }),
+   *   authority: Authority.narrow(['tickets:read'], { resourceId: 'resource://pipernet' }),
    * })
    * ```
    */
   async session<T>(fn: (ctx: CaracalContext) => Promise<T>, opts: SessionOptions = {}): Promise<T> {
+    this.ensureOpen()
     const identity = await this.identity()
     const input: SessionInput = {
       coordinator: this.config.coordinator,
@@ -432,6 +458,7 @@ export class Caracal {
       authority: opts.authority,
       ttlSeconds: opts.ttlSeconds ?? this.config.defaultTtlSeconds,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       metadata: taskMetadata(opts),
       labels: opts.labels,
@@ -450,6 +477,7 @@ export class Caracal {
    * the session's lease renewed and the holder retires it with close.
    */
   async startSession(opts: StartSessionOptions = {}): Promise<SessionHandle> {
+    this.ensureOpen()
     const identity = await this.identity()
     return await startSessionPrimitive({
       coordinator: this.config.coordinator,
@@ -458,7 +486,9 @@ export class Caracal {
       subjectToken: await this.rootToken(),
       tokenSource: this.config.tokenSource,
       invalidate: this.invalidate(),
+      ttlSeconds: opts.ttlSeconds ?? 60,
       subjectAuthorityRecordId: opts.subjectAuthorityRecordId,
+      subjectAuthorityRecordToken: opts.subjectAuthorityRecordToken,
       parentSessionId: opts.parentSessionId,
       authority: opts.authority,
       metadata: taskMetadata(opts),
@@ -477,14 +507,16 @@ export class Caracal {
 
   /**
    * Delegate a slice of the current session's authority to an existing peer
-   * session and return the created delegation. The receiving session accepts
-   * it with acceptDelegation.
+   * session and return the created delegation. The receiver defaults to the
+   * caller's own application; name toApplicationId only for cross-application
+   * delegation. The receiving session accepts it with acceptDelegation.
    */
-  delegate(opts: DelegateOptions): Promise<Delegation> {
+  async delegate(opts: DelegateOptions): Promise<Delegation> {
+    this.ensureOpen()
     const input: DelegateInput = {
       coordinator: this.config.coordinator,
       toSessionId: opts.toSessionId,
-      toApplicationId: opts.toApplicationId,
+      toApplicationId: opts.toApplicationId ?? (await this.identity()).applicationId,
       resourceId: opts.resourceId,
       scopes: opts.scopes,
       constraints: opts.constraints,
@@ -492,19 +524,6 @@ export class Caracal {
       signal: opts.signal,
     }
     return delegatePrimitive(input)
-  }
-
-  /** Revoke a Delegation issued by this application. */
-  async revokeDelegation(delegationId: string, signal?: AbortSignal): Promise<void> {
-    const ctx = current()
-    const identity = await this.identity()
-    await revokeDelegation(
-      this.config.coordinator,
-      ctx ? await contextBearer(ctx) : await this.rootToken(),
-      identity.zoneId,
-      delegationId,
-      signal,
-    )
   }
 
   /**
@@ -517,6 +536,7 @@ export class Caracal {
    * revoked id fails here with a targeted error.
    */
   async acceptDelegation<T>(delegationId: string, fn: () => Promise<T>, opts: { validate?: boolean } = {}): Promise<T> {
+    this.ensureOpen()
     const ctx = current()
     if (!ctx) throw new Error('acceptDelegation requires a Caracal context bound on this path')
     const start = performance.now()
@@ -531,16 +551,9 @@ export class Caracal {
       })
     if (opts.validate) {
       if (!ctx.sessionId) throw new Error('acceptDelegation validation requires an active session in context')
-      let match
-      try {
-        match = await getInboundDelegation(this.config.coordinator, await contextBearer(ctx), ctx.zoneId, ctx.sessionId, delegationId)
-      } catch {
-        emit(false)
-        throw new Error(
-          `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
-        )
-      }
-      if (match.status !== 'active') {
+      const inbound = await listInboundDelegations(this.config.coordinator, ctx.subjectToken, ctx.zoneId, ctx.sessionId)
+      const match = inbound.find((item) => item.delegationId === delegationId)
+      if (!match || match.status !== 'active') {
         emit(false)
         throw new Error(
           `acceptDelegation: delegation ${delegationId} is not live for session ${ctx.sessionId}; confirm the issuer created it for this session and it has not been revoked`,
@@ -560,13 +573,9 @@ export class Caracal {
    */
   async attachSession(
     sessionId: string,
-    opts: {
-      heartbeatIntervalMs?: number
-      onLeaseLost?: (err: unknown) => void
-      onStateChange?: (status: string) => void
-      signal?: AbortSignal
-    } = {},
+    opts: { heartbeatIntervalMs?: number; onLeaseLost?: (err: unknown) => void } = {},
   ): Promise<SessionHandle> {
+    this.ensureOpen()
     const identity = await this.identity()
     return await attachSessionPrimitive({
       coordinator: this.config.coordinator,
@@ -578,8 +587,6 @@ export class Caracal {
       sessionId,
       heartbeatIntervalMs: opts.heartbeatIntervalMs,
       onLeaseLost: opts.onLeaseLost,
-      onStateChange: opts.onStateChange,
-      signal: opts.signal,
       warn: this.config.logger,
       onSessionEnd: this.sessionEndHooks.length ? (c) => this.fire(this.sessionEndHooks, c) : undefined,
     })
@@ -589,20 +596,12 @@ export class Caracal {
     return bind(ctx, fn)
   }
 
-  onSessionStart(cb: LifecycleHook): () => void {
+  onSessionStart(cb: LifecycleHook): void {
     this.sessionStartHooks.push(cb)
-    return () => {
-      const index = this.sessionStartHooks.indexOf(cb)
-      if (index !== -1) this.sessionStartHooks.splice(index, 1)
-    }
   }
 
-  onSessionEnd(cb: LifecycleHook): () => void {
+  onSessionEnd(cb: LifecycleHook): void {
     this.sessionEndHooks.push(cb)
-    return () => {
-      const index = this.sessionEndHooks.indexOf(cb)
-      if (index !== -1) this.sessionEndHooks.splice(index, 1)
-    }
   }
 
   /**
@@ -729,18 +728,7 @@ export class Caracal {
       const verified = await opts.verify(env.subjectToken)
       if (verified) claims = verified
     }
-    if (claims) {
-      if (claims.sessionId !== undefined) env.sessionId = claims.sessionId
-      if (claims.delegationId !== undefined) env.delegationId = claims.delegationId
-      if (claims.parentDelegationId !== undefined) env.parentDelegationId = claims.parentDelegationId
-      if (claims.subjectAuthorityRecordId !== undefined) env.subjectAuthorityRecordId = claims.subjectAuthorityRecordId
-      if (claims.hop !== undefined) env.hop = claims.hop
-    }
-    const own = claims?.zoneId !== undefined && claims?.applicationId !== undefined ? undefined : await this.identity()
-    const ctx = fromEnvelope(env as Envelope, {
-      zoneId: claims?.zoneId ?? own!.zoneId,
-      applicationId: claims?.applicationId ?? own!.applicationId,
-    })
+    const ctx = claims ? fromVerifiedEnvelope(env as Envelope, claims) : fromEnvelope(env as Envelope, await this.identity())
     return await bind(rootInjected ? { ...ctx, ownToken: true } : ctx, fn)
   }
 
@@ -767,6 +755,7 @@ export class Caracal {
     const outer = this
     const appAllowed = opts.asApplication === true
     const scopes = opts.scopes
+    const approvalId = opts.approvalId
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const ctx = current()
       if (!ctx && !appAllowed) {
@@ -798,11 +787,11 @@ export class Caracal {
       const bounded = { ...init, signal, headers: merged }
       if (rewritten) {
         merged.set('X-Caracal-Resource', rewritten.resourceId)
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, rewritten.resourceId, scopes, approvalId)}`)
         return fetchImpl(request ? new Request(rewritten.url, new Request(request, bounded)) : rewritten.url, bounded)
       }
       if (gatewayBound) {
-        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes)}`)
+        merged.set('Authorization', `Bearer ${await outer.gatewayToken(ctx, explicitResource, scopes, approvalId)}`)
       }
       return fetchImpl(request ? new Request(request, bounded) : (input as URL), request ? undefined : bounded)
     }) as typeof fetch
@@ -820,6 +809,7 @@ export class Caracal {
     ctx: CaracalContext | undefined,
     resourceId: string | undefined,
     scopes: string[] | undefined,
+    approvalId?: string,
   ): Promise<string> {
     if (scopes?.length && resourceId) {
       const exchanger = this.config.exchanger
@@ -828,6 +818,7 @@ export class Caracal {
         const minted = await exchanger.mintMandate(resourceId, scopes, {
           sessionId: ctx?.sessionId,
           delegationId: ctx?.delegationId,
+          approvalId,
           cache: false,
         })
         return minted.token
@@ -933,6 +924,7 @@ export class Caracal {
   }
 
   gatewayRequest(resourceId: string, path: string = '/'): GatewayTarget {
+    this.ensureOpen()
     if (!this.config.gatewayUrl) throw new Error('Caracal.gatewayRequest(): gatewayUrl is not configured')
     if (!resourceId.trim()) throw new Error('Caracal.gatewayRequest(): resourceId is required')
     return {
@@ -944,17 +936,18 @@ export class Caracal {
   /**
    * One-call happy path: sends `init` to `path` on the given resource through the
    * Gateway with Caracal context and authority injected. Accepts the transport
-   * options inline: pass `scopes` to authorize with a scoped resource mandate and
+   * options inline: pass `scopes` to authorize with a scoped resource mandate,
+   * `approvalId` to retry an approval-gated call once its hold is satisfied, and
    * `asApplication` to call as the application's own identity. The resource header
    * always wins over any caller-supplied `X-Caracal-Resource`. No default timeout
-   * is applied; pass `signal` (e.g. AbortSignal.timeout) to bound a call.
+   * is applied; pass `timeoutMs` or `signal` (e.g. AbortSignal.timeout) to bound a call.
    */
   fetch(resourceId: string, path: string = '/', init: RequestInit & TransportOptions = {}): Promise<Response> {
-    const { scopes, asApplication, timeoutMs, propagation, ...rest } = init
+    const { scopes, asApplication, approvalId, timeoutMs, propagation, ...rest } = init
     const request = this.gatewayRequest(resourceId, path)
     const headers = new Headers(rest.headers ?? {})
     for (const [key, value] of Object.entries(request.headers)) headers.set(key, value)
-    return this.transport({ scopes, asApplication, timeoutMs, propagation })(request.url, { ...rest, headers })
+    return this.transport({ scopes, asApplication, approvalId, timeoutMs, propagation })(request.url, { ...rest, headers })
   }
 
   /**
@@ -971,7 +964,7 @@ export class Caracal {
    * ApprovalRequiredError. Requires a client-secret configuration.
    *
    * Provisioning costs four control-plane calls (bootstrap mint, two session
-   * Session starts, one Delegation) roughly once per TTL. Every Gateway request then
+   * spawns, one delegation) roughly once per TTL. Every Gateway request then
    * performs one uncached final mint so its replay-protected JTI is unique.
    *
    * @example Application-identity LLM transport
@@ -984,6 +977,7 @@ export class Caracal {
    * ```
    */
   applicationTransport(resourceId: string, opts: ApplicationTransportOptions): typeof fetch {
+    this.ensureOpen()
     const exchanger = this.config.exchanger
     if (!exchanger) throw new Error('Caracal.applicationTransport(): requires a client-secret configuration')
     if (!this.config.gatewayUrl)
@@ -993,24 +987,37 @@ export class Caracal {
     const scopes = [...new Set(opts.scopes)].sort()
     const outer = this
     const fn: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      outer.ensureOpen()
       const request = input instanceof Request ? input : undefined
       if (request?.bodyUsed) throw new TypeError('Caracal.applicationTransport(): cannot send a Request whose body was already consumed')
-      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, init?.signal ?? request?.signal)
+      let signal = init?.signal ?? request?.signal
+      if (opts.timeoutMs) {
+        const timeout = AbortSignal.timeout(opts.timeoutMs)
+        signal = signal ? AbortSignal.any([signal, timeout]) : timeout
+      }
+      const authority = await outer.appAuthority(exchanger, resourceId, scopes, opts, signal)
+      outer.ensureOpen()
       const minted = await exchanger.mintMandate(resourceId, scopes, {
         sessionId: authority.targetSessionId,
         delegationId: authority.delegationId,
         ttlSeconds: opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS,
+        approvalId: opts.approvalId,
         cache: false,
-        signal: init?.signal ?? request?.signal,
+        signal,
       })
       const merged = new Headers(request?.headers)
       if (init?.headers) new Headers(init.headers).forEach((value, key) => merged.set(key, value))
       merged.set('Authorization', `Bearer ${minted.token}`)
       merged.set('X-Caracal-Resource', resourceId)
+      encodeEnvelope(
+        { sessionId: authority.targetSessionId, delegationId: authority.delegationId, hop: 0 },
+        (key, value) => merged.set(key, value),
+        (key) => merged.get(key) ?? undefined,
+      )
       const fetchImpl = outer.config.coordinator.fetchImpl ?? fetch
       const rewritten = outer.routeThroughGateway(input, resourceId)
       if (!rewritten) throw new Error('Caracal.applicationTransport(): request could not be pinned to the configured Gateway')
-      const requestInit = { ...init, headers: merged, signal: init?.signal ?? request?.signal }
+      const requestInit = { ...init, headers: merged, signal, redirect: 'manual' as const }
       return fetchImpl(request ? new Request(rewritten.url, new Request(request, requestInit)) : rewritten.url, requestInit)
     }) as typeof fetch
     return fn
@@ -1028,6 +1035,7 @@ export class Caracal {
     // Labels and TTL also shape the mint cycle, so transports with different
     // attribution or lifetime requirements must not share a cached mandate.
     const identity = await exchanger.identity()
+    this.ensureOpen()
     const credentialGeneration = identity.credentialGeneration ?? ''
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const labels = opts.labels ?? [identity.applicationId]
@@ -1045,6 +1053,7 @@ export class Caracal {
       }
     }
     if (stale.length) await this.retireAppAuthorities(exchanger, stale)
+    this.ensureOpen()
     const key = `${identity.zoneId}::${identity.applicationId}::${credentialGeneration}::${resourceId}::${scopes.join(' ')}::${JSON.stringify(labels)}::${mandateTtl}`
     const cached = this.appAuthorities.get(key)
     if (cached && Date.now() / 1000 < cached.expiresAt - APP_AUTHORITY_REFRESH_MARGIN_SECONDS) return cached
@@ -1054,7 +1063,9 @@ export class Caracal {
     if (inflight) return inflight
     const pending = (async () => {
       try {
-        const fresh = await this.withAppProvisioning(signal, () => this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts))
+        const fresh = await this.withAppProvisioning(signal, () =>
+          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts, signal),
+        )
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
           return fresh
@@ -1127,11 +1138,12 @@ export class Caracal {
     resourceId: string,
     scopes: string[],
     opts: ApplicationTransportOptions,
+    signal?: AbortSignal,
   ): Promise<AppAuthorityEntry> {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
-    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE])).token
-    const sessionRequest = {
+    const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE], { signal })).token
+    const spawnReq = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
       labels: opts.labels ?? [identity.applicationId],
@@ -1140,28 +1152,34 @@ export class Caracal {
     const sessions: string[] = []
     try {
       const source = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() }, signal)
       ).sessionId
       sessions.push(source)
       const target = (
-        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...sessionRequest, idempotencyKey: crypto.randomUUID() })
+        await startCoordinatorSession(this.config.coordinator, bootstrap, { ...spawnReq, idempotencyKey: crypto.randomUUID() }, signal)
       ).sessionId
       sessions.push(target)
-      const edge = await createDelegation(this.config.coordinator, bootstrap, {
-        zoneId: identity.zoneId,
-        issuerApplicationId: identity.applicationId,
-        sourceSessionId: source,
-        targetSessionId: target,
-        receiverApplicationId: identity.applicationId,
-        scopes,
-        constraints: { resources: [resourceId] },
-        ttlSeconds: sessionTtl,
-      })
+      const edge = await createDelegation(
+        this.config.coordinator,
+        bootstrap,
+        {
+          zoneId: identity.zoneId,
+          issuerApplicationId: identity.applicationId,
+          sourceSessionId: source,
+          targetSessionId: target,
+          receiverApplicationId: identity.applicationId,
+          scopes,
+          constraints: { resources: [resourceId] },
+          ttlSeconds: sessionTtl,
+        },
+        signal,
+      )
       return {
         resourceId,
         zoneId: identity.zoneId,
         applicationId: identity.applicationId,
         credentialGeneration: identity.credentialGeneration ?? '',
+        ttlSeconds: sessionTtl,
         targetSessionId: target,
         delegationId: edge.delegationId,
         expiresAt: Date.now() / 1000 + sessionTtl,
@@ -1195,7 +1213,7 @@ export class Caracal {
     } catch {
       return null
     }
-    if (sameOrigin(parsed, gw)) return { url: raw, resourceId: explicitResource ?? '' }
+    if (sameOrigin(parsed, gw)) return { url: parsed.toString(), resourceId: explicitResource ?? '' }
     const binding = explicitResource
       ? this.config.resources?.find((b) => b.resourceId === explicitResource)
       : this.config.resources?.find((b) => urlMatchesPrefix(parsed, b.upstreamPrefix))
@@ -1279,26 +1297,11 @@ export class Caracal {
   }
 }
 
-export function createAdvancedClient(config: CaracalConfig): Caracal {
-  return new Caracal(config)
-}
-
-export function createAdvancedClientFromEnv(env: NodeJS.ProcessEnv): Caracal {
-  return new Caracal(configFromEnv(env))
-}
-
-export function createAdvancedClientFromConfig(path: string, env: NodeJS.ProcessEnv = process.env): Caracal {
-  return new Caracal(configFromProfile(path, env))
-}
-
-export function createAdvancedClientFromCredentials(
-  opts: Omit<ClientOptions, 'zoneId' | 'applicationId' | 'clientSecret'> & { credentials: CredentialsResolver },
-): Caracal {
-  return new Caracal(configFromClientSecret(opts))
-}
-
 function productionEnv(env: NodeJS.ProcessEnv): boolean {
-  return env.CARACAL_ENV === 'production'
+  // CARACAL_ENV is the language-neutral gate every Caracal SDK honors; when
+  // unset, Node deployments fall back to NODE_ENV.
+  if (env.CARACAL_ENV) return env.CARACAL_ENV === 'production'
+  return env.NODE_ENV === 'production'
 }
 
 let insecureConfigWarned = false
@@ -1315,8 +1318,7 @@ function defaultWarn(message: string, err?: unknown): void {
  * the developer does not need the policy model to decode the deny.
  */
 function lifecycleAuthorityHint(err: unknown, ctx: CaracalContext | undefined): unknown {
-  if (!(err instanceof CaracalError)) return err
-  if (err.code !== 'access_denied') return err
+  if (!(err instanceof CaracalError) || err.code !== 'access_denied') return err
   if (!ctx?.sessionId || ctx.delegationId) return err
   return new CaracalError(
     err.code,
@@ -1332,17 +1334,7 @@ function isLoopbackHost(host: string): boolean {
 }
 
 function assertProductionTransport(name: string, value: string | undefined, env: NodeJS.ProcessEnv): void {
-  if (!value) return
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error(`Caracal SDK: ${name} is not a valid URL: ${value}`)
-  }
-  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) {
-    throw new Error(`Caracal SDK: ${name} must be an absolute http or https URL: ${value}`)
-  }
-  if (!productionEnv(env)) return
+  if (!value || !productionEnv(env)) return
   if (env.CARACAL_ALLOW_INSECURE_CONFIG_URLS === 'true') {
     // The override disables the https requirement for the whole control
     // plane, so its presence in production must be loud and unmissable.
@@ -1353,6 +1345,12 @@ function assertProductionTransport(name: string, value: string | undefined, env:
       )
     }
     return
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`Caracal SDK: ${name} is not a valid URL: ${value}`)
   }
   if (parsed.protocol === 'https:') return
   if (parsed.protocol === 'http:' && isLoopbackHost(parsed.hostname)) return
@@ -1369,12 +1367,13 @@ function serviceUrl(env: NodeJS.ProcessEnv, key: string, fallback: string): stri
 }
 
 function stsUrlFromEnv(env: NodeJS.ProcessEnv): string {
-  return serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
+  return env.CARACAL_STS_URL ?? env.CARACAL_ZONE_URL ?? serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
 }
 
 interface ProfileResources {
   resources: Array<string | ResourceBinding>
   bindings?: ResourceBinding[]
+  credentialResources?: Array<string | ResourceBinding>
 }
 
 interface CredentialEntry {
@@ -1382,8 +1381,51 @@ interface CredentialEntry {
   upstream_prefix?: string
 }
 
-function detectConfig(env: NodeJS.ProcessEnv): CaracalConfig {
-  const path = env.CARACAL_CONFIG
+function defaultProfilePath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(defaultConfigDir(env), 'caracal.toml')
+}
+
+function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.CARACAL_CONFIG_HOME) return env.CARACAL_CONFIG_HOME
+  if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, 'caracal')
+  if (platform() === 'win32') return join(env.APPDATA || env.LOCALAPPDATA || join(homedir(), 'AppData', 'Roaming'), 'Caracal')
+  if (platform() === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Caracal')
+  return join(homedir(), '.config', 'caracal')
+}
+
+function defaultCredentialDir(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
+  return join(defaultConfigDir(env), 'runtime', safePathSegment(zoneId), safePathSegment(applicationId))
+}
+
+function defaultClientSecretPath(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
+  return join(defaultCredentialDir(env, zoneId, applicationId), 'client-secret')
+}
+
+function defaultRunCredentialsPath(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string {
+  return join(defaultCredentialDir(env, zoneId, applicationId), 'credentials.json')
+}
+
+function safePathSegment(value: string): string {
+  const segment = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_')
+  let start = 0
+  let end = segment.length
+  while (start < end && segment[start] === '_') start += 1
+  while (end > start && segment[end - 1] === '_') end -= 1
+  return segment.slice(start, end) || 'default'
+}
+
+function existingLocalFile(path: string, env: NodeJS.ProcessEnv): string | undefined {
+  if (productionEnv(env)) return undefined
+  return existsSync(path) ? path : undefined
+}
+
+function detectConfig(opts: CaracalOptions): CaracalConfig {
+  if (opts.clientSecret && Object.keys(opts.clientSecret).length > 0) {
+    return configFromClientSecret(opts.clientSecret as ClientSecretOptions)
+  }
+  const env = opts.env ?? process.env
+  if (opts.configPath) return configFromProfile(opts.configPath, env)
+  const path = resolveProfilePath(env)
   if (path) return configFromProfile(path, env)
   return configFromEnv(env)
 }
@@ -1405,12 +1447,9 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
     throw new Error(`Caracal.fromEnv: missing ${missing.join(', ')}`)
   }
   const clientSecret = clientSecretFromEnv(env, zoneId!, applicationId!)
-  const profileResources = resourcesFromEnv(env)
+  const profileResources = resourcesFromEnv(env, zoneId!, applicationId!)
   const resources = profileResources.bindings
   const defaultTtlSeconds = defaultTtlFromEnv(env)
-  if (clientSecret && subjectToken) {
-    throw new Error('Caracal: configure exactly one of CARACAL_APP_CLIENT_SECRET and CARACAL_BOOTSTRAP_TOKEN')
-  }
   if (clientSecret) {
     return configFromClientSecret(
       {
@@ -1419,7 +1458,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): CaracalConfig {
         zoneId: zoneId!,
         applicationId: applicationId!,
         clientSecret,
-        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.resources),
+        resources: resourceIdsFromEnv(env.CARACAL_APP_RESOURCES, profileResources.credentialResources ?? [], profileResources.resources),
         gatewayUrl,
         defaultTtlSeconds,
       },
@@ -1453,7 +1492,7 @@ function defaultTtlFromEnv(env: NodeJS.ProcessEnv): number | undefined {
   return value
 }
 
-function configFromClientSecret(opts: ClientOptions, env: NodeJS.ProcessEnv = process.env): CaracalConfig {
+function configFromClientSecret(opts: ClientSecretOptions, env: NodeJS.ProcessEnv = process.env): CaracalConfig {
   const missing = [
     ['coordinatorUrl', opts.coordinatorUrl],
     ['stsUrl', opts.stsUrl],
@@ -1480,13 +1519,6 @@ function configFromClientSecret(opts: ClientOptions, env: NodeJS.ProcessEnv = pr
   const credentials: CredentialsResolver =
     opts.credentials ?? (() => ({ zoneId: opts.zoneId!, applicationId: opts.applicationId!, clientSecret: opts.clientSecret! }))
   const resourceValues = opts.resources ?? []
-  for (const value of resourceValues) {
-    const resourceId = typeof value === 'string' ? value : value.resourceId
-    if (!resourceId.trim()) throw new Error('Caracal.fromClientSecret: resource IDs must be non-empty')
-    if (typeof value !== 'string' && !isAbsoluteUrl(value.upstreamPrefix)) {
-      throw new Error(`Caracal.fromClientSecret: upstreamPrefix must be an absolute http or https URL: ${value.upstreamPrefix}`)
-    }
-  }
   const resourceIds = resourceValues.map((value) => (typeof value === 'string' ? value : value.resourceId))
   const bindings = resourceValues.filter((value): value is ResourceBinding => typeof value !== 'string')
   const tokenSource = createClientSecretTokenSource(opts.stsUrl, credentials, resourceIds, opts.scope, opts.fetchImpl)
@@ -1509,9 +1541,19 @@ function configFromProfile(path: string, env: NodeJS.ProcessEnv): CaracalConfig 
   if (!isRecord(value)) throw new Error('Caracal.fromConfig: profile must be a TOML table')
   const zoneId = requiredString(value, 'zone_id', path)
   const applicationId = requiredString(value, 'application_id', path)
-  const stsUrl = stringValue(value, 'sts_url') ?? env.CARACAL_STS_URL ?? serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
+  const stsUrl =
+    stringValue(value, 'sts_url') ??
+    stringValue(value, 'zone_url') ??
+    env.CARACAL_STS_URL ??
+    env.CARACAL_ZONE_URL ??
+    serviceUrl(env, 'CARACAL_STS_URL', DEFAULT_STS_URL)
   const coordinatorUrl = stringValue(value, 'coordinator_url') ?? serviceUrl(env, 'CARACAL_COORDINATOR_URL', DEFAULT_COORDINATOR_URL)
-  const resources = resourcesFromProfile(value, path, env)
+  const resources = resourcesFromProfile(value, path, env, zoneId, applicationId)
+  if (!resources.resources.length) {
+    throw new Error(
+      `Caracal.fromConfig: ${path} requires at least one resource via credentials, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE`,
+    )
+  }
   return configFromClientSecret(
     {
       coordinatorUrl,
@@ -1534,6 +1576,15 @@ function profileTtlSeconds(record: Record<string, unknown>, source: string): num
     throw new Error(`${source}: default_ttl_seconds must be a positive integer`)
   }
   return value
+}
+
+function resolveProfilePath(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.CARACAL_CONFIG) {
+    if (!existsSync(env.CARACAL_CONFIG)) throw new Error(`Caracal: profile not found: ${env.CARACAL_CONFIG}`)
+    return env.CARACAL_CONFIG
+  }
+  const path = defaultProfilePath(env)
+  return existsSync(path) ? path : undefined
 }
 
 function assertProfileFileSecure(path: string): void {
@@ -1582,8 +1633,12 @@ function clientSecretFromProfile(
     }
     return inline
   }
-  if (!file) throw new Error(`${source}: client secret is required via app_client_secret or app_client_secret_file`)
-  return readSecretFile(file)
+  const localFile = file ?? existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
+  if (!localFile)
+    throw new Error(
+      `${source}: client secret is required; local dev/stable auto-detects ${defaultClientSecretPath(env, zoneId, applicationId)} when it exists`,
+    )
+  return readSecretFile(localFile)
 }
 
 function clientSecretFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): string | undefined {
@@ -1592,6 +1647,8 @@ function clientSecretFromEnv(env: NodeJS.ProcessEnv, zoneId: string, application
   }
   if (env.CARACAL_APP_CLIENT_SECRET_FILE) return readSecretFile(env.CARACAL_APP_CLIENT_SECRET_FILE)
   if (env.CARACAL_APP_CLIENT_SECRET) return env.CARACAL_APP_CLIENT_SECRET
+  const localFile = existingLocalFile(defaultClientSecretPath(env, zoneId, applicationId), env)
+  if (localFile) return readSecretFile(localFile)
   return undefined
 }
 
@@ -1603,18 +1660,28 @@ function readSecretFile(path: string): string {
   return secret
 }
 
-function resourcesFromProfile(record: Record<string, unknown>, source: string, env: NodeJS.ProcessEnv): ProfileResources {
+function resourcesFromProfile(
+  record: Record<string, unknown>,
+  source: string,
+  env: NodeJS.ProcessEnv,
+  zoneId: string,
+  applicationId: string,
+): ProfileResources {
   const credentials = [
     ...credentialEntries(record.credentials, `${source}.credentials`),
     ...credentialEntries(record.optional_credentials, `${source}.optional_credentials`),
+    ...credentialManifestFromEnv(env, zoneId, applicationId),
   ]
   const resources = resourcesFromCredentials(credentials)
   const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env)
-  return resolved
+  return { ...resolved, credentialResources: resources.resources }
 }
 
-function resourcesFromEnv(env: NodeJS.ProcessEnv): ProfileResources {
-  return resolveProfileResources([], [], env)
+function resourcesFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): ProfileResources {
+  const credentials = credentialManifestFromEnv(env, zoneId, applicationId)
+  const resources = resourcesFromCredentials(credentials)
+  const resolved = resolveProfileResources(resources.resources, resources.bindings ?? [], env)
+  return { ...resolved, credentialResources: resources.resources }
 }
 
 function resolveProfileResources(
@@ -1706,10 +1773,26 @@ function mergeResourceBindings(...sources: ResourceBinding[][]): ResourceBinding
 function isAbsoluteUrl(value: string): boolean {
   try {
     const parsed = new URL(value)
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.host)
+    return Boolean(parsed.protocol && parsed.host)
   } catch {
     return false
   }
+}
+
+function credentialManifestFromEnv(env: NodeJS.ProcessEnv, zoneId: string, applicationId: string): CredentialEntry[] {
+  const file = env.CARACAL_RUN_CREDENTIALS_FILE
+  const inline = env.CARACAL_RUN_CREDENTIALS
+  if (file && inline) throw new Error('Caracal.fromEnv: set only one of CARACAL_RUN_CREDENTIALS or CARACAL_RUN_CREDENTIALS_FILE')
+  const localFile = !file && !inline ? existingLocalFile(defaultRunCredentialsPath(env, zoneId, applicationId), env) : undefined
+  if (!file && !inline && !localFile) return []
+  const raw = file || localFile ? readSecretFile(file ?? localFile!) : inline!
+  const parsed = JSON.parse(raw) as unknown
+  const manifest = Array.isArray(parsed) ? { credentials: parsed } : parsed
+  if (!isRecord(manifest)) throw new Error('Caracal.fromEnv: credential manifest must be an array or object')
+  return [
+    ...credentialEntries(manifest.credentials, 'CARACAL_RUN_CREDENTIALS.credentials'),
+    ...credentialEntries(manifest.optional_credentials, 'CARACAL_RUN_CREDENTIALS.optional_credentials'),
+  ]
 }
 
 function credentialEntries(value: unknown, source: string): CredentialEntry[] {
@@ -1822,6 +1905,7 @@ function compactResourceValues(values: Array<string | ResourceBinding>): Array<s
 
 function resourceIdsFromEnv(
   raw: string | undefined,
+  first: Array<string | ResourceBinding>,
   resources: Array<string | ResourceBinding> | undefined,
 ): Array<string | ResourceBinding> {
   const explicit =
@@ -1831,7 +1915,11 @@ function resourceIdsFromEnv(
       .filter(Boolean) ?? []
   // Binding-derived ids always join the STS audience set so a routed resource
   // can never be minted without an audience.
-  return compactResourceValues([...explicit, ...(resources ?? [])])
+  const values = compactResourceValues([...first, ...explicit, ...(resources ?? [])])
+  if (values.length) return values
+  throw new Error(
+    'Caracal.fromEnv: client-secret mode requires resources via CARACAL_APP_RESOURCES, CARACAL_RUN_CREDENTIALS, CARACAL_RESOURCES, or CARACAL_RESOURCES_FILE',
+  )
 }
 
 /**

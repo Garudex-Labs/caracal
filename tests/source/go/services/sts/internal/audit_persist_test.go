@@ -17,7 +17,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestPersistBatchSkipsUnmarshalableEvents(t *testing.T) {
+func TestPersistBatchMarshalsAllEventsBeforeCreatingFile(t *testing.T) {
 	dir := t.TempDir()
 	buf := &AuditBuffer{log: zerolog.Nop(), replayDir: dir, metrics: &STSMetrics{}}
 
@@ -32,23 +32,29 @@ func TestPersistBatchSkipsUnmarshalableEvents(t *testing.T) {
 		{ID: "ev-good", ZoneID: "zone1", MetadataJSON: json.RawMessage(`{"ok":true}`)},
 		{ID: "ev-bad", ZoneID: "zone1", MetadataJSON: json.RawMessage(`{broken`)},
 	}
-	if err := buf.persistBatch(batch); err != nil {
-		t.Fatalf("persistBatch: %v", err)
+	if err := buf.persistBatch(batch); err == nil {
+		t.Fatal("unmarshalable event must fail the whole batch")
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 1 {
+	if err != nil || len(entries) != 0 {
 		t.Fatalf("replay files = %v err=%v", entries, err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
-	if err != nil {
+	if buf.metrics.AuditReplayPending.Load() != 0 {
+		t.Fatalf("pending counter = %d", buf.metrics.AuditReplayPending.Load())
+	}
+}
+
+func TestSuccessfulSpillRemainsReadyAndDefinitiveLossDoesNot(t *testing.T) {
+	buf := &AuditBuffer{log: zerolog.Nop(), replayDir: t.TempDir(), metrics: &STSMetrics{}}
+	if err := buf.persistBatch([]AuditEvent{{ID: "persisted"}}); err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) != 1 || !strings.Contains(lines[0], "ev-good") {
-		t.Fatalf("only the marshalable event must persist: %q", lines)
+	if err := buf.Ready(); err != nil {
+		t.Fatalf("durable spill must remain ready: %v", err)
 	}
-	if buf.metrics.AuditReplayPending.Load() != 2 {
-		t.Fatalf("pending counter = %d", buf.metrics.AuditReplayPending.Load())
+	buf.recordLoss(1, errors.New("disk failed"))
+	if err := buf.Ready(); !errors.Is(err, errAuditEvidenceLost) {
+		t.Fatalf("definitive loss readiness error = %v", err)
 	}
 }
 

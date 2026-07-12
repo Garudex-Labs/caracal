@@ -64,6 +64,14 @@ function stampTextPins(config, diff) {
   const targets = [
     { path: 'README.md', apply: (text) => text.replace(installPinPattern, `$1v${version}`) },
     {
+      path: 'docs/src/content/docs/get-started/install-caracal.mdx',
+      apply: (text) =>
+        text
+          .replace(installPinPattern, `$1v${version}`)
+          .replace(/^tag=v[0-9]\S*/m, () => `tag=v${version}`)
+          .replace(/^\$tag = 'v[0-9][^']*'/m, () => `$tag = 'v${version}'`),
+    },
+    {
       path: 'CITATION.cff',
       apply: (text) => text.replace(/^version: .*$/m, `version: ${version}`),
     },

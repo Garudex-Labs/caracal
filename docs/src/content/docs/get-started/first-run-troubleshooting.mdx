@@ -1,22 +1,23 @@
 ---
 title: First-Run Troubleshooting
-description: Fix common install, readiness, profile, STS, Gateway, upstream, and audit issues during onboarding.
+description: Fix common install, readiness, sign-in, identity, mandate, Gateway, upstream, and audit issues during onboarding.
 pageType: workflow
 ---
 
-Use this page when the Get Started path fails before your first protected call or first SDK integration succeeds. For production incidents and deeper operational diagnosis, use [Troubleshoot by Symptom](/operations/troubleshooting/).
+Use this page when a Get Started step fails. Every request you make crosses the same boundaries in the same order, so <mark>diagnose in that order and stop at the first boundary that fails</mark> - do not change policy, credentials, and routing at the same time:
+
+```mermaid
+flowchart LR
+  Ready[Stack readiness] --> SignIn[Console sign-in] --> Identity[Application identity] --> STS[Token service] --> GW[Gateway] --> Up[Upstream service] --> Audit[Audit trail]
+```
+
+Run the failing step once and keep its request ID or exact error, then start at the matching section below. For production incidents and deeper operational diagnosis, use [Troubleshoot by Symptom](/operations/troubleshooting/).
 
 ## Readiness Failures
 
-Run:
+The same command works in every shell:
 
 ```sh
-caracal status --ready --json
-```
-
-On Windows PowerShell:
-
-```powershell
 caracal status --ready --json
 ```
 
@@ -24,66 +25,51 @@ caracal status --ready --json
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | Docker command fails     | Confirm Docker Desktop or Docker Engine is running and `docker compose version` succeeds.                          |
 | A service is not ready   | Wait for the dependency named in the JSON output, then rerun readiness.                                            |
-| Ports are already in use | Stop the conflicting local process or change the runtime port configuration before starting Caracal.               |
+| Ports are already in use | Stop the local process holding the port; the local port map is in [Defaults and Limits](/reference/defaults-and-limits/#ports). |
 | Stack state looks stale  | Run `caracal down`, then `caracal up`. Use `caracal purge` only when you intentionally want to remove local state. |
 
 ## Console Sign-In
 
 | Symptom                                               | Check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Sign-up is rejected or the access-denied page appears | The packaged console closes registration by default and shows one uniform page for every allowlist denial. On the runtime host, run `caracal allowlist list` to inspect entries, then `caracal allowlist add <email>` or `caracal allowlist unlock <email>` - see [Control Console Access](/runtime-console/console-access/). Make sure a sign-in method is configured in `$CARACAL_HOME/caracal.env` - see [Sign In and Create Your First Zone](/get-started/first-protected-call/#sign-in-and-create-your-first-zone). |
+| Sign-up is rejected or the access-denied page appears | The packaged console closes registration by default and shows one uniform page for every allowlist denial. On the runtime host, run `caracal allowlist list` to inspect entries, then `caracal allowlist add <email>` or `caracal allowlist unlock <email>` - see [Control Console Access](/runtime-console/console-access/). Make sure a sign-in method is configured in `$CARACAL_HOME/caracal.env` - see [Enable Console Sign-In](/get-started/install-caracal/#enable-console-sign-in). |
 | Google or GitHub buttons are missing                  | Set both the client ID and client secret for the provider, then rerun `caracal up`.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Password sign-in is blocked pending verification      | The packaged console requires a verified email. Confirm `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` are set and the verification message was delivered.                                                                                                                                                                                                                                                                                                                                                                   |
 
-## Workload Identity Issues
+## Application Identity Issues
 
-| Symptom                             | Check                                                                                                                       |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `workload identity not found`       | Export `CARACAL_WORKLOAD_ID` and provide a workload secret source.                                                          |
-| `no credential bindings configured` | Define launch bindings for the workload on the **Launcher** page in the web console.                                        |
-| Secret file is rejected             | Ensure the secret file exists and is readable only by the current user.                                                     |
-| SDK cannot load configuration       | Set `CARACAL_CONFIG` to your `caracal.toml` path, or pass the profile path using the SDK-supported configuration mechanism. |
+| Symptom                                   | Check                                                                                                                     |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Caracal.fromEnv: provide CARACAL_APP_CLIENT_SECRET` or a similar constructor error | Export `CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, and `CARACAL_APP_CLIENT_SECRET` exactly as in [Give the Agent Its Identity](/get-started/first-protected-call/#give-the-agent-its-identity), or set `CARACAL_CONFIG` to a complete profile. |
+| SDK cannot load configuration             | `CARACAL_CONFIG` must name an existing profile file; a missing file at that path is an error, not a fallthrough.            |
+| Authentication is rejected (401)          | The client secret no longer matches the application - reveal the current value from the application's detail panel, or rotate it and update your environment or secret file. |
+| Secret file is rejected                   | Ensure the file named by `app_client_secret_file` exists and is readable only by the current user.                          |
 
-Linux and macOS:
+## Lost Application Secret
 
-```sh
-export CARACAL_WORKLOAD_ID=<workload ID>
-export CARACAL_WORKLOAD_SECRET=<workload secret>
-```
+The application client secret is held sealed server-side. If you lose your local copy, reveal it again from the application's detail panel in the web console - each reveal is recorded in the zone audit timeline - or rotate the secret and update your environment or secret file with the new value.
 
-Windows PowerShell:
+## Token Service Denials (STS 403)
 
-```powershell
-$env:CARACAL_WORKLOAD_ID = "<workload ID>"
-$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
-```
-
-## Lost Workload Secret
-
-The workload secret is held sealed in the Secret Store. If you lose your local copy, reveal it again from the web console **Launcher** page - each reveal is recorded in the zone audit timeline - or rotate the secret and update your secret file or environment with the new value.
-
-## STS 403
-
-An STS 403 means the workload authenticated but did not receive a mandate.
+The STS is Caracal's token service: it checks policy and issues mandates. A 403 from it means your program authenticated successfully but policy did not allow what it asked for.
 
 | Check             | Fix                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------- |
 | Active policy set | Activate the starter policy set created by guided setup.                                    |
 | Resource ID       | Use the resource ID you created in guided setup.                                            |
 | Scopes            | Request only scopes covered by the starter policy.                                          |
-| Workload secret   | Rotate the workload secret if the configured secret file no longer matches the workload.    |
-| Audit request ID  | Open web console **Audit** or **explain** with the request ID to see the policy diagnostic. |
+| Audit request ID  | Open web console **Audit** with the request ID to see the policy diagnostic.                |
 
 ## Gateway 403
 
-A Gateway 403 means the Gateway rejected the request before forwarding it upstream.
+A Gateway 403 means policy already said yes and a mandate was issued, but the Gateway rejected the request before forwarding it upstream.
 
 | Check                | Fix                                                                       |
 | -------------------- | ------------------------------------------------------------------------- |
-| Authorization header | Send `Authorization: Bearer <Caracal access token>`.                      |
-| Resource header      | Send `X-Caracal-Resource` with the resource ID from guided setup.         |
-| Token freshness      | Rerun the workload to obtain a fresh short-lived mandate.                 |
-| Revocation           | Confirm the session, app, or Delegation was not revoked.                  |
+| Authorization header | The SDK transport attaches `Authorization: Bearer <mandate>`; send requests through it rather than a plain HTTP client. |
+| Resource header      | The SDK sets `X-Caracal-Resource` from the resource ID you pass; confirm it matches guided setup. |
+| Mandate freshness    | Mandates are short-lived and single-use by design; rerun the example to mint a fresh one. |
+| Revocation           | Confirm the session, application, or delegation was not revoked.          |
 | Route binding        | Confirm the resource has the Gateway route and upstream URL you intended. |
 
 ## Upstream Unreachable
@@ -92,7 +78,7 @@ A Gateway 403 means the Gateway rejected the request before forwarding it upstre
 | --------------------- | -------------------------------------------------------------------------------------------------- |
 | Connection refused    | The upstream service is not listening, or the Gateway cannot reach that host and port.             |
 | DNS failure           | Use a hostname visible from the Gateway container, not only from the host shell.                   |
-| Demo upstream missing | Start `caracalDemoUpstream` on the `caracalData` Docker network or use your own reachable service. |
+| Demo upstream missing | Confirm the resource's upstream URL is reachable from the Gateway container and the provider key sealed on the provider is current. |
 | Wrong path            | Use a known-good path on the upstream before trying custom paths.                                  |
 
 ## Missing Audit Events
@@ -101,8 +87,12 @@ A Gateway 403 means the Gateway rejected the request before forwarding it upstre
 | ------------------------------------ | --------------------------------------------------------------------------------- |
 | Wrong request ID                     | Copy the request ID from the STS, Gateway, SDK, or web console output.            |
 | Wrong zone                           | Select the zone used by guided setup.                                             |
-| Request never reached STS or Gateway | Confirm the workload used your runtime configuration and the Gateway URL it sets. |
+| Request never reached STS or Gateway | Confirm the example used your configuration and the Gateway URL it derives.       |
 | Audit ingestion lag                  | Wait briefly and refresh the web console audit view.                              |
+
+## Expected Outcome
+
+Repeat only the failed step. Success means readiness passes, the protected call returns the upstream response, and Audit contains both the authorization decision and the Gateway result under the same request trace.
 
 ## Next Step
 

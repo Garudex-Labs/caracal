@@ -4,6 +4,7 @@
 # Publishes selected Python packages to PyPI from a protected CI environment.
 
 name: publishPypi
+run-name: Caracal PyPI ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }} ${{ inputs.dryRun && 'dry-run' || 'publish' }}
 
 on:
   workflow_dispatch:
@@ -28,7 +29,7 @@ on:
       dryRun:
         description: 'Build only.'
         required: false
-        default: false
+        default: true
         type: boolean
       runner:
         description: 'Publish runner.'
@@ -39,6 +40,16 @@ on:
           - ubuntu-24.04
           - macos-15
           - windows-2022
+      releaseTag:
+        description: 'Release tag whose packages are being published.'
+        required: false
+        default: ''
+        type: string
+      releaseSha:
+        description: 'Exact release source commit.'
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       package:
@@ -54,6 +65,14 @@ on:
         description: 'Publish runner.'
         required: true
         type: string
+      releaseSha:
+        description: 'Exact release commit supplied by release.yml.'
+        required: true
+        type: string
+      releaseTag:
+        description: 'Exact release tag supplied by release.yml.'
+        required: true
+        type: string
 permissions:
   contents: read
 
@@ -62,7 +81,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: publish-pypi-${{ inputs.package }}
+  group: publish-pypi-${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref }}-${{ inputs.package }}
   cancel-in-progress: false
 
 env:
@@ -82,6 +101,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -89,6 +109,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISH_DRY_RUN: ${{ inputs.dryRun }}
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -96,10 +118,25 @@ jobs:
             echo "::error::PyPI publishing must run from ${{ github.event.repository.default_branch }} or a Caracal release tag."
             exit 1
           fi
+          if [[ -z "$RELEASE_TAG" ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ]]; then
+            echo "::error::Invalid Caracal release tag: $RELEASE_TAG"
+            exit 1
+          fi
+          if [[ "$PUBLISH_DRY_RUN" != true && ( ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ || "$(git rev-parse HEAD)" != "$RELEASE_SHA" ) ]]; then
+            echo "::error::PyPI publication requires the exact release commit."
+            exit 1
+          fi
+          if [[ "$PUBLISH_DRY_RUN" != true ]]; then
+            git fetch --force --tags origin
+            node scripts/releaseTags.mjs "$RELEASE_TAG" "$RELEASE_SHA"
+          fi
           actor="${{ github.actor }}"
           maintainers="$(mktemp)"
           gh api "repos/${GITHUB_REPOSITORY}/contents/.github/MAINTAINERS?ref=${{ github.event.repository.default_branch }}" --jq '.content' | base64 -d > "$maintainers"
-          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
+          if [[ "$actor" == 'github-actions[bot]' && ( "$PUBLISH_DRY_RUN" == 'true' || "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.(sha[0-9A-Za-z]+|[0-9]+))?$ ) ]]; then
             exit 0
           fi
           if ! grep -Eo '@[[:alnum:]_-]+' "$maintainers" | sed 's/^@//' | grep -qiFx "$actor"; then
@@ -148,7 +185,19 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           persist-credentials: false
+
+      - name: Check out publication tooling
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-tools
+          persist-credentials: false
+
+      - name: Verify source checkout
+        if: inputs.releaseSha != ''
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -164,7 +213,9 @@ jobs:
             exit 1
           fi
           python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
-          rm -rf dist build *.egg-info
+          python -m py_compile "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py"
+          pypi-attestations --version
+          rm -rf dist build ./*.egg-info
           python -m build
           python -m twine check dist/*
 
@@ -178,21 +229,75 @@ jobs:
       name: pypi
       url: https://pypi.org/project/${{ matrix.name }}
     permissions:
+      artifact-metadata: write
       contents: read
       id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.select.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.releaseSha != '' && inputs.releaseSha || github.sha }}
           persist-credentials: false
+
+      - name: Check out publication tooling
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-tools
+          persist-credentials: false
+
+      - name: Verify source checkout
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.releaseSha }}"
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install publication tools
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
+          python -m py_compile "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py"
+          pypi-attestations --version
+
+      - name: Check published package
+        id: state
+        working-directory: ${{ matrix.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+        run: |
+          set -euo pipefail
+          name="$(awk -F'"' '/^name = /{print $2; exit}' pyproject.toml)"
+          ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
+          state="$(python - "$name" "$ver" <<'PY'
+          import sys
+          import urllib.error
+          import urllib.request
+
+          name, version = sys.argv[1:]
+          try:
+              with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/{version}/json", timeout=30):
+                  print("published")
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              print("missing")
+          PY
+          )"
+          if [ "$state" = published ]; then
+            python "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$RELEASE_TAG"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build distribution
+        if: steps.state.outputs.published != 'true'
         working-directory: ${{ matrix.dir }}
         run: |
           set -euo pipefail
@@ -201,53 +306,43 @@ jobs:
             echo "::error::Dev version blocked: ${ver}"
             exit 1
           fi
-          python -m pip install --require-hashes --requirement "$GITHUB_WORKSPACE/scripts/publishPypiRequirements.lock"
-          rm -rf dist build *.egg-info
+          rm -rf dist build ./*.egg-info
           python -m build
           python -m twine check dist/*
 
+      - name: Attest distribution source
+        if: steps.state.outputs.published != 'true'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ matrix.dir }}/dist/*
+          predicate-type: https://caracal.run/attestations/release-source/v1
+          predicate: |
+            {
+              "sourceRepositoryURI": "https://github.com/Garudex-Labs/caracal",
+              "sourceRepositoryDigest": "${{ inputs.releaseSha }}",
+              "sourceRepositoryRef": "refs/tags/${{ inputs.releaseTag }}"
+            }
+
       - name: Publish package
-        if: inputs.dryRun != true
+        if: steps.state.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: ${{ matrix.dir }}/dist
-          skip-existing: true
-          attestations: false
+          skip-existing: false
+          attestations: true
 
       - name: Verify published package
         if: inputs.dryRun != true
         working-directory: ${{ matrix.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ inputs.releaseSha }}
+          RELEASE_TAG: ${{ inputs.releaseTag }}
         run: |
           set -euo pipefail
           name="$(awk -F'"' '/^name = /{print $2; exit}' pyproject.toml)"
           ver="$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)"
-          python - "$name" "$ver" <<'PY'
-          import json
-          import sys
-          import time
-          import urllib.request
-
-          name, expected = sys.argv[1:]
-          deadline = time.monotonic() + 300
-          attempt = 0
-          while True:
-              attempt += 1
-              request = urllib.request.Request(
-                  f"https://pypi.org/pypi/{name}/json",
-                  headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
-              )
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      versions = json.load(response).get("releases", {})
-              except urllib.error.URLError:
-                  versions = {}
-              if expected in versions:
-                  print(f"{name}=={expected} is published")
-                  break
-              if time.monotonic() >= deadline:
-                  raise SystemExit(f"{name}=={expected} is missing from PyPI releases after {attempt} checks")
-              time.sleep(15)
-          PY
+          python "$GITHUB_WORKSPACE/.release-tools/scripts/verifyPypiRelease.py" "$name" "$ver" "$RELEASE_SHA" "$RELEASE_TAG"
 
       - name: Dry-run summary
         if: inputs.dryRun == true

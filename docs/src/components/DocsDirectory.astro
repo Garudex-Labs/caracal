@@ -6,6 +6,8 @@
  * Homepage body with an interactive authority flow, capability row, and audience path tabs.
  */
 
+import { docsHref } from '../../versioning.mjs'
+
 const icons = {
   send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
   scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
@@ -29,8 +31,8 @@ const flow = [
     id: "request",
     icon: icons.send,
     tint: "#60a5fa",
-    title: "Request",
-    detail: "Your agent asks for authority right when it needs it. Nothing sits in code or env files waiting to leak.",
+    title: "Request action",
+    detail: "An AI agent requests only the Resource scopes required for a protected action.",
     href: "/concepts/principal/",
     linkText: "Identities and Applications",
   },
@@ -38,8 +40,8 @@ const flow = [
     id: "decide",
     icon: icons.scale,
     tint: "#a78bfa",
-    title: "Decide",
-    detail: "Rego policy looks at the request and says yes or no before anything touches the resource.",
+    title: "Evaluate policy",
+    detail: "STS evaluates active Policy, Session, Delegation, Resource, scope, and Approval context before approving authority.",
     href: "/concepts/policy/",
     linkText: "Policies and Policy Sets",
   },
@@ -47,8 +49,8 @@ const flow = [
     id: "issue",
     icon: icons.ticket,
     tint: "#ec4899",
-    title: "Issue",
-    detail: "STS signs a short-lived mandate scoped to that app, that resource, that action. It expires on its own.",
+    title: "Issue authority",
+    detail: "STS signs a short-lived Mandate bound to the accepted Application, authority anchors, Resource, and scopes.",
     href: "/concepts/mandate/",
     linkText: "Mandates",
   },
@@ -56,8 +58,8 @@ const flow = [
     id: "enforce",
     icon: icons.shield,
     tint: "#34d399",
-    title: "Enforce",
-    detail: "The Gateway checks the mandate and makes the call. No mandate, no call.",
+    title: "Enforce action",
+    detail: "Gateway or an in-process verifier checks the Mandate and revocation state before the protected action runs.",
     href: "/services/gateway/",
     linkText: "The Gateway",
   },
@@ -65,8 +67,8 @@ const flow = [
     id: "record",
     icon: icons.scroll,
     tint: "#fbbf24",
-    title: "Record",
-    detail: "Audit keeps the whole story: who asked, what policy said, what actually happened.",
+    title: "Record evidence",
+    detail: "Audit appends hash-chained evidence that correlates the policy decision and protected action result by request and trace identifiers.",
     href: "/concepts/audit-ledger/",
     linkText: "Audit and Request Traces",
   },
@@ -74,32 +76,32 @@ const flow = [
 
 const capabilities = [
   {
+    icon: icons.scale,
+    tint: "#60a5fa",
+    title: "Policy-approved actions",
+    body: "Active Policy evaluates the agent, Session, Resource, scopes, Delegation, and Approval context before authority is issued.",
+    href: "/concepts/policy/",
+  },
+  {
     icon: icons.branch,
     tint: "#a78bfa",
-    title: "Delegation that narrows",
-    body: "Agents hand authority to sub-agents, and constraints can only shrink it.",
+    title: "Delegation can only narrow",
+    body: "A child can never exceed its parent’s scopes, Resources, lifetime, or hop budget.",
     href: "/concepts/delegation/",
   },
   {
     icon: icons.slash,
     tint: "#f87171",
-    title: "Revoke from one place",
-    body: "Kill active authority across every session without redeploying anything.",
+    title: "Instant revocation at Gateway",
+    body: "Gateway-routed actions perform fresh authority checks and reject revoked Sessions immediately; direct verifiers remain bounded by propagation and Mandate TTL.",
     href: "/concepts/sessions-revocation/",
   },
   {
-    icon: icons.code,
-    tint: "#60a5fa",
-    title: "Fits your stack",
-    body: "TypeScript, Python, and Go SDKs, plus connectors for Express, MCP, and more.",
-    href: "/sdks/",
-  },
-  {
-    icon: icons.box,
+    icon: icons.scroll,
     tint: "#34d399",
-    title: "Deploys anywhere",
-    body: "Local stack in one command, Docker Compose and Helm for everything else.",
-    href: "/operations/",
+    title: "Tamper-evident audit",
+    body: "Hash-chained, append-only records correlate every authority decision with the protected action result.",
+    href: "/concepts/audit-ledger/",
   },
 ];
 
@@ -109,12 +111,12 @@ const audiences = [
     label: "I'm new here",
     icon: icons.compass,
     tint: "#60a5fa",
-    intro: "You want to see it run before you read theory. Install the stack, protect one call, then dig into how it works.",
+    intro: "Install the released runtime, protect one call, and verify the matching decision and action result before reading deeper reference material.",
     start: { title: "What is Caracal?", href: "/get-started/" },
     links: [
       { title: "Install Caracal", href: "/get-started/install-caracal/" },
       { title: "First protected call", href: "/get-started/first-protected-call/" },
-      { title: "One-Minute Model", href: "/concepts/model-overview/" },
+      { title: "Caracal mental model", href: "/concepts/model-overview/" },
       { title: "Add SDK to your app", href: "/get-started/add-sdk-to-your-app/" },
       { title: "First-run troubleshooting", href: "/get-started/first-run-troubleshooting/" },
     ],
@@ -124,7 +126,7 @@ const audiences = [
     label: "I'm building",
     icon: icons.wrench,
     tint: "#a78bfa",
-    intro: "You have an app and an agent. Wire in the SDK, write your first policy, and watch authority flow through it.",
+    intro: "Map your Application and Resources, choose an enforcement boundary, integrate an SDK, and validate allow, deny, and revoke behavior.",
     start: { title: "Model your application", href: "/guides/modeling-recipes/" },
     links: [
       { title: "Author policy data", href: "/guides/author-policy/" },
@@ -139,7 +141,7 @@ const audiences = [
     label: "I run the platform",
     icon: icons.server,
     tint: "#34d399",
-    intro: "You keep this thing healthy. Deployment options, production hardening, and what to check when something breaks.",
+    intro: "Choose a supported deployment shape, configure secrets and network boundaries, and rehearse monitoring, recovery, and upgrades.",
     start: { title: "Operations guide", href: "/operations/" },
     links: [
       { title: "Deploy with Docker Compose", href: "/operations/docker-compose/" },
@@ -154,7 +156,7 @@ const audiences = [
     label: "I want to contribute",
     icon: icons.heart,
     tint: "#ec4899",
-    intro: "Caracal is built in the open and good PRs land fast. Set up locally, learn the architecture, find your first change.",
+    intro: "Set up the repository, learn the component boundaries, run focused validation, and follow the documented review process.",
     start: { title: "Contribute to Caracal", href: "/contributing/" },
     links: [
       { title: "Set up locally", href: "/contributing/setup/" },
@@ -176,11 +178,11 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/ca
       <header class="docs-section__head docs-section__head--split">
         <div>
           <p class="docs-section__eyebrow">How it works</p>
-          <h2 id="docs-flow-heading" class="docs-section__heading">Five steps between an agent and a resource</h2>
+          <h2 id="docs-flow-heading" class="docs-section__heading">Five steps from request to evidence</h2>
         </div>
         <p class="docs-section__lede">
-          Agents call real APIs with real credentials, and standing secrets are how that goes wrong.
-          Caracal swaps them for short-lived authority that policy approves first. Click through the flow.
+          AI agents request scoped authority for protected actions.
+          Follow policy evaluation, authority issuance, action enforcement, and tamper-evident audit.
         </p>
       </header>
 
@@ -217,7 +219,7 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/ca
           >
             <p class="flow__panel-num">Step {i + 1} of 5</p>
             <p class="flow__panel-detail">{stage.detail}</p>
-            <a class="flow__panel-link" href={stage.href}>
+            <a class="flow__panel-link" href={docsHref(Astro.url.pathname, stage.href)}>
               <span>{stage.linkText}</span>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
@@ -241,7 +243,7 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/ca
     <section class="docs-caps" aria-label="What you get">
       <div class="caps">
         {capabilities.map((cap) => (
-          <a class="cap" href={cap.href} style={`--tint: ${cap.tint}`}>
+          <a class="cap" href={docsHref(Astro.url.pathname, cap.href)} style={`--tint: ${cap.tint}`}>
             <span class="cap__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" set:html={cap.icon} />
             </span>
@@ -293,7 +295,7 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/ca
           >
             <div class="audiences__intro">
               <p class="audiences__blurb">{audience.intro}</p>
-              <a class="audiences__start" href={audience.start.href}>
+              <a class="audiences__start" href={docsHref(Astro.url.pathname, audience.start.href)}>
                 <span>{audience.start.title}</span>
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
@@ -303,7 +305,7 @@ const installCmd = "curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/ca
             <ul class="audiences__links">
               {audience.links.map((link) => (
                 <li>
-                  <a class="audiences__link" href={link.href}>
+                  <a class="audiences__link" href={docsHref(Astro.url.pathname, link.href)}>
                     <span>{link.title}</span>
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />

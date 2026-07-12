@@ -1,62 +1,48 @@
 ---
 title: Understand Architecture
-description: Current Caracal system architecture, request flows, state propagation, storage, keys, and trust boundaries.
+description: Choose the Caracal flow that explains an integration decision, trust boundary, or operational failure.
 pageType: landing
 ---
 
-Caracal is a pre-execution authority system for AI agents. It separates control-plane management, token exchange, protected-resource routing, audit evidence, and agent/delegation coordination into independent services backed by Postgres and Redis Streams.
+You do not need this section to complete normal console setup. Use it when selecting an enforcement boundary, tracing a failed request, planning dependencies, or recovering state.
 
-## System Overview
+## Operational Model
 
 ```mermaid
 flowchart LR
-  Console[Console/Admin SDK] --> API[Control-Plane API]
+  Human[Operator] --> Console[Web console]
+  Automation[Trusted automation] --> Control[Control API or Admin SDK]
+  Console --> API[API]
+  Control --> API
   Workload[SDK or caracal run] --> STS[STS]
-  Client[Protected request] --> Gateway[Gateway]
-  Agent[Agent SDK] --> Coordinator[Coordinator]
-  API --> Postgres[(Postgres)]
-  STS --> Postgres
-  Gateway --> Postgres
-  Coordinator --> Postgres
-  API --> Redis[(Redis Streams)]
-  STS --> Redis
-  Gateway --> Redis
-  Coordinator --> Redis
+  Caller[Protected request] --> Gateway[Gateway]
+  SDK[Session-aware SDK] --> Coordinator[Coordinator]
+  API & STS & Gateway & Coordinator --> PG[(Postgres)]
+  API & STS & Gateway & Coordinator --> Redis[(Redis Streams)]
   Redis --> Audit[Audit]
-  Audit --> Postgres
-  Control[Control API] --> API
+  Gateway --> Upstream[Configured upstream]
 ```
 
-## Core Design Choices
+The web console, through its auth backend, is the human management surface; the API applies product and policy changes for it and for trusted automation. Postgres is durable state. Redis Streams propagates events and invalidations. STS decides and issues authority. Gateway enforces before an upstream call. Coordinator makes execution lineage explicit. Audit turns signed events into evidence.
 
-| Choice                          | Effect                                                                                                                                             |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres as source of truth     | Product state, policy versions, grants, Authority records, Sessions, audit rows, Delegations, and outboxes are durable.                            |
-| Redis Streams for propagation   | Audit, invalidation, revocation, key, agent, invocation, and delegation events move asynchronously.                                                |
-| STS for mandate issuance        | Every protected access path receives a scoped, short-lived mandate.                                                                                |
-| Gateway for protected upstreams | Gateway verifies inbound authority, exchanges with STS, blocks unsafe routing, and emits audit evidence.                                           |
-| Coordinator for Session authority | Sessions, service leases, Delegations, and invocation lifecycle stay explicit.                                                                   |
-| Console/API boundary            | Human management uses Console; broad automation uses the Admin API; zone-scoped dispatch uses the Control API; runtime CLI remains lifecycle-only. |
+That separation creates useful failure boundaries: management can be unavailable without changing already-issued token expiry; Audit can lag while requests continue to emit replayable evidence; Redis can recover propagation from durable outboxes; Gateway denies when it cannot establish current authority.
 
-## System Flows
+## Choose the Flow You Need
 
-| Need                                         | Page                                                  |
-| -------------------------------------------- | ----------------------------------------------------- |
-| Identify services, clients, and dependencies | [Map the System](/architecture/system-topology/)      |
-| Understand STS mandate issuance              | [Exchange Tokens](/architecture/token-exchange-flow/) |
-| Understand Sessions and delegation           | [Coordinate Sessions](/architecture/delegation-flow/) |
+| Question                                                    | Read                                                  |
+| ----------------------------------------------------------- | ----------------------------------------------------- |
+| Which clients may call which surfaces?                      | [Map the System](/architecture/system-topology/)      |
+| What happens before a mandate is issued?                    | [Exchange Tokens](/architecture/token-exchange-flow/) |
+| How do Sessions and Delegations affect authority?           | [Coordinate Sessions](/architecture/delegation-flow/) |
+| Why can state be current in Postgres but delayed elsewhere? | [Propagate Events](/architecture/event-streams/)      |
+| What must be backed up or restored first?                   | [Store State](/architecture/storage-model/)           |
+| Which key protects which trust transition?                  | [Manage Keys](/architecture/crypto-keys/)             |
+| Where must a deployment fail closed?                        | [Enforce Boundaries](/architecture/trust-boundaries/) |
 
-## State and Safety
+## Supported Integration Surfaces
 
-| Need                                          | Page                                                  |
-| --------------------------------------------- | ----------------------------------------------------- |
-| Understand Redis Streams and outboxes         | [Propagate Events](/architecture/event-streams/)      |
-| Understand durable data ownership             | [Store State](/architecture/storage-model/)           |
-| Understand signing, HMACs, JWKS, and rotation | [Manage Keys](/architecture/crypto-keys/)             |
-| Understand security and command boundaries    | [Enforce Boundaries](/architecture/trust-boundaries/) |
+Integrators call the SDKs, STS token endpoint, Gateway proxy, documented Coordinator API, Admin API, or optional Control API according to the task. Internal endpoints, databases, Redis topics, replay files, and retained schema names are implementation boundaries, not application APIs.
 
 ## Next Step
 
-Start with [Map the System](/architecture/system-topology/) before tracing request and state flows.
-
-For service-by-service detail, continue to [Understand Services](/services/). For deployment detail, use [Operations](/operations/).
+[Map the System](/architecture/system-topology/).

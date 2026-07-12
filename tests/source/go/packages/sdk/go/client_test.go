@@ -23,6 +23,11 @@ import (
 	sdk "github.com/garudex-labs/caracal/packages/sdk/go"
 )
 
+func tokenWithUse(use string) string {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"use":%q}`, use)))
+	return "eyJhbGciOiJFUzI1NiJ9." + payload + ".signature"
+}
+
 func TestFromEnvMissing(t *testing.T) {
 	t.Setenv("CARACAL_COORDINATOR_URL", "")
 	t.Setenv("CARACAL_ZONE_ID", "")
@@ -430,7 +435,7 @@ func TestHTTPClientInjects(t *testing.T) {
 		SessionID:     "sess9",
 		Hop:           1,
 	})
-	client := c.Transport(nil)
+	client := c.Transport(nil, sdk.CallOptions{Propagation: sdk.PropagationAlways})
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -496,6 +501,91 @@ func TestGatewayRequestBuildsExplicitGatewayTarget(t *testing.T) {
 	}
 	if got.Get(sdk.HeaderAuthorization) != "Bearer tok" {
 		t.Fatalf("missing authorization: %v", got)
+	}
+}
+
+func TestTransportRejectsLifecycleMandateAtGateway(t *testing.T) {
+	var calls int
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: tokenWithUse("session"), GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/events", nil)
+	req.Header.Set("X-Caracal-Resource", "resource://calendar")
+
+	_, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	if err == nil || !strings.Contains(err.Error(), "use=gateway") || !strings.Contains(err.Error(), "use=session") {
+		t.Fatalf("expected token-use rejection, got %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Gateway received %d requests", calls)
+	}
+}
+
+func TestTransportRequiresResourceForScopes(t *testing.T) {
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/events", nil)
+
+	_, err := c.Transport(nil, sdk.CallOptions{AsApplication: true, Scopes: []string{"events:read"}}).Do(req)
+	if err == nil || !strings.Contains(err.Error(), "scopes require X-Caracal-Resource") {
+		t.Fatalf("expected missing resource rejection, got %v", err)
+	}
+}
+
+func TestTransportContainsGatewayAuthorityToBasePath(t *testing.T) {
+	var headers []http.Header
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = append(headers, r.Header.Clone())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+
+	for _, path := range []string{"/unrelated", "/proxy/%252e%252e/admin"} {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+path, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	for _, header := range headers {
+		if header.Get(sdk.HeaderAuthorization) != "" || header.Get(sdk.HeaderTraceparent) != "" {
+			t.Fatalf("authority escaped Gateway base path: %v", header)
+		}
+	}
+}
+
+func TestTransportDoesNotReplayMandateAcrossRedirect(t *testing.T) {
+	var calls int
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path == "/proxy/start" {
+			w.Header().Set("Location", "/proxy/next")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gateway.Close()
+	c := &sdk.Caracal{ZoneID: "z", ApplicationID: "a", SubjectToken: "tok", GatewayURL: gateway.URL + "/proxy"}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, gateway.URL+"/proxy/start", nil)
+	req.Header.Set("X-Caracal-Resource", "resource://calendar")
+
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTemporaryRedirect || calls != 1 {
+		t.Fatalf("expected one surfaced redirect, status=%d calls=%d", resp.StatusCode, calls)
 	}
 }
 
@@ -648,6 +738,12 @@ func TestGatewayRequestRejectsInvalidInputs(t *testing.T) {
 	if _, err := c.GatewayRequest("resource://calendar", "./events"); err == nil || !strings.Contains(err.Error(), "dot segments") {
 		t.Fatalf("expected dot segment rejection, got %v", err)
 	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events/%252e%252e/admin"); err == nil || !strings.Contains(err.Error(), "dot segments") {
+		t.Fatalf("expected encoded dot segment rejection, got %v", err)
+	}
+	if _, err := c.GatewayRequest("resource://calendar", "/events#fragment"); err == nil || !strings.Contains(err.Error(), "fragment") {
+		t.Fatalf("expected fragment rejection, got %v", err)
+	}
 }
 
 func TestHTTPClientRejectsUnboundRootByDefault(t *testing.T) {
@@ -675,7 +771,7 @@ func TestTransportAllowsUnboundRootWhenOptedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true}).Do(req)
+	resp, err := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationAlways}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,7 +794,7 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(_ context.Context, token string) (*sdk.VerifiedClaims, error) {
 			seen = token
-			return nil, nil
+			return &sdk.VerifiedClaims{ZoneID: "z", ApplicationID: "a", Hop: 0}, nil
 		},
 	})
 	if err != nil {
@@ -709,6 +805,25 @@ func TestBindFromRequestVerifyHook(t *testing.T) {
 	}
 	if cur, ok := sdk.Current(ctx); !ok || cur.SubjectToken != "inbound" {
 		t.Fatalf("unexpected bound context: %#v", cur)
+	}
+	t.Setenv("CARACAL_ENV", "production")
+	if _, err := c.BindFromRequest(context.Background(), req); err == nil || !strings.Contains(err.Error(), "production ingress requires") {
+		t.Fatalf("production ingress must require an explicit trust posture: %v", err)
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{TrustedPropagation: true}); err != nil {
+		t.Fatalf("trusted upstream propagation must bind: %v", err)
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) { return nil, nil },
+	}); err == nil {
+		t.Fatal("empty verified projection must reject the bind")
+	}
+	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(_ context.Context, _ string) (*sdk.VerifiedClaims, error) {
+			return &sdk.VerifiedClaims{ZoneID: "z", ApplicationID: "a", Hop: sdk.MaxHop + 1}, nil
+		},
+	}); err == nil {
+		t.Fatal("invalid verified hop must reject the bind")
 	}
 
 	if _, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
@@ -730,7 +845,7 @@ func TestCoordinatorResponsesUseExplicitIDs(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","lease_generation":1}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
 			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
 		default:
@@ -1229,7 +1344,7 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+		fmt.Fprint(w, `{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z","lease_generation":2}`)
 	}))
 	defer coord.Close()
 	c := &sdk.Caracal{
@@ -1251,8 +1366,8 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 	if handle.SessionID() != "agent-persisted" || handle.DeadlineAt().IsZero() {
 		t.Fatalf("unexpected handle: %s %v", handle.SessionID(), handle.DeadlineAt())
 	}
-	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
-		t.Fatalf("expected an immediate lease renewal, got %v", paths)
+	if paths[0] != "POST /zones/z/agents/agent-persisted/lease" {
+		t.Fatalf("expected an immediate fenced lease acquisition, got %v", paths)
 	}
 	if err := handle.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -1262,7 +1377,7 @@ func TestAttachSessionFacadeRevalidatesPersistedSession(t *testing.T) {
 	}
 }
 
-func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
+func TestPropagationDefaultsToGatewayOnlyAndAllowsExplicitAlways(t *testing.T) {
 	type seen struct {
 		target      string
 		traceparent string
@@ -1281,7 +1396,7 @@ func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
 		SubjectToken:  "tok",
 		Coordinator:   &sdk.CoordinatorClient{BaseURL: "http://coord"},
 	}
-	client := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationGatewayOnly})
+	client := c.Transport(nil, sdk.CallOptions{AsApplication: true})
 	res, err := client.Get(upstream.URL + "/data")
 	if err != nil {
 		t.Fatal(err)
@@ -1291,13 +1406,13 @@ func TestGatewayOnlyPropagationSkipsThirdPartyHosts(t *testing.T) {
 		t.Fatalf("expected no envelope on a non-gateway host: %+v", calls[0])
 	}
 
-	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true})
+	gatewayClient := c.Transport(nil, sdk.CallOptions{AsApplication: true, Propagation: sdk.PropagationAlways})
 	res, err = gatewayClient.Get(upstream.URL + "/data")
 	if err != nil {
 		t.Fatal(err)
 	}
 	res.Body.Close()
 	if calls[1].traceparent == "" {
-		t.Fatalf("expected the default propagation to carry the envelope: %+v", calls[1])
+		t.Fatalf("expected explicit always propagation to carry the envelope: %+v", calls[1])
 	}
 }

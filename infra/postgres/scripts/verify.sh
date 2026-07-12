@@ -52,6 +52,27 @@ for t in "${TABLES[@]}"; do
 done
 
 echo ""
+echo "=== Coordinator retention: terminal Session index and delete privilege ==="
+if [ "$(scalar "SELECT to_regclass('public.sessions_terminal_retention_idx') IS NOT NULL;")" != "t" ]; then
+  echo "  FAIL: sessions terminal-retention index missing"
+  exit 1
+fi
+echo "  terminal-retention index OK"
+if [ "$(scalar "SELECT has_table_privilege('caracalcoordinator', 'public.sessions', 'DELETE');")" != "t" ]; then
+  echo "  FAIL: caracalcoordinator cannot delete retained Sessions"
+  exit 1
+fi
+echo "  Session DELETE grant OK"
+
+echo ""
+echo "=== Service lease fencing: sessions carry a lease generation ==="
+if [ "$(scalar "SELECT count(*) FROM information_schema.columns WHERE table_name = 'sessions' AND column_name = 'lease_generation';")" != "1" ]; then
+  echo "  FAIL: sessions.lease_generation missing"
+  exit 1
+fi
+echo "  lease generation column OK"
+
+echo ""
 echo "=== Migration: retired tables absent ==="
 RETIRED_TABLES=(
   gateway_binding_revision

@@ -17,7 +17,6 @@ import type {
   Application,
   ApplicationInput,
   ApplicationPatchInput,
-  AuditDetail,
   AuditRetention,
   AuditEvent,
   AuditQuery,
@@ -154,13 +153,6 @@ interface WireEffectiveAuthority {
   earliest_expires_at: string | null;
 }
 
-interface WireDelegationImpact {
-  edge_id: string;
-  affected_edges: DelegationHop[];
-  affected_sessions: string[];
-  affected_authority_records: string[];
-}
-
 interface WireSubjectOverview extends Omit<SubjectOverview, "governed"> {
   governed: {
     active: number;
@@ -176,12 +168,8 @@ interface WireSubjectOverview extends Omit<SubjectOverview, "governed"> {
   };
 }
 
-interface WireSubjectRevokeResult {
-  subject_id: string;
-  authority_records: number;
-  sessions: number;
-  delegations: number;
-  connections: number;
+interface WireSubjectRevokeResult extends Omit<SubjectRevokeResult, "governed_sessions"> {
+  agents: number;
 }
 
 function authorityRecord(record: WireAuthorityRecord): AuthorityRecord {
@@ -232,15 +220,6 @@ function effectiveAuthority(record: WireEffectiveAuthority): EffectiveAuthority 
     maxHops: record.effective_max_hops,
     ttlSeconds: record.effective_ttl_seconds,
     expiresAt: record.earliest_expires_at,
-  };
-}
-
-function delegationImpact(record: WireDelegationImpact): DelegationImpact {
-  return {
-    delegationId: record.edge_id,
-    affectedDelegations: record.affected_edges,
-    affectedSessions: record.affected_sessions,
-    affectedAuthorityRecords: record.affected_authority_records,
   };
 }
 
@@ -921,8 +900,8 @@ export const consoleApi = {
       );
       return {
         subject_id: result.subject_id,
-        sessions: result.authority_records,
-        governed_sessions: result.sessions,
+        sessions: result.sessions,
+        governed_sessions: result.agents,
         delegations: result.delegations,
         connections: result.connections,
       };
@@ -1359,9 +1338,9 @@ export const consoleApi = {
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/traverse`,
       ),
     impact: (zoneId: string, id: string) =>
-      request<WireDelegationImpact>(
+      request<DelegationImpact>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/impact`,
-      ).then(delegationImpact),
+      ),
     revoke: (zoneId: string, id: string) =>
       request<DelegationEdge>(
         `/coord/zones/${encodeURIComponent(zoneId)}/delegations/${encodeURIComponent(id)}/revoke`,
@@ -1389,7 +1368,7 @@ export const consoleApi = {
       return { rows: res.items, nextCursor: res.next_cursor };
     },
     byRequest: (zoneId: string, requestId: string) =>
-      request<AuditDetail[]>(
+      request<AuditEvent[]>(
         `/v1/zones/${encodeURIComponent(zoneId)}/audit/by-request/${encodeURIComponent(requestId)}`,
       ),
     explain: (zoneId: string, requestId: string) =>

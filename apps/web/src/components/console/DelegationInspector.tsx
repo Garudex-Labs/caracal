@@ -19,8 +19,8 @@ interface DecodedConstraint {
   value: string;
 }
 
-// constraints_json carries typed limits and audit metadata (max hops, distinct-scope
-// limit, TTL, resource set, approval annotation, hard expiry). Surfacing them lets an operator
+// constraints_json carries typed limits and audit metadata (max hops, TTL,
+// resource set, approval annotation, hard expiry). Surfacing them lets an operator
 // understand WHY an edge's authority is bounded rather than treating the edge as opaque.
 function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstraint[] {
   if (!raw) return [];
@@ -31,7 +31,6 @@ function decodeConstraints(raw: Record<string, unknown> | null): DecodedConstrai
   };
   num("max_hops", "Max hops");
   num("max_depth", "Max depth");
-  num("budget", "Max distinct scopes per exchange");
   num("ttl_seconds", "Max TTL", "s");
   if (typeof raw.expires_at === "string") {
     out.push({ label: "Hard expiry", value: new Date(raw.expires_at).toLocaleString() });

@@ -83,11 +83,8 @@ x-secretBackendEnv: &secretBackendEnv
 
 networks:
   caracalData:
-    driver: bridge
+    external: true
     name: caracalDevData
-    internal: false
-    driver_opts:
-      com.docker.network.bridge.name: brCaracalDev
 
 secrets:
   postgresPassword:
@@ -655,6 +652,7 @@ services:
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
       IDEMPOTENCY_RETENTION_SECONDS: ${IDEMPOTENCY_RETENTION_SECONDS:-604800}
       GENERATED_IDEMPOTENCY_RETENTION_SECONDS: ${GENERATED_IDEMPOTENCY_RETENTION_SECONDS:-86400}
+      SESSION_RETENTION_DAYS: ${SESSION_RETENTION_DAYS:-90}
       IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE: ${IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE:-10000}
       COORDINATOR_BODY_LIMIT_BYTES: ${COORDINATOR_BODY_LIMIT_BYTES:-262144}
       AGENT_COORDINATOR_SCOPE: agent:lifecycle
@@ -708,6 +706,11 @@ services:
       CARACAL_VERSION: ${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
       CARACAL_API_URL: http://api:3000
       CARACAL_COORDINATOR_URL: http://coordinator:4000
+      # Read-only service URLs so the Console platform-health panel probes real service
+      # readiness. The BFF only calls unauthenticated /ready here; it holds no service secrets.
+      CARACAL_STS_URL: http://sts:8080
+      CARACAL_GATEWAY_URL: http://gateway:8081
+      CARACAL_AUDIT_URL: http://audit:9090
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
       CARACAL_OPERATOR_ALLOWLIST_FILE: /run/caracalHostSecrets/operatorAllowlist.json

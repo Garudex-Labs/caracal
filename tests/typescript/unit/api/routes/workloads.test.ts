@@ -54,7 +54,7 @@ function buildApp() {
 const workloadRow = {
   id: 'wl-1',
   zone_id: 'z1',
-  name: 'Son of Anton',
+  name: 'Anton',
   bindings: [],
   created_at: '2026-06-01T12:00:00.000Z',
   updated_by: null,
@@ -67,7 +67,7 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Anton' } })
 
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'zone_not_found' })
@@ -83,7 +83,7 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Anton' } })
 
     expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.body)
@@ -107,7 +107,7 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     secrets.put.mockRejectedValueOnce(new SecretBackendError('secret backend write failed with status 503'))
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Anton' } })
 
     expect(res.statusCode).toBe(502)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'secret_backend_unavailable' })
@@ -125,7 +125,7 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Anton' } })
 
     expect(res.statusCode).toBe(500)
     expect(clientQuery).toHaveBeenCalledWith('ROLLBACK')
@@ -138,7 +138,7 @@ describe('POST /v1/zones/:zoneId/workloads', () => {
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Son of Anton' } })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/workloads', payload: { name: 'Anton' } })
 
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'workload_name_taken' })
@@ -182,7 +182,7 @@ describe('GET /v1/zones/:zoneId/workloads/:id', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1' })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ id: 'wl-1', name: 'Son of Anton' })
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'wl-1', name: 'Anton' })
   })
 
   it('returns 404 for a missing workload', async () => {
@@ -365,7 +365,7 @@ describe('POST /v1/zones/:zoneId/workloads/:id/rotate-secret', () => {
 describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
   it('reveals the custody copy and records the reveal in the audit outbox', async () => {
     const { app, db, clientQuery, secrets } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Anton' }] })
     secrets.values.set(workloadSecretRef('z1', 'wl-1'), Buffer.from('ws_stored'))
     clientQuery.mockResolvedValue({ rows: [] })
 
@@ -381,7 +381,7 @@ describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
 
   it('returns 404 when the workload predates credential custody', async () => {
     const { app, db, clientQuery } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Anton' }] })
 
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/workloads/wl-1/secret' })
@@ -405,7 +405,7 @@ describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
 
   it('returns 502 when the secret backend is unavailable', async () => {
     const { app, db, secrets } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Anton' }] })
     secrets.get.mockRejectedValueOnce(new SecretBackendError('secret backend read failed with status 503'))
 
     await app.ready()
@@ -417,7 +417,7 @@ describe('GET /v1/zones/:zoneId/workloads/:id/secret', () => {
 
   it('returns 500 when the custody read fails for reasons other than the secret backend', async () => {
     const { app, db, secrets } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ name: 'Son of Anton' }] })
+    db.query.mockResolvedValueOnce({ rows: [{ name: 'Anton' }] })
     secrets.get.mockRejectedValueOnce(new Error('connection reset'))
 
     await app.ready()

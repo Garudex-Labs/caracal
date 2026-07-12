@@ -123,9 +123,11 @@ func governedEcho() *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"presented": r.Header.Get("Authorization"),
-			"resource":  r.Header.Get("X-Caracal-Resource"),
-			"target":    r.URL.RequestURI(),
+			"presented":   r.Header.Get("Authorization"),
+			"resource":    r.Header.Get("X-Caracal-Resource"),
+			"target":      r.URL.RequestURI(),
+			"traceparent": r.Header.Get("Traceparent"),
+			"baggage":     r.Header.Get("Baggage"),
 		})
 	}))
 }
@@ -208,6 +210,12 @@ func TestGovernedTransportRunsOwnAuthorityCycle(t *testing.T) {
 	if echo["target"] != "/tasks?x=1" {
 		t.Fatalf("unexpected rewritten target: %s", echo["target"])
 	}
+	if !strings.HasPrefix(echo["traceparent"], "00-") {
+		t.Fatalf("missing traceparent: %s", echo["traceparent"])
+	}
+	if !strings.Contains(echo["baggage"], "caracal.agent_session=agent-2") || !strings.Contains(echo["baggage"], "caracal.delegation_edge=edge-1") {
+		t.Fatalf("missing application authority baggage: %s", echo["baggage"])
+	}
 
 	platform.mu.Lock()
 	defer platform.mu.Unlock()
@@ -267,6 +275,29 @@ func TestGovernedTransportRunsOwnAuthorityCycle(t *testing.T) {
 	resources, _ := constraints["resources"].([]any)
 	if len(resources) != 1 || resources[0] != governedResource {
 		t.Fatalf("unexpected delegation constraints: %v", edge["constraints"])
+	}
+}
+
+func TestApplicationTransportConsumesApprovedChallenge(t *testing.T) {
+	platform := &governedPlatform{}
+	server := httptest.NewServer(platform.handler())
+	defer server.Close()
+	gateway := governedEcho()
+	defer gateway.Close()
+
+	c := governedClient(t, server.URL, gateway.URL, nil)
+	client, err := c.ApplicationTransport(nil, governedResource, sdk.ApplicationTransportOptions{
+		Scopes:     []string{"data:read"},
+		ApprovalID: "approval-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = governedGet(t, client, governedUpstream+"/tasks")
+
+	forms := platform.finalMints()
+	if len(forms) != 1 || forms[0].Get("challenge_id") != "approval-1" {
+		t.Fatalf("approved challenge was not sent on final mint: %#v", forms)
 	}
 }
 
@@ -333,7 +364,7 @@ func TestGovernedTransportMintsDistinctMandatesAcrossRequests(t *testing.T) {
 	}
 }
 
-func TestCloseDropsCachedApplicationMandates(t *testing.T) {
+func TestCloseTerminatesCachedApplicationMandatesAndRejectsReuse(t *testing.T) {
 	platform := &governedPlatform{}
 	server := httptest.NewServer(platform.handler())
 	defer server.Close()
@@ -358,40 +389,30 @@ func TestCloseDropsCachedApplicationMandates(t *testing.T) {
 	if len(terminated) != 2 {
 		t.Fatalf("expected Close to terminate the sessions backing the cached mandate, got %v", terminated)
 	}
-	second := governedGet(t, client, governedUpstream+"/tasks")
-	if second["presented"] != "Bearer mandate-2" {
-		t.Fatalf("expected a fresh mandate after Close, got %s", second["presented"])
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if mints := platform.finalMints(); len(mints) != 2 {
-		t.Fatalf("expected 2 provisioning cycles across Close, got %d", len(mints))
+	if _, err := client.Get(governedUpstream + "/tasks"); err == nil || !strings.Contains(err.Error(), "client is closed") {
+		t.Fatalf("request after Close must fail deterministically: %v", err)
+	}
+	if mints := platform.finalMints(); len(mints) != 1 {
+		t.Fatalf("expected no mint after Close, got %d", len(mints))
 	}
 }
 
-func TestCloseSeparatesAuthorityProvisioningGenerations(t *testing.T) {
+func TestCloseRejectsInflightAndSubsequentApplicationRequests(t *testing.T) {
 	workers := runtime.GOMAXPROCS(1)
 	defer runtime.GOMAXPROCS(workers)
 	platform := &governedPlatform{}
 	firstDelegation := make(chan struct{})
 	releaseFirst := make(chan struct{})
-	secondDelegation := make(chan struct{})
 	var releaseOnce sync.Once
 	defer func() { releaseOnce.Do(func() { close(releaseFirst) }) }()
-	var delegationMu sync.Mutex
-	delegationN := 0
 	handler := platform.handler()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations") {
-			delegationMu.Lock()
-			delegationN++
-			current := delegationN
-			delegationMu.Unlock()
-			switch current {
-			case 1:
-				close(firstDelegation)
-				<-releaseFirst
-			case 2:
-				close(secondDelegation)
-			}
+			close(firstDelegation)
+			<-releaseFirst
 		}
 		handler.ServeHTTP(w, r)
 	}))
@@ -442,18 +463,10 @@ func TestCloseSeparatesAuthorityProvisioningGenerations(t *testing.T) {
 	runtime.Gosched()
 	second := request(governedUpstream + "/second")
 	releaseOnce.Do(func() { close(releaseFirst) })
-	wait(secondDelegation, "second delegation")
-
-	platform.mu.Lock()
-	spawns := platform.agentN
-	platform.mu.Unlock()
-	if spawns != 4 {
-		t.Fatalf("expected a distinct authority pair for the new generation, got %d spawned sessions", spawns)
-	}
 	select {
 	case result := <-second:
-		if result.err != nil || result.status != http.StatusOK {
-			t.Fatalf("new-generation request failed: status=%d err=%v", result.status, result.err)
+		if result.err == nil || !strings.Contains(result.err.Error(), "client is closed") {
+			t.Fatalf("request started after Close must fail: status=%d err=%v", result.status, result.err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for new-generation request")
@@ -468,8 +481,8 @@ func TestCloseSeparatesAuthorityProvisioningGenerations(t *testing.T) {
 	}
 	select {
 	case result := <-first:
-		if result.err != nil || result.status != http.StatusOK {
-			t.Fatalf("old-generation request failed: status=%d err=%v", result.status, result.err)
+		if result.err == nil || !strings.Contains(result.err.Error(), "client is closed") {
+			t.Fatalf("in-flight request crossing Close must fail: status=%d err=%v", result.status, result.err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for old-generation request")
@@ -477,8 +490,8 @@ func TestCloseSeparatesAuthorityProvisioningGenerations(t *testing.T) {
 
 	platform.mu.Lock()
 	defer platform.mu.Unlock()
-	if platform.agentN != 4 {
-		t.Fatalf("expected 4 spawned sessions, got %d", platform.agentN)
+	if platform.agentN != 2 {
+		t.Fatalf("expected one authority pair, got %d spawned sessions", platform.agentN)
 	}
 	if len(platform.terminated) != 2 || platform.terminated[0] != "agent-1" || platform.terminated[1] != "agent-2" {
 		t.Fatalf("expected the old authority pair to retire, got %v", platform.terminated)

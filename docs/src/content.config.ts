@@ -8,10 +8,12 @@
 import { defineCollection, z } from 'astro:content'
 import { docsLoader } from '@astrojs/starlight/loaders'
 import { docsSchema } from '@astrojs/starlight/schema'
+import { docsVersionsLoader } from 'starlight-versions/loader'
+import { docsEntryId, docsVersionState } from '../versioning.mjs'
 
 export const collections = {
   docs: defineCollection({
-    loader: docsLoader(),
+    loader: docsLoader({ generateId: docsEntryId }),
     schema: docsSchema({
       extend: z.object({
         hero: z
@@ -28,21 +30,15 @@ export const collections = {
         requires: z.array(z.string()).optional(),
         keywords: z.array(z.string()).optional(),
         aliases: z.array(z.string()).optional(),
-        post: z
-          .object({
-            category: z.string(),
-            author: z.string(),
-            role: z.string().optional(),
-            date: z.coerce.date(),
-            readingTime: z.string().optional(),
-            tags: z.array(z.string()).optional(),
-            featured: z.boolean().optional(),
-          })
-          .optional(),
         service: z
           .enum(['sts', 'gateway', 'coordinator', 'audit', 'all', 'sdk'])
           .optional(),
       }),
     }),
   }),
+  ...(docsVersionState.current
+    ? {
+        versions: defineCollection({ loader: docsVersionsLoader() }),
+      }
+    : {}),
 }

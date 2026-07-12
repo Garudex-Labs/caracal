@@ -3,7 +3,7 @@
 //
 // Notification sink route unit tests for URL validation, secret handling, and lifecycle.
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // Test-only deterministic KEK fixture (32-byte hex). Never use in production.
 process.env.SECRET_STORE_KEK = '8f3d9a71c2b44e5f96a103d7be28cc41d5f09ab6731e4c8f2a7db56019ce34af'

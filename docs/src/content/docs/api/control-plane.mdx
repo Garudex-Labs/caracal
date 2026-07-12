@@ -6,6 +6,8 @@ pageType: api
 
 The Admin API is served by the API service on port `3000`. Management routes are registered under `/v1` and are protected by admin authentication.
 
+This is the supported HTTP surface for trusted automation. Prefer [Admin Package](/sdks/admin/) for typed pagination and errors. Never expose an admin token to an agent, browser, or protected upstream.
+
 ## Authentication
 
 Send an admin token as a bearer credential on every `/v1` request:
@@ -34,6 +36,8 @@ Every non-2xx `/v1` response carries a single JSON envelope:
 ```
 
 `error` is the stable machine code to branch on. `error_description`, when present, is a human-readable summary of the failure. `details`, when present, carries structured context: for example, the validation issues on `invalid_body`, the failed connectivity check on `provider_check_failed`, or the live dynamic-client count on `dcr_shutdown_required`. See [Error Codes](/reference/errors/) for the shared code catalog.
+
+Malformed JSON, unknown fields in strict schemas, wrong types, missing required values, invalid identifiers, and zone mismatches are rejected before mutation. Success status depends on the operation: reads and updates return `200`, creates commonly return `201`, asynchronous policy activation returns `202`, and deletes commonly return `204`. Treat each endpoint response as authoritative rather than assuming every write returns an object.
 
 ## Health and Diagnostics
 
@@ -68,7 +72,7 @@ Workloads are the launcher identities `caracal run` uses. Create a workload, del
 | Subject issuers      | `GET /v1/zones/:zoneId/subject-issuers`, `GET /v1/zones/:zoneId/subject-issuers/:id`                                                                                                                 | `POST /v1/zones/:zoneId/subject-issuers`, `PATCH /v1/zones/:zoneId/subject-issuers/:id`, `DELETE /v1/zones/:zoneId/subject-issuers/:id`                                                                                                   |
 | Provider connections | `GET /v1/zones/:zoneId/provider-connections`, `GET /v1/zones/:zoneId/provider-connections/oauth/callback` (OAuth redirect target)                                                                    | `POST /v1/zones/:zoneId/provider-connections`, `POST /v1/zones/:zoneId/provider-connections/oauth/authorize`, `POST /v1/zones/:zoneId/provider-connections/revoke`                                                                        |
 
-Use Console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
+Use the web console when you are performing these operations interactively. Use the Admin SDK or Control API when automation needs the same management behavior.
 
 ## Audit, Authority Records, Sessions, and Approvals
 
@@ -98,11 +102,28 @@ Use `POST /v1/admin-tokens` to mint read-only or zone-scoped tokens for automati
 - `GET /v1/zones/:zoneId/audit` accepts `since`, `until`, `request_id`, `decision`, `event_type`, `application_id`, `session_id`, `authority_record_id`, and `label`.
 - Add `format=csv` to audit and admin-audit lists for exports; use `fields` to select columns.
 
+The `cursor` is opaque: do not parse, edit, or reuse it with different filters. Ordering is service-defined and stable only within the cursor chain.
+
+```bash
+curl -s -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  "http://localhost:3000/v1/zones/$CARACAL_ZONE_ID/resources?limit=100"
+```
+
+```json
+{ "items": [...], "next_cursor": null }
+```
+
+## Idempotency and Retries
+
+Admin writes do not expose a universal `Idempotency-Key` contract. Do not blindly retry a timed-out create, rotate, approve, revoke, or delete request. Read the object back, or use the Admin SDK `ensure*` reconcilers for declarative provisioning. GET/HEAD calls are safe to retry subject to normal rate limits. A `429` response can include `Retry-After`.
+
+Credential create, rotation, and reveal endpoints are security-sensitive. Plaintext secret responses must be delivered directly to the target secret store and excluded from logs, traces, and retry payload capture. Reveals are audited.
+
 ## Usage Notes
 
-- Use Console for human workflows and Admin SDK or Control API for automation.
-- For scoped, non-interactive provisioning, drive the Control API with a control key. See [Automate Management](/services/control/#non-interactive-automation) and the `controlBootstrap` example.
-- Prefer declarative reconciliation over scripting individual writes: [Declarative Management](/services/control/#declarative-management) converges a zone from a desired-state document with idempotent apply, dry-run plan, and CI-friendly verify.
+- Use the web console for human workflows and Admin SDK or Control API for automation.
+- For scoped, non-interactive provisioning, drive the Control API with a control key. See the [supported Control management model](/services/control/#supported-management-model) and [Bootstrap Control State](/examples/control-bootstrap/).
+- Prefer declarative reconciliation over scripting individual writes. Control's [`state plan|verify|apply` workflows](/services/control/#supported-management-model) converge a Zone from desired state with dry-run and CI-friendly verification.
 - Policy activation and simulation are API operations, but top-level `caracal` runtime commands do not expose them.
 - Caracal Operator routes under `/v1/operator` and zone-scoped operator paths back the web console. They are not a stable automation surface.
 - Writes that produce downstream state changes enqueue signed Redis stream events through the API outbox.

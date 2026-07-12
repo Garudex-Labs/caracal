@@ -1,51 +1,44 @@
 ---
 title: Coordinate Session State
-description: Service reference for Sessions, Delegations, invocations, and lifecycle events.
+description: Understand supported Coordinator use, lease behavior, durable lifecycle state, and propagation failures.
 pageType: reference
 ---
 
-Coordinator owns Session and Delegation runtime state. SDKs and Console use it to start, inspect, suspend, resume, terminate, traverse, and revoke that state.
+Coordinator owns governed Sessions, service leases, invocations, Delegations, graph epochs, and their durable outbox.
 
-## Runtime
+## Who Calls It
 
-| Property   | Value                                                                        |
-| ---------- | ---------------------------------------------------------------------------- |
-| Port       | `4000`                                                                       |
-| Health     | `GET /health`                                                                |
-| Readiness  | `GET /ready`                                                                 |
-| Metrics    | `GET /metrics`                                                               |
-| Auth scope | `AGENT_COORDINATOR_SCOPE`, default `agent:lifecycle` in deployment templates |
+Applications use Caracal SDK Session and Delegation APIs or the documented Coordinator API. The console BFF uses an operator credential to inspect and intervene. Top-level runtime commands do not manage Coordinator state.
 
-## Dependencies
+Do not place the operator Coordinator token in workload code. Do not write Coordinator tables or Redis lifecycle topics directly.
 
-| Dependency        | Purpose                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------- |
-| Postgres          | Sessions, service leases, invocations, Delegations, graph epochs, Coordinator outbox. |
-| Redis             | Lifecycle, invocation, delegation, and revocation streams.                            |
-| STS/JWKS          | Token validation and authority alignment.                                             |
-| Coordinator token | Console and operator access to Session and Delegation views.                          |
+## Runtime Contract
 
-## Jobs
+| Item      | Local value    |
+| --------- | -------------- |
+| Port      | `4000`         |
+| Liveness  | `GET /health`  |
+| Readiness | `GET /ready`   |
+| Metrics   | `GET /metrics` |
 
-| Job                   | Purpose                                                                                |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| TTL sweeper           | Expires stale sessions and delegation state.                                           |
-| Service lease sweeper | Marks stale long-lived Sessions unhealthy.                                             |
-| Deadline enforcer     | Handles invocation deadlines.                                                          |
-| Retention cleaner     | Removes expired historical coordination records.                                       |
-| Outbox publisher      | Publishes Coordinator outbox messages to Redis.                                        |
-| Lifecycle relay       | Observes `caracal.agents.lifecycle` delivery with HMAC origin verification and dedupe. |
+Use [Use Coordinator API](/api/coordinator/) for routes and SDK contracts. Service environment variables are cataloged in [Configure Service Environment](/operations/env-vars/).
 
-## Event Topics
+## Operational Flow
 
-Coordinator publishes `caracal.agents.lifecycle`, `caracal.invocations.lifecycle`, `caracal.delegations.invalidate`, and session revocation events.
+Session and Delegation writes commit to Postgres with outbox rows. Publishers relay lifecycle, invocation, delegation-invalidation, and revocation events through Redis. STS consults authoritative state before issuing authority tied to that lineage.
+
+Task Sessions expire by TTL. Service Sessions require heartbeat renewal. Sweepers mark stale leases, enforce invocation deadlines, expire Delegations, and clean terminal records according to retention settings.
+
+## Failure Implications
+
+| Failure                     | User impact                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| Postgres unavailable        | Session/Delegation operations and readiness fail.                                           |
+| Redis/outbox delayed        | Downstream lifecycle and invalidation views lag; durable state remains available for retry. |
+| Service heartbeat stops     | The Session becomes unhealthy or expires even if its process still exists.                  |
+| Sweeper unavailable         | Stale state remains longer; alert on job/readiness metrics.                                 |
+| Operator credential missing | Console Session and Delegation views fail; workload SDK credentials are a separate path.    |
 
 ## Next Step
 
-Use [Issue Mandates](/services/sts/) to understand how STS validates sessions and Delegations during token exchange.
-
-## Related Pages
-
-- [Use Coordinator API](/api/coordinator/)
-- [Coordinate Sessions](/architecture/delegation-flow/)
-- [Manage Sessions and Delegation](/runtime-console/agents/)
+[Issue Mandates](/services/sts/) for the authority path, [Coordinate Sessions](/architecture/delegation-flow/) for the cross-service flow, or [Manage Runtime Authority](/runtime-console/agents/) for the operator workflow.

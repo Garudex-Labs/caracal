@@ -4,8 +4,9 @@
 // Unit tests for SDK HTTP context middleware and Fastify hook delegation.
 
 import { describe, it, expect, vi } from 'vitest'
+import Fastify from 'fastify'
 import { caracalContextMiddleware, caracalFastifyHook, type FastifyReplyLike } from '../../../../packages/sdk/ts/src/http.js'
-import type { Caracal } from '../../../../packages/sdk/ts/src/client.js'
+import { Caracal } from '../../../../packages/sdk/ts/src/client.js'
 
 function fakeCaracal(impl: Partial<Caracal>): Caracal {
   return impl as unknown as Caracal
@@ -91,5 +92,39 @@ describe('caracalFastifyHook', () => {
     hook({ headers: { authorization: 'Bearer y' } }, reply, done)
     await vi.waitFor(() => expect(done).toHaveBeenCalledWith(failure))
     expect(calls.send).toHaveLength(0)
+  })
+
+  it('preserves isolated ambient context across real Fastify async handlers', async () => {
+    const caracal = new Caracal({
+      coordinator: { baseUrl: 'http://coordinator' },
+      zoneId: 'local-zone',
+      applicationId: 'local-app',
+      subjectToken: 'root-token',
+    })
+    const app = Fastify()
+    app.addHook(
+      'onRequest',
+      caracalFastifyHook(caracal, {
+        verify: async (token) => {
+          await new Promise((resolve) => setImmediate(resolve))
+          return { zoneId: 'verified-zone', applicationId: 'verified-app', sessionId: token, hop: 1 }
+        },
+      }),
+    )
+    app.get('/context', async () => {
+      await Promise.resolve()
+      await new Promise((resolve) => setImmediate(resolve))
+      return { sessionId: caracal.current()?.sessionId }
+    })
+
+    const responses = await Promise.all(
+      ['session-a', 'session-b', 'session-c'].map((token) =>
+        app.inject({ method: 'GET', url: '/context', headers: { authorization: `Bearer ${token}` } }),
+      ),
+    )
+
+    expect(responses.map((response) => response.json().sessionId)).toEqual(['session-a', 'session-b', 'session-c'])
+    expect(caracal.current()).toBeUndefined()
+    await app.close()
   })
 })

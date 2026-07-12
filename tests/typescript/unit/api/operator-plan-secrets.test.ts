@@ -73,7 +73,7 @@ describe('planProviderConfigError', () => {
 
   it('rejects a credential field in plan config', () => {
     expect(planProviderConfigError('oauth2_client_credentials', { client_secret: 'hunter2' })).toMatch(/must not carry client_secret/)
-    expect(planProviderConfigError('oauth2_client_credentials', { client_id: 'son-of-anton' })).toMatch(/must not carry client_id/)
+    expect(planProviderConfigError('oauth2_client_credentials', { client_id: 'anton' })).toMatch(/must not carry client_id/)
     expect(planProviderConfigError('api_key', { api_key: 'abc' })).toMatch(/must not carry api_key/)
   })
 

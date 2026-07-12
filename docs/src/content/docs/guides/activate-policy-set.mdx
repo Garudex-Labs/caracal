@@ -3,7 +3,13 @@ title: Activate a Policy Set
 description: Version policies, bundle them into a policy set, simulate the result, and promote the version to active.
 ---
 
-The STS evaluates the active policy-set version for a zone. Activation is explicit so policy changes can be reviewed, simulated, and rolled out without mutating old versions.
+Use this guide when validated policy data must become live. The job is complete only after simulation, activation, propagation, and a real audited exchange; creating a policy version alone changes no authorization result.
+
+## Prerequisites
+
+- A validated policy version and representative allow and deny inputs.
+- A policy set in the target zone and the current active version recorded for rollback.
+- Console access or an Admin client in a trusted automation environment.
 
 ## The mental model
 
@@ -40,7 +46,7 @@ flowchart LR
 
 ## Web Console Workflow
 
-1. Open `caracal web`.
+1. Open the web console for your deployment.
 2. Select **Policies** and create or update the Rego policy.
 3. Select **Policy Sets** and create a set for the zone.
 4. Add the policy version to a new policy-set version.
@@ -59,11 +65,11 @@ const admin = new AdminClient({
 });
 
 const policy = await admin.policies.create(process.env.CARACAL_ZONE_ID!, {
-  name: "payments-read",
+  name: "pipernet-read",
   content: policySource,
 });
 
-const set = await admin.policySets.create(process.env.CARACAL_ZONE_ID!, "payments");
+const set = await admin.policySets.create(process.env.CARACAL_ZONE_ID!, "pipernet");
 const version = await admin.policySets.addVersion(process.env.CARACAL_ZONE_ID!, set.id, [
   { policy_version_id: policy.version.id },
 ]);
@@ -128,4 +134,17 @@ if (check.result?.decision === "allow") {
 }
 ```
 
-The [Iterate Policy Safely example](/examples/policy-iterate/) wraps this loop as a runnable script.
+The reconstructed input is redaction-safe: actor and subject claims are never written to audit, so add any claim-dependent fields before simulating. The [Iterate Policy Safely example](/examples/policy-iterate/) wraps this loop as a runnable script.
+
+## Likely failure points
+
+| Failure | Response |
+| --- | --- |
+| Simulation warns or denies the intended input | Correct the data document and create another immutable version. |
+| Activation is accepted but status never reaches `loaded` | Inspect the outbox identifier and STS readiness; do not assume propagation. |
+| Real decisions still name the previous manifest | Treat the replica as unconverged and keep rollout monitoring active. |
+| Rollback is needed | Activate the recorded prior version; never mutate the failed version. |
+
+## Next Step
+
+Run [Iterate Policy Safely](/examples/policy-iterate/) for the first real denial, or [Debug Authorization Decisions](/guides/authorize-access/) when live behavior differs from simulation.

@@ -6,38 +6,52 @@
  */
 
 import { defineConfig } from 'astro/config'
+import { unified } from '@astrojs/markdown-remark'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
+import starlightVersions from 'starlight-versions'
 import remarkGfm from 'remark-gfm'
+import { remarkDocsRoutes } from './src/plugins/remarkDocsRoutes.mjs'
 import { remarkMermaid } from './src/plugins/remarkMermaid.mjs'
+import { docsShellPlugin, docsSnapshotMode, docsVersionState, starlightVersionsConfig, versionedRedirects } from './versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 const ogImage = '/img/caracal.png'
 const description =
-  'The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.'
+  'Caracal gives agents and automated workloads short-lived, policy-approved authority for protected resources.'
+const legacyRedirects = {
+  '/get-started/choose-your-path/': '/get-started/',
+  '/get-started/welcome/': '/get-started/',
+  '/get-started/installation/': '/get-started/install-caracal/',
+  '/get-started/quickstart/': '/get-started/first-protected-call/',
+  '/get-started/five-minute-setup/': '/get-started/first-protected-call/',
+  '/get-started/first-integration/': '/get-started/add-sdk-to-your-app/',
+  '/get-started/key-ideas/': '/concepts/model-overview/',
+  '/get-started/what-caracal-does/': '/concepts/authority-model/',
+  '/get-started/contributor-quickstart/': '/contributing/setup/',
+  '/tutorials/protect-real-api/': '/tutorials/protect-an-api/',
+  '/tutorials/connect-sdk-app/': '/tutorials/connect-an-agent/',
+  '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
+  '/guides/model-application/': '/guides/modeling-recipes/',
+  '/guides/debug-authorization/': '/guides/authorize-access/',
+  '/guides/production-integration-patterns/': '/guides/production-patterns/',
+  '/guides/enterprise-runtime-patterns/': '/guides/production-patterns/',
+  '/operations/enterprise-install-kit/': '/operations/install-kit/',
+  '/enterprise/': '/security/adoption-review/',
+  '/enterprise/compliance-readiness/': '/security/adoption-review/',
+  '/security/enterprise-readiness/': '/security/adoption-review/',
+  '/releases/': 'https://github.com/Garudex-Labs/caracal/releases',
+  '/blogs/': 'https://medium.com/@caracal.core',
+  '/blog/caracal-joins-lfx-mentorship/': 'https://medium.com/@caracal.core',
+  '/vlogs/': 'https://www.youtube.com/@CaracalAI',
+}
 
 export default defineConfig({
   output: 'static',
-  redirects: {
-    '/get-started/choose-your-path/': '/get-started/',
-    '/get-started/welcome/': '/get-started/',
-    '/get-started/installation/': '/get-started/install-caracal/',
-    '/get-started/quickstart/': '/get-started/first-protected-call/',
-    '/get-started/five-minute-setup/': '/get-started/first-protected-call/',
-    '/get-started/first-integration/': '/get-started/add-sdk-to-your-app/',
-    '/get-started/key-ideas/': '/concepts/model-overview/',
-    '/get-started/what-caracal-does/': '/concepts/authority-model/',
-    '/get-started/contributor-quickstart/': '/contributing/setup/',
-    '/tutorials/protect-real-api/': '/tutorials/protect-an-api/',
-    '/tutorials/connect-sdk-app/': '/tutorials/connect-an-agent/',
-    '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
-    '/guides/model-application/': '/guides/modeling-recipes/',
-    '/guides/debug-authorization/': '/guides/authorize-access/',
-    '/guides/production-integration-patterns/': '/guides/enterprise-runtime-patterns/',
-  },
+  redirects: docsSnapshotMode ? {} : versionedRedirects(legacyRedirects, new URL('./src/content/docs/', import.meta.url).pathname),
   markdown: {
-    remarkPlugins: [remarkGfm, remarkMermaid],
+    processor: unified({ remarkPlugins: [remarkGfm, remarkMermaid, remarkDocsRoutes] }),
   },
   site,
   trailingSlash: 'always',
@@ -46,8 +60,9 @@ export default defineConfig({
   },
   integrations: [
     react(),
-    sitemap(),
+    sitemap({ filter: (page) => !new URL(page).pathname.startsWith('/next/') }),
     starlight({
+      plugins: docsSnapshotMode && docsVersionState.current ? [starlightVersions(starlightVersionsConfig)] : [docsShellPlugin()],
       title: 'Caracal',
       description,
       logo: {
@@ -106,7 +121,7 @@ export default defineConfig({
             author: { '@type': 'Organization', name: 'Garudex Labs' },
             license: 'https://www.apache.org/licenses/LICENSE-2.0',
             applicationCategory: 'DeveloperApplication',
-            operatingSystem: 'Linux, macOS',
+            operatingSystem: 'Linux, macOS, Windows',
             programmingLanguage: ['Go', 'TypeScript', 'Python'],
           }),
         },
@@ -121,7 +136,9 @@ export default defineConfig({
         Head: './src/components/Head.astro',
         Header: './src/components/Header.astro',
         Hero: './src/components/Hero.astro',
-        ThemeSelect: './src/components/ThemeSelect.astro',
+        MobileMenuToggle: './src/components/MobileMenuToggle.astro',
+        SiteTitle: './src/components/SiteTitle.astro',
+        ThemeSelect: './src/components/ThemeSelectWithVersion.astro',
         Footer: './src/components/DocFooter.astro',
         PageSidebar: './src/components/PageSidebar.astro',
       },
@@ -142,7 +159,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', link: '/tutorials/' },
             { label: 'Protect Your First Real API', link: '/tutorials/protect-an-api/' },
-            { label: 'Connect Your App with the SDK', link: '/tutorials/connect-an-agent/' },
+            { label: 'Make Runs Identifiable with Labels', link: '/tutorials/connect-an-agent/' },
             { label: 'Trace One Protected Request', link: '/tutorials/inspect-a-run/' },
             { label: 'Choose Your Production Integration Path', link: '/tutorials/choose-production-path/' },
           ],
@@ -154,6 +171,7 @@ export default defineConfig({
             { label: 'Overview', link: '/guides/' },
             {
               label: 'Plan the Integration',
+              collapsed: true,
               items: [
                 { label: 'Model Your Application in Caracal', link: '/guides/modeling-recipes/' },
                 { label: 'Serve Your Own Customers', link: '/guides/serve-customers/' },
@@ -163,6 +181,7 @@ export default defineConfig({
             },
             {
               label: 'Authorization',
+              collapsed: true,
               items: [
                 { label: 'Author Policy Data', link: '/guides/author-policy/' },
                 { label: 'Activate a Policy Set', link: '/guides/activate-policy-set/' },
@@ -171,6 +190,7 @@ export default defineConfig({
             },
             {
               label: 'Integrate Application Code',
+              collapsed: true,
               items: [
                 { label: 'Integrate the TypeScript SDK', link: '/guides/sdk-typescript/' },
                 { label: 'Integrate the Python SDK', link: '/guides/sdk-python/' },
@@ -183,6 +203,7 @@ export default defineConfig({
             },
             {
               label: 'Protect Resource Servers',
+              collapsed: true,
               items: [
                 { label: 'Protect a Gateway-Routed HTTP API', link: '/guides/protect-gateway-http/' },
                 { label: 'Protect an Express App', link: '/guides/protect-express/' },
@@ -194,12 +215,13 @@ export default defineConfig({
             },
             {
               label: 'Operate and Extend',
+              collapsed: true,
               items: [
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
-                { label: 'Human Approvals', link: '/guides/step-up/' },
+                { label: 'Human Approval', link: '/guides/step-up/' },
                 { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
-                { label: 'Production Integration Patterns', link: '/guides/enterprise-runtime-patterns/' },
+                { label: 'Production Integration Patterns', link: '/guides/production-patterns/' },
               ],
             },
           ],
@@ -263,7 +285,7 @@ export default defineConfig({
             { label: 'Run Workloads', link: '/runtime-console/runtime/' },
             { label: 'Manage Product Objects', link: '/runtime-console/admin/' },
             { label: 'Inspect Diagnostics and Audit', link: '/runtime-console/observability/' },
-            { label: 'Manage Sessions and Delegation', link: '/runtime-console/agents/' },
+            { label: 'Manage Runtime Authority', link: '/runtime-console/agents/' },
           ],
         },
         {
@@ -296,7 +318,7 @@ export default defineConfig({
               label: 'Agent Authority',
               collapsed: true,
               items: [
-                { label: 'Agent Delegation', link: '/concepts/delegation/' },
+                { label: 'Session Delegation', link: '/concepts/delegation/' },
                 { label: 'Delegation Constraints', link: '/concepts/constraint/' },
                 { label: 'Sessions and Revocation', link: '/concepts/sessions-revocation/' },
               ],
@@ -328,7 +350,7 @@ export default defineConfig({
                 { label: 'Provision with OpenTofu', link: '/operations/opentofu/' },
                 { label: 'Choose a Cloud Profile', link: '/operations/cloud-native-profiles/' },
                 { label: 'Deploy on Managed Kubernetes', link: '/operations/cloud-reference-deployments/' },
-                { label: 'Package an Install Kit', link: '/operations/enterprise-install-kit/' },
+                { label: 'Package an Install Kit', link: '/operations/install-kit/' },
               ],
             },
             {
@@ -386,8 +408,8 @@ export default defineConfig({
             { label: 'Harden Security Posture', link: '/security/hardening/' },
             { label: 'Verify a Release', link: '/security/verify-releases/' },
             { label: 'Generate an Evidence Pack', link: '/security/evidence-pack/' },
+            { label: 'Review OSS Adoption Readiness', link: '/security/adoption-review/' },
             { label: 'Report a Vulnerability', link: '/security/disclosure/' },
-            { label: 'Enterprise Security Readiness', link: '/security/enterprise-readiness/' },
           ],
         },
         {
@@ -474,18 +496,10 @@ export default defineConfig({
               label: 'Versions and Contracts',
               collapsed: true,
               items: [
-                { label: 'Releases', link: '/releases/' },
+                { label: 'Releases', link: 'https://github.com/Garudex-Labs/caracal/releases' },
                 { label: 'Compatibility', link: '/reference/compatibility/' },
                 { label: 'Release Map', link: '/reference/release-package-runtime-map/' },
                 { label: 'Wire Contracts', link: '/reference/interoperability-contracts/' },
-              ],
-            },
-            {
-              label: 'Enterprise Adoption',
-              collapsed: true,
-              items: [
-                { label: 'Compare Editions', link: '/enterprise/' },
-                { label: 'Compliance and Operations Readiness', link: '/enterprise/compliance-readiness/' },
               ],
             },
           ],
@@ -501,7 +515,7 @@ export default defineConfig({
               items: [
                 { label: 'Map the System', link: '/architecture/system-topology/' },
                 { label: 'Exchange Tokens', link: '/architecture/token-exchange-flow/' },
-                { label: 'Coordinate Agents', link: '/architecture/delegation-flow/' },
+                { label: 'Coordinate Sessions', link: '/architecture/delegation-flow/' },
               ],
             },
             {
@@ -526,7 +540,7 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: 'Manage Product State', link: '/services/api/' },
-                { label: 'Coordinate Agent State', link: '/services/coordinator/' },
+                { label: 'Coordinate Session State', link: '/services/coordinator/' },
               ],
             },
             {

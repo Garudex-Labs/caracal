@@ -26,7 +26,6 @@ import {
   Field,
   IdentityAvatar,
   Modal,
-  Select,
   Spinner,
   useCopyToClipboard,
   useToast,

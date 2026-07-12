@@ -1,40 +1,48 @@
 ---
 title: Tutorials
-description: Guided post-onboarding walkthroughs for protecting a real API, connecting app code, tracing one request, and choosing the next integration path.
+description: A guided journey from the Get Started agent flow to a protected real API, identifiable app runs, self-serve debugging, and a chosen production path.
 pageType: workflow
 ---
 
-Tutorials are the guided path after [Get Started](/get-started/). They turn your first local success into the next developer tasks: protect a real API, call it from your app, trace one request, then choose the production integration guide that matches your stack.
+In [Get Started](/get-started/) your agent made one protected call to an LLM provider and you proved the full enforcement path. Tutorials make that setup yours. Working through them in order, you will:
+
+1. **Protect a real API** - put Caracal in front of an HTTP service you actually run, and prove Caracal denies what policy does not allow.
+2. **Make your runs identifiable** - label the calls your code makes, so you can tell one agent's work from another's in the audit trail.
+3. **Debug on your own** - follow any request through the decision trail and answer "why was this allowed or denied?" without guessing.
+4. **Choose your production path** - pick the one integration guide that matches how you will deploy for real.
+
+Each tutorial builds on the previous one and tells you what to expect after every step. None of them repeats installation or first-call setup.
 
 ## Tutorial Path
 
 ```mermaid
 flowchart LR
-  API[Protect real API]
-  SDK[Connect app]
-  Trace[Trace request]
+  API[Protect a real API]
+  SDK[Make runs identifiable]
+  Trace[Debug a request]
   Path[Choose production path]
 
   API --> SDK --> Trace --> Path
 ```
 
-| Outcome                                                                       | Tutorial                                                             | What you use                                                                                    |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Put an enforced boundary in front of one real HTTP service or provider route. | [Protect Your First Real API](./protect-an-api/)                     | web console **Resources**, **provider**, **policy**, Gateway, and audit.                        |
-| Wire application code through Caracal with a runtime profile.                 | [Connect Your App with the SDK](./connect-an-agent/)                 | TypeScript, Python, or Go SDK; Session; Gateway.                                                |
-| Prove why one protected request succeeded or failed.                          | [Trace One Protected Request](./inspect-a-run/)                      | web console **Audit**, **request trace**, sessions, policy diagnostics, and delegation context. |
-| Choose the durable guide for your production boundary.                        | [Choose Your Production Integration Path](./choose-production-path/) | Gateway, SDK, adapter, runtime, delegation, audit, and step-up guides.                          |
+| You will be able to... | Tutorial |
+| --- | --- |
+| Put Caracal in front of one HTTP service you own, and prove both the allow and the deny. | [Protect Your First Real API](./protect-an-api/) |
+| Tell your agents' runs apart in the audit trail using labels. | [Make Runs Identifiable with Labels](./connect-an-agent/) |
+| Explain any request's outcome from its decision trace. | [Trace One Protected Request](./inspect-a-run/) |
+| Commit to one production integration boundary. | [Choose Your Production Integration Path](./choose-production-path/) |
 
 ## Before You Begin
 
-You should have completed [First Protected Call](/get-started/first-protected-call/) or equivalent setup:
+You need the working setup from Get Started:
 
-- a running Caracal stack;
-- one zone;
-- one confidential agent app;
-- one protected resource;
-- one active policy set;
-- a runtime profile.
+- a running stack - if you cleaned up earlier, run `caracal up` and wait for `caracal status --ready`;
+- your zone, the Anton application, and its active policy;
+- the working SDK example and `caracal.toml` profile from [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
+
+:::note
+If any prerequisite is missing, return to [Get Started](/get-started/). Tutorials assume the evaluator stack already works.
+:::
 
 ## After Tutorials
 

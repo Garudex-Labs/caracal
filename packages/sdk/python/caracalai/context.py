@@ -67,17 +67,19 @@ class AuthoritySummary:
 
 @dataclass(frozen=True)
 class VerifiedClaims:
-    """Attribution a verify hook proved from the token itself. Fields set here
-    override the caller-supplied envelope when binding inbound context, so
-    attribution comes from verified claims rather than forgeable headers."""
+    """Complete attribution a verify hook proved from the token itself.
 
-    zone_id: str | None = None
-    application_id: str | None = None
+    Optional fields are authoritatively absent when omitted and never fall
+    back to the caller-supplied envelope after verification.
+    """
+
+    zone_id: str
+    application_id: str
+    hop: int
     session_id: str | None = None
     delegation_id: str | None = None
     parent_delegation_id: str | None = None
     subject_authority_record_id: str | None = None
-    hop: int | None = None
 
 
 class CaracalContextPatch(TypedDict):

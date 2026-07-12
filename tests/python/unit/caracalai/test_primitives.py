@@ -6,6 +6,7 @@ SDK primitives unit tests: session, delegation, and service lease flows.
 """
 
 import unittest
+from inspect import isawaitable
 
 import httpx
 
@@ -22,9 +23,31 @@ from caracalai.primitives import (
 
 
 def _coord(handler) -> CoordinatorClient:
+    async def with_lease(req: httpx.Request) -> httpx.Response:
+        response = handler(req)
+        if isawaitable(response):
+            response = await response
+        if req.method != "POST" or response.status_code >= 300:
+            return response
+        body = response.json()
+        if not isinstance(body, dict):
+            return response
+        if str(req.url).endswith("/agents") and "agent_session_id" in body:
+            body.setdefault("lease_generation", 1)
+        if str(req.url).endswith("/heartbeat"):
+            agent = body.setdefault("agent", {})
+            agent.setdefault("lease_generation", 1)
+        if str(req.url).endswith("/lease"):
+            body.setdefault("lease_generation", 1)
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            json=body,
+        )
+
     return CoordinatorClient(
         base_url="http://coord.test",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(with_lease)),
     )
 
 
@@ -209,16 +232,6 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DelegateTests(unittest.IsolatedAsyncioTestCase):
-    async def test_rejects_non_positive_ttl_before_network(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            await delegate(
-                coordinator=_coord(_default_handler),
-                to_session_id="agent-2",
-                to_application_id="app-2",
-                scopes=["tool:call"],
-                ttl_seconds=0,
-            )
-
     async def test_raises_without_active_agent_session(self) -> None:
         coord = _coord(_default_handler)
         with self.assertRaises(RuntimeError):
@@ -320,10 +333,6 @@ class DelegateTests(unittest.IsolatedAsyncioTestCase):
             ("read", "write"),
         )
 
-    def test_narrow_rejects_non_positive_ttl(self) -> None:
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            Authority.narrow("read", ttl_seconds=0)
-
 
 class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_refreshes_initial_heartbeat_once_after_401(self) -> None:
@@ -338,7 +347,10 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(401, json={"error": "invalid_token"})
             if request.method == "DELETE":
                 return httpx.Response(204)
-            return httpx.Response(200, json={"agent": {"status": "active"}})
+            return httpx.Response(
+                200,
+                json={"status": "active", "lease_generation": 1},
+            )
 
         def invalidate() -> None:
             nonlocal invalidations
@@ -371,10 +383,9 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
-                    "agent": {
-                        "status": "active",
-                        "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
-                    }
+                    "status": "active",
+                    "heartbeat_deadline_at": "2026-07-09T12:00:00+00:00",
+                    "lease_generation": 1,
                 },
             )
 
@@ -391,7 +402,7 @@ class AttachSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handle.context.session_id, "agent-persisted")
         self.assertEqual(handle.heartbeat_deadline_at, "2026-07-09T12:00:00+00:00")
         self.assertTrue(
-            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/heartbeat")
+            str(requests[0].url).endswith("/zones/z/agents/agent-persisted/lease")
         )
         await handle.aclose()
         self.assertIn(

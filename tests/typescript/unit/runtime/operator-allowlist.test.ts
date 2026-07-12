@@ -3,7 +3,7 @@
 //
 // Unit tests for `caracal allowlist`: file contract, permissions, entry lifecycle, and command behavior.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,6 +12,7 @@ import {
   allowlistAdd,
   allowlistRemove,
   allowlistSetStatus,
+  ensureOperatorAllowlistDir,
   normalizeAllowlistEntry,
   operatorAllowlistPath,
   readOperatorAllowlist,
@@ -50,19 +51,30 @@ describe('normalizeAllowlistEntry', () => {
 })
 
 describe('allowlist file contract', () => {
-  it('writes a sorted emails map with owner-only mode', () => {
+  it('writes a sorted emails map readable by the container runtime user', () => {
     allowlistAdd(dir, 'monica.hall@piedpiper.example')
     const change = allowlistAdd(dir, 'gavin.belson@hooli.example')
     expect(change.path).toBe(join(dir, OPERATOR_ALLOWLIST_DIR, OPERATOR_ALLOWLIST_FILE))
     const record = JSON.parse(readFileSync(change.path, 'utf8')) as { emails: Record<string, string> }
     expect(Object.keys(record.emails)).toEqual(['gavin.belson@hooli.example', 'monica.hall@piedpiper.example'])
     if (process.platform !== 'win32') {
-      expect(statSync(change.path).mode & 0o777).toBe(0o600)
+      expect(statSync(change.path).mode & 0o777).toBe(0o644)
+      expect(statSync(join(dir, OPERATOR_ALLOWLIST_DIR)).mode & 0o777).toBe(0o755)
     }
   })
 
   it('reads an absent file as an empty allowlist', () => {
     expect(readOperatorAllowlist(dir)).toEqual({ emails: {} })
+  })
+
+  it('raises an older 0700 allowlist directory to container-readable 0755', () => {
+    if (process.platform === 'win32') return
+    const legacyDir = join(dir, OPERATOR_ALLOWLIST_DIR)
+    mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+    chmodSync(legacyDir, 0o700)
+    expect(statSync(legacyDir).mode & 0o777).toBe(0o700)
+    ensureOperatorAllowlistDir(dir)
+    expect(statSync(legacyDir).mode & 0o777).toBe(0o755)
   })
 
   it('refuses to operate on a corrupted file', () => {

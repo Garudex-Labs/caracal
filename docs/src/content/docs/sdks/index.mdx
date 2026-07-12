@@ -5,6 +5,10 @@ description: Choose the Caracal SDK, verification engine, framework adapter, adm
 
 Use SDKs when you need package-level details after a guide. The [Guides](/guides/) section shows task workflows; this section explains package names, install commands, public APIs, runtime requirements, and where each package fits.
 
+:::caution[Three separate boundaries]
+Application SDKs create and carry authority, the Admin package changes product state, and verification packages enforce inbound mandates. Do not use an application credential for administration or treat context propagation as authentication.
+:::
+
 ## Choose by What You Are Building
 
 | I am building...                     | Start here                                           | Then read                                                                                             |
@@ -42,9 +46,11 @@ Use SDKs when you need package-level details after a guide. The [Guides](/guides
 | Python    | Python `>=3.12` for published Python packages.                                                                        |
 | Go        | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
 
+Each Go submodule has a path-prefixed release tag at the same commit as the product tag, so an exact Caracal SemVer resolves without a pseudo-version. Adapter availability is intentionally ecosystem-specific; parity covers behavior exposed by all three application facades, not identical framework packages.
+
 ## Related Guides
 
 - [Add SDK to Your App](/get-started/add-sdk-to-your-app/)
-- [Connect Your App with the SDK](/tutorials/connect-an-agent/)
+- [Make Runs Identifiable with Labels](/tutorials/connect-an-agent/)
 - [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)
 - [Implement Multi-Agent Delegation](/guides/delegation/)

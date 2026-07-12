@@ -1,55 +1,54 @@
 ---
 title: Secure Caracal
-description: Review Caracal security boundaries, harden production deployments, and report vulnerabilities responsibly.
+description: Review, verify, harden, and respond to security risks in the open-source runtime.
 pageType: landing
 ---
 
-Security in Caracal centers on pre-execution authority: STS issues scoped mandates, Gateway enforces protected-resource access, Coordinator tracks agent/delegation state, Audit preserves evidence, and Operations keeps storage, streams, secrets, and releases recoverable.
+This section covers OSS code and assets in this repository, not enterprise code, customer infrastructure, external identity providers/upstreams, or model behavior.
 
-## Security Model
+## The Security Model in Brief
 
-```mermaid
-flowchart LR
-  Operator[Operator] --> API[API and Console]
-  Workload[Workload] --> STS[STS]
-  Request[Protected request] --> Gateway[Gateway]
-  Agent[Agent SDK] --> Coordinator[Coordinator]
-  API --> Audit[Audit evidence]
-  STS --> Audit
-  Gateway --> Audit
-  Coordinator --> Audit
-  Audit --> Postgres[(Append-only audit)]
-```
+Caracal's core security idea is that programs hold **authority, not credentials**: instead of standing API keys, a program receives a short-lived signed pass for exactly one approved action, and every link in that chain fails closed. Four properties carry the model:
 
-## Security Review Path
+| Property | What it means | Mechanics |
+| --- | --- | --- |
+| Deny by default | Nothing is callable until a resource is registered, a grant path exists, and the active policy allows the request. | [Authority and Enforcement](/concepts/authority-model/) |
+| Fail closed | A policy, key, replay, revocation, Session, or Approval failure stops issuance; a verification failure stops the request before the upstream. | [Mandates](/concepts/mandate/) |
+| Central revocation | Ending a Session, Delegation, or Authority record invalidates dependent authority without key rotation or redeploys. | [Sessions and Revocation](/concepts/sessions-revocation/) |
+| Tamper-evident evidence | Decisions and results are recorded append-only with integrity checks, replay, and dead-letter paths. | [Audit and Request Traces](/concepts/audit-ledger/) |
 
-| Need | Page |
+## What Is Enforced, Recommended, and Yours
+
+An honest evaluation separates three categories. Repository code enforces the first; documentation recommends the second; only you can provide the third.
+
+**Enforced by the code** (verifiable in source and tests):
+
+- STS fails closed on Policy, key, replay, revocation, Session, Approval, and signing failures.
+- Gateway authorizes before dispatch and applies binding, egress, redirect, replay, and revocation controls.
+- Published modes require integrity keys and authenticated metrics.
+- Audit is append-only/tamper-evident with replay and DLQ paths.
+- Runtime secrets remain outside untrusted application/agent workspaces.
+- OSS behavior does not depend on enterprise code.
+
+**Recommended practices** (documented, not forced): pin and [verify releases](/security/verify-releases/), keep mandate TTLs short, use shared revocation stores in production, route provider credentials through Gateway brokering, and walk the [hardening checklist](/security/hardening/) before real traffic.
+
+**Your responsibilities** (outside the repository's reach): host and network isolation, TLS termination, identity-provider governance, key custody and rotation cadence, backup and restore testing, monitoring ownership, and any compliance program. Repository controls contribute evidence to those programs; they never satisfy them alone.
+
+## Choose a Review
+
+| Goal | Page |
 | --- | --- |
-| Understand assets, boundaries, threats, and mitigations | [Review the Threat Model](/security/threat-model/) |
-| Harden a production deployment | [Harden Security Posture](/security/hardening/) |
-| Verify a release before installing | [Verify a Release](/security/verify-releases/) |
-| Demonstrate assurance to a reviewer or auditor | [Generate an Evidence Pack](/security/evidence-pack/) |
-| Report a vulnerability privately | [Report a Vulnerability](/security/disclosure/) |
-| Operate a security incident | [Respond to Incidents](/operations/incident-response/) |
-| Evaluate the project for enterprise adoption | [Enterprise Security Readiness](/security/enterprise-readiness/) |
+| Assets, boundaries, threats, residual risk | [Review the Threat Model](/security/threat-model/) |
+| Deployed environment review | [Harden Security Posture](/security/hardening/) |
+| Artifact verification | [Verify a Release](/security/verify-releases/) |
+| Repository evidence | [Generate an Evidence Pack](/security/evidence-pack/) |
+| Private reporting | [Report a Vulnerability](/security/disclosure/) |
+| Adoption controls and non-claims | [Review OSS Adoption Readiness](/security/adoption-review/) |
 
-## Core Invariants
+## Review Completion
 
-- STS must fail closed on policy, key, session, revocation, replay, step-up, and signing errors.
-- Gateway must never trust caller-supplied destinations and must deny before upstream dispatch when authority or routing is unsafe.
-- Redis stream messages require HMAC signing in published modes where configured.
-- Audit evidence must remain append-only, tamper-evident, and recoverable through replay/DLQ paths.
-- Secrets must come from secret files or platform secret managers in production.
-- The open-source product must not depend on enterprise-only code or controls.
+Tie every claim to version, config, source/test evidence, and observed result. Repository controls do not replace host hardening, identity governance, recovery testing, or compliance programs.
 
 ## Next Step
 
-Read [Review the Threat Model](/security/threat-model/) before hardening a deployment.
-
-## Related Sections
-
-- [Enforce Boundaries](/architecture/trust-boundaries/)
-- [Harden Production](/operations/tls-hardening/)
-- [Rotate Keys and Secrets](/operations/key-management/)
-- [Configure Alerts](/operations/alerts/)
-- [Compare Editions](/enterprise/)
+Start with [Review the Threat Model](/security/threat-model/).

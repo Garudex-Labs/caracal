@@ -6,26 +6,21 @@ pageType: landing
 
 Use this section when you need wire-level behavior. For task workflows, start in [Guides](/guides/). For service ownership and operations, use [Understand Services](/services/) and [Operations](/operations/).
 
+Most integrations should use an SDK or the web console. Only the Admin API is a general external management API. Coordinator is a wire-facing SDK protocol, STS is an OAuth endpoint, Gateway is a protected reverse proxy, and event topics are deployment infrastructure rather than end-user HTTP APIs.
+
 ## API Surfaces
 
 | Surface                                  | Base                | Purpose                                                                                                            |
 | ---------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | [Use the Admin API](/api/control-plane/) | API service `/v1`   | Zones, applications, providers, resources, policies, policy sets, grants, Authority records, Sessions, audit, approvals, and templates. |
 | [Use Coordinator API](/api/coordinator/) | Coordinator service | Sessions, long-lived Session services, invocations, Delegations, and SDK lifecycle endpoints.                                   |
-| [Use STS Endpoint](/api/sts/)            | STS service         | OAuth token exchange, JWKS, step-up status, and internal policy operations.                                        |
+| [Use STS Endpoint](/api/sts/)            | STS service         | OAuth token exchange, JWKS, Approval status, and internal policy operations.                                       |
 | [Proxy Through Gateway](/api/gateway/)   | Gateway service     | Protected reverse-proxy behavior rather than CRUD endpoints.                                                       |
-| [Use Event Topics](/api/event-topics/)   | Redis Streams       | Audit, invalidation, revocation, agent, invocation, and delegation topics.                                         |
+| [Use Event Topics](/api/event-topics/)   | Redis Streams       | Audit, invalidation, revocation, Session, invocation, and Delegation topics.                                       |
 
 ## Service Ports
 
-| Service     | Local port              |
-| ----------- | ----------------------- |
-| API         | `3000`                  |
-| Coordinator | `4000`                  |
-| STS         | `8080`                  |
-| Gateway     | `8081`                  |
-| Audit       | `9090`                  |
-| Control     | API `3000` when enabled |
+Local Compose ports: API `3000`, Coordinator `4000`, STS `8080`, Gateway `8081`, Audit `9090`; Control shares the API port when enabled. The canonical port and endpoint maps are in [Defaults and Limits](/reference/defaults-and-limits/#ports) and [Monitor Health and Metrics](/operations/observability/#endpoint-map).
 
 ## Error Shape
 
@@ -40,6 +35,12 @@ Caracal service errors use the shared OAuth-compatible shape:
 ```
 
 See [Error Codes](/reference/errors/) for canonical codes.
+
+Do not assume one status code across surfaces: STS follows OAuth semantics, adapters distinguish 401 from 403, and Gateway can return either a Caracal preflight error or the upstream response. Branch on the documented machine-readable `error` field where a Caracal JSON error is present.
+
+## Stability
+
+The public Admin `/v1` routes and STS RFC 8693 exchange are supported integration surfaces. Coordinator field names such as `agents`, `agent_session_id`, and `delegation_edge_id` are protocol names retained for SDK interoperability; applications should use facade names. `/internal/*`, operator routes, private STS directives, and raw Redis topics are not general application APIs.
 
 ## Reading Path
 

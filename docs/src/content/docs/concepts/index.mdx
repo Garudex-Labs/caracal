@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-Caracal gives agents short-lived, policy-approved authority instead of long-lived secrets. Read this section after your first integration when you need the vocabulary behind guides, SDKs, operations pages, and API reference material.
+Read this section after Get Started when you need to design an integration or explain a decision. Get Started gave you the working vocabulary - application, resource, policy, mandate, Gateway, audit, zone. This section completes the model with the pieces behind them: how a **Session** bounds one run, how an optional **Subject** adds end-user attribution, how a **Delegation** narrows authority between Sessions, and how revocation and audit tie it all together. One sentence holds the whole picture: an Application acts in a Zone, a Session bounds execution, Delegation narrows authority, policy approves a Resource request, and a Mandate carries the result.
 
 ## Read This Section in Order
 
@@ -14,23 +14,25 @@ Caracal gives agents short-lived, policy-approved authority instead of long-live
 | [Caracal Mental Model](/concepts/model-overview/)         | The smallest useful picture of Caracal.                                       |
 | [Authority and Enforcement](/concepts/authority-model/)   | Where decisions happen before requests reach a target.                        |
 | [Zones](/concepts/zone/)                                  | The tenant boundary that owns keys, policies, resources, sessions, and audit. |
-| [Identities and Applications](/concepts/principal/)       | The identities that authenticate, run, and delegate.                          |
+| [Identities and Applications](/concepts/principal/)       | Application credentials, optional Subjects, Authority records, and Sessions.  |
 | [Resources and Grants](/concepts/resource-grant/)         | What can be accessed and which scopes are granted.                            |
 | [Providers](/concepts/provider/)                          | The credential Caracal attaches to the upstream target.                       |
 | [Policies and Policy Sets](/concepts/policy/)             | Rego rules evaluated by the STS during token exchange.                        |
 | [Mandates](/concepts/mandate/)                            | The short-lived JWT that carries approved authority.                          |
-| [Step-Up Challenges](/concepts/step-up/)                  | How sensitive actions are held for human approval.                            |
+| [Approvals](/concepts/step-up/)                           | How sensitive actions are held for a human decision.                          |
 | [Session Delegation](/concepts/delegation/)               | How one agent passes bounded authority to another.                            |
 | [Delegation Constraints](/concepts/constraint/)           | The limits attached to delegated authority.                                   |
 | [Sessions and Revocation](/concepts/sessions-revocation/) | How active authority is ended and propagated.                                 |
 | [Audit and Request Traces](/concepts/audit-ledger/)       | The event trail behind decisions and runs.                                    |
-| [Caracal Operator](/concepts/operator/)                   | The governed natural-language assistant for control-plane changes.            |
+| [Caracal Operator](/concepts/operator/)                   | An optional governed assistant for reviewed console changes.                  |
 
 ## Core Flow
 
 ```mermaid
 flowchart LR
-  Principal["Principal or agent"] --> SDK["SDK / Gateway request"]
+  App["Application"] --> Session["Session"]
+  Subject["Optional Subject"] -. attribution .-> Session
+  Session --> SDK["SDK / Gateway request"]
   SDK --> STS["STS token exchange"]
   STS --> Policy["Active policy set"]
   Policy --> Mandate["Mandate JWT"]
@@ -42,8 +44,8 @@ flowchart LR
 
 The same model appears across the product:
 
-- Onboarding uses the web console guided setup to create the first zone, application, resource, and policy, then you create a workload with launch bindings on the console's Launcher page and give it its workload ID and secret.
-- Guides use the SDKs, Console, Admin API, and adapters to build repeatable integrations.
+- Onboarding uses the web console guided setup to create the first zone, application, provider, resource, and policy, then makes the first protected call with the application's identity through an SDK transport.
+- Guides use the SDKs, web console, Admin API, and adapters to build repeatable integrations.
 - Operations pages use the same terms when explaining keys, revocation, audit, and runtime health.
 
 ## Term Map
@@ -52,9 +54,10 @@ The same model appears across the product:
 | ----------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Zone              | Tenant boundary for authority data and signing keys.                                                     | [Zones](/concepts/zone/)                                  |
 | Application       | Registered client or agent workload.                                                                     | [Identities and Applications](/concepts/principal/)       |
-| Principal         | User, service, or agent identity bound to a session.                                                     | [Identities and Applications](/concepts/principal/)       |
+| Subject           | Optional identity federated from your identity provider for attribution and supported approval flows. | [Identities and Applications](/concepts/principal/)       |
+| Authority record  | Immutable record of identity and authority context created by an exchange.                             | [Identities and Applications](/concepts/principal/)       |
 | Resource          | Protected API, MCP server, tool group, or upstream target.                                               | [Resources and Grants](/concepts/resource-grant/)         |
-| Grant             | Binding from an application and user to resource scopes.                                                 | [Resources and Grants](/concepts/resource-grant/)         |
+| Grant             | Policy data that describes which Application roles may request Resource scopes.                         | [Resources and Grants](/concepts/resource-grant/)         |
 | Provider          | Credential mode Caracal uses toward the upstream target.                                                 | [Providers](/concepts/provider/)                          |
 | Policy            | Versioned Rego logic evaluated at token exchange.                                                        | [Policies and Policy Sets](/concepts/policy/)             |
 | Policy set        | Versioned bundle of policies activated for a zone.                                                       | [Policies and Policy Sets](/concepts/policy/)             |

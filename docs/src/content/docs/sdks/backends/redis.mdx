@@ -3,7 +3,9 @@ title: Redis Revocation Store
 description: Shared Redis revocation stores and revocation stream consumers.
 ---
 
-The Redis backends provide shared revocation state for resource servers. They let multiple service instances reject mandates after sessions, roots, agents, or Delegations are revoked.
+The Redis backends provide shared revocation state for resource servers. They let multiple service instances reject mandates after Authority records, root Authority records, Sessions, or Delegations are revoked.
+
+Use this backend only for verification state. It is not a general Caracal data client and must not receive Admin API credentials.
 
 The resource server does not need to share a network with Caracal services. For separate VPC, cluster, or cloud deployments, give the resource workload private TLS connectivity to the managed Redis endpoint that carries Caracal streams, authenticate it with a dedicated least-privilege Redis identity, and run the consumer beside the verifier. Do not expose Redis publicly or distribute Caracal administrative tokens to resource applications.
 
@@ -23,6 +25,9 @@ The resource server does not need to share a network with Caracal services. For 
 | Consumer group    | `resource-revocation`                           |
 | Revocation TTL    | 24 hours                                        |
 | Signature support | Optional HMAC verification for stream messages. |
+| Dead-letter bound | Approximately 10,000 poison entries per `.dead` stream. |
+
+The store and consumers are long-lived resources. Start stream consumers with service startup, use unique consumer names, stop polling on shutdown, and close the caller-owned Redis connection. Verification should fail closed when the backend is unavailable.
 
 ## TypeScript store
 
@@ -45,18 +50,24 @@ Use the stream consumer when your resource server should learn revocations from 
 import { RedisRevocationConsumer } from '@caracalai/revocation-redis'
 
 const consumer = new RedisRevocationConsumer(redis, revocations, {
-  consumerName: 'api-1',
-  hmacSecret: process.env.CARACAL_REVOCATION_HMAC_SECRET,
+  consumer: 'api-1',
+  // The key material is the deployment's STREAMS_HMAC_KEY; deliver it to this
+  // workload through its own secret manager.
+  streamHmacKey: Buffer.from(process.env.STREAMS_HMAC_KEY!, 'hex'),
+  requireSignature: true,
 })
 
-await consumer.start()
+await consumer.ensureGroup()
+await consumer.pollOnce()
 ```
 
-Stream events can revoke multiple anchors. Resource servers should treat Redis or signature failures according to their risk posture; high-risk resources should fail closed.
+Stream events can revoke multiple anchors. Invalid signatures and permanently malformed messages are copied to the bounded `<stream>.dead` stream before acknowledgement. If the dead-letter write fails, the source message remains pending for recovery; transient application failures also remain pending.
 
-Each independently deployed resource instance uses a unique consumer name under a deployment-specific consumer group. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
+Delegated verification also needs the `caracal.delegations.invalidate` stream. Start `RedisDelegationInvalidationConsumer` beside `RedisRevocationConsumer` so the shared store receives the zone's current graph epoch; without it, signature and revocation-anchor checks still run, but `delegation_stale` cannot detect a mandate issued against an older graph epoch. Epoch writes use one atomic max-with-TTL operation, so delayed or concurrent messages cannot regress the recorded security state. The Python and Go Redis packages expose equivalent behavior.
 
-## Related pages
+Each independently deployed resource instance uses a unique consumer name under deployment-specific groups for both streams. Supply `STREAMS_HMAC_KEY` through that workload's secret manager and require stream signatures in published deployments. Network policy should permit only DNS and the exact private Redis endpoint; the application needs no Postgres, API, Coordinator, or internal service access for revocation.
+
+## Related Pages
 
 - [Revocation Package](/sdks/revocation/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)

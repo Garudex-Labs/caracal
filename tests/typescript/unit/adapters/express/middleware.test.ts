@@ -4,11 +4,14 @@
 // caracalAuth Express middleware unit tests: missing token, invalid token, scope check.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import express from 'express'
+import { once } from 'node:events'
 import type { Request, Response, NextFunction } from 'express'
 import { InMemoryRevocationStore } from '../../../../../packages/revocation/ts/src/inmem.js'
 import { caracalAuth } from '../../../../../packages/adapters/express/ts/src/middleware.js'
 import type { MandateVerifier } from '../../../../../packages/verify/ts/src/authenticate.js'
 import { authenticate } from '@caracalai/verify'
+import { current } from '../../../../../packages/sdk/ts/src/context.js'
 
 vi.mock('@caracalai/verify', async () => ({
   authenticate: vi.fn().mockResolvedValue({ ok: false, error: { code: 'invalid_token', description: 'Token validation failed' } }),
@@ -110,11 +113,12 @@ describe('caracalAuth middleware', () => {
     expect(next).toHaveBeenCalledOnce()
   })
 
-  it('binds a Caracal context using route headers and middleware zone defaults', async () => {
+  it('binds only verified authority fields while preserving trace propagation', async () => {
     vi.mocked(authenticate).mockResolvedValueOnce({
       ok: true,
       principal: {
         sub: 'user-1',
+        zoneId: 'zone-1',
         clientId: 'app-1',
         authorityRecordId: 'sid-1',
         rootAuthorityRecordId: 'root-1',
@@ -140,19 +144,15 @@ describe('caracalAuth middleware', () => {
     await middleware(req, res as Response, next as unknown as NextFunction)
 
     expect(next).toHaveBeenCalledOnce()
-    expect(
-      (
-        req as Request & {
-          caracalContext?: { zoneId: string; sessionId: string; delegationId: string; parentDelegationId: string; hop: number }
-        }
-      ).caracalContext,
-    ).toMatchObject({
-      zoneId: 'zone-1',
-      sessionId: 'agent-header',
-      delegationId: 'edge-header',
-      parentDelegationId: 'parent-header',
-      hop: 3,
-    })
+    const ctx = (
+      req as Request & {
+        caracalContext?: { zoneId: string; sessionId?: string; delegationId?: string; parentDelegationId?: string; hop: number }
+      }
+    ).caracalContext
+    expect(ctx).toMatchObject({ zoneId: 'zone-1', hop: 0 })
+    expect(ctx?.sessionId).toBeUndefined()
+    expect(ctx?.delegationId).toBeUndefined()
+    expect(ctx?.parentDelegationId).toBeUndefined()
   })
 
   it('prefers signed claims over unsigned baggage hints when binding context', async () => {
@@ -160,6 +160,7 @@ describe('caracalAuth middleware', () => {
       ok: true,
       principal: {
         sub: 'user-1',
+        zoneId: 'zone-1',
         clientId: 'app-1',
         authorityRecordId: 'sid-1',
         rootAuthorityRecordId: 'root-1',
@@ -221,5 +222,51 @@ describe('caracalAuth middleware', () => {
       expect(res.status).toHaveBeenCalledWith(403)
       expect(res.body).toMatchObject({ error: code, error_description: `${code} description`, error_hint: 'request broader access' })
     }
+  })
+
+  it('preserves isolated ambient context across real Express async handlers', async () => {
+    vi.mocked(authenticate).mockImplementation(async (token) => ({
+      ok: true,
+      principal: {
+        sub: 'user-1',
+        zoneId: 'zone-1',
+        clientId: 'app-1',
+        authorityRecordId: 'authority-1',
+        rootAuthorityRecordId: 'root-1',
+        use: 'resource',
+        subType: 'user',
+        jti: `jti-${token}`,
+        issuedAt: 1,
+        expiresAt: 2,
+        scope: 'tickets:read',
+        sessionId: token,
+        hopCount: 1,
+      },
+    }))
+    const app = express()
+    app.use(caracalAuth({ issuer: 'https://sts.zone1', audience: 'resource://api', zoneId: 'zone-1', revocations }))
+    app.get('/context', async (_req, res) => {
+      await Promise.resolve()
+      await new Promise((resolve) => setImmediate(resolve))
+      res.json({ sessionId: current()?.sessionId })
+    })
+    const server = app.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Express test server address unavailable')
+
+    const sessions = await Promise.all(
+      ['session-a', 'session-b', 'session-c'].map(async (token) => {
+        const response = await fetch(`http://127.0.0.1:${address.port}/context`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+        return (await response.json()).sessionId
+      }),
+    )
+
+    expect(sessions).toEqual(['session-a', 'session-b', 'session-c'])
+    expect(current()).toBeUndefined()
+    server.close()
+    await once(server, 'close')
   })
 })

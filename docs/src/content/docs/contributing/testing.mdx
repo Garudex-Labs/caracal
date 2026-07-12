@@ -16,30 +16,30 @@ This policy is mandatory and is enforced during review:
 
 ## Root Commands
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm run build:typescript` | Build TypeScript apps and packages. |
-| `pnpm run lint` | Run package linters where present. |
-| `pnpm run typecheck` | Run TypeScript type checks. |
-| `pnpm run test` | Full TypeScript, Go, and Python test suite. |
-| `pnpm run test:typescript` | TypeScript app/package tests. |
-| `pnpm run test:go` | Go service/package and interoperability tests. |
-| `pnpm run test:python` | Python package tests. |
-| `pnpm run ci` | Build, lint, typecheck, and test sequence. |
+| Command                     | Purpose                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `pnpm run build:typescript` | Build TypeScript apps and packages.                         |
+| `pnpm run lint`             | Run package linters where present.                          |
+| `pnpm run typecheck`        | Run TypeScript type checks.                                 |
+| `pnpm run test`             | Full TypeScript, Go, and Python test suite.                 |
+| `pnpm run test:typescript`  | TypeScript app/package tests.                               |
+| `pnpm run test:go`          | Go service/package and interoperability tests.              |
+| `pnpm run test:python`      | Python package tests.                                       |
+| `pnpm run ci`               | Build, lint, typecheck, and test sequence.                  |
+| `pnpm docs:version:verify`  | Validate documentation version metadata and snapshot locks. |
 
 ## Targeted Examples
 
-| Area | Command |
-| --- | --- |
-| Runtime CLI | `pnpm --dir apps/runtime test` |
-| Web console | `pnpm --dir apps/web test` |
-| Web backend-for-frontend | `pnpm --dir apps/auth test` |
-| API | `pnpm --dir apps/api test` |
-| Coordinator | `pnpm --dir apps/coordinator test` |
-| STS | `go test ./services/sts/...` |
-| Gateway | `go test ./services/gateway/...` |
-| Audit | `go test ./services/audit/...` |
-| Docs | `pnpm --dir docs build` |
+| Area                             | Command                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| Runtime CLI                      | `pnpm --dir apps/runtime test`                                              |
+| Web console                      | `pnpm --dir apps/web test`                                                  |
+| Web backend-for-frontend         | `pnpm --dir apps/auth test`                                                 |
+| API                              | `pnpm --dir apps/api test`                                                  |
+| Coordinator                      | `pnpm --dir apps/coordinator test`                                          |
+| STS, Gateway, Audit, Go packages | `pnpm run test:go` (the repository harness owns its multi-module workspace) |
+| Docs                             | `pnpm --dir docs build`                                                     |
+| Docs versioning only             | `pnpm exec vitest run tests/typescript/unit/docs/versioning.test.ts`        |
 
 Runnable examples live in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) and carry their own test suites and CI.
 
@@ -51,9 +51,12 @@ scripts/testCi.sh --smoke
 scripts/testCi.sh --go
 scripts/testCi.sh --py
 scripts/testCi.sh --ts
+scripts/testCi.sh --docs
 ```
 
 Use broader checks when a change affects auth, crypto, config, release, infra, shared packages, SDK contracts, or interoperability schemas.
+
+Record the exact commands and results in the pull request. Do not claim the full suite when only targeted checks ran.
 
 ## Next Step
 

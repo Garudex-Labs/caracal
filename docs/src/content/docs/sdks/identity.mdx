@@ -5,6 +5,8 @@ description: JWT verification packages for mandate claims, scopes, targets, agen
 
 The identity packages verify Caracal mandate JWTs. Use them when you are building an adapter or custom resource-server boundary that accepts mandates directly.
 
+Do not use identity verification alone as a production authorization boundary when revocation must take effect before token expiry; compose it through [Verify Package](/sdks/verify/) with a shared revocation store.
+
 ## Install
 
 | Ecosystem  | Package                                                       |
@@ -36,11 +38,11 @@ Node packages target Node `>=22`; Python packages require Python `>=3.12`.
 import { verify } from '@caracalai/identity'
 
 const claims = await verify(token, {
-  issuer: 'https://sts.example.com',
-  audience: 'https://api.example.com',
-  zoneId: 'zone_prod',
-  requiredScopes: ['tickets:read'],
-  requiredTargets: ['https://api.example.com/tickets'],
+  issuer: 'https://sts.pipernet.example',
+  audience: 'https://api.pipernet.example',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
+  requiredScopes: ['pipernet:read'],
+  requiredTargets: ['resource://pipernet'],
 })
 ```
 
@@ -63,12 +65,12 @@ STS signing keysets are zone-scoped: every fetch hits `{issuer}/.well-known/jwks
 import { createJwksCache, verify } from '@caracalai/identity'
 
 const jwksCache = createJwksCache({ ttlMs: 300_000, fetchTimeoutMs: 5_000 })
-await jwksCache.warm('https://sts.example.com', 'zone_prod')
+await jwksCache.warm('https://sts.pipernet.example', '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f')
 
 const claims = await verify(token, {
-  issuer: 'https://sts.example.com',
-  audience: 'https://api.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'https://api.pipernet.example',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   jwksCache,
 })
 ```
@@ -86,6 +88,8 @@ Go and Python identity packages also cache issuer JWKS metadata in memory and ca
 | `DelegationRequiredError`    | The verifier requires delegated authority.                                             |
 | `ChainMismatchError`         | The delegation chain is missing a required application.                                |
 | `HopCountExceededError`      | The mandate exceeds the configured hop limit.                                          |
+
+Verification is local except for JWKS retrieval. It does not call STS to refresh or exchange a token, and it does not retry application work. Zone ID, issuer, audience, required use, scopes, targets, Session, Delegation, chain, and hop requirements are security inputs and must come from trusted service configuration.
 
 ## When to Use Verify Package
 

@@ -656,7 +656,7 @@ export interface DelegationImpact {
   delegation_id: string
   affected_delegations: DelegationTraversal[]
   affected_sessions: string[]
-  affected_authority_records: string[]
+  affected_subject_sessions: string[]
 }
 
 export interface EffectiveAuthority {

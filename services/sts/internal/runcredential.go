@@ -34,15 +34,14 @@ func workloadAuditMeta(workload *Workload) map[string]any {
 // workload's own least-privilege profile. Every mint is policy-evaluated as a Workload
 // principal and can be held for human approval exactly like an application exchange.
 func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
-	if err := r.ParseForm(); err != nil {
-		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "malformed request body"))
+	form, _, ok := readFormBody(w, r)
+	if !ok {
 		return
 	}
-	workloadID := strings.TrimSpace(r.FormValue("workload_id"))
-	secret := r.FormValue("secret")
-	env := strings.TrimSpace(r.FormValue("env"))
-	challengeID := strings.TrimSpace(r.FormValue("challenge_id"))
+	workloadID := strings.TrimSpace(form.Get("workload_id"))
+	secret := form.Get("secret")
+	env := strings.TrimSpace(form.Get("env"))
+	challengeID := strings.TrimSpace(form.Get("challenge_id"))
 	if workloadID == "" || secret == "" || env == "" {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id, secret, and env are required"))
 		return
@@ -165,7 +164,9 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 
 	challengeResolved := false
 	var approval *StepUpChallengePG
+	var approvalBundle ZoneBundleInfo
 	if challengeID != "" {
+		approvalBundle = s.opa.BundleInfo(zoneID)
 		// Verify the presented approval against the binding without consuming it:
 		// consumption happens after policy evaluation so a downstream deny never
 		// burns a granted approval. The generic invalid answer covers lookup failure
@@ -174,7 +175,10 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != workload.ID ||
 			existing.AuthorityRecordID != "" ||
-			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(boundResources, scopes)) {
+			!bytes.Equal(existing.ResourceSetHash, hashApprovalBinding(boundResources, scopes, approvalBindingContext{
+				PrincipalID: workload.ID,
+				Bundle:      approvalBundle,
+			})) {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_invalid", &OPAResult{}, resourceMeta); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)
 				return
@@ -257,6 +261,14 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.PolicyEvalFailed, "policy evaluation incomplete"))
 		return
 	}
+	if challengeResolved && !sameApprovalPolicy(approvalBundle, result.Bundle) {
+		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_policy_changed", &OPAResult{}, resourceMeta); auditErr != nil {
+			writeError(w, http.StatusInternalServerError, auditErr)
+			return
+		}
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "approval policy changed during retry"))
+		return
+	}
 
 	if !challengeResolved {
 		if gateDecls := parseTierDeclarations(result); len(gateDecls) > 0 {
@@ -264,11 +276,21 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 			// hold an approver has already granted releases the mint right here even
 			// when the retry did not carry the challenge id. Workload holds bind to the
 			// workload principal with no session.
-			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", resolveApproval(gateDecls), boundResources, scopes)
+			resolved, resolveErr := resolveApproval(gateDecls)
+			if resolveErr != nil {
+				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_class_conflict", &OPAResult{}, resourceMeta); auditErr != nil {
+					writeError(w, http.StatusInternalServerError, auditErr)
+					return
+				}
+				writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error()))
+				return
+			}
+			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", resolved, result.Bundle, boundResources, scopes)
 			if holdErr != nil {
 				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed"))
 				return
 			}
+			approvalBundle = result.Bundle
 			switch challengeLifecycleState(hold, now) {
 			case ChallengeStateApproved:
 				approval = hold
@@ -296,6 +318,10 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.Decision != "allow" {
+		if reason := denyDiagnosticReason(result); reason != "" {
+			writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied ("+reason+")"))
+			return
+		}
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "policy denied"))
 		return
 	}
@@ -318,7 +344,10 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if approval != nil {
-		if cerr := s.consumeApproval(ctx, zoneID, workload.ID, approval.ID, boundResources, scopes); cerr != nil {
+		if cerr := s.consumeApproval(ctx, zoneID, workload.ID, approval.ID, boundResources, scopes, approvalBindingContext{
+			PrincipalID: workload.ID,
+			Bundle:      approvalBundle,
+		}); cerr != nil {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
 				mergeAuditMeta(resourceMeta, stepUpAuditMeta(approval))); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)

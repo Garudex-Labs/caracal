@@ -66,6 +66,10 @@ func (d *revocationRecorderDB) RevokeAuthorityRecord(_ context.Context, zoneID, 
 	return nil
 }
 
+func (d *revocationRecorderDB) GetDelegationLineage(_ context.Context, _, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
+
 func TestStartConsumersRetriesGroupCreationThenSignalsReady(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

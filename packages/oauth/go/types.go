@@ -12,17 +12,14 @@ import (
 
 // ExchangeOptions configures one token exchange request.
 type ExchangeOptions struct {
-	ClientSecret        string
-	ClientAssertion     string
-	ClientAssertionType string
-	AuthorityRecordID   string
-	SessionID           string
-	DelegationID        string
-	Scopes              []string
-	TimeoutMillis       int
-	Retries             int
-	TTLSeconds          int
-	ChallengeID         string
+	ClientSecret      string
+	AuthorityRecordID string
+	SessionID         string
+	DelegationID      string
+	Scopes            []string
+	TimeoutMillis     int
+	TTLSeconds        int
+	ChallengeID       string
 	// ForceRefresh skips the cached token and mints a fresh one; the result
 	// still refills the cache.
 	ForceRefresh bool
@@ -32,13 +29,14 @@ type ExchangeOptions struct {
 
 // TokenExchangeResponse is a validated STS token exchange result.
 type TokenExchangeResponse struct {
-	AccessToken string
-	TokenType   string
-	ExpiresIn   int
-	IssuedAt    int64
+	AccessToken     string
+	TokenType       string
+	ExpiresIn       int
+	IssuedAt        int64
+	TargetResources []string
 }
 
-// MintedMandate is a minted resource mandate: the bearer token to present and
+// MintedMandate is a minted scoped mandate: the bearer token to present and
 // how long it stays valid, so callers can schedule refresh without decoding
 // the JWT.
 type MintedMandate struct {

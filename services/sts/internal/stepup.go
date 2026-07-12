@@ -69,6 +69,15 @@ type resolvedApproval struct {
 	Privacy  string
 }
 
+type approvalBindingContext struct {
+	PrincipalID       string
+	AuthorityRecordID string
+	SessionID         string
+	DelegationEdgeID  string
+	ApplicationID     string
+	Bundle            ZoneBundleInfo
+}
+
 // parseTierDeclarations decodes the step_up_required diagnostic emitted by the decision
 // contract into tier declarations. The diagnostic value is an object naming the
 // challenge type and the matched declarations. A malformed entry is skipped rather than
@@ -111,23 +120,25 @@ func parseTierDeclarations(result *OPAResult) []tierDeclaration {
 	return decls
 }
 
-// resolveApproval merges every matched tier declaration into one hold shape. The tier
-// label joins the distinct matched tiers. The approver class resolves to the most
-// trusted class any declaration demands, operator over subject over any, so a scope
-// gated on operator review can never be released by a subject decision another scope's
-// tier would admit. The TTL is the shortest declared window, clamped to the platform
-// floor and ceiling. Privacy resolves to the most protective mode declared, so a tier
-// promising approver anonymity keeps that promise even when merged with an identified
-// tier. Absent or invalid values take the platform defaults: operator, thirty minutes,
-// identified.
-func resolveApproval(decls []tierDeclaration) resolvedApproval {
+// resolveApproval merges compatible tier declarations into one hold shape. The tier
+// label joins the distinct matched tiers. A specific operator or subject requirement
+// narrows any, while combining operator-only and subject-only tiers is rejected because
+// one decision cannot satisfy independent approver roles. The TTL is the shortest
+// declared window, clamped to the platform floor and ceiling. Privacy resolves to the
+// most protective mode declared. Absent values take the platform defaults: operator,
+// thirty minutes, identified.
+func resolveApproval(decls []tierDeclaration) (resolvedApproval, error) {
 	tiers := map[string]struct{}{}
 	approver := ""
 	privacy := ""
 	ttl := time.Duration(0)
 	for _, decl := range decls {
 		tiers[decl.Tier] = struct{}{}
-		approver = strongerApprover(approver, normalizeApprover(decl.Approver))
+		var err error
+		approver, err = mergeApprover(approver, normalizeApprover(decl.Approver))
+		if err != nil {
+			return resolvedApproval{}, err
+		}
 		privacy = strongerPrivacy(privacy, normalizePrivacy(decl.Privacy))
 		declTTL := approvalDefaultTTL
 		if decl.TTLSeconds > 0 {
@@ -156,7 +167,7 @@ func resolveApproval(decls []tierDeclaration) resolvedApproval {
 		Approver: approver,
 		TTL:      ttl,
 		Privacy:  privacy,
-	}
+	}, nil
 }
 
 func normalizeApprover(value string) string {
@@ -175,16 +186,17 @@ func normalizePrivacy(value string) string {
 	return PrivacyIdentified
 }
 
-var approverRank = map[string]int{ApproverClassAny: 0, ApproverClassSubject: 1, ApproverClassOperator: 2}
-
-func strongerApprover(a, b string) string {
+func mergeApprover(a, b string) (string, error) {
 	if a == "" {
-		return b
+		return b, nil
 	}
-	if approverRank[b] > approverRank[a] {
-		return b
+	if a == b || b == ApproverClassAny {
+		return a, nil
 	}
-	return a
+	if a == ApproverClassAny {
+		return b, nil
+	}
+	return "", ErrApprovalClassConflict
 }
 
 var privacyRank = map[string]int{PrivacyIdentified: 0, PrivacyPseudonymous: 1, PrivacyAnonymous: 2}
@@ -237,7 +249,7 @@ func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
 // requesting agent run before deciding. The second return reports whether a new hold was
 // created.
-func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, resources, scopes []string) (*StepUpChallengePG, bool, error) {
+func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes []string) (*StepUpChallengePG, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, false, err
@@ -256,6 +268,10 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 	if delegationEdgeID != "" {
 		meta["delegation_edge_id"] = delegationEdgeID
 	}
+	meta["policy_set_version_id"] = bundle.PolicySetVersionID
+	meta["policy_manifest_sha"] = bundle.ManifestSHA
+	meta["decision_contract_version"] = bundle.DecisionContractVersion
+	meta["decision_contract_sha"] = bundle.DecisionContractSHA
 	metadata, _ := json.Marshal(meta)
 	return s.db.GetOrCreateApprovalChallenge(ctx, &StepUpChallengePG{
 		ID:                id.String(),
@@ -267,9 +283,16 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 		Tier:              approval.Tier,
 		ApproverClass:     approval.Approver,
 		PrivacyMode:       approval.Privacy,
-		ResourceSetHash:   hashApprovalBinding(resources, scopes),
-		ExpiresAt:         now.Add(approval.TTL),
-		MetadataJSON:      metadata,
+		ResourceSetHash: hashApprovalBinding(resources, scopes, approvalBindingContext{
+			PrincipalID:       principalID,
+			AuthorityRecordID: authorityRecordID,
+			SessionID:         sessionID,
+			DelegationEdgeID:  delegationEdgeID,
+			ApplicationID:     applicationID,
+			Bundle:            bundle,
+		}),
+		ExpiresAt:    now.Add(approval.TTL),
+		MetadataJSON: metadata,
 	})
 }
 
@@ -277,7 +300,7 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 // zone, principal, the request hash over resources and scopes, an approver decision, no
 // rejection, not expired, not yet consumed, and the originating session still active.
 // Called as late as possible in the mint so a downstream deny never burns an approval.
-func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, challengeID string, resources, scopes []string) error {
+func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, challengeID string, resources, scopes []string, binding approvalBindingContext) error {
 	if challengeID == "" {
 		return ErrChallengeInvalid
 	}
@@ -289,7 +312,7 @@ func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, chall
 		ID:              challengeID,
 		ZoneID:          zoneID,
 		PrincipalID:     principalID,
-		ResourceSetHash: hashApprovalBinding(resources, scopes),
+		ResourceSetHash: hashApprovalBinding(resources, scopes, binding),
 		Now:             now,
 	})
 }
@@ -300,22 +323,54 @@ var ErrChallengeInvalid = errors.New("step-up challenge invalid or expired")
 // ErrChallengeAlreadyConsumed means the challenge was already consumed by another request.
 var ErrChallengeAlreadyConsumed = errors.New("step-up challenge already consumed")
 
-// hashApprovalBinding binds an approval to both the resource set and the requested
-// scope set. Binding the scopes is what stops an approval granted for one scope from
-// being replayed to mint a mandate carrying a different, more powerful scope on the
-// same resources. The two canonical lists are joined under disjoint section markers so
-// a resource and a scope of the same text cannot collide.
-func hashApprovalBinding(resources, scopes []string) []byte {
-	canonResources := make([]string, 0, len(resources))
-	for _, r := range resources {
-		canonResources = append(canonResources, strings.ToLower(strings.TrimSpace(r)))
-	}
-	sort.Strings(canonResources)
-	canonScopes := make([]string, 0, len(scopes))
-	for _, scope := range scopes {
-		canonScopes = append(canonScopes, strings.TrimSpace(scope))
-	}
-	sort.Strings(canonScopes)
-	sum := sha256.Sum256([]byte("resources\x00" + strings.Join(canonResources, "\n") + "\x00scopes\x00" + strings.Join(canonScopes, "\n")))
+// ErrApprovalClassConflict means one mint combines scopes that require independent
+// operator and subject decisions, which a single-decision hold cannot represent.
+var ErrApprovalClassConflict = errors.New("approval requires separate operator and subject decisions")
+
+// hashApprovalBinding binds an approval to the canonical resource and scope sets plus
+// the principal, Authority record, governed Session, Delegation, application, active
+// policy manifest, and platform decision contract. Every section has a distinct marker
+// so equal text in different fields cannot collide.
+func hashApprovalBinding(resources, scopes []string, binding approvalBindingContext) []byte {
+	canonResources := canonicalApprovalValues(resources, true)
+	canonScopes := canonicalApprovalValues(scopes, false)
+	value := "resources\x00" + strings.Join(canonResources, "\n") +
+		"\x00scopes\x00" + strings.Join(canonScopes, "\n") +
+		"\x00principal\x00" + binding.PrincipalID +
+		"\x00authority_record\x00" + binding.AuthorityRecordID +
+		"\x00session\x00" + binding.SessionID +
+		"\x00delegation\x00" + binding.DelegationEdgeID +
+		"\x00application\x00" + binding.ApplicationID +
+		"\x00policy_set_version\x00" + binding.Bundle.PolicySetVersionID +
+		"\x00policy_manifest\x00" + binding.Bundle.ManifestSHA +
+		"\x00decision_contract_version\x00" + binding.Bundle.DecisionContractVersion +
+		"\x00decision_contract_sha\x00" + binding.Bundle.DecisionContractSHA
+	sum := sha256.Sum256([]byte(value))
 	return sum[:]
+}
+
+func canonicalApprovalValues(values []string, lower bool) []string {
+	unique := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if lower {
+			value = strings.ToLower(value)
+		}
+		if value != "" {
+			unique[value] = struct{}{}
+		}
+	}
+	canonical := make([]string, 0, len(unique))
+	for value := range unique {
+		canonical = append(canonical, value)
+	}
+	sort.Strings(canonical)
+	return canonical
+}
+
+func sameApprovalPolicy(a, b ZoneBundleInfo) bool {
+	return a.PolicySetVersionID == b.PolicySetVersionID &&
+		a.ManifestSHA == b.ManifestSHA &&
+		a.DecisionContractVersion == b.DecisionContractVersion &&
+		a.DecisionContractSHA == b.DecisionContractSHA
 }

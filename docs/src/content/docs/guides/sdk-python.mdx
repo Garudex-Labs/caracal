@@ -3,7 +3,13 @@ title: Integrate the Python SDK
 description: Install caracalai-sdk, load a runtime profile, run governed sessions with async context managers, delegate authority, and use httpx transport injection.
 ---
 
-Use `caracalai-sdk` in Python services and agents that need async Session lifecycle, Delegation, Gateway routing, or ASGI context propagation.
+Use `caracalai-sdk` in an async Python application that must create governed Sessions, narrow authority, route HTTP through Gateway, or bind verified inbound context. Resource servers that only verify inbound mandates should use [the ASGI adapter](/guides/protect-fastapi/) or [verify package](/sdks/verify/).
+
+## Prerequisites
+
+- A managed application credential, active policy, resource/provider binding, and Gateway route.
+- An async runtime; move CPU-bound work off the event loop so service heartbeats can run.
+- A timeout and destination idempotency plan for mutating requests.
 
 ## Install
 
@@ -21,60 +27,87 @@ caracal = Caracal()
 
 `Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.from_client_secret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `caracalai.advanced`.
 
-## Start a Session and call a resource
+## Start a Session and call a protected resource
+
+The smallest protected call needs no session code at all: `application_transport()` pins an `httpx.AsyncClient` to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
 
 ```python
-import httpx
 from caracalai import Caracal
 
 caracal = Caracal()
-
-async with caracal.session():
-    headers = caracal.headers()
-    async with httpx.AsyncClient() as client:
-        await client.get("https://api.example.com/tickets", headers=headers)
+target = caracal.gateway_request("resource://pipernet", "/reports")
+async with caracal.application_transport(
+    "resource://pipernet",
+    scopes=["pipernet:read"],
+) as governed:
+    response = await governed.get(target.url)
 ```
 
-`session()` is an async context manager. It binds the agent context inside the block and releases the session when the block exits.
+When your code already runs inside a governed Session - an agent step, a worker task - call through the Session instead: `fetch()` mints a one-shot Gateway mandate under the Session's authority.
+
+```python
+from caracalai import Authority, Caracal
+
+caracal = Caracal()
+resource_id = "resource://pipernet"
+
+async with caracal.session() as parent:
+    async with caracal.session(
+        parent_ctx=parent,
+        authority=Authority.narrow(
+            ["pipernet:read"],
+            resource_id=resource_id,
+            ttl_seconds=600,
+        ),
+    ):
+        await caracal.fetch(resource_id, "/reports", scopes=["pipernet:read"])
+```
+
+Why two levels? The outer Session is the lifecycle parent; the narrowed child creates the positive-TTL Delegation that resource authority requires. Both async context managers retire their Sessions on exit. `application_transport()` builds exactly this structure internally, which is why it is the right starting point for application-owned calls.
 
 To make AI-agent executions distinguishable in policy and audit, pass `labels` when starting a Session. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. Labels describe work; scopes and Delegations bound authority. `session()` retires the task Session when the block exits, while `start_session()` starts a heartbeat-leased long-lived Session whose protocol lifecycle is `service`.
 
 ```python
-async with caracal.session(labels=["refund-agent"]):
-    headers = caracal.headers()
+async with caracal.session(labels=["refund-agent"]) as ctx:
+    print("refund Session", ctx.session_id)
 ```
 
 See [If many agents share one managed application, can policy and audit still tell them apart?](/reference/faq/#faq-008).
 
-## Long-lived long-lived Sessions
+## Long-lived Sessions
 
-Daemons and workers that outlive a single request use `start_session()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the Session with `aclose()`. A long-lived Session is reaped only if it stops heartbeating before its lease expires. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
+Daemons and workers that outlive a single request use `start_session()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background task by default, and you retire the Session with `aclose()`. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
 
 ```python
-svc = await caracal.start_session(labels=["billing-worker"])
+svc = await caracal.start_session(labels=["fiona-worker"])
 try:
     while running:
-        await do_work(caracal.headers())   # lease renews in the background
+        async with caracal.bind(svc.context):
+            await do_work(caracal.headers())
 finally:
     await svc.aclose()
 ```
 
-Service handles take the same `grant=` as `session()`: pass `Authority.narrow(...)` to issue a Delegation that bounds the service's authority for its whole lifetime, exactly as a narrowed task child. The handle's context carries the edge, and closing the handle retires the session.
+Narrowing requires an active parent. For a long-lived hierarchy, bind a parent service handle while starting its narrowed service child. The child context carries the edge, and closing each handle retires its own Session.
 
 ```python
-svc = await caracal.start_session(
-    labels=["billing-worker"],
-    authority=Authority.narrow(
-        ["ledger:read"],
-        ttl_seconds=600,
-        resource_id="resource://ledger",
-    ),
-)
+parent = await caracal.start_session(labels=["pipernet-orchestrator"])
+async with caracal.bind(parent.context):
+    svc = await caracal.start_session(
+        labels=["fiona-worker"],
+        authority=Authority.narrow(
+            ["pipernet:read"],
+            ttl_seconds=600,
+            resource_id="resource://pipernet",
+        ),
+    )
 ```
 
 The renewal cadence follows the server lease, renewing at roughly a third of the remaining lease with jitter. Pass a positive `heartbeat_interval` to fix the cadence, or `0` to disable the background task and call `heartbeat()` yourself. Because renewal runs on an independent task, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
 
-Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If the coordinator reports the session permanently gone (terminated elsewhere or lease-reaped), the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning:
+The handle exposes `heartbeat_deadline_at` and `lease_generation`. Every heartbeat and `aclose()` sends that monotonic ownership token, so a process holding an earlier generation cannot renew or terminate the Session after another process takes ownership.
+
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone or the generation has been fenced by a new holder, the task stops and `on_lease_lost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `on_state_change`.
 
 The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `on_state_change` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attach_session()` to restart lease renewal. `on_lease_lost` remains reserved for terminal loss.
 
@@ -87,7 +120,7 @@ svc = await caracal.start_session(
 
 A renewal cannot run while the event loop is blocked synchronously (CPU-bound work with no `await`); in that case the lease correctly lapses, which is the liveness signal working as intended.
 
-A worker that restarts does not need a fresh session: persist `svc.session_id` and re-attach with `attach_session()`. It validates the session with an immediate lease renewal - a session the coordinator no longer holds live fails with `CoordinatorError`, telling the worker to start a new one - and returns the same handle `start_session()` does:
+A worker that restarts does not need a fresh session: persist `svc.session_id` and re-attach with `attach_session()`. Attach atomically acquires a new lease generation and renews the deadline, fencing every older handle. A Session the Coordinator no longer holds live fails with `CoordinatorError`; a suspended Session must be resumed through the control plane before attachment. The returned handle behaves like one from `start_session()`:
 
 ```python
 svc = await caracal.attach_session(
@@ -107,9 +140,9 @@ async with caracal.session() as parent:
     async with caracal.session(
         parent_ctx=parent,
         authority=Authority.narrow(
-            ["tickets:read"],
-            resource_id="https://api.example.com/tickets",
-            constraints=DelegationConstraints(max_hops=1, budget=5),
+            ["pipernet:read"],
+            resource_id="resource://pipernet",
+            constraints=DelegationConstraints(max_hops=1),
             ttl_seconds=600,
         ),
     ):
@@ -120,15 +153,36 @@ A plain `caracal.session()` runs the child under its parent's effective authorit
 
 Use `async with caracal.bind(ctx)` before handing a captured context to a background task.
 
+## Handle approvals
+
+A mint whose scope is approval-gated raises `ApprovalRequired`. `with_approval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call. Its callback must return an awaitable; `mint_mandate` is synchronous, so wrap it with `asyncio.to_thread`:
+
+```python
+import asyncio
+
+mandate = await caracal.with_approval(
+    lambda approval_id: asyncio.to_thread(
+        caracal.mint_mandate,
+        "resource://pipernet",
+        ["pipernet:admin"],
+        approval_id=approval_id,
+    )
+)
+```
+
+A rejected, expired, or already-consumed decision re-raises the original `ApprovalRequired`; its approval id lets you resume waiting later with `wait_for_approval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`). [Human Approval](/guides/step-up/) covers the tiers and decision paths.
+
 ## Use httpx transport injection
 
 ```python
 async with caracal.session():
-    async with caracal.transport() as client:
-        await client.get("https://api.example.com/tickets")
+    async with caracal.transport(
+        scopes=["pipernet:read"], propagation="gateway-only"
+    ) as client:
+        await client.get("https://api.pipernet.example/reports")
 ```
 
-The transport injects Caracal envelope headers and rewrites configured resource-bound URLs through the Gateway.
+The transport mints the scoped Gateway-ingress mandate, injects Caracal envelope headers, and rewrites configured resource-bound URLs through the Gateway. Calls without `scopes` require an already Gateway-class bound token.
 
 ## ASGI propagation
 
@@ -140,10 +194,10 @@ from caracalai import Caracal
 
 caracal = Caracal()
 app = FastAPI()
-app.add_middleware(caracal.context_middleware())
+app.add_middleware(caracal.context_middleware(trusted_propagation=True))
 ```
 
-The middleware propagates context. It does not verify JWT signatures or revocation; use an adapter or verify-engine verifier at the trust boundary.
+This propagation-only form is valid only when a Gateway or adapter already verified the request. At an untrusted ingress, pass a complete `verifier=` instead; production mode rejects propagation that is neither verified nor explicitly trusted.
 
 ## Troubleshooting
 
@@ -154,4 +208,16 @@ The middleware propagates context. It does not verify JWT signatures or revocati
 | Background task loses context     | Capture the context and rebind with `async with caracal.bind(ctx)`.               |
 | Gateway routing misses            | Confirm resource bindings and `gateway_url`.                                      |
 
-Related pages: [Protect a FastMCP App](/guides/protect-fastmcp/) and [Run an Agent with caracal run](/guides/runtime-run/).
+## Validate the integration
+
+Exercise allow, extra-scope deny, revoked Session, cancellation, and clean shutdown. Only the allow case may reach the upstream. Close `httpx` transports and owned service handles, then `await caracal.aclose()` when the client is no longer used.
+
+:::caution[Failure point: client lifetime]
+Do not create one SDK or `httpx` client per request. Reuse them, bind the current Session context around each unit of work, and close them during application shutdown.
+:::
+
+For exact Python signatures and sync/async variants, use [Python SDK reference](/sdks/python/).
+
+## Next Step
+
+Protect inbound FastAPI traffic with [the ASGI adapter](/guides/protect-fastapi/) or implement [multi-agent delegation](/guides/delegation/) for cross-Session authority.

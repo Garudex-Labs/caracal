@@ -14,6 +14,7 @@ const CLEANUP_LOCK = 'coordinator:retention_cleanup'
 interface RetentionCleanupResult {
   expiredEdges: number
   deletedEdges: number
+  deletedSessions: number
   deletedOutbox: number
   deletedIdempotencyReceipts: number
 }
@@ -30,6 +31,7 @@ export const retentionCleanerStats = {
   failures: 0,
   expired_edges: 0,
   deleted_edges: 0,
+  deleted_sessions: 0,
   deleted_outbox: 0,
   deleted_idempotency_receipts: 0,
 }
@@ -37,6 +39,7 @@ export const retentionCleanerStats = {
 const emptyResult = (): RetentionCleanupResult => ({
   expiredEdges: 0,
   deletedEdges: 0,
+  deletedSessions: 0,
   deletedOutbox: 0,
   deletedIdempotencyReceipts: 0,
 })
@@ -128,12 +131,46 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
        WHERE d.id = old_edges.id`,
       [cfg.delegationRetentionDays, cfg.retentionCleanupBatchSize],
     )
+    const { rowCount: deletedSessions } = await client.query(
+      `WITH candidates AS MATERIALIZED (
+         SELECT session.id
+         FROM sessions session
+         WHERE session.status IN ('terminated', 'expired')
+           AND session.terminated_at < now() - ($1::int * interval '1 day')
+           AND NOT EXISTS (
+             SELECT 1 FROM sessions child WHERE child.parent_id = session.id
+           )
+         ORDER BY session.terminated_at, session.id
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED
+       ),
+       detached_invocations AS (
+         UPDATE agent_invocations invocation
+         SET source_session_id = CASE
+               WHEN invocation.source_session_id IN (SELECT id FROM candidates) THEN NULL
+               ELSE invocation.source_session_id
+             END,
+             target_session_id = CASE
+               WHEN invocation.target_session_id IN (SELECT id FROM candidates) THEN NULL
+               ELSE invocation.target_session_id
+             END,
+             updated_at = now()
+         WHERE invocation.source_session_id IN (SELECT id FROM candidates)
+            OR invocation.target_session_id IN (SELECT id FROM candidates)
+         RETURNING invocation.id
+       )
+       DELETE FROM sessions session
+       USING candidates
+       WHERE session.id = candidates.id
+         AND (SELECT COUNT(*) FROM detached_invocations) >= 0`,
+      [cfg.sessionRetentionDays, cfg.retentionCleanupBatchSize],
+    )
     const { rowCount: deletedOutbox } = await client.query(
       `WITH old_rows AS (
          SELECT id
          FROM caracal_outbox
          WHERE producer = 'coordinator'
-           AND status IN ('published', 'dead')
+           AND status = 'published'
            AND updated_at < now() - ($1::int * interval '1 day')
          ORDER BY updated_at
          LIMIT $2
@@ -162,6 +199,7 @@ export async function runRetentionCleanup(db: Pool): Promise<RetentionCleanupRes
     return {
       expiredEdges: expiredRows.length,
       deletedEdges: deletedEdges ?? 0,
+      deletedSessions: deletedSessions ?? 0,
       deletedOutbox: deletedOutbox ?? 0,
       deletedIdempotencyReceipts: deletedIdempotencyReceipts ?? 0,
     }
@@ -181,6 +219,7 @@ export function startRetentionCleaner(db: Pool, options: { intervalMs?: number; 
       return runRetentionCleanup(db).then((result) => {
         retentionCleanerStats.expired_edges += result.expiredEdges
         retentionCleanerStats.deleted_edges += result.deletedEdges
+        retentionCleanerStats.deleted_sessions += result.deletedSessions
         retentionCleanerStats.deleted_outbox += result.deletedOutbox
         retentionCleanerStats.deleted_idempotency_receipts += result.deletedIdempotencyReceipts
       })

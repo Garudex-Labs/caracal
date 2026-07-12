@@ -1,11 +1,11 @@
 ---
 title: Delegation Constraints
-description: Resource, TTL, hop, and distinct-scope limits plus audit metadata carried by a Delegation.
+description: Resource, scope, lifetime, and hop limits plus audit metadata carried by a Delegation.
 sidebar:
   order: 11
 ---
 
-Typed constraints make delegated authority explicit. Coordinator validates them at edge creation and STS revalidates the current edge and its authoritative ancestry at token exchange.
+Read [Session Delegation](/concepts/delegation/) first. Constraints state how far, how long, and for what a Delegation may be used. Caracal validates them when the Delegation is created and again before issuing a Mandate through it.
 
 ## Constraint Types
 
@@ -15,7 +15,6 @@ Typed constraints make delegated authority explicit. Coordinator validates them 
 | Scopes           | Which actions can be requested.                             |
 | TTL              | How long the delegated edge remains useful.                 |
 | Hop count        | How deep the delegation chain may become.                   |
-| Budget            | Maximum distinct requested scopes in one token exchange.    |
 | Approval metadata | Audit/display annotation; it does not authorize the edge.    |
 | Broad reason      | Audit/display note for an elevated resource-unbounded edge.  |
 
@@ -23,16 +22,15 @@ Typed constraints make delegated authority explicit. Coordinator validates them 
 
 ```json
 {
-  "resource": "https://api.example.com/tickets",
-  "scopes": ["tickets:read", "tickets:comment"],
+  "resource": "resource://piperchat",
+  "scopes": ["piperchat:read", "piperchat:comment"],
   "max_hops": 2,
-  "budget": 5,
   "expires_at": "2026-06-01T12:00:00Z",
   "policy_approved": true
 }
 ```
 
-`budget` stays between 1 and 1024. Repeated exchanges do not consume it, and duplicate scope tokens count once. It is not a call, work, cost, spend, quota, or cumulative-capacity ledger. `policy_approved` and `broad_reason` are metadata only.
+Delegation constraints bound authority, lifetime, and propagation. They are not quotas: the wire accepts a `budget` field, but it is a narrowing bound - a child edge's budget can never exceed its parent's - not a per-call counter, and no constraint performs usage accounting. Use a domain-specific store when calls, work, or cost must be consumed atomically. Approval metadata and broad-reason fields are audit annotations; they do not authorize the Delegation.
 
 Application-chain requirements are verifier options rather than edge constraints. Use `requireChainContains` at a resource boundary when a specific application must appear in the signed delegation chain.
 

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import '../../../../shared/test-utils/typescript/coordinatorEnv.js'
-import { verifyBearer } from '../../../../../apps/coordinator/src/auth.js'
+import { isSessionMandate, validateSubjectProofClaims, verifyBearer } from '../../../../../apps/coordinator/src/auth.js'
 
 function jwtWith(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
@@ -27,10 +27,63 @@ function buildApp() {
   app.get('/zones/:zoneId/invocations/:id', async (req) => ({ auth: req.caracalAuth }))
   app.post('/zones/:zoneId/invocations', async () => ({ ok: true }))
   app.get('/zones/:zoneId/delegations/inbound/:sessionId/:id', async (req) => ({ auth: req.caracalAuth }))
+  app.post('/zones/:zoneId/outbox/:id/requeue', async (req) => ({ auth: req.caracalAuth }))
   return app
 }
 
 describe('coordinator bearer authentication', () => {
+  it('accepts only Session-class runtime mandates', () => {
+    expect(isSessionMandate({ use: 'session' })).toBe(true)
+    expect(isSessionMandate({ use: 'gateway' })).toBe(false)
+    expect(isSessionMandate({ use: 'resource' })).toBe(false)
+    expect(isSessionMandate({})).toBe(false)
+  })
+
+  it('accepts only an identity-only federated Subject mandate as attribution proof', () => {
+    const proof = validateSubjectProofClaims(
+      {
+        sub: 'user:richard.hendricks@piedpiper.example',
+        client_id: 'app-1',
+        sid: 'subject-record',
+        root_sid: 'subject-record',
+        use: 'session',
+        sub_type: 'user',
+        iat: 1,
+        jti: 'proof-jti',
+      },
+      'app-1',
+    )
+    expect(proof).toEqual({ ok: true, authorityRecordId: 'subject-record', subject: 'user:richard.hendricks@piedpiper.example' })
+  })
+
+  it('rejects Subject proofs issued to another application or carrying authority', () => {
+    const base = {
+      sub: 'user:richard.hendricks@piedpiper.example',
+      client_id: 'app-1',
+      sid: 'subject-record',
+      root_sid: 'subject-record',
+      use: 'session',
+      sub_type: 'user',
+      iat: 1,
+      jti: 'proof-jti',
+    }
+    expect(validateSubjectProofClaims(base, 'app-2')).toMatchObject({
+      ok: false,
+      status: 403,
+      error: 'subject_proof_application_mismatch',
+    })
+    expect(validateSubjectProofClaims({ ...base, scope: 'agent:lifecycle' }, 'app-1')).toMatchObject({
+      ok: false,
+      status: 401,
+      error: 'invalid_subject_proof',
+    })
+    expect(validateSubjectProofClaims({ ...base, agent_session_id: 'session-1' }, 'app-1')).toMatchObject({
+      ok: false,
+      status: 401,
+      error: 'invalid_subject_proof',
+    })
+  })
+
   it('rejects oversized bearer tokens before decoding', async () => {
     const app = buildApp()
     await app.ready()
@@ -88,12 +141,19 @@ describe('coordinator bearer authentication', () => {
       url: '/zones/019e5da7-7834-7309-857f-b983bbcd40e3/agents',
       headers: { authorization: 'Bearer coordinator-operator-token' },
     })
+    const requeue = await app.inject({
+      method: 'POST',
+      url: '/zones/019e5da7-7834-7309-857f-b983bbcd40e3/outbox/019e5da7-7834-7309-857f-b983bbcd40e4/requeue',
+      headers: { authorization: 'Bearer coordinator-operator-token' },
+    })
 
     expect(stats.statusCode).toBe(200)
     expect(agents.statusCode).toBe(200)
     expect(agents.json().auth.scopes).toContain('coordinator.admin')
     expect(suspend.statusCode).toBe(200)
     expect(suspend.json().auth.clientId).toBe('caracal-operator')
+    expect(requeue.statusCode).toBe(200)
+    expect(requeue.json().auth.scopes).toContain('coordinator.admin')
     expect(create.statusCode).toBe(401)
     expect(secure.statusCode).toBe(401)
     expect(secure.json()).toEqual({ error: 'invalid_token' })

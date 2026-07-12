@@ -206,21 +206,21 @@ describe('buildPlannerMessages', () => {
       state: null,
       conversationMemory: [
         { text: 'Connect the Hooli OIDC provider', created_at: '2026-06-01T00:00:00Z' },
-        { text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' },
+        { text: 'Register the Anton application', created_at: '2026-06-02T00:00:00Z' },
       ],
     })
     const content = messages[1].content
     expect(content).toContain('Durable memory of this chat')
     expect(content).toContain('history only, not current state')
     expect(content).toContain('Connect the Hooli OIDC provider')
-    expect(content).toContain('Register the Son of Anton application')
+    expect(content).toContain('Register the Anton application')
   })
 
   it('ranks the live state read just now above every memory section for existence', () => {
     const messages = buildPlannerMessages('register the billing app', {
       facts: null,
       state: null,
-      conversationMemory: [{ text: 'Register the Son of Anton application', created_at: '2026-06-02T00:00:00Z' }],
+      conversationMemory: [{ text: 'Register the Anton application', created_at: '2026-06-02T00:00:00Z' }],
     })
     const content = messages[1].content
     expect(content).toContain('SOURCE OF TRUTH FOR EXISTENCE')
@@ -467,7 +467,7 @@ describe('buildSecurityAnalystMessages', () => {
     const sequenced = {
       summary: 'Register an application and grant it invoices read',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, risk: 'low' as const },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' }, risk: 'low' as const },
         {
           id: 's2',
           capability: 'grantAccess',

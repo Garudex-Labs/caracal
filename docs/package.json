@@ -1,14 +1,16 @@
 {
   "name": "@caracalai/docs",
-  "version": "0.2.0",
+  "version": "0.2.0-rc.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview"
+    "dev": "node ../scripts/docsVersion.mjs verify && astro dev",
+    "build": "node ../scripts/docsVersion.mjs verify && astro build && node ../scripts/docsVersion.mjs verify --artifact docs/dist",
+    "preview": "astro preview",
+    "test": "vitest run --root .. tests/typescript/unit/docs"
   },
   "dependencies": {
+    "@astrojs/markdown-remark": "^7.2.1",
     "@astrojs/react": "^6.0.1",
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "0.41.3",
@@ -19,6 +21,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remark-gfm": "4.0.1",
+    "starlight-versions": "0.9.1",
     "three": "^0.185.1"
   },
   "devDependencies": {

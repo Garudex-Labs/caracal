@@ -1061,7 +1061,7 @@ describe('plan credential vault endpoints', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
-      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
     })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({
@@ -1113,7 +1113,7 @@ describe('plan credential vault endpoints', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
-      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
@@ -1132,7 +1132,7 @@ describe('plan credential vault endpoints', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
-      payload: { step_id: 's1', values: { client_id: 'son-of-anton', api_key: 'wrong-field' } },
+      payload: { step_id: 's1', values: { client_id: 'anton', api_key: 'wrong-field' } },
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toEqual({ error: 'invalid_credentials', required: ['client_id', 'client_secret'] })
@@ -1167,7 +1167,7 @@ describe('plan credential vault endpoints', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/v1/zones/z1/operator-conversations/conv-1/plans/2/secrets',
-      payload: { step_id: 's1', values: { client_id: 'son-of-anton', client_secret: 'cs_live_value' } },
+      payload: { step_id: 's1', values: { client_id: 'anton', client_secret: 'cs_live_value' } },
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body)).toEqual({ error: 'plan_already_decided' })

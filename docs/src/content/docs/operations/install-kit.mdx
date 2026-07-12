@@ -1,0 +1,51 @@
+---
+title: Package an Install Kit
+description: Package the open-source deployment assets, operator inputs, runbooks, and acceptance evidence.
+pageType: workflow
+---
+
+Use an install kit when another team needs a reviewed, reproducible handoff for a self-hosted Caracal deployment. The kit packages artifacts already implemented in this repository; it does not create a managed service, support entitlement, availability guarantee, or certification.
+
+## Kit Contents
+
+| Artifact | Required content |
+| --- | --- |
+| Release record | Product version, image digests, chart version, checksums, and verification output. |
+| Deployment values | Environment-specific Compose or Helm inputs with no secret data. |
+| Secret inventory | Every required key, owning team, external location, delivery method, and rotation procedure. |
+| Network record | Public endpoints, TLS termination, private dependencies, ingress, egress, and firewall or NetworkPolicy rules. |
+| Runbooks | Install, readiness, canary, monitoring, backup, restore, upgrade, rollback or roll-forward, and incident response. |
+| Acceptance evidence | Rendered output, migration result, readiness, negative tests, audit trace, alerts, restore, and owner approval. |
+
+Keep customer values and all secret material outside the repository and outside the kit archive unless the receiving team's approved secret-delivery system encrypts and controls them.
+
+## Procedure
+
+1. Pin the release, chart, image digests, and required package versions.
+2. Verify the release and retain the output.
+3. Render the exact deployment configuration the receiving team will use.
+4. Review public exposure, service identity, resource requests, persistence, secret references, and published mode.
+5. Build the secret inventory without recording secret values.
+6. Include the relevant operations and incident procedures, with named owners and escalation paths.
+7. Install the kit in staging and run readiness, canary allow/deny/revoke, audit, alert, backup, and isolated restore checks.
+8. Record unsupported or adopter-owned requirements explicitly.
+9. Obtain platform and security acceptance for the immutable kit revision.
+
+## Acceptance Criteria
+
+- A clean environment can reproduce the rendered deployment and artifact verification.
+- No plaintext secret appears in values, manifests, logs, or the kit archive.
+- The migration job and every required readiness endpoint pass.
+- A protected canary request produces authorization and action-result evidence.
+- A revoked Session is rejected at the chosen enforcement boundary.
+- Alert routing reaches the documented owner.
+- The data backup and separately protected key material restore successfully together.
+- The previous kit revision and recovery decision remain available.
+
+## Recovery
+
+Keep every accepted kit immutable. If validation fails, return the candidate to review instead of patching the deployed values out of band. After a production change, issue a new kit revision with updated render, evidence, and recovery notes.
+
+## Next Step
+
+Use [Plan a Platform Rollout](/operations/platform-rollout-kit/) for deployment and [Hand Off to Platform Teams](/operations/platform-team-handoff/) for ownership acceptance.

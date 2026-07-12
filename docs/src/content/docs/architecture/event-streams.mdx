@@ -1,44 +1,42 @@
 ---
 title: Propagate Events
-description: Redis Streams, transactional outboxes, consumer groups, and replay paths in Caracal.
+description: Understand asynchronous propagation, durable outboxes, audit replay, and the lag operators can observe.
 pageType: architecture
 ---
 
-Caracal uses Postgres outboxes for durable enqueue and Redis Streams for asynchronous delivery. In rc and stable builds, producers sign stream messages with `STREAMS_HMAC_KEY` and consumers verify the signature before processing.
+Redis Streams carries propagation, not the durable product model. This distinction explains why a committed change can exist before every consumer has observed it.
 
-## Event Pipeline
+## Delivery Paths
 
 ```mermaid
 flowchart LR
-  Tx[Postgres transaction] --> Outbox[event_outbox or caracal_outbox]
-  Outbox --> Redis[Redis Streams]
-  Redis --> Consumers[Consumers]
-  Consumers --> Effects[Policy reload, revocation, audit ingest, relay]
-  Producers[STS/Gateway audit emitters] --> Replay[Audit replay directory]
+  Tx[API or Coordinator transaction] --> Outbox[(Postgres outbox)]
+  Outbox --> Redis[Signed Redis stream message]
+  Redis --> Consumers[Consumer groups]
+  Consumers --> Effects[Reload, revoke, relay, audit]
+  Emit[STS or Gateway audit emit] --> Replay[Replay volume]
   Replay --> Redis
 ```
 
-## Streams
+API and Coordinator changes enqueue outbox rows in the same Postgres transaction as state. A dispatcher retries publication. Consumers use groups, pending-entry recovery, deduplication, and signed messages in published modes.
 
-[Review Event Topics](/api/event-topics/) is the canonical list of stream topics, producers, and consumer groups. This page covers how events move: outbox enqueue, signed delivery, consumer groups, and replay.
+STS and Gateway cannot put audit evidence in the same database transaction as every decision. They write replay files when Redis delivery is unavailable and drain them after recovery.
 
-## Outbox Behavior
+## What Lag Means
 
-| Outbox | Owner | Behavior |
-| --- | --- | --- |
-| `event_outbox` | API | Durable enqueue inside API transactions, cooperative dispatcher, signed Redis `XADD`, retry/backoff, dead-row metrics. |
-| `caracal_outbox` | Coordinator | Dedupe by producer/topic/dedupe key and publishes Coordinator topics. |
+| Observation                                                | Interpretation                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Product read shows a change but a consumer has not reacted | Outbox or stream propagation is delayed.                                                   |
+| Gateway or verifier still accepts revoked authority        | Check revocation snapshot, consumer lag, readiness, and verifier fail posture immediately. |
+| Audit event appears later                                  | Check Audit consumer lag and replay backlog; do not assume evidence was never emitted.     |
+| Dead outbox rows or old pending entries                    | Recovery needs operator action; readiness thresholds may fail.                             |
 
-## Audit Replay
+Postgres remains the recovery anchor. Redis is operationally important but is not a replacement for database backups.
 
-STS and Gateway use replay directories under `/var/lib/caracal/audit-replay`. When Redis or Audit is unavailable, replay files preserve pending audit events so they can drain after recovery.
+## Canonical Topic Reference
+
+[Use Event Topics](/api/event-topics/) owns the topic, producer, and consumer-group list. Do not publish those topics from application code. They are service integration contracts, not a public event bus for workloads.
 
 ## Next Step
 
-Use [Store State](/architecture/storage-model/) to understand which data is durable, transient, or recoverable.
-
-## Related Pages
-
-- [Operate Redis Streams](/operations/redis/)
-- [Ingest Audit Evidence](/services/audit/)
-- [Use Event Topics](/api/event-topics/)
+[Store State](/architecture/storage-model/).

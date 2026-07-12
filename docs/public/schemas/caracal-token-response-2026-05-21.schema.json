@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://docs.caracal.run/schemas/caracal-token-response-2026-05-21.schema.json",
   "title": "Caracal RFC 8693 Token Response",
-  "description": "Successful Caracal STS token-exchange response with standard OAuth fields and Caracal Gateway-only upstream directives.",
+  "description": "Successful public Caracal STS token-exchange response.",
   "type": "object",
   "required": ["access_token", "token_type", "expires_in", "issued_token_type"],
   "properties": {
@@ -30,53 +30,7 @@
         "minLength": 1
       },
       "uniqueItems": true
-    },
-    "upstreams": {
-      "description": "Internal Gateway-authenticated broker directives. Normal STS clients must ignore this member.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/upstreamDirective"
-      }
     }
   },
-  "additionalProperties": true,
-  "$defs": {
-    "upstreamDirective": {
-      "type": "object",
-      "required": ["url", "auth_mode"],
-      "properties": {
-        "url": {
-          "type": "string",
-          "format": "uri"
-        },
-        "auth_mode": {
-          "enum": ["caracal_jwt", "provider_oauth", "provider_apikey"]
-        },
-        "auth_header": {
-          "type": "string",
-          "minLength": 1
-        },
-        "auth_scheme": {
-          "type": "string"
-        },
-        "provider_token": {
-          "type": "string"
-        },
-        "provider_id": {
-          "type": "string"
-        },
-        "grant_id": {
-          "type": "string"
-        },
-        "forward_caracal_identity": {
-          "type": "boolean"
-        },
-        "expires_at": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false
-    }
-  }
+  "additionalProperties": true
 }

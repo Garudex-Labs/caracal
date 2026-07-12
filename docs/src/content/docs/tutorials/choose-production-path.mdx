@@ -1,37 +1,78 @@
 ---
 title: Choose Your Production Integration Path
-description: Choose the next guide for your production Gateway, SDK, adapter, runtime, delegation, audit, or step-up integration.
+description: Pick the one enforcement boundary that matches your deployment, then follow its implementation guide.
 pageType: workflow
 ---
 
-Use this bridge after the tutorials. Pick the guide that matches the boundary you will own in production.
+You have protected a real service, made your runs identifiable, and traced both an allow and a deny. One decision remains before production work starts: **where enforcement happens** in your architecture. This page helps you make that decision once, deliberately.
+
+So far, every call was verified by the Gateway - the checkpoint in front of your service. That is one of two possible boundaries:
+
+| Boundary | How it works | Choose it when |
+| --- | --- | --- |
+| **Gateway-routed** (what you have been using) | Requests travel through the Gateway, which verifies each mandate, attaches upstream credentials, and records the action result centrally. | Your protected target is HTTP and you want enforcement, credential brokering, and audit in one place your services never have to implement. |
+| **In-process adapter** | Your own service verifies mandates inside its process using a framework adapter, then records its own action results. | You own the service's code, and requests should not detour through a central checkpoint - for latency, topology, or deployment reasons. |
+
+Both enforce the same contract; they differ in *where* verification runs and *who* writes the action-result audit. Start with the Gateway boundary unless you have a concrete reason not to - it is the path you have already proven end to end.
+
+:::caution[One boundary first]
+Pick one boundary and take it to production before adding a second pattern, delegation flows, or approvals. Every mixed-pattern debugging session starts with someone who skipped this step.
+:::
+
+## Prerequisite
+
+Complete [Trace One Protected Request](../inspect-a-run/) or be able to explain an equivalent request from application to resource.
 
 ## Choose by Boundary
 
-| If your production path is...                               | Continue with                                                                                                    |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Route HTTP traffic through Caracal Gateway                  | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/)                                               |
-| Add Caracal session and Gateway calls to app code           | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/)       |
-| Protect an Express resource server                          | [Protect an Express App](/guides/protect-express/)                                                               |
-| Protect a FastMCP resource server                           | [Protect a FastMCP App](/guides/protect-fastmcp/)                                                                |
-| Protect a Go `net/http` resource server                     | [Protect a Go net/http Service](/guides/protect-nethttp/)                                                        |
-| Protect an MCP server without a dedicated adapter           | [Protect an MCP Server](/guides/protect-mcp/)                                                                    |
-| Run an existing CLI or worker under injected runtime tokens | [Run an Agent with caracal run](/guides/runtime-run/)                                                            |
-| Model zones, apps, resources, and customer boundaries       | [Model Your Application in Caracal](/guides/modeling-recipes/)                                                   |
-| Configure provider credentials or OAuth                     | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/) |
-| Debug denies or unexpected allows                           | [Debug Authorization Decisions](/guides/authorize-access/)                                                       |
-| Delegate work between agents                                | [Implement Multi-Agent Delegation](/guides/delegation/)                                                          |
-| Export or query audit evidence                              | [Tail and Query the Audit Stream](/guides/audit-stream/)                                                         |
-| Hold sensitive actions for human approval                   | [Human Approval](/guides/step-up/)                                                                               |
+**Gateway-routed** - requests detour through the central checkpoint:
+
+| If your production path is... | Continue with |
+| --- | --- |
+| Route HTTP traffic through the Caracal Gateway | [Protect a Gateway-Routed HTTP API](/guides/protect-gateway-http/) |
+
+**In-process adapter** - your service verifies mandates itself:
+
+| If your production path is... | Continue with |
+| --- | --- |
+| Protect an Express resource server in process | [Protect an Express App](/guides/protect-express/) |
+| Protect a FastAPI or Starlette service in process | [Protect a FastAPI App](/guides/protect-fastapi/) |
+| Protect a FastMCP server in process | [Protect a FastMCP App](/guides/protect-fastmcp/) |
+| Protect a Go `net/http` service in process | [Protect a Go net/http Service](/guides/protect-nethttp/) |
+| Protect an MCP server without a dedicated adapter | [Protect an MCP Server](/guides/protect-mcp/) |
+
+Two paths sit **alongside** the boundary choice rather than replacing it - how your application code obtains authority, and how existing CLIs receive provider credentials:
+
+| If you also need to... | Continue with |
+| --- | --- |
+| Add Caracal sessions and Gateway calls to app code | [TypeScript SDK](/guides/sdk-typescript/), [Python SDK](/guides/sdk-python/), or [Go SDK](/guides/sdk-go/) |
+| Launch an existing CLI or worker with injected provider credentials | [Run an Agent with caracal run](/guides/runtime-run/) |
+
+## Add Capabilities After the Boundary Works
+
+These build on a verified boundary; none of them replaces it:
+
+| When you need to... | Continue with |
+| --- | --- |
+| Model zones, apps, resources, and customer boundaries | [Model Your Application in Caracal](/guides/modeling-recipes/) |
+| Configure provider credentials or OAuth | [Define Resources and Providers](/guides/resources-providers/) and [Provider Recipes](/guides/provider-recipes/) |
+| Debug denies or unexpected allows | [Debug Authorization Decisions](/guides/authorize-access/) |
+| Hand narrowed authority between agents | [Implement Multi-Agent Delegation](/guides/delegation/) |
+| Export or query audit evidence | [Tail and Query the Audit Stream](/guides/audit-stream/) |
+| Hold sensitive actions for human approval | [Human Approval](/guides/step-up/) |
 
 ## Choose by Team Role
 
-| Role              | Start with                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| App engineer      | SDK guide for your language, then Gateway or adapter guide.                                                                                                              |
-| Platform engineer | [Production Integration Patterns](/guides/enterprise-runtime-patterns/), then operations pages.                                                                          |
+| Role | Start with |
+| --- | --- |
+| App engineer | SDK guide for your language, then the Gateway or adapter guide. |
+| Platform engineer | [Production Integration Patterns](/guides/production-patterns/), then operations pages. |
 | Security reviewer | [Debug Authorization Decisions](/guides/authorize-access/), [Audit and Request Traces](/concepts/audit-ledger/), and [Review the Threat Model](/security/threat-model/). |
-| Policy owner      | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/).                                                                  |
+| Policy owner | [Author Policy Data](/guides/author-policy/) and [Activate a Policy Set](/guides/activate-policy-set/). |
+
+## Expected Outcome
+
+You leave this page with one primary enforcement boundary and one implementation guide, recorded before anyone adds delegation, approvals, or alternative adapters. You have completed the tutorial path: a real protected API, identifiable runs, self-serve debugging, and a deliberate production direction.
 
 ## Next Step
 

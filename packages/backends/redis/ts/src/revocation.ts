@@ -10,14 +10,33 @@ import type { RevocationStore } from '@caracalai/revocation'
 export const REVOCATION_STREAM = 'caracal.sessions.revoke'
 export const DELEGATION_INVALIDATION_STREAM = 'caracal.delegations.invalidate'
 export const DEFAULT_REVOCATION_TTL_MS = 24 * 60 * 60 * 1000
+export const DEFAULT_DEAD_LETTER_MAX_LENGTH = 10_000
+
+const MAX_EPOCH_SCRIPT = `
+local function normalize(value)
+  if not string.match(value, '^%d+$') then return '0' end
+  value = string.gsub(value, '^0+', '')
+  if value == '' then return '0' end
+  return value
+end
+local current = normalize(redis.call('GET', KEYS[1]) or '0')
+local candidate = normalize(ARGV[1])
+if string.len(candidate) > string.len(current) or (string.len(candidate) == string.len(current) and candidate > current) then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0
+`
 
 export interface RedisRevocationClient {
   get: (key: string) => Promise<string | null>
   set: (key: string, value: string, mode: 'PX', ttlMs: number) => Promise<unknown>
+  eval: (script: string, keyCount: number, ...args: string[]) => Promise<unknown>
   xgroup?: (...args: string[]) => Promise<unknown>
   xreadgroup?: (...args: (string | number)[]) => Promise<RedisStreamResult | null>
   xautoclaim?: (...args: (string | number)[]) => Promise<RedisAutoClaimResult>
   xack?: (stream: string, group: string, id: string) => Promise<unknown>
+  xadd?: (...args: (string | number)[]) => Promise<unknown>
 }
 
 export type RedisStreamResult = Array<[string, Array<[string, string[]]>]>
@@ -71,9 +90,7 @@ export class RedisRevocationStore implements RevocationStore {
 
   async markDelegationEpoch(zoneId: string, epoch: number, ttlMs?: number): Promise<void> {
     if (zoneId === '' || !Number.isSafeInteger(epoch) || epoch < 0) return
-    const current = await this.currentDelegationEpoch(zoneId)
-    if (epoch <= current) return
-    await this.redis.set(this.delegationEpochKey(zoneId), String(epoch), 'PX', ttlMs ?? this.defaultTtlMs)
+    await this.redis.eval(MAX_EPOCH_SCRIPT, 1, this.delegationEpochKey(zoneId), String(epoch), String(ttlMs ?? this.defaultTtlMs))
   }
 
   private key(anchorId: string): string {
@@ -94,6 +111,7 @@ export interface RedisRevocationConsumerOptions {
   pendingIdleMs?: number
   streamHmacKey?: Buffer
   requireSignature?: boolean
+  deadLetterMaxLength?: number
 }
 
 export class RedisRevocationConsumer {
@@ -104,6 +122,7 @@ export class RedisRevocationConsumer {
   private readonly pendingIdleMs: number
   private readonly streamHmacKey: Buffer | undefined
   private readonly requireSignature: boolean
+  private readonly deadLetterMaxLength: number
 
   constructor(
     private readonly redis: RedisRevocationClient,
@@ -117,6 +136,7 @@ export class RedisRevocationConsumer {
     this.pendingIdleMs = opts.pendingIdleMs ?? 30_000
     this.streamHmacKey = opts.streamHmacKey
     this.requireSignature = opts.requireSignature ?? Boolean(opts.streamHmacKey)
+    this.deadLetterMaxLength = opts.deadLetterMaxLength ?? DEFAULT_DEAD_LETTER_MAX_LENGTH
     if (this.requireSignature && !this.streamHmacKey) {
       throw new Error('streamHmacKey is required when requireSignature is true')
     }
@@ -182,10 +202,17 @@ export class RedisRevocationConsumer {
   private async processMessage(id: string, fields: string[]): Promise<void> {
     const values = fieldsToValues(fields)
     if (!this.verify(values)) {
+      await this.deadLetter(id, values, 'invalid_signature')
       await this.ack(id)
       return
     }
-    for (const anchor of revocationAnchors(values)) {
+    const anchors = revocationAnchors(values)
+    if (anchors.length === 0) {
+      await this.deadLetter(id, values, 'missing_revocation_anchor')
+      await this.ack(id)
+      return
+    }
+    for (const anchor of anchors) {
       await this.store.markRevoked(anchor)
     }
     await this.ack(id)
@@ -205,6 +232,23 @@ export class RedisRevocationConsumer {
     if (!this.redis.xack) throw new Error('redis client does not support xack')
     await this.redis.xack(this.stream, this.group, id)
   }
+
+  private async deadLetter(id: string, values: Record<string, StreamValue>, reason: string): Promise<void> {
+    if (!this.redis.xadd) throw new Error('redis client does not support xadd')
+    await this.redis.xadd(
+      `${this.stream}.dead`,
+      'MAXLEN',
+      '~',
+      this.deadLetterMaxLength,
+      '*',
+      'source_id',
+      id,
+      'reason',
+      reason,
+      'payload',
+      JSON.stringify(values),
+    )
+  }
 }
 
 export class RedisDelegationInvalidationConsumer {
@@ -215,6 +259,7 @@ export class RedisDelegationInvalidationConsumer {
   private readonly pendingIdleMs: number
   private readonly streamHmacKey: Buffer | undefined
   private readonly requireSignature: boolean
+  private readonly deadLetterMaxLength: number
 
   constructor(
     private readonly redis: RedisRevocationClient,
@@ -228,6 +273,7 @@ export class RedisDelegationInvalidationConsumer {
     this.pendingIdleMs = opts.pendingIdleMs ?? 30_000
     this.streamHmacKey = opts.streamHmacKey
     this.requireSignature = opts.requireSignature ?? Boolean(opts.streamHmacKey)
+    this.deadLetterMaxLength = opts.deadLetterMaxLength ?? DEFAULT_DEAD_LETTER_MAX_LENGTH
     if (this.requireSignature && !this.streamHmacKey) {
       throw new Error('streamHmacKey is required when requireSignature is true')
     }
@@ -293,6 +339,7 @@ export class RedisDelegationInvalidationConsumer {
   private async processMessage(id: string, fields: string[]): Promise<void> {
     const values = fieldsToValues(fields)
     if (!this.verify(values)) {
+      await this.deadLetter(id, values, 'invalid_signature')
       await this.ack(id)
       return
     }
@@ -300,6 +347,8 @@ export class RedisDelegationInvalidationConsumer {
     const epoch = Number(values.epoch)
     if (typeof zoneId === 'string' && Number.isSafeInteger(epoch) && epoch >= 0) {
       await this.store.markDelegationEpoch(zoneId, epoch)
+    } else {
+      await this.deadLetter(id, values, 'invalid_delegation_epoch')
     }
     await this.ack(id)
   }
@@ -317,6 +366,23 @@ export class RedisDelegationInvalidationConsumer {
   private async ack(id: string): Promise<void> {
     if (!this.redis.xack) throw new Error('redis client does not support xack')
     await this.redis.xack(this.stream, this.group, id)
+  }
+
+  private async deadLetter(id: string, values: Record<string, StreamValue>, reason: string): Promise<void> {
+    if (!this.redis.xadd) throw new Error('redis client does not support xadd')
+    await this.redis.xadd(
+      `${this.stream}.dead`,
+      'MAXLEN',
+      '~',
+      this.deadLetterMaxLength,
+      '*',
+      'source_id',
+      id,
+      'reason',
+      reason,
+      'payload',
+      JSON.stringify(values),
+    )
   }
 }
 

@@ -5,7 +5,7 @@
 
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AuthError, type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
+import { type Authenticator, type Claims } from '../../../../../apps/api/src/control/auth.js'
 import { registerInvokeRoute, type InvokeDeps, type ZoneScopeTarget } from '../../../../../apps/api/src/control/handler.js'
 import { RateLimiter } from '../../../../../apps/api/src/control/ratelimit.js'
 import type { EventSink } from '../../../../../apps/api/src/control/audit.js'
@@ -331,7 +331,7 @@ describe('registerInvokeRoute', () => {
       method: 'POST',
       url: '/v1/control/invoke',
       headers: { authorization: 'Bearer token', 'x-caracal-zone-scope': 'z-tenant' },
-      payload: { command: 'app', subcommand: 'create', flags: { name: 'Son of Anton' } },
+      payload: { command: 'app', subcommand: 'create', flags: { name: 'Anton' } },
     })
 
     expect(res.statusCode).toBe(200)

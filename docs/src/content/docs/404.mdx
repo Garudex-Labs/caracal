@@ -12,14 +12,21 @@ import LandingFooter from '../../components/LandingFooter.astro'
     <p class="notfound__eyebrow">Error · 404</p>
     <h1 class="notfound__title">This docs path is not available.</h1>
     <p class="notfound__lede">
-      The page may have moved during the documentation refresh, or the link may
-      point to an older route. Use search, start from the docs home, or open the
-      onboarding path below.
+      Check the selected documentation version and use site search for the page title. If the link came from code or an older release, open
+      the matching stable minor before assuming the behavior moved.
     </p>
     <div class="notfound__actions">
-      <a class="landing-button landing-button--primary" href="/">Go to docs home</a>
-      <a class="landing-button landing-button--secondary" href="/get-started/">Start onboarding</a>
+      <a class="landing-button landing-button--primary" href="/">
+        Go to docs home
+      </a>
+      <a class="landing-button landing-button--secondary" href="/reference/">
+        Search reference
+      </a>
     </div>
+    <p class="notfound__lede">
+      New evaluator: <a href="/get-started/">Get Started</a>. Operator: <a href="/operations/">Operations</a>. Integrator:{' '}
+      <a href="/guides/">Guides</a>. Contributor: <a href="/contributing/">Contributing</a>.
+    </p>
   </div>
 </div>
 

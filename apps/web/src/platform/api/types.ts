@@ -398,17 +398,14 @@ export interface AuditEvent {
   request_id: string | null;
   decision: string | null;
   evaluation_status: string | null;
-  metadata_json: Record<string, unknown> | null;
-  occurred_at: string;
-  ingested_at: string;
-}
-
-export interface AuditDetail extends AuditEvent {
   policy_set_id: string | null;
   policy_set_version_id: string | null;
   manifest_sha: string | null;
   determining_policies_json: unknown[] | null;
   diagnostics_json: unknown[] | null;
+  metadata_json: Record<string, unknown> | null;
+  occurred_at: string;
+  ingested_at: string;
 }
 
 export interface AuditRetention {
@@ -520,7 +517,7 @@ export interface DecisionTrace {
   zone_id: string;
   final_decision: string;
   denied: DeniedDecision[];
-  events: AuditDetail[];
+  events: AuditEvent[];
 }
 
 // One recent audit event carried inside the overview payload; a trimmed AuditEvent.

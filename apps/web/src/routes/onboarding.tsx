@@ -5,7 +5,7 @@ Caracal, a product of Garudex Labs
 This file defines the guided onboarding route.
 */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { DcrField } from "@/components/console/DcrField";
 import { EnterpriseCallout } from "@/components/onboarding/EnterpriseCallout";
@@ -78,6 +78,7 @@ function OnboardingPage() {
 
   const [accountId] = useState(() => getProfile().accountId);
   const [fullName, setFullName] = useState(() => draft?.fullName ?? sessionName);
+  const fullNameEdited = useRef(false);
   const [displayName, setDisplayName] = useState(() => draft?.displayName ?? "");
   const [avatar, setAvatar] = useState(() => draft?.avatar ?? "");
 
@@ -88,8 +89,10 @@ function OnboardingPage() {
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
-    if (!fullName && sessionName) setFullName(sessionName);
-  }, [sessionName, fullName]);
+    if (draft === null && !fullNameEdited.current && !fullName && sessionName) {
+      setFullName(sessionName);
+    }
+  }, [draft, sessionName, fullName]);
 
   useEffect(() => {
     setOnboardingDraft({ step, fullName, displayName, avatar, zoneName, zoneDcr });
@@ -206,7 +209,10 @@ function OnboardingPage() {
                 label="Full name"
                 placeholder="Ada Lovelace"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value.slice(0, NAME_MAX))}
+                onChange={(e) => {
+                  fullNameEdited.current = true;
+                  setFullName(e.target.value.slice(0, NAME_MAX));
+                }}
                 maxLength={NAME_MAX}
                 error={showErrors && !profileValid ? "Full name is required." : undefined}
                 autoFocus

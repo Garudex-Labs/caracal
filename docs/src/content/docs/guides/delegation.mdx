@@ -5,6 +5,12 @@ description: Start child Sessions, attach typed constraints, inspect graph impac
 
 Use Delegation when one Session needs to hand a narrower slice of authority to another Session. The SDK creates the Delegation and carries the context; the web console shows the graph and impact.
 
+## Prerequisites
+
+- Two live Sessions and a parent that already holds the resource authority being delegated.
+- A specific resource, scope subset, positive TTL, and intended maximum hop count.
+- An authenticated work channel for transferring the opaque Delegation ID to the target Session.
+
 `session()` always starts the child under the **same application** as the parent. Narrow the child's authority only when it should hold less than the parent. To hand authority across applications, use `delegate()` with a peer Session under the other application; it returns the Delegation, and the receiver presents it with `acceptDelegation()`.
 
 ## Implementation flow
@@ -18,33 +24,52 @@ flowchart LR
   Exchange --> Audit["Inspect audit and graph"]
 ```
 
-## TypeScript example
+Python uses `Authority.narrow(...)`, `await caracal.delegate(...)`, and `async with caracal.accept_delegation(edge_id, validate=True)`. Go uses `AuthorityNarrow(...)`, `Delegate`, and `AcceptDelegation`. The [language SDK references](/sdks/) define exact option types; the workflow and wire authority are equivalent.
+
+## Narrow a child in the same application
+
+Starting a child with less authority than its parent needs no explicit hand-off - pass `Authority.narrow(...)` when starting the child Session, exactly as shown in your [SDK guide](/guides/sdk-typescript/#start-a-narrowed-child). This page's subject is the explicit flow between two Sessions that already exist.
+
+## Delegate across applications
+
+The issuer holds the authority and knows the receiver's Session ID; the receiver presents the returned Delegation ID. Two sides, one edge:
 
 ```ts
-import { Caracal, Authority } from '@caracalai/sdk'
+// Issuer side: Anton delegates read-only PiperNet access
+// to a peer Session owned by the Fiona application.
+const delegation = await caracal.delegate({
+  toSessionId: receiverSessionId,          // shared by the receiver up front
+  toApplicationId: fionaApplicationId,     // omit for same-application peers
+  resourceId: 'resource://pipernet',
+  scopes: ['pipernet:read'],
+  constraints: { maxHops: 1 },
+  ttlSeconds: 600,
+})
+await sendOverWorkChannel({ delegationId: delegation.delegationId })
+```
 
-const caracal = new Caracal()
-
+```ts
+// Receiver side (Fiona): present the offered Delegation inside the
+// target Session's context. validate: true confirms it is live first.
 await caracal.session(async () => {
-  await caracal.session(
+  const { delegationId } = await readFromWorkChannel()
+  await caracal.acceptDelegation(
+    delegationId,
     async () => {
-      const headers = await caracal.headersAsync()
-      await fetch('https://api.example.com/tickets', { headers })
+      const governed = caracal.transport({ scopes: ['pipernet:read'] })
+      const target = caracal.gatewayRequest('resource://pipernet', '/reports')
+      await governed(target.url)
     },
-    {
-      authority: Authority.narrow(['tickets:read'], {
-        resourceId: 'https://api.example.com/tickets',
-        constraints: { maxHops: 1, budget: 5 },
-        ttlSeconds: 600,
-      }),
-    },
+    { validate: true },
   )
 })
 ```
 
+Every mint inside the accepted block presents the Delegation, so the STS enforces its scopes, resource bound, TTL, and hop budget - and revoking the edge cuts the receiver off mid-run.
+
 ## Review the graph
 
-1. Open `caracal web`.
+1. Open the web console for your deployment.
 2. Select **Delegation**.
 3. Inspect active edges, inbound edges, outbound edges, and traversal.
 4. Use impact before revoking an edge.
@@ -61,7 +86,6 @@ The issuer and receiver share the opaque Delegation ID over their authenticated 
 | Scopes     | Small subset of parent authority.         |
 | TTL        | Required; use minutes, not days.          |
 | Hop count  | `1` unless a deeper graph is intentional. |
-| Budget     | Maximum distinct scopes in each exchange. |
 | Resource   | Single resource whenever possible.        |
 
 ## Troubleshooting
@@ -73,4 +97,14 @@ The issuer and receiver share the opaque Delegation ID over their authenticated 
 | Chain validation fails                | Confirm authoritative parent links are continuous; configure `requireChainContains` separately at verifiers when needed. |
 | Revocation did not affect child       | Confirm cascade revocation and resource-server revocation consumers. |
 
-Related pages: [Session Delegation](/concepts/delegation/) and [Delegation Constraints](/concepts/constraint/).
+## Validate the delegation
+
+Mint the allowed subset, attempt one broader scope, revoke the edge, and retry. The subset must succeed; broadening must fail server-side; after revocation neither the child nor descendants may mint or pass resource verification.
+
+:::caution[Failure point: lifetime]
+A Delegation can expire before its target Session. The Session may remain observable but cannot mint through the expired edge. Size the edge TTL to the work and handle terminal authorization failure rather than widening authority.
+:::
+
+## Next Step
+
+Inspect the graph and request trace in [Tail and Query the Audit Stream](/guides/audit-stream/).

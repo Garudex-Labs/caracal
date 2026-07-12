@@ -42,7 +42,7 @@ func exchangeFlowDB(t *testing.T) *stubDB {
 		app: &Application{
 			ID:                 "app1",
 			ZoneID:             "zone1",
-			Name:               "Son of Anton",
+			Name:               "Anton",
 			RegistrationMethod: "managed",
 			ClientSecretHash:   &hash,
 		},
@@ -496,16 +496,20 @@ func (d *approvalFlowDB) InsertAuthorityRecordWithApproval(_ context.Context, se
 func exchangeApprovalChallenge(t *testing.T) *StepUpChallengePG {
 	t.Helper()
 	return &StepUpChallengePG{
-		ID:              "b3b8f7ce-0000-4000-8000-00000000c001",
-		ZoneID:          "zone1",
-		ChallengeType:   humanApprovalChallengeType,
-		PrincipalID:     "app1",
-		ApplicationID:   "app1",
-		Tier:            "money",
-		ApproverClass:   ApproverClassOperator,
-		PrivacyMode:     PrivacyIdentified,
-		ResourceSetHash: hashApprovalBinding([]string{"resource://pipernet"}, []string{"pipernet:read"}),
-		ExpiresAt:       time.Now().Add(time.Hour),
+		ID:            "b3b8f7ce-0000-4000-8000-00000000c001",
+		ZoneID:        "zone1",
+		ChallengeType: humanApprovalChallengeType,
+		PrincipalID:   "app1",
+		ApplicationID: "app1",
+		Tier:          "money",
+		ApproverClass: ApproverClassOperator,
+		PrivacyMode:   PrivacyIdentified,
+		ResourceSetHash: hashApprovalBinding([]string{"resource://pipernet"}, []string{"pipernet:read"}, approvalBindingContext{
+			PrincipalID:   "app1",
+			ApplicationID: "app1",
+			Bundle:        bundleInfoForState(&opaZoneState{}),
+		}),
+		ExpiresAt: time.Now().Add(time.Hour),
 	}
 }
 

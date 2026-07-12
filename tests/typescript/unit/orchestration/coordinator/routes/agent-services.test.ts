@@ -148,7 +148,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task', lease_generation: '0' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -158,7 +158,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
 
     expect(res.statusCode).toBe(403)
@@ -177,7 +177,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
     expect(res.statusCode).toBe(404)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'session_not_found' })
@@ -190,9 +190,11 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service', lease_generation: '1' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
-        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', zone_id: 'z1', application_id: 'app-1', last_active_at: new Date() }] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'agent-1', zone_id: 'z1', application_id: 'app-1', last_active_at: new Date(), lease_generation: '1' }],
+        })
         .mockResolvedValueOnce({ rows: [{ id: 'svc-1', zone_id: 'z1', application_id: 'app-1' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
@@ -202,7 +204,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { service_id: 'svc-1', status: 'healthy', active_invocations: 2 },
+      payload: { service_id: 'svc-1', status: 'healthy', active_invocations: 2, lease_generation: 1 },
     })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({
@@ -219,7 +221,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service', lease_generation: '1' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
         .mockRejectedValueOnce(new Error('update failed')),
       release: vi.fn(),
@@ -230,7 +232,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
 
     expect(res.statusCode).toBe(500)
@@ -238,17 +240,25 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     expect(client.release).toHaveBeenCalled()
   })
 
-  it('rebinds the Session to the fresh authenticated Authority record', async () => {
+  it('renews the lease without replacing the Session Authority record', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{ application_id: 'app-1', subject_authority_record_id: 'authority-stale', status: 'active', lifecycle: 'service' }],
+          rows: [
+            {
+              application_id: 'app-1',
+              subject_authority_record_id: 'authority-stale',
+              status: 'active',
+              lifecycle: 'service',
+              lease_generation: '1',
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
-        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1', lease_generation: '1' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -258,16 +268,13 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('subject_authority_record_id = $4'), [
-      'agent-1',
-      'z1',
-      expect.any(Number),
-      'authority-fresh',
-    ])
+    const updateCall = client.query.mock.calls.find((call) => String(call[0]).includes('UPDATE sessions'))
+    expect(updateCall?.[0]).not.toContain('subject_authority_record_id')
+    expect(updateCall?.[1]).toEqual(['agent-1', 'z1', expect.any(Number), 1])
   })
 })
 
@@ -315,7 +322,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'terminated', lifecycle: 'task', lease_generation: '0' }] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
     }
@@ -324,7 +331,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
     expect(res.statusCode).toBe(409)
     expect(res.json()).toEqual({ error: 'session_not_live' })
@@ -344,6 +351,7 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
               status: 'active',
               lifecycle: 'service',
               lease_expired: true,
+              lease_generation: '1',
             },
           ],
         })
@@ -356,11 +364,33 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { status: 'healthy' },
+      payload: { status: 'healthy', lease_generation: 1 },
     })
     expect(res.statusCode).toBe(409)
     expect(res.json()).toEqual({ error: 'session_lease_expired' })
     expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+
+  it('rejects heartbeat attachment to a task Session', async () => {
+    const { app, db } = buildApp()
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task', lease_generation: '0' }] })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy', lease_generation: 1 },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_not_service' })
+    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
   })
 
   it('returns 404 when the referenced service is missing', async () => {
@@ -369,9 +399,9 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'task' }] })
+        .mockResolvedValueOnce({ rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service', lease_generation: '1' }] })
         .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
-        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'agent-1', application_id: 'app-1', lease_generation: '1' }] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValue({ rows: [] }),
       release: vi.fn(),
@@ -381,10 +411,121 @@ describe('POST /v1/zones/:zoneId/agents/:id/heartbeat: lifecycle guards', () => 
     const res = await app.inject({
       method: 'POST',
       url: '/v1/zones/z1/agents/agent-1/heartbeat',
-      payload: { service_id: 'svc-missing', status: 'healthy' },
+      payload: { service_id: 'svc-missing', status: 'healthy', lease_generation: 1 },
     })
     expect(res.statusCode).toBe(404)
     expect(res.json()).toEqual({ error: 'agent_service_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+})
+
+describe('POST /v1/zones/:zoneId/agents/:id/lease: generation fencing', () => {
+  it('acquires a new generation and renews the active service lease', async () => {
+    const { app, db } = buildApp([], 'app-1')
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service', lease_expired: false }],
+        })
+        .mockResolvedValueOnce({ rows: [{ exists: 1 }] })
+        .mockResolvedValueOnce({
+          rows: [{ status: 'active', heartbeat_deadline_at: '2026-07-10T20:00:00Z', lease_generation: '2' }],
+        })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/agents/agent-1/lease' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ status: 'active', lease_generation: 2 })
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
+  })
+
+  it('rejects lease acquisition while the service Session is suspended', async () => {
+    const { app, db } = buildApp([], 'app-1')
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ application_id: 'app-1', status: 'suspended', lifecycle: 'service', lease_expired: false }],
+        })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/agents/agent-1/lease' })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_suspended' })
+  })
+
+  it('fences a heartbeat from a previous generation', async () => {
+    const { app, db } = buildApp([], 'app-1')
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ application_id: 'app-1', status: 'active', lifecycle: 'service', lease_expired: false, lease_generation: '2' }],
+        })
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy', lease_generation: 1 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_lease_fenced' })
+  })
+
+  it('terminates a service Session whose federated Subject anchor is inactive', async () => {
+    const { app, db } = buildApp([], 'app-1')
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              application_id: 'app-1',
+              status: 'active',
+              lifecycle: 'service',
+              lease_expired: false,
+              lease_generation: '2',
+              subject_anchor_active: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/agents/agent-1/heartbeat',
+      payload: { status: 'healthy', lease_generation: 2 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_subject_inactive' })
+    expect(client.query.mock.calls.some((call) => String(call[0]).includes('WITH RECURSIVE tree'))).toBe(true)
+    expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })

@@ -1,146 +1,52 @@
 ---
 title: Deploy with Helm
-description: Deploy Caracal on Kubernetes with the repository Helm chart.
+description: Render, install, verify, and recover the repository Helm chart on Kubernetes 1.30 or newer.
 pageType: workflow
 ---
 
-The Helm chart in `infra/helm/caracal` renders production-shaped Kubernetes resources for API, STS, Gateway, Audit, Coordinator, the browser-facing web console BFF, and optional Control.
+Use the chart when you already operate Kubernetes, Postgres, Redis, secrets, ingress, and monitoring. It does not provision a cluster or managed dependencies and makes no availability claim.
 
-## Rendered Resources
+## Prerequisites
 
-| Resource                      | Purpose                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------- |
-| Deployment                    | API, Audit, Coordinator, Web, and Control when enabled.                                     |
-| StatefulSet                   | STS and Gateway when replay persistence is enabled.                                         |
-| Job                           | Pre-install/pre-upgrade Postgres migrations for the control-plane and web session schemas.  |
-| Service                       | ClusterIP service per enabled component.                                                    |
-| Ingress                       | Optional external Web, API, Gateway, and STS endpoints.                                     |
-| NetworkPolicy                 | Default-deny with explicit internal, storage, DNS, OTLP, HTTPS, and custom egress controls. |
-| PDB/HPA                       | Availability and scaling controls per service.                                              |
-| ServiceMonitor/PrometheusRule | Metrics scraping and built-in alert recipes.                                                |
+- Kubernetes `>=1.30`, Helm, and namespace privileges.
+- A pinned chart version or reviewed checkout.
+- External Postgres and Redis for `stable` mode.
+- A complete runtime Secret; production values set `secrets.create=false`.
+- Explicit DNS, ingress-controller, dependency, provider, and object-store network rules.
 
-## Profile Selection
+## Safe Procedure
 
-The chart ships three overlays on top of `values.yaml`. Pick one explicitly - `values.production.yaml` is the canonical enterprise install path:
-
-| Overlay                  | `global.mode` | Posture                                                                               | Use for                          |
-| ------------------------ | ------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
-| `values.production.yaml` | `stable`      | Fail-closed; replicas, PDBs, anti-affinity baked in                                   | **Production (canonical)**       |
-| `values.rc.yaml`         | `rc`          | Same fail-closed trust boundary; release-candidate build may be functionally unstable | Staging / pre-release validation |
-| `values.dev.yaml`        | `dev`         | Relaxed, single-host conveniences                                                     | Local evaluation only            |
-
-Always pass the chosen overlay with `--values`; never install on bare `values.yaml`.
-
-## Minimal Install Shape
-
-Released chart versions are published to the GitHub Container Registry as OCI artifacts; pin an explicit version for production:
-
-```bash
-helm upgrade --install caracal oci://ghcr.io/garudex-labs/charts/caracal \
-  --version 0.2.0 \
-  --namespace caracal \
-  --create-namespace \
-  --values values.production.yaml
-```
-
-From a repository checkout, install the working-tree chart instead:
-
-```bash
-helm upgrade --install caracal infra/helm/caracal \
-  --namespace caracal \
-  --create-namespace \
-  --values infra/helm/caracal/values.production.yaml
-```
-
-To manage the install declaratively, [Provision with OpenTofu](/operations/opentofu/) wraps this chart with pinned versions, atomic upgrades, and environment roots.
-
-Before installing, provide the runtime Secret named by `secrets.runtimeSecretName` or set `secrets.create=true` with plaintext values only for a controlled evaluation environment. The runtime Secret must include service-specific database URLs (`apiDatabaseUrl`, `stsDatabaseUrl`, `gatewayDatabaseUrl`, `auditDatabaseUrl`, and `coordinatorDatabaseUrl`), `idempotencyHmacKey`, `caracalAuthSecret`, `authDatabaseUrl`, Redis, admin, Coordinator, KEK, HMAC, and metrics keys.
-
-For a managed-cloud install with the runtime Secret provisioned by the External Secrets Operator, a production overlay, and cert-manager TLS ingress, follow [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/).
-
-## Service Ports
-
-| Component       | Port                                    |
-| --------------- | --------------------------------------- |
-| API             | `3000`                                  |
-| STS             | `8080`                                  |
-| Gateway         | `8081`                                  |
-| Audit           | `9090`                                  |
-| Coordinator     | `4000`                                  |
-| Web Console BFF | `3002`                                  |
-| Control         | in-process in API (`3000`) when enabled |
-
-## Production Values to Review
-
-| Area          | Values                                                                                  |
-| ------------- | --------------------------------------------------------------------------------------- |
-| Images        | `global.registry`, `global.tag`, `global.imagePullPolicy`, `global.mode`                |
-| Secrets       | `secrets.runtimeSecretName`, `secrets.database.*`, `secrets.redis.*`, token secret refs |
-| Network       | `services.<name>.internalUrl`, `services.sts.issuerUrl`, `networkPolicy.*`, `ingress.*` |
-| Reliability   | `services.<name>.replicas`, `pdb`, `hpa`, resource requests/limits                      |
-| Audit export  | `services.audit.exportScratchSizeLimit`                                                 |
-| Replay        | `replayPersistence.enabled`, `storageClassName`, `size`                                 |
-| Observability | `serviceMonitor.enabled`, `alertRules.enabled`, `global.otelExporterOtlpEndpoint`       |
-
-## Web Console Deployment
-
-`services.web` is enabled in the default chart values with two replicas, image `caracal-web`, container port `3002`, PDB/HPA settings, resource requests and limits, `databaseSsl: require`, and `autoMigrate: "false"`. Set `services.web.publicUrl` to the external HTTPS origin browsers load; the template requires this value and passes it to `CARACAL_AUTH_URL` and `CARACAL_WEB_ORIGIN`.
-
-The web Deployment runs `/app/auth/dist/server.js` from the runtime-tier `caracal-web` image built by the release service-image matrix. The image serves the built SPA same-origin from `/app/auth/web` and proxies `/api/console/*` to the internal API and Coordinator Services. The browser should reach only the web Ingress in the default production shape; API and Gateway Ingress remain disabled unless an explicit deployment needs them.
-
-The web tier uses a dedicated Postgres database for sessions. In chart values, `secrets.authDatabase.name` defaults to `caracal_auth`; the runtime Secret key `authDatabaseUrl` points the BFF at that database, and `caracalAuthSecret` supplies the Better Auth signing secret.
-
-When `migrations.enabled` is `true`, the chart renders a `caracal-<release>-auth-migrate` Job as a `pre-install`/`pre-upgrade` hook. It runs the BFF image entrypoint `node dist/migrate.js`, which creates the `caracal_auth` database when absent and applies the Better Auth schema before any web pod starts. The Job retries while Postgres is still coming up and is idempotent across upgrades. The maintenance step that creates the database requires a Postgres role permitted to `CREATE DATABASE`; pre-create `caracal_auth` if your role cannot, and the Job applies the schema into it.
-
-Keep `services.web.autoMigrate: "false"` for multi-replica deployments so serving replicas never race schema changes. The same entrypoint can be run manually when needed:
-
-```bash
-node dist/migrate.js
-```
-
-Set `autoMigrate: "true"` only for single-replica evaluation installs where boot-time schema provisioning cannot race another web pod.
-
-## Ingress and NetworkPolicy
-
-Production values leave every Ingress disabled until the operator supplies a host, TLS secret, and matching NetworkPolicy. API, Gateway, and STS Ingress remain optional to keep public exposure minimal. Add the ingress-class annotations required by the platform edge.
-
-Stable rendering fails when NetworkPolicy has no DNS rule, or when any Ingress is enabled without `networkPolicy.extraIngress`. Configure exact DNS peers and an ingress-controller selector before installation rather than deploying an unreachable release.
-
-Every non-Web service accepts `extraEnv`, `extraEnvFrom`, `extraVolumes`, and `extraVolumeMounts`. Use these for private CA bundles, proxy settings, workload-identity files, and service-specific cloud credentials without forking the chart.
-
-Audit writes each complete hourly Parquet partition to an ephemeral scratch volume before streaming it to object storage. Size `services.audit.exportScratchSizeLimit` for the largest expected hourly partition plus encoder overhead. The chart mounts this bounded `emptyDir` at the `AUDIT_EXPORT_TMP_DIR` path; node ephemeral-storage pressure can interrupt an export, but the durable watermark advances only after upload succeeds, so the next exporter tick retries the hour.
-
-## Validation Flow
+1. Create an environment-owned values file from `values.production.yaml`.
+2. Set the image tag, service URLs, `services.web.publicUrl`, storage hosts, Secret name, and only required ingress.
+3. Render before apply:
 
 ```bash
 helm lint infra/helm/caracal
-helm template caracal infra/helm/caracal --values infra/helm/caracal/values.production.yaml > caracal.rendered.yaml
-kubectl -n caracal rollout status deploy/caracal-web
-kubectl -n caracal rollout status deploy/caracal-api
-kubectl -n caracal get pods,svc
+helm template caracal infra/helm/caracal --namespace caracal --values <environment-values> > caracal.rendered.yaml
 ```
 
-Run readiness probes through the Service or Ingress endpoints after rollout, then load the web console through the HTTPS web Ingress.
+4. Review Secret references, NetworkPolicies, Ingresses, migration Jobs, image tags, PVCs, and security contexts.
+5. Install:
 
-## Rollback
+```bash
+helm upgrade --install caracal infra/helm/caracal --namespace caracal --create-namespace --atomic --wait --wait-for-jobs --values <environment-values>
+```
+
+STS and Gateway render as StatefulSets when replay persistence is enabled. PDBs, HPAs, ServiceMonitor, and PrometheusRule require compatible controllers and do not prove HA.
+
+## Verify
+
+Check migration Jobs, pods, services, and rollout status. Confirm `/ready`, run a canary token exchange and Gateway call, and locate audit evidence. Verify the scraper authenticates with `METRICS_BEARER`.
+
+## Rollback and Recovery
 
 ```bash
 helm -n caracal history caracal
 helm -n caracal rollback caracal <revision>
 ```
 
-Migrations are forward-only. Rollbacks must use application versions compatible with the already-applied schema.
-
-## Troubleshooting
-
-| Symptom                                       | Check                                                                                                                                                             |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Migration Job fails                           | Check database host, port, user, database name, password key, and `sslMode`.                                                                                      |
-| Pods fail readiness                           | Inspect dependency readiness, mounted secrets, and service-specific required env vars.                                                                            |
-| Web Ingress returns 503 or times out          | Confirm `services.web.publicUrl`, `authDatabaseUrl`, `caracalAuthSecret`, API/Coordinator readiness, and `networkPolicy.extraIngress` for the ingress controller. |
-| Gateway Ingress works but upstream calls fail | Check NetworkPolicy egress and upstream allowlist configuration.                                                                                                  |
-| STS or Gateway loses audit replay             | Ensure replay persistence is enabled and PVCs are not deleted during rollouts.                                                                                    |
+Rollback does not reverse Postgres migrations. Verify schema compatibility or roll forward. Preserve replay PVCs and the runtime Secret.
 
 ## Next Step
 
-Use [Choose a Cloud Profile](/operations/cloud-native-profiles/) when the Helm deployment needs managed storage, ingress, external secrets, or production network policy.
+Use [Choose a Cloud Profile](/operations/cloud-native-profiles/) to integrate operator-owned dependencies.

@@ -1,82 +1,34 @@
 ---
 title: Operate Redis Streams
-description: Operate Redis Streams for Caracal events, invalidation, revocation, and coordination.
+description: Provision, verify, monitor, and recover Caracal stream and revocation transport.
 pageType: workflow
 ---
 
-Redis Streams move operational events between Caracal services. Redis is not the durable source of product state; Postgres remains authoritative.
+Redis carries audit, invalidation, revocation, agent, invocation, and delegation streams. It is correctness-critical, not an evictable cache.
 
-## Streams and Groups
+## Prerequisites
 
-| Stream                           | Consumer groups                   |
-| -------------------------------- | --------------------------------- |
-| `caracal.audit.events`           | `audit-ingestor`, `siem-export`   |
-| `caracal.audit.events.dlq`       | `audit-dlq-observer`              |
-| `caracal.policy.invalidate`      | `opa-engine`                      |
-| `caracal.sessions.revoke`        | `sts-revocation`                  |
-| `caracal.keys.invalidate`        | `sts-keys`                        |
-| `caracal.agents.lifecycle`       | `coordinator-relay`               |
-| `caracal.invocations.lifecycle`  | `invocations-observer`            |
-| `caracal.delegations.invalidate` | `delegations-observer`            |
-| `caracal.providers.ratelimit`    | initialized as a one-entry stream |
+Use Streams, authentication, persistence, `maxmemory-policy noeviction`, and enough memory. The bundled image uses AOF with `appendfsync everysec`; validate external services separately.
 
-## Provision
+## Procedure
+
+Provisioning is automatic in the bundled stack. From a checkout:
 
 ```bash
-REDIS_HOST=localhost REDIS_PORT=6379 \
-REDIS_PASSWORD_FILE="${CARACAL_SECRETS_DIR:-${CARACAL_HOME:-$HOME/.local/share/caracal}/secrets}/redisPassword" \
 bash infra/redis/provision-streams.sh
-```
-
-The provisioner is idempotent, creates consumer groups with `MKSTREAM`, and warns when an existing stream length exceeds the intended bound.
-
-## Verify
-
-```bash
-REDIS_HOST=localhost REDIS_PORT=6379 \
-REDIS_PASSWORD_FILE="${CARACAL_SECRETS_DIR:-${CARACAL_HOME:-$HOME/.local/share/caracal}/secrets}/redisPassword" \
 bash infra/redis/scripts/verify.sh
 ```
 
-Verification checks stream existence, consumer group existence, and provisioner idempotency.
+Provide Redis host, port, and password file when needed. Monitor stream length, groups, pending entries, reclaim/retry, DLQ, memory, persistence, and latency.
 
-## Event Path
+## Verify
 
-```mermaid
-flowchart LR
-  API[API transaction] --> Outbox[event_outbox]
-  Outbox --> Redis[Redis Streams]
-  Coordinator[Coordinator outbox] --> Redis
-  STS --> Redis
-  Gateway --> Redis
-  Redis --> Audit[Audit ingestor]
-  Redis --> STSConsumers[STS invalidation/revocation]
-  Redis --> GatewayConsumers[Gateway revocation]
-```
+Confirm expected streams/groups, idempotent provisioning, `noeviction`, persistence, and policy/revocation/audit delivery.
 
-Stream messages are signed with `STREAMS_HMAC_KEY` in published modes.
+## Recovery
 
-## Durability and Eviction
-
-Redis is a correctness-critical store, not a disposable cache: revocation entries and unacknowledged stream messages must survive memory pressure and restarts. Configure every Caracal Redis with:
-
-| Setting            | Required value | Why                                                                                                                                     |
-| ------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `maxmemory-policy` | `noeviction`   | Any `allkeys-*`/`volatile-*` policy can silently drop revocation entries and pending stream messages, weakening revocation correctness. |
-| `appendonly`       | `yes`          | Persists stream and revocation state across restarts.                                                                                   |
-| `appendfsync`      | `everysec`     | Bounds data loss on crash to roughly one second.                                                                                        |
-
-The bundled Redis image (`infra/redis/redis.conf`) already sets these. **External or managed Redis is your responsibility** - many managed tiers default to `allkeys-lru`. On startup each consumer service (STS, Gateway, Audit) reads the live `maxmemory-policy` and logs a warning when it is not `noeviction`, so a misconfigured store is visible in service logs immediately. The check never blocks startup and is skipped when the provider restricts `CONFIG GET`.
-
-## Troubleshooting
-
-| Symptom                           | Check                                                                                          |
-| --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Audit DLQ grows                   | HMAC failures, malformed producers, Redis memory pressure, and Audit database writes.          |
-| Policy changes do not take effect | `caracal.policy.invalidate` group health and STS policy age metrics.                           |
-| Revocation is delayed             | `caracal.sessions.revoke` pending entries and Gateway/STS consumer health.                     |
-| Provisioner warns about length    | Plan an explicit stream retention/reset; provisioning does not rewrite stream policy silently. |
+Restore Redis, verify groups, then drain consumers and replay. Reconcile Postgres outboxes and replay directories. Never delete pending entries or reset groups until durable handling is proven.
 
 ## Next Step
 
-Use [Scale Capacity](/operations/scale-capacity/) when storage, streams, or service pools approach operational limits.
+Use [Scale Capacity](/operations/scale-capacity/) when lag or memory grows.

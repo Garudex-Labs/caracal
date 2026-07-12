@@ -535,6 +535,11 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		writeReadyFailure(w, "redis_unreachable")
 		return
 	}
+	if s.auditBuffer.Dropped() > 0 {
+		s.log.Error().Uint64("dropped", s.auditBuffer.Dropped()).Msg("ready: audit evidence lost")
+		writeReadyFailure(w, "audit_evidence_lost")
+		return
+	}
 	if err := s.auditBuffer.Ready(); err != nil {
 		s.log.Warn().Err(err).Msg("ready: audit replay unavailable")
 		writeReadyFailure(w, "audit_replay_unavailable")
@@ -581,12 +586,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	s.auditBuffer.RefreshReplayStats(time.Now())
 	sts := s.metrics.Snapshot()
 	opa := s.opa.MetricsSnapshot()
-	auditDropped := s.auditBuffer.Dropped()
 	w.Header().Set("Content-Type", coremetrics.ContentType)
 	_, _ = w.Write([]byte(coremetrics.Render([]coremetrics.Sample{
 		{Name: "caracal_sts_graph_traversals_total", Help: "STS delegation graph traversals performed", Type: coremetrics.Counter, Value: float64(sts.GraphTraversals)},
 		{Name: "caracal_sts_graph_traversal_errors_total", Help: "STS delegation graph traversal failures", Type: coremetrics.Counter, Value: float64(sts.GraphTraversalErrors)},
-		{Name: "caracal_sts_audit_dropped_total", Help: "STS audit events dropped before persistence", Type: coremetrics.Counter, Value: float64(sts.AuditDropped + auditDropped)},
+		{Name: "caracal_sts_audit_dropped_total", Help: "STS audit events irrecoverably lost", Type: coremetrics.Counter, Value: float64(s.auditBuffer.Dropped())},
 		{Name: "caracal_sts_audit_replay_pending", Help: "STS audit events pending replay", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayPending)},
 		{Name: "caracal_sts_audit_replay_files", Help: "STS audit replay files waiting on disk", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayFiles)},
 		{Name: "caracal_sts_audit_replay_bytes", Help: "STS audit replay bytes waiting on disk", Type: coremetrics.Gauge, Value: float64(sts.AuditReplayBytes)},

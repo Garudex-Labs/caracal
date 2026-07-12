@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from 'astro:content'
+import { logicalDocId, publishedDocs } from '../../versioning.mjs'
 
 const site = 'https://docs.caracal.run'
 
@@ -35,19 +36,22 @@ const pageOrder = [
   'guides/runtime-run',
   'guides/protect-gateway-http',
   'guides/protect-express',
+  'guides/protect-fastapi',
   'guides/protect-fastmcp',
   'guides/protect-nethttp',
   'guides/protect-mcp',
   'guides/audit-stream',
   'guides/delegation',
   'guides/step-up',
-  'guides/enterprise-runtime-patterns',
+  'guides/approval-notifications',
+  'guides/production-patterns',
   'concepts',
   'concepts/model-overview',
   'concepts/authority-model',
   'concepts/zone',
   'concepts/principal',
   'concepts/resource-grant',
+  'concepts/provider',
   'concepts/policy',
   'concepts/step-up',
   'concepts/mandate',
@@ -55,12 +59,15 @@ const pageOrder = [
   'concepts/constraint',
   'concepts/sessions-revocation',
   'concepts/audit-ledger',
+  'concepts/operator',
   'operations',
+  'operations/deployment-profiles',
   'operations/docker-compose',
   'operations/kubernetes-helm',
   'operations/cloud-native-profiles',
   'operations/cloud-reference-deployments',
-  'operations/enterprise-install-kit',
+  'operations/opentofu',
+  'operations/install-kit',
   'operations/env-vars',
   'operations/tls-hardening',
   'operations/key-management',
@@ -92,6 +99,7 @@ const pageOrder = [
   'runtime-console/cli-and-console',
   'runtime-console/stack',
   'runtime-console/console',
+  'runtime-console/console-access',
   'runtime-console/config-file',
   'runtime-console/runtime',
   'runtime-console/admin',
@@ -116,6 +124,9 @@ const pageOrder = [
   'security',
   'security/threat-model',
   'security/hardening',
+  'security/verify-releases',
+  'security/evidence-pack',
+  'security/adoption-review',
   'security/disclosure',
   'examples',
   'examples/echo-upstream',
@@ -148,7 +159,6 @@ const pageOrder = [
   'reference/compatibility',
   'reference/release-package-runtime-map',
   'reference/interoperability-contracts',
-  'enterprise',
   'contributing',
   'contributing/setup',
   'contributing/style',
@@ -159,15 +169,15 @@ const pageOrder = [
 ]
 
 export async function GET() {
-  const docs = await getCollection('docs')
-  const byId = new Map(docs.map((d) => [d.id, d]))
+  const docs = publishedDocs(await getCollection('docs'))
+  const byId = new Map(docs.map((d) => [logicalDocId(d.id), d]))
 
   const header = [
     '# Caracal',
     '',
-    '> The identity and authorization layer for AI agents. Policy-approved mandates instead of credentials, instant revocation, and tamper-evident audit evidence.',
+    '> Caracal gives agents and automated workloads short-lived, policy-approved authority for protected resources.',
     '',
-    'Caracal is an open-source system built by Garudex Labs. It issues short-lived signed mandates that bind agents and workloads to policy before protected-resource access.',
+    'Caracal is an open-source system built by Garudex Labs. Applications request scoped authority, STS evaluates policy, Gateway or an in-process verifier enforces the issued Mandate, Coordinator owns Sessions and Delegations, and Audit records decisions and outcomes.',
     '',
     '---',
     '',
@@ -186,8 +196,8 @@ export async function GET() {
 
   // Any remaining pages not in the explicit order
   for (const doc of docs) {
-    if (seen.has(doc.id)) continue
-    if (doc.id === 'index') continue
+    if (seen.has(logicalDocId(doc.id))) continue
+    if (logicalDocId(doc.id) === 'index') continue
     pages.push(formatPage(doc, site))
   }
 

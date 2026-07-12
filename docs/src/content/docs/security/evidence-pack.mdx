@@ -1,62 +1,34 @@
 ---
 title: Generate an Evidence Pack
-description: Generate a reproducible evidence pack that demonstrates Caracal's supply-chain, enforcement, and runtime assurance for security and compliance review.
+description: Run the repository evidence script and interpret PASS, FAIL, and SKIPPED honestly.
 pageType: workflow
 ---
 
-A distributed topology is not the same as a large attack surface. During evaluation that distinction is easy to lose: reviewers see several services, Postgres, and Redis, and assume proportional risk. The evidence pack closes that gap by turning the architecture into demonstrated assurance - a single, reproducible bundle a security or compliance reviewer can run, read, and attach to an approval record.
+`evidencePack.sh` captures image provenance, schema validation, runtime smoke readiness, and the threat model. It is not compliance, penetration testing, an SBOM archive, config audit, or HA proof.
 
-The pack does not add new trust claims. It runs the verifiers Caracal already ships and captures their output in one place, mapped to the written assurance case in [`governance/THREAT_MODEL.md`](https://github.com/Garudex-Labs/caracal/blob/main/governance/THREAT_MODEL.md).
+## Prerequisites
 
-## What It Proves
+Provide checkout, release version/authenticated `gh`, database credentials/`psql`, reachable runtime, and protected output as applicable.
 
-| Pillar | Check | Demonstrates |
-| --- | --- | --- |
-| Supply chain | Release provenance | Every image you run was built by the `Garudex-Labs/caracal` release workflow and carries provenance and SBOM attestations. |
-| Enforcement (data) | Schema enforcement | Row-level security is fail-closed, audit is append-only, and policy versions are immutable - enforced by the database independent of application code. |
-| Enforcement (runtime) | Runtime readiness | Every mediation point (API, STS, Gateway, Audit, Coordinator) is live and answering readiness. |
-| Assurance case | Threat model | The written threat model the checks above exercise, captured with the pack. |
-
-## Generate the Pack
-
-Run the generator against a deployment. Each check runs only when its inputs are present, so the pack is useful at any stage of evaluation and records which checks were skipped and why.
+## Procedure
 
 ```bash
-# Supply-chain provenance (release tag + gh CLI authenticated)
-export CARACAL_VERSION=<release-tag>
-
-# Schema enforcement (point at the running database)
-export PGHOST=<host> PGPORT=5432 PGUSER=caracal PGDATABASE=caracal
-export PGPASSWORD=<password>
-
-# Runtime readiness (defaults to 127.0.0.1)
+export CARACAL_VERSION=<tag>
+export PGHOST=<host> PGPORT=5432 PGUSER=<user> PGDATABASE=<database> PGPASSWORD=<password>
 export CARACAL_SMOKE_HOST=<host>
-
 bash infra/scripts/evidencePack.sh
 ```
 
-The pack is written to `evidence/caracal-evidence-<UTC>/`:
+Output is under `evidence/caracal-evidence-<UTC>/`. Executed failures exit non-zero; missing inputs produce non-failing `SKIPPED`.
 
-- `REPORT.md` - summary table and per-check narrative with status and links.
-- `raw/` - the unmodified output of each verifier, including a copy of the threat model.
+## Verify
 
-The generator exits non-zero if any executed check fails, so it can also gate CI or a release-readiness review. Skipped checks do not fail the run.
+Require relevant checks to be `PASS`; skipped means missing evidence. Add rendered deployment, digests, config review, canaries, alerts, and restore evidence separately.
 
-## Inputs
+## Recovery
 
-| Variable | Used by | Effect when unset |
-| --- | --- | --- |
-| `CARACAL_VERSION` | Release provenance | Provenance check is skipped. |
-| `CARACAL_REGISTRY` | Release provenance | Defaults to `ghcr.io/garudex-labs`. |
-| `PGPASSWORD` (+ `PG*`) | Schema enforcement | Schema check is skipped. |
-| `CARACAL_SMOKE_HOST` | Runtime readiness | Defaults to `127.0.0.1`. |
-| `OUT_DIR` | All | Defaults to `./evidence`. |
+Preserve raw failure output, correct the boundary, and generate a new pack. Never edit generated status.
 
-Generated packs are ignored by Git. Treat a completed pack as evidence: store it with the change record or compliance artifact it supports.
+## Next Step
 
-## Related Pages
-
-- [Verify a Release](/security/verify-releases/)
-- [Review the Threat Model](/security/threat-model/)
-- [Enterprise Security Readiness](/security/enterprise-readiness/)
-- [Export Audit Evidence](/operations/compliance-audit-integration/)
+Use [Review OSS Adoption Readiness](/security/adoption-review/).

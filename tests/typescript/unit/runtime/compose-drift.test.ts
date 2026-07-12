@@ -59,6 +59,7 @@ describe('docker-compose default substitutions', () => {
   it('dev compose uses a network name isolated from the runtime stack', () => {
     const yaml = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
     expect(yaml).toContain('name: caracal-dev')
+    expect(yaml).toContain('external: true')
     expect(yaml).toContain('name: caracalDevData')
     expect(yaml).not.toMatch(/\n\s+name: caracalData\n/)
   })
@@ -93,6 +94,19 @@ describe('runtime-compose default substitutions', () => {
   it('embedded COMPOSE_YML stays byte-for-byte in sync with runtime-compose.yml', () => {
     const runtimeCompose = readFileSync(resolve(repoRoot, 'infra', 'docker', 'runtime-compose.yml'), 'utf8')
     expect(COMPOSE_YML).toBe(runtimeCompose)
+  })
+
+  it('gives the web console read-only service URLs so the health panel probes real readiness', () => {
+    // The Console platform-health panel probes each service's /ready from the BFF. Without these
+    // URLs the panel would omit STS, Gateway, and Audit, so both compose sources and the embedded
+    // template must grant the web service the same read-only endpoints.
+    const dev = readFileSync(resolve(repoRoot, 'infra', 'docker', 'docker-compose.yml'), 'utf8')
+    const runtime = readFileSync(resolve(repoRoot, 'infra', 'docker', 'runtime-compose.yml'), 'utf8')
+    for (const source of [dev, runtime, COMPOSE_YML]) {
+      expect(source).toContain('CARACAL_STS_URL: http://sts:8080')
+      expect(source).toContain('CARACAL_GATEWAY_URL: http://gateway:8081')
+      expect(source).toContain('CARACAL_AUDIT_URL: http://audit:9090')
+    }
   })
 
   it('runtime compose uses release images, stable defaults, and no build contexts', () => {

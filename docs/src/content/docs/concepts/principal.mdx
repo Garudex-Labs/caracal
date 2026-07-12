@@ -5,29 +5,34 @@ sidebar:
   order: 5
 ---
 
-A principal is the acting identity. An application is the registered client or workload that authenticates and requests authority. A Subject is the JWT `sub` identity work is attributed to.
+Use this page to decide which identity is durable, which identity is optional, and which record identifies one execution.
 
-## Principal Types
+An **Application** is registered software that authenticates to Caracal. A **Subject** is an optional identity federated from your identity provider. An **Authority record** is an immutable record of identity and authority context. A **Session** is one governed execution under an Application.
 
-| Principal | Typical source                                                 | How Caracal sees it                                                                                                                       |
-| --------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| User      | Your application's own authenticated end user.                 | Federated Subject (`sub`) recorded for attribution, provider connections, revocation, and audit - never an authorization input by itself. |
-| Service   | Workload credential or client secret.                          | Application identity recorded on an Authority record and Session.                                                                         |
-| AI agent  | Agent framework or autonomous software acting through the SDK. | One or more governed Sessions with labels, parentage, and delegation context.                                                             |
+## Identity and Execution Objects
 
-Principals are not enough on their own. A request also needs an application, Authority record, resource, scopes, and policy approval. Governed execution additionally has a Session.
+When you need the operator-facing view of these objects side by side - including how their IDs appear on the wire - the identity table in [Manage Runtime Authority](/runtime-console/agents/#keep-the-identities-distinct) is the quick reference.
+
+| Public object    | Typical source                                | What it controls                                                                                                           |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Application      | Workload credential or Application secret     | The durable credential and policy boundary for software.                                                                  |
+| Subject          | Token from your registered identity provider  | Attribution, provider connection ownership, revocation anchor, and supported Subject approvals; not scope authority alone. |
+| Authority record | Successful identity or authority exchange     | Immutable audit and revocation context.                                                                                    |
+| Session          | SDK runtime primitive                         | The lifetime and exact attribution of one governed execution.                                                              |
+
+No identity object authorizes a Resource by itself. A request still needs Resource scopes, applicable policy, and any required Delegation or Approval.
 
 ## Application Roles
 
 Applications represent software that can participate in Caracal flows:
 
-- an agent runtime that starts Sessions for child agents;
+- an agent runtime that starts child Sessions;
 - a backend service that requests mandates;
 - a Gateway application that fronts protected upstreams;
-- a adapter-protected resource server;
+- an adapter-protected resource server;
 - a managed or dynamically registered client.
 
-Applications have registration metadata, a server-owned token credential, and a registration method. Managed applications are operator-provisioned for known durable software, including runtimes that start Sessions for child agents. Dynamically registered applications are short-lived, isolated identities created through the zone DCR endpoint when a separate auto-expiring credential boundary is needed, such as a per-tenant or per-integration identity, rather than for ordinary Session fan-out.
+Applications have registration metadata, a server-owned credential, and a registration method. **Managed** Applications are durable and operator-provisioned for known software, including runtimes that start child Sessions. **DCR** Applications (Dynamic Client Registration) are auto-expiring and created programmatically when a separate temporary credential boundary is needed, not for ordinary Session fan-out.
 
 ## Applications Are the Credential Boundary; Sessions Are the Runtime Unit
 
@@ -40,43 +45,37 @@ flowchart TD
   S3 --> C2["Delegated Session"]
 ```
 
-An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. A Session is started at runtime by the workload that already holds that secret; it carries parent, Subject authority record ID, labels, and delegation context. One application backs many Sessions, so a durable workload uses **one managed application** and starts, delegates, and fans out as many Sessions as it needs. You do not register an application per AI agent - see [Should I create one application per agent?](/reference/faq/#faq-006).
+An application is registered, holds a server-owned secret, and is the identity Caracal authenticates. A Session is started at runtime by the process that already holds that secret; it carries parent, Subject authority record ID, labels, and delegation context. One application backs many Sessions, so a long-running service uses **one managed application** and starts, delegates, and fans out as many Sessions as it needs. You do not register an application per AI agent - see [Should I create one application per agent?](/reference/faq/#faq-006).
 
 ## Managed and DCR Applications
 
-| Method  | Identity boundary                                                                                                | Operational rule                                                                                                                                                                                                                                     |
-| ------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Managed | One durable service, orchestrator, Gateway, or agent runtime - including a runtime that fans out AI-agent work.  | Created in the web console or Admin API and reused across many Sessions for the same workload.                                                                                                                                                       |
-| DCR     | One short-lived, isolated application identity per tenant, integration, or externally issued ephemeral identity. | Created **programmatically only** through the Admin API or Admin SDK `applications.dcr()`, never in the web console; always expires, binds to exactly one Session, and cannot parent further Sessions. The Console lists DCR applications read-only. |
+| Kind          | Use it for                                                        | Rule                                                                                                   |
+| ------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Managed (durable)       | A service, orchestrator, Gateway, or agent runtime                 | Create once and reuse across many Sessions for the same service.                                      |
+| DCR (auto-expiring) | An isolated credential boundary for a tenant or integration       | Create programmatically; it expires, binds to one task Session, and cannot participate in a child tree. |
 
-Coordinator records each Session's `lifecycle`: `task` for a block-scoped Session started by `session()`, or `service` for a long-lived, heartbeat-leased Session started by [`start_session()`](/sdks/python/). The value names lifecycle, not actor type. The credential boundary between managed and DCR identities is `registration_method`, not lifecycle; a DCR application's single Session is always `task`.
+Sessions use one of two lifecycles: a **task Session** ends with a bounded unit of work, while a **service Session** stays active through a heartbeat lease. Lifecycle describes time, not actor type or authority.
 
-`lifecycle` carries one behavioral distinction: a `service` session holds a heartbeat lease and is swept when that lease lapses, while a `task` session is task-scoped - it is retired when its work completes (optionally bounded by a TTL). The two are governed by **different reapers**: a `task` is subject to the wall-clock TTL sweeper, and a `service` is **not** - its lifetime is governed solely by the heartbeat lease, so a service that keeps renewing its lease is never terminated on a timer. `lifecycle` does not change what an agent may do or which authority it carries.
+A task Session may have a wall-clock TTL. A service Session ends when its heartbeat lease lapses or it is closed. Keeping the lease alive does not widen authority.
 
-The Session topology enforces two structural rules so a child can never outlast or out-scope what its position allows:
+Two structural rules prevent invalid trees:
 
 - A `task` parent cannot start a `service` child. The protocol reports `task_session_cannot_start_service`. A `service` parent may start either lifecycle.
-- A DCR Session is a **leaf**: it cannot parent or be a child Session. The protocol reports `dcr_application_cannot_start_child` and `dcr_application_cannot_be_child`.
+- A DCR Application's Session is a **leaf**: it cannot parent or be a child Session.
 
-A **short-lived worker is not a separate lifecycle** - it is an ordinary `task` session created with a TTL. The mainstream tree of a long-lived orchestrator, mid-tier managers, and disposable task workers is modelled under **one managed application**:
+A short-lived worker is an ordinary task Session with a TTL. Model an orchestrator and its workers under one managed Application unless they need separate credentials or mutual distrust boundaries.
 
 - the orchestrator is the top-level Session, or a [`start_session()`](/sdks/python/) handle when it needs a heartbeat lease,
 - each manager is a plain `session()` that inherits the application's authority,
 - each task worker is `session(authority=Authority.narrow([...]), ttl_seconds=…)` - least-privilege and auto-terminated on block exit, with the TTL sweeper as a backstop.
 
-Every node in that tree is a `task` Session under one managed application, distinguished by its Session ID, labels, and Delegation context. "Disposable worker" is expressed by TTL and narrowed authority, not a separate lifecycle.
-
-DCR is therefore for credential isolation, not Session fan-out: it gives a unit of work an independently revocable, auto-expiring **application** identity.
-
-A DCR application is reached by **authenticating as it**, not by starting it as a child. The Admin API registers the DCR application and returns a one-time secret and short expiry; the SDK never registers applications. An orchestrator injects those credentials into an independently launched workload, which authenticates with `client_credentials` and starts its single Session. The application then expires and is archived.
+Use a DCR Application for credential isolation, not Session fan-out. It authenticates independently; it is not started as a child Session.
 
 :::note[FAQ]
 [What is the difference between an application, principal, and Session?](/reference/faq/#faq-005) and [when should I use a managed application versus DCR?](/reference/faq/#faq-007)
 :::
 
-Disabling DCR on a zone always stops future dynamic registration. If live DCR applications exist, operators choose whether those identities continue until expiry or are revoked immediately. Revocation archives the applications, revokes their Authority records and Delegations, and terminates their Sessions.
-
-Policies receive registration method, Session ID, lifecycle, and labels through the documented [policy input contract](/concepts/policy/#policy-input-contract). Audit metadata records the application, registration method, Session ID, parent and Delegation context, requested scopes, and resource.
+Policy and audit can distinguish Application kind, Session lifecycle, labels, parentage, and Delegation context.
 
 ## Telling Sessions Apart
 
@@ -85,6 +84,12 @@ Every Session has one canonical Session ID. SDK context exposes it as `sessionId
 `labels` are descriptors, not identity. Many Sessions under one application can intentionally share labels. Use labels, metadata, or a trace ID for business correlation; use Session ID for exact attribution.
 
 The Admin API audit endpoint filters by `session_id` for one Session or `label` for a role across many Sessions.
+
+## Subject Federation Is Attribution, Not a Permission Store
+
+Caracal verifies a Subject token only from a Subject issuer registered in the Zone. The resulting Authority record can be attached to a Session as immutable attribution and as a revocation anchor. Supported Subject approval flows can also require that federated identity.
+
+Caracal does **not** derive per-Subject Resource scopes from federation. Do not claim that attaching Richard Hendricks authorizes a call. The Application, active policy, requested scopes, and any Delegation still determine authority.
 
 ## Sessions Bind Identity to Time
 
@@ -103,8 +108,7 @@ Authority records, Sessions, and Delegations make authority revocable. Mandates 
 
 ## Naming Guidance
 
-- Use **application** for registered software.
-- Use **principal** for the acting identity.
+- Use **Application** for registered software and **Subject** for optional federated identity in user-facing material.
 - Use **Subject** for the JWT `sub` identity.
 - Use **Authority record** for an STS exchange record.
 - Use **Session** for a governed Coordinator execution.

@@ -3,7 +3,7 @@
 //
 // Unit tests for the web console HTTP client: error taxonomy, request timeout, and cancellation.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ConsoleApiError, consoleApi } from '../../../../apps/web/src/platform/api/client.ts'
 
@@ -100,10 +100,10 @@ describe('request cancellation', () => {
 
 describe('applications list', () => {
   it('lists active applications without a status parameter', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, { items: [{ id: 'app-1', name: 'Son of Anton' }], next_cursor: null }))
+    const fetchMock = vi.fn(async () => jsonResponse(200, { items: [{ id: 'app-1', name: 'Anton' }], next_cursor: null }))
     globalThis.fetch = fetchMock as unknown as typeof fetch
     const rows = await consoleApi.applications.list('z1')
-    expect(rows).toEqual([{ id: 'app-1', name: 'Son of Anton' }])
+    expect(rows).toEqual([{ id: 'app-1', name: 'Anton' }])
     const url = String(fetchMock.mock.calls[0]![0])
     expect(url).toContain('/v1/zones/z1/applications')
     expect(url).not.toContain('status=')

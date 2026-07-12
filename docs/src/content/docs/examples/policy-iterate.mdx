@@ -4,12 +4,22 @@ description: Diagnose a denied request, simulate a candidate policy-set version,
 pageType: workflow
 ---
 
-Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. Use it when a real request is denied and you want to test a candidate policy change against the exact redaction-safe audit input - and prove it does not change other decisions - before activation.
+Policy Iterate is an audit-driven policy rollout loop in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `policyIterate/`. It tests a candidate policy change against the exact redaction-safe audit input of a real denial - and proves the change does not alter other decisions - before activation.
+
+## When to use it
+
+Use it when a real request was denied and the fix must be proven safe before rollout: the candidate has to repair that denial and keep every regression case's decision. Do not use it as a substitute for the [policy authoring contract](/guides/author-policy/) or [activation workflow](/guides/activate-policy-set/); it automates their verification loop.
+
+## Prerequisites
+
+- A denied request ID with an explainable audit trace.
+- A staged immutable policy-set version and current active version recorded for rollback.
+- Regression cases covering nearby allow and deny behavior.
 
 ## Loop
 
 1. **Diagnose** - a request is denied and you capture its audit `request_id`. The audit explain endpoint reconstructs the denied `policy_input` along with the diagnostics and determining policies.
-2. **Simulate** - you edit the policy, stage a candidate policy-set version, and the example replays the denied input against it through the same OPA engine that serves live traffic.
+2. **Simulate** - you edit the policy data, stage a candidate policy-set version, and the example replays the denied input against it through the same policy engine that serves live traffic.
 3. **Regress** - the example replays your expected-decision cases against the same candidate, so loosening a policy for one caller cannot silently change decisions for everyone else.
 4. **Decide** - activation is gated on evidence: the candidate allows the denied input, the rollout contract validates, simulation produced no warnings, and every regression case keeps its expected decision.
 5. **Activate** - with `ACTIVATE=true` and a clean verdict, the example activates the version and polls activation status until the STS runtime reports it loaded.
@@ -46,6 +56,14 @@ npm test
 
 The tests inject the Admin API transport and do not call a live Caracal stack.
 
-## Next step
+## Validate the iteration
+
+Keep `ACTIVATE` unset first. Expect the candidate to repair the target denial while every regression retains its decision. Only then activate and wait for `loaded`; verify the first real exchange names the candidate manifest.
+
+:::caution[Failure point: reconstructed input]
+Audit reconstruction is redaction-safe and omits actor/subject claims. If a decision depends on implemented federated claims, supply them explicitly in a reviewed regression case; never guess them from a display name.
+:::
+
+## Next Step
 
 Continue to [Launch Research Agent](/examples/research-agent/) to see runtime credential injection for a plain CLI agent.

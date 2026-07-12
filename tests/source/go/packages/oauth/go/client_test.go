@@ -29,9 +29,10 @@ func TestExchangeDoesNotShareCacheAcrossClientSecrets(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]any{
-			"access_token": "token-" + r.Form.Get("client_secret"),
-			"token_type":   "Bearer",
-			"expires_in":   3600,
+			"access_token":     "token-" + r.Form.Get("client_secret"),
+			"token_type":       "Bearer",
+			"expires_in":       3600,
+			"target_resources": []string{"resource://api"},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -54,6 +55,9 @@ func TestExchangeDoesNotShareCacheAcrossClientSecrets(t *testing.T) {
 
 	if first.AccessToken != "token-a" || second.AccessToken != "token-b" || third.AccessToken != "token-a" {
 		t.Fatalf("unexpected tokens: %q %q %q", first.AccessToken, second.AccessToken, third.AccessToken)
+	}
+	if len(first.TargetResources) != 1 || first.TargetResources[0] != "resource://api" {
+		t.Fatalf("unexpected target resources: %#v", first.TargetResources)
 	}
 	if requests != 2 {
 		t.Fatalf("expected 2 STS requests, got %d", requests)
@@ -176,7 +180,7 @@ func TestExchangeDoesNotRetryUnauthorized(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "zone1", "app1", nil)
-	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{Retries: 0})
+	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{})
 	if err == nil || err.Error() != "expired client credential" {
 		t.Fatalf("expected unauthorized error, got %v", err)
 	}
@@ -198,14 +202,12 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL+"/", "zone1", "app1", nil)
-	token, err := client.ExchangeResources(context.Background(), "subject", []string{" resource://b ", "", "resource://a"}, ExchangeOptions{
-		ClientAssertion:     "assertion",
-		ClientAssertionType: "urn:jwt",
-		AuthorityRecordID:   "record",
-		SessionID:           "session",
-		DelegationID:        "delegation",
-		Scopes:              []string{"write", "read", "write"},
-		TTLSeconds:          300,
+	token, err := client.ExchangeResources(context.Background(), "subject", []string{" resource://b ", "", "resource://a", "resource://b"}, ExchangeOptions{
+		AuthorityRecordID: "record",
+		SessionID:         "session",
+		DelegationID:      "delegation",
+		Scopes:            []string{"write", "read", "write"},
+		TTLSeconds:        300,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +215,7 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	if token.AccessToken != "token" {
 		t.Fatalf("unexpected token: %+v", token)
 	}
-	if got := form["resource"]; len(got) != 2 || got[0] != "resource://b" || got[1] != "resource://a" {
+	if got := form["resource"]; len(got) != 2 || got[0] != "resource://a" || got[1] != "resource://b" {
 		t.Fatalf("unexpected resources: %#v", got)
 	}
 	if form.Get("scope") != "read write" || form.Get("ttl_seconds") != "300" ||
@@ -223,6 +225,9 @@ func TestExchangeSendsSortedScopesTTLAndOptionalAuthority(t *testing.T) {
 	}
 	if _, present := form["actor_token"]; present {
 		t.Fatal("actor_token must never be sent")
+	}
+	if _, present := form["client_assertion"]; present {
+		t.Fatal("client_assertion must never be sent")
 	}
 }
 
@@ -296,28 +301,20 @@ func TestExchangeWaitingInflightHonorsCallerCancellation(t *testing.T) {
 	}
 }
 
-func TestExchangeRetriesTransientResponsesAndHTTPFailures(t *testing.T) {
+func TestExchangeDoesNotRetryTransientResponses(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		if requests == 1 {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error_description":"slow"}`))
-			return
-		}
-		w.Write([]byte(`{"access_token":"fresh","token_type":"Bearer","expires_in":3600}`))
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error_description":"slow"}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "zone1", "app1", nil)
-	token, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{Retries: 1, TimeoutMillis: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if token.AccessToken != "fresh" || requests != 2 {
-		t.Fatalf("expected retry success, token=%+v requests=%d", token, requests)
+	_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{TimeoutMillis: 1000})
+	if err == nil || requests != 1 {
+		t.Fatalf("expected one failed request, err=%v requests=%d", err, requests)
 	}
 }
 
@@ -353,7 +350,7 @@ func TestExchangeErrorAndResponseValidationPaths(t *testing.T) {
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 			client := NewClient(server.URL, "zone1", "app1", nil)
-			_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{Retries: 1})
+			_, err := client.Exchange(context.Background(), "subject", "resource://api", ExchangeOptions{})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("expected %q, got %v", tt.want, err)
 			}

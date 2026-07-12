@@ -120,14 +120,25 @@ func TestVerifyClientSecretEmptyInputs(t *testing.T) {
 }
 
 func TestHashApprovalBindingBindsScopes(t *testing.T) {
-	a := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
-	b := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:read"})
+	context := approvalBindingContext{PrincipalID: "principal-1", AuthorityRecordID: "authority-1", SessionID: "session-1", ApplicationID: "app-1"}
+	a := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"}, context)
+	b := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:read"}, context)
 	if hex.EncodeToString(a) == hex.EncodeToString(b) {
 		t.Fatal("an approval for one scope must not match a different scope on the same resource")
 	}
-	same := hashApprovalBinding([]string{" resource://nucleus "}, []string{"nucleus:pay"})
+	same := hashApprovalBinding([]string{" resource://nucleus ", "RESOURCE://NUCLEUS"}, []string{"nucleus:pay", "nucleus:pay"}, context)
 	if hex.EncodeToString(a) != hex.EncodeToString(same) {
-		t.Fatal("approval binding must be whitespace invariant on resources")
+		t.Fatal("approval binding must canonicalize duplicate resources and scopes")
+	}
+	otherSession := context
+	otherSession.SessionID = "session-2"
+	if hex.EncodeToString(a) == hex.EncodeToString(hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"}, otherSession)) {
+		t.Fatal("approval binding must separate governed Sessions")
+	}
+	otherPolicy := context
+	otherPolicy.Bundle.ManifestSHA = "manifest-2"
+	if hex.EncodeToString(a) == hex.EncodeToString(hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"}, otherPolicy)) {
+		t.Fatal("approval binding must separate policy versions")
 	}
 }
 
@@ -151,13 +162,14 @@ func (s *stubApprovalDB) ConsumeApprovalChallenge(_ context.Context, p ConsumeAp
 func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 	db := &stubApprovalDB{}
 	srv := &Server{db: db}
-	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}); err != ErrChallengeInvalid {
+	binding := approvalBindingContext{PrincipalID: "p", ApplicationID: "app-1"}
+	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}, binding); err != ErrChallengeInvalid {
 		t.Fatalf("empty id must reject, got %v", err)
 	}
-	if err := srv.consumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}); err != nil {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}, binding); err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	want := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"})
+	want := hashApprovalBinding([]string{"resource://nucleus"}, []string{"nucleus:pay"}, binding)
 	if hex.EncodeToString(db.gotParams.ResourceSetHash) != hex.EncodeToString(want) {
 		t.Fatal("approval consume must bind the resource and scope set")
 	}
@@ -169,7 +181,7 @@ func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 func TestConsumeApprovalPropagatesInvalid(t *testing.T) {
 	db := &stubApprovalDB{consumeErr: ErrChallengeInvalid}
 	srv := &Server{db: db}
-	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil, approvalBindingContext{}); err != ErrChallengeInvalid {
 		t.Fatalf("want ErrChallengeInvalid, got %v", err)
 	}
 }

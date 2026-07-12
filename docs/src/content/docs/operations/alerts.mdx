@@ -1,123 +1,126 @@
 ---
 title: Configure Alerts
-description: Alert names, meanings, and first-response actions for Caracal operations.
-pageType: reference
+description: Route the alert rules shipped by the Helm chart to specific operator actions.
+pageType: workflow
 ---
 
-The Helm chart can render PrometheusRule alerts for policy freshness, audit health, outbox health, Gateway exchange, revocation safety, database saturation, and readiness flapping.
+Configure alerts after [monitoring](/operations/observability/) is scraping and before production traffic, so failures page someone instead of waiting to be noticed. Use the chart PrometheusRule only with a compatible rule importer. Tune thresholds from measured behavior.
 
-## Built-In Alerts
+## Required Routes
 
-| Alert | Severity | First response |
-| --- | --- | --- |
-| `CaracalSTSOPACompileErrors` | warning | Inspect policy activation history and STS logs; affected policy loads fail closed. |
-| `CaracalSTSPolicyBundleStale` | warning | Check Redis policy invalidation and STS policy age. |
-| `CaracalSTSProviderRefreshErrors` | warning | Check Redis coordination and upstream provider availability. |
-| `CaracalSTSProviderCircuitOpen` | warning | Restore provider or credential health; provider-backed grants fail closed. |
-| `CaracalAuditDLQNonEmpty` | warning | Inspect Audit DLQ records and producer HMAC/signature failures. |
-| `CaracalAuditDLQGrowth` | critical | Stop risky rollouts and recover Audit/Redis/Postgres. |
-| `CaracalAuditConsumerLagHigh` | warning | Scale Audit or restore Postgres/Redis performance. |
-| `CaracalGatewayAuditReplayBacklogOld` | warning | Recover Redis/Audit and confirm Gateway replay drains. |
-| `CaracalSTSAuditReplayBacklogOld` | warning | Recover Redis/Audit and confirm STS replay drains. |
-| `CaracalAuditTamperDetected` | critical | Treat as a security incident. |
-| `CaracalAPIOutboxDeadMessages` | critical | Reconcile outbox rows and Redis consumers before continuing rollouts. |
-| `CaracalAPIOutboxPendingOldest` | warning | Check Redis health, API outbox workers, DB pool, and stream memory. |
-| `CaracalGatewaySTSExchangeErrors` | warning | Check Gateway readiness, STS readiness, bindings, and service exchange key. |
-| `CaracalGatewaySTSCircuitOpen` | critical | Restore STS or service exchange before routing protected traffic. |
-| `CaracalGatewayRevocationSnapshotStale` | critical | Treat as access-safety incident until snapshot freshness returns. |
-| `CaracalGatewayRevocationPropagationLag` | critical | Restore revocation stream consumers and pending-entry reclamation. |
-| `CaracalGatewayRevocationReloadErrors` | critical | Fix Postgres/Redis snapshot load before relying on protected routes. |
-| `CaracalPostgresPoolSaturation` | warning | Inspect long queries, pool sizing, and connection leaks. |
-| `CaracalReadinessFlapping` | warning | Check dependencies, throttling, OOM, and probe timeouts. |
+| Alerts | Route and first action |
+| --- | --- |
+| Audit tamper/evidence loss | Security incident; stop risky traffic and preserve evidence |
+| Revocation freshness/reload/lag | Access-safety incident; remove affected Gateway from traffic |
+| Gateway STS circuit/exchange | Restore STS exchange before protected traffic |
+| Audit DLQ/lag/replay or API outbox | Freeze changes; restore Redis/Postgres/Audit path |
+| Policy/provider alerts | Restore last known-good policy/provider behavior |
+| Pool saturation/readiness flapping | Platform on-call; diagnose capacity/dependencies |
+
+## Procedure
+
+1. Render PrometheusRule and inspect expressions, thresholds, `for` durations, and labels.
+2. Confirm every metric is scraped.
+3. Route critical safety alerts to staffed security/on-call and warnings to owners.
+4. Link rules to incident or recovery runbooks.
+5. Fire each rule safely in non-production and record detection time.
+
+## Verify
+
+Confirm loading, firing, intended receiver, resolution, and valid runbook links.
+
+## Rollback
+
+Revert only a noisy threshold/route, not collection. Keep audit, revocation, and policy safety alerts enabled.
+
+## Alert Runbooks
+
+Each rule the chart ships sets a `runbook_url` that resolves to one of the sections below. When an alert fires, open its runbook, take the first action, and escalate on the routes above.
 
 ## CaracalSTSOPACompileErrors
 
-STS is reporting OPA policy compilation failures. Inspect policy activation history and STS logs for the failing bundle; affected policy loads fail closed until the bundle compiles successfully.
+A policy bundle failed compilation, so STS fails closed for affected policy loads. Inspect STS logs and policy activation history, then restore the last known-good policy version.
 
 ## CaracalSTSPolicyBundleStale
 
-STS policy age is above the configured freshness threshold. Check Redis policy invalidation, PostgreSQL polling, and STS readiness before relying on newly activated policies.
+The active policy bundle is older than the configured threshold, so invalidation or PostgreSQL polling may be delayed. Check the Redis policy-invalidation stream and STS readiness.
 
 ## CaracalSTSProviderRefreshErrors
 
-STS provider refresh coordination is failing. Restore Redis coordination and upstream provider availability; provider-backed grants may fail closed while refresh results cannot be coordinated.
+Provider credential refresh coordination is reporting Redis lease or result errors. Agents using provider-backed grants may fail closed until Redis and STS recover.
 
 ## CaracalSTSProviderCircuitOpen
 
-STS has opened a provider refresh circuit after repeated provider failures. Restore the provider or credential health before retrying provider-backed grants.
+A provider refresh circuit is rejecting attempts after repeated provider failures. Provider-backed resources fail closed until the provider or credential issue is corrected.
 
 ## CaracalAuditDLQNonEmpty
 
-The Audit dead-letter queue contains records. Inspect Audit logs, DLQ records, producer HMAC/signature failures, and Redis stream health before treating evidence capture as healthy.
+Audit events are failing ingestion or verification. Inspect Audit logs, DLQ age, producer HMAC failures, and Redis stream health.
 
 ## CaracalAuditDLQGrowth
 
-The Audit dead-letter queue is growing. Stop risky rollouts and recover Audit, Redis, or Postgres before continuing changes that depend on complete audit evidence.
+The audit failure backlog is increasing and protected-action evidence may be delayed. Freeze risky rollouts and recover Audit, Redis, and PostgreSQL before continuing.
 
 ## CaracalAuditConsumerLagHigh
 
-Audit ingestion is behind the Redis stream. Scale Audit or restore Postgres and Redis performance until consumer lag returns below the configured threshold.
+Audit ingestion is behind the Redis stream. Scale Audit, check PostgreSQL latency, and confirm Redis memory is not constrained.
 
 ## CaracalGatewayAuditReplayBacklogOld
 
-Gateway has audit replay files waiting on disk beyond the configured threshold. Recover Redis or Audit and confirm Gateway replay drains before continuing risky rollouts.
+Gateway has audit replay files waiting on disk beyond the configured threshold. Recover Redis and Audit, then confirm replay files drain before continuing risky rollouts.
 
 ## CaracalSTSAuditReplayBacklogOld
 
-STS has audit replay files waiting on disk beyond the configured threshold. Recover Redis or Audit and confirm STS replay drains before continuing risky rollouts.
+STS has audit replay files waiting on disk beyond the configured threshold. Recover Redis and Audit, then confirm replay files drain before continuing risky rollouts.
+
+## CaracalGatewayAuditEvidenceLost
+
+Gateway lost audit evidence after both Redis delivery and durable replay failed. Preserve service and storage evidence, stop risky traffic, and replace the affected pod only after recording the incident scope.
+
+## CaracalSTSAuditEvidenceLost
+
+STS lost audit evidence after both Redis delivery and durable replay failed. Preserve evidence, stop token issuance through the affected pod, and replace it only after recording the incident scope.
 
 ## CaracalAuditTamperDetected
 
-Audit chain verification detected a mismatch, ordering break, or stored HMAC failure. Treat this as a security incident and preserve evidence before attempting recovery.
+Audit chain verification detected a mismatch, ordering break, or stored HMAC failure. Treat it as a security incident: preserve evidence and stop risky traffic.
 
 ## CaracalAPIOutboxDeadMessages
 
-The API transactional outbox has abandoned messages. Recover Redis or stream consumers, inspect API logs, and reconcile affected outbox rows before continuing rollouts.
+Control-plane events exhausted delivery attempts and may not have reached Redis consumers. Recover Redis or the stream consumers, inspect API logs, and reconcile affected rows before continuing rollouts.
 
 ## CaracalAPIOutboxPendingOldest
 
-The API transactional outbox is not draining promptly. Check Redis health, API outbox workers, database pool saturation, and stream memory pressure.
+Control-plane events are delayed before Redis publication. Check Redis health, API outbox workers, database pool saturation, and stream memory pressure.
 
 ## CaracalGatewaySTSExchangeErrors
 
-Gateway cannot reliably exchange mandates with STS. Check Gateway readiness, STS readiness, route bindings, and the service exchange key before routing protected traffic.
+Gateway cannot reliably exchange mandates with STS, so protected requests may fail before upstream dispatch. Check Gateway and STS readiness, route bindings, and service-to-service auth.
 
 ## CaracalGatewaySTSCircuitOpen
 
-Gateway is fast-failing STS exchanges after repeated STS-unavailable failures. Restore STS or service exchange health before routing protected traffic that requires exchanged authority.
+Gateway is fast-failing STS exchanges after repeated STS-unavailable failures, so protected requests that need exchanged authority fail closed. Restore STS exchange before protected traffic.
 
 ## CaracalGatewayRevocationSnapshotStale
 
-Gateway cannot prove it has a fresh revocation baseline. Treat this as an access-safety incident until Postgres and Redis revocation snapshot loading are healthy.
+Gateway cannot prove it has a fresh revocation baseline. Treat it as an access-safety incident and restore PostgreSQL/Redis snapshot loading before relying on protected routes.
 
 ## CaracalGatewayRevocationPropagationLag
 
-Revocation stream messages are reaching Gateway outside the configured safety window. Restore Redis consumer health and confirm pending entries are reclaimed.
+Revocation stream messages are reaching Gateway later than the configured safety window. Restore Redis consumer health and confirm pending entries are reclaimed.
 
 ## CaracalGatewayRevocationReloadErrors
 
-Gateway cannot refresh revocation state from Postgres. Treat this as an access-safety incident until reloads succeed and snapshot freshness returns.
+Gateway cannot refresh revocation state from PostgreSQL. Treat it as an access-safety incident until reloads succeed and snapshot freshness returns.
 
 ## CaracalPostgresPoolSaturation
 
-A service is holding most of its Postgres connection pool. Inspect long-running queries, statement timeouts, pool sizing, and connection leaks before the pool exhausts.
+A service is holding most of its PostgreSQL pool. Inspect long-running queries, statement timeouts, and connection leaks before the pool exhausts and requests start failing.
 
 ## CaracalReadinessFlapping
 
-A Caracal pod is repeatedly toggling Ready or NotReady. Check dependency health, CPU throttling, OOM events, and readiness probe timeouts.
-
-## Alert Routing
-
-| Severity | Route |
-| --- | --- |
-| Critical access-safety or tamper alerts | Security incident response. |
-| Critical data-flow alerts | On-call plus release owner; freeze rollouts. |
-| Warning readiness/capacity alerts | Service owner or platform queue. |
-
-## First-Response Rule
-
-When an alert involves audit, revocation, or policy freshness, prefer fail-closed recovery over traffic continuation. Restore evidence and revocation guarantees before resuming high-risk changes.
+A pod is repeatedly toggling Ready and NotReady. Check dependency health (PostgreSQL and Redis), CPU throttling, OOM, and readiness probe timeouts.
 
 ## Next Step
 
-Use [Troubleshoot by Symptom](/operations/troubleshooting/) when an alert or user report starts from an SDK error, HTTP status, or request ID.
+Start [Troubleshoot by Symptom](/operations/troubleshooting/) or rehearse [Run Failure Drills](/operations/failure-drills/).

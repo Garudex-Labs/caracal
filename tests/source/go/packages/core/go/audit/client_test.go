@@ -312,7 +312,7 @@ func TestPersistBatchInvokesMetricHookAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestPersistBatchRecordsMetricsWhenReplayDirSyncFails(t *testing.T) {
+func TestPersistBatchDoesNotRecordSuccessWhenReplayDirSyncFails(t *testing.T) {
 	c, _, dir := newTestClient(t, nil, false)
 	var persisted atomic.Uint64
 	c.cfg.Metrics.OnReplayPersisted = func(n uint64) { persisted.Add(n) }
@@ -326,13 +326,13 @@ func TestPersistBatchRecordsMetricsWhenReplayDirSyncFails(t *testing.T) {
 		return errors.New("dir sync unsupported")
 	}
 
-	if err := c.persistBatch([]Event{{ID: "ev-1"}, {ID: "ev-2"}}); err != nil {
-		t.Fatalf("persistBatch should retain written replay file metrics when dir sync fails: %v", err)
+	if err := c.persistBatch([]Event{{ID: "ev-1"}, {ID: "ev-2"}}); err == nil {
+		t.Fatal("directory sync failure must fail persistence")
 	}
 	if !syncCalled {
 		t.Fatal("expected replay directory sync attempt")
 	}
-	if persisted.Load() != 2 || c.Snapshot().Persisted != 2 {
+	if persisted.Load() != 0 || c.Snapshot().Persisted != 0 {
 		t.Fatalf("unexpected persisted metrics hook=%d snapshot=%d", persisted.Load(), c.Snapshot().Persisted)
 	}
 	stats := ReplayStatsForDir(dir, time.Now())

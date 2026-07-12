@@ -3,11 +3,17 @@ title: Tail and Query the Audit Stream
 description: Filter audit events, inspect diagnostics, and explain a specific request ID.
 ---
 
-Use audit when a request is denied, step-up is triggered, delegation behaves unexpectedly, or an operator needs evidence for a run.
+Use Audit when a request is denied, Approval is required, Delegation behaves unexpectedly, or an operator needs evidence for a run.
+
+## Prerequisites
+
+- A zone and known time window or request ID.
+- A trusted Admin client for automation; application credentials cannot read zone audit.
+- Durable event-ID deduplication if exporting continuously.
 
 ## Web Console Workflow
 
-1. Open `caracal web`.
+1. Open the web console for your deployment.
 2. Select **Audit**.
 3. Filter by zone, decision, event type, or request ID.
 4. Open the event detail to inspect metadata, determining policies, and diagnostics.
@@ -38,12 +44,12 @@ console.log(trace.final_decision, trace.denied)
 | ----------- | ---------------------------------------------------------------- |
 | Request ID  | Stitch together STS, Gateway, adapter, and explain events.       |
 | Decision    | Find denies, allows, or partial decisions.                       |
-| Event type  | Focus on policy, session, delegation, step-up, or admin changes. |
+| Event type  | Focus on Policy, Session, Delegation, Approval, or admin changes. |
 | Time window | Investigate a run, incident, or rollout.                         |
 
 ## Ship events to a SIEM
 
-Poll `admin.audit.list` with a `since` cursor (or subscribe to the audit stream topics) and forward events as-is: the shape is stable JSON, ready for field mapping in Splunk, Elastic, or any OCSF pipeline.
+Poll `admin.audit.list` with a bounded time window and persist the last processed event identity. Caracal does not expose a supported external audit-stream subscription API; Redis topics are runtime internals, not an application integration contract. Use Admin API list/export surfaces and forward events after deduplication.
 
 | Field                         | Type           | Meaning                                                                           |
 | ----------------------------- | -------------- | --------------------------------------------------------------------------------- |
@@ -71,3 +77,15 @@ Event detail (`admin.audit.explain`) adds the determining policies, policy-set v
 - session or Delegation IDs when present.
 
 Related page: [Audit and Request Traces](/concepts/audit-ledger/).
+
+## Validate the export
+
+Generate one allow, deny, approval, Delegation, and Gateway result. Confirm request correlation, ordering in the destination, replay-safe deduplication by event ID, and credential redaction. Expected result: an operator can move from a SIEM alert to the Caracal request trace without querying internal Redis.
+
+:::caution[Failure point: polling cursor]
+Do not use wall-clock time alone as an exactly-once cursor. Re-read an overlap window and deduplicate by event ID so late ingestion does not create gaps.
+:::
+
+## Next Step
+
+Use [Debug Authorization Decisions](/guides/authorize-access/) to turn a correlated deny into a focused correction.

@@ -1,181 +1,254 @@
 ---
 title: First Protected Call
-description: Start Caracal, create one protected resource, call it through the Gateway, and inspect audit.
+description: Give an AI agent short-lived, policy-approved authority to call an LLM provider - without the agent ever holding the provider API key.
 pageType: workflow
 ---
 
-This walkthrough creates the baseline every later tutorial assumes: a running local stack, one zone, one confidential agent app, one protected resource, one active policy, runtime configuration, and one audited Gateway call.
+import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-Complete [Install Caracal](/get-started/install-caracal/) first.
+In this walkthrough an AI agent makes its first protected call. The agent asks Caracal for authority, receives a short-lived scoped mandate, and calls an LLM provider through the Gateway - which checks policy, attaches the provider's real API key on the way through, and records everything. The agent never sees that key.
+
+```mermaid
+flowchart LR
+  Agent[AI agent] -->|scoped mandate| GW[Gateway]
+  GW -->|provider key attached| LLM[LLM provider API]
+  Policy[Your policy] -.decides.-> GW
+  Audit[Audit trail] -.records.-> GW
+```
+
+This is the workflow Caracal is built for, and it inverts traditional service authentication. A conventional service holds a long-lived API key and uses it whenever it likes; you find out what it did afterward, if at all. An agent under Caracal starts with nothing: authority is requested per run, granted by policy in exactly the scope you allowed, expires on its own, and leaves evidence. That difference matters most for agents because agents decide at runtime what to call.
+
+Concretely, you will create four objects in the browser, then make the call with a small script:
+
+- an **Application** - the identity your agent acts as;
+- a **Provider** - Caracal's sealed custody of the LLM API key, so the key lives in Caracal, not in the agent;
+- a **Resource** - Caracal's record of the LLM API and where to forward verified requests;
+- a **Policy** - one rule allowing that application to list the provider's models.
+
+## Prerequisites
+
+- Complete [Install Caracal](/get-started/install-caracal/), including the sign-in setup at the end of that page.
+- An API key for an OpenAI-compatible LLM provider. The walkthrough's only upstream call is `GET /v1/models`, which is free and consumes no tokens.
+- One script runtime: Node.js 22+, Python 3.12+, or Go 1.26+.
+- Keep a terminal open.
+
+:::note[No provider key handy?]
+Any OpenAI-compatible endpoint works: point the resource's upstream URL at a local model runner instead and create the provider with kind **None** (the Gateway then enforces policy and records audit without attaching a credential). Every other step is identical. One rule to respect: the upstream URL is resolved from inside the Gateway's container, where `localhost` means the Gateway itself - use a hostname the Gateway can reach.
+:::
 
 ## Start Caracal
 
+The same commands work in every shell:
+
 ```sh
 caracal up
 caracal status --ready
 ```
 
-On Windows PowerShell:
-
-```powershell
-caracal up
-caracal status --ready
-```
-
-Create product objects only after readiness succeeds. If readiness fails, run:
-
-```sh
-caracal status --ready --json
-```
-
-The JSON output shows which service is not ready.
-
-## Start Demo Upstream
-
-Start a local HTTP upstream on the same Docker network as Caracal:
-
-```sh
-docker run --rm -d --name caracalDemoUpstream --network caracalData nginx:stable-alpine
-```
-
-On Windows PowerShell:
-
-```powershell
-docker run --rm -d --name caracalDemoUpstream --network caracalData nginx:stable-alpine
-```
-
-Use `http://caracalDemoUpstream:80` as the resource upstream URL in guided setup. If you already have an HTTP service that the Gateway container can reach, you can use that URL instead.
+If readiness fails, run `caracal status --ready --json`; the output names the service that is not ready. Create nothing until readiness succeeds.
 
 ## Sign In and Create Your First Zone
 
-Open the packaged web console at [http://localhost:3001](http://localhost:3001). The Compose stack maps that localhost port to the web BFF container and serves the SPA same-origin with the console API.
+Open the web console at [http://localhost:3001](http://localhost:3001) and sign in with the method you configured during [installation](/get-started/install-caracal/#enable-console-sign-in). A first sign-in walks through a short onboarding flow:
 
-The packaged console runs the fail-closed production posture: operator registration is closed by default. Admission is controlled from the runtime host. Allow your email:
-
-```sh
-caracal allowlist add <your email>
-```
-
-The allowlist is read live by the console, so the change applies immediately. Entries are exact emails or `@domain` suffixes, and the same command manages access later: `lock`/`unlock` suspend and restore sign-in with the account kept intact, `remove` ends access and erases the account's sign-in records, and `list` shows every entry. See [Control Console Access](/runtime-console/console-access/) for the full lifecycle and the uniform access-denied page.
-
-An allowlisted email still needs a sign-in method. Add one of the following to `$CARACAL_HOME/caracal.env` (Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
-
-| Sign-in method | Required variables |
-| --- | --- |
-| Google or GitHub | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`. OAuth callback URL: `http://localhost:3001/api/auth/callback/google` or `.../github`. |
-| Email and password | `CARACAL_PASSWORD_SIGNUP=true`, plus `CARACAL_SMTP_URL` and `CARACAL_SMTP_FROM` so the required verification email can be delivered; the console fails closed without a mail transport. |
-
-For OAuth, create an OAuth app in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) or [GitHub developer settings](https://github.com/settings/developers), set its callback URL to the value above, and paste the client ID and secret into `caracal.env`. With email/password sign-up, registration sends a verification link over SMTP and the account signs in after the link is confirmed.
-
-See [Environment Variables](/operations/env-vars/#web-console-bff) for the full sign-in reference. Sign in, then complete the short onboarding flow:
-
-1. **Profile** - your operator name and avatar.
-2. **Zone** - create your first zone. A zone is Caracal's primary trust boundary; it isolates applications, resources, policies, and audit.
+1. **Profile** - your name and avatar.
+2. **Zone** - create your first zone. As introduced in the Overview, a zone is an isolated workspace: everything you create next lives inside it.
 3. **Review** - confirm and finish.
 
-Onboarding lands you in the console for that zone. The browser address follows an `account → org → zone` hierarchy (`/<accountId>/<orgId>/<zoneId>/app/...`); use the zone selector to switch zones, and every zone-scoped page acts on the selected zone.
+Onboarding drops you into the console for that zone. The browser address follows an `account → org → zone` hierarchy (an org groups zones; onboarding creates a default one for you). If you later create more zones, the zone selector switches between them.
 
-## Build the Access Chain with Guided Setup
+## Create the Agent's Access Chain
 
-The console opens **Guided setup**, a short walkthrough that explains each building block and opens its real create form. Work through the steps in order:
+The console now shows **Guided setup**, a checklist that explains each building block and opens its real create form. Work through it in order:
 
-| Step | What you create |
-| --- | --- |
-| Application | A confidential agent app for the workload. The client secret is held sealed in the Secret Store - copy it now or reveal it later from the application's detail panel; every reveal is recorded in the zone audit timeline. |
-| Provider | The upstream credential source. Skip this step for an internal HTTP API that needs no upstream credential. |
-| Resource | A stable resource identifier, its scopes, and the upstream URL you chose (for example `http://caracalDemoUpstream:80`), bound to a Gateway application. |
-| Policy | A starter policy. Activate it - the zone denies every request until a policy is active. |
+| Step | What you do | Why |
+| --- | --- | --- |
+| Application | Create **Anton** as a *confidential* application - confidential means it runs server-side and can keep a secret, as opposed to code running in a browser. Copy the application ID and the client secret it shows you. | This is the identity your agent acts as. |
+| Provider | Create a provider named **OpenAI** with kind **Bearer** and paste your provider API key. The key is sealed server-side on save. | This moves the LLM key out of your agent and into Caracal's custody. The Gateway will attach it to verified requests; the agent never receives it. |
+| Resource | Create **OpenAI** with identifier `resource://openai`, scope `openai:models`, upstream URL `https://api.openai.com`, and the provider you just created. | This tells Caracal what it is protecting and where the Gateway should forward verified requests. A *scope* is a named permission - `openai:models` is the one permission this walkthrough grants: listing the provider's models. |
+| Policy | Create and activate the starter policy allowing Anton to request `openai:models`. | Caracal denies everything not explicitly allowed. Without an active policy, every request in the zone is refused. |
 
-Guided setup ticks each step off from live zone data and opens the same Applications, Providers, Resources, and Policies forms you reach from the console navigation.
+Guided setup ticks each step off from live zone data; you can also reach the same forms from the **Applications**, **Providers**, **Resources**, and **Policies** pages in the navigation.
 
-## Configure Runtime Access
+:::tip[Lost the secret?]
+The application client secret stays recoverable: reveal it again from the application's detail panel in the console. Every reveal is recorded in audit, so recovery never bypasses the evidence trail. The provider API key is different - it is sealed for the Gateway's use and is never returned to anyone.
+:::
 
-The console does not write configuration to your machine, and `caracal run` needs no local config file. The workload carries only its identity; everything else lives in the console:
+## Give the Agent Its Identity
 
-1. Open the **Launcher** page and create a workload. The workload secret is held sealed in the Secret Store - copy it now or reveal it later from the workload's detail panel; every reveal is recorded in the zone audit timeline.
-2. Add a launch binding to the workload: an environment variable name (for example `EXAMPLE_API_TOKEN`) bound to the resource you created, with the scopes the credential should carry. The page then shows the exact launch commands.
-3. Give the workload its identity:
+Your rules exist; now the agent needs the identity you just registered. It takes exactly three values from guided setup - the zone ID (shown in zone settings and in the console URL), the application ID, and the client secret:
 
-```sh
-export CARACAL_WORKLOAD_ID=<workload ID>
-export CARACAL_WORKLOAD_SECRET=<workload secret>
-```
-
-These configure the launcher itself; they are not passed through to the child process. Instead of the inline secret, local dev and stable launches can read the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`, and cloud deployments can point `CARACAL_WORKLOAD_SECRET_FILE` at a mounted secret; see [Configure Workloads](/runtime-console/config-file/).
-
-## Run Your Workload
-
-Run your workload through `caracal run`. With the identity variables above exported:
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
 ```sh
-caracal run -- ./start-agent.sh
+export CARACAL_ZONE_ID=<zone ID>
+export CARACAL_APPLICATION_ID=<Anton's application ID>
+export CARACAL_APP_CLIENT_SECRET=<Anton's client secret>
 ```
 
-On Windows PowerShell:
+</TabItem>
+<TabItem label="Windows">
 
 ```powershell
-$env:CARACAL_WORKLOAD_ID = "<workload ID>"
-$env:CARACAL_WORKLOAD_SECRET = "<workload secret>"
-caracal run -- .\start-agent.ps1
+$env:CARACAL_ZONE_ID = "<zone ID>"
+$env:CARACAL_APPLICATION_ID = "<Anton's application ID>"
+$env:CARACAL_APP_CLIENT_SECRET = "<Anton's client secret>"
 ```
 
-`caracal run` authenticates as the workload, fetches its launch bindings from STS, mints a scoped credential for each binding, and injects the results into the environment variables named by the bindings. The child environment is otherwise scrubbed: `CARACAL_*` variables configure the launcher and do not reach the workload. The workload reads the injected variables and presents the token to the Gateway or protected service.
+</TabItem>
+</Tabs>
 
-SDK constructors (`new Caracal()`, `Caracal()`, `caracal.New()`) resolve their own configuration from a `caracal.toml` profile or `CARACAL_*` environment variables when the workload runs directly (not under `caracal run`); see [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
+On the local stack the SDK's built-in defaults already point at the right service URLs, so these three variables are the whole configuration. Notice what is *not* here: the OpenAI key. The agent's environment never contains it.
 
-## Call the Gateway
+## The Agent's First Protected Call
 
-For a Gateway-routed HTTP resource, send the request to the Gateway URL (`http://localhost:8081` on the local stack) and include:
+Install the SDK for one language and run the smallest possible agent - a script that asks Caracal for authority to list the provider's models, then sends that one request through the Gateway. On the local stack the Gateway listens at `http://localhost:8081`; the SDK builds the request and attaches the mandate for you.
 
-| Header | Value |
-| --- | --- |
-| `Authorization` | `Bearer <Caracal access token>` |
-| `X-Caracal-Resource` | The resource identifier you created in guided setup. |
-
-`caracal run` injects the scoped token into the environment variable named by your launch binding, so the workload reads that variable and presents the token. The SDK helpers `gatewayRequest()` / `GatewayRequest()` build this URL and header for you.
-
-With a binding named `EXAMPLE_API_TOKEN`, you can prove the whole chain from the shell:
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-caracal run -- sh -c 'curl -sS http://localhost:8081/ \
-  -H "Authorization: Bearer $EXAMPLE_API_TOKEN" \
-  -H "X-Caracal-Resource: <resource identifier>"'
+npm install @caracalai/sdk
 ```
 
-On Windows PowerShell:
+```typescript
+// agent.mjs - run with: node agent.mjs
+import { Caracal } from '@caracalai/sdk'
 
-```powershell
-caracal run -- powershell -Command "curl.exe -sS http://localhost:8081/ -H ('Authorization: Bearer ' + `$env:EXAMPLE_API_TOKEN) -H 'X-Caracal-Resource: <resource identifier>'"
+const caracal = new Caracal()
+const governedFetch = caracal.applicationTransport('resource://openai', {
+  scopes: ['openai:models'],
+})
+const target = caracal.gatewayRequest('resource://openai', '/v1/models')
+
+try {
+  const response = await governedFetch(target.url, { method: 'GET' })
+  if (!response.ok) throw new Error(`protected call failed: ${response.status}`)
+  console.log(await response.text())
+} finally {
+  await caracal.close()
+}
 ```
 
-A `200` response from the demo upstream confirms workload identity, policy decision, token injection, Gateway enforcement, and upstream forwarding all work.
+</TabItem>
+<TabItem label="Python">
 
-## Inspect Audit
+```sh
+pip install caracalai-sdk
+```
 
-Return to the web console:
+```python
+# agent.py - run with: python agent.py
+import asyncio
+
+from caracalai import Caracal
+
+
+async def main():
+    caracal = Caracal()
+    target = caracal.gateway_request("resource://openai", "/v1/models")
+    try:
+        async with caracal.application_transport(
+            "resource://openai",
+            scopes=["openai:models"],
+        ) as governed:
+            response = await governed.get(target.url)
+            response.raise_for_status()
+            print(response.text)
+    finally:
+        await caracal.aclose()
+
+
+asyncio.run(main())
+```
+
+</TabItem>
+<TabItem label="Go">
+
+```sh
+go mod init agent && go get github.com/garudex-labs/caracal/packages/sdk/go
+```
+
+```go
+// agent.go - run with: go run agent.go
+package main
+
+import (
+	"fmt"
+	"io"
+
+	caracal "github.com/garudex-labs/caracal/packages/sdk/go"
+)
+
+func main() {
+	client, err := caracal.New()
+	if err != nil {
+		panic(err)
+	}
+	defer client.Close()
+
+	// nil base: the SDK constructs its own HTTP client.
+	governed, err := client.ApplicationTransport(nil, "resource://openai", caracal.ApplicationTransportOptions{
+		Scopes: []string{"openai:models"},
+	})
+	if err != nil {
+		panic(err)
+	}
+	target, err := client.GatewayRequest("resource://openai", "/v1/models")
+	if err != nil {
+		panic(err)
+	}
+
+	resp, err := governed.Get(target.URL)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		panic(fmt.Sprintf("protected call failed: %s", resp.Status))
+	}
+	body, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(body))
+}
+```
+
+</TabItem>
+</Tabs>
+
+A JSON list of models means <mark>every link in the chain worked</mark>: the agent authenticated as Anton, policy allowed `openai:models`, a short-lived mandate was issued, and the Gateway verified it, swapped the mandate for the sealed provider key, forwarded the request, and returned the provider's answer. The agent authenticated to the provider without ever possessing its credential.
+
+Here is what happened in that moment. `applicationTransport()` asked Caracal for exactly the authority you listed - the `openai:models` scope on `resource://openai` - and attached a fresh, short-lived, single-use mandate to the request. `gatewayRequest()` built the Gateway URL and the routing header that names the resource. The Gateway did the rest. A real agent does exactly this on every protected action - request scoped authority, present it to the Gateway - whether the operation is listing models, a chat completion under an `openai:chat` scope you add later, or any other API you protect.
+
+:::caution[Failure point: the mandate is not a proxy pass]
+The Gateway is not an open relay with extra steps. Let the mandate expire, replay one, or request a scope policy does not allow, and the request is rejected before the provider is contacted - and the rejection is recorded.
+:::
+
+## Read the Audit Trail
+
+Every step you just triggered was recorded. In the web console:
 
 1. Open **Audit**.
 2. Find the request you just made.
-3. Open the event detail to follow its full decision trace, which is built into the audit view.
+3. Open the event detail to follow its full decision trace.
 
-The explanation should show the application, resource, requested scopes, policy version, policy set version, Gateway result, and final decision. If the request failed, the explanation identifies whether to fix runtime config, policy, resource routing, or the upstream service.
+The explanation shows which application asked, which resource and scopes were requested, which policy version decided, what the Gateway did, and the final result. If a request fails, this same view tells you whether to fix configuration, policy, resource routing, or the upstream provider - diagnose from here rather than guessing.
+
+## Common Mistakes
+
+- The agent presents a Caracal mandate to the Gateway, never a provider key. If your agent's code asks for `OPENAI_API_KEY`, point it at the governed transport instead - the [next page](/get-started/add-sdk-to-your-app/) and [Provider Recipes](/guides/provider-recipes/) show how existing provider clients adopt it.
+- Resource identifiers and scopes must match the active policy exactly - `openai:models` and `openai-models` are different strings.
+- The one secret in the agent's environment is Anton's client secret - its identity, not the provider key. That key is sealed in Caracal and never leaves it.
+- Signing in to the console does not connect your identity to the agent's calls. The call you made was made by the application identity. (Federating user identities in for attribution is possible later; nothing in Get Started needs it.)
 
 ## Clean Up
 
 ```sh
-docker rm -f caracalDemoUpstream
 caracal down
 ```
 
-On Windows PowerShell:
-
-```powershell
-docker rm -f caracalDemoUpstream
-caracal down
-```
-
-Use `caracal purge` only when you intentionally want to remove local containers, volumes, config, runtime state, and caches.
+`caracal down` stops the stack and keeps your data. Use `caracal purge` only when you intentionally want to erase local containers, volumes, config, runtime state, and caches.
 
 ## Next Step
 
-Continue with [Add SDK to Your App](/get-started/add-sdk-to-your-app/).
+Your agent made one protected call from a throwaway script. Next, wire the same call into a real application with a configuration profile: [Add SDK to Your App](/get-started/add-sdk-to-your-app/).

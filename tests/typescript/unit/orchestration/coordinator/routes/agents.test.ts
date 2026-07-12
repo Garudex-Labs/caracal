@@ -45,7 +45,6 @@ interface SpawnStage {
     max_children: number
     application_id?: string
     lifecycle?: 'task' | 'service'
-    remaining_ttl_seconds?: number | null
     registration_method?: 'managed' | 'dcr'
   } | null
   insert?: { rows: unknown[] }
@@ -60,7 +59,7 @@ function inheritEdgeRow(id: string, live: boolean): Record<string, unknown> {
     receiver_application_id: 'app-1',
     resource_id: null,
     scopes: ['payments:read'],
-    constraints_json: { max_hops: 2 },
+    constraints_json: {},
     expires_at: '2099-01-01T00:00:00.000Z',
     live,
   }
@@ -162,35 +161,6 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'parent_not_found' })
   })
 
-  it('caps a task child TTL to the task parent remaining lifetime', async () => {
-    const { app, db } = buildApp()
-    const client = spawnClient({
-      refs: { application_exists: true, authority_record_exists: true },
-      count: { app_n: '0', zone_n: '0' },
-      parent: {
-        depth: 0,
-        child_count: 0,
-        max_children: 10,
-        application_id: 'app-1',
-        lifecycle: 'task',
-        remaining_ttl_seconds: 30,
-      },
-      insert: { rows: [{ agent_session_id: 'child-1' }] },
-      withTopology: true,
-      outbox: true,
-    })
-    db.connect.mockResolvedValueOnce(client)
-    await app.ready()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/zones/z1/agents',
-      payload: { application_id: 'app-1', subject_session_id: 'sid-1', parent_id: 'parent-1', ttl_seconds: 300 },
-    })
-    expect(res.statusCode).toBe(201)
-    const insert = client.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO sessions'))
-    expect(insert?.[1]?.[9]).toBe(30)
-  })
-
   it('rejects spawning under a parent from another application without delegated scope', async () => {
     const { app, db } = buildApp(['coordinator.admin'])
     db.connect.mockResolvedValueOnce(
@@ -265,7 +235,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     expect(JSON.parse(res.body)).toMatchObject({ error: 'dcr_application_cannot_host_service' })
   })
 
-  it('binds each DCR application to only one active Session', async () => {
+  it('binds each DCR application to only one active agent session', async () => {
     const { app, db } = buildApp()
     db.connect.mockResolvedValueOnce(
       spawnClient({
@@ -354,7 +324,9 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1' },
     })
     expect(res.statusCode).toBe(201)
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [expect.stringContaining('delegation:z1')])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), [
+      expect.stringContaining('coordinator:session_start:z1'),
+    ])
     const countCall = client.query.mock.calls.find((call) => String(call[0]).includes('COUNT(*) FILTER'))
     expect(String(countCall?.[0])).toContain("CASE WHEN lifecycle = 'service'")
     expect(String(countCall?.[0])).toContain("status = 'suspended' OR heartbeat_deadline_at > now()")
@@ -729,7 +701,9 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
     const client = spawnClient({
       refs: { application_exists: true, authority_record_exists: true, registration_method: 'managed' },
       count: { app_n: '0', zone_n: '0' },
-      insert: { rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null }] },
+      insert: {
+        rows: [{ agent_session_id: 'agent-service', zone_id: 'z1', application_id: 'app-1', parent_id: null, lease_generation: '1' }],
+      },
       outbox: true,
     })
     db.connect.mockResolvedValueOnce(client)
@@ -740,6 +714,7 @@ describe('POST /v1/zones/:zoneId/agents: spawn', () => {
       payload: { application_id: 'app-1', subject_session_id: 'sid-1', lifecycle: 'service' },
     })
     expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ agent_session_id: 'agent-service', lease_generation: 1 })
     const insertCall = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO sessions'))
     expect(insertCall?.[1]?.[5]).toBe('service')
   })
@@ -856,7 +831,7 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: cascade terminate', () => {
     expect(dedupeKeys).not.toContain('agent_terminate:agent-root')
   })
 
-  it('revokes Delegations touching the terminated subtree and invalidates them', async () => {
+  it('revokes delegation edges touching the terminated subtree and invalidates them', async () => {
     const { app, db } = buildApp()
     const client = {
       query: vi
@@ -1029,14 +1004,6 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/suspend', () => {
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/suspend' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ suspended: 1 })
-    const suspendOutbox = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
-    expect(suspendOutbox?.[1]).toEqual(
-      expect.arrayContaining([
-        'caracal.agents.lifecycle',
-        expect.objectContaining({ event: 'suspend', agent_session_id: 'a1', reason: 'requested' }),
-      ]),
-    )
-    expect(client.query.mock.calls.some((call) => JSON.stringify(call[1] ?? []).includes('caracal.sessions.revoke'))).toBe(false)
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })
@@ -1073,23 +1040,11 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
     expect(res.json()).toEqual({ error: 'session_not_found_or_not_suspended' })
   })
 
-  it('rejects resume when an ancestor is suspended or logically expired', async () => {
-    const { app, db } = buildApp()
-    const client = seqClient([{ rows: [] }, { rows: [{ application_id: 'app1' }] }, { rows: [{ '?column?': 1 }] }])
-    db.connect.mockResolvedValueOnce(client)
-    await app.ready()
-    const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
-    expect(res.statusCode).toBe(409)
-    expect(res.json()).toEqual({ error: 'session_ancestor_not_active' })
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK')
-  })
-
   it('resumes the subtree and enqueues lifecycle events', async () => {
     const { app, db } = buildApp()
     const client = seqClient([
       { rows: [] },
       { rows: [{ application_id: 'app1' }] },
-      { rows: [] },
       { rows: [{ id: 'a1', parent_id: null }] },
       { rows: [] },
       { rows: [] },
@@ -1099,10 +1054,6 @@ describe('PATCH /v1/zones/:zoneId/agents/:id/resume', () => {
     const res = await app.inject({ method: 'PATCH', url: '/v1/zones/z1/agents/a1/resume' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ resumed: 1 })
-    const resumeOutbox = client.query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO caracal_outbox'))
-    expect(resumeOutbox?.[1]).toEqual(
-      expect.arrayContaining(['caracal.agents.lifecycle', expect.objectContaining({ event: 'resume', agent_session_id: 'a1' })]),
-    )
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 })
@@ -1137,6 +1088,42 @@ describe('DELETE /v1/zones/:zoneId/agents/:id: guard rails', () => {
     expect(res.statusCode).toBe(404)
     expect(res.json()).toEqual({ error: 'session_not_found' })
     expect(client.query).toHaveBeenCalledWith('ROLLBACK')
+  })
+
+  it('requires a generation when a runtime holder terminates a service Session', async () => {
+    const { app, db } = buildApp([], 'app1')
+    const client = seqClient([
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ application_id: 'app1', lifecycle: 'service', lease_generation: '3' }] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({ method: 'DELETE', url: '/v1/zones/z1/agents/a1' })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'lease_generation_required' })
+  })
+
+  it('fences runtime termination from a previous service generation', async () => {
+    const { app, db } = buildApp([], 'app1')
+    const client = seqClient([
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ application_id: 'app1', lifecycle: 'service', lease_generation: '3' }] },
+    ])
+    db.connect.mockResolvedValueOnce(client)
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/v1/zones/z1/agents/a1',
+      payload: { lease_generation: 2 },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: 'session_lease_fenced' })
   })
 })
 

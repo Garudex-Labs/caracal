@@ -506,10 +506,19 @@ func buildUpstreamRequestWithProxy(r *http.Request, upstreamURL *url.URL, caraca
 	if authHeader == "" {
 		authHeader = "Authorization"
 	}
+	if !corests.ValidUpstreamCredentialHeader(authHeader) {
+		return nil, errors.New("upstream credential header is reserved")
+	}
 	req.Header.Del("Authorization")
 	req.Header.Del(authHeader)
 	switch directive.AuthMode {
 	case "none":
+	case "caracal_jwt":
+		scheme := directive.AuthScheme
+		if scheme == "" {
+			scheme = "Bearer"
+		}
+		req.Header.Set(authHeader, scheme+" "+caracalToken)
 	case "provider_oauth":
 		scheme := directive.AuthScheme
 		value := directive.ProviderToken
@@ -540,11 +549,7 @@ func buildUpstreamRequestWithProxy(r *http.Request, upstreamURL *url.URL, caraca
 			req.Header.Set("X-Caracal-Identity", caracalToken)
 		}
 	default:
-		scheme := directive.AuthScheme
-		if scheme == "" {
-			scheme = "Bearer"
-		}
-		req.Header.Set(authHeader, scheme+" "+caracalToken)
+		return nil, errors.New("unsupported upstream auth mode")
 	}
 	req.Header.Set("X-Request-Id", requestID)
 	// The gateway is a trust boundary: a caller-supplied Traceparent is forwarded only

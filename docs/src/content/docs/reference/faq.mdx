@@ -1,6 +1,6 @@
 ---
 title: FAQ
-description: Stable, searchable answers to recurring Caracal modeling, runtime, provider, troubleshooting, and edition questions.
+description: Stable, searchable answers to recurring Caracal modeling, runtime, provider, troubleshooting, and repository-scope questions.
 pageType: reference
 ---
 
@@ -9,7 +9,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
 <section className="faqSearchPanel" aria-label="Search FAQs">
   <div className="faqSearchMeta">
     <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">
-      26 results
+      32 results
     </span>
   </div>
   <div className="faqSearchRow">
@@ -51,7 +51,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <input type="checkbox" data-faq-filter-option="runtime" data-faq-filter-name="Runtime" /> <span>Runtime</span>
     </label>
     <label className="faqFilterOption">
-      <input type="checkbox" data-faq-filter-option="editions" data-faq-filter-name="Editions" /> <span>Editions</span>
+      <input type="checkbox" data-faq-filter-option="scope" data-faq-filter-name="Scope" /> <span>Scope</span>
     </label>
   </div>
 </section>
@@ -87,7 +87,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
   </a>
   <a className="faqStripItem" href="#faq-019">
     <span>FAQ-019</span>
-    <strong>Which features are Enterprise Edition only?</strong>
+    <strong>What does this documentation verify?</strong>
   </a>
 </nav>
 
@@ -133,17 +133,17 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-011">FAQ-011</a></p>
     </details>
 
-    <details id="faq-004" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-004" data-faq-title="Does the open-source edition include managed multi-tenancy?" data-keywords="open source Community Edition multi-tenancy tenant teams SSO zones enterprise">
+    <details id="faq-004" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-004" data-faq-title="Does this repository implement managed multi-tenancy?" data-keywords="open source multi-tenancy tenant teams SSO zones repository scope">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-004</span>
         <span className="faqTag faqTagModel">Architecture</span>
-        <h3>Does the open-source edition include managed multi-tenancy?</h3>
+        <h3>Does this repository implement managed multi-tenancy?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-004">Share</button>
       </summary>
       <span id="faq-does-open-source-include-managed-multi-tenancy" className="faqAnchor"></span>
-      <p>No. The open-source Community Edition gives you zones as a manual isolation primitive. You can model customers, environments, or trust tiers with zones and automate them through the Admin API, but managed tenant, team, SSO, and hosted lifecycle features are Enterprise Edition features.</p>
+      <p>No. The open-source product gives you Zones as an isolation primitive. You can model customers, environments, or trust tiers with Zones and automate them through the Admin API. Managed tenant, team, SSO, and hosted lifecycle are not implemented in this repository.</p>
       <p>To serve many of your own customers from one deployment without per-customer zones, see <a href="/guides/serve-customers/">Serve Your Own Customers</a>.</p>
-      <p>See <a href="/enterprise/">Compare Editions</a> for the commercial feature boundary.</p>
+      <p>Evaluate any separate offering from its own current source, contract, and demonstrated behavior; this documentation cannot verify it.</p>
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-019">FAQ-019</a></p>
     </details>
 
@@ -171,15 +171,15 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <p>No. This is the most common modeling mistake, and it does not match how Caracal scales. An <strong>application</strong> and an <strong>agent</strong> are different layers:</p>
       <ul>
         <li>An <strong>application</strong> is the credentialed security boundary. It is operator-provisioned (managed) or dynamically registered (DCR), holds a server-owned secret, and is the identity Caracal authenticates. Creating one is a deliberate, secret-bearing act.</li>
-        <li>An <strong>Session</strong> is the scalable runtime unit. The workload that already holds the application credential creates Sessions at runtime - no secret, no registration, no Console step. One application backs many concurrent Sessions (up to 200 per application by default).</li>
+        <li>An <strong>Session</strong> is the scalable runtime unit. The process that already holds the application credential creates Sessions at runtime - no secret, no registration, no Console step. One application backs many concurrent Sessions (up to 200 per application by default).</li>
       </ul>
-      <p>The default model is <strong>one managed application per durable workload, with many Sessions under it</strong>. When that workload fans out across sub-agents or jobs, each execution is a new Session under the <em>same</em> application. Policy and audit tell them apart by Session ID, lifecycle, labels, and Delegation chain.</p>
+      <p>The default model is <strong>one managed application per durable service, with many Sessions under it</strong>. When that service fans out across sub-agents or jobs, each execution is a new Session under the <em>same</em> application. Policy and audit tell them apart by Session ID, lifecycle, labels, and Delegation chain.</p>
       <p>Use a separate application only when an independently launched agent or workload needs an isolated, expiring credential and registry-visible identity. DCR supplies that boundary and binds exactly one Session.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and the <a href="/concepts/model-overview/">Caracal Mental Model</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
 
-    <details id="faq-007" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-007" data-faq-title="When should I use a managed application versus DCR?" data-keywords="managed application DCR dynamic client registration durable workload short-lived ephemeral credentials">
+    <details id="faq-007" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-007" data-faq-title="When should I use a managed application versus DCR?" data-keywords="managed application DCR dynamic client registration durable service short-lived ephemeral credentials">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-007</span>
         <span className="faqTag faqTagIdentity">Identity</span>
@@ -187,7 +187,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-007">Share</button>
       </summary>
       <span id="faq-managed-application-versus-dcr" className="faqAnchor"></span>
-      <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or agent runtime. Ordinary Session fan-out does <strong>not</strong> need DCR. Use DCR only when an independently launched identity needs an isolated, auto-expiring credential boundary, such as a per-tenant or per-integration workload. DCR applications are registered through the Admin API, always expire, bind exactly one Session, and cannot parent further Sessions.</p>
+      <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or agent runtime. Ordinary Session fan-out does <strong>not</strong> need DCR. Use DCR only when an independently launched identity needs an isolated, auto-expiring credential boundary, such as a per-tenant or per-integration process. DCR applications are registered through the Admin API, always expire, bind exactly one Session, and cannot parent further Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a></p>
     </details>
@@ -201,7 +201,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       </summary>
       <span id="faq-distinguish-agents-under-one-application" className="faqAnchor"></span>
       <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
-      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The Console **Sessions** view shows the same execution records.</p>
+      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The web console **Sessions** view shows the same execution records.</p>
       <p>Authority, not labels, is the security boundary. Labels are asserted by the credentialed workload and help policy and audit classify work; scopes, Delegations, and policy contain compromised workloads.</p>
       <p>Filter the Admin API audit endpoint by <code>session_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
@@ -228,7 +228,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-010">Share</button>
       </summary>
       <span id="faq-stable-resource-identifier" className="faqAnchor"></span>
-      <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://billing</code>, then change the upstream URL when routing changes.</p>
+      <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://pipernet</code>, then change the upstream URL when routing changes.</p>
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-011">FAQ-011</a></p>
     </details>
 
@@ -240,7 +240,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-011">Share</button>
       </summary>
       <span id="faq-scope-design" className="faqAnchor"></span>
-      <p>Use small action-oriented scopes such as <code>payments:read</code>, <code>tickets:comment</code>, or <code>mcp:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
+      <p>Use small action-oriented scopes such as <code>pipernet:read</code>, <code>piperchat:comment</code>, or <code>mcp:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
       <p>Scopes answer "what action is allowed?" Resource identifiers answer "what target is protected?"</p>
       <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-012">FAQ-012</a></p>
     </details>
@@ -253,7 +253,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-012">Share</button>
       </summary>
       <span id="faq-do-i-manage-grants-directly" className="faqAnchor"></span>
-      <p>In the current Console flow, you usually define resources, scopes, applications, subjects, and policies rather than managing grants as a separate daily object. Grants are an authorization input that policy can read; the active policy set still makes the final allow, deny, or step-up decision.</p>
+      <p>In the current web-console flow, you usually define Resources, scopes, Applications, Subjects, and Policy rather than managing Grants as a separate daily object. Policy data can declare role-to-scope grants, while managed delegated Grants are lifecycle and revocation records. The active Policy set still makes the final allow, deny, or Approval decision.</p>
       <p>If access is denied, inspect the active policy, subject, application, resource, and scopes through <a href="/operations/troubleshooting/">request trace</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-011">FAQ-011</a>, <a href="#faq-016">FAQ-016</a></p>
     </details>
@@ -303,7 +303,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-016">Share</button>
       </summary>
       <span id="faq-sts-403-versus-gateway-403" className="faqAnchor"></span>
-      <p>A 403 from STS means the exchange was authenticated but policy did not allow the requested resource scopes, or a step-up/grant/session condition blocked issuance. A 403 from Gateway or a verifier means the request reached a protected boundary but the mandate, resource binding, scope check, revocation state, or route safety check failed.</p>
+      <p>A 403 from STS means the exchange was authenticated but Policy did not allow the requested Resource scopes, or an Approval, Grant, or Session condition blocked issuance. A 403 from Gateway or a verifier means the request reached a protected boundary but the Mandate, Resource binding, scope check, revocation state, or route safety check failed.</p>
       <p>Use <a href="/operations/troubleshooting/">request trace</a> with the request ID to identify the surface before changing policy or resource configuration.</p>
       <p className="faqRelated">Related: <a href="#faq-011">FAQ-011</a>, <a href="#faq-012">FAQ-012</a>, <a href="#faq-017">FAQ-017</a></p>
     </details>
@@ -333,16 +333,16 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <p>Start with <a href="/runtime-console/observability/">Inspect Diagnostics and Audit</a> and <a href="/operations/debugging/">Debug Infrastructure Issues</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-016">FAQ-016</a>, <a href="#faq-017">FAQ-017</a></p>
     </details>
-    <details id="faq-019" className="faqEntry" data-faq-entry data-faq-category="editions" data-faq-id="FAQ-019" data-faq-title="Which features are Enterprise Edition only?" data-keywords="Enterprise Edition Community Edition managed multi-tenancy hosted management UI SSO SCIM RBAC support lifecycle">
+    <details id="faq-019" className="faqEntry" data-faq-entry data-faq-category="scope" data-faq-id="FAQ-019" data-faq-title="What does this documentation verify?" data-keywords="repository scope product boundary managed service SSO SCIM RBAC support lifecycle">
       <summary className="faqEntryHeader">
         <span className="faqNumber">FAQ-019</span>
-        <span className="faqTag faqTagEdition">Editions</span>
-        <h3>Which features are Enterprise Edition only?</h3>
+        <span className="faqTag faqTagEdition">Scope</span>
+        <h3>What does this documentation verify?</h3>
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-019">Share</button>
       </summary>
       <span id="faq-enterprise-only-features" className="faqAnchor"></span>
-      <p>Managed multi-tenancy, hosted management UI, managed Gateway and service operation, SSO, SCIM provisioning, teams, organization-level RBAC, commercial support, and enterprise lifecycle features are Enterprise Edition features. The Community Edition remains self-hosted and uses zones, Admin API automation, web console workflows, SDKs, and adapters.</p>
-      <p>See <a href="/enterprise/">Compare Editions</a> or <a href="https://cal.com/rawx18/caracal-enterprise-sales">book an enterprise call</a>.</p>
+      <p>This documentation verifies only behavior implemented by the self-hosted open-source product and supported deployment assets in this repository. It does not establish managed hosting, SSO, SCIM, organization RBAC, commercial support, an SLA, certification, or regulatory conformity.</p>
+      <p>Use <a href="/security/adoption-review/">Review OSS Adoption Readiness</a> to separate repository evidence from deployment and organizational responsibilities.</p>
       <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a></p>
     </details>
 
@@ -419,7 +419,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-024">Share</button>
       </summary>
       <span id="faq-inherit-vs-narrow-chain" className="faqAnchor"></span>
-      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow([tickets:read])</code>, then B starts C:</p>
+      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow([pipernet:read])</code>, then B starts C:</p>
       <ul>
         <li>With <strong>inherit</strong>, Coordinator mirrors B's Delegation onto C. C stays within B's scopes, resource, constraints, and expiry.</li>
         <li>With further narrowing, Coordinator rejects C unless <code>C ⊆ B</code>.</li>
@@ -459,6 +459,84 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
       <p><strong>Which Sessions can be parents:</strong> Sessions under managed applications can start child Sessions. A task parent cannot start a service child; the protocol reports <code>task_session_cannot_start_service</code>. DCR Sessions are isolated leaves, reported by the protocol as <code>dcr_application_cannot_start_child</code> and <code>dcr_application_cannot_be_child</code>.</p>
       <p>See <a href="/concepts/principal/">Identities and Applications</a> and <a href="/reference/faq/#faq-022">FAQ-022</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-025">FAQ-025</a>, <a href="#faq-007">FAQ-007</a></p>
+    </details>
+
+    <details id="faq-027" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-027" data-faq-title="Where does Caracal read caracal.toml from?" data-keywords="caracal.toml config profile CARACAL_CONFIG current directory home search precedence">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-027</span>
+        <span className="faqTag faqTagRuntime">Runtime</span>
+        <h3>Where does Caracal read <code>caracal.toml</code> from?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-027">Share</button>
+      </summary>
+      <span id="faq-where-caracal-reads-config" className="faqAnchor"></span>
+      <p>SDK loaders read exactly the path in <code>CARACAL_CONFIG</code>. If that variable is unset, they use SDK environment variables. They do not search the current directory, home directory, or OS Caracal config directory for <code>caracal.toml</code>. <code>caracal run</code> does not use an SDK profile; it loads a Workload identity locally and fetches launch bindings from STS.</p>
+      <p>See <a href="/reference/config-precedence/">Configuration Order</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-028">FAQ-028</a></p>
+    </details>
+
+    <details id="faq-028" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-028" data-faq-title="Does caracal run renew injected credentials?" data-keywords="caracal run credential renewal expiry long running workload SDK environment injection">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-028</span>
+        <span className="faqTag faqTagRuntime">Runtime</span>
+        <h3>Does <code>caracal run</code> renew injected credentials?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-028">Share</button>
+      </summary>
+      <span id="faq-caracal-run-renewal" className="faqAnchor"></span>
+      <p>No. It fetches bindings and mints each credential once before starting the child. The child receives a scrubbed environment and exits with those credentials' existing expiry. Use a Caracal SDK for long-running software that must exchange on demand.</p>
+      <p>See <a href="/runtime-console/runtime/">Run Workloads</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-027">FAQ-027</a></p>
+    </details>
+
+    <details id="faq-029" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-029" data-faq-title="Can Gateway proxy WebSockets?" data-keywords="Gateway WebSocket websocket Upgrade SSE streaming HTTP proxy">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-029</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Can Gateway proxy WebSockets?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-029">Share</button>
+      </summary>
+      <span id="faq-gateway-websockets" className="faqAnchor"></span>
+      <p>No. Gateway proxies HTTP request/response traffic and streamed responses such as SSE, but strips hop-by-hop headers including <code>Upgrade</code>. Protect WebSocket services with an in-process verifier or framework adapter at the service edge.</p>
+      <p>See <a href="/api/gateway/">Proxy Through Gateway</a> and <a href="/sdks/verification-layer/">Verification Layer Overview</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-016">FAQ-016</a></p>
+    </details>
+
+    <details id="faq-030" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-030" data-faq-title="Why did retrying an STS exchange create uncertainty?" data-keywords="STS retry timeout lost response issuance idempotency ambiguous outcome mandate retry">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-030</span>
+        <span className="faqTag faqTagOps">Operations</span>
+        <h3>Why did retrying an STS exchange create uncertainty?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-030">Share</button>
+      </summary>
+      <span id="faq-sts-exchange-retry" className="faqAnchor"></span>
+      <p>Mandate issuance uses one network attempt. If the response is lost, the server might have minted successfully, so the SDK cannot prove that a retry is the same issuance. Reconcile the operation or explicitly retry according to the protected action's idempotency contract. Session and Delegation creation are different: Coordinator uses durable idempotency receipts and can replay their creation response safely.</p>
+      <p>See <a href="/guides/idempotency/">Safe Retries and Idempotency</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-016">FAQ-016</a>, <a href="#faq-028">FAQ-028</a></p>
+    </details>
+
+    <details id="faq-031" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-031" data-faq-title="Which Caracal versions can I mix?" data-keywords="version compatibility mix packages images npm pypi go SemVer lockstep upgrade">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-031</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Which Caracal versions can I mix?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-031">Share</button>
+      </summary>
+      <span id="faq-version-mixing" className="faqAnchor"></span>
+      <p>None intentionally. Caracal packages, images, chart metadata, and binaries release in lockstep and are tested as one version. Pin exact versions and upgrade them together. On the pre-1.0 line, patch releases preserve documented public behavior; minor releases can change public contracts.</p>
+      <p>See <a href="/reference/compatibility/">Compatibility</a> and <a href="/reference/release-package-runtime-map/">Release Map</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-032">FAQ-032</a></p>
+    </details>
+
+    <details id="faq-032" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-032" data-faq-title="Why does the documentation URL say v0.2 before v0.2.0 is released?" data-keywords="documentation version v0.2 target snapshot current next release docs versions URL">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-032</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Why does the documentation URL say <code>v0.2</code> before <code>v0.2.0</code> is released?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-032">Share</button>
+      </summary>
+      <span id="faq-docs-v02-before-release" className="faqAnchor"></span>
+      <p><code>v0.2</code> is the configured first documentation target. Before stable <code>v0.2.0</code>, unversioned source is served on shareable <code>/v0.2/</code> routes, but no snapshot exists. The stable release creates and registers that snapshot. RCs create no snapshot, and later <code>v0.2.x</code> patches update the same current minor.</p>
+      <p>See <a href="/contributing/release/#documentation-versions">Documentation Versions</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-031">FAQ-031</a></p>
     </details>
 
 </div>

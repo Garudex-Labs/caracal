@@ -415,10 +415,10 @@ type DelegationImpact struct {
 	DelegationID             string                `json:"delegation_id"`
 	AffectedDelegations      []DelegationTraversal `json:"affected_delegations"`
 	AffectedSessions         []string              `json:"affected_sessions"`
-	AffectedAuthorityRecords []string              `json:"affected_authority_records"`
+	AffectedAuthorityRecords []string              `json:"affected_subject_sessions"`
 }
 
-// ActiveDelegations is one page of active Delegations.
+// ActiveDelegations is one page of active delegation edges.
 type ActiveDelegations struct {
 	Items      []Delegation `json:"items"`
 	NextCursor *string      `json:"next_cursor"`
@@ -961,8 +961,10 @@ func (s *DelegationsService) Traverse(ctx context.Context, zoneID, delegationID 
 func (s *DelegationsService) Impact(ctx context.Context, zoneID, delegationID string) (*DelegationImpact, error) {
 	var wire struct {
 		DelegationImpact
-		DelegationID        string                    `json:"edge_id"`
-		AffectedDelegations []delegationTraversalWire `json:"affected_edges"`
+		DelegationID             string                    `json:"edge_id"`
+		AffectedDelegations      []delegationTraversalWire `json:"affected_edges"`
+		AffectedSessions         []string                  `json:"affected_sessions"`
+		AffectedAuthorityRecords []string                  `json:"affected_authority_records"`
 	}
 	if err := s.client.request(ctx, baseCoordinator, http.MethodGet, "/zones/"+zoneID+"/delegations/"+delegationID+"/impact", nil, nil, &wire, false); err != nil {
 		return nil, err

@@ -29,7 +29,7 @@ func makeCoordinatorServer(t *testing.T) (*httptest.Server, *[]string) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
@@ -100,9 +100,9 @@ func TestSessionServiceHeartbeatAndClose(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
-			_, _ = w.Write([]byte(`{"agent":{"id":"svc-1"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"id":"svc-1","status":"active","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -272,7 +272,7 @@ func TestSessionServiceLeaseLostStopsAutoHeartbeatAndNotifiesOnce(t *testing.T) 
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -321,7 +321,7 @@ func TestServiceCloseTreatsRetiredSessionAsSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
@@ -355,9 +355,9 @@ func TestServiceHeartbeatReportsStatusAndUpdatesDeadline(t *testing.T) {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			raw, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(raw, &body)
-			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","heartbeat_deadline_at":"` + deadline + `"}}`))
+			_, _ = w.Write([]byte(`{"agent":{"status":"suspended","heartbeat_deadline_at":"` + deadline + `","lease_generation":1}}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"svc-1","heartbeat_deadline_at":"` + deadline + `","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -399,18 +399,10 @@ func TestDelegateRequiresActiveSession(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
-		TTLSeconds:      60,
 	})
 
 	if err == nil {
-		t.Fatal("expected error when no active Session")
-	}
-}
-
-func TestDelegateRejectsNonPositiveTTL(t *testing.T) {
-	_, err := sdk.Delegate(context.Background(), sdk.DelegateInput{TTLSeconds: 0})
-	if err == nil || !strings.Contains(err.Error(), "positive integer") {
-		t.Fatalf("expected local TTL validation, got %v", err)
+		t.Fatal("expected error when no active agent session")
 	}
 }
 
@@ -443,7 +435,7 @@ func TestDelegateRetriesTransientFailureWithSameIdempotencyKey(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
-		TTLSeconds:      60,
+		TTLSeconds:      600,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -476,7 +468,7 @@ func TestDelegateDoesNotRetryPolicyRejection(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
-		TTLSeconds:      60,
+		TTLSeconds:      600,
 	}); err == nil {
 		t.Fatal("expected policy rejection to surface")
 	}
@@ -494,7 +486,7 @@ func TestAttachSessionValidatesLeaseAndReturnsLiveHandle(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"agent":{"status":"active","heartbeat_deadline_at":"2026-07-09T12:00:00Z"}}`)
+		fmt.Fprint(w, `{"status":"active","heartbeat_deadline_at":"2099-07-09T12:00:00Z","lease_generation":2}`)
 	}))
 	defer srv.Close()
 	coord := &sdk.CoordinatorClient{BaseURL: srv.URL}
@@ -516,7 +508,7 @@ func TestAttachSessionValidatesLeaseAndReturnsLiveHandle(t *testing.T) {
 	if handle.DeadlineAt().IsZero() {
 		t.Fatal("expected the validated lease deadline to be exposed")
 	}
-	if paths[0] != "POST /zones/z/agents/agent-persisted/heartbeat" {
+	if paths[0] != "POST /zones/z/agents/agent-persisted/lease" {
 		t.Fatalf("expected an immediate lease renewal, got %v", paths)
 	}
 	if err := handle.Close(context.Background()); err != nil {
@@ -566,7 +558,7 @@ func TestDelegateReturnsEdgeWithoutRebindingIssuer(t *testing.T) {
 		ToSessionID:     "agent-2",
 		ToApplicationID: "app-2",
 		Scopes:          []string{"tool:call"},
-		TTLSeconds:      60,
+		TTLSeconds:      600,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -622,7 +614,7 @@ func TestSessionNarrowRequiresActiveParent(t *testing.T) {
 		ZoneID:        "z",
 		ApplicationID: "app-child",
 		SubjectToken:  "tok",
-		Authority:     sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{TTLSeconds: 60}),
+		Authority:     sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{}),
 	}, func(ctx context.Context) error { return nil })
 	if err == nil {
 		t.Fatal("expected error without active parent")
@@ -640,7 +632,7 @@ func TestSessionNarrowIssuesSpawnThenDelegation(t *testing.T) {
 	}, func(parentCtx context.Context) error {
 		return sdk.Session(parentCtx, sdk.SessionInput{
 			Coordinator: coord, ZoneID: "z", ApplicationID: "app-child",
-			SubjectToken: "tok", Authority: sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{TTLSeconds: 60}),
+			SubjectToken: "tok", Authority: sdk.AuthorityNarrow([]string{"tool:call"}, sdk.NarrowOptions{TTLSeconds: 600}),
 		}, func(ctx context.Context) error {
 			c, _ := sdk.Current(ctx)
 			child = c

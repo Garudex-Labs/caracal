@@ -137,7 +137,7 @@ describe('reconcile', () => {
     const admin = fakeAdmin(store)
     const deps: ReconcileDeps = { admin, authorize: allowAll() }
     const doc = parseDesiredState({
-      objects: [{ kind: 'application', spec: { name: 'Son of Anton', traits: ['agent'] } }],
+      objects: [{ kind: 'application', spec: { name: 'Anton', traits: ['agent'] } }],
     })
     await reconcile(ZONE, doc, deps)
     const second = await reconcile(ZONE, doc, deps)
@@ -156,7 +156,7 @@ describe('reconcile', () => {
         { kind: 'resource', spec: { identifier: 'resource://nucleus', scopes: [] } },
         { kind: 'resource', spec: { identifier: 'resource://piperchat', scopes: [] } },
         { kind: 'resource', spec: { identifier: 'resource://hoolibox', scopes: [] } },
-        { kind: 'application', spec: { name: 'Son of Anton', traits: [] } },
+        { kind: 'application', spec: { name: 'Anton', traits: [] } },
       ],
       prune: true,
     })
@@ -259,14 +259,14 @@ describe('reconcile', () => {
     const admin = fakeAdmin(store)
     const deps: ReconcileDeps = { admin, authorize: allowAll() }
     const doc = parseDesiredState({
-      objects: [{ kind: 'application', spec: { name: 'Son of Anton', traits: ['agent'] } }],
+      objects: [{ kind: 'application', spec: { name: 'Anton', traits: ['agent'] } }],
       prune: true,
     })
     const report = await reconcile(ZONE, doc, deps, { prune: true })
     expect(report.summary.pruned).toBe(1)
     const names = store.apps.map((a) => a.name)
     expect(names).toContain('bootstrap')
-    expect(names).toContain('Son of Anton')
+    expect(names).toContain('Anton')
     expect(names).not.toContain('stale')
   })
 
@@ -328,9 +328,9 @@ describe('reconcile', () => {
   it('ensure converges a single object', async () => {
     const store = newStore()
     const deps: ReconcileDeps = { admin: fakeAdmin(store), authorize: allowAll() }
-    const report = await ensure(ZONE, 'application', { name: 'Son of Anton', traits: ['agent'] }, deps)
+    const report = await ensure(ZONE, 'application', { name: 'Anton', traits: ['agent'] }, deps)
     expect(report.summary.created).toBe(1)
-    expect(store.apps[0].name).toBe('Son of Anton')
+    expect(store.apps[0].name).toBe('Anton')
   })
 })
 

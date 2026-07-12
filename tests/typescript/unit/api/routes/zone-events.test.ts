@@ -75,7 +75,7 @@ describe('GET /v1/zones/:zoneId/audit', () => {
           event_type: 'token_exchange',
           decision: 'allow',
           occurred_at: '2026-05-01T00:00:00.000Z',
-          metadata_json: { application_name: 'Son of Anton', resource: 'resource://pipernet', token: 'leak-me' },
+          metadata_json: { application_name: 'Anton', resource: 'resource://pipernet', token: 'leak-me' },
         },
       ],
     })
@@ -91,9 +91,60 @@ describe('GET /v1/zones/:zoneId/audit', () => {
     expect(body.items[0]).toEqual({
       occurred_at: '2026-05-01T00:00:00.000Z',
       event_type: 'token_exchange',
-      application_name: 'Son of Anton',
+      application_name: 'Anton',
       resource: 'resource://pipernet',
     })
+  })
+
+  it('carries policy attribution on list rows and flattens policy names for projections', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValue({
+      rows: [
+        {
+          id: 'audit-1',
+          zone_id: 'z1',
+          event_type: 'token_exchange',
+          decision: 'allow',
+          policy_set_id: 'ps-1',
+          policy_set_version_id: 'psv-1',
+          manifest_sha: 'abc123',
+          determining_policies_json: [{ policy: 'caracal-payments-mint' }],
+          diagnostics_json: [],
+          occurred_at: '2026-05-01T00:00:00.000Z',
+          metadata_json: { resource: 'resource://pipernet' },
+        },
+      ],
+    })
+
+    await app.ready()
+    const listRes = await app.inject({ method: 'GET', url: '/v1/zones/z1/audit' })
+    expect(listRes.statusCode).toBe(200)
+    const row = JSON.parse(listRes.body).items[0]
+    expect(row.policy_set_version_id).toBe('psv-1')
+    expect(row.manifest_sha).toBe('abc123')
+    expect(row.determining_policies_json).toEqual([{ policy: 'caracal-payments-mint' }])
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('determining_policies_json'), expect.anything())
+
+    const projected = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?fields=event_type,determining_policies,policy_set_version_id,manifest_sha',
+    })
+    expect(projected.statusCode).toBe(200)
+    expect(JSON.parse(projected.body).items[0]).toEqual({
+      event_type: 'token_exchange',
+      determining_policies: ['caracal-payments-mint'],
+      policy_set_version_id: 'psv-1',
+      manifest_sha: 'abc123',
+    })
+
+    const csv = await app.inject({
+      method: 'GET',
+      url: '/v1/zones/z1/audit?format=csv&fields=event_type,determining_policies,manifest_sha',
+    })
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.trim().split('\r\n')
+    expect(lines[0]).toBe('event_type,determining_policies,manifest_sha')
+    expect(lines[1]).toBe('token_exchange,caracal-payments-mint,abc123')
   })
 
   it('rejects unknown export fields', async () => {

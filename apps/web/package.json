@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/web",
-  "version": "0.2.0",
+  "version": "0.2.0-rc.2",
   "private": true,
   "description": "Caracal web console and marketing surface.",
   "type": "module",

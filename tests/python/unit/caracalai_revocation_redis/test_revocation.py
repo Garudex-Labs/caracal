@@ -32,11 +32,13 @@ class FakeRedis:
         self.values: dict[str, str] = {}
         self.set_calls: list[tuple[str, str, int]] = []
         self.acked: list[str] = []
+        self.dead_letters: list[tuple[str, dict[str, str], int, bool]] = []
         self.stream: StreamRows | None = None
         self.pending: list[tuple[str, dict[str, str]]] = []
         self.pending_pages: list[tuple[str, list[tuple[str, dict[str, str]]]]] = []
         self.group_error: Exception | None = None
         self.fail_get = False
+        self.fail_xadd = False
 
     def get(self, key: str) -> str | None:
         if self.fail_get:
@@ -46,6 +48,13 @@ class FakeRedis:
     def set(self, key: str, value: str, px: int) -> None:
         self.values[key] = value
         self.set_calls.append((key, value, px))
+
+    def eval(self, _script: str, _numkeys: int, *keys_and_args: object) -> int:
+        key, candidate, _ttl = (str(value) for value in keys_and_args)
+        if int(candidate) <= int(self.values.get(key, "0")):
+            return 0
+        self.values[key] = candidate
+        return 1
 
     def xgroup_create(self, *_args: object, **_kwargs: object) -> None:
         if self.group_error is not None:
@@ -66,6 +75,17 @@ class FakeRedis:
 
     def xack(self, _stream: str, _group: str, message_id: str) -> None:
         self.acked.append(message_id)
+
+    def xadd(
+        self,
+        name: str,
+        fields: dict[str, str],
+        maxlen: int,
+        approximate: bool,
+    ) -> None:
+        if self.fail_xadd:
+            raise RedisConnectionError("dead letter unavailable")
+        self.dead_letters.append((name, fields, maxlen, approximate))
 
 
 class RedisRevocationStoreTests(unittest.TestCase):
@@ -128,6 +148,15 @@ class RedisRevocationStoreTests(unittest.TestCase):
                 "zone1"
             )
 
+    def test_keeps_delegation_epoch_monotonic(self) -> None:
+        redis = FakeRedis()
+        store = RedisRevocationStore(redis)
+
+        store.mark_delegation_epoch("zone1", 9)
+        store.mark_delegation_epoch("zone1", 4)
+
+        self.assertEqual(store.current_delegation_epoch("zone1"), 9)
+
     def test_ignores_invalid_delegation_epoch_writes(self) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
@@ -173,7 +202,7 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertTrue(store.is_revoked("sid-unsigned"))
         self.assertEqual(redis.acked, ["1-0"])
 
-    def test_missing_signature_is_acked_without_revocation_when_key_is_configured(
+    def test_missing_signature_is_dead_lettered_without_revocation(
         self,
     ) -> None:
         redis = FakeRedis()
@@ -186,6 +215,8 @@ class RedisRevocationConsumerTests(unittest.TestCase):
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertFalse(store.is_revoked("sid-missing"))
+        self.assertEqual(redis.dead_letters[0][0], f"{REVOCATION_STREAM}.dead")
+        self.assertEqual(redis.dead_letters[0][1]["reason"], "invalid_signature")
         self.assertEqual(redis.acked, ["1-0"])
 
     def test_marks_signed_stream_message_authority_anchors_and_acks(self) -> None:
@@ -232,7 +263,7 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertTrue(store.is_revoked("edge-1"))
         self.assertEqual(redis.acked, ["1-0"])
 
-    def test_acks_invalid_signature_without_marking_session(self) -> None:
+    def test_dead_letters_invalid_signature_without_marking_session(self) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
         redis.stream = [
@@ -252,7 +283,29 @@ class RedisRevocationConsumerTests(unittest.TestCase):
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertFalse(store.is_revoked("sid-2"))
+        self.assertEqual(redis.dead_letters[0][1]["reason"], "invalid_signature")
         self.assertEqual(redis.acked, ["1-1"])
+
+    def test_leaves_poison_message_pending_when_dead_letter_fails(self) -> None:
+        redis = FakeRedis()
+        redis.fail_xadd = True
+        redis.stream = [
+            (
+                REVOCATION_STREAM,
+                [("1-1", {"session_id": "sid-2", STREAM_SIG_FIELD: "00"})],
+            )
+        ]
+        consumer = RedisRevocationConsumer(
+            redis,
+            RedisRevocationStore(redis),
+            "resource-1",
+            stream_hmac_key=bytes([7]) * 32,
+            require_signature=True,
+        )
+
+        with self.assertRaises(RedisConnectionError):
+            consumer.poll_once()
+        self.assertEqual(redis.acked, [])
 
     def test_replays_pending_messages_before_new_entries(self) -> None:
         redis = FakeRedis()
@@ -307,10 +360,12 @@ class RedisRevocationConsumerTests(unittest.TestCase):
         self.assertEqual(_to_text(b"sid-1"), "sid-1")
         self.assertIsNone(RedisClient.get(object(), "key"))
         self.assertIsNone(RedisClient.set(object(), "key", "1", 1))
+        self.assertIsNone(RedisClient.eval(object(), "return 1", 0))
         self.assertIsNone(RedisStreamClient.xgroup_create(object()))
         self.assertIsNone(RedisStreamClient.xautoclaim(object()))
         self.assertIsNone(RedisStreamClient.xreadgroup(object()))
         self.assertIsNone(RedisStreamClient.xack(object(), "stream", "group", "1-0"))
+        self.assertIsNone(RedisStreamClient.xadd(object(), "stream", {}, 10, True))
 
 
 class RedisDelegationInvalidationConsumerTests(unittest.TestCase):
@@ -340,7 +395,7 @@ class RedisDelegationInvalidationConsumerTests(unittest.TestCase):
         self.assertEqual(store.current_delegation_epoch("zone1"), 9)
         self.assertEqual(redis.acked, ["1-0"])
 
-    def test_acks_invalid_signatures_without_marking_epochs(self) -> None:
+    def test_dead_letters_invalid_signatures_without_marking_epochs(self) -> None:
         redis = FakeRedis()
         store = RedisRevocationStore(redis)
         redis.stream = [
@@ -360,6 +415,7 @@ class RedisDelegationInvalidationConsumerTests(unittest.TestCase):
 
         self.assertEqual(consumer.poll_once(), 1)
         self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+        self.assertEqual(redis.dead_letters[0][1]["reason"], "invalid_signature")
         self.assertEqual(redis.acked, ["1-1"])
 
     def test_acks_malformed_epoch_messages_without_marking(self) -> None:
@@ -379,6 +435,7 @@ class RedisDelegationInvalidationConsumerTests(unittest.TestCase):
 
         self.assertEqual(consumer.poll_once(), 2)
         self.assertEqual(store.current_delegation_epoch("zone1"), 0)
+        self.assertEqual(len(redis.dead_letters), 2)
         self.assertEqual(redis.acked, ["2-0", "2-1"])
 
 

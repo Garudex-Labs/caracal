@@ -5,17 +5,19 @@ description: Choose between framework adapters, the verify engine, identity veri
 
 Use this page when you are protecting an inbound resource-server boundary and need to choose the right package layer. Start with the highest-level adapter that fits your framework; use lower-level packages only when you are building a custom boundary.
 
+The verification layer consumes `use=resource` mandates at a resource server. Gateway ingress consumes `use=gateway` mandates instead. A Session or lifecycle mandate must not be accepted at either boundary. The classes are defined in [Mandate Use Classes](/concepts/mandate/#mandate-use-classes).
+
 ## Which Layer Should I Use?
 
 | Need                                                      | Use                                                                                  |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Express route middleware                                  | [Express Adapter](./adapters/express/)                                               |
-| FastAPI/Starlette (ASGI) middleware                       | [ASGI Adapter](./adapters/asgi/)                                                     |
-| FastMCP server or tool authentication                     | [FastMCP Adapter](./adapters/fastmcp/)                                               |
-| Go `net/http` middleware                                  | [Go net/http Adapter](./adapters/nethttp/)                                           |
-| Framework-neutral bearer parsing and mandate verification | [Verify Package](./verify/)                                                          |
-| Custom JWT claim verification                             | [Identity Package](./identity/)                                                      |
-| Shared revocation checks                                  | [Revocation Package](./revocation/) plus [Redis Revocation Store](./backends/redis/) |
+| Express route middleware                                  | [Express Adapter](/sdks/adapters/express/)                                           |
+| FastAPI/Starlette (ASGI) middleware                       | [ASGI Adapter](/sdks/adapters/asgi/)                                                 |
+| FastMCP server or tool authentication                     | [FastMCP Adapter](/sdks/adapters/fastmcp/)                                           |
+| Go `net/http` middleware                                  | [Go net/http Adapter](/sdks/adapters/nethttp/)                                       |
+| Framework-neutral bearer parsing and mandate verification | [Verify Package](/sdks/verify/)                                                      |
+| Custom JWT claim verification                             | [Identity Package](/sdks/identity/)                                                  |
+| Shared revocation checks                                  | [Revocation Package](/sdks/revocation/) plus [Redis Revocation Store](/sdks/backends/redis/) |
 
 ## Framework Adapters
 
@@ -25,24 +27,21 @@ Use adapters first when your framework is supported. They reduce boilerplate and
 
 ## Verify Package
 
-[Verify Package](./verify/) is the reusable verification engine under the adapters. Use it when your framework is unsupported or when you need direct control over bearer parsing, verifier defaults, route-level scopes, targets, Session requirements, Delegation requirements, hop limits, and safe error hints.
+[Verify Package](/sdks/verify/) is the reusable verification engine under the adapters. Use it when your framework is unsupported or when you need direct control over bearer parsing, verifier defaults, route-level scopes, targets, Session requirements, Delegation requirements, hop limits, and safe error hints.
 
 ## Identity Package
 
-[Identity Package](./identity/) verifies mandate JWT claims directly. Use it when you are composing a custom verifier or adapter. It does not provide the full verify-engine error mapping or revocation-store integration by itself.
+[Identity Package](/sdks/identity/) verifies mandate JWT claims directly. Use it when you are composing a custom verifier or adapter. It does not provide the full verify-engine error mapping or revocation-store integration by itself.
 
 ## Revocation and Shared State
 
-Resource servers must reject mandates anchored to a revoked Authority record ID, Root authority record ID, Session ID, or Delegation ID. Use in-memory revocation stores for local development only. Use [Redis Revocation Store](./backends/redis/) for multi-instance resource servers that consume the protocol stream `caracal.sessions.revoke`.
+Resource servers must reject mandates anchored to a revoked Authority record ID, Root authority record ID, Session ID, or Delegation ID. Use in-memory revocation stores for local development only. Use [Redis Revocation Store](/sdks/backends/redis/) for multi-instance resource servers that consume the protocol stream `caracal.sessions.revoke`.
 
 ## Failure Behavior
 
-All HTTP verification layers should preserve the shared status mapping:
+All HTTP verification layers preserve one status contract - `401` when the credential itself was not accepted, `403` when a verified mandate lacks the route's required authority. The canonical per-code mapping and the shared status function live in [Framework Adapters](/sdks/adapters/#boundary-semantics); the code catalog is in [Error Codes](/reference/errors/).
 
-| Status | Meaning                                                                                            |
-| ------ | -------------------------------------------------------------------------------------------------- |
-| `401`  | The credential was missing, invalid, expired, revoked, or from the wrong zone.                     |
-| `403`  | The mandate verified but lacks required scope, target, Session, Delegation, chain, or hop authority. |
+JWT verification establishes signed claims; revocation checks establish whether their authority remains active. Both are required where revocation-before-expiry is part of the resource's security contract.
 
 ## Related Pages
 

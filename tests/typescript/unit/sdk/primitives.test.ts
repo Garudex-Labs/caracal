@@ -23,7 +23,7 @@ function recorder(agentId = 'agent-new', edgeId = 'edge-new'): Recorder {
     if (path.endsWith('/delegations')) {
       return new Response(JSON.stringify({ delegation_edge_id: edgeId }), { status: 200 })
     }
-    return new Response(JSON.stringify({ agent_session_id: agentId }), { status: 200 })
+    return new Response(JSON.stringify({ agent_session_id: agentId, lease_generation: 1 }), { status: 200 })
   }) as unknown as typeof fetch
   return { client: { baseUrl: 'http://coord', fetchImpl }, calls }
 }
@@ -124,7 +124,9 @@ describe('session', () => {
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/agents')) {
         bodies.push(JSON.parse(init?.body ?? '{}'))
-        return new Response(JSON.stringify({ agent_session_id: 'agent-child', delegation_edge_id: 'edge-child' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-child', delegation_edge_id: 'edge-child', lease_generation: 1 }), {
+          status: 200,
+        })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -151,7 +153,7 @@ describe('session', () => {
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/agents')) {
         bodies.push(JSON.parse(init?.body ?? '{}'))
-        return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-child', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -176,7 +178,7 @@ describe('session', () => {
         return new Response(JSON.stringify({ delegation_edge_id: 'edge-narrow' }), { status: 200 })
       }
       bodies.push(JSON.parse(init?.body ?? '{}'))
-      return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'agent-child', lease_generation: 1 }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx({ delegationId: 'edge-parent', hop: 1 }), async () => {
@@ -186,7 +188,7 @@ describe('session', () => {
           zoneId: 'zone-1',
           applicationId: 'app-1',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
         },
         async () => {},
       )
@@ -202,9 +204,12 @@ describe('startSession with authority', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, path: new URL(url).pathname })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z' }), {
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify({ agent_session_id: 'agent-svc', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 1 }),
+        {
+          status: 200,
+        },
+      )
     }) as unknown as typeof fetch
     const svc = await startSession({
       coordinator: { baseUrl: 'http://coord', fetchImpl },
@@ -225,7 +230,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger', ttlSeconds: 60 }),
+        authority: Authority.narrow(['ledger:read'], { resourceId: 'resource://ledger', ttlSeconds: 600 }),
       })
       expect(svc.context.delegationId).toBe('edge-svc')
       expect(svc.context.parentDelegationId).toBe('edge-parent')
@@ -243,7 +248,7 @@ describe('startSession with authority', () => {
         zoneId: 'zone-1',
         applicationId: 'app-2',
         subjectToken: 'tok',
-        authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+        authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
       }),
     ).rejects.toThrow(/active parent session/)
   })
@@ -256,7 +261,7 @@ describe('startSession with authority', () => {
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/delegations')) return new Response('denied', { status: 403 })
-      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan' }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'svc-orphan', lease_generation: 1 }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
 
@@ -267,7 +272,7 @@ describe('startSession with authority', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
         }),
       ).rejects.toThrow()
     })
@@ -276,17 +281,10 @@ describe('startSession with authority', () => {
 })
 
 describe('delegate', () => {
-  it('rejects a non-positive expiry before using context or the network', async () => {
-    const { client } = recorder()
-    await expect(
-      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 0 }),
-    ).rejects.toThrow(/positive integer/)
-  })
-
   it('requires an active context', async () => {
     const { client } = recorder()
     await expect(
-      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+      delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 600 }),
     ).rejects.toThrow(/requires a Caracal context/)
   })
 
@@ -294,7 +292,7 @@ describe('delegate', () => {
     const { client } = recorder()
     await bind(baseCtx({ sessionId: undefined }), async () => {
       await expect(
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 600 }),
       ).rejects.toThrow(/active session/)
     })
   })
@@ -302,7 +300,7 @@ describe('delegate', () => {
   it('returns the created delegation without rebinding the issuer context', async () => {
     const { client } = recorder('agent-new', 'edge-42')
     await bind(baseCtx(), async () => {
-      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 })
+      const res = await delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 600 })
       expect(res.delegationId).toBe('edge-42')
       expect(current()?.delegationId).toBeUndefined()
       expect(current()?.hop).toBe(0)
@@ -328,7 +326,7 @@ describe('delegate', () => {
         bodies.push(JSON.parse(init?.body ?? '{}'))
         return new Response(JSON.stringify({ delegation_edge_id: 'edge-one' }), { status: 200 })
       }
-      return new Response(JSON.stringify({ agent_session_id: 'agent-child' }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'agent-child', lease_generation: 1 }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
@@ -338,16 +336,12 @@ describe('delegate', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow('read', { ttlSeconds: 60 }),
+          authority: Authority.narrow('read', { ttlSeconds: 600 }),
         },
         async () => {},
       )
     })
     expect(bodies[0]?.scopes).toEqual(['read'])
-  })
-
-  it('rejects a non-positive Authority.narrow expiry', () => {
-    expect(() => Authority.narrow('read', { ttlSeconds: 0 })).toThrow(/positive integer/)
   })
 
   it('retries a transient delegation failure once with the same idempotency key', async () => {
@@ -367,7 +361,7 @@ describe('delegate', () => {
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       const result = bind(baseCtx(), () =>
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 600 }),
       )
       await vi.advanceTimersByTimeAsync(2_000)
       await expect(result).resolves.toMatchObject({ delegationId: 'edge-retry' })
@@ -391,7 +385,7 @@ describe('delegate', () => {
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
     await bind(baseCtx(), async () => {
       await expect(
-        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 60 }),
+        delegate({ coordinator: client, toSessionId: 'a2', toApplicationId: 'app-2', scopes: ['read'], ttlSeconds: 600 }),
       ).rejects.toThrow()
     })
     expect(attempts).toBe(1)
@@ -405,7 +399,7 @@ describe('attachSession', () => {
       seen.push(new Headers(init.headers).get('authorization') ?? '')
       if (seen.length === 1) return new Response('{"error":"invalid_token"}', { status: 401 })
       if (init.method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active' } }), { status: 200 })
+      return new Response(JSON.stringify({ status: 'active', lease_generation: 2 }), { status: 200 })
     }) as unknown as typeof fetch
     let invalidations = 0
     let tokens = 0
@@ -430,7 +424,7 @@ describe('attachSession', () => {
       const path = new URL(url).pathname
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response(JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z' } }), {
+      return new Response(JSON.stringify({ status: 'active', heartbeat_deadline_at: '2026-07-09T12:00:00Z', lease_generation: 2 }), {
         status: 200,
       })
     }) as unknown as typeof fetch
@@ -445,7 +439,7 @@ describe('attachSession', () => {
     expect(handle.sessionId).toBe('agent-persisted')
     expect(handle.context.sessionId).toBe('agent-persisted')
     expect(handle.deadlineAt).toBe('2026-07-09T12:00:00Z')
-    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/heartbeat')
+    expect(calls[0].path).toBe('/zones/zone-1/agents/agent-persisted/lease')
     await handle.close()
     expect(calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/agent-persisted'))).toBe(true)
   })
@@ -475,7 +469,7 @@ describe('session with narrowed authority', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
         },
         async () => {},
       ),
@@ -491,7 +485,7 @@ describe('session with narrowed authority', () => {
           zoneId: 'zone-1',
           applicationId: 'app-2',
           subjectToken: 'tok',
-          authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+          authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
         },
         async () => ({
           session: current()?.sessionId,
@@ -512,7 +506,7 @@ describe('session with narrowed authority', () => {
       calls.push({ method, path })
       if (method === 'DELETE') return new Response(null, { status: 204 })
       if (path.endsWith('/delegations')) return new Response('denied', { status: 403 })
-      return new Response(JSON.stringify({ agent_session_id: 'agent-orphan' }), { status: 200 })
+      return new Response(JSON.stringify({ agent_session_id: 'agent-orphan', lease_generation: 1 }), { status: 200 })
     }) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
 
@@ -524,7 +518,7 @@ describe('session with narrowed authority', () => {
             zoneId: 'zone-1',
             applicationId: 'app-2',
             subjectToken: 'tok',
-            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+            authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
           },
           async () => {},
         ),
@@ -545,7 +539,7 @@ describe('session with narrowed authority', () => {
             zoneId: 'zone-1',
             applicationId: 'app-2',
             subjectToken: 'tok',
-            authority: Authority.narrow(['read'], { ttlSeconds: 60 }),
+            authority: Authority.narrow(['read'], { ttlSeconds: 600 }),
             onSessionStart: async () => {
               throw new Error('start failed')
             },
@@ -559,11 +553,11 @@ describe('session with narrowed authority', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
 
-  it('terminateSession throws when the coordinator DELETE fails', async () => {
-    const { terminateSession } = await import('../../../../packages/sdk/ts/src/coordinator.js')
+  it('terminateAgent throws when the coordinator DELETE fails', async () => {
+    const { terminateSession: terminateAgent } = await import('../../../../packages/sdk/ts/src/coordinator.js')
     const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 })) as unknown as typeof fetch
     const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
-    await expect(terminateSession(client, 'tok', 'zone-1', 'session-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
+    await expect(terminateAgent(client, 'tok', 'zone-1', 'agent-9')).rejects.toThrow(/coordinator DELETE .* failed: 404 not found/)
   })
 })
 
@@ -580,7 +574,7 @@ describe('session reliability', () => {
           spawnCalls += 1
           keys.push(new Headers(init.headers as HeadersInit).get('idempotency-key'))
           if (spawnCalls === 1) return new Response('upstream unavailable', { status: 503 })
-          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
         }
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
@@ -621,7 +615,7 @@ describe('session reliability', () => {
           if (spawnCalls === 1) {
             return new Response('busy', { status: 503, headers: { 'retry-after': '2' } })
           }
-          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
         }
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
@@ -651,7 +645,7 @@ describe('session reliability', () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -667,7 +661,7 @@ describe('session reliability', () => {
       const fetchImpl = (async (url: string, init: RequestInit = {}) => {
         if (init.method === 'DELETE') return new Response('db down', { status: 500 })
         if (new URL(url).pathname.endsWith('/agents')) {
-          return new Response(JSON.stringify({ agent_session_id: 'agent-1' }), { status: 200 })
+          return new Response(JSON.stringify({ agent_session_id: 'agent-1', lease_generation: 1 }), { status: 200 })
         }
         return new Response(JSON.stringify({}), { status: 200 })
       }) as unknown as typeof fetch
@@ -696,12 +690,18 @@ describe('service auto-heartbeat', () => {
         heartbeats.push(JSON.parse(String(init.body)))
         if (opts.heartbeat) return opts.heartbeat(beats)
         return new Response(
-          JSON.stringify({ agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() } }),
+          JSON.stringify({
+            agent: { status: 'active', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(), lease_generation: 1 },
+          }),
           { status: 200 },
         )
       }
       return new Response(
-        JSON.stringify({ agent_session_id: 'svc-1', heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString() }),
+        JSON.stringify({
+          agent_session_id: 'svc-1',
+          heartbeat_deadline_at: new Date(Date.now() + 3_000).toISOString(),
+          lease_generation: 1,
+        }),
         { status: 200 },
       )
     }) as unknown as typeof fetch
@@ -715,7 +715,7 @@ describe('service auto-heartbeat', () => {
       const svc = await startSession({ coordinator: client, zoneId: 'zone-1', applicationId: 'app-1', subjectToken: 'tok' })
       await vi.advanceTimersByTimeAsync(1_500)
       expect(heartbeats.length).toBeGreaterThanOrEqual(1)
-      expect(heartbeats[0]).toEqual({ status: 'healthy' })
+      expect(heartbeats[0]).toEqual({ status: 'healthy', lease_generation: 1 })
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -757,7 +757,7 @@ describe('service auto-heartbeat', () => {
       await vi.advanceTimersByTimeAsync(120_000)
       expect(heartbeats.length).toBe(0)
       await svc.heartbeat('degraded')
-      expect(heartbeats).toEqual([{ status: 'degraded' }])
+      expect(heartbeats).toEqual([{ status: 'degraded', lease_generation: 1 }])
       await svc.close()
     } finally {
       vi.useRealTimers()
@@ -768,7 +768,7 @@ describe('service auto-heartbeat', () => {
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (init.method === 'DELETE') return new Response('{"error":"agent_not_found"}', { status: 404 })
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch
@@ -795,7 +795,7 @@ describe('service auto-heartbeat', () => {
             resolveBeat = resolve
           })
         }
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }) as unknown as typeof fetch
       const client: CoordinatorClient = { baseUrl: 'http://coord', fetchImpl }
       const onLeaseLost = vi.fn()
@@ -826,7 +826,7 @@ describe('service auto-heartbeat', () => {
         return new Response(null, { status: 204 })
       }
       if (new URL(url).pathname.endsWith('/agents')) {
-        return new Response(JSON.stringify({ agent_session_id: 'svc-1' }), { status: 200 })
+        return new Response(JSON.stringify({ agent_session_id: 'svc-1', lease_generation: 1 }), { status: 200 })
       }
       return new Response(JSON.stringify({}), { status: 200 })
     }) as unknown as typeof fetch

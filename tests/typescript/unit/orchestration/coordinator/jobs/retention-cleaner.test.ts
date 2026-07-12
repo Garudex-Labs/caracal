@@ -19,6 +19,29 @@ function clientWithRows(rows: Array<{ rowCount?: number; rows?: unknown[] }>) {
 }
 
 describe('runRetentionCleanup', () => {
+  it('prunes only published outbox rows so dead rows remain recoverable', async () => {
+    const client = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ acquired: true }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    }
+    const db = { connect: vi.fn().mockResolvedValue(client) }
+
+    await runRetentionCleanup(db as never)
+
+    const outboxQuery = client.query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM caracal_outbox'))
+    expect(String(outboxQuery?.[0])).toContain("status = 'published'")
+    expect(String(outboxQuery?.[0])).not.toContain("'dead'")
+  })
+
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -29,6 +52,7 @@ describe('runRetentionCleanup', () => {
     await expect(runRetentionCleanup(db as never)).resolves.toEqual({
       expiredEdges: 0,
       deletedEdges: 0,
+      deletedSessions: 0,
       deletedOutbox: 0,
       deletedIdempotencyReceipts: 0,
     })
@@ -51,14 +75,16 @@ describe('runRetentionCleanup', () => {
       { rowCount: 3 },
       { rowCount: 4 },
       { rowCount: 5 },
+      { rowCount: 6 },
       { rows: [] },
     ])
     const db = { connect: vi.fn().mockResolvedValueOnce(client) }
     await expect(runRetentionCleanup(db as never)).resolves.toEqual({
       expiredEdges: 2,
       deletedEdges: 3,
-      deletedOutbox: 4,
-      deletedIdempotencyReceipts: 5,
+      deletedSessions: 4,
+      deletedOutbox: 5,
+      deletedIdempotencyReceipts: 6,
     })
     const edgeDelete = client.query.mock.calls.find((call) => String(call[0]).includes('DELETE FROM delegation_edges'))
     expect(String(edgeDelete?.[0])).toContain('child.parent_edge_id = delegation_edges.id')
@@ -81,9 +107,13 @@ describe('runRetentionCleanup', () => {
       ]),
     )
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM delegation_edges d'), [90, 500])
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM sessions session'), [90, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM caracal_outbox o'), [7, 500])
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM coordinator_idempotency_receipts r'), [500])
-    expect(client.query.mock.calls.some((call) => String(call[0]).includes('UPDATE sessions'))).toBe(false)
+    const sessionDelete = client.query.mock.calls.find((call) => String(call[0]).includes('DELETE FROM sessions session'))
+    expect(String(sessionDelete?.[0])).toContain("status IN ('terminated', 'expired')")
+    expect(String(sessionDelete?.[0])).toContain('NOT EXISTS')
+    expect(String(sessionDelete?.[0])).toContain('UPDATE agent_invocations')
     expect(client.query).toHaveBeenCalledWith('COMMIT')
   })
 

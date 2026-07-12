@@ -39,8 +39,8 @@ export interface ControlClientOptions {
   // control invoke so the STS log, the control dispatch, and its audit record all correlate
   // back to the request that triggered them.
   requestId?: string
-  // Total wall-clock budget for one invoke, including token mint, its one safe retry,
-  // and the control request. Caller cancellation can shorten this budget.
+  // Total wall-clock budget for one invoke, including token mint and the control
+  // request. Caller cancellation can shorten this budget.
   timeoutMs?: number
   signal?: AbortSignal
   fetchImpl?: typeof fetch
@@ -62,12 +62,11 @@ export class ControlClientError extends Error {
     this.name = 'ControlClientError'
   }
 
-  // Whether the failure provably applied nothing: any token-stage failure (no token was
-  // minted, so nothing was invoked) or an invoke the control plane rejected with a client
-  // error. An invoke-stage server error or lost response is not definitive - the command
-  // may already have applied - so a caller must never blindly retry it.
+  // Whether the server definitively rejected the request before accepting it. Lost
+  // responses and server failures are outcome-ambiguous at both stages: STS may have
+  // minted a token, or Control may have applied the command.
   get definitive(): boolean {
-    return this.stage === 'token' || (this.status >= 400 && this.status < 500)
+    return this.status >= 400 && this.status < 500
   }
 }
 
@@ -120,23 +119,14 @@ export class ControlClient {
   // Exchanges the identity's client credentials for a Caracal control token scoped to
   // exactly the requested scopes. The STS narrows the token to the intersection of the
   // identity's allowed scopes and those requested, so an over-broad request can never
-  // widen authority beyond what the identity was granted. A transient failure (a server
-  // error or a lost response) is retried once: a failed mint is always definitive - no
-  // token exists and nothing was applied - so the retry is safe for every caller.
+  // widen authority beyond what the identity was granted.
   private async mintToken(scopes: readonly string[], signal: AbortSignal): Promise<string> {
-    try {
-      return await this.exchangeToken(scopes, signal)
-    } catch (err) {
-      if (err instanceof ControlClientError && (err.status >= 500 || err.status === 0)) {
-        return this.exchangeToken(scopes, signal)
-      }
-      throw err
-    }
+    return this.exchangeToken(scopes, signal)
   }
 
   private async exchangeToken(scopes: readonly string[], signal: AbortSignal): Promise<string> {
     const form = new URLSearchParams({
-      grant_type: 'client_credentials',
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       application_id: this.options.applicationId,
       client_secret: this.options.clientSecret,
       resource: this.options.audience,

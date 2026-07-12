@@ -1,79 +1,122 @@
 ---
 title: Overview
-description: Decide whether Caracal fits, then follow the shortest path to a protected, audited agent call.
+description: Learn what problem Caracal solves and how it works in plain language, then follow the shortest path to your first protected, audited call.
 pageType: landing
 ---
 
-Caracal gives AI agents and automated workflows short-lived, policy-approved authority instead of long-lived provider credentials in code or environment files. An agent asks for scoped authority when it acts, policy decides before the action reaches a resource, the Gateway or a verified service enforces the result, and audit records what happened.
+Caracal is a self-hosted, open-source system that controls what AI agents and automated programs are allowed to do, without giving them your API keys. This page explains the problem it solves and how it works before you install anything. By the end you will know every term the rest of Get Started uses.
 
-Use this section when you want the fastest path from a clean machine to a real protected call.
+## The Problem
 
-## Should You Use Caracal?
+If you run agents or automation today, each program that calls an external API usually holds a credential for it, an API key or token in an environment variable or config file. That works until you look closely at what the program can now do:
 
-Caracal fits when agents, services, or automation need to call APIs, tools, SaaS providers, or data systems without directly holding the upstream credential.
+- The key usually grants far more than the program needs. An agent that should only read reports can often also write, delete, or administer.
+- The key lives inside the program's process. A prompt injection, dependency compromise, or leaked log exposes it, and whoever has it has everything it grants.
+- Turning access off means rotating the key and redeploying every workload that shares it. There is no central off switch.
+- When something goes wrong, there is no reliable record of which program did what, with which permission, and why it was allowed.
 
-| Question                             | Use Caracal when                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------- |
-| Do agents need credentials?          | Agents need scoped access to tools, APIs, providers, or data.                   |
-| Do you need policy before execution? | Access must be allowed or denied before the protected action happens.           |
-| Do you need revocation?              | Active authority must end centrally without restarting every workload.          |
-| Do you need audit evidence?          | You need to explain which app, run, policy, resource, and result were involved. |
+These problems get worse with agents, because agents decide at runtime what to call. A static, all-powerful key in the hands of software that improvises is a standing risk.
 
-Caracal is not an LLM framework, prompt router, agent scheduler, static config store, general API gateway, or identity provider. If you only have human users behind a normal login, start with an IdP instead.
+## The Solution
 
-:::note[Managed option]
-This section covers the self-hosted open-source edition. If you want managed multi-tenancy, hosted management, SSO, or a supported enterprise deployment, see [Compare Editions](/enterprise/).
+Caracal puts a decision point between your program and the things it calls. Your program never holds the upstream API key. Instead, each time it wants to act:
+
+1. The program proves its identity to Caracal.
+2. It asks for a narrow, specific permission, such as "read from the reports service".
+3. Caracal checks the rules you wrote. This happens before the action runs, not after.
+4. If the rules allow it, Caracal issues a short-lived signed pass for exactly that permission.
+5. The request travels through a checkpoint that verifies the pass, attaches the real upstream credential if one is needed, and forwards the request.
+6. The decision and the result are written to a tamper-evident log.
+
+If you revoke access, the pass stops working at the checkpoint. There is no key to rotate and no redeploy, because the program never had the key.
+
+:::note[Key takeaway]
+Your program never holds the upstream credential. It holds a short-lived, narrowly scoped pass that Caracal can refuse to renew or revoke centrally, and every use of it is recorded.
 :::
 
-## First Success Path
+## The Building Blocks
+
+Caracal gives each part of that flow a name. Seven terms cover the rest of Get Started, and each one maps to something you already know:
+
+| Term | Plain meaning | Familiar comparison |
+| --- | --- | --- |
+| Application | The registered identity your program acts as when it talks to Caracal. | An OAuth client with an ID and secret. |
+| Resource | A thing you protect: an API, tool, model provider, or data service. | An upstream service behind a proxy. |
+| Provider | Caracal's sealed custody of a resource's real upstream credential, attached only after a request is approved. | A vault entry only the proxy can use. |
+| Policy | The rules that decide which application may use which resource, with which permissions. | An allow/deny ruleset evaluated before execution. |
+| Mandate | The short-lived signed pass Caracal issues when policy allows a request. | A scoped access token with a tight expiry. |
+| Gateway | The HTTP checkpoint in front of your resources. It verifies each mandate, attaches the upstream credential when one is needed, forwards the request, and records the result. | A reverse proxy that authenticates every request. |
+| Audit | The append-only record of every decision and result. | A structured, tamper-evident event log. |
+
+One more term appears when you first sign in: a **Zone** is an isolated workspace, like a project or tenant. Applications, resources, policies, and audit records all live inside one zone and never leak across zones.
+
+## What Happens on a Request
+
+```mermaid
+sequenceDiagram
+  participant App as Your program
+  participant Caracal as Caracal (policy check)
+  participant GW as Gateway
+  participant API as Protected service
+
+  App->>Caracal: Who I am + what I want to do
+  Caracal->>Caracal: Evaluate active policy
+  Caracal-->>App: Short-lived mandate (or denial)
+  App->>GW: Request + mandate
+  GW->>GW: Verify mandate, attach upstream credential
+  GW->>API: Forwarded request
+  API-->>GW: Response
+  GW-->>App: Response
+  Note over Caracal,GW: Decision and result recorded in audit
+```
+
+Read it once as a story: <mark>your program asks, policy decides, a mandate is issued, the Gateway verifies and forwards, and audit records both the decision and the outcome</mark>. Every page that follows walks a real request through exactly this path.
+
+## When to Use Caracal
+
+Caracal fits when programs, not humans, need controlled access:
+
+| Question | Use Caracal when |
+| --- | --- |
+| Do programs hold credentials? | Agents, services, or jobs call APIs, tools, providers, or data systems, and you do not want raw keys inside them. |
+| Must access be decided up front? | An action should be allowed or denied before it runs, based on rules you control centrally. |
+| Do you need a fast off switch? | Access must end centrally, without rotating keys or restarting every workload. |
+| Do you need evidence? | You must be able to show which program did what, with which permission, under which rule, and what happened. |
+
+Caracal is not an LLM framework, agent scheduler, or general-purpose API gateway. If you already use adjacent tools, here is where it differs:
+
+| You already use | How Caracal differs |
+| --- | --- |
+| A secrets manager | It stores and rotates keys, but your program still holds the key at call time. Caracal keeps the key out of the program entirely and decides each request against policy. |
+| An API gateway | It routes and rate-limits, but it does not decide per-request permission from your rules or issue short-lived passes per action. |
+| An identity provider | It authenticates people. Caracal governs what programs do. Keep your IdP for logins; you can federate it into Caracal later for attribution. If your only need is human users behind a normal login, an identity provider alone is the right tool. |
+
+## What You Will Do in This Section
 
 ```mermaid
 flowchart LR
   Install[Install Caracal]
-  Stack[Start local stack]
-  Setup[Create protected resource]
-  Run[Run workload]
-  Gateway[Call Gateway]
-  Audit[Inspect audit]
+  Call[First Protected Call]
+  SDK[Add SDK to Your App]
+  Fix[Troubleshoot if needed]
 
-  Install --> Stack --> Setup --> Run --> Gateway --> Audit
+  Install --> Call --> SDK -.-> Fix
 ```
 
-The onboarding path keeps runtime lifecycle in the `caracal` CLI and product management in the web console:
+1. [Install Caracal](./install-caracal/) - install one `caracal` executable, start the local stack with Docker, and enable console sign-in.
+2. [First Protected Call](./first-protected-call/) - give an AI agent scoped authority to call an LLM provider from the browser console, then send one request through the full path and read its audit trail.
+3. [Add SDK to Your App](./add-sdk-to-your-app/) - turn the first call into an application integration with a configuration profile.
+4. [First-Run Troubleshooting](./first-run-troubleshooting/) - a boundary-by-boundary checklist if any step fails.
 
-1. Install `caracal`.
-2. Start the local stack with `caracal up`.
-3. Sign in to the web console at [http://localhost:3001](http://localhost:3001) and complete onboarding to create your first zone.
-4. Use guided setup to create an agent app, resource, and active policy.
-5. Create a workload with launch bindings on the console's Launcher page and export the workload identity.
-6. Run a workload with `caracal run --` or an SDK.
-7. Call the protected resource through the Gateway.
-8. Inspect **Audit** in the web console.
+You are done when `caracal status --ready` succeeds, an agent's request reaches the protected provider through the Gateway, and the audit view shows the matching allow decision and result. A successful local run proves the enforcement path; it does not make the local stack production-ready.
 
-## Core Terms
+## Prerequisites
 
-| Term        | Meaning                                                                                                                                                     |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Application | The registered client identity your software runs as when it asks Caracal for authority.                                                                    |
-| Session     | One governed execution under that identity: Caracal binds authority around whatever runs - an AI agent step, a job, a tool call - and records audit for it. |
-| Resource    | The protected API, tool, provider, service, or data target.                                                                                                 |
-| Policy      | The rules that allow or deny requested resource scopes.                                                                                                     |
-| Mandate     | The short-lived signed token Caracal issues after policy allows access.                                                                                     |
-| Gateway     | The default boundary that verifies mandates, routes requests, brokers provider credentials when needed, and records action-result audit.                    |
-| Audit       | The decision and result trail for authorization, execution, revocation, and diagnostics.                                                                    |
+You need a supported Linux, macOS, or Windows machine, Docker 25 or later with Compose v2, and permission to run containers. No Caracal source checkout is required.
 
-You can finish Get Started with only these terms. Use [Concepts](/concepts/) when you need the deeper authority, delegation, revocation, and audit model.
+## Where to Go Deeper
 
-## Choose Your Next Path
-
-| Goal                            | Start here                                                | You will have                                                                           |
-| ------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Evaluate Caracal locally        | [Install Caracal](./install-caracal/)                     | A verified runtime CLI, packaged local web console, and Docker prerequisite.            |
-| Protect one resource end to end | [First Protected Call](./first-protected-call/)           | A Gateway-routed resource, active policy, runtime configuration, and audit explanation. |
-| Add Caracal to app code         | [Add SDK to Your App](./add-sdk-to-your-app/)             | TypeScript, Python, or Go code that opens a Session and calls the Gateway.              |
-| Fix a blocked first run         | [First-Run Troubleshooting](./first-run-troubleshooting/) | A focused checklist for readiness, profile, STS, Gateway, upstream, and audit issues.   |
-| Learn the full model            | [Caracal Mental Model](/concepts/model-overview/)         | The canonical concept path after first success.                                         |
-| Develop Caracal itself          | [Set Up Locally](/contributing/setup/)                    | A source-tree development stack and contributor workflow.                               |
+Get Started needs only the terms on this page. When you want the full model, including delegation between agents, revocation mechanics, and the audit chain, read [Concepts](/concepts/) after your first successful call. Contributors who want to build Caracal from source should use [Set Up Locally](/contributing/setup/) instead of this path.
 
 ## Next Step
 

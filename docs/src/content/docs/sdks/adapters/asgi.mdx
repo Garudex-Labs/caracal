@@ -5,6 +5,8 @@ description: Pure ASGI middleware that verifies Caracal mandates for FastAPI, St
 
 The ASGI adapter protects any Python ASGI application - FastAPI, Starlette, Quart, Django ASGI - with fail-closed Caracal mandate verification. It is pure ASGI: it imports no web framework and delegates every check to [Verify Package](/sdks/verify/).
 
+`CaracalASGIAuth` is the only public package entry point. Use it for inbound ASGI HTTP or WebSocket authentication, not outbound SDK calls.
+
 ## Install
 
 ```bash
@@ -21,11 +23,11 @@ from fastapi import FastAPI
 app = FastAPI()
 app.add_middleware(
     CaracalASGIAuth,
-    audience="resource://billing-api",
+    audience="resource://pipernet",
     revocations=InMemoryRevocationStore(),
-    required_scopes=["billing:read"],
+    required_scopes=["pipernet:read"],
     routes={
-        "/payouts": {"required_scopes": ["billing:payout"], "require_delegation": True},
+        "/payouts": {"required_scopes": ["pipernet:payout"], "require_delegation": True},
     },
     exclude=["/healthz"],
 )
@@ -50,6 +52,8 @@ async def balances(request):
 | `routes`                                                 | Per-route overrides by path prefix; the longest matching prefix wins. Any option above can be overridden.       |
 | `exclude`                                                | Path prefixes served without verification (health and readiness probes).                                        |
 
+`required_use` defaults to `resource`; `require_session` and `require_delegation` default to false. Exclusions and route prefixes match path-segment boundaries, and the longest route prefix wins.
+
 ## Behavior
 
 - Verified claims are stored as `scope["state"]["caracal"]`, surfaced as `request.state.caracal` in Starlette and FastAPI.
@@ -61,7 +65,7 @@ async def balances(request):
 
 The adapter verifies inbound mandates; it does not create Sessions or Delegations. Use the [Python SDK](/sdks/python/) to create Caracal context before making outbound calls.
 
-## Related pages
+## Related Pages
 
 - [Protect a FastAPI App](/guides/protect-fastapi/)
 - [Verify Package](/sdks/verify/)

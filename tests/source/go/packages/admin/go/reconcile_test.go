@@ -28,13 +28,13 @@ func expectBoom(t *testing.T, err error, label string) {
 }
 
 func TestEnsureApplicationSurfacesEachStepFailure(t *testing.T) {
-	input := admin.ApplicationEnsure{Name: "Son of Anton", Traits: []string{"agent"}, ClientSecret: "secret"}
+	input := admin.ApplicationEnsure{Name: "Anton", Traits: []string{"agent"}, ClientSecret: "secret"}
 	steps := map[string][]any{
 		"list":              {failStep()},
 		"create":            {ok(`{"items":[],"next_cursor":null}`), failStep()},
 		"seal after create": {ok(`{"items":[],"next_cursor":null}`), ok(`{"id":"app-1"}`), failStep()},
-		"trait patch":       {ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":[]}],"next_cursor":null}`), failStep()},
-		"rotate existing":   {ok(`{"items":[{"id":"app-1","name":"Son of Anton","registration_method":"managed","traits":["agent"]}],"next_cursor":null}`), failStep()},
+		"trait patch":       {ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"managed","traits":[]}],"next_cursor":null}`), failStep()},
+		"rotate existing":   {ok(`{"items":[{"id":"app-1","name":"Anton","registration_method":"managed","traits":["agent"]}],"next_cursor":null}`), failStep()},
 	}
 	for label, script := range steps {
 		client := newAdmin(&scripted{steps: script}, -1)

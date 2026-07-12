@@ -5,6 +5,12 @@ description: Verify Caracal mandates in a FastMCP server so tool calls are check
 
 Use the FastMCP adapter when a FastMCP app should reject invalid, expired, insufficient, or revoked Caracal mandates. Python uses `caracalai-fastmcp`; TypeScript uses `@caracalai/fastmcp`.
 
+## Prerequisites
+
+- A mandate-aware MCP resource, stable audience, tool scopes, issuer, and zone ID.
+- A shared production revocation store.
+- A FastMCP hook that can reject before tool code runs; verification after dispatch is too late.
+
 ## Install
 
 ```bash
@@ -24,11 +30,11 @@ from caracalai_fastmcp import CaracalAuth
 from caracalai_revocation import InMemoryRevocationStore
 
 auth = CaracalAuth(
-    issuer="https://sts.example.com",
-    audience="https://mcp.example.com",
-    expected_zone_id="zone_prod",
+    issuer="https://sts.pipernet.example",
+    audience="resource://pipernet",
+    expected_zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
     required_scopes=["mcp:tool:call"],
-    required_targets=["https://mcp.example.com"],
+    required_targets=["resource://pipernet"],
     revocations=InMemoryRevocationStore(),
     require_session=True,
 )
@@ -64,9 +70,9 @@ import { createMandateVerifier } from '@caracalai/verify'
 import { InMemoryRevocationStore } from '@caracalai/revocation'
 
 const verifier = createMandateVerifier({
-  issuer: 'https://sts.example.com',
-  audience: 'https://mcp.example.com',
-  zoneId: 'zone_prod',
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
   revocations: new InMemoryRevocationStore(),
 })
 
@@ -77,7 +83,7 @@ async function handleToolCall(authorization: string, payload: unknown) {
   try {
     const context = await verifyFastMcpToken(token, verifier, {
       requiredScopes: ['mcp:tool:call'],
-      requiredTargets: ['https://mcp.example.com'],
+      requiredTargets: ['resource://pipernet'],
       requireSession: true,
     })
     return { subject: context.sub, result: await runTool(payload) }
@@ -100,4 +106,14 @@ The boundary is the same in both languages: verify the mandate before the tool h
 | Revoked session                                                  | `session_revoked`.                |
 | Mandate without a Session with `require_session=True` / `requireSession: true` | `session_required`.               |
 
-Related pages: [FastMCP Adapter](/sdks/adapters/fastmcp/), [Protect an MCP Server](/guides/protect-mcp/), and [Human Approval](/guides/step-up/).
+Expected result: the tool handler runs only for a mandate matching issuer, audience, zone, target, scope, Session requirements, and current revocation state.
+
+:::caution[Failure point: adapter scope]
+The adapter verifies one token; it does not start a Session, mint authority, or authorize a later outbound call. Use the SDK inside verified context for governed downstream work.
+:::
+
+For exact call signatures, use [FastMCP Adapter reference](/sdks/adapters/fastmcp/).
+
+## Next Step
+
+Use [Protect an MCP Server](/guides/protect-mcp/) only when the framework hook cannot use this dedicated adapter.

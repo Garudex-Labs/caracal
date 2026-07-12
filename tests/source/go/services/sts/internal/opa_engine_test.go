@@ -46,6 +46,9 @@ func TestEvaluateLoadErrorAndFallback(t *testing.T) {
 	if result.Decision != "deny" || result.EvaluationStatus != "complete" {
 		t.Fatalf("fallback result = %+v", result)
 	}
+	if result.Bundle.ManifestSHA != "no_active_policy_set" || result.Bundle.DecisionContractSHA == "" {
+		t.Fatalf("evaluation bundle provenance = %+v", result.Bundle)
+	}
 }
 
 func TestEvaluateRejectsMalformedResultShape(t *testing.T) {

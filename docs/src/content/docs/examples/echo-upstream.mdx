@@ -6,6 +6,15 @@ pageType: workflow
 
 Echo Upstream is a zero-dependency HTTP service in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `echoUpstream/`. It stands in for the API you would put behind Caracal, so you can verify a Gateway-mediated request end to end without hosting your own upstream. Every response states whether the call was brokered by the Gateway or hit the service directly, and shows the evidence behind that verdict.
 
+## When to use it
+
+Use it as a disposable resource server while validating Gateway routing, provider injection, headers, and audit. It does not verify Caracal mandates itself and is not a production authorization boundary.
+
+## Prerequisites
+
+- A ready Caracal runtime and Docker network access from Gateway.
+- A `resource://pipernet` resource, provider, operations, active policy, and scoped caller mandate.
+
 ## What it demonstrates
 
 | Area | Behavior |
@@ -46,12 +55,19 @@ In web console guided setup or through the Control API, create a resource with t
 http://echoUpstream:8088
 ```
 
-Then send a request to the Gateway with the Caracal access token and resource ID from guided setup. The command has this shape:
+Then send a request through the Gateway with the SDK transport from [First Protected Call](/get-started/first-protected-call/#the-agents-first-protected-call), pointing it at this resource. With the application identity from guided setup in the environment, the call has this shape:
 
-```bash
-curl http://localhost:8081/v1/hello \
-  -H "Authorization: Bearer $CARACAL_RESOURCE_PIPERNET_TOKEN" \
-  -H "X-Caracal-Resource: resource://pipernet"
+```typescript
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+const governedFetch = caracal.applicationTransport('resource://pipernet', {
+  scopes: ['pipernet:read'],
+})
+const target = caracal.gatewayRequest('resource://pipernet', '/v1/hello')
+const response = await governedFetch(target.url)
+console.log(await response.text())
+await caracal.close()
 ```
 
 ## Read the response
@@ -74,6 +90,12 @@ cd caracal-examples/echoUpstream
 npm test
 ```
 
-## Next step
+Expected result: direct traffic reports `viaGateway: false`; the Gateway path reports `viaGateway: true`, redacts credentials, and provides a request ID that resolves to STS and Gateway evidence.
+
+:::caution[Failure point: direct port]
+Host port `8088` deliberately bypasses Gateway. Never interpret a successful direct curl as proof of authorization, and do not expose an equivalent bypass in production.
+:::
+
+## Next Step
 
 Continue to [Bootstrap Control State](/examples/control-bootstrap/) when you want repeatable setup for demo resources and policies.

@@ -845,6 +845,7 @@ class _Delegations:
                 _map_delegation_traversal(item)
                 for item in impact.pop("affected_edges", [])
             ]
+            impact["affected_sessions"] = impact.pop("affected_agents", [])
         return impact
 
     def revoke(self, zone_id: str, delegation_id: str) -> Any:

@@ -5,7 +5,7 @@ sidebar:
   order: 7
 ---
 
-A provider answers one question: after Caracal approves a call, what credential does the upstream target receive? Every Gateway-routed resource binds exactly one provider. One provider can serve many resources.
+A credential Provider answers one question: after Caracal approves a call, what credential does the upstream target receive? Read [Resources and Grants](/concepts/resource-grant/) first. Every Gateway-routed Resource binds one Provider; one Provider can serve many Resources.
 
 ## Why Providers Exist
 
@@ -35,11 +35,13 @@ flowchart LR
 
 Gateway strips the caller's authorization and forwards the provider credential instead. For OAuth modes, STS obtains and refreshes the upstream tokens; delegated consent is stored as a provider connection - one authenticated upstream account per subject and provider, distinct from Caracal grants, which express authorization.
 
-## Boundaries
+## Common Mistakes
 
 - A resource says what is protected; its provider says how the upstream is authenticated. Keep credential detail on the provider and target detail on the resource.
 - Name providers with stable `provider://` identifiers, such as `provider://hooli-oidc`.
 - OAuth providers support a real connectivity check before creation. The other modes are validated at creation and exercised when a resource first uses them.
+- A Provider controls upstream authentication, not whether Caracal issues a Mandate.
+- A Subject's Provider connection identifies its upstream account; it does not grant Caracal scopes.
 
 :::note[FAQ]
 [What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)
@@ -47,7 +49,7 @@ Gateway strips the caller's authorization and forwards the provider credential i
 
 ## Next Step
 
-Read [Policies and Policy Sets](/concepts/policy/) to understand how requests against a resource are allowed, denied, or held for step-up.
+Read [Policies and Policy Sets](/concepts/policy/) to understand how requests against a Resource are allowed, denied, or held for Approval.
 
 ## Related Pages
 

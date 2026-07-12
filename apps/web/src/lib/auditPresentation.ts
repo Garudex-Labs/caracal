@@ -80,6 +80,7 @@ export interface AuditEventLike {
   event_type: string;
   decision: string | null;
   evaluation_status?: string | null;
+  diagnostics_json?: unknown[] | null;
   metadata_json: Record<string, unknown> | null;
 }
 
@@ -130,6 +131,38 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
   no_rule_matched: {
     label: "No policy rule matched, so default-deny applied",
     hint: "Add an allow rule covering this application, resource, and scope combination.",
+  },
+  restriction_active: {
+    label: "A zone restriction is active",
+    hint: "The zone's restrict document has an entry, which denies every exchange; clear it to resume normal authorization.",
+  },
+  malformed_risk_data: {
+    label: "The zone's risk classification data is malformed",
+    hint: "A risk entry is missing its scope or tier, so mints fail closed; repair the risk document and reactivate the policy set.",
+  },
+  malformed_approval_data: {
+    label: "The zone's approval declarations are malformed",
+    hint: "An approval declaration is invalid, so mints fail closed; repair the approval_tiers document and reactivate the policy set.",
+  },
+  resource_not_granted: {
+    label: "The grants document does not bind this resource to the application",
+    hint: "Add a grants entry naming this resource and the acting application, or fix the application binding in app_ids.",
+  },
+  delegation_scope_exceeded: {
+    label: "The mint asks for a scope its delegation never granted",
+    hint: "Narrow the requested scopes to the delegation's grant, or delegate again with the needed scope.",
+  },
+  confinement_violation: {
+    label: "A confinement rule caps this session below the requested scopes",
+    hint: "A label-prefix confinement rule matched the session's labels; request only the confined scopes or adjust the confinement document.",
+  },
+  role_scope_mismatch: {
+    label: "No session role grants every requested scope",
+    hint: "Add the scope to a role the session's labels carry, or start the session with the granting role label.",
+  },
+  mandate_target_mismatch: {
+    label: "The mandate was presented for a resource outside its target",
+    hint: "The mandate's target audience does not include this resource; mint a mandate for the resource being called.",
   },
   policy_denied: {
     label: "Denied by policy",
@@ -224,15 +257,27 @@ export function auditActor(event: AuditEventLike): string | null {
   );
 }
 
+// The gate-specific reason the decision contract named in a deny result's
+// diagnostics; null when the event carries none.
+function diagnosticsReason(event: AuditEventLike): string | null {
+  for (const entry of event.diagnostics_json ?? []) {
+    if (entry && typeof entry === "object") {
+      const reason = (entry as { reason?: unknown }).reason;
+      if (typeof reason === "string" && reason.length > 0) return reason;
+    }
+  }
+  return null;
+}
+
 // The reason a request was refused. Provider and control denials record it in
-// metadata.reason; STS exchange denials carry it on evaluation_status; a policy verdict
-// deny (status "complete") points the operator at the decision trace.
+// metadata.reason; a policy verdict deny (status "complete") names its failed gate in
+// the decision diagnostics; other STS exchange denials carry it on evaluation_status.
 export function auditReason(event: AuditEventLike): { label: string; hint: string | null } | null {
   const meta = event.metadata_json ?? {};
   let code = metaStr(meta, "reason");
   if (!code && event.event_type === "token_exchange" && event.decision === "deny") {
     const status = event.evaluation_status;
-    if (status === "complete") code = "policy_denied";
+    if (status === "complete") code = diagnosticsReason(event) ?? "policy_denied";
     else if (status && status !== "partial") code = status;
   }
   if (!code) return null;

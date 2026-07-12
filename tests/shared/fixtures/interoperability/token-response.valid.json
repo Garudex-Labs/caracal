@@ -1,0 +1,8 @@
+{
+  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImtpZC0xIn0.eyJzdWIiOiJ1c2VyLTEifQ.signature",
+  "token_type": "Bearer",
+  "expires_in": 300,
+  "scope": "read write",
+  "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+  "target_resources": ["resource://pipernet"]
+}

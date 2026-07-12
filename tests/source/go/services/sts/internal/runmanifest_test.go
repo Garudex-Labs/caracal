@@ -62,6 +62,31 @@ func TestRunManifestRequiresCredentials(t *testing.T) {
 	}
 }
 
+func TestRunManifestRequiresBodyOnlyFormEncoding(t *testing.T) {
+	cases := []struct {
+		name        string
+		target      string
+		contentType string
+		body        string
+		wantStatus  int
+	}{
+		{"query rejected", "/v1/run/manifest?workload_id=wl-1", "application/x-www-form-urlencoded", "secret=ws_good", http.StatusBadRequest},
+		{"wrong content type", "/v1/run/manifest", "application/json", `{}`, http.StatusUnsupportedMediaType},
+		{"duplicate workload", "/v1/run/manifest", "application/x-www-form-urlencoded", "workload_id=wl-1&workload_id=wl-2&secret=ws_good", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			(&Server{}).handleRunManifest(w, req)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
 func TestRunManifestOpaqueAuthFailures(t *testing.T) {
 	bindings := []byte(`[{"env":"PIPERNET_TOKEN","resource":"resource://pipernet"}]`)
 	cases := []struct {
@@ -94,7 +119,7 @@ func TestRunManifestOpaqueAuthFailures(t *testing.T) {
 }
 
 func TestRunManifestRejectsWrongSecret(t *testing.T) {
-	db := &stubDB{workload: &Workload{ID: "wl-1", ZoneID: "z1", Name: "Son of Anton"}}
+	db := &stubDB{workload: &Workload{ID: "wl-1", ZoneID: "z1", Name: "Anton"}}
 	srv, _ := runWorkloadServer(t, db)
 	w := runManifestRequest(t, srv, url.Values{"workload_id": {"wl-1"}, "secret": {"ws_wrong"}})
 	if w.Code != http.StatusUnauthorized {
@@ -114,7 +139,7 @@ func TestRunManifestRejectsWrongSecret(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatalf("decode meta: %v", err)
 	}
-	if meta["workload_id"] != "wl-1" || meta["workload_name"] != "Son of Anton" {
+	if meta["workload_id"] != "wl-1" || meta["workload_name"] != "Anton" {
 		t.Fatalf("meta mismatch: %+v", meta)
 	}
 }
@@ -136,7 +161,7 @@ func TestRunManifestSuccess(t *testing.T) {
 		workload: &Workload{
 			ID:     "wl-1",
 			ZoneID: "z1",
-			Name:   "Son of Anton",
+			Name:   "Anton",
 			Bindings: []byte(`[
 				{"env": "PIPERNET_TOKEN", "resource": "resource://pipernet", "scopes": ["pipernet:read"]},
 				{"env": "HOOLIBOX_TOKEN", "resource": "resource://hoolibox", "optional": true, "on_failure": "warn"}
@@ -175,7 +200,7 @@ func TestRunManifestSuccess(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatalf("decode meta: %v", err)
 	}
-	if meta["binding_count"] != float64(2) || meta["workload_name"] != "Son of Anton" {
+	if meta["binding_count"] != float64(2) || meta["workload_name"] != "Anton" {
 		t.Fatalf("meta mismatch: %+v", meta)
 	}
 }
@@ -185,7 +210,7 @@ func TestRunManifestLaunchCorrelation(t *testing.T) {
 		workload: &Workload{
 			ID:       "wl-1",
 			ZoneID:   "z1",
-			Name:     "Son of Anton",
+			Name:     "Anton",
 			Bindings: []byte(`[{"env": "PIPERNET_TOKEN", "resource": "resource://pipernet"}]`),
 		},
 	}

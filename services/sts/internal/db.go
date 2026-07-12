@@ -319,18 +319,21 @@ type DelegationIssuanceProof struct {
 
 // Session holds coordinator graph node fields needed by STS.
 type Session struct {
-	ID                       string
-	ZoneID                   string
-	ApplicationID            string
-	SubjectAuthorityRecordID string
-	Lifecycle                string
-	Labels                   []string
-	Status                   string
-	StartedAt                time.Time
-	TTLSeconds               int
-	HeartbeatDeadlineAt      *time.Time
-	ParentID                 *string
-	Depth                    int
+	ID                              string
+	ZoneID                          string
+	ApplicationID                   string
+	SubjectAuthorityRecordID        string
+	SubjectAuthorityRecordType      string
+	SubjectAuthorityRecordStatus    string
+	SubjectAuthorityRecordExpiresAt time.Time
+	Lifecycle                       string
+	Labels                          []string
+	Status                          string
+	StartedAt                       time.Time
+	TTLSeconds                      int
+	HeartbeatDeadlineAt             *time.Time
+	ParentID                        *string
+	Depth                           int
 }
 
 func (d *DB) GetDelegationEdge(ctx context.Context, id string) (*DelegationEdge, error) {
@@ -377,10 +380,19 @@ func (d *DB) GetAuthorityRecord(ctx context.Context, sid string) (*AuthorityReco
 func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 	var s Session
 	err := d.pool.QueryRow(ctx,
-		`SELECT id, zone_id, application_id, subject_authority_record_id, lifecycle, labels, status,
-		        started_at, COALESCE(ttl_seconds, 0), heartbeat_deadline_at, parent_id, depth
-		 FROM sessions WHERE id = $1`, id,
-	).Scan(&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectAuthorityRecordID, &s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.TTLSeconds, &s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth)
+		`SELECT session.id, session.zone_id, session.application_id, session.subject_authority_record_id,
+		        authority.session_type, authority.status, authority.expires_at,
+		        session.lifecycle, session.labels, session.status, session.started_at,
+		        COALESCE(session.ttl_seconds, 0), session.heartbeat_deadline_at, session.parent_id, session.depth
+		 FROM sessions session
+		 JOIN authority_records authority ON authority.id = session.subject_authority_record_id
+		 WHERE session.id = $1`, id,
+	).Scan(
+		&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectAuthorityRecordID,
+		&s.SubjectAuthorityRecordType, &s.SubjectAuthorityRecordStatus, &s.SubjectAuthorityRecordExpiresAt,
+		&s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.TTLSeconds,
+		&s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth,
+	)
 	if err != nil {
 		return nil, err
 	}

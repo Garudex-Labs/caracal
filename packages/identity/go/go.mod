@@ -8,6 +8,6 @@ module github.com/garudex-labs/caracal/packages/identity/go
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/packages/core/go v0.2.0
+	github.com/garudex-labs/caracal/packages/core/go v0.2.0-rc.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 )

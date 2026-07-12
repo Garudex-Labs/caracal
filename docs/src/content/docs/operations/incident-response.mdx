@@ -1,70 +1,33 @@
 ---
 title: Respond to Incidents
-description: Respond to Caracal access-safety, audit-integrity, and platform incidents.
+description: Contain, preserve, recover, and close security and reliability incidents.
 pageType: workflow
 ---
 
-Treat incidents involving audit tamper evidence, stale revocation state, STS/Gateway fail-open risk, secret exposure, or policy corruption as security incidents.
+Use for policy bypass, credential exposure, unsafe routing, audit integrity/loss, malicious release, stale revocation, or serious availability failure. Canonical detail is in `governance/INCIDENT_RESPONSE.md`.
 
-## Severity Triggers
+## Prerequisites
 
-| Trigger                                              | Severity                                               |
-| ---------------------------------------------------- | ------------------------------------------------------ |
-| `CaracalAuditTamperDetected`                         | Critical security incident.                            |
-| Gateway revocation snapshot stale or propagation lag | Critical access-safety incident.                       |
-| Gateway STS circuit open during protected traffic    | Critical availability/access incident.                 |
-| Audit DLQ growth or replay backlog aging             | Critical evidence pipeline incident when sustained.    |
-| Secret exposure                                      | Critical until rotated and blast radius is understood. |
-| Policy activation causes unexpected broad allow      | Critical authorization incident.                       |
+Assign Incident Lead, Driver, and Reviewer. Use a private advisory for OSS security issues and approved private evidence storage.
 
-## Response Flow
+## Procedure
 
-```mermaid
-flowchart TD
-  Detect[Detect alert or report] --> Contain[Contain risky traffic and freeze rollouts]
-  Contain --> Preserve[Preserve logs, audit, DB, Redis, and config evidence]
-  Preserve --> Diagnose[Diagnose root cause]
-  Diagnose --> Recover[Recover service and safety invariants]
-  Recover --> Validate[Validate readiness, audit, revocation, and policy]
-  Validate --> Review[Post-incident review]
-```
+1. Record source, time, version, mode, boundary, assets, and severity.
+2. Contain severe incidents first: revoke/rotate, deny, block, disable, or remove traffic.
+3. Preserve logs, metrics, audit, Redis pending/DLQ, replay, config, images, and request IDs.
+4. Reproduce minimally in isolation and identify the missing guard/failure.
+5. Remove the path, validate reproduction and a negative variant, and search sibling boundaries.
+6. Recover and reconcile Postgres, Redis, outbox, revocation, sessions, and audit.
+7. Communicate affected versions/actions after containment or fix.
 
-## First-Hour Runbook
+## Verification
 
-| Symptom            | Severity | Contain                                                   | Preserve                                                    | Validate recovery                                                |
-| ------------------ | -------- | --------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
-| Audit tamper alert | Critical | Freeze changes and stop destructive cleanup.              | Audit tables, exports, DLQ, service logs.                   | Tamper sweep result, audit ingestion, and timeline are recorded. |
-| Revocation stale   | Critical | Fail closed at Gateway or resource servers.               | Redis streams, revocation snapshots, session IDs.           | Revoked sessions are denied and readiness is stable.             |
-| Bad policy allow   | Critical | Activate last known-good policy set.                      | Policy set version, request IDs, audit/explain output.      | Canary allow/deny decisions match expected policy.               |
-| Secret exposure    | Critical | Rotate exposed material and invalidate affected sessions. | Secret location, key IDs, affected services, audit records. | Old material no longer authenticates.                            |
+Close only when behavior fails safely, targeted validation passes, readiness/safety signals recover, communication completes, and follow-ups have owners.
 
-## Evidence to Preserve
+## Recovery Boundary
 
-- Alert name, firing time, and labels.
-- Request IDs, zone IDs, resource IDs, policy-set versions, Session IDs, Delegation IDs.
-- Console audit/explain output.
-- Service logs for Web, API, STS, Gateway, Audit, Coordinator, and Control.
-- Redis stream status, pending entries, and DLQ contents.
-- Postgres backup or snapshot before manual remediation.
-- Helm values or Compose config diff.
-
-## Containment Actions
-
-| Incident         | Containment                                                                                              |
-| ---------------- | -------------------------------------------------------------------------------------------------------- |
-| Audit tamper     | Freeze changes, preserve database and audit exports, rotate only after evidence capture.                 |
-| Revocation stale | Fail closed at resource servers or Gateway, restore Redis/Postgres consumers, verify snapshot freshness. |
-| Bad policy allow | Activate last known-good policy set, verify canary denies/allows, inspect audit impact.                  |
-| Secret exposure  | Rotate exposed material, roll dependent services, invalidate sessions/grants as needed.                  |
-
-## Recovery Complete When
-
-- Relevant `/ready` endpoints pass.
-- Audit DLQ/replay/outbox backlogs are understood or drained.
-- Revocation and policy freshness metrics are healthy.
-- Canary token exchange and Gateway requests match expected decisions.
-- Evidence and timeline are preserved for review.
+Keep containment until validation. Do not delete evidence or publish exploit detail to accelerate closure.
 
 ## Next Step
 
-Use [Plan a Platform Rollout](/operations/platform-rollout-kit/) when the environment is stable and ready for controlled change.
+Use [Plan a Platform Rollout](/operations/platform-rollout-kit/) for correction.

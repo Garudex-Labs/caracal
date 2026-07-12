@@ -5,6 +5,12 @@ description: Diagnose denied exchanges, missing scopes, inactive policy sets, st
 
 Use this guide when a request is denied, unexpectedly allowed, missing audit evidence, or routed to the wrong protected resource. For production incidents and dependency failures, use [Troubleshoot by Symptom](/operations/troubleshooting/).
 
+## Prerequisites
+
+- The request ID, zone, application, resource, scopes, and approximate timestamp.
+- Access to Audit and active policy-set status.
+- A safe way to reproduce without changing production data.
+
 ## Debug Flow
 
 ```mermaid
@@ -48,14 +54,7 @@ If you do not have a request ID, reproduce the request with your runtime configu
 
 ## Iterate from a Denial
 
-Every denied decision links to the policy-set version that produced it. The audit explain endpoint reconstructs a redaction-safe policy input for denied decisions:
-
-```ts
-const trace = await admin.audit.explain(zoneId, requestId)
-const input = trace.denied[0]?.policy_input
-```
-
-Feed that input into [simulation](/guides/activate-policy-set/) against a candidate policy-set version before activating the fix. Actor and subject claims are never written to audit, so add any claim-dependent fields before simulating.
+Every denied decision links to the policy-set version that produced it, and the audit explain endpoint reconstructs a redaction-safe policy input you can replay against a candidate version before activating the fix. Follow [Iterate from real denials](/guides/activate-policy-set/#iterate-from-real-denials) for the snippet and caveats, or run [Iterate Policy Safely](/examples/policy-iterate/) to automate the loop.
 
 ## Authorization Design Rules
 
@@ -73,3 +72,15 @@ Feed that input into [simulation](/guides/activate-policy-set/) against a candid
 - [Resources and Grants](/concepts/resource-grant/)
 - [Policies and Policy Sets](/concepts/policy/)
 - [Sessions and Revocation](/concepts/sessions-revocation/)
+
+## Validation and expected result
+
+Reproduce once after correction. The trace must name the intended resource, Session/Delegation, active manifest, determining data, final decision, and Gateway result. A deny fix is complete only when nearby negative cases still deny.
+
+:::caution[Failure point: changing several layers]
+Do not edit resource scopes, policy data, application labels, and Gateway routing simultaneously. Trace from request ID inward and change the first incorrect boundary; otherwise the new allow cannot be explained.
+:::
+
+## Next Step
+
+Use [Iterate Policy Safely](/examples/policy-iterate/) for policy-data correction or [Check Provider Readiness](/examples/provider-preflight/) for route/provider failures.

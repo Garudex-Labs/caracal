@@ -1,41 +1,44 @@
 ---
 title: Enforce Boundaries
-description: Security boundaries between users, runtime CLI, Console, Control API, services, storage, and upstreams.
+description: Place callers, credentials, services, and failures on the correct side of Caracal trust boundaries.
 pageType: architecture
 ---
 
-Caracal’s trust model depends on clear boundaries. Do not blur runtime lifecycle, product management, token issuance, protected-resource routing, and audit evidence.
+## Boundary Decisions
 
-## Boundary Map
+| Boundary        | Accepted caller                                                   | Must remain outside                                                    |
+| --------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Runtime CLI     | Local operator managing lifecycle or launching a workload         | Product-management state and admin credentials                         |
+| Web console/BFF | Authenticated, admitted operator with zone access                 | Anonymous callers and direct browser possession of root service tokens |
+| Admin API       | Trusted Admin SDK or console backend                              | Workload code                                                          |
+| Control API     | Enabled gate plus short-lived, scoped, zone-bound Control token   | Replayed tokens, root admin token distribution, lifecycle commands     |
+| STS             | Valid application/workload/Gateway proof and well-formed exchange | End-user password authentication and unsupported token fields          |
+| Gateway         | Mandate, `X-Caracal-Resource`, binding, safe path and upstream    | Caller-selected upstreams and caller-provided upstream credentials     |
+| Coordinator     | SDK authority or operator credential appropriate to the route     | Direct table mutation and unsigned lifecycle publication               |
+| Audit           | Signed events and authenticated operator search                   | Mutable evidence and untrusted stream payloads                         |
 
-| Boundary              | Trusted side                                                         | Untrusted or constrained side                                              |
-| --------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Runtime CLI           | Local lifecycle and `caracal run` config                             | Product-management state and admin actions.                                |
-| Console and Admin API | Authenticated operators and Admin SDK clients                        | Anonymous clients and expired or insufficient tokens.                      |
-| STS                   | Valid application credentials, policy/grant/session state            | Malformed subject tokens, invalid client secrets, undecided step-up holds. |
-| Gateway               | Verified inbound mandate, configured binding, revocation-fresh state | Arbitrary upstream URLs, path traversal, replayed/expiring tokens.         |
-| Audit                 | HMAC-verified stream events and append-only database role            | Tampered stream payloads or mutable evidence.                              |
-| Redis                 | Signed operational messages                                          | Unsigned or mismatched stream messages in published modes.                 |
-| Postgres              | Service roles and fail-closed RLS                                    | Cross-zone reads without zone context.                                     |
-| Control               | Enabled gate, verified JWT, replay-safe JTI, rate limit              | Disabled gate, replayed tokens, unsupported commands.                      |
+## Protected Request Boundary
 
-## Gateway Fail-Closed Checks
+Gateway denies before upstream dispatch when it cannot establish a valid, unexpired, unreplayed, unrevoked mandate; a resource header and binding; an allowed operation and scope; a safe path and host; and a successful STS exchange. It strips caller authorization before applying the configured upstream credential.
 
-Gateway denies before upstream dispatch when:
+Gateway is an HTTP proxy. It streams HTTP responses, including SSE, while rechecking revocation. It strips hop-by-hop upgrade headers and does not proxy WebSockets. Protect WebSockets in process with the verification engine or an adapter.
 
-- bearer token is missing, malformed, too large, expiring, revoked, replayed, or signature-invalid;
-- `X-Caracal-Resource` is missing;
-- no binding exists for the token zone and resource;
-- path traversal is detected;
-- STS exchange fails or the STS circuit is open;
-- upstream host safety rules reject the destination.
+## Management Boundary
 
-## Control Boundary
+The console is the human management surface. Admin SDK and Control API are automation surfaces. The runtime CLI remains local lifecycle and workload launch only. A Control gate or API outage must not prevent `caracal status`, `down`, or `up` from operating locally.
 
-Control is optional. It requires a gate file, JWKS-backed JWT verification, replay protection, rate limits, and an API token for dispatch. It must not be exposed as a top-level runtime CLI command.
+The system-zone viewer adds a console-side read-only boundary: mutation controls are disabled and non-read requests are blocked. It is a transparency surface, not an alternative management route.
 
-## Related Pages
+## Fail-Closed Expectations
 
-- [Harden Production](/operations/tls-hardening/)
-- [Automate Management](/services/control/)
-- [Protect Upstreams](/services/gateway/)
+- Gateway and STS deny when authority, revocation, policy, or service proof cannot be established.
+- Published modes do not permit `JTI_FAIL_OPEN` and require integrity keys.
+- Postgres row-level security denies cross-zone access without valid context.
+- Control denies when disabled, unauthenticated, replayed, rate-limited, out of scope, or unable to record required audit evidence.
+- Audit rejects integrity failures rather than treating them as trustworthy evidence.
+
+For deployment controls, use [Harden Production](/operations/tls-hardening/). For exact Gateway behavior, use [Proxy Through Gateway](/api/gateway/).
+
+## Next Step
+
+The architecture journey ends here. Use [Understand Services](/services/) for each service's configuration, readiness, and failure posture.

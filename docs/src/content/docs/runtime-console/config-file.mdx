@@ -1,33 +1,35 @@
 ---
 title: Configure Workloads
-description: Configure workload identity for caracal run and local profiles for SDK credential loaders.
-pageType: config
+description: Configure Launcher workloads for caracal run and local profiles for SDK-managed credentials.
+pageType: workflow
 ---
 
-Workload configuration has two consumers. `caracal run` needs only a workload identity; its credential bindings live in the web console. SDK credential loaders read a local profile. Neither is Console state and neither creates, selects, or manages zones.
+Caracal supports two configuration paths. Choose one from the credential lifecycle your process needs.
 
-## Workload Identity for caracal run
+| Need                                                                | Configure                                          |
+| ------------------------------------------------------------------- | -------------------------------------------------- |
+| Start a bounded command with environment-injected credentials       | A workload and bindings on **Services → Launcher** |
+| Renew credentials during a long-running process or use SDK Sessions | An SDK profile or SDK environment configuration    |
 
-`caracal run` authenticates as one workload, created on the console's **Launcher** page, and fetches that workload's launch bindings from STS. The environment carries only identity:
+## Configure a Launcher Workload
 
-| Variable                       | Meaning                                               |
-| ------------------------------ | ----------------------------------------------------- |
-| `CARACAL_WORKLOAD_ID`          | Workload identifier from the Launcher page. Required. |
-| `CARACAL_WORKLOAD_SECRET`      | Inline local-development workload secret.             |
-| `CARACAL_WORKLOAD_SECRET_FILE` | Cloud/custom path to a mounted workload-secret file.  |
-| `CARACAL_STS_URL`              | Cloud/custom STS URL override for credential minting. |
+1. Open **Services → Launcher** in the intended zone.
+2. Create a workload identity, for example Fiona.
+3. Add bindings. Each binding selects an environment variable, a resource, the scopes for the policy decision, and - for optional bindings - the unavailable behavior. The injected value is the resource provider's credential; the provider must allow runtime injection. See [Run an Agent with caracal run](/guides/runtime-run/#what-a-binding-injects).
+4. Reveal the workload secret. The reveal is recorded in admin audit.
+5. Store the secret on the host that will run the command.
+6. Copy the exact launch command shown by the page.
 
-Set only one of `CARACAL_WORKLOAD_SECRET` and `CARACAL_WORKLOAD_SECRET_FILE`. Local dev and stable service URLs resolve automatically; set `CARACAL_STS_URL` only for cloud deployments, containers, or custom service locations.
+The launching host carries only workload identity and proof:
 
-When neither secret variable is set, local dev and stable launches read the owner-only secret file at:
+| Variable                       | Meaning                                        |
+| ------------------------------ | ---------------------------------------------- |
+| `CARACAL_WORKLOAD_ID`          | Required workload identifier.                  |
+| `CARACAL_WORKLOAD_SECRET`      | Inline secret for local development.           |
+| `CARACAL_WORKLOAD_SECRET_FILE` | Explicit mounted secret-file path.             |
+| `CARACAL_STS_URL`              | STS override for custom or remote deployments. |
 
-```text
-<Caracal config dir>/runtime/<workload_id>/secret
-```
-
-The OS Caracal config directory is `$XDG_CONFIG_HOME/caracal` (or `~/.config/caracal`) on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. Set `CARACAL_CONFIG_HOME` to override it on any platform.
-
-You create the secret file yourself. The web console holds the workload secret sealed in the Secret Store - reveal it from the Launcher page whenever you provision - but never writes to your machine:
+Set only one secret source. In local dev and stable modes, omitting both secret variables makes the runtime read `<Caracal config dir>/runtime/<workload_id>/secret`. Production launches require an explicit secret source.
 
 ```bash
 mkdir -p ~/.config/caracal/runtime/<workload_id>
@@ -35,78 +37,35 @@ printf '%s' '<workload secret>' > ~/.config/caracal/runtime/<workload_id>/secret
 chmod 600 ~/.config/caracal/runtime/<workload_id>/secret
 ```
 
-The default path is read only in local dev and stable modes; production launches (`CARACAL_ENV=production`) require explicit secret configuration.
+The config directory defaults to `$XDG_CONFIG_HOME/caracal` or `~/.config/caracal` on Linux, `~/Library/Application Support/Caracal` on macOS, and `%APPDATA%\Caracal` on Windows. `CARACAL_CONFIG_HOME` overrides it.
 
-## Launch Bindings
+A binding with no selected scopes requests the resource's configured scope set. Required binding failure prevents launch. Configure an optional binding's unavailable behavior on the Launcher page when the process may continue without it.
 
-Which environment variables `caracal run` injects, which resources fill them, the scopes each credential carries, and optional-credential behavior are all part of the workload's launch bindings, authored on the **Launcher** page in the web console. STS serves the bindings to the workload after it proves possession of the workload secret, so the zone, resource identifiers, and variable names never live on the machine that launches the workload.
+## Configure an SDK Profile
 
-Every workload is scoped to its zone, and each save is attributed: the Launcher page shows which console operator configured the bindings and when, and the change appears in the zone's admin audit feed under that operator's profile.
-
-Each binding selects the scopes its credential should carry; leaving all scopes unselected requests the resource's full scope set. The Launcher page also renders the exact launch commands for the workload. See [Run Workloads](/runtime-console/runtime/) for the launch flow.
-
-## SDK Profile
-
-SDK credential loaders resolve a local profile instead of calling STS for a manifest:
-
-| Order | Source                                                                                                     |
-| ----- | ---------------------------------------------------------------------------------------------------------- |
-| 1     | `CARACAL_CONFIG`, when set and the file exists.                                                            |
-| 2     | Environment runtime config (`CARACAL_ZONE_ID`, `CARACAL_APPLICATION_ID`, secret and credential variables). |
-
-SDKs do not search the current working directory, home directory, or OS config directory. Secret and credential files are read only when an explicit profile field or `*_FILE` environment variable names them.
-
-### TOML Schema
+SDK loaders use `CARACAL_CONFIG` when it names an existing file; otherwise they read explicit runtime environment configuration. They do not search the current directory or home directory for a profile.
 
 ```toml
-zone_id = "zone_prod"
-application_id = "app_agent"
+zone_id = "<zone-id>"
+application_id = "<application-id>"
 default_ttl_seconds = 900
 
 [[credentials]]
-resource = "resource://openai"
-upstream_prefix = "https://api.openai.com/v1"
-
-[[optional_credentials]]
-resource = "resource://mandate-aware-api"
+resource = "resource://pipernet"
+upstream_prefix = "https://api.pipernet.example/v1"
 ```
 
-### Field Reference
+Common profile fields are `sts_url`, `gateway_url`, `coordinator_url`, `zone_id`, `application_id`, `app_client_secret_file`, `app_client_secret`, `default_ttl_seconds`, `credentials`, and `optional_credentials`.
 
-| Field                    | Meaning                                                                       |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `sts_url`                | Cloud/custom STS endpoint for token exchange.                                 |
-| `gateway_url`            | Cloud/custom Gateway endpoint override for SDK transports.                    |
-| `coordinator_url`        | Cloud/custom Coordinator endpoint override for SDK agent/delegation features. |
-| `zone_id`                | Zone created in the web console.                                              |
-| `application_id`         | Confidential application used by the workload.                                |
-| `app_client_secret_file` | Cloud/custom secret-file path override.                                       |
-| `app_client_secret`      | Inline local-development secret.                                              |
-| `default_ttl_seconds`    | Default Session TTL used when a call does not provide one.                    |
-| `credentials[]`          | Resource audiences and optional Gateway routing bindings.                     |
-| `optional_credentials[]` | Additional resource audiences and optional Gateway routing bindings.          |
+Launcher binding fields such as environment name and unavailable behavior do not belong in an SDK profile. For language-specific setup, use [Choose an SDK or Package](/sdks/).
 
-SDK credential entries use `resource` and optional `upstream_prefix`. Launcher binding fields such as `env`, `credential_type`, `on_failure`, and `continue_on_failure` belong to `caracal run` launch bindings and are not SDK profile behavior.
+## Security Checks
 
-## Security Rules
-
-- Store the workload secret at the runtime path with owner-only permissions for dev and stable launches.
-- Use explicit secret-file paths for cloud deployments, containers, or external secret stores.
-- Secret files and explicit config files must not be group- or world-writable.
-- Non-local insecure `http://` STS URLs are rejected unless explicitly allowed by environment.
-- Environment names that affect runtime loading, such as `NODE_OPTIONS`, `LD_PRELOAD`, and dynamic-library path variables, are blocked as binding targets.
-
-## Troubleshooting
-
-| Symptom                                      | Check                                                                             |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| `workload identity not found`                | Set `CARACAL_WORKLOAD_ID` and a workload secret source.                           |
-| `no credential bindings configured`          | Define launch bindings for this workload on the Launcher page in the web console. |
-| Provider key is not injected                 | Confirm the provider config allows runtime injection.                             |
-| Permission error on the secret file          | The file must be owner-only; `chmod 600` it.                                      |
-| `CARACAL_CONFIG` is set but ignored (SDKs)   | The file must exist; when it is set, no other profile path is considered.         |
-| Optional launch credential stops the process | Set the binding's unavailable behavior to warn on the Launcher page.              |
+- Keep workload and application secret files owner-only and explicitly mounted in production.
+- Do not mount operator secret directories into workload containers.
+- Non-local insecure STS URLs are rejected unless the deployment explicitly permits them.
+- Binding targets cannot be process-loader variables such as `NODE_OPTIONS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, or `DYLD_*`.
 
 ## Next Step
 
-Use [Run Workloads](/runtime-console/runtime/) when the workload's launch bindings are ready and you need to inject scoped credentials into a process.
+[Run Workloads](/runtime-console/runtime/).

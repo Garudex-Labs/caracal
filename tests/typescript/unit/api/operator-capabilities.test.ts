@@ -160,7 +160,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Two applications',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' } },
         { id: 's1', capability: 'registerApplication', args: { name: 'Fiona' } },
       ],
     })
@@ -173,7 +173,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Stand up production',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' } },
         { id: 's2', capability: 'registerApplication', args: {} },
         { id: 's3', capability: 'connectProvider', args: { name: 'GitHub', kind: 'oauth2_authorization_code' } },
       ],
@@ -187,7 +187,7 @@ describe('validateProposedPlan', () => {
   it('rejects unknown argument fields via strict schemas', () => {
     const result = parse({
       summary: 'Register application with junk',
-      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton', junk: true } }],
+      steps: [{ id: 's1', capability: 'registerApplication', args: { name: 'Anton', junk: true } }],
     })
     expect(result.ok).toBe(false)
     expect(result.diagnostics[0]).toMatchObject({ code: 'invalid_args' })
@@ -197,7 +197,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Register an application and grant it invoices read',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, risk: 'low' },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' }, risk: 'low' },
         {
           id: 's2',
           capability: 'grantAccess',
@@ -232,7 +232,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Two applications that wait on each other',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' }, depends_on: ['s2'] },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' }, depends_on: ['s2'] },
         { id: 's2', capability: 'registerApplication', args: { name: 'Fiona' }, depends_on: ['s1'] },
       ],
     })
@@ -294,7 +294,7 @@ describe('validateProposedPlan', () => {
     const result = parse({
       summary: 'Bind a resource to a secret',
       steps: [
-        { id: 's1', capability: 'registerApplication', args: { name: 'Son of Anton' } },
+        { id: 's1', capability: 'registerApplication', args: { name: 'Anton' } },
         {
           id: 's2',
           capability: 'defineResource',

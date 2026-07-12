@@ -5,6 +5,12 @@ description: Wrap Go HTTP handlers with the nethttp adapter middleware to verify
 
 Use the Go net/http adapter when a Go service should verify Caracal mandates at the handler boundary.
 
+## Prerequisites
+
+- A mandate-aware resource with a stable audience and route scopes.
+- STS issuer, zone ID, and a production Redis revocation consumer.
+- Request deadlines on inbound handlers so JWKS or revocation work is cancelable.
+
 ## Install
 
 ```bash
@@ -31,15 +37,15 @@ func main() {
 	revocations := revocation.NewInMemoryStore(24 * time.Hour)
 
 	verifier := verify.NewVerifier(verify.Options{
-		Issuer:      "https://sts.example.com",
-		Audience:    "https://api.example.com",
-		ZoneID:      "zone_prod",
+		Issuer:      "https://sts.pipernet.example",
+		Audience:    "resource://pipernet",
+		ZoneID:      "0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
 		Revocations: revocations,
 	})
 
 	protected := nethttp.VerifierMiddleware(verifier.Require(verify.Options{
-		RequiredScopes:  []string{"tickets:read"},
-		RequiredTargets: []string{"https://api.example.com/tickets"},
+		RequiredScopes:  []string{"pipernet:read"},
+		RequiredTargets: []string{"resource://pipernet"},
 	}))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := nethttp.ClaimsFromContext(r.Context())
 		if !ok {
@@ -49,7 +55,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]string{"subject": claims.Sub})
 	}))
 
-	http.Handle("/tickets", protected)
+	http.Handle("/reports", protected)
 	_ = http.ListenAndServe(":8080", nil)
 }
 ```
@@ -76,4 +82,14 @@ The in-memory store does not share revocations across instances. Use the Redis r
 3. Remove a required scope and expect `403`.
 4. Mark the session revoked and expect `session_revoked`.
 
-Related pages: [Mandates](/concepts/mandate/) and [Sessions and Revocation](/concepts/sessions-revocation/).
+Expected result: `401` identifies an unaccepted credential, `403` identifies accepted but insufficient authority, and `ClaimsFromContext` succeeds only inside protected handlers.
+
+:::caution[Failure point: middleware order]
+Place Caracal verification before handlers that read bodies or perform work. Logging may wrap it, but authentication-dependent middleware must run after it.
+:::
+
+For exact Go fields, use [net/http Adapter reference](/sdks/adapters/nethttp/).
+
+## Next Step
+
+Connect the Redis revocation consumer and validate it with [Test Caracal Integrations](/guides/testing/).

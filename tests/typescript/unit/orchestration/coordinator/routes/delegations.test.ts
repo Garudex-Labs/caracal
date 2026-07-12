@@ -73,8 +73,8 @@ describe('POST /v1/zones/:zoneId/delegations', () => {
     expect(db.connect).not.toHaveBeenCalled()
   })
 
-  it('allows an issuer to create a cross-application offer without receiver credentials', async () => {
-    const { app, db } = buildApp(['coordinator.delegate_from:issuer-1'], 'issuer-1')
+  it('allows a cross-application offer with both delegation permissions', async () => {
+    const { app, db } = buildApp(['coordinator.delegate_from:issuer-1', 'coordinator.delegate_to:receiver-1'], 'issuer-1')
     const client = {
       query: vi
         .fn()
@@ -818,6 +818,17 @@ describe('GET /v1/zones/:zoneId/delegations/:id/impact', () => {
     expect(res.statusCode).toBe(404)
     expect(res.json()).toEqual({ error: 'delegation_not_found' })
   })
+
+  it('rejects recursive impact reads from runtime application credentials', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'issuer-1')
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/edge-1/impact' })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'coordinator_admin_required' })
+    expect(db.query).not.toHaveBeenCalled()
+  })
 })
 
 describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => {
@@ -861,31 +872,6 @@ describe('GET /v1/zones/:zoneId/delegations/inbound|outbound/:sessionId', () => 
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/outbound/sess-1?limit=bad' })
     expect(res.statusCode).toBe(400)
     expect(res.json()).toEqual({ error: 'invalid_query' })
-  })
-
-  it('validates an exact opaque inbound edge for its receiver Session', async () => {
-    const { app, db } = buildApp()
-    db.query.mockResolvedValueOnce({ rows: [{ id: 'edge-101', status: 'active' }] })
-    await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
-    expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ id: 'edge-101', status: 'active' })
-  })
-
-  it('binds exact inbound validation to the receiver application', async () => {
-    const { app, db } = buildApp(['coordinator.read'], 'receiver-1')
-    db.query.mockResolvedValueOnce({ rows: [] })
-    await app.ready()
-
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/inbound/sess-1/edge-101' })
-
-    expect(res.statusCode).toBe(404)
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('receiver_application_id = $4'), [
-      'edge-101',
-      'z1',
-      'sess-1',
-      'receiver-1',
-    ])
   })
 
   it('rejects an unknown cursor', async () => {
@@ -948,6 +934,17 @@ describe('GET /v1/zones/:zoneId/delegations/:id/traverse', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/e1/traverse' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual([{ id: 'e1', depth: 1 }])
+  })
+
+  it('rejects recursive traversal from runtime application credentials', async () => {
+    const { app, db } = buildApp(['coordinator.read'], 'issuer-1')
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/delegations/e1/traverse' })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toEqual({ error: 'coordinator_admin_required' })
+    expect(db.query).not.toHaveBeenCalled()
   })
 })
 

@@ -1,63 +1,41 @@
 ---
 title: Choose a Deployment Profile
-description: Pick the right Caracal deployment scale, from a single VM to enterprise Kubernetes, and see what Caracal manages versus what you own.
+description: Decide between the shipped Compose, Helm, and OpenTofu paths without assuming unsupported availability.
 pageType: reference
 ---
 
-Caracal ships as one versioned set of six container images with a single release train. Every deployment profile runs the same images and the same policy, audit, and credential behavior; profiles differ only in where the containers run, who operates the data stores, and how much surrounding platform you attach. Kubernetes is not required: a single Docker host is a supported production posture, and the orchestrated tiers exist for availability and scale rather than for capability.
+Choose a profile from requirements you can verify. Caracal ships deployment mechanics; it does not certify capacity, high availability, multi-region operation, or a cloud service.
 
-## Profile Map
+## Decision
 
-| Profile             | Scale                       | Path                                                                                                                                         | Data stores                                  |
-| ------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Evaluation          | Laptop or shared dev box    | [Install the CLI](/get-started/install-caracal/) and run `caracal up`                                                                        | Bundled Postgres and Redis containers        |
-| Single VM           | One team, production        | Installed CLI on any Docker host, optionally provisioned with the [`caracalHost` OpenTofu module](/operations/opentofu/#single-vm-bootstrap) | Bundled containers plus scheduled backups    |
-| Lightweight cluster | Small production Kubernetes | [Helm chart](/operations/kubernetes-helm/) in `rc` or `stable` mode                                                                          | Entry-tier managed Postgres and Redis        |
-| Enterprise HA       | Multi-team production       | Helm `stable` mode via the [`caracalStack` OpenTofu root](/operations/opentofu/) with an external secret manager                             | Managed HA Postgres and Redis with PITR      |
-| Hyperscale          | High-volume, multi-cluster  | Same chart with raised HPA ceilings, replay persistence, and topology spread; one release per cluster                                        | Data-platform-owned stores sized for streams |
+| Requirement | Use | Do not infer |
+| --- | --- | --- |
+| Local development from source | `caracal up` with development Compose | Production hardening |
+| One Docker host with bundled stores | Installed runtime and packaged Compose | Host redundancy or zero downtime |
+| Kubernetes 1.30+ with operator dependencies | Helm chart | A tested SLO or managed stores |
+| Declarative chart installation | `caracalStack` OpenTofu module | Resources beyond namespace, optional Secret, and Helm release |
+| Provider-neutral VM bootstrap | `caracalHost` OpenTofu module | VM, firewall, TLS, backup, or monitoring creation |
 
-## Evaluation
+## Prerequisites
 
-Run `caracal up` on any machine with Docker. The stack self-generates its secrets, binds every port to loopback, and reports readiness when all services pass their probes. Nothing is exposed beyond the host and `caracal purge` removes everything. Use this tier to evaluate policy behavior and SDK integration, not to hold real credentials long-term.
+Define ingress, recovery objectives, storage ownership, secret delivery, monitoring, and maintenance policy. If availability matters, prove it in your environment; replicas, PDBs, HPAs, and atomic upgrades are mechanisms, not guarantees.
 
-## Single VM
+## Safe Procedure
 
-The installed CLI carries the production compose topology, pinned images, health probes, and `caracal upgrade` for no-maintenance-window upgrades. Runtime secrets are generated on the host at first start and never leave it. All service ports stay loopback-bound: publishing the web console or Gateway is a deliberate act through the reverse proxy or tunnel you already operate, which keeps TLS and network exposure under your control.
+1. Use `dev` only on a local development host.
+2. Pin a release and use `stable` for production evaluation.
+3. Keep Compose ports loopback-bound; add an operator-owned TLS proxy for remote access.
+4. For Helm, provide Postgres, Redis, runtime Secret, ingress, and network egress explicitly.
+5. Establish backup, restore, metrics, alerts, and incident ownership before production traffic.
 
-This tier is production-grade for a single team when you schedule [backups](/operations/backup-retention/) and treat the VM as replaceable: a fresh host plus the latest backup bundle restores the stack. To provision hosts declaratively, the [`caracalHost` module](/operations/opentofu/#single-vm-bootstrap) renders cloud-init user data that works with any VM resource on any cloud.
+## Verify
 
-Move up when you need zero-downtime host maintenance, more than one replica per service, or organizational separation of data-store operations.
+Confirm assets render, secrets resolve, migrations finish, and `/ready` passes. Run a canary token exchange and Gateway request, then locate its audit evidence.
 
-## Lightweight Cluster
+## Rollback or Recovery
 
-The Helm chart deploys the same topology onto any conformant Kubernetes 1.30+. In `rc` mode the chart may still run in-cluster data stores for staging; in `stable` mode the chart's guardrails reject in-cluster Postgres and Redis, so pair it with entry-tier managed database and cache services. This is the smallest footprint that gives rolling upgrades with zero unavailable replicas and per-service scaling.
-
-## Enterprise HA
-
-Drive the chart through the [`caracalStack` OpenTofu root](/operations/opentofu/), pin released chart versions from the OCI registry, and deliver the runtime Secret with your secret manager - the External Secrets flow in [Deploy on Managed Kubernetes](/operations/cloud-reference-deployments/) is the reference shape. The [cloud profile contract](/operations/cloud-native-profiles/) defines what the managed Postgres, Redis, secrets, and observability services must provide. Applies are atomic, migration hooks roll back with the release, and NetworkPolicy defaults to closed egress.
-
-## Hyperscale
-
-The enterprise HA shape scales without new machinery: raise HPA replica ceilings, enable replay persistence, add topology spread across zones, and size Redis Streams and Postgres connection capacity with your data platform team. Run one release per cluster and shard by zone or region at the load balancer rather than stretching a single stack; see [Scale Capacity](/operations/scale-capacity/) for per-service scaling behavior.
-
-## Ownership Boundaries
-
-Every external dependency attaches through an open standard, so managed services from any provider plug in without Caracal-specific adapters.
-
-| Component                   | Ownership                                         | Boundary                                                                                                                            |
-| --------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Caracal services            | Caracal                                           | Versioned images on one release train; `caracal upgrade` or Helm upgrades.                                                          |
-| PostgreSQL                  | Bundled on VM tiers; yours on `stable` Kubernetes | Standard connection URLs meeting the [managed dependency contract](/operations/cloud-native-profiles/#managed-dependency-contract). |
-| Redis                       | Bundled on VM tiers; yours on `stable` Kubernetes | Redis protocol with Streams; authentication and persistence per the same contract.                                                  |
-| Secrets                     | Yours                                             | Self-generated files on hosts; a Kubernetes Secret delivered by any secret manager on clusters.                                     |
-| Console sign-in             | Caracal, with your identity configuration         | OIDC providers and SMTP wired through environment values.                                                                           |
-| Resource identity providers | Yours                                             | OIDC and OAuth 2.0 against your existing providers.                                                                                 |
-| Observability               | Yours                                             | Prometheus metrics, OTLP export, and shipped alert rules consumed by your collectors and dashboards.                                |
-| Object storage              | Yours, optional                                   | S3-compatible endpoint for audit Parquet export; disabled by default.                                                               |
-| Networking and TLS          | Yours                                             | Loopback-only ports fronted by your proxy on VMs; Ingress and NetworkPolicy values on Kubernetes.                                   |
-| Backups and recovery        | Shared                                            | Caracal ships backup and restore tooling and migration hooks; you own schedules, storage, and PITR.                                 |
-| Compute                     | Yours                                             | Any Docker host or conformant Kubernetes 1.30+, provisioned with the OpenTofu modules or your own IaC.                              |
+Keep the prior release and values. Restore data only from a tested backup and restore secrets separately. Helm rollback never reverses database migrations.
 
 ## Next Step
 
-Deploy the tier you chose: [Deploy with Docker Compose](/operations/docker-compose/), [Deploy with Helm](/operations/kubernetes-helm/), or [Provision with OpenTofu](/operations/opentofu/).
+Use [Deploy with Docker Compose](/operations/docker-compose/) or [Deploy with Helm](/operations/kubernetes-helm/).

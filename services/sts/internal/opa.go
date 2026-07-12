@@ -151,7 +151,11 @@ func (e *OPAEngine) Evaluate(ctx context.Context, input OPAInput) (*OPAResult, e
 		e.mu.RUnlock()
 	}
 
-	return e.evaluatePrepared(ctx, *state.query, input, true)
+	result, err := e.evaluatePrepared(ctx, *state.query, input, true)
+	if result != nil {
+		result.Bundle = bundleInfoForState(state)
+	}
+	return result, err
 }
 
 func (e *OPAEngine) Simulate(ctx context.Context, input OPAInput, policies []OPAPolicyModule) (*OPAResult, error) {
@@ -243,14 +247,20 @@ type ZoneBundleInfo struct {
 func (e *OPAEngine) BundleInfo(zoneID string) ZoneBundleInfo {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	info := ZoneBundleInfo{DecisionContractVersion: DecisionContractVersion, DecisionContractSHA: decisionContractSHA256}
 	state, ok := e.zones[zoneID]
 	if !ok {
-		return info
+		return bundleInfoForState(nil)
 	}
-	info.PolicySetVersionID = state.policySetVersionID
-	info.ManifestSHA = state.manifestSHA
-	info.LoadedAt = state.loadedAt
+	return bundleInfoForState(state)
+}
+
+func bundleInfoForState(state *opaZoneState) ZoneBundleInfo {
+	info := ZoneBundleInfo{DecisionContractVersion: DecisionContractVersion, DecisionContractSHA: decisionContractSHA256}
+	if state != nil {
+		info.PolicySetVersionID = state.policySetVersionID
+		info.ManifestSHA = state.manifestSHA
+		info.LoadedAt = state.loadedAt
+	}
 	return info
 }
 

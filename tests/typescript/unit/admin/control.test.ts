@@ -45,7 +45,7 @@ describe('ControlClient invoke', () => {
     const [tokenUrl, tokenInit] = fetchMock.mock.calls[0]! as [string, RequestInit]
     expect(tokenUrl).toBe('https://sts.example.com/oauth/2/token')
     const form = new URLSearchParams(tokenInit.body as string)
-    expect(form.get('grant_type')).toBe('client_credentials')
+    expect(form.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:token-exchange')
     expect(form.get('application_id')).toBe('app-operator')
     expect(form.get('resource')).toBe('caracal-control')
     expect(form.get('scope')).toBe('control:zone:read')
@@ -176,27 +176,18 @@ describe('ControlClient invoke', () => {
     await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).rejects.toBeInstanceOf(ControlClientError)
   })
 
-  it('retries a transient token failure once and proceeds when the retry mints', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(invokeResponse({ ok: true }))
+  it('does not retry a transient token response', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('upstream boom', { status: 502 }))
 
-    const result = await client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])
-
-    expect(result).toEqual({ ok: true })
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).rejects.toBeInstanceOf(ControlClientError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('retries a thrown token network failure once', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError('fetch failed'))
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(invokeResponse({ ok: true }))
+  it('does not retry a thrown token network failure', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError('fetch failed'))
 
-    await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).resolves.toEqual({ ok: true })
+    await expect(client({}, fetchMock).invoke('zone', 'list', {}, ['control:zone:read'])).rejects.toBeInstanceOf(ControlClientError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('does not retry a denied token exchange', async () => {
@@ -236,9 +227,10 @@ describe('ControlClient invoke', () => {
     expect(error.reason).toContain('socket hang up')
   })
 
-  it('classifies definitive failures: token always, invoke only on a client error', () => {
-    expect(new ControlClientError('token', 503, 'unavailable').definitive).toBe(true)
-    expect(new ControlClientError('token', 0, 'network').definitive).toBe(true)
+  it('classifies only explicit client rejections as definitive', () => {
+    expect(new ControlClientError('token', 403, 'denied').definitive).toBe(true)
+    expect(new ControlClientError('token', 503, 'unavailable').definitive).toBe(false)
+    expect(new ControlClientError('token', 0, 'network').definitive).toBe(false)
     expect(new ControlClientError('invoke', 403, 'denied').definitive).toBe(true)
     expect(new ControlClientError('invoke', 504, 'timeout').definitive).toBe(false)
     expect(new ControlClientError('invoke', 0, 'network').definitive).toBe(false)

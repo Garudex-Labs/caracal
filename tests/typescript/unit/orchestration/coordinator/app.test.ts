@@ -93,7 +93,7 @@ describe('buildApp operational endpoints', () => {
 
     it('reports a fast ok when both dependencies respond, probing them concurrently', async () => {
       vi.useRealTimers()
-      const db = { query: vi.fn(async () => ({ rows: [{ '?column?': 1 }] })) }
+      const db = { query: vi.fn(async () => ({ rows: [{ dead_outbox: false }] })) }
       const redis = { ping: vi.fn(async () => 'PONG') }
       const app = await buildApp({
         cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 0 },
@@ -110,8 +110,25 @@ describe('buildApp operational endpoints', () => {
       await app.close()
     })
 
+    it('returns 503 when a Coordinator outbox row is dead', async () => {
+      vi.useRealTimers()
+      const db = { query: vi.fn(async () => ({ rows: [{ dead_outbox: true }] })) }
+      const redis = { ping: vi.fn(async () => 'PONG') }
+      const app = await buildApp({
+        cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 0 },
+        db,
+        redis,
+      } as never)
+
+      const res = await app.inject({ method: 'GET', url: '/ready' })
+
+      expect(res.statusCode).toBe(503)
+      expect(res.json()).toMatchObject({ ok: false, error: 'outbox_dead', dependency: 'outbox' })
+      await app.close()
+    })
+
     it('returns 503 redis_unreachable when only Redis is unhealthy', async () => {
-      const db = { query: vi.fn(async () => ({ rows: [{ '?column?': 1 }] })) }
+      const db = { query: vi.fn(async () => ({ rows: [{ dead_outbox: false }] })) }
       const redis = { ping: vi.fn(() => new Promise(() => {})) }
       const app = await buildApp({
         cfg: { requestTimeoutMs: 1000, trustProxy: false, coordinatorRateLimitPerMin: 0 },

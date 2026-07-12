@@ -1,55 +1,42 @@
 ---
 title: Understand Services
-description: Service-by-service map for the current Caracal runtime, authority path, management plane, evidence pipeline, and automation surface.
+description: Identify the service behind a user-visible operation and the dependency to check when that operation fails.
 pageType: landing
 ---
 
-Caracal services are small, explicit runtime components. Each service owns a bounded part of the authority lifecycle and exposes health/readiness endpoints for operations.
+Use this section for integration boundaries and operations. It is not a requirement for ordinary console setup.
 
-## Service Map
+## Service Selection
 
-| Service                                            | Port       | Owns                                                                               |
-| -------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------- |
-| [Manage Product State](/services/api/)             | `3000`     | Product state, management routes, policy/grant resources, admin audit, API outbox. |
-| [Coordinate Session State](/services/coordinator/) | `4000`     | Sessions, service leases, Delegations, invocations, Coordinator outbox.            |
-| [Issue Mandates](/services/sts/)                   | `8080`     | Token exchange, mandate issuance, JWKS, policy evaluation, step-up status.         |
-| [Protect Upstreams](/services/gateway/)            | `8081`     | Protected reverse proxy, per-request exchange, revocation checks, upstream safety. |
-| [Ingest Audit Evidence](/services/audit/)          | `9090`     | Audit ingestion, DLQ, tamper checks, retention, search.                            |
-| [Automate Management](/services/control/)          | API `3000` | Optional in-process remote management invocation through shared engine dispatch.   |
+| User-visible operation               | Service                               | Supported caller                                             |
+| ------------------------------------ | ------------------------------------- | ------------------------------------------------------------ |
+| Manage product and policy state      | [API](/services/api/)                 | Console BFF, Admin SDK, documented Admin API                 |
+| Start Sessions or create Delegations | [Coordinator](/services/coordinator/) | SDK, documented Coordinator API, console operator views      |
+| Exchange authority for a mandate     | [STS](/services/sts/)                 | SDK, `caracal run`, Gateway, documented token client         |
+| Protect an HTTP upstream             | [Gateway](/services/gateway/)         | Client presenting a Caracal mandate                          |
+| Ingest and retain decision evidence  | [Audit](/services/audit/)             | Caracal stream producers; operators read through console/API |
+| Automate zone management remotely    | [Control](/services/control/)         | Trusted automation with a scoped Control credential          |
 
-## Dependency Map
+## Dependency Shape
 
 ```mermaid
 flowchart LR
-  API --> Postgres[(Postgres)]
-  API --> Redis[(Redis)]
-  Coordinator --> Postgres
-  Coordinator --> Redis
-  STS --> Postgres
-  STS --> Redis
-  Gateway --> Postgres
-  Gateway --> Redis
+  Console --> API
+  SDK --> STS
+  SDK --> Coordinator
+  Client --> Gateway
   Gateway --> STS
-  Audit --> Postgres
-  Audit --> Redis
+  API & STS & Gateway & Coordinator & Audit --> Postgres[(Postgres)]
+  API & STS & Gateway & Coordinator & Audit --> Redis[(Redis)]
   Control --> API
-  Control --> Redis
 ```
 
-## Service Reading Path
+The packaged Compose and Helm topologies deploy all five runtime services together with Postgres and Redis; Control is the only optional management surface. All five runtime services expose health and readiness. Health means the process responds. Readiness includes dependencies and service-specific thresholds. Control has no separate process: it is an optional plugin on the API port.
 
-| Path                    | Pages                                                                                       |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| Management plane        | [Manage Product State](/services/api/) → [Coordinate Session State](/services/coordinator/) |
-| Authority path          | [Issue Mandates](/services/sts/) → [Protect Upstreams](/services/gateway/)                  |
-| Evidence and automation | [Ingest Audit Evidence](/services/audit/) → [Automate Management](/services/control/)       |
+## Direct-Call Rule
+
+Do not call `/internal/*` routes, write service tables, publish Redis topics, or manipulate replay directories from application code. Internal routes are authenticated service-to-service contracts. Use the console, SDKs, Admin API, Coordinator API, STS token endpoint, Gateway proxy, or Control API as documented.
 
 ## Next Step
 
-Start with [Manage Product State](/services/api/) to understand where Caracal product objects are owned.
-
-## Related Sections
-
-- [Understand Architecture](/architecture/)
-- [Operations](/operations/)
-- [Use API Reference](/api/)
+[Manage Product State](/services/api/) for the management path, or [Issue Mandates](/services/sts/) for the authority path.

@@ -18,11 +18,13 @@ class FakeRedis {
   readonly values = new Map<string, string>()
   readonly acked: string[] = []
   readonly groups: string[][] = []
+  readonly deadLetters: Array<Array<string | number>> = []
   stream: RedisStreamResult | null = null
   pending: [string, string[]][] = []
   pendingPages: [string, [string, string[]][]][] = []
   failGet = false
   groupError: Error | null = null
+  failDeadLetter = false
 
   async get(key: string): Promise<string | null> {
     if (this.failGet) throw new Error('redis down')
@@ -31,6 +33,13 @@ class FakeRedis {
 
   async set(key: string, value: string, _mode: 'PX', _ttlMs: number): Promise<void> {
     this.values.set(key, value)
+  }
+
+  async eval(_script: string, _keyCount: number, key: string, candidate: string): Promise<number> {
+    const current = Number(this.values.get(key) ?? 0)
+    if (Number(candidate) <= current) return 0
+    this.values.set(key, candidate)
+    return 1
   }
 
   async xgroup(...args: string[]): Promise<void> {
@@ -51,6 +60,11 @@ class FakeRedis {
 
   async xack(_stream: string, _group: string, id: string): Promise<void> {
     this.acked.push(id)
+  }
+
+  async xadd(...args: Array<string | number>): Promise<void> {
+    if (this.failDeadLetter) throw new Error('dead letter unavailable')
+    this.deadLetters.push(args)
   }
 }
 
@@ -94,6 +108,15 @@ describe('RedisRevocationStore', () => {
     expect(await store.currentDelegationEpoch('zone1')).toBe(7)
   })
 
+  it('keeps delegation epochs monotonic across concurrent writers', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisRevocationStore(redis)
+
+    await Promise.all([store.markDelegationEpoch('zone1', 9), store.markDelegationEpoch('zone1', 4)])
+
+    expect(await store.currentDelegationEpoch('zone1')).toBe(9)
+  })
+
   it('normalizes invalid delegation epochs and fail-open lookup errors', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis, { keyPrefix: 'test:' })
@@ -134,6 +157,7 @@ describe('RedisRevocationConsumer', () => {
         {
           get: redis.get.bind(redis),
           set: redis.set.bind(redis),
+          eval: redis.eval.bind(redis),
           xautoclaim: redis.xautoclaim.bind(redis),
           xack: redis.xack.bind(redis),
         },
@@ -148,6 +172,7 @@ describe('RedisRevocationConsumer', () => {
         {
           get: redis.get.bind(redis),
           set: redis.set.bind(redis),
+          eval: redis.eval.bind(redis),
           xreadgroup: redis.xreadgroup.bind(redis),
           xack: redis.xack.bind(redis),
         },
@@ -227,7 +252,7 @@ describe('RedisRevocationConsumer', () => {
     expect(redis.acked).toEqual(['1-0'])
   })
 
-  it('acks invalid signatures without marking sessions', async () => {
+  it('dead-letters invalid signatures before acknowledging them', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
     redis.stream = [[REVOCATION_STREAM, [['1-1', ['session_id', 'sid-2', STREAM_SIG_FIELD, '00']]]]]
@@ -240,7 +265,23 @@ describe('RedisRevocationConsumer', () => {
 
     expect(await consumer.pollOnce()).toBe(1)
     expect(await store.isRevoked('sid-2')).toBe(false)
+    expect(redis.deadLetters[0]?.[0]).toBe(`${REVOCATION_STREAM}.dead`)
+    expect(redis.deadLetters[0]).toContain('invalid_signature')
     expect(redis.acked).toEqual(['1-1'])
+  })
+
+  it('leaves poison messages pending when dead-letter persistence fails', async () => {
+    const redis = new FakeRedis()
+    redis.failDeadLetter = true
+    redis.stream = [[REVOCATION_STREAM, [['1-2', ['session_id', 'sid-2', STREAM_SIG_FIELD, '00']]]]]
+    const consumer = new RedisRevocationConsumer(redis, new RedisRevocationStore(redis), {
+      consumer: 'resource-1',
+      streamHmacKey: Buffer.alloc(32, 7),
+      requireSignature: true,
+    })
+
+    await expect(consumer.pollOnce()).rejects.toThrow('dead letter unavailable')
+    expect(redis.acked).toEqual([])
   })
 
   it('replays pending messages before reading new entries', async () => {
@@ -328,7 +369,7 @@ describe('RedisDelegationInvalidationConsumer', () => {
     expect(redis.acked).toEqual(['1-0'])
   })
 
-  it('acks invalid signatures and ignores malformed epoch messages', async () => {
+  it('dead-letters invalid signatures and malformed epoch messages', async () => {
     const redis = new FakeRedis()
     const store = new RedisRevocationStore(redis)
     redis.stream = [
@@ -348,6 +389,7 @@ describe('RedisDelegationInvalidationConsumer', () => {
     })
     expect(await signed.pollOnce()).toBe(2)
     expect(await store.currentDelegationEpoch('zone1')).toBe(0)
+    expect(redis.deadLetters).toHaveLength(2)
     expect(redis.acked).toEqual(['1-1', '1-2'])
   })
 

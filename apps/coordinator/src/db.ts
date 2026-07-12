@@ -28,3 +28,26 @@ export function buildDB(config: Cfg = cfg): pg.Pool {
   })
   return pool
 }
+
+// Proves the connected database carries the schema this build's SQL depends on. A
+// coordinator rolled against a database missing these columns or privileges would
+// otherwise boot cleanly and fail on first use with opaque runtime errors, so the
+// probe turns schema drift into a named startup failure.
+export async function assertSchemaCompatible(db: { query: (text: string) => Promise<unknown> }): Promise<void> {
+  try {
+    await db.query(
+      'SELECT id, lifecycle, lease_generation, last_heartbeat_at, heartbeat_deadline_at, termination_reason FROM sessions LIMIT 0',
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(`coordinator schema incompatible with this build: ${message}; apply the current baseline migration before starting`)
+  }
+  const grants = (await db.query("SELECT has_table_privilege(current_user, 'sessions', 'DELETE') AS can_delete")) as {
+    rows?: Array<{ can_delete?: boolean }>
+  }
+  if (grants.rows?.[0]?.can_delete !== true) {
+    throw new Error(
+      'coordinator role lacks the sessions DELETE grant its retention cleaner requires; apply the current baseline migration grants before starting',
+    )
+  }
+}

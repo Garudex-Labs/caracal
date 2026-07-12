@@ -1,79 +1,55 @@
 ---
 title: Map the System
-description: Runtime topology for Caracal services, dependencies, and external clients.
+description: Map supported callers to runtime services and identify the dependency behind each visible failure.
 pageType: architecture
 ---
 
-Caracal has six primary HTTP services plus Postgres and Redis.
+Use this map before exposing a service or diagnosing a cross-service failure.
 
-## Topology
+## Caller Map
+
+| Caller                        | Supported destination                                         | Avoid                                                              |
+| ----------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Human operator                | Web console on local `3001` or deployed console URL           | Direct database, Redis, or internal routes                         |
+| Trusted management automation | Admin API/Admin SDK, or optional Control API on API `3000`    | Runtime CLI product-management commands                            |
+| Workload needing mandates     | STS `POST /oauth/2/token` through an SDK or documented client | API admin credentials                                              |
+| Protected HTTP client         | Gateway `8081` with a mandate and resource header             | Direct protected upstream when Gateway is the enforcement boundary |
+| Session-aware application     | Coordinator `4000` through an SDK or documented API           | Coordinator operator tokens in workload source                     |
+| Verifier                      | STS JWKS and revocation backend through verification packages | Private signing keys                                               |
+
+Ports are local Compose defaults, bound to loopback. A production deployment normally places supported public surfaces behind TLS and keeps internal and operator-only routes private.
+
+## Dependency Map
 
 ```mermaid
 flowchart TB
-  subgraph Clients
-    Console[Console]
-    SDK[SDKs and caracal run]
-    ResourceClient[Protected-resource clients]
-    Automation[Control API / Admin API automation]
-  end
-
-  subgraph Caracal
-    API[API :3000]
-    STS[STS :8080]
-    Gateway[Gateway :8081]
-    Audit[Audit :9090]
-    Coordinator[Coordinator :4000]
-    Control[Control plugin in API, optional]
-  end
-
-  Postgres[(Postgres)]
-  Redis[(Redis Streams)]
-  Upstream[Protected upstreams]
-
   Console --> API
   Console --> Coordinator
   SDK --> STS
-  ResourceClient --> Gateway
-  Automation --> Control
-  Control --> API
+  Client --> Gateway
+  Gateway --> STS
   Gateway --> Upstream
-  API --> Postgres
-  STS --> Postgres
-  Gateway --> Postgres
-  Audit --> Postgres
-  Coordinator --> Postgres
-  API --> Redis
-  STS --> Redis
-  Gateway --> Redis
-  Audit --> Redis
-  Coordinator --> Redis
+  API & STS & Gateway & Coordinator & Audit --> PG[(Postgres)]
+  API & STS & Gateway & Coordinator & Audit --> Redis[(Redis)]
 ```
 
-## Service Responsibilities
+| Visible failure                               | Dependency to check                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------- |
+| Console cannot list or mutate product objects | API auth, API readiness, Postgres, then Redis/outbox                        |
+| Exchange denies or cannot load policy         | STS, Postgres policy/product state, Redis invalidation, signing/secret keys |
+| Gateway denies before reaching upstream       | Inbound mandate, resource binding, revocation, STS, or upstream safety      |
+| Sessions or Delegations appear stale          | Coordinator, Postgres, Redis, outbox, leases/sweepers                       |
+| Audit search lags behind requests             | Redis consumer state, Audit readiness, DLQ, replay volumes, Postgres        |
 
-| Service     | Responsibility                                                                                                                      |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| API         | Zones, applications, providers, resources, policies, policy sets, grants, step-up challenges, admin audit, and API outbox.          |
-| STS         | OAuth token exchange, mandate issuance, policy evaluation, JWKS, step-up status, policy simulation, signing-key rotation internals. |
-| Gateway     | Protected reverse proxy, inbound mandate verification, per-request STS exchange, SSRF guard, revocation checks, audit replay.       |
-| Audit       | Redis audit ingestion, DLQ, tamper checks, retention, search, metrics.                                                              |
-| Coordinator | Sessions, long-lived Session services, Delegations, invocations, sweeper jobs, Coordinator outbox.                                  |
-| Control     | Optional remote management invoke endpoint gated by token auth, replay protection, rate limiting, and runtime gate file.            |
+## Deployment Implications
 
-## Deployment Shapes
+- API, STS, Gateway, Audit, and Coordinator all need Postgres and Redis in the packaged topology; readiness captures more than process liveness.
+- Gateway also depends synchronously on STS for per-request exchange.
+- Console product views depend on API and Coordinator through the auth backend-for-frontend.
+- Control is an optional API plugin, not a separate service or port.
 
-| Shape               | Source                                                  |
-| ------------------- | ------------------------------------------------------- |
-| Local development   | `infra/docker/docker-compose.yml` through `caracal up`. |
-| Self-hosted Compose | `infra/docker/runtime-compose.yml`.                     |
-| Kubernetes          | `infra/helm/caracal`.                                   |
+Use [Choose a Deployment Profile](/operations/deployment-profiles/) for deployment choices and [Understand Services](/services/) for service-specific failure posture.
 
 ## Next Step
 
-Use [Exchange Tokens](/architecture/token-exchange-flow/) to follow how workloads receive scoped mandates.
-
-## Related Pages
-
-- [Understand Services](/services/)
-- [Deploy with Docker Compose](/operations/docker-compose/)
-- [Deploy with Helm](/operations/kubernetes-helm/)
+[Exchange Tokens](/architecture/token-exchange-flow/).

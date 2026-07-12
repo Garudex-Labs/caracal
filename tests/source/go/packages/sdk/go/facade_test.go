@@ -89,7 +89,7 @@ func newRecordingCoordinator(t *testing.T, bodies *[]map[string]any) *httptest.S
 				_ = json.NewDecoder(r.Body).Decode(&body)
 				*bodies = append(*bodies, body)
 			}
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","heartbeat_deadline_at":"` + time.Now().Add(30*time.Second).UTC().Format(time.RFC3339Nano) + `"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","heartbeat_deadline_at":"` + time.Now().Add(30*time.Second).UTC().Format(time.RFC3339Nano) + `","lease_generation":1}`))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations"):
 			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
 		case r.Method == http.MethodDelete:
@@ -126,7 +126,7 @@ func TestSessionRefreshesRejectedCachedToken(t *testing.T) {
 				_, _ = w.Write([]byte(`{"error":"revoked"}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1"}`))
+			_, _ = w.Write([]byte(`{"agent_session_id":"agent-1","lease_generation":1}`))
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -232,6 +232,45 @@ func TestDelegateAndAdoptDelegationFacade(t *testing.T) {
 	}
 	if cur, ok := sdk.Current(accepted); !ok || cur.DelegationID != "edge-1" {
 		t.Fatalf("adoption did not bind the edge: %#v", cur)
+	}
+}
+
+func TestDelegateDefaultsReceiverToOwnApplication(t *testing.T) {
+	var receiver string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/delegations") {
+			body := map[string]any{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			receiver, _ = body["receiver_application_id"].(string)
+			_, _ = w.Write([]byte(`{"delegation_edge_id":"edge-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	c := &sdk.Caracal{
+		Coordinator:   &sdk.CoordinatorClient{BaseURL: srv.URL},
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SubjectToken:  "tok",
+	}
+	ctx := sdk.Bind(context.Background(), sdk.CaracalContext{
+		SubjectToken:  "tok",
+		ZoneID:        "z",
+		ApplicationID: "app",
+		SessionID:     "agent-1",
+	})
+	edge, err := c.Delegate(ctx, sdk.DelegateOptions{
+		ToSessionID: "agent-2",
+		Scopes:      []string{"tool:call"},
+		TTLSeconds:  30,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edge.DelegationID != "edge-1" || receiver != "app" {
+		t.Fatalf("expected the caller's application as receiver, got %+v receiver %q", edge, receiver)
 	}
 }
 
@@ -588,7 +627,7 @@ func TestSessionHandleExposesLeaseDeadline(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents"):
-			fmt.Fprintf(w, `{"agent_session_id":"agent-1","heartbeat_deadline_at":%q}`, deadline)
+			fmt.Fprintf(w, `{"agent_session_id":"agent-1","heartbeat_deadline_at":%q,"lease_generation":1}`, deadline)
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -665,7 +704,6 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 		sdk.BaggageHop + "=1",
 	}, ","))
 
-	hop := 4
 	ctx, err := c.BindFromRequest(context.Background(), req, sdk.CallOptions{
 		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
 			return &sdk.VerifiedClaims{
@@ -675,7 +713,7 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 				DelegationID:             "proved-edge",
 				ParentDelegationID:       "proved-parent",
 				SubjectAuthorityRecordID: "proved-subject",
-				Hop:                      &hop,
+				Hop:                      4,
 			}, nil
 		},
 	})
@@ -695,12 +733,37 @@ func TestBindFromRequestVerifiedClaimsOverrideEnvelope(t *testing.T) {
 		t.Fatal("inbound token must stay pinned")
 	}
 
+	ctx, err = c.BindFromRequest(context.Background(), req, sdk.CallOptions{
+		Verify: func(context.Context, string) (*sdk.VerifiedClaims, error) {
+			return &sdk.VerifiedClaims{ZoneID: "proved-zone", ApplicationID: "proved-app", Hop: 0}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, _ = sdk.Current(ctx)
+	if cur.SessionID != "" || cur.DelegationID != "" || cur.ParentDelegationID != "" || cur.SubjectAuthorityRecordID != "" || cur.Hop != 0 {
+		t.Fatalf("omitted verified claims must clear envelope authority: %#v", cur)
+	}
+
 	bare := httptest.NewRequest(http.MethodGet, "/", nil)
 	if _, err := c.BindFromRequest(context.Background(), bare); err == nil {
 		t.Fatal("missing bearer without AllowRoot must be rejected")
 	}
 	if _, err := c.BindFromRequest(context.Background(), bare, sdk.CallOptions{AsApplication: true}); err == nil {
 		t.Fatal("root fallback without a token source must surface the error")
+	}
+
+	root := &sdk.Caracal{ZoneID: "z", ApplicationID: "app", SubjectToken: "root-token"}
+	trusted := httptest.NewRequest(http.MethodGet, "/", nil)
+	trusted.Header.Set(sdk.HeaderBaggage, sdk.BaggageAgentSession+"=forged,"+sdk.BaggageDelegationEdge+"=forged-edge,"+sdk.BaggageHop+"=9")
+	trustedCtx, err := root.BindFromRequest(context.Background(), trusted, sdk.CallOptions{AsApplication: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedCur, _ := sdk.Current(trustedCtx)
+	if trustedCur.SessionID != "" || trustedCur.DelegationID != "" || trustedCur.Hop != 0 || !trustedCur.OwnToken {
+		t.Fatalf("application ingress must clear caller authority baggage: %#v", trustedCur)
 	}
 }
 

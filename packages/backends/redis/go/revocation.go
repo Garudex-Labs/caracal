@@ -7,6 +7,8 @@ package revocationredis
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -25,12 +27,33 @@ const (
 	DelegationInvalidationStream = "caracal.delegations.invalidate"
 	// DefaultRevocationTTL is the default duration for cached revoked sessions.
 	DefaultRevocationTTL = 24 * time.Hour
+	// DefaultDeadLetterMaxLength bounds poison-message retention per stream.
+	DefaultDeadLetterMaxLength = 10_000
 )
+
+const maxEpochScript = `
+local function normalize(value)
+	if not string.match(value, '^%d+$') then return '0' end
+	value = string.gsub(value, '^0+', '')
+	if value == '' then return '0' end
+	return value
+end
+local current = normalize(redis.call('GET', KEYS[1]) or '0')
+local candidate = normalize(ARGV[1])
+if string.len(candidate) > string.len(current) or (string.len(candidate) == string.len(current) and candidate > current) then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+  return 1
+end
+return 0
+`
+
+var errMalformedStreamMessage = errors.New("malformed stream message")
 
 // KeyClient is the Redis key operation subset needed by Store.
 type KeyClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+	Eval(ctx context.Context, script string, keys []string, args ...any) *redis.Cmd
 }
 
 // Store implements revocation.Store using Redis keys.
@@ -146,15 +169,18 @@ func (s *Store) MarkDelegationEpoch(zoneID string, epoch int64, ttl time.Duratio
 	if zoneID == "" || epoch < 0 {
 		return nil
 	}
-	if epoch <= s.CurrentDelegationEpoch(zoneID) {
-		return nil
-	}
 	if ttl <= 0 {
 		ttl = s.defaultTTL
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	return s.redis.Set(ctx, s.delegationEpochKey(zoneID), strconv.FormatInt(epoch, 10), ttl).Err()
+	return s.redis.Eval(
+		ctx,
+		maxEpochScript,
+		[]string{s.delegationEpochKey(zoneID)},
+		strconv.FormatInt(epoch, 10),
+		strconv.FormatInt(ttl.Milliseconds(), 10),
+	).Err()
 }
 
 func (s *Store) key(anchorID string) string {
@@ -172,6 +198,7 @@ type StreamClient interface {
 	XAutoClaim(ctx context.Context, a *redis.XAutoClaimArgs) *redis.XAutoClaimCmd
 	XGroupCreateMkStream(ctx context.Context, stream, group, start string) *redis.StatusCmd
 	XReadGroup(ctx context.Context, a *redis.XReadGroupArgs) *redis.XStreamSliceCmd
+	XAdd(ctx context.Context, a *redis.XAddArgs) *redis.StringCmd
 }
 
 // Consumer reads signed stream messages and applies them to a Store.
@@ -186,6 +213,7 @@ type Consumer struct {
 	pendingIdle      time.Duration
 	streamHMACKey    []byte
 	requireSignature bool
+	deadLetterMaxLen int64
 	apply            func(values map[string]any) error
 }
 
@@ -225,16 +253,22 @@ func WithStreamHMAC(key []byte, require bool) ConsumerOption {
 	}
 }
 
+// WithDeadLetterMaxLength sets the approximate maximum poison-message count.
+func WithDeadLetterMaxLength(length int64) ConsumerOption {
+	return func(c *Consumer) { c.deadLetterMaxLen = length }
+}
+
 // NewConsumer returns a Redis stream consumer that populates store.
 func NewConsumer(redis StreamClient, store *Store, consumer string, opts ...ConsumerOption) (*Consumer, error) {
 	c := &Consumer{
-		redis:       redis,
-		store:       store,
-		stream:      RevocationStream,
-		group:       "resource-revocation",
-		consumer:    consumer,
-		batchSize:   50,
-		pendingIdle: 30 * time.Second,
+		redis:            redis,
+		store:            store,
+		stream:           RevocationStream,
+		group:            "resource-revocation",
+		consumer:         consumer,
+		batchSize:        50,
+		pendingIdle:      30 * time.Second,
+		deadLetterMaxLen: DefaultDeadLetterMaxLength,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -250,6 +284,9 @@ func NewConsumer(redis StreamClient, store *Store, consumer string, opts ...Cons
 	}
 	if c.pendingIdle <= 0 {
 		c.pendingIdle = 30 * time.Second
+	}
+	if c.deadLetterMaxLen <= 0 {
+		c.deadLetterMaxLen = DefaultDeadLetterMaxLength
 	}
 	if c.requireSignature && len(c.streamHMACKey) == 0 {
 		return nil, fmt.Errorf("stream hmac key is required when signatures are required")
@@ -344,16 +381,29 @@ func (c *Consumer) replayPending(ctx context.Context) (int, error) {
 
 func (c *Consumer) processMessage(ctx context.Context, msg redis.XMessage) error {
 	if !c.verify(msg.Values) {
+		if err := c.deadLetter(ctx, msg, "invalid_signature"); err != nil {
+			return err
+		}
 		return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
 	}
 	if err := c.apply(msg.Values); err != nil {
+		if errors.Is(err, errMalformedStreamMessage) {
+			if deadErr := c.deadLetter(ctx, msg, err.Error()); deadErr != nil {
+				return deadErr
+			}
+			return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
+		}
 		return err
 	}
 	return c.redis.XAck(ctx, c.stream, c.group, msg.ID).Err()
 }
 
 func (c *Consumer) applyRevocations(values map[string]any) error {
-	for _, anchor := range revocationAnchors(values) {
+	anchors := revocationAnchors(values)
+	if len(anchors) == 0 {
+		return fmt.Errorf("%w: missing_revocation_anchor", errMalformedStreamMessage)
+	}
+	for _, anchor := range anchors {
 		if err := c.store.MarkRevoked(anchor, 0); err != nil {
 			return err
 		}
@@ -366,7 +416,7 @@ func (c *Consumer) applyDelegationEpoch(values map[string]any) error {
 	raw, _ := values["epoch"].(string)
 	epoch, err := strconv.ParseInt(raw, 10, 64)
 	if zoneID == "" || err != nil || epoch < 0 {
-		return nil
+		return fmt.Errorf("%w: invalid_delegation_epoch", errMalformedStreamMessage)
 	}
 	return c.store.MarkDelegationEpoch(zoneID, epoch, 0)
 }
@@ -390,4 +440,21 @@ func (c *Consumer) verify(values map[string]any) bool {
 		return true
 	}
 	return sharedcrypto.VerifyStream(c.streamHMACKey, c.stream, values)
+}
+
+func (c *Consumer) deadLetter(ctx context.Context, msg redis.XMessage, reason string) error {
+	payload, err := json.Marshal(msg.Values)
+	if err != nil {
+		return err
+	}
+	return c.redis.XAdd(ctx, &redis.XAddArgs{
+		Stream: c.stream + ".dead",
+		MaxLen: c.deadLetterMaxLen,
+		Approx: true,
+		Values: map[string]any{
+			"source_id": msg.ID,
+			"reason":    reason,
+			"payload":   string(payload),
+		},
+	}).Err()
 }

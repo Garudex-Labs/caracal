@@ -16,7 +16,8 @@ import { agentsRoutes } from './routes/agents.js'
 import { agentServicesRoutes } from './routes/agent-services.js'
 import { delegationsRoutes } from './routes/delegations.js'
 import { invocationsRoutes } from './routes/invocations.js'
-import { v1Routes } from './routes/v1.js'
+import { outboxRoutes } from './routes/outbox.js'
+import { verifyRoutes } from './routes/verify.js'
 import type { Cfg } from './config.js'
 import { verifyBearer } from './auth.js'
 import { registerAdminAuditHook } from './admin-audit.js'
@@ -183,13 +184,27 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     // slowest single dependency rather than their sum, keeping readiness fast even when a
     // connection is briefly cold. Postgres precedence is preserved when both fail.
     const [postgres, redisPing] = await Promise.allSettled([
-      withTimeout(app.db.query('SELECT 1'), READY_CHECK_TIMEOUT_MS, 'ready postgres check timed out'),
+      withTimeout(
+        app.db.query(
+          `SELECT EXISTS (
+             SELECT 1 FROM caracal_outbox
+             WHERE producer = 'coordinator' AND status = 'dead'
+           ) AS dead_outbox`,
+        ),
+        READY_CHECK_TIMEOUT_MS,
+        'ready postgres check timed out',
+      ),
       withTimeout(app.redis.ping(), READY_CHECK_TIMEOUT_MS, 'ready redis check timed out'),
     ])
     if (postgres.status === 'rejected') {
       reply.code(503)
       req.log.warn({ err: postgres.reason }, 'ready_postgres_unreachable')
       return { ok: false, error: 'postgres_unreachable', dependency: 'postgres' }
+    }
+    if (postgres.value.rows[0]?.dead_outbox === true) {
+      reply.code(503)
+      req.log.error('ready_outbox_dead')
+      return { ok: false, error: 'outbox_dead', dependency: 'outbox' }
     }
     if (redisPing.status === 'rejected') {
       reply.code(503)
@@ -247,6 +262,9 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
     lines.push('# HELP caracal_retention_cleaner_runs_total Retention cleaner iterations')
     lines.push('# TYPE caracal_retention_cleaner_runs_total counter')
     lines.push(`caracal_retention_cleaner_runs_total ${retentionCleanerStats.runs ?? 0}`)
+    lines.push('# HELP caracal_retention_sessions_deleted_total Terminal Sessions deleted by retention')
+    lines.push('# TYPE caracal_retention_sessions_deleted_total counter')
+    lines.push(`caracal_retention_sessions_deleted_total ${retentionCleanerStats.deleted_sessions ?? 0}`)
     reply.type('text/plain; version=0.0.4')
     return lines.join('\n') + '\n' + renderObservabilityMetrics()
   })
@@ -266,6 +284,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: CoordinatorDeps) 
   await app.register(agentServicesRoutes)
   await app.register(delegationsRoutes)
   await app.register(invocationsRoutes)
-  await app.register(v1Routes)
+  await app.register(outboxRoutes)
+  await app.register(verifyRoutes)
   return app
 }

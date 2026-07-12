@@ -8,10 +8,13 @@ import { join } from 'node:path'
 
 export const OPERATOR_ALLOWLIST_DIR = 'allowlist'
 export const OPERATOR_ALLOWLIST_FILE = 'operatorAllowlist.json'
-// Only the auth backend may read admission policy; group/world access would let any local
-// process learn which identities can reach the Console.
-const ALLOWLIST_FILE_MODE = 0o600
-const ALLOWLIST_DIR_MODE = 0o700
+// The web container reads admission policy as a non-root user whose uid differs from the host
+// user that `caracal allowlist` runs as, so the bind-mounted directory must be traversable and
+// the file readable by that user. Host-side confidentiality is still enforced by the enclosing
+// secrets directory, which secureDir() locks to the owner (0700): other host users cannot reach
+// this path, and the list holds registration-permitted addresses, not credentials.
+const ALLOWLIST_FILE_MODE = 0o644
+const ALLOWLIST_DIR_MODE = 0o755
 
 export type AllowlistStatus = 'active' | 'locked' | 'removed'
 
@@ -128,5 +131,13 @@ export function allowlistSetStatus(secretsDir: string, raw: string, status: 'act
 export function ensureOperatorAllowlistDir(secretsDir: string): string {
   const dir = join(secretsDir, OPERATOR_ALLOWLIST_DIR)
   mkdirSync(dir, { recursive: true, mode: ALLOWLIST_DIR_MODE })
+  // mkdir honors the umask and never lowers an existing directory's mode, so set it explicitly.
+  // This converges a directory an older release created 0700; without it the web container's
+  // non-root user cannot traverse the mount and every Console sign-in fails closed.
+  try {
+    chmodSync(dir, ALLOWLIST_DIR_MODE)
+  } catch {
+    // permissions may be unsupported on some filesystems
+  }
   return dir
 }

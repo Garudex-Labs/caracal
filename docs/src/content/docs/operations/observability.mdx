@@ -1,77 +1,36 @@
 ---
 title: Monitor Health and Metrics
-description: Monitor Caracal health, readiness, metrics, audit flow, and runtime diagnostics.
+description: Gate traffic and changes on verified liveness, readiness, metrics, and end-to-end evidence.
 pageType: workflow
 ---
 
-Every service exposes health/readiness endpoints; most services also expose metrics. Use readiness for automation gates and health for liveness.
+Use `/health` for liveness and `/ready` for traffic and rollout gates.
 
 ## Endpoint Map
 
-| Service | Health | Readiness | Metrics |
-| --- | --- | --- | --- |
-| API | `/health` | `/ready` | `/metrics` |
-| STS | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Gateway | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Audit | `/health` | `/ready` | `/metrics`, `/metrics.json` |
-| Coordinator | `/health` | `/ready` | `/metrics` |
-| Control | `/health` | `/ready` | Not primary operator surface |
+| Service | Port | Health | Readiness | Metrics |
+| --- | ---: | --- | --- | --- |
+| API | 3000 | `/health` | `/ready` | `/metrics` |
+| STS | 8080 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Gateway | 8081 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Audit | 9090 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Coordinator | 4000 | `/health` | `/ready` | `/metrics` |
 
-## Metrics Authentication
+Published metrics require `Authorization: Bearer <METRICS_BEARER>`. Keep them private even when authenticated.
 
-In published builds (`CARACAL_MODE=rc` or `stable`), every metrics endpoint fails closed: it returns `401` unless `METRICS_BEARER` is set and the scraper presents `Authorization: Bearer <token>`. This applies to API, STS, Gateway, Audit, and Coordinator, all of which are reachable on the internal service network. `caracal up` generates the managed `metricsBearer` secret and mounts it into every service via `METRICS_BEARER_FILE`; the web console **Diagnostics** checks discover the same secret and authenticate their metrics probes automatically. Point external scrapers at the same secret file. In `dev` mode metrics stay open for local inspection.
+## Procedure
 
-## Readiness Ladder
+1. Scrape every enabled service with the metrics secret.
+2. Track readiness, DB pool, policy age/compile errors, provider refresh, audit lag/DLQ/tamper/replay, outbox, STS circuit, and revocation freshness.
+3. Correlate logs and audit by request ID.
+4. Gate deployment on readiness plus canary exchange, Gateway call, and audit lookup.
 
-```mermaid
-flowchart TB
-  Health[Process health] --> Storage[Postgres and Redis]
-  Storage --> Streams[Streams, outbox, revocation, policy invalidation]
-  Streams --> Service[Service-specific readiness]
-  Service --> Smoke[End-to-end smoke test]
-```
+For Compose run `caracal status --ready`; from a checkout use `bash infra/scripts/smokeTest.sh`. For Helm, verify Jobs, workloads, ServiceMonitor discovery, and rules.
 
-| Rung | What it proves | User-facing impact when it fails |
-| --- | --- | --- |
-| Process health | The service process can answer liveness. | Restart loops or dead containers. |
-| Postgres and Redis | Durable state and stream/cache dependencies are reachable. | Management writes, token exchange, audit, or revocation can fail. |
-| Streams and outbox | Event delivery paths are draining. | Decisions may succeed while evidence or invalidation lags. |
-| Service readiness | Service-specific invariants are met. | That service should not receive production traffic. |
-| End-to-end smoke test | API, STS, Gateway, Audit, and Coordinator work together. | User workflows may fail even when individual services look healthy. |
+## Recovery
 
-## Local Checks
-
-```bash
-caracal status
-caracal status --ready
-bash infra/scripts/smokeTest.sh
-```
-
-`smokeTest.sh` probes API `/ready` and `/health`, Gateway `/ready`, STS `/ready`, Audit `/ready`, and Coordinator `/ready`.
-
-## Kubernetes Checks
-
-```bash
-kubectl -n caracal get pods
-kubectl -n caracal get servicemonitor,prometheusrule
-kubectl -n caracal logs deploy/caracal-api
-```
-
-Enable `serviceMonitor.enabled` when using Prometheus Operator. Keep chart alert rules enabled or provide equivalent alerts.
-
-## Operator Diagnostics
-
-Use Console `diagnostics` for API health, readiness, zone diagnostics, and local preflight checks. Use Console `audit` and `request trace` views for decision investigation.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Health passes but readiness fails | Dependency, stream, outbox, policy, revocation, or audit readiness. |
-| Metrics scrape returns unauthorized | Published builds require `METRICS_BEARER`; set it and match the scraper's bearer token. |
-| Readiness flaps | CPU throttling, OOM, Postgres/Redis latency, probe timeouts, or dependency restarts. |
-| Smoke test fails only for API `/health` | Confirm the API liveness endpoint responds in the deployment shape being tested. |
+If health passes but readiness fails, preserve the readiness reason and inspect its dependency/safety latch. Restore the cause and drain backlogs. Preserve evidence before replacing an `audit_evidence_lost` process.
 
 ## Next Step
 
-Use [Configure Alerts](/operations/alerts/) to wire the readiness, audit, revocation, policy, and capacity signals into on-call response.
+Route signals with [Configure Alerts](/operations/alerts/).

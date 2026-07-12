@@ -8,8 +8,8 @@ module github.com/garudex-labs/caracal/packages/backends/redis/go
 go 1.26
 
 require (
-	github.com/garudex-labs/caracal/packages/core/go v0.2.0
-	github.com/garudex-labs/caracal/packages/revocation/go v0.2.0
+	github.com/garudex-labs/caracal/packages/core/go v0.2.0-rc.2
+	github.com/garudex-labs/caracal/packages/revocation/go v0.2.0-rc.2
 	github.com/redis/go-redis/v9 v9.19.0
 )
 

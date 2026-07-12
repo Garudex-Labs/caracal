@@ -1,69 +1,59 @@
 ---
 title: Start and Check the Stack
-description: Use caracal up, down, status, and purge to manage the local runtime stack.
-pageType: reference
+description: Start local Caracal services, distinguish health from readiness, open the packaged console, and reset state deliberately.
+pageType: workflow
 ---
 
-Runtime lifecycle commands manage local infrastructure only. They delegate to Docker Compose and keep product state changes in the web console.
-
-## Service Layout
-
-| Service     | Default local port |
-| ----------- | ------------------ |
-| API         | `3000`             |
-| STS         | `8080`             |
-| Gateway     | `8081`             |
-| Audit       | `9090`             |
-| Coordinator | `4000`             |
-
-Control runtime exposure is managed through the web console **Control** section, not by targeting a stack service directly from the runtime CLI.
+The stack is the set of containers `caracal up` manages: Caracal's services, PostgreSQL, Redis, and the packaged web console. This page covers its day-to-day lifecycle; [Install Caracal](/get-started/install-caracal/) covers getting the CLI and Docker in place.
 
 ## Start
 
 ```bash
 caracal up
-```
-
-Development mode rebuilds local images. Release modes use installed compose assets and the selected Caracal version.
-
-## Stop
-
-```bash
-caracal down
-caracal down -v
-```
-
-Use `-v` only when you intend to remove Docker volumes.
-
-## Check Health and Readiness
-
-```bash
-caracal status
 caracal status --ready
+```
+
+`caracal up` starts the stack in the background. Development mode builds local images; release modes use the installed runtime assets. Continue only when `status --ready` exits `0`.
+
+`caracal status` checks liveness. `caracal status --ready` also checks service dependencies. A service can be healthy while Postgres, Redis, policy state, or another required dependency is not ready.
+
+For machine-readable checks:
+
+```bash
 caracal status --ready --json
 ```
 
-`status` probes service health endpoints. `status --ready` probes readiness endpoints and dependencies. The command exits `0` only when the selected probes pass.
+## Open the Packaged Console
 
-## Purge Local State
+Open [http://localhost:3001](http://localhost:3001). Compose maps loopback port `3001` to the combined web/auth service on container port `3002`.
+
+The other loopback bindings are API `3000`, Coordinator `4000`, STS `8080`, Gateway `8081`, and Audit `9090`. They are useful for documented clients and probes, not substitutes for console workflows.
+
+## Stop or Reset
 
 ```bash
-caracal purge
+caracal down
 ```
 
-`purge` can remove stack artifacts, volumes, logs, config, runtime state, secrets, images, cached assets, or all local runtime state depending on the selected purge target. Use it when you intentionally want a clean local environment.
+This stops the stack while preserving volumes. `caracal down -v` also removes Compose volumes. Use `caracal purge` only when intentionally removing selected local artifacts or all local runtime state. A destructive reset can invalidate generated tokens and remove product data; rebuild zones and product objects through the console afterward.
 
-After a full purge, recreate product state through the web console: zones, applications, providers, resources, policies, and Control keys.
+## Recover Common Startup Failures
 
-## Troubleshooting
+| Result                                     | Meaning                                                              | Next action                                                                   |
+| ------------------------------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `status` fails                             | At least one service is not live.                                    | Inspect container/service logs and port conflicts.                            |
+| `status` passes but `status --ready` fails | A live service cannot satisfy a dependency or readiness threshold.   | Open Diagnostics if available; otherwise inspect the failing readiness probe. |
+| Console does not open but readiness passes | Host port `3001` is occupied or the web service failed separately.   | Check the web service and local listener.                                     |
+| Credentials fail after reset               | A shell variable or file contains a credential from the prior state. | Use freshly generated local secret files or rotate the affected credential.   |
 
-| Symptom                                       | Likely cause                                                                                       |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `status` passes but `status --ready` fails    | A service is alive but one of its dependencies or readiness checks is not ready.                   |
-| Web console cannot connect after `up`         | Check `caracal status --ready`; custom deployments should confirm the Admin API URL override.      |
-| Workloads cannot exchange tokens              | Readiness for STS, Gateway, and audit must pass before debugging workload config.                  |
-| Local tokens are stale after `purge` and `up` | Prefer local generated secret files over exported shell tokens for localhost web-console sessions. |
+For infrastructure diagnosis, use [Debug Infrastructure Issues](/operations/debugging/).
+
+## Development Console Launcher
+
+`caracal web` is for console development. It stops the packaged web container to avoid a port collision, starts the local UI and auth backend, and leaves the packaged container stopped when it exits. Run `caracal up` afterward to restore the packaged console.
+
+`caracal web --allow-offline` permits UI or sign-in development while runtime services are unavailable. Product views still cannot perform their backend work.
 
 ## Next Step
 
-Continue to [Use the Web Console](/runtime-console/console/) to create the first zone, application, provider, resource, policy, and runtime profile.
+[Control Console Access](/runtime-console/console-access/).

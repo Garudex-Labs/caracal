@@ -1,0 +1,114 @@
+---
+/*
+ * Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+ * Caracal, a product of Garudex Labs
+ *
+ * Documentation minor-version selector for current and historical content.
+ */
+
+import { getCollection } from 'astro:content'
+import { docsRouteVersion, docsVersionState, logicalDocId, switchDocsVersionPath } from '../../versioning.mjs'
+
+const docs = await getCollection('docs')
+const ids = new Set(docs.map((entry) => entry.id))
+const routeVersion = docsVersionState.current
+  ? docsRouteVersion(Astro.url.pathname) ?? docsVersionState.current
+  : docsVersionState.target
+const routeId = logicalDocId(Astro.locals.starlightRoute.entry.id)
+const versions = docsVersionState.current
+  ? [
+      ...docsVersionState.versions.map((version) => ({
+        version: version.version,
+        label: version.version,
+      })),
+      { version: 'next', label: 'Next' },
+    ]
+  : [{ version: docsVersionState.target, label: docsVersionState.target }]
+
+function versionHref(version: string) {
+  if (!docsVersionState.current) return Astro.url.pathname
+  const id = routeId === 'index' ? version : `${version}/${routeId}`
+  return ids.has(id) ? switchDocsVersionPath(Astro.url.pathname, version) : `/${version}/`
+}
+---
+
+<caracal-version-select>
+  <label>
+    <span class="sr-only">Documentation version</span>
+    <select aria-label="Documentation version" autocomplete="off">
+      {versions.map((version) => (
+        <option selected={version.version === routeVersion} value={versionHref(version.version)}>
+          {version.label}
+        </option>
+      ))}
+    </select>
+    <svg class="version-caret" aria-hidden="true" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  </label>
+</caracal-version-select>
+
+<script>
+  class CaracalVersionSelect extends HTMLElement {
+    connectedCallback() {
+      const select = this.querySelector('select')
+      if (!select || select.dataset.bound === 'true') return
+      select.dataset.bound = 'true'
+      select.addEventListener('change', () => window.location.assign(select.value))
+    }
+  }
+
+  if (!customElements.get('caracal-version-select')) {
+    customElements.define('caracal-version-select', CaracalVersionSelect)
+  }
+</script>
+
+<style>
+  caracal-version-select {
+    display: inline-flex;
+  }
+
+  label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    color: var(--sl-color-text);
+  }
+
+  select {
+    min-height: 2rem;
+    max-width: 10.5rem;
+    appearance: none;
+    padding: 0 1.9rem 0 0.72rem;
+    border: 1px solid var(--caracal-border-strong);
+    border-radius: 6px;
+    background: var(--caracal-panel-strong);
+    color: inherit;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  select:hover,
+  select:focus-visible {
+    border-color: var(--caracal-link);
+  }
+
+  select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--caracal-link) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  option {
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-text);
+  }
+
+  .version-caret {
+    position: absolute;
+    right: 0.52rem;
+    pointer-events: none;
+  }
+</style>

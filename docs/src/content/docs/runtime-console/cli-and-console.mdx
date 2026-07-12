@@ -1,79 +1,51 @@
 ---
 title: Choose the Right Surface
-description: Decide whether a task belongs in the runtime CLI, web console, Control API, or Admin SDK.
-pageType: reference
+description: Route each lifecycle, human-management, automation, and workload task to its supported Caracal surface.
+pageType: workflow
 ---
 
-Use this page before reaching for a command. Caracal separates local runtime lifecycle from product management so workload execution does not depend on admin tokens or selected zones.
+Choose a surface from the outcome you need, not from where a similarly named object happens to appear.
 
-## Ownership Rule
+## Decision Table
+
+| You need to                                             | Use                      | Why                                                                                                                      |
+| ------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Start, stop, inspect, upgrade, or reset a local runtime | `caracal`                | These operations concern local processes and storage.                                                                    |
+| Launch a command with scoped credentials                | `caracal run`            | It authenticates a Launcher workload and injects its configured bindings.                                                |
+| Admit, suspend, or remove a console user                | `caracal allowlist`      | Access is host-level auth configuration, not zone product state.                                                         |
+| Create or change product objects                        | Web console              | It provides selected-zone context, validation, guided setup, and audited secret handling.                                |
+| Investigate or intervene in live authority              | Web console              | Subjects, Authority records, Sessions, Delegations, Approvals, Audit, and Diagnostics are structured operator workflows. |
+| Manage product state from CI or another trusted host    | Control API or Admin SDK | These are authenticated automation surfaces.                                                                             |
+
+## Runtime CLI Boundary
+
+The top-level runtime commands are lifecycle and launch commands:
 
 ```text
-local lifecycle and process execution -> caracal
-human product management              -> web console
-scripted product management           -> Control API or Admin SDK
+up  down  status  upgrade  purge  allowlist  run  web
 ```
 
-The top-level runtime CLI intentionally contains only `up`, `down`, `status`, `upgrade`, `purge`, `allowlist`, `run`, and `web`.
+`web` is a development launcher for the console UI and auth backend. It is not a product-management command. The packaged console already runs as part of `caracal up` and is opened in a browser at `http://localhost:3001`.
 
-:::note[FAQ]
-[Why are zone and policy commands in the web console instead of the `caracal` CLI?](/reference/faq/#faq-015)
-:::
+Do not look for top-level commands to create zones, policies, applications, resources, workloads, Sessions, Delegations, Approvals, or Control keys. Use the console for human work. Use the Admin SDK or Control API for automation.
 
-## Runtime CLI Tasks
+## Console Versus Automation
 
-| Outcome                                          | Command                                             |
-| ------------------------------------------------ | --------------------------------------------------- |
-| Start the local stack                            | `caracal up`                                        |
-| Stop the local stack                             | `caracal down`                                      |
-| Stop and remove volumes                          | `caracal down -v`                                   |
-| Probe service health                             | `caracal status`                                    |
-| Probe dependency readiness                       | `caracal status --ready`                            |
-| Emit structured status                           | `caracal status --json`                             |
-| Upgrade the local stack to the installed release | `caracal upgrade`                                   |
-| Remove local stack/runtime state                 | `caracal purge`                                     |
-| Manage which emails may sign in on the console   | `caracal allowlist add\|remove\|lock\|unlock\|list` |
-| Run a process with resource tokens               | `caracal run -- <command>`                          |
-| Open the packaged local web console              | `http://localhost:3001` after `caracal up`          |
-| Launch the local web development server          | `caracal web`                                       |
+Use the web console when a person needs to follow guided setup, review selected-zone validation, reveal a secret with an audit record, activate policy, inspect a trace, decide an eligible Approval, or intervene in a Session.
 
-Runtime CLI commands must not require admin tokens, selected zones, product credentials, or Control credentials.
+Use automation only from a trusted operator environment. The Admin SDK provides direct management APIs. The optional Control API provides zone-bound, scoped, replay-protected remote invocation. Neither surface starts Docker or launches workload processes.
 
-## Web Console Tasks
+Never give workload code root admin, Coordinator, Control, or secret-store credentials. Workloads authenticate with application, SDK, or Launcher workload credentials.
 
-| Outcome                                           | Web console section |
-| ------------------------------------------------- | ------------------- |
-| Create or select zones                            | **Zones**           |
-| Register confidential agent applications          | **Applications**    |
-| Configure provider credential sources             | **Providers**       |
-| Register protected resources and scopes           | **Resources**       |
-| Author access policies                            | **Policies**        |
-| Simulate and activate policy sets                 | **Policy Sets**     |
-| Inspect Subjects and their Authority records      | **Subjects**        |
-| Enable and manage Control API access              | **Control**         |
-| Search audit records and trace selected requests  | **Audit**           |
-| Trace one known request ID                        | **Audit**           |
-| Inspect or manage Sessions                        | **Sessions**        |
-| Inspect or revoke Delegations                     | **Delegation**      |
-| Run health, readiness, zone, and preflight checks | **Diagnostics**     |
+## If the Wrong Surface Seems Necessary
 
-Product-management workflows are not mirrored as top-level runtime CLI commands. Keeping them in the web console prevents command drift and keeps human operations tied to the same engine/admin helpers.
-
-## Automation Tasks
-
-Use the Admin SDK from trusted operator environments when scripts need to create zones. Use the Control API for zone-bound automation over applications, resources, policies, Authority records, Sessions, Delegations, audit queries, and Control credentials. Enable Control from the web console's **Control** section, then call the authenticated HTTP surface from CI or automation.
-
-Automation must run with operator credentials only in trusted control-plane environments. Agent workloads should use `caracal run` or application credentials and must not receive `CARACAL_ADMIN_TOKEN`, `CARACAL_COORDINATOR_TOKEN`, `CARACAL_SECRETS_DIR`, or mounted operator secret files.
-
-## Troubleshooting
-
-| Symptom                                                           | Check                                                                                                                                                      |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The web console cannot reach product data                         | Run `caracal up` and confirm `caracal status --ready`; for the development launcher, use `caracal web --allow-offline` only for sign-in or UI-only checks. |
-| A command for zones, policies, or audit is missing from `caracal` | Open the web console. Those workflows are intentionally web-console-owned.                                                                                 |
-| Product management is needed in CI                                | Use the Control API or Admin SDK with scoped operator credentials.                                                                                         |
-| Runtime command asks for product-management context               | Treat it as a bug; runtime lifecycle must not depend on admin or zone state.                                                                               |
+| Symptom                                                | Action                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| A zone or policy command is absent from `caracal`      | Open the web console; the absence is intentional.                                   |
+| A lifecycle command asks for a zone or admin token     | Treat it as a boundary violation.                                                   |
+| CI needs repeatable configuration                      | Use the Admin SDK or Control API, not browser scripting.                            |
+| The console is unavailable but lifecycle must continue | Use `caracal status`, `down`, or `up`; lifecycle does not depend on console access. |
 
 ## Next Step
 
-Use [Start and Check the Stack](/runtime-console/stack/) when you need local services running.
+[Start and Check the Stack](/runtime-console/stack/).

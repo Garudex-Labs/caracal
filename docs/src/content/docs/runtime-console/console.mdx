@@ -1,195 +1,73 @@
 ---
 title: Use the Web Console
-description: Launch, navigate, and operate the browser-based Caracal web console.
-pageType: reference
+description: Sign in, finish onboarding, complete guided setup, navigate zone state, and understand system-zone restrictions.
+pageType: workflow
 ---
 
-The web console is the supported browser UI for setting up and operating protected agent access. The packaged `web` service serves the built SPA and a session-guarded backend-for-frontend from the same origin, then proxies console API calls to the internal API and Coordinator. For local Compose, open [http://localhost:3001](http://localhost:3001) after `caracal up`; use `caracal web` when you need the development launcher.
+The web console is where people manage Caracal: it carries account onboarding, guided setup, every product form, audit, and live intervention. This page orients you in it; the pages after it go deep on each workflow.
 
-## Local Access
+## Open the Correct Console
 
-The web console expects the local stack to be running:
+For normal local operation, open [http://localhost:3001](http://localhost:3001) after `caracal up`. This is the packaged console served with its session-guarded backend-for-frontend.
 
-```bash
-caracal up
-caracal status --ready
-```
+Use `caracal web` only while developing the console. That development launcher is unrelated to the console's **Launcher** workload page:
 
-Open [http://localhost:3001](http://localhost:3001). Compose maps `127.0.0.1:3001` to the BFF container on port `3002`.
+| Name                    | Purpose                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `caracal web`           | Starts local web-development processes. It does not create or run governed workloads.                                  |
+| **Services → Launcher** | Creates workload identities and credential bindings consumed by `caracal run`. It does not start a development server. |
 
-Use the development launcher only when working on the console or auth BFF locally:
+## Sign In and Finish Account Onboarding
 
-```bash
-caracal web
-```
+After admission through the host allowlist, sign in with a configured method. A first account visit collects the operator profile and creates or selects the first ordinary zone. This account onboarding is distinct from in-zone guided setup.
 
-The launcher serves on the same port as the packaged console ([http://localhost:3001](http://localhost:3001)), with the backend-for-frontend on `3002`. While it runs it stops the packaged web container so the two never contend for the port. Stopping the launcher (Ctrl+C) tears down both the UI and the backend; the packaged web container stays stopped, so run `caracal up` to bring the packaged console back.
+The console keeps the active zone in the URL and profile state. Zone-scoped pages require a selected zone.
 
-Use `--allow-offline` with the development launcher when you only need sign-in or UI-only checks and the stack is not ready:
+## Complete Guided Setup
 
-```bash
-caracal web --allow-offline
-```
+Guided setup reads live zone inventory and opens the real product forms. It teaches one deny-by-default path:
 
-## Development Launcher Options
+1. **Register an application** such as Anton. This is the identity requesting access.
+2. **Connect a provider** such as Hooli OIDC. This supplies upstream credentials at runtime.
+3. **Define a resource** such as `resource://pipernet`, including its scopes and upstream.
+4. **Activate a policy** that authorizes the intended application and scopes.
+5. **Verify** from the dashboard, policy simulation, Sessions, and Audit.
 
-| Option               | Purpose                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `--web-port <port>`  | Bind the browser UI to a specific port (default `3001`).           |
-| `--auth-port <port>` | Bind the session/auth backend to a specific port (default `3002`). |
-| `--build`            | Build the web assets before launching.                             |
-| `--allow-offline`    | Start the UI even when local Caracal services are not ready.       |
+The guide marks a step complete from actual zone state. It does not create a Launcher workload. After access is enforcing, open **Services → Launcher** to configure `caracal run`.
 
-## Credentials and Endpoints
+For field-level guidance, use [Define Resources and Providers](/guides/resources-providers/) and [Activate a Policy Set](/guides/activate-policy-set/).
 
-| Input                                                           | Purpose                                                               |
-| --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `CARACAL_API_URL`                                               | Cloud/custom admin API URL override.                                  |
-| `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`             | Admin bearer token for management views.                              |
-| `CARACAL_COORDINATOR_URL`                                       | Cloud/custom Coordinator URL override for agent and delegation views. |
-| `CARACAL_COORDINATOR_TOKEN` or `CARACAL_COORDINATOR_TOKEN_FILE` | Coordinator token for agent and delegation views.                     |
+## Read the Console by Task
 
-For BFF deployment variables such as `CARACAL_AUTH_URL`, `CARACAL_AUTH_DATABASE_URL`, `CARACAL_AUTH_SECRET`, `CARACAL_WEB_ROOT`, and `CARACAL_AUTH_AUTO_MIGRATE`, use [Configure Service Environment](/operations/env-vars/#web-console-bff).
+| Task                                             | Console area                  |
+| ------------------------------------------------ | ----------------------------- |
+| Review posture and recent activity               | **Dashboard**                 |
+| Configure applications, providers, and resources | **Access**                    |
+| Author, simulate, and activate policy            | **Policy**                    |
+| Investigate Subjects and authority               | **Subjects**                  |
+| Intervene in Sessions, Delegations, or Approvals | **Runtime**                   |
+| Search decisions and run health checks           | **Audit** and **Diagnostics** |
+| Configure workload launch                        | **Services → Launcher**       |
+| Configure scoped remote automation               | **Services → Control**        |
 
-For default local services, generated secret files from `caracal up` are preferred over exported token values so local reset cycles do not keep stale shell credentials. Those files live outside the source workspace by default and must not be mounted into agent workspaces.
+## System-Zone Read-Only View
 
-## Browser Model
+Caracal's reserved system zone is not offered in the normal active-zone switcher. The Settings entry opens it in a separate transparency view. In that tab, editable fields and mutating controls are disabled, every non-GET/HEAD console API request is blocked with `system_zone_read_only`, and settings, Operator, and other hide-locked routes are unavailable.
 
-Open the packaged or development URL in a browser, sign in to the session-guarded UI, and navigate by sections instead of terminal keys.
+Do not use the system-zone viewer for customer or application configuration. Return to an ordinary zone to make changes.
 
-| Section              | What it manages                                                                                                                                    |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Guided setup**     | First zone, application, provider, resource, and access policy.                                                                                    |
-| **Caracal Operator** | Operate the control plane from natural-language intent: describe a change, review the resolved plan, and apply it within your operator scope.      |
-| **Zones**            | Zone records and active zone selection.                                                                                                            |
-| **Applications**     | Confidential applications and their client secrets.                                                                                                |
-| **Providers**        | Gateway upstream auth modes for Caracal mandates, OAuth 2.0 authorization code, OAuth 2.0 client credentials, API-key, and bearer-token upstreams. |
-| **Resources**        | Protected resource identifiers, scopes, upstream URLs, Gateway application bindings, and upstream credential provider bindings.                    |
-| **Policies**         | Policy content and versions.                                                                                                                       |
-| **Policy Sets**      | Policy-set composition, simulation, and activation.                                                                                                |
-| **Subjects**         | The identities applications act for - federated users and application identities - with the authority each holds.                                  |
-| **Sessions**         | Governed execution sessions, lifecycle, lease health, and session trees.                                                                           |
-| **Delegation**       | Authority delegated between sessions.                                                                                                              |
-| **Audit**            | Recent decisions, filters, event details, and built-in request tracing.                                                                            |
-| **Services**         | Catalog of platform surfaces beyond the console and SDK, opening the Run and Control API pages.                                                    |
-| **Run**              | Workload identities, launch bindings, gateway requirements, and exact launch commands.                                                             |
-| **Control**          | Control API exposure and Control credentials.                                                                                                      |
-| **Diagnostics**      | Health, readiness, zone, and preflight checks.                                                                                                     |
+## Secret Handling
 
-## Identity and Session Views
+Application and Launcher workload secrets are held in Secret Store custody. Copy a secret at creation or use the object's reveal action later. Every reveal is audited. Rotation invalidates the current secret, so update the consuming secret store or file immediately.
 
-The Subject, Session, and Delegation pages observe distinct identity and execution objects. STS creates Authority records, Coordinator owns Sessions, and the SDK creates Delegations; the web console lists and inspects them.
-
-| View           | What it shows                                                   | Object                                        |
-| -------------- | --------------------------------------------------------------- | --------------------------------------------- |
-| **Subjects**   | One row per distinct Subject, with its Authority record history | `authority_records` rows grouped by JWT `sub` |
-| **Sessions**   | A governed execution, its lifecycle, and lease health           | `sessions` row                                |
-| **Delegation** | Bounded authority between Sessions                              | retained internal `delegation_edges` row      |
-
-A **Subject** is the JWT `sub` identity an application acts for. Each STS exchange creates an **Authority record**, and the Subjects page groups those records by Subject. Its kill switch revokes the Subject's live Authority records, terminates linked Sessions, and revokes Delegations and provider connections. Subjects are not console logins; the application's identity system authenticates them first.
-
-A **Session** is one governed Coordinator execution under an application. It has a Session ID distinct from every Authority record ID. A Session may hold a Subject authority record ID for attribution and lifecycle linkage, but that link alone does not make later resource mandates carry the federated Subject's `sub`. A **Delegation** connects two Sessions, so inbound and outbound Delegations are anchored on Session IDs.
-
-The **Sessions** page supports filtering by `status` (active, suspended, terminated), `lifecycle` (task, service), `application`, and `label`. The lease fields surface task TTL deadlines and service heartbeat deadlines. Use the session detail pages to view inbound and outbound delegations.
+Provider secrets are entered during supported create or rotation flows and remain masked. The console does not write revealed values to the workload host.
 
 ## Caracal Operator
 
-Caracal Operator is a Community Edition console capability that lets you operate the control plane by describing what you want instead of navigating each page by hand. It turns intent into a reviewed plan, then applies it through the same guarded APIs you use manually - within your operator scope and recorded in the audit log. Every change it makes is one you could have made yourself; it introduces no new authority.
+Open **Caracal Operator** from the utility rail or command palette. Each conversation runs in **Ask** mode for read-only investigation or **Agent** mode for answers, live reads, and change plans. A mutating plan is validated and previewed against current state, then waits for Approval before it is revalidated and applied. Conversation memory records activity; live reads and execution previews remain the source of truth for current state.
 
-The Operator works against a capability catalog: the set of control-plane actions it can take, grouped by the objects you operate - zones, applications, providers, resources, access, and policy. Each capability is classified as read-only or state-changing, so a request that only inspects state is always distinguishable from one that changes it.
-
-The Operator is a workspace, not a chat box. Each session shows an execution timeline of everything that has happened - your messages, the plans it proposed, your approvals, and the result of each applied step. A proposed plan appears as a card with its steps and effects; you approve, reject, or apply it inline, and the card updates to show progress as each step runs.
-
-Work happens in a session - an auditable conversation scoped to the active zone. Within a session the Operator follows a governed lifecycle:
-
-1. **Propose.** Intent becomes a plan whose every step is validated against the capability catalog. A step that names an unknown action or invalid arguments is rejected before anything runs.
-2. **Preview.** The plan is resolved against your live state as a read-only dry run, so each step is marked as a create, an update, a no-op against an object that already exists, or blocked when a referenced object is missing. Nothing is written.
-3. **Decide.** You approve or reject the plan. A plan is decided once, and only an approved plan is eligible to apply.
-4. **Apply.** An approved plan is executed step by step. Before any write, the plan is re-validated and re-previewed against current state so drift since approval cannot apply a stale change. Each step is then applied as its own authenticated, audited control-plane call under the Operator's least-privilege identity. If a step fails, the plan stops there rather than pressing on, so it never blindly pushes past an error; the steps that already applied remain applied, and the apply response records exactly which steps succeeded and which one stopped the plan. So that a change which may already have taken effect can never be applied twice, a plan that has begun applying is not re-run, while a plan that fails before anything is applied stays available to retry. Each applied step is written to the conversation as an execution record, and secret material such as a newly issued client secret is surfaced in the apply response and never written to the conversation.
-
-A plan applies only once. Any secret it produces is surfaced in the apply response and is never written to the conversation or the audit log; issued credentials stay retrievable from Secret Store custody through the owning object's audited reveal.
-
-### Operator authority and isolation
-
-The Operator runs under its own reserved identity, distinct from the human operator who approves a plan. When a plan is applied, your approval is recorded in the admin audit log, while the execution record names the Operator's reserved principal as the authority that actually made the change - the Operator's authority is a delegated, attenuated form of your own.
-
-That delegated authority is least-privilege: the Operator may execute only the capabilities explicitly granted to it, and the grant defaults to the small set of state-changing capabilities it is built to apply. A plan that asks the Operator to execute a capability outside its grant is refused as forbidden, before execution and regardless of whether a handler exists. The grant governs state-changing capabilities only; read-only capabilities change nothing and are always available.
-
-The Operator is also bounded by a zone isolation boundary. An administrator can mark zones as system zones; the Operator will not open a session in, or execute against, a system zone at all, keeping its authority away from the infrastructure that runs Caracal itself.
-
-Because the Operator acts within a delegated subset of your operator authority and never outside the active zone, the same row-level zone isolation and audit trail that govern manual changes also govern Operator changes. Nothing is applied until you approve the plan, every applied change is attributed to you, and the executing authority is the Operator's own least-privilege identity.
-
-### Ask and agent modes
-
-Every conversation runs in one of two modes, set on the conversation and enforced by Caracal, never chosen by the model. A new conversation opens in agent mode unless you create it in ask mode, and you can switch a conversation between the two at any time from the mode control above the message box.
-
-In **agent mode** the Operator can do everything described here: answer questions, read your state, and propose plans that - after your approval - apply changes. In **ask mode** the Operator is strictly read-only: it explains, investigates, and diagnoses, but it never produces a plan and cannot apply anything. A request that would require a change is answered with a note telling you to switch to agent mode to plan it. Ask mode is the right choice for exploration, audits, and read-only operators.
-
-Ask mode is enforced in two independent places, so a read-only conversation is provably write-incapable rather than write-incapable by convention. The Operator's planning skill is never even selected in ask mode, so the model is not asked to produce a plan; and the change endpoints - proposing a plan, approving one, and applying one - refuse outright in ask mode regardless of what was requested. Either layer alone blocks a change; together they mean no change can originate from an ask-mode conversation.
-
-### Autopilot
-
-In agent mode you can engage autopilot, which lets Caracal auto-satisfy the approval step for every plan in the conversation. Engaging autopilot is an explicit opt-in to acting without a human in the loop: once on, Caracal - never the model - auto-approves each plan so you no longer confirm changes one by one. It is off by default and is engaged per conversation; a platform-level master switch must also be on for autopilot to be available at all.
-
-Auto-approval never widens authority. It only fills the human-approval step - the governed execute path still applies every change through the same controls as a human-approved one: the Operator's capability allowlist, its least-privilege executor token, and zone isolation all remain in force, so autopilot can only do what the Operator was already permitted to do.
-
-When autopilot approves a plan, the approval is recorded as a first-class turn attributed to autopilot and to you - the operator acting in the conversation - never to the model, so every auto-approved change stays attributable and reviewable on the timeline. The platform-level master switch is a single kill switch: turning it off stops all auto-approval on the next turn.
-
-A deployment can additionally bound how much an engaged conversation writes with a **conversation write budget** (`API_OPERATOR_AUTOPILOT_WRITE_BUDGET`). Each autopilot approval records the plan's write operations against the budget; once a plan would spend past it, autopilot pauses, a note in the conversation explains the pause, and that plan - and every later one - waits for your explicit approval. The budget is off by default and applies per conversation.
-
-### Natural-language provider
-
-Turning your words into a plan needs a language model, and that model is something you supply. The Operator is built on the [Vercel AI SDK](https://ai-sdk.dev) and talks to any OpenAI-compatible endpoint - a hosted provider such as OpenAI or Azure, an aggregator such as OpenRouter, a local model server such as Ollama or vLLM, or a proxy you already run - so Caracal never maintains provider SDKs itself. You can list several providers that are tried in order for resilience.
-
-The provider layer is optional and off by default. With nothing configured, the Operator runs without natural-language assistance and consumes no AI resources; the rest of the console - including everything you would do by hand - is unaffected. When you do configure providers, the AI panel shows them in failover order, and a connectivity check confirms a real request reaches your model before you rely on it.
-
-The primary way to add a provider is the console's AI settings: enter the endpoint, models, and key, and Caracal seals the key into the reserved `caracal.sys` system zone, binds it to a governed resource pointing at your endpoint, and routes every Operator model call through its own gateway with the key injected at call time. The key is never stored in an env file, never held by the Operator process, and never returned to the browser. A deployment can instead pin providers through the API service's `API_OPERATOR_AI_*` settings - provider ids in failover order, each with a base URL, a model, and, for hosted providers, a key read from the API service environment; a console-added provider with the same id takes precedence.
-
-Every model call is bounded by Caracal, uniformly across providers and regardless of which part of the Operator made it. A per-call ceiling caps how many tokens any single completion may generate, and a per-turn budget caps how many model calls one message may make, so a single request can never run an unbounded sequence of calls or an unbounded generation. Both have safe defaults that never affect normal use and only stop a runaway; a deployment can tighten or lift either through the `API_OPERATOR_AI_MAX_OUTPUT_TOKENS` and `API_OPERATOR_AI_MAX_CALLS_PER_TURN` settings. These bounds govern cost and resource use only - they sit above the same validation, preview, approval, and audit that govern every change, and never affect what the Operator is authorized to do.
-
-### From words to a governed plan
-
-When you send a message, the Operator first judges how much handling it needs and takes the lightest path that fits: a greeting or a question about what it can do gets a direct answer, a question about your current state or a past decision gets an explanation, and a request to change something becomes a plan - so a simple message is never forced through the planning pipeline. For a change, the language model proposes a plan, but it holds no authority - its proposal is only a draft. Caracal then validates that draft against the capability catalog, normalizes it to the catalog's own definitions, and previews it against your live state, exactly as it would a plan you wrote by hand. A proposal that names an unknown action, supplies bad arguments, or cannot be realized is recorded as a failed attempt, never as something you can approve.
-
-The result is that natural language only ever produces a draft that enters the same propose → preview → decide → apply lifecycle. The model accelerates describing what you want; every safety property - validation, least-privilege authority, approval, audit - is enforced by Caracal, not by the model.
-
-A request that combines several changes, or needs to know your current state before it can be planned, is handled as a composed request. The Operator first reads your live state through its own least-privilege, audited identity, plans against what it found, and then runs an advisory security review over the proposed plan - checking for over-grant, a write scope where a read would do, or a change that reaches wider than intended. The review is surfaced with the plan as a short summary and any findings, so you weigh them before deciding. It is advisory only: it never blocks or alters the plan, and the plan still flows through the same validation, preview, and approval as any other. A single, self-contained change skips the composition and stays the direct path.
-
-Explanations are read-only. When you ask about your current state, the Operator first reads that state through the same governed control plane it would use to make a change - listing your applications, providers, resources, and policies under its own least-privilege, audited identity - and grounds its answer in what it just read rather than in a guess. Each read is governed independently, so a read it is not permitted simply narrows the evidence instead of failing the answer, and only the names and counts it found inform the response, never the underlying records. A question that needs no live state, such as what the Operator can do, is answered without any read. The Operator never makes a change while explaining, and will tell you to ask for a change so it can be planned and approved.
-
-A read is answered by the assistant best suited to it. A question about why something was denied or why a change failed is handled as a diagnosis - the Operator reads your current state and recent activity and explains the most likely cause and a concrete next step. A question about how to connect a provider, or what a resource and its scopes should look like, is handled as integration guidance - the Operator translates the real-world product or API you name into the connection kind, resource, and scopes that express it in Caracal. Both are read-only: they explain and guide, and any change they point to still goes through the same plan, preview, and approval as everything else.
-
-### Memory across a long session
-
-A session can run long, so the Operator does not re-read the whole transcript each time. It keeps the recent activity in full and compresses everything before it into a small set of facts: which earlier plans were decided and how they turned out, how many changes have been applied, and which operations you have already rejected. This keeps the Operator's context accurate and its cost bounded no matter how long the conversation grows, and it means the Operator remembers your decisions - it will not re-propose an operation you have turned down unless you ask for it again.
-
-## Guided Setup
-
-Guided setup is a coachmark walkthrough that orients you, then opens the real create form for each building block in order:
-
-1. Orientation
-2. Agent app
-3. Provider
-4. Resource
-5. Access policy
-6. Verify
-
-Each step opens the same Applications, Providers, Resources, and Policies forms you reach from the navigation and ticks off as live zone data satisfies it. Important guided fields include the `resource identifier`, `resource scopes`, `upstream URL`, and `Gateway application binding`. The application form shows the client secret once; copy it before leaving the step.
-
-Guided setup creates product objects only. Bind launch credentials on the **Run** page afterward and give the workload its application ID and client secret, as described in [Configure Workloads](/runtime-console/config-file/).
-
-## Troubleshooting
-
-| Symptom                                       | Check                                                                                                |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Browser cannot reach the packaged web console | Confirm `caracal up` is running and no other service is using host port `3001`.                      |
-| Browser cannot reach the development launcher | Confirm the `caracal web` process is still running and no other service is using the selected ports. |
-| Product views show connection errors          | Run `caracal status --ready`; custom deployments should confirm the admin API URL override.          |
-| `401 Unauthorized`                            | Check `CARACAL_ADMIN_TOKEN` or `CARACAL_ADMIN_TOKEN_FILE`.                                           |
-| `403 Forbidden`                               | The token lacks the required management scope.                                                       |
-| Coordinator-backed views fail                 | Confirm the Coordinator token and, for custom deployments, the Coordinator URL override.             |
-| A zone-scoped page has no data                | Select a zone before opening zone-scoped views.                                                      |
+Configure natural-language models under **Settings → AI Operator → Models**. The page can add, edit, test, rotate, and delete OpenAI-compatible providers. A new or rotated key is sent once, sealed into the reserved `caracal.sys` Zone, and never returned. Caracal routes model calls through the governed Gateway. The Operator can still expose deterministic catalog and plan behavior when no model provider is configured, but natural-language assistance remains unavailable.
 
 ## Next Step
 
-Use [Configure Workloads](/runtime-console/config-file/) when a workload needs its identity configured, a secret file, an SDK profile, or a service endpoint override.
+[Configure Workloads](/runtime-console/config-file/).

@@ -35,7 +35,6 @@ import {
   auditSummary,
   type AuditEntity,
 } from "@/lib/auditPresentation";
-import { cx } from "@/lib/cx";
 import { errorMessage } from "@/platform/api/errors";
 import {
   useAdminAuditFeed,
@@ -51,7 +50,6 @@ import type {
   AdminAuditEvent,
   AdminAuditQuery,
   Application,
-  AuditDetail,
   AuditEvent,
   AuditQuery,
   DeniedDecision,
@@ -172,6 +170,10 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "connection_id", label: "Connection ID" },
   { id: "requested_scopes", label: "Requested scopes" },
   { id: "reason", label: "Denial reason", core: true },
+  { id: "determining_policies", label: "Determining policies" },
+  { id: "policy_set_id", label: "Policy set ID" },
+  { id: "policy_set_version_id", label: "Policy set version" },
+  { id: "manifest_sha", label: "Policy manifest SHA" },
   { id: "agent_session_id", label: "Session ID" },
   { id: "agent_lifecycle", label: "Session lifecycle" },
   { id: "agent_labels", label: "Session labels" },
@@ -1107,7 +1109,7 @@ function TraceEventDetail({
   index,
 }: {
   zoneId: string;
-  event: AuditDetail;
+  event: AuditEvent;
   index: number;
 }) {
   const determining = event.determining_policies_json ?? [];

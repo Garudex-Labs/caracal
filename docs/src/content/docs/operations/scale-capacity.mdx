@@ -1,71 +1,40 @@
 ---
 title: Scale Capacity
-description: Size Caracal services, storage, and queues for production traffic.
-pageType: reference
+description: Scale from observed bottlenecks without claiming unmeasured performance or availability.
+pageType: workflow
 ---
 
-Scale Caracal around three bottlenecks: token exchange and policy evaluation in STS, upstream proxying in Gateway, and durable writes in Postgres/Audit.
+Caracal publishes signals and Helm controls, but no universal throughput, latency, or availability figure. Establish a baseline with your workload.
 
-## Scaling Levers
+## Decision Criteria
 
-| Component   | Primary levers                                                                                                    |
-| ----------- | ----------------------------------------------------------------------------------------------------------------- |
-| API         | Replicas, `DB_POOL_MAX`, outbox batch/interval settings, request rate limits.                                     |
-| STS         | Replicas, OPA policy age, Redis invalidation health, `MAX_GRANT_TTL_SECONDS`, replay persistence.                 |
-| Gateway     | Replicas, `MAX_REQUEST_BYTES`, `STS_TIMEOUT`, `UPSTREAM_TIMEOUT`, upstream allowlist, revocation snapshot health. |
-| Audit       | Replicas, Postgres write capacity, DLQ thresholds, retention, S3 export settings.                                 |
-| Coordinator | Replicas, DB pool, sweeper intervals, outbox batch, and long-lived Session leases.                               |
-| Postgres    | Connection limits, indexes, partitions, storage IOPS, backup windows.                                             |
-| Redis       | Stream memory, pending entries, consumer lag, persistence, network latency.                                       |
+| Signal | Investigate first |
+| --- | --- |
+| Database pool pressure | Slow queries, transactions, connections, I/O |
+| Audit lag, DLQ, replay age | Audit write path, Redis, Postgres, replay storage |
+| Gateway STS circuit | STS readiness and exchange latency |
+| Revocation lag | Redis latency, pending entries, snapshot refresh |
+| Readiness flapping | CPU, memory, dependencies, probes |
 
-## Helm Defaults
+## Prerequisites
 
-The chart defaults to two replicas for API, STS, Gateway, Audit, and Coordinator. Gateway has a higher maximum HPA ceiling because protected traffic fans through it.
+Collect authenticated metrics, latency, dependency metrics, logs, and repeatable load. Know storage connection/memory ceilings.
 
-| Service     | Default port | Default max HPA replicas |
-| ----------- | ------------ | ------------------------ |
-| API         | `3000`       | `8`                      |
-| STS         | `8080`       | `8`                      |
-| Gateway     | `8081`       | `16`                     |
-| Audit       | `9090`       | `8`                      |
-| Coordinator | `4000`       | `8`                      |
+## Safe Procedure
 
-## Capacity Signals
+1. Record baseline and first saturated resource.
+2. Correct dependencies or slow queries before replicas.
+3. Change one limit or replica count at a time.
+4. Keep aggregate pools within database capacity.
+5. Repeat load and compare readiness, errors, lag, DLQ, replay, and revocation.
+6. Set environment thresholds from measured bounds.
 
-| Signal                         | Meaning                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| Postgres pool ratio near `0.9` | Service pool saturation; inspect queries and pool size.                 |
-| Audit consumer lag             | Audit ingestion cannot keep up with Redis stream input.                 |
-| Audit replay backlog age       | STS/Gateway cannot emit audit events to Redis/Audit promptly.           |
-| Gateway STS circuit open       | Gateway is fast-failing because STS exchange is unhealthy.              |
-| Revocation propagation lag     | Access-safety state is not reaching Gateway within the expected window. |
-| Readiness flapping             | Pods or dependencies are unstable under current load.                   |
+Chart replica/HPA defaults are not capacity recommendations.
 
-## Scale Procedure
+## Rollback
 
-1. Identify the bottleneck from metrics and logs.
-2. Scale stateless service replicas first when storage is healthy.
-3. Increase Postgres and Redis capacity before raising service pools.
-4. Verify readiness, lag, replay backlog, and DLQ after each change.
-5. Document the new limit and alert threshold.
-
-## Worked Escalation Patterns
-
-| Signal                               | First action                                                                                           | Expected outcome                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| Postgres pool ratio stays near `0.9` | Inspect slow queries, then raise storage capacity or service pool size one step.                       | `/ready` stabilizes and pool saturation falls before replicas increase further. |
-| Gateway STS circuit opens            | Check STS readiness and exchange latency, then scale STS or reduce Gateway fan-in.                     | Gateway stops fast-failing protected requests and audit evidence resumes.       |
-| Audit consumer lag grows             | Check Postgres write IOPS, partition health, and Audit replicas before extending retention or exports. | Redis pending entries and DLQ growth stop increasing.                           |
-| Revocation propagation lags          | Check Redis latency, stream consumers, and Gateway snapshot freshness.                                 | Gateway denial decisions reflect current revocation state.                      |
-
-## Troubleshooting
-
-| Symptom                             | First check                                                                       |
-| ----------------------------------- | --------------------------------------------------------------------------------- |
-| Higher replicas make failures worse | Postgres connection pressure or Redis latency.                                    |
-| Gateway latency spikes              | STS exchange latency, upstream timeout, JWKS cache, and private upstream egress.  |
-| Audit cannot catch up               | Postgres write IOPS, partition health, Audit replicas, and Redis pending entries. |
+Restore the previous value if pressure or errors increase and retain both measurements.
 
 ## Next Step
 
-Use [Monitor Health and Metrics](/operations/observability/) to turn capacity signals into readiness gates and operator dashboards.
+Build gates in [Monitor Health and Metrics](/operations/observability/).

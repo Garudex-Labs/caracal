@@ -1,45 +1,46 @@
 ---
 title: Operate Runtime and the Web Console
-description: Start the local stack, launch the web console, configure workloads, run agents, and inspect operations.
+description: Follow the operator journey from starting Caracal through setup, workload launch, observation, and intervention.
 pageType: landing
 ---
 
-Use this section after installation when you need to operate Caracal locally or understand which operator surface owns a task.
+Use this section after installation. Operating Caracal involves two surfaces with a deliberate split:
 
-Caracal has three operator surfaces:
+- **The `caracal` runtime CLI** manages the local stack's lifecycle - starting, stopping, checking, upgrading - and launches workload processes with injected credentials. It never touches product state.
+- **The web console** is the browser interface for everything product-shaped: zones, applications, providers, resources, policies, workloads, audit, and live intervention.
 
-| Surface                 | Use it for                                                                                                                                                                                                                                                                                                         | Do not use it for                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `caracal`               | Local stack lifecycle, readiness checks, local reset, token-injected process execution, and the local web development launcher.                                                                                                                                                                                    | Creating or changing zones, applications, providers, resources, policies, audit queries, agents, delegation, or Control setup. |
-| Web console             | Human product management for zones, applications, providers, resources, policies, policy sets, subjects, Control, audit, request tracing, sessions, delegation, and diagnostics. In Compose it is served by the packaged `web` service at `http://localhost:3001`; `caracal web` remains the development launcher. | Starting or stopping the stack, purging local runtime state, running workloads, or CI automation.                              |
-| Control API / Admin SDK | Scripted product management from trusted operator automation.                                                                                                                                                                                                                                                      | Local lifecycle, workload execution, or browser-based guided setup.                                                            |
+The pages below follow the work in the order an operator normally performs it, without mixing runtime lifecycle with product management.
 
-The runtime CLI stays small so lifecycle and workload execution do not depend on admin tokens, zone selection, or Control credentials. Human product management belongs to the web console; automation belongs to the Control API or Admin SDK.
+## Complete an Operator Journey
 
-## Recommended Path
+1. [Choose the Right Surface](/runtime-console/cli-and-console/). Use `caracal` for local lifecycle and process launch, the web console for human management, and the Control API or Admin SDK for automation.
+2. [Start and Check the Stack](/runtime-console/stack/). Start services, wait for readiness, and open the packaged console.
+3. [Control Console Access](/runtime-console/console-access/). Admit the people who may sign in.
+4. [Use the Web Console](/runtime-console/console/). Finish account onboarding, create a zone, and complete guided setup.
+5. [Configure Workloads](/runtime-console/config-file/). Create a Launcher workload and credential bindings, or configure an SDK profile.
+6. [Run Workloads](/runtime-console/runtime/). Launch a command with short-lived credentials.
+7. [Inspect Diagnostics and Audit](/runtime-console/observability/). Read dashboard posture, health, decisions, and request traces.
+8. [Manage Product Objects](/runtime-console/admin/) and [Manage Runtime Authority](/runtime-console/agents/). Maintain configuration and intervene in Subjects, Authority records, Sessions, Delegations, and Approvals.
 
-1. [Choose the Right Surface](/runtime-console/cli-and-console/) to confirm whether a task belongs in `caracal`, the web console, Control API, or Admin SDK.
-2. [Start and Check the Stack](/runtime-console/stack/) with `caracal up` and `caracal status --ready`.
-3. [Use the Web Console](/runtime-console/console/) to run guided setup and bind the first application's launch credentials.
-4. [Configure Workloads](/runtime-console/config-file/) when a workload needs explicit profile, credential, or service endpoint settings.
-5. [Run Workloads](/runtime-console/runtime/) with `caracal run -- <command>`.
-6. [Manage Product Objects](/runtime-console/admin/) for ongoing zone, application, provider, resource, policy, policy-set, and Control work.
-7. [Inspect Diagnostics and Audit](/runtime-console/observability/) when debugging health, readiness, audit, or request decisions.
-8. [Manage Sessions and Delegation](/runtime-console/agents/) when workloads create sessions or delegations.
+## Keep the Boundary Clear
 
-## Command Map
+| Goal                                                                                             | Surface                  |
+| ------------------------------------------------------------------------------------------------ | ------------------------ |
+| Start, stop, check, upgrade, or purge the local stack                                            | `caracal`                |
+| Launch one process with injected credentials                                                     | `caracal run`            |
+| Manage access to the console host                                                                | `caracal allowlist`      |
+| Create or change zones, applications, providers, resources, policies, workloads, or Control keys | Web console              |
+| Inspect and intervene in runtime authority                                                       | Web console              |
+| Automate product management                                                                      | Control API or Admin SDK |
 
-| Outcome                                                                  | Surface                                    |
-| ------------------------------------------------------------------------ | ------------------------------------------ |
-| Start, stop, check, upgrade, or purge the local runtime stack            | `caracal`                                  |
-| Open the packaged local web console                                      | `http://localhost:3001` after `caracal up` |
-| Launch the local web development server                                  | `caracal web`                              |
-| Run an agent process with scoped resource tokens                         | `caracal run -- <command>`                 |
-| Create a zone, app, provider, resource, policy, or policy set            | Web console                                |
-| Enable Control automation                                                | Web console **Control** section            |
-| Script management workflows                                              | Control API or Admin SDK                   |
-| Inspect audit events, request traces, diagnostics, agents, or delegation | Web console                                |
+The runtime CLI does not provide zone, policy, session, delegation, approval, audit, or Control management commands. This keeps local lifecycle independent of admin tokens, selected zones, and product credentials.
+
+## Local Addresses
+
+After `caracal up`, open the packaged console at [http://localhost:3001](http://localhost:3001). The full loopback port map lives in [Start and Check the Stack](/runtime-console/stack/#open-the-packaged-console).
+
+Do not call service ports merely because they are reachable locally. The console, SDKs, Gateway, Control API, and documented API surfaces provide the supported paths for their respective tasks.
 
 ## Next Step
 
-Start with [Choose the Right Surface](/runtime-console/cli-and-console/) if you are deciding where an operation belongs. If you already know you need a local stack, go directly to [Start and Check the Stack](/runtime-console/stack/).
+Start with [Choose the Right Surface](/runtime-console/cli-and-console/).

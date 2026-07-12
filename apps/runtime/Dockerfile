@@ -75,11 +75,7 @@ COPY infra/docker/runtime-compose.yml infra/docker/runtime-compose.yml
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
     pnpm config set store-dir /pnpm/store && \
     pnpm install --frozen-lockfile --ignore-scripts --filter @caracalai/runtime...
-RUN set -e; \
-    pnpm --filter @caracalai/core build; \
-    pnpm --filter @caracalai/admin build; \
-    pnpm --filter @caracalai/oauth build; \
-    pnpm --filter @caracalai/engine build
+RUN pnpm --filter "@caracalai/runtime^..." build
 RUN case "${TARGETARCH}" in \
       amd64) bunTarget=bun-linux-x64 ;; \
       arm64) bunTarget=bun-linux-arm64 ;; \

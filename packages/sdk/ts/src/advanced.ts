@@ -29,13 +29,23 @@ export {
   toHeaders,
 } from './envelope.js'
 export type { Envelope, HeaderGetter, HeaderSetter } from './envelope.js'
-export { current, captureContext, bind, withOverrides, toEnvelope, fromEnvelope, describeAuthority } from './context.js'
+export {
+  current,
+  captureContext,
+  bind,
+  withOverrides,
+  toEnvelope,
+  fromEnvelope,
+  fromVerifiedEnvelope,
+  describeAuthority,
+} from './context.js'
 export type { CaracalContext, AuthoritySummary, VerifiedClaims } from './context.js'
 export {
   CoordinatorError,
   Lifecycle,
   startCoordinatorSession,
   terminateSession,
+  acquireSessionLease,
   heartbeatSession,
   createDelegation,
   revokeDelegation,
@@ -66,13 +76,7 @@ export type {
 } from './primitives.js'
 export { caracalContextMiddleware, caracalFastifyHook } from './http.js'
 export type { IncomingLike, FastifyRequestLike, ServerResponseLike, FastifyReplyLike, ConnectMiddleware } from './http.js'
-export {
-  Caracal,
-  createAdvancedClient,
-  createAdvancedClientFromConfig,
-  createAdvancedClientFromCredentials,
-  createAdvancedClientFromEnv,
-} from './client.js'
+export { Caracal } from './client.js'
 export type {
   CaracalConfig,
   SessionOptions,

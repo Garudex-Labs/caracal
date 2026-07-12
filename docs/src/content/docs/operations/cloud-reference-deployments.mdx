@@ -1,94 +1,32 @@
 ---
 title: Deploy on Managed Kubernetes
-description: Concrete managed-Kubernetes reference for Caracal with External Secrets, cert-manager TLS, and managed Postgres and Redis.
+description: Adapt the External Secrets and Helm examples without treating them as provider-certified deployments.
 pageType: workflow
 ---
 
-This page turns the [Choose a Cloud Profile](/operations/cloud-native-profiles/) map into a concrete, copy-paste deployment. The chart is cloud-agnostic by design; the only per-cloud surface is the secret-store authentication, the storage class, and the ingress annotations.
-
-The reference artifacts live in `infra/helm/caracal/examples`:
-
-- `values.cloud-managed.yaml` - production overlay with externalized state, cert-manager TLS Web/STS/API/Gateway ingress, ServiceMonitor, and tightened egress.
-- `external-secrets/` - External Secrets Operator stores for AWS, GCP, and Azure plus one cloud-agnostic `ExternalSecret`.
+Files under `infra/helm/caracal/examples` demonstrate External Secrets Operator and Helm interfaces. They are templates, not complete or certified AWS, Azure, or Google Cloud deployments.
 
 ## Prerequisites
 
-| Component                                                 | Why                                                                                          |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Managed Postgres                                          | Authoritative product, policy, audit, and delegation state.                                  |
-| Managed Redis                                             | Streams for audit, revocation, policy invalidation, and coordination.                        |
-| [External Secrets Operator](https://external-secrets.io/) | Provisions `caracal-runtime` from your secret manager so no plaintext secret is rendered.    |
-| [cert-manager](https://cert-manager.io/)                  | Issues TLS certificates for Web, STS, and any optional API or Gateway ingress.                |
-| Prometheus Operator                                       | Consumes the chart `ServiceMonitor` and `PrometheusRule`.                                    |
+Operate Kubernetes 1.30+, Postgres, Redis with Streams, External Secrets Operator, a TLS issuer, ingress controller, and Prometheus Operator when using chart monitoring resources.
 
-## 1. Store Secret Material
+## Procedure
 
-Load the Caracal secret material into your secret manager under the keys the `ExternalSecret` reads:
+1. Adapt one `external-secrets/secretstore-*.yaml`; replace every identity and store reference.
+2. Store every value referenced by `externalsecret-runtime.yaml` in the provider secret manager.
+3. Apply the adapted SecretStore and ExternalSecret.
+4. Copy `values.cloud-managed.yaml`; replace hosts, domains, storage class, ingress class, issuer, and egress selectors.
+5. Render. Reject plaintext Secret data, default hosts, broad ingress, and unintended public API, Gateway, or STS endpoints.
+6. Install the reviewed overlay.
 
-| Secret manager key                                                                   | Contents                                                                                                                           |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `caracal/postgres`                                                                   | `username`, `password`, `host`, `port`, `database`, and `authDatabase` naming the dedicated web session database (`caracal_auth`). |
-| `caracal/redis`                                                                      | `password`, `host`, `port`, `database`.                                                                                            |
-| `caracal/zone-kek`                                                                   | Zone key-encryption key.                                                                                                           |
-| `caracal/audit-hmac-key`, `caracal/streams-hmac-key`, `caracal/idempotency-hmac-key`, `caracal/gateway-sts-hmac-key` | Integrity and idempotency keys.                                                                                                    |
-| `caracal/admin-token`, `caracal/coordinator-token`                                   | Control-plane tokens held by services and the web BFF.                                                                             |
-| `caracal/auth-secret`                                                                | Better Auth signing secret; the `ExternalSecret` composes the web session database URL from `caracal/postgres`.                    |
-| `caracal/sts-admin-token`, `caracal/audit-admin-token`, `caracal/metrics-bearer`     | Optional service tokens.                                                                                                           |
+## Verify
 
-## 2. Apply the Secret Store and ExternalSecret
+Confirm Secret synchronization, migration Jobs, pod readiness, HTTPS origins, STS issuer, NetworkPolicy paths, metrics collection, alerts, and a canary protected call with audit evidence.
 
-Pick the store for your cloud and apply it with the agnostic `ExternalSecret`:
+## Rollback and Recovery
 
-```bash
-cd infra/helm/caracal/examples
-kubectl apply -f external-secrets/secretstore-aws.yaml
-kubectl apply -f external-secrets/externalsecret-runtime.yaml
-```
-
-The `ExternalSecret` composes `databaseUrl`, `redisUrl`, and the per-service connection strings - each service connects as its own least-privilege database role, with passwords derived from the administrative password and provisioned by the migration job - and materializes every chart key, including `idempotencyHmacKey`, so `secrets.create` stays `false`.
-
-## 3. Install the Chart with the Overlay
-
-```bash
-helm upgrade --install caracal infra/helm/caracal \
-  --namespace caracal --create-namespace \
-  -f infra/helm/caracal/examples/values.cloud-managed.yaml \
-  --set secrets.database.host=<managed-postgres-host> \
-  --set secrets.redis.host=<managed-redis-host>
-```
-
-Stable mode enforces externalized Postgres and Redis hosts and forbids in-chart plaintext secrets, so the render fails fast if either is left at a default.
-
-## Per-Cloud Substitutions
-
-| Setting                              | AWS (EKS)                     | GCP (GKE)                                  | Azure (AKS)                                  |
-| ------------------------------------ | ----------------------------- | ------------------------------------------ | -------------------------------------------- |
-| Secret store                         | `secretstore-aws.yaml` (IRSA) | `secretstore-gcp.yaml` (Workload Identity) | `secretstore-azure.yaml` (Workload Identity) |
-| Managed Postgres                     | RDS / Aurora PostgreSQL       | Cloud SQL for PostgreSQL                   | Azure Database for PostgreSQL                |
-| Managed Redis                        | ElastiCache / MemoryDB        | Memorystore for Redis                      | Azure Cache for Redis                        |
-| `replayPersistence.storageClassName` | `gp3`                         | `premium-rwo`                              | `managed-csi`                                |
-| `ingress.*.className`                | `alb`                         | `gce`                                      | `azure-application-gateway`                  |
-| Ingress annotations                  | ALB scheme/target-type        | GCE managed cert or cert-manager           | AGIC annotations                             |
-
-Keep `networkPolicy.allowOpenDns` and `allowOpenHttps` `false`; set `dnsEgress` and `extraEgress` to the named CIDRs of your managed Postgres, Redis, identity provider, and provider APIs.
-
-## Upgrades and Rollback
-
-Caracal database migrations are forward-only by design. Plan upgrades as roll-forward changes and only roll back application images when they remain schema-compatible. See [Upgrade Caracal](/operations/upgrade/).
-
-## Why No Terraform Module
-
-Caracal ships standardized, portable interfaces - External Secrets Operator, cert-manager, and the Helm chart - rather than per-cloud infrastructure-as-code modules. This keeps the deployment surface agnostic and avoids coupling Caracal to a single provider's resource model. Use your own IaC to provision the managed Postgres, Redis, secret manager, and cluster, then apply these artifacts.
-
-## Validation
-
-1. Confirm the `ExternalSecret` reports `SecretSynced` and `caracal-runtime` exists.
-2. Render manifests and confirm no plaintext secret is present.
-3. Confirm cert-manager issued the web console TLS certificate.
-4. Confirm Web and STS load over HTTPS, `services.sts.issuerUrl` equals the public STS origin, and API/Gateway exposure matches the environment's client topology.
-5. Confirm the `ServiceMonitor` is scraped and `PrometheusRule` alerts are loaded.
-6. Run a canary token exchange and a Gateway-protected request, then confirm audit evidence.
+Retain the previous Helm revision and values. Roll back only when schema-compatible. Use provider-native storage recovery and restore runtime secrets separately; examples do not create or test backups.
 
 ## Next Step
 
-Use [Harden Production](/operations/tls-hardening/) before opening Web, STS, API, or Gateway ingress to production traffic.
+Apply [Harden Production](/operations/tls-hardening/) before admitting traffic.

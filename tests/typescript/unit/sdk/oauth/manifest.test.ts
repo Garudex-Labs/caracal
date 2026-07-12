@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Run client unit tests: manifest retrieval, credential minting, validation, and STS error surfacing.
+// Private Engine run client tests for manifest retrieval, credential minting, validation, and STS errors.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchRunCredential, fetchRunManifest } from '../../../../../packages/oauth/ts/src/manifest.js'
+import { fetchRunCredential, fetchRunManifest } from '../../../../../packages/engine/src/runClient.js'
 import { ApprovalRequiredError } from '../../../../../packages/oauth/ts/src/types.js'
 
 function manifestBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {

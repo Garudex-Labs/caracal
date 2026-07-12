@@ -1,60 +1,47 @@
 ---
 title: Coordinate Sessions
-description: How Sessions, Delegations, and invocation lifecycle move through Coordinator.
+description: Trace governed execution and delegated authority from SDK calls through Coordinator and STS.
 pageType: architecture
 ---
 
-Coordinator owns governed execution state. It records Sessions, long-lived Session leases, invocation lifecycle, and Delegations that STS later uses to validate delegated exchanges.
+Use this flow when a request depends on execution lineage, long-lived leases, or authority delegated between Sessions.
 
-## Flow
+## Session and Delegation Flow
 
 ```mermaid
 sequenceDiagram
-  participant SDK as SDK
+  participant SDK
   participant Coord as Coordinator
   participant PG as Postgres
-  participant Redis as Redis Streams
+  participant Redis
   participant STS
-  SDK->>Coord: start or update Session
-  Coord->>PG: persist Session and leases
-  Coord->>Redis: publish caracal.agents.lifecycle
-  SDK->>Coord: create Delegation
-  Coord->>PG: persist Delegation and graph epoch
+  SDK->>Coord: start Session
+  Coord->>PG: persist Session, parent, lifecycle, lease
+  Coord->>Redis: publish lifecycle from durable outbox
+  SDK->>Coord: create bounded Delegation
+  Coord->>PG: persist edge, constraints, expiry, graph epoch
   Coord->>Redis: publish delegation invalidation
-  SDK->>STS: exchange with Session ID and Delegation ID
-  STS->>PG: validate Session, Delegation, constraints, and graph state
+  SDK->>STS: exchange with Authority record, Session, Delegation IDs
+  STS->>PG: validate live lineage and bounds
+  STS-->>SDK: mandate or denial
 ```
 
-## Coordinator State
+## Choose a Session Lifecycle
 
-| State                     | Purpose                                                                                                           |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `sessions`                | Session tree, parent-child relationships, status, leases, and Subject authority record ID.                        |
-| `agent_services`          | Retained internal table for long-lived Session heartbeat health.                                                  |
-| `delegation_edges`        | Retained internal table for Delegation endpoints, resource and scope bounds, expiry, constraints, and status.     |
-| `agent_invocations`       | Retained internal table for invocation lifecycle and deadline tracking.                                           |
-| `delegation_graph_epochs` | Graph invalidation and traversal consistency.                                                                     |
-| `caracal_outbox`          | Durable event publication for Coordinator-produced topics.                                                        |
+Task Sessions use a TTL and expire. Service Sessions use heartbeat leases and become unhealthy when renewal stops. The process that owns a service Session must continue heartbeating; container liveness alone does not renew authority.
 
-## Event Topics
+A Session tree records parent-child execution. Suspending or terminating a subtree affects governed execution state. A Delegation separately records exactly which resource, scopes, constraints, and expiry cross from one Session to another.
 
-| Topic                            | Meaning                                                |
-| -------------------------------- | ------------------------------------------------------ |
-| `caracal.agents.lifecycle`       | Protocol topic for Session lifecycle.                  |
-| `caracal.invocations.lifecycle`  | Invocation lifecycle.                                  |
-| `caracal.delegations.invalidate` | Delegation graph invalidation.                         |
-| `caracal.sessions.revoke`        | Authority record, Session, and Delegation revocation propagation. |
+## Consistency and Failure
 
-## Operator Boundaries
+Coordinator writes state and outbox records durably in Postgres, then publishes lifecycle and invalidation events through Redis. A short propagation delay is possible. STS validates authoritative Session and Delegation state before issuing delegated authority, so a stale consumer view does not grant authority by itself.
 
-Human operators use the Console **Sessions** and **Delegation** views. Automation uses the Coordinator API or Admin SDK. Top-level `caracal` runtime commands do not manage Sessions or Delegations.
+Operational jobs expire stale task Sessions and Delegations, detect missed service leases, enforce invocation deadlines, publish outbox rows, and clean retained terminal data. Backlogged or dead outbox rows mean downstream views and revocation consumers can lag; surface that in Diagnostics before assuming the SDK failed.
+
+## Operator and Integrator Surfaces
+
+Applications use an SDK or the documented Coordinator API. Human operators use console **Sessions**, Delegation views, and Audit. Do not mutate Coordinator tables or publish lifecycle topics directly. Top-level `caracal` commands do not manage Sessions or Delegations.
 
 ## Next Step
 
-Use [Propagate Events](/architecture/event-streams/) to understand how lifecycle, invalidation, revocation, and audit messages move.
-
-## Related Pages
-
-- [Coordinate Session State](/services/coordinator/)
-- [Session Delegation](/concepts/delegation/)
-- [Manage Sessions and Delegation](/runtime-console/agents/)
+[Propagate Events](/architecture/event-streams/).

@@ -54,6 +54,12 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/services/ru
   }),
 });
 
+const betaBadge = (
+  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-purple">
+    Beta
+  </span>
+);
+
 function RunRoute() {
   return (
     <ZoneScopedPage
@@ -64,6 +70,7 @@ function RunRoute() {
         { label: "Services", to: "/app/services" },
         { label: "Launcher" },
       ]}
+      titleAccessory={betaBadge}
     >
       {(zone) => <RunPage zoneId={zone.id} zoneName={zone.name} />}
     </ZoneScopedPage>
@@ -185,6 +192,7 @@ function RunPage({ zoneId, zoneName }: { zoneId: string; zoneName: string }) {
           { label: "Services", to: "/app/services" },
           { label: "Launcher" },
         ]}
+        titleAccessory={betaBadge}
         primaryAction={{ label: "New workload", onClick: () => setCreateOpen(true) }}
         rows={rows}
         loading={query.isLoading}
@@ -908,7 +916,7 @@ function CreateWorkloadModal({
         <Field
           label="Name"
           info="Human-readable name for this workload, shown across the console. Use a short operational name, not an internal ID."
-          placeholder="Son of Anton"
+          placeholder="Anton"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {

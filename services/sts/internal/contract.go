@@ -17,7 +17,7 @@ import (
 // DecisionContractVersion identifies the platform decision contract shipped in this
 // build. It is stamped into audit metadata and surfaced on the metrics snapshot so
 // every decision names the exact authorization brain that produced it.
-const DecisionContractVersion = "2026-07-04"
+const DecisionContractVersion = "2026-07-11"
 
 // decisionContractModuleID is the module name the embedded contract compiles under.
 // It is namespaced so it can never collide with an adopter policy version id.

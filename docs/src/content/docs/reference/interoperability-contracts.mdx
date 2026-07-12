@@ -4,39 +4,55 @@ description: JSON schemas and fixtures for Caracal wire contracts.
 pageType: reference
 ---
 
-Caracal publishes schema files under `docs/public/schemas/` and test fixtures under `tests/shared/fixtures/interoperability/`.
+Wire contracts are raw protocol behavior. Product and SDK facades deliberately map some names to the public terms in [Glossary](/reference/glossary/). Authored schemas live under `docs/public/schemas/`; public copies are available at `/schemas/<filename>`. Cross-language fixtures live under `tests/shared/fixtures/interoperability/`.
 
 ## Schema Files
 
-| Contract                            | Schema                                                               |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| Agent connector manifest            | `caracal-agent-connector-manifest-2026-05-21.schema.json`            |
-| Audit event                         | `caracal-audit-event-2026-05-21.schema.json`                         |
-| Audit exporter manifest             | `caracal-audit-exporter-manifest-2026-05-21.schema.json`             |
-| Gateway upstream manifest           | `caracal-gateway-upstream-manifest-2026-05-21.schema.json`           |
-| JWT claims                          | `caracal-jwt-claims-2026-05-21.schema.json`                          |
-| Policy input                        | `caracal-policy-input-2026-05-20.schema.json`                        |
-| Policy pack manifest                | `caracal-policy-pack-manifest-2026-05-21.schema.json`                |
-| Policy result                       | `caracal-policy-result-2026-05-20.schema.json`                       |
-| Provider credential plugin manifest | `caracal-provider-credential-plugin-manifest-2026-05-21.schema.json` |
-| Resource verifier manifest          | `caracal-resource-verifier-manifest-2026-05-21.schema.json`          |
-| Revocation event                    | `caracal-revocation-event-2026-05-21.schema.json`                    |
-| Token response                      | `caracal-token-response-2026-05-21.schema.json`                      |
-| W3C baggage                         | `caracal-w3c-baggage-2026-05-21.schema.json`                         |
+| Contract                            | Schema                                                                                                                                              |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent connector manifest            | [`caracal-agent-connector-manifest-2026-05-21.schema.json`](/schemas/caracal-agent-connector-manifest-2026-05-21.schema.json)                       |
+| Audit event                         | [`caracal-audit-event-2026-05-21.schema.json`](/schemas/caracal-audit-event-2026-05-21.schema.json)                                                 |
+| Audit exporter manifest             | [`caracal-audit-exporter-manifest-2026-05-21.schema.json`](/schemas/caracal-audit-exporter-manifest-2026-05-21.schema.json)                         |
+| Gateway upstream manifest           | [`caracal-gateway-upstream-manifest-2026-05-21.schema.json`](/schemas/caracal-gateway-upstream-manifest-2026-05-21.schema.json)                     |
+| JWT claims                          | [`caracal-jwt-claims-2026-05-21.schema.json`](/schemas/caracal-jwt-claims-2026-05-21.schema.json)                                                   |
+| Policy input                        | [`caracal-policy-input-2026-05-20.schema.json`](/schemas/caracal-policy-input-2026-05-20.schema.json)                                               |
+| Policy pack manifest                | [`caracal-policy-pack-manifest-2026-05-21.schema.json`](/schemas/caracal-policy-pack-manifest-2026-05-21.schema.json)                               |
+| Policy result                       | [`caracal-policy-result-2026-05-20.schema.json`](/schemas/caracal-policy-result-2026-05-20.schema.json)                                             |
+| Provider credential plugin manifest | [`caracal-provider-credential-plugin-manifest-2026-05-21.schema.json`](/schemas/caracal-provider-credential-plugin-manifest-2026-05-21.schema.json) |
+| Resource verifier manifest          | [`caracal-resource-verifier-manifest-2026-05-21.schema.json`](/schemas/caracal-resource-verifier-manifest-2026-05-21.schema.json)                   |
+| Revocation event                    | [`caracal-revocation-event-2026-05-21.schema.json`](/schemas/caracal-revocation-event-2026-05-21.schema.json)                                       |
+| Token response                      | [`caracal-token-response-2026-05-21.schema.json`](/schemas/caracal-token-response-2026-05-21.schema.json)                                           |
+| W3C baggage                         | [`caracal-w3c-baggage-2026-05-21.schema.json`](/schemas/caracal-w3c-baggage-2026-05-21.schema.json)                                                 |
+
+Dates in schema filenames identify that wire contract; they are not product release versions. Preserve the full filename when pinning validation.
 
 ## Fixture Files
 
 Fixtures include valid examples for audit events, audit exporter manifests, Gateway upstream manifests, JWT claims, policy input/results, policy pack manifests, provider credential plugins, resource verifier manifests, revocation events, token responses, W3C baggage, trace context headers, and stream signature canonicalization vectors.
+
+## Product-to-Wire Mapping
+
+| Product concept          | Common SDK field                             | Raw protocol field                                 |
+| ------------------------ | -------------------------------------------- | -------------------------------------------------- |
+| Authority record ID      | `authorityRecordId` and language equivalents | JWT `sid`; STS form `session_id`                   |
+| Root authority record ID | `rootAuthorityRecordId`                      | JWT `root_sid`                                     |
+| Session ID               | `sessionId`                                  | `agent_session_id` and Coordinator `/agents` paths |
+| Delegation ID            | `delegationId`                               | `delegation_edge_id` and internal edge records     |
+| Approval ID              | `approvalId`                                 | `challenge_id` and `/step-up/{id}`                 |
+
+Do not rename raw fields in an interoperable implementation. Map them at the SDK or product boundary.
 
 ## Usage
 
 - Use schemas when building adapters, exporters, or provider plugins.
 - Use fixtures when adding SDK or interoperability tests.
 - Preserve schema filenames when documenting versioned contracts.
+- Add equivalent TypeScript, Python, and Go tests when a shared contract changes.
+- Treat a valid fixture as one accepted representation, not a substitute for endpoint validation and negative tests.
 
 ## Next Step
 
-Use [Compare Editions](/enterprise/) when deciding between self-hosted Community Edition and managed Enterprise Edition.
+Use [API Reference](/api/) for transport semantics, then validate the implementation against the corresponding fixture.
 
 ## Related Pages
 

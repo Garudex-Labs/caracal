@@ -169,6 +169,38 @@ approval_tiers := [{"approver": "operator"}]
 	}
 }
 
+func TestDecisionContractInvalidApprovalShapeDenies(t *testing.T) {
+	for name, declaration := range map[string]string{
+		"approver": `{"tier":"money","approver":"root"}`,
+		"privacy":  `{"tier":"money","privacy":"secret"}`,
+		"ttl":      `{"tier":"money","ttl_seconds":"soon"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			policy := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope":"nucleus:pay","tier":"money"}]
+approval_tiers := [` + declaration + `]
+`
+			res := simulateContract(t, OPAInput{
+				Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+				Resource:       OPAResource{Identifier: "resource://nucleus"},
+				Action:         OPAAction{ID: "token_exchange"},
+				DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: []string{"nucleus:pay"}},
+				Context: OPAContext{
+					SessionID:       "agent-1",
+					RequestedScopes: []string{"nucleus:pay"},
+					ActorClaims:     map[string]any{},
+				},
+			}, dataModules(OPAPolicyModule{ID: "risk", Content: policy}))
+			if res.Decision != "deny" {
+				t.Fatalf("invalid %s declaration must fail closed, got %q", name, res.Decision)
+			}
+		})
+	}
+}
+
 func TestDecisionContractRiskClassifiedWithoutGate(t *testing.T) {
 	risk := `package caracal.authz
 
@@ -253,6 +285,96 @@ func TestDecisionContractConfinementDeny(t *testing.T) {
 	}, dataModules(OPAPolicyModule{ID: "confinement", Content: confinementData}))
 	if res.Decision != "deny" {
 		t.Fatalf("confined label minting outside its scope set must deny, got %q", res.Decision)
+	}
+}
+
+// Every deny must name the gate that refused it: operators read the failed gate from
+// the audit diagnostics instead of re-deriving the contract by hand, and a shapeless
+// request still resolves to the default no_rule_matched.
+func TestDecisionContractDenyReasonsNameTheFailedGate(t *testing.T) {
+	mintInput := func(resource string, labels []string, edgeScopes []string) OPAInput {
+		return OPAInput{
+			Principal:      OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: labels},
+			Resource:       OPAResource{Identifier: resource},
+			Action:         OPAAction{ID: "token_exchange"},
+			DelegationEdge: &OPADelegationEdge{ID: "edge1", Scopes: edgeScopes},
+			Context: OPAContext{
+				SessionID:       "agent-1",
+				RequestedScopes: []string{"nucleus:pay"},
+				ActorClaims:     map[string]any{},
+			},
+		}
+	}
+	useInput := func(target string) OPAInput {
+		return OPAInput{
+			Principal: OPAPrincipal{ID: "app-payments", ZoneID: "z1", Type: "application", Labels: []string{"payment-execution"}},
+			Resource:  OPAResource{Identifier: "resource://nucleus"},
+			Action:    OPAAction{ID: "token_exchange"},
+			Context: OPAContext{
+				RequestedScopes: []string{},
+				SubjectClaims: map[string]any{
+					"delegation_edge_id": "edge1",
+					"target":             []string{target},
+					"scope":              "nucleus:pay",
+				},
+				ActorClaims: map[string]any{},
+			},
+		}
+	}
+	restriction := `package caracal.authz
+
+import rego.v1
+
+restrict := {"maintenance_freeze"}
+`
+	malformedRisk := `package caracal.authz
+
+import rego.v1
+
+risk := [{"scope": "nucleus:pay"}]
+`
+	narrowedGrants := `package caracal.authz
+
+import rego.v1
+
+grants := {"resource://nucleus": {"application": "payments", "roles": {"payment-execution": ["nucleus:read"]}}}
+app_ids := {"payments": "app-payments"}
+`
+	cases := []struct {
+		name     string
+		want     string
+		input    OPAInput
+		policies []OPAPolicyModule
+	}{
+		{"restriction freezes the zone", "restriction_active", mintInput("resource://nucleus", []string{"payment-execution"}, []string{"nucleus:pay"}), dataModules(OPAPolicyModule{ID: "restriction", Content: restriction})},
+		{"malformed risk data fails mints closed", "malformed_risk_data", mintInput("resource://nucleus", []string{"payment-execution"}, []string{"nucleus:pay"}), dataModules(OPAPolicyModule{ID: "risk", Content: malformedRisk})},
+		{"resource missing from grants", "resource_not_granted", mintInput("resource://vault", []string{"payment-execution"}, []string{"nucleus:pay"}), dataModules()},
+		{"scope outside the delegation", "delegation_scope_exceeded", mintInput("resource://nucleus", []string{"payment-execution"}, []string{"nucleus:read"}), dataModules()},
+		{"confined label over its cap", "confinement_violation", mintInput("resource://nucleus", []string{"payment-execution", "customer:acme"}, []string{"nucleus:pay"}), dataModules(OPAPolicyModule{ID: "confinement", Content: confinementData})},
+		{"no role grants the mint scopes", "role_scope_mismatch", mintInput("resource://nucleus", []string{"observer"}, []string{"nucleus:pay"}), dataModules()},
+		{"mandate presented off its target", "mandate_target_mismatch", useInput("resource://vault"), dataModules()},
+		{"mandate scope removed from the role", "role_scope_mismatch", useInput("resource://nucleus"), []OPAPolicyModule{{ID: "grants", Content: narrowedGrants}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := simulateContract(t, tc.input, tc.policies)
+			if res.Decision != "deny" {
+				t.Fatalf("expected deny, got %q diagnostics %+v", res.Decision, res.Diagnostics)
+			}
+			if got := denyDiagnosticReason(res); got != tc.want {
+				t.Fatalf("expected deny reason %q, got %q diagnostics %+v", tc.want, got, res.Diagnostics)
+			}
+		})
+	}
+
+	shapeless := simulateContract(t, OPAInput{
+		Principal: OPAPrincipal{ID: "app-unknown", ZoneID: "z1", Type: "application"},
+		Resource:  OPAResource{Identifier: "resource://nucleus"},
+		Action:    OPAAction{ID: "token_exchange"},
+		Context:   OPAContext{RequestedScopes: []string{"nucleus:pay"}, ActorClaims: map[string]any{}},
+	}, dataModules())
+	if shapeless.Decision != "deny" || denyDiagnosticReason(shapeless) != "no_rule_matched" {
+		t.Fatalf("a shapeless request must fall to the default deny, got %q reason %q", shapeless.Decision, denyDiagnosticReason(shapeless))
 	}
 }
 

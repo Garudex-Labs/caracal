@@ -11,6 +11,7 @@ on:
       - main
     paths:
       - 'docs/**'
+      - 'scripts/docsVersion.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'

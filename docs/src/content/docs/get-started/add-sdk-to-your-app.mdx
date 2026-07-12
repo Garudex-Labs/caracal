@@ -1,46 +1,69 @@
 ---
 title: Add SDK to Your App
-description: Use the runtime profile or environment configuration from your first protected call in TypeScript, Python, or Go.
+description: Turn the throwaway script from First Protected Call into an application integration with a durable configuration profile.
 pageType: workflow
 ---
 
-This page shows the smallest SDK integration in TypeScript, Python, and Go. Each example opens a Session, calls a Gateway-protected resource, and leaves authorization and action-result audit behind.
+import { Tabs, TabItem } from '@astrojs/starlight/components'
 
-Complete [First Protected Call](/get-started/first-protected-call/) first so you have runtime configuration, a resource ID, and a protected path.
+In [First Protected Call](/get-started/first-protected-call/) a throwaway script proved the enforcement path with three environment variables. This page turns that into the shape real applications use: a durable **configuration profile** instead of pasted variables, and an example parameterized so the same code reaches any resource you protect. Pick one language; the three examples are equivalent.
 
-## Author the Runtime Profile
+## Prerequisites
 
-First Protected Call leaves you with a zone ID, an application ID, a client secret file, and a resource. All SDKs read those values from a `caracal.toml` profile or from `CARACAL_*` environment variables. The profile is a file you author with the IDs from guided setup - guided setup does not write it for you:
+- Complete [First Protected Call](/get-started/first-protected-call/).
+- Keep Caracal running.
+- Install one supported runtime from the table below.
+
+## Write the Configuration Profile
+
+Inline environment variables work for a script; an application needs configuration it can deploy. The SDK reads a small TOML file called a profile, named by the `CARACAL_CONFIG` environment variable. You write this file yourself, using the values from First Protected Call - the zone ID, the application ID, and the application client secret you copied during guided setup:
 
 ```toml
-zone_id = "zone_prod"
-application_id = "app_agent"
-app_client_secret_file = "/path/to/caracal-client-secret"
+zone_id = "<Pied Piper Production zone ID>"
+application_id = "<Anton application ID>"
+app_client_secret_file = "/path/to/anton-client-secret"
 
 [[credentials]]
-resource = "resource://example-api"
-upstream_prefix = "http://caracalDemoUpstream:80"
+resource = "resource://openai"
+upstream_prefix = "https://api.openai.com"
 ```
 
-On the local stack the SDK defaults cover the STS, Coordinator, and Gateway URLs. The profile must name the owner-only client-secret file explicitly; the SDK never searches local credential directories. The secret comes from application creation and can be revealed from the application's detail panel, with every reveal audited. For cloud or custom deployments add `sts_url`, `coordinator_url`, and `gateway_url`; see [Configuration File](/runtime-console/config-file/) for the full schema.
+Reading it line by line:
 
-The profile identifies the workload, not each agent. `zone_id` and `application_id` name the one confidential application your service runs as; every Session the SDK starts executes under that application identity, so one profile serves all the agents your workload creates.
+- `zone_id` and `application_id` identify your program: it acts as the Anton application inside your zone.
+- `app_client_secret_file` points to a file containing the client secret, readable only by your user. The SDK never searches for credentials on its own; the path must be explicit. If you lost the secret, reveal it again from the application's detail panel in the console (each reveal is audited).
+- The `[[credentials]]` entry declares which resource this program uses. Its key is the resource identifier, not the upstream URL.
 
-Point the examples at the profile and choose which configured resource and path they call:
+On the local stack the SDK's built-in defaults already point at the right service URLs, so this is the whole file. For cloud or custom deployments you would add `sts_url`, `coordinator_url`, and `gateway_url`; the full schema is in [Configure Workloads](/runtime-console/config-file/).
+
+:::note[Key takeaway]
+One profile serves your whole service. It names the application your program acts as - not each agent inside it. Every run executes under this one application identity, so you do not register an application per agent.
+:::
+
+Point the examples at the profile and choose what they call. When `CARACAL_CONFIG` is set, the SDK reads exactly that profile - the identity variables from the previous page are no longer needed:
+
+<Tabs syncKey="os">
+<TabItem label="Linux / macOS">
 
 ```sh
 export CARACAL_CONFIG=/path/to/caracal.toml
-export CARACAL_RESOURCE_ID=resource://example-api
-export CARACAL_RESOURCE_PATH=/
+export CARACAL_RESOURCE_ID=resource://openai
+export CARACAL_RESOURCE_PATH=/v1/models
+export CARACAL_RESOURCE_SCOPE=openai:models
 ```
 
-On Windows PowerShell:
+</TabItem>
+<TabItem label="Windows">
 
 ```powershell
 $env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
-$env:CARACAL_RESOURCE_ID = "resource://example-api"
-$env:CARACAL_RESOURCE_PATH = "/"
+$env:CARACAL_RESOURCE_ID = "resource://openai"
+$env:CARACAL_RESOURCE_PATH = "/v1/models"
+$env:CARACAL_RESOURCE_SCOPE = "openai:models"
 ```
+
+</TabItem>
+</Tabs>
 
 ## Install the SDK
 
@@ -52,7 +75,10 @@ Install the package for your application language.
 | Python     | `pip install caracalai-sdk`                               | Python 3.12+        |
 | Go         | `go get github.com/garudex-labs/caracal/packages/sdk/go`  | Go 1.26+            |
 
-## TypeScript
+## Make the Call
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```typescript
 import { Caracal } from '@caracalai/sdk'
@@ -60,23 +86,29 @@ import { Caracal } from '@caracalai/sdk'
 const caracal = new Caracal()
 const resourceId = process.env.CARACAL_RESOURCE_ID
 const resourcePath = process.env.CARACAL_RESOURCE_PATH
+const resourceScope = process.env.CARACAL_RESOURCE_SCOPE
 
 if (!resourceId) throw new Error('CARACAL_RESOURCE_ID is required')
 if (!resourcePath) throw new Error('CARACAL_RESOURCE_PATH is required')
+if (!resourceScope) throw new Error('CARACAL_RESOURCE_SCOPE is required')
 
-await caracal.session(async () => {
-  const ctx = caracal.current()
-  console.log('Session:', ctx?.sessionId)
-
-  const response = await caracal.fetch(resourceId, resourcePath, {
-    method: 'GET',
-  })
-
-  console.log(await response.text())
+const governedFetch = caracal.applicationTransport(resourceId, {
+    scopes: [resourceScope],
 })
+const target = caracal.gatewayRequest(resourceId, resourcePath)
+try {
+    const response = await governedFetch(target.url, {
+        method: 'GET',
+    })
+    if (!response.ok) throw new Error(`protected call failed: ${response.status}`)
+    console.log(await response.text())
+} finally {
+    await caracal.close()
+}
 ```
 
-## Python
+</TabItem>
+<TabItem label="Python">
 
 ```python
 import asyncio
@@ -87,31 +119,33 @@ from caracalai import Caracal
 caracal = Caracal()
 resource_id = os.environ["CARACAL_RESOURCE_ID"]
 resource_path = os.environ["CARACAL_RESOURCE_PATH"]
+resource_scope = os.environ["CARACAL_RESOURCE_SCOPE"]
 
 async def main():
-    async with caracal.session() as ctx:
-        print("Session:", ctx.session_id)
-
-        response = await caracal.fetch(
+    target = caracal.gateway_request(resource_id, resource_path)
+    try:
+        async with caracal.application_transport(
             resource_id,
-            resource_path,
-            method="GET",
-        )
-        print(response.text)
+            scopes=[resource_scope],
+        ) as governed:
+            response = await governed.get(target.url)
+            response.raise_for_status()
+            print(response.text)
+    finally:
+        await caracal.aclose()
 
 asyncio.run(main())
 ```
 
-## Go
+</TabItem>
+<TabItem label="Go">
 
 ```go
 package main
 
 import (
-    "context"
     "fmt"
     "io"
-    "net/http"
     "os"
 
     caracal "github.com/garudex-labs/caracal/packages/sdk/go"
@@ -125,44 +159,63 @@ func main() {
 
     resourceID := os.Getenv("CARACAL_RESOURCE_ID")
     resourcePath := os.Getenv("CARACAL_RESOURCE_PATH")
-    if resourceID == "" || resourcePath == "" {
-        panic("CARACAL_RESOURCE_ID and CARACAL_RESOURCE_PATH are required")
+    resourceScope := os.Getenv("CARACAL_RESOURCE_SCOPE")
+    if resourceID == "" || resourcePath == "" || resourceScope == "" {
+        panic("CARACAL_RESOURCE_ID, CARACAL_RESOURCE_PATH, and CARACAL_RESOURCE_SCOPE are required")
     }
+    defer c.Close()
 
-    err = c.Session(context.Background(), func(ctx context.Context) error {
-        cc, _ := c.Current(ctx)
-        fmt.Println("Session:", cc.SessionID)
-
-        resp, err := c.Fetch(ctx, http.MethodGet, resourceID, resourcePath)
-        if err != nil {
-            return err
-        }
-        defer resp.Body.Close()
-
-        body, _ := io.ReadAll(resp.Body)
-        fmt.Println(string(body))
-        return nil
+    // nil base: the SDK constructs its own HTTP client.
+    governed, err := c.ApplicationTransport(nil, resourceID, caracal.ApplicationTransportOptions{
+        Scopes: []string{resourceScope},
     })
     if err != nil {
         panic(err)
     }
+    target, err := c.GatewayRequest(resourceID, resourcePath)
+    if err != nil {
+        panic(err)
+    }
+    resp, err := governed.Get(target.URL)
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        panic(fmt.Sprintf("protected call failed: %s", resp.Status))
+    }
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Println(string(body))
 }
 ```
 
-## SDK Calls
+</TabItem>
+</Tabs>
 
-| Call                                    | Role                                                                                                            |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `new Caracal()` / `Caracal()` / `New()` | Loads the runtime profile or environment configuration and prepares token exchange.                             |
-| `session()` / `Session()`               | Creates a Session, binds context for the work, and terminates the session when the block exits.                 |
-| `fetch()` / `Fetch()`                   | Sends one request to a resource through the Gateway with context and authority injected.                        |
-| `gatewayRequest()` / `GatewayRequest()` | Builds the Gateway URL and `X-Caracal-Resource` header for explicit resource routing.                           |
-| `transport()` / `Transport()`           | Injects Caracal trace and baggage context on outbound calls and attaches authorization on Gateway-routed calls. |
+## Expected Outcome
 
-`session()` creates a Session under the application from your runtime profile. You reuse that one application for every Session your workload starts; you do not register an application per agent. See [Should I create one application per agent?](/reference/faq/#faq-006).
+Run the example in your selected language. It should print the provider's JSON model list - the same response your first script returned - and create matching authorization and Gateway action-result events in **Audit**. A constructor or profile error means no request reached Caracal; a policy denial appears in Audit with a request ID.
 
-If policy denies the exchange, STS returns HTTP 403 and the SDK surfaces an error. Open web console **Audit** or **explain** with the request ID to see the policy and diagnostics that determined the result.
+## What Each Call Does
+
+All three examples follow the same four calls; only the naming convention changes per language:
+
+- `new Caracal()` / `Caracal()` / `New()` loads the profile named by `CARACAL_CONFIG` (or, without one, `CARACAL_*` environment variables, as in First Protected Call). It fails immediately if the configuration is missing or unreadable.
+- `applicationTransport()` / `application_transport()` / `ApplicationTransport()` returns an HTTP transport pinned to one resource. Each call asks Caracal's token service (the **STS**, the component that evaluates policy and issues mandates) for authority with exactly the scopes you list and gets a fresh, short-lived, replay-protected mandate for the request. To do this it opens a **session** - Caracal's record of one governed run of your program - and narrows the requested scope through a **delegation**, a hand-off that can only ever shrink permissions, never grow them. The SDK manages both for you; you will meet them properly in [Concepts](/concepts/).
+- `gatewayRequest()` / `gateway_request()` / `GatewayRequest()` builds the Gateway URL and the `X-Caracal-Resource` routing header that names the resource.
+- `close()` / `aclose()` / `Close()` ends SDK-owned sessions and background work cleanly.
+
+`applicationTransport()` is the smallest application-owned call path and the right starting point. Agent frameworks that already run under delegated authority use `session()` with a scoped transport instead; read your language's SDK guide ([TypeScript](/guides/sdk-typescript/), [Python](/guides/sdk-python/), [Go](/guides/sdk-go/)) before switching paths.
+
+If policy denies the exchange, the SDK surfaces the error from the STS. Open **Audit** in the web console with the request ID to see the determining policy and diagnostics.
+
+## Common Mistakes
+
+- Use the resource identifier (`resource://openai`), not the upstream URL, as the `[[credentials]]` entry key.
+- Give `gatewayRequest` a relative path; it rejects absolute URLs and dot segments.
+- Request at least one scope, and keep every scope within what the active policy allows.
+- Close the client on shutdown so sessions and background work terminate cleanly.
 
 ## Next Step
 
-Use [First-Run Troubleshooting](/get-started/first-run-troubleshooting/) if the SDK cannot read the profile, exchange authority, call the Gateway, or find audit evidence. Otherwise continue to [Tutorials](/tutorials/).
+If anything failed - the profile would not load, the exchange was denied, the Gateway refused the call, or audit shows nothing - walk [First-Run Troubleshooting](/get-started/first-run-troubleshooting/). Otherwise you have completed Get Started: continue to [Tutorials](/tutorials/) to protect a real API, or read [Concepts](/concepts/) for the full model behind what you just built.

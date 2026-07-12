@@ -1,34 +1,33 @@
 ---
 title: Hand Off to Platform Teams
-description: Handoff checklist for teams operating Caracal in production.
-pageType: reference
+description: Accept ownership only after operators can deploy, verify, recover, and escalate the OSS runtime.
+pageType: workflow
 ---
 
-Use this checklist before a platform team accepts production ownership of a Caracal environment.
+This transfers operational responsibility; it does not create support or availability guarantees.
 
-## Handoff Checklist
+## Prerequisites
 
-| Area          | Evidence                                                                             |
-| ------------- | ------------------------------------------------------------------------------------ |
-| Ownership     | Service owner, on-call rotation, escalation path, security owner.                    |
-| Versioning    | Image tags, chart values, release notes, rollback revision.                          |
-| Secrets       | Secret inventory, storage location, rotation owner, last rotation date.              |
-| Storage       | Postgres backup/restore proof, Redis stream verification, retention policy.          |
-| Network       | Ingress, NetworkPolicy, DNS, TLS, upstream egress, provider endpoints.               |
-| Observability | Dashboards, ServiceMonitor, PrometheusRule or equivalent alerts, log access.         |
-| Runbooks      | Deployment, upgrade, incident, backup, restore, policy deployment, failure recovery. |
-| Access        | Console/Admin access, Control API credentials, audit access, break-glass policy.     |
-| Compliance    | Audit export path, evidence retention, tamper-response plan.                         |
+Name service, storage, security, release, and on-call owners. Provide deployed values, secret inventory, monitoring, backups, and private incident access.
 
-## Day-2 Operations
+## Acceptance Procedure
 
-| Cadence     | Action                                                                                |
-| ----------- | ------------------------------------------------------------------------------------- |
-| Daily       | Check readiness, critical alerts, audit DLQ, outbox health, and revocation freshness. |
-| Weekly      | Review capacity, backups, policy changes, and pending stream entries.                 |
-| Monthly     | Rotate or review secrets, restore test, audit export review, dependency updates.      |
-| Per release | Render diff, migration review, rollout gates, rollback compatibility check.           |
+1. Reproduce release verification and rendering.
+2. Start or upgrade staging.
+3. Verify migrations, health/readiness, metrics, authorization, revocation, and audit.
+4. Trigger alerts and confirm routing.
+5. Produce data and separate secret backups; restore both in isolation.
+6. Rehearse dependency failure and security intake.
+7. Record known limits and absent enterprise assurances.
 
-## Escalation Package
+## Acceptance Evidence
 
-When escalating, include environment, version, recent changes, readiness output, alert names, request IDs, audit explanations, Redis stream status, migration status, and whether any access-safety guarantee is degraded.
+Retain version/digests, values, migration/readiness output, canary IDs, alert tests, restore results, owners, escalation, and risks.
+
+## Recovery
+
+Reject handoff when an owner, secret, backup, alert, or recovery test is missing. Continue staging ownership until closed.
+
+## Next Step
+
+Use [Respond to Incidents](/operations/incident-response/) as the on-call entry point.

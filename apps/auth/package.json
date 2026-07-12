@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/auth",
-  "version": "0.2.0",
+  "version": "0.2.0-rc.2",
   "private": true,
   "description": "Caracal Community Edition authentication service built on Better Auth.",
   "type": "module",

@@ -4,27 +4,56 @@ description: How to plan, implement, validate, and submit Caracal changes.
 pageType: workflow
 ---
 
+Match the process to the change size before writing code: a small focused fix can go straight to a pull request, a medium change starts with a [GitHub issue](https://github.com/Garudex-Labs/caracal/issues/new/choose), and a large one starts with a proposal, as sized in [Contribution Scale](/contributing/governance/#contribution-scale).
+
 ## Standard Flow
 
-1. Start from `main`.
-2. Keep the change focused on one component or workflow.
+1. Sync `main`, create a focused branch, and confirm the checkout passes its baseline targeted check.
+2. Keep the change focused on one component or user workflow.
 3. Read the `instructions.md` file in the directory you are editing. Every service, app, and package directory has one; it lists the required and forbidden patterns for that area.
-4. Update docs when behavior, APIs, commands, config, examples, or operations change.
-5. Run targeted tests first, then broader checks when shared boundaries changed.
-6. Open a pull request with the problem, solution, validation, and risk notes.
+4. Update docs when behavior, APIs, commands, config, examples, or operations change. Before `v0.2.0`, edit the unversioned source. Afterward, target either the current stable minor or the next unreleased minor as described below.
+5. Add a regression test for every bug fix and tests for major new behavior.
+6. Run the narrowest relevant check first, then broaden only when a shared or security boundary changed.
+7. Review the diff for generated files, secrets, unrelated formatting, and documentation drift.
+8. Open a pull request with the repository template: a typed title (`feat`, `fix`, `docs`, ...), the linked issue where one exists, and the evidence below.
 
 ## Choose the Area
 
-| Area              | Common sources                                                          |
-| ----------------- | ----------------------------------------------------------------------- |
-| Runtime CLI       | `apps/runtime`, `packages/engine`, runtime tests.                       |
-| Web console       | `apps/web`, Admin SDK, web console tests.                               |
-| API               | `apps/api`, migrations, Admin package, API tests.                       |
-| Coordinator       | `apps/coordinator`, Coordinator tests, SDK tests.                       |
-| STS/Gateway/Audit | `services/*`, Go tests, operations docs.                                |
-| SDKs/adapters     | `packages/*`, language-specific tests, interoperability fixtures.       |
-| Infra             | `infra/docker`, `infra/helm`, Postgres/Redis scripts.                   |
-| Docs              | `docs/src/content/docs`, `docs/astro.config.mjs`, generated docs pages. |
+| Area              | Common sources                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| Runtime CLI       | `apps/runtime`, `packages/engine`, runtime tests.                                   |
+| Web console       | `apps/web`, Admin SDK, web console tests.                                           |
+| API               | `apps/api`, migrations, Admin package, API tests.                                   |
+| Coordinator       | `apps/coordinator`, Coordinator tests, SDK tests.                                   |
+| STS/Gateway/Audit | `services/*`, Go tests, operations docs.                                            |
+| SDKs/adapters     | `packages/*`, language-specific tests, interoperability fixtures.                   |
+| Infra             | `infra/docker`, `infra/helm`, Postgres/Redis scripts.                               |
+| Docs              | `docs/src/content/docs`, `docs/versions.json`, site config/plugins, and docs tests. |
+
+## Choose the Documentation Line
+
+Documentation versions follow product minor releases, not individual patch releases.
+
+| Change target                                           | Source to edit                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Before the first `v0.2.0` release                       | Unversioned pages under `docs/src/content/docs/`.                                                |
+| Current stable patch line, such as `v0.2.1` or `v0.2.2` | The unlocked current snapshot under `docs/src/content/docs/v0.2/`.                               |
+| Next unreleased minor, such as work for `v0.3.0`        | Unversioned pages under `docs/src/content/docs/`, published at `/next/` after versioning begins. |
+| Older minor                                             | Do not edit it. Once superseded, its snapshot is locked and CI verifies its digest.              |
+
+Do not create `v0.2.1`, `v0.2.2`, or other patch-specific documentation directories. If a documentation correction applies to both stable and unreleased behavior, make two deliberate edits: one in the unlocked stable snapshot and one in the unversioned next-minor source.
+
+Create snapshots only through `scripts/docsVersion.mjs` as part of the stable release flow. Never edit a locked snapshot or replace its digest.
+
+## Pull Request Evidence
+
+Include:
+
+- what user or operator behavior changed;
+- which trust, command, language-parity, or product-isolation boundaries were reviewed;
+- exact targeted and broad checks that ran, with results;
+- deployment, migration, compatibility, or rollback impact;
+- unresolved ambiguity that a reviewer must decide.
 
 ## Command Boundary
 
