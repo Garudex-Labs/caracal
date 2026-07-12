@@ -38,7 +38,7 @@ Provider credentials and SMTP URLs support their implemented `_FILE` variants. R
 
 | Variable | Purpose |
 | --- | --- |
-| `CARACAL_PRIVATE_EGRESS_HOSTS` | Comma-separated hosts on private address ranges that subject-issuer JWKS and provider token endpoints may reach; empty blocks private-range egress. |
+| `CARACAL_PRIVATE_EGRESS_HOSTS` | Comma-separated hosts on private address ranges that subject-issuer JWKS, provider token endpoints, and notification sink deliveries may reach; empty blocks private-range egress. |
 | `CARACAL_TLS_EXTRA_CA_FILE` | PEM bundle appended to system trust for STS egress TLS, so internal-PKI subject issuers and provider endpoints verify without replacing public trust. |
 
 The packaged Compose stack wires `CARACAL_TLS_EXTRA_CA_FILE` for you: drop a PEM bundle at `$CARACAL_HOME/ca/extra-ca.pem` and restart with `caracal up`. An absent bundle leaves system trust untouched; an unreadable or unparseable bundle fails STS egress closed rather than silently ignoring the stated trust intent.

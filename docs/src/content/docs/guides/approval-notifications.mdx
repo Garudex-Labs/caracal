@@ -26,7 +26,7 @@ curl -X POST "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/notification-sinks" \
   }'
 ```
 
-Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses during local development, and URLs may never embed credentials. Delivery resolves and pins DNS for each connection and rejects loopback, private, metadata, link-local, CGNAT, multicast, mapped, and NAT64-embedded restricted addresses. Authentication is the signature, not the URL. A zone holds at most 20 sinks.
+Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses during local development, and URLs may never embed credentials. Delivery resolves and pins DNS for each connection and rejects loopback, metadata, link-local, multicast, mapped, and NAT64-embedded addresses outright; private, unique-local, and CGNAT ranges are rejected too unless the receiver's host is listed in `CARACAL_PRIVATE_EGRESS_HOSTS`, the same egress allowlist that governs provider token endpoints - so an on-premises relay stays reachable without ever opening a path to cloud metadata. Authentication is the signature, not the URL. A zone holds at most 20 sinks.
 
 | Event type         | Fires when                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -60,7 +60,7 @@ function verifySink(secret: string, headers: Record<string, string>, rawBody: st
 }
 ```
 
-The body carries the audit event verbatim - `data` is the same metadata the zone audit stream records for the hold, so a relay can render a complete approval prompt without calling back:
+The body carries the audit event verbatim - `data` is the same metadata the zone audit stream records for the hold, so a relay can render a complete approval prompt without calling back. The requesting run rides along as `agent_session_id`, and any labels its developer annotated at session start ride as `agent_labels` - the business context, such as a case or settlement reference, that lets an approver correlate the hold to the work behind it:
 
 ```json
 {
@@ -77,7 +77,9 @@ The body carries the audit event verbatim - `data` is the same metadata the zone
     "binding": "9f3c…",
     "expires_at": "2026-01-01T12:30:00Z",
     "application_id": "0195f2a9-4e55-7a1b-bc2d-3e4f5a6b7c8d",
-    "session_id": "0195f2aa-2c11-7e9f-8a0b-1c2d3e4f5a6b"
+    "session_id": "0195f2aa-2c11-7e9f-8a0b-1c2d3e4f5a6b",
+    "agent_session_id": "0195f2aa-9f10-7c2d-8b3e-4a5c6d7e8f90",
+    "agent_labels": ["case:CASE-4021", "payout-execution"]
   }
 }
 ```

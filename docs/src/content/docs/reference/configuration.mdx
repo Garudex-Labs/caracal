@@ -82,7 +82,7 @@ Variables that appear in individual runbooks are cataloged here so every documen
 | --- | --- | --- |
 | `OPA_POLL_SECONDS` | STS | Policy-bundle database poll interval (default 60, max 300). |
 | `MAX_GRANT_TTL_SECONDS` | STS | Ceiling for requested mandate TTLs. |
-| `CARACAL_PRIVATE_EGRESS_HOSTS` | API, STS | Exact private hostnames granted to OAuth token endpoints and connectivity checks. |
+| `CARACAL_PRIVATE_EGRESS_HOSTS` | API, STS | Exact private hostnames granted to OAuth token endpoints, connectivity checks, and notification sink deliveries. |
 | `UPSTREAM_HOST_ALLOWLIST` | Gateway | Pins Gateway upstream destinations to an explicit host list. |
 | `MAX_REQUEST_BYTES` | Gateway | Proxied request size cap (default 10 MiB). |
 | `JTI_FAIL_OPEN` | Gateway | Replay-tracker failure posture; forbidden in published modes. |
