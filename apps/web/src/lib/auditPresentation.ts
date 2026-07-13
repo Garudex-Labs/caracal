@@ -121,8 +121,8 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
     hint: "Ask the user to authorize the provider grant, then retry the exchange.",
   },
   no_provider_connection: {
-    label: "The subject has not connected this provider",
-    hint: "Ask the subject to connect their account from the provider's Connections panel.",
+    label: "No upstream account is connected for this provider",
+    hint: "Connect the provider's upstream account from its Connections panel, then retry the exchange.",
   },
   no_active_policy_set: {
     label: "The zone has no active policy set",

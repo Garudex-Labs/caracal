@@ -68,8 +68,15 @@ const GrantListQuery = z.object({
   ),
 })
 
+// Reserved subject id for a zone-shared provider connection. When an operator connects
+// an upstream account without naming a subject, the connection is stored under this
+// sentinel and the STS falls back to it for any authorized caller, so the common case
+// needs no per-caller subject. Federated per-subject connections still match exactly
+// and take precedence. Kept in sync with SharedConnectionSubject in the STS.
+const SHARED_CONNECTION_SUBJECT = 'caracal:shared'
+
 const ProviderConnectionBody = z.object({
-  subject_id: z.string().min(1),
+  subject_id: z.string().min(1).default(SHARED_CONNECTION_SUBJECT),
   provider_id: z.string().min(1),
   access_token: z.string().min(1),
   refresh_token: z.string().min(1).optional(),
@@ -83,12 +90,12 @@ const ProviderConnectionListQuery = z.object({
 })
 
 const ProviderConnectionAuthorizeBody = z.object({
-  subject_id: z.string().min(1),
+  subject_id: z.string().min(1).default(SHARED_CONNECTION_SUBJECT),
   provider_id: z.string().min(1),
 })
 
 const ProviderConnectionRevokeBody = z.object({
-  subject_id: z.string().min(1),
+  subject_id: z.string().min(1).default(SHARED_CONNECTION_SUBJECT),
   provider_id: z.string().min(1),
 })
 

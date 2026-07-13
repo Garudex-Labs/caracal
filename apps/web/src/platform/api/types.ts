@@ -695,7 +695,8 @@ export interface ProviderConnectionListQuery {
 }
 
 export interface ProviderConnectionAuthorizeInput {
-  subject_id: string;
+  // Omitted for a zone-shared connection; set only for a per-subject (federated) one.
+  subject_id?: string;
   provider_id: string;
 }
 
@@ -706,7 +707,8 @@ export interface ProviderConnectionAuthorizeResult {
 }
 
 export interface ProviderConnectionRevokeInput {
-  subject_id: string;
+  // Omitted for a zone-shared connection; set only for a per-subject (federated) one.
+  subject_id?: string;
   provider_id: string;
 }
 
