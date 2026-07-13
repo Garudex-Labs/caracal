@@ -344,12 +344,23 @@ services:
     entrypoint: ['/bin/sh', '/usr/local/bin/caracal-migrate']
 
   sts:
-    <<: [*appService, *appResources]
+    <<: *appService
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.go-service
     image: localhost/caracal-go:${CARACAL_DEV_VERSION:-${CARACAL_BASE_VERSION:-0.2.0}-dev.sha${CARACAL_DEV_SHA:-local}}
     command: ['/usr/local/bin/sts']
+    # The STS carries the throughput-critical mint path and Argon2id credential
+    # verification, so it gets its own resource envelope above the shared app default.
+    deploy:
+      resources:
+        limits:
+          cpus: '${CARACAL_STS_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_STS_MEM_LIMIT:-1G}'
+          pids: 256
+        reservations:
+          cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+          memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -385,6 +396,8 @@ services:
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
+      STS_MINT_RATE_LIMIT_PER_MIN: ${STS_MINT_RATE_LIMIT_PER_MIN:-}
+      STS_SECRET_VERIFY_CONCURRENCY: ${STS_SECRET_VERIFY_CONCURRENCY:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       UPSTREAM_HOST_ALLOWLIST: ${UPSTREAM_HOST_ALLOWLIST:-}
       TRUST_PROXY: ${CARACAL_GATEWAY_TRUST_PROXY:-false}
@@ -460,6 +473,7 @@ services:
       STS_ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://sts:8080}
       CONTROL_AUDIENCE: ${CONTROL_AUDIENCE:-caracal-control}
       CONTROL_API_TOKEN_FILE: /run/secrets/caracalAdminToken
+      STS_MINT_RATE_LIMIT_PER_MIN: ${STS_MINT_RATE_LIMIT_PER_MIN:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: caracal-api
@@ -714,6 +728,19 @@ services:
       CARACAL_ADMIN_TOKEN_FILE: /run/secrets/caracalAdminToken
       CARACAL_COORDINATOR_TOKEN_FILE: /run/secrets/caracalCoordinatorToken
       CARACAL_OPERATOR_ALLOWLIST_FILE: /run/caracalHostSecrets/operatorAllowlist.json
+      # Console sign-in configuration, mirroring the packaged runtime stack: registration
+      # posture, social providers, and verification mail. Each stays empty unless set in a dev
+      # env file (infra/docker/dev.env or local.env), so a method only activates once wired.
+      CARACAL_WEB_ORIGIN: ${CARACAL_WEB_ORIGIN:-}
+      CARACAL_AUTH_TRUST_PROXY: ${CARACAL_AUTH_TRUST_PROXY:-}
+      CARACAL_OPEN_REGISTRATION: ${CARACAL_OPEN_REGISTRATION:-}
+      CARACAL_PASSWORD_SIGNUP: ${CARACAL_PASSWORD_SIGNUP:-}
+      CARACAL_SMTP_URL: ${CARACAL_SMTP_URL:-}
+      CARACAL_SMTP_FROM: ${CARACAL_SMTP_FROM:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 3002
       HOST: 0.0.0.0

@@ -382,6 +382,20 @@ CREATE TABLE public.audit_retention (
 
 
 --
+-- Name: sts_rate_limit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sts_rate_limit (
+    singleton boolean DEFAULT true NOT NULL,
+    limit_per_minute integer NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_by text,
+    CONSTRAINT sts_rate_limit_limit_per_minute_check CHECK ((limit_per_minute >= 1)),
+    CONSTRAINT sts_rate_limit_singleton_check CHECK (singleton)
+);
+
+
+--
 -- Name: caracal_outbox; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1153,6 +1167,14 @@ ALTER TABLE ONLY public.audit_ingest_alerts
 
 ALTER TABLE ONLY public.audit_retention
     ADD CONSTRAINT audit_retention_pkey PRIMARY KEY (singleton);
+
+
+--
+-- Name: sts_rate_limit sts_rate_limit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sts_rate_limit
+    ADD CONSTRAINT sts_rate_limit_pkey PRIMARY KEY (singleton);
 
 
 --
@@ -3385,6 +3407,8 @@ GRANT SELECT,INSERT ON TABLE public.admin_audit_events TO caracalapi;
 GRANT SELECT,INSERT ON TABLE public.admin_audit_events TO caracalcoordinator;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_retention TO caracalapi;
 GRANT SELECT ON TABLE public.audit_retention TO caracalaudit;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sts_rate_limit TO caracalapi;
+GRANT SELECT ON TABLE public.sts_rate_limit TO caracalsts;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_chain_rehash TO caracalaudit;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.event_outbox TO caracalapi;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operator_ai_providers TO caracalapi;

@@ -282,9 +282,20 @@ services:
     entrypoint: ['/bin/sh', '/usr/local/bin/caracal-migrate']
 
   sts:
-    <<: [*appService, *appResources]
+    <<: *appService
     image: ${CARACAL_REGISTRY:-ghcr.io/garudex-labs/}caracal-go:v${CARACAL_VERSION}
     command: ['/usr/local/bin/sts']
+    # The STS carries the throughput-critical mint path and Argon2id credential
+    # verification, so it gets its own resource envelope above the shared app default.
+    deploy:
+      resources:
+        limits:
+          cpus: '${CARACAL_STS_CPU_LIMIT:-2.0}'
+          memory: '${CARACAL_STS_MEM_LIMIT:-1G}'
+          pids: 256
+        reservations:
+          cpus: '${CARACAL_APP_CPU_RESERVE:-0.1}'
+          memory: '${CARACAL_APP_MEM_RESERVE:-128M}'
     depends_on:
       replayVolumeInit:
         condition: service_completed_successfully
@@ -320,6 +331,8 @@ services:
       GATEWAY_STS_HMAC_KEY_FILE: /run/secrets/gatewayStsHmacKey
       ISSUER_URL: ${CARACAL_STS_ISSUER_URL:-http://localhost:8080}
       STS_ADMIN_TOKEN: ${STS_ADMIN_TOKEN:-}
+      STS_MINT_RATE_LIMIT_PER_MIN: ${STS_MINT_RATE_LIMIT_PER_MIN:-}
+      STS_SECRET_VERIFY_CONCURRENCY: ${STS_SECRET_VERIFY_CONCURRENCY:-}
       METRICS_BEARER_FILE: /run/secrets/metricsBearer
       CARACAL_TLS_EXTRA_CA_FILE: /etc/caracal/ca/extra-ca.pem
       PORT: 8080
@@ -394,6 +407,7 @@ services:
       # and no key ever lives in an env file. The Operator always self-governs: the control
       # plane provisions that zone and its rotating least-privilege identities autonomously.
       API_OPERATOR_ENABLED: ${API_OPERATOR_ENABLED:-true}
+      STS_MINT_RATE_LIMIT_PER_MIN: ${STS_MINT_RATE_LIMIT_PER_MIN:-}
       PORT: 3000
       HOST: 0.0.0.0
     ports:

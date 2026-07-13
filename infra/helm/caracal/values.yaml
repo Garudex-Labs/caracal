@@ -177,17 +177,21 @@ services:
     # Use extraEnv for deployment-specific settings such as:
     # - name: CARACAL_PRIVATE_EGRESS_HOSTS
     #   value: "login.private.example,oauth.private.example"
+    # - name: STS_MINT_RATE_LIMIT_PER_MIN
+    #   value: "5000"
     extraEnv: []
     extraEnvFrom: []
     extraVolumes: []
     extraVolumeMounts: []
+    # The STS carries the throughput-critical mint path and Argon2id credential
+    # verification; give it headroom above the other app services.
     resources:
       requests:
-        cpu: 250m
-        memory: 256Mi
+        cpu: 500m
+        memory: 512Mi
       limits:
-        cpu: '1'
-        memory: 768Mi
+        cpu: '2'
+        memory: 1Gi
     pdb:
       enabled: true
       minAvailable: '50%'
