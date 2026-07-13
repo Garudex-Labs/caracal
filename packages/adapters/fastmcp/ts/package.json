@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/fastmcp",
-  "version": "0.2.0-rc.5",
+  "version": "0.2.0-rc.6",
   "description": "Caracal mandate verification adapter for FastMCP.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -41,8 +41,8 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@caracalai/core": "0.2.0-rc.5",
-    "@caracalai/verify": "0.2.0-rc.5"
+    "@caracalai/core": "0.2.0-rc.6",
+    "@caracalai/verify": "0.2.0-rc.6"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

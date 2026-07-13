@@ -3,7 +3,7 @@ message: "If this project contributes to your research, product, or derivative s
 authors:
   - name: "Garudex Labs"
 title: "Caracal: Identity and Authorization for AI Agents"
-version: 0.2.0-rc.5
+version: 0.2.0-rc.6
 abstract: "Open-source identity and authorization infrastructure for AI agents: short-lived, policy-approved mandates instead of credentials, delegation that can only narrow, instant revocation, and a tamper-evident audit trail."
 date-released: 2026-07-11
 url: "https://github.com/Garudex-Labs/caracal"

@@ -9,5 +9,5 @@ go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/garudex-labs/caracal/packages/oauth/go v0.2.0-rc.5
+	github.com/garudex-labs/caracal/packages/oauth/go v0.2.0-rc.6
 )
