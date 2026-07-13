@@ -33,7 +33,7 @@ flowchart LR
   Gateway -->|upstream credential| Upstream["Protected target"]
 ```
 
-Gateway strips the caller's authorization and forwards the provider credential instead. For OAuth modes, STS obtains and refreshes the upstream tokens; delegated consent is stored as a provider connection - one authenticated upstream account per subject and provider, distinct from Caracal grants, which express authorization.
+Gateway strips the caller's authorization and forwards the provider credential instead. For OAuth modes, STS obtains and refreshes the upstream tokens; delegated consent is stored as a provider connection - by default one shared upstream account for the provider that serves every session policy authorizes, with an optional per-subject binding when a Zone needs a distinct upstream account per customer. A connection is distinct from Caracal grants, which express authorization.
 
 ## Common Mistakes
 
@@ -41,7 +41,7 @@ Gateway strips the caller's authorization and forwards the provider credential i
 - Name providers with stable `provider://` identifiers, such as `provider://hooli-oidc`.
 - OAuth providers support a real connectivity check before creation. The other modes are validated at creation and exercised when a resource first uses them.
 - A Provider controls upstream authentication, not whether Caracal issues a Mandate.
-- A Subject's Provider connection identifies its upstream account; it does not grant Caracal scopes.
+- A Provider connection identifies the upstream account Gateway uses; it does not grant Caracal scopes.
 
 :::note[FAQ]
 [What is the difference between a resource and a provider?](/reference/faq/#faq-009) and [is an application secret the same as a provider credential?](/reference/faq/#faq-013)

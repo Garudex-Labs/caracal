@@ -60,7 +60,7 @@ Delegated user consent for a Google API, refreshed inside STS.
 | `authorization_params` (Advanced) | `access_type=offline`, `prompt=consent` for refresh tokens.                                                     |
 | Resource upstream URL             | `https://www.googleapis.com`                                                                                    |
 
-Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `connect` action to mint the consent URL for a user and resource.
+Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE. Use the provider `connect` action to mint the consent URL for the shared upstream account, or bind it to a specific subject for per-customer isolation.
 
 :::note[FAQ]
 [When should I use per-user OAuth instead of a shared provider credential?](/reference/faq/#faq-014)
