@@ -278,7 +278,7 @@ import FaqRegistryScript from '../../../components/FaqRegistryScript.astro'
         <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-014">Share</button>
       </summary>
       <span id="faq-per-user-oauth-versus-shared-credential" className="faqAnchor"></span>
-      <p>Use a connected upstream account (<code>oauth2_authorization_code</code>) when the upstream call must act as a specific consented account: a human completes the provider's consent screen once per subject and provider. Use a shared service credential (<code>oauth2_client_credentials</code>, <code>api_key</code>, or <code>bearer_token</code>) when the agent acts as the application with one operator-configured credential.</p>
+      <p>Use a connected upstream account (<code>oauth2_authorization_code</code>) when the upstream call must act as a specific consented account: a human completes the provider's consent screen once for the shared account, or once per subject when the connection is bound to a specific customer. Use a shared service credential (<code>oauth2_client_credentials</code>, <code>api_key</code>, or <code>bearer_token</code>) when the agent acts as the application with one operator-configured credential.</p>
       <p>The concrete setup fields are in <a href="/guides/provider-recipes/">Provider Recipes</a>.</p>
       <p className="faqRelated">Related: <a href="#faq-013">FAQ-013</a>, <a href="#faq-016">FAQ-016</a></p>
     </details>
