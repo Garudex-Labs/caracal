@@ -6,9 +6,19 @@ pageType: reference
 
 Use this page before first start or after a release adds configuration. Service variables and workload SDK variables are separate concerns.
 
-## Precedence and Locations
+## The Operator Env File
 
-Every `caracal` command loads one operator env file: `$CARACAL_HOME/caracal.env` on an installed host (override with `CARACAL_ENV_FILE`), or `.env` at the repository root in development, where `infra/docker/dev.env` holds the Compose defaults. A variable already set in the process environment always wins over the file; open the file in an editor to change values. For a supported secret, `NAME_FILE` is resolved before `NAME`.
+Every `caracal` command - `up`, `web`, and `run` - loads one operator env file at startup. It holds everything you enter by hand: the web console's sign-in settings, without which `caracal web` cannot authenticate anyone; the runtime launcher's workload identity and secret; the STS URL; and any service override. A variable already set in the process environment always wins over the file, and for a supported secret `NAME_FILE` is resolved before `NAME`.
+
+On an installed host the file is `$CARACAL_HOME/caracal.env`, created `0600` on the first `caracal up`. It lives outside your project, so open it in an editor - it is plain `KEY=VALUE`:
+
+```bash
+${EDITOR:-nano} ~/.local/share/caracal/caracal.env                 # Linux
+${EDITOR:-nano} ~/Library/Application\ Support/caracal/caracal.env  # macOS
+notepad $env:LOCALAPPDATA\caracal\caracal.env                      # Windows (PowerShell)
+```
+
+Set `CARACAL_ENV_FILE` to point at a different path. In development the file is `.env` at the repository root - copy the committed `.env.example` - and `infra/docker/dev.env` holds the Compose defaults. Apply a change by rerunning the affected command.
 
 Use `CARACAL_MODE=dev` only locally. `rc` and `stable` share fail-closed configuration checks; `rc` denotes release maturity, not weaker security.
 
@@ -42,6 +52,14 @@ Provider credentials and SMTP URLs support their implemented `_FILE` variants. R
 | `CARACAL_TLS_EXTRA_CA_FILE` | PEM bundle appended to system trust for STS egress TLS, so internal-PKI subject issuers and provider endpoints verify without replacing public trust. |
 
 The packaged Compose stack wires `CARACAL_TLS_EXTRA_CA_FILE` for you: drop a PEM bundle at `$CARACAL_HOME/ca/extra-ca.pem` and restart with `caracal up`. An absent bundle leaves system trust untouched; an unreadable or unparseable bundle fails STS egress closed rather than silently ignoring the stated trust intent.
+
+## STS Capacity
+
+| Variable | Purpose |
+| --- | --- |
+| `STS_MINT_RATE_LIMIT_PER_MIN` | Deployment ceiling for mandate mints per minute for each zone, resource, and acting application; default 1000. Set it on the STS and API services together. The web console's Preferences page manages a working limit below this ceiling. |
+| `STS_SECRET_VERIFY_CONCURRENCY` | Concurrent Argon2id credential verifications; default 2. Each in-flight verification allocates 64 MB, and verified credentials are cached, so this bounds cold-start bursts, not steady-state throughput. |
+| `CARACAL_STS_CPU_LIMIT`, `CARACAL_STS_MEM_LIMIT` | Packaged Compose STS container resources; defaults 2.0 CPUs and 1G. Size per [Performance and Scalability](/operations/performance-benchmarks/). |
 
 ## API Operator and Control
 

@@ -80,9 +80,11 @@ The SDKs share one timeout philosophy: **control-plane calls are bounded, data-p
 | Delegation depth                                            | 10              |
 | Session labels per Session                                  | 32              |
 | Session label length                                        | 64 characters   |
-| STS request rate per zone, resource, and acting application | 1000 per minute |
+| STS request rate per zone, resource, and acting application | 1000 per minute (`STS_MINT_RATE_LIMIT_PER_MIN`) |
 
 The per-zone ceiling binds first: with defaults, no application can hold more than 50 concurrent Sessions because its zone caps out there. The higher per-application ceiling matters once `MAX_AGENTS_PER_ZONE` is raised.
+
+`STS_MINT_RATE_LIMIT_PER_MIN` is the deployment ceiling for the mint rate. Operators can set a lower working limit from the web console under Settings → Preferences → Mint rate limit; the STS applies a change within 30 seconds, and the working limit can never exceed the ceiling.
 
 `max_hops` defaults to `1` on a constrained Delegation when omitted. The server validates every child bound against its parent's remaining hops.
 

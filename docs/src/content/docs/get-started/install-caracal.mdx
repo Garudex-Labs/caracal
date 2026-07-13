@@ -117,7 +117,7 @@ caracal allowlist add <your email>
 
 The change applies immediately; no restart is needed. The same command family later manages suspension, restoration, and removal - see [Control Console Access](/runtime-console/console-access/) for the full lifecycle.
 
-An allowlisted email still needs a way to sign in. Pick one, add its settings to the environment file the stack reads (`$CARACAL_HOME/caracal.env` - Linux default `~/.local/share/caracal/caracal.env`, macOS `~/Library/Application Support/caracal/caracal.env`, Windows `%LOCALAPPDATA%\caracal\caracal.env`), then rerun `caracal up`:
+An allowlisted email still needs a way to sign in. Pick one and add its settings to the operator env file the stack reads - `$CARACAL_HOME/caracal.env`, whose exact per-platform path and editor command are in [Configure Service Environment](/operations/env-vars/#the-operator-env-file) - then rerun `caracal up`:
 
 | Sign-in method | Required variables |
 | --- | --- |

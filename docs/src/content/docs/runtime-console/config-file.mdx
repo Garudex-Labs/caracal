@@ -41,21 +41,13 @@ The config directory defaults to `$XDG_CONFIG_HOME/caracal` or `~/.config/caraca
 
 ### One file for every command
 
-Every `caracal` command - `up`, `web`, and `run` - loads one operator env file at startup, so you set workload identity, STS URL, the web console's sign-in settings, and any stack override in one place. Variables already in the environment always win over the file, so a secret manager, CI, or a plain `export` overrides any value.
+Workload settings share the operator env file that every `caracal` command - `up`, `web`, and `run` - loads at startup: workload identity and STS URL sit alongside the web console's sign-in settings and any stack override. See [Configure Service Environment](/operations/env-vars/#the-operator-env-file) for the file's per-platform location, editor commands, and precedence. This table maps where the workload secret comes from in each deployment:
 
 | Deployment | Config file or mechanism | Workload secret |
 | --- | --- | --- |
 | **Dev (repo)** | `.env` at the repo root - copy the committed `.env.example` | Inline in `.env`, or the default `<config dir>/runtime/<workload_id>/secret` |
 | **Released (host)** | `$CARACAL_HOME/caracal.env` (created `0600` on first `caracal up`), or a path you set with `CARACAL_ENV_FILE` | Inline in that file, or `CARACAL_WORKLOAD_SECRET_FILE` |
 | **Cloud** | Orchestrator env - a Kubernetes `env` block (Helm `web.extraEnv`) or an ECS task definition | A secret manager mounted read-only (`defaultMode: 0400`) via `CARACAL_WORKLOAD_SECRET_FILE`, or `valueFrom.secretKeyRef` |
-
-On a released host the file lives outside your project, so open it in your editor - it is plain `KEY=VALUE`:
-
-```bash
-${EDITOR:-nano} ~/.local/share/caracal/caracal.env                 # Linux
-${EDITOR:-nano} ~/Library/Application\ Support/caracal/caracal.env  # macOS
-notepad $env:LOCALAPPDATA\caracal\caracal.env                      # Windows (PowerShell)
-```
 
 For release and cloud, set `CARACAL_ENV=production`: it disables the auto-detected local secret file so a launch fails closed unless it names an explicit secret source. Caracal never auto-loads a `.env` from the current working directory (a footgun for a credential tool) and requires secret files to be owner-only.
 
