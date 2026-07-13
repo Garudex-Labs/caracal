@@ -2,7 +2,7 @@
 Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 Caracal, a product of Garudex Labs
 
-This file defines the Settings preferences page for theme, guided-tour, and audit retention choices.
+This file defines the Settings preferences page for theme, guided-tour, audit retention, and mint rate limit choices.
 */
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -10,7 +10,12 @@ import { useEffect, useState } from "react";
 import { CreatedBy } from "@/components/console/CreatedBy";
 import { ConfirmModal, SettingsGroup } from "@/components/console/SettingsPanels";
 import { Button, Field, Skeleton, useToast } from "@/components/ui";
-import { useAuditRetention, useUpdateAuditRetention } from "@/platform/api/hooks";
+import {
+  useAuditRetention,
+  useMintRateLimit,
+  useUpdateAuditRetention,
+  useUpdateMintRateLimit,
+} from "@/platform/api/hooks";
 import { updateUser } from "@/platform/auth";
 import { clearGuidesCache } from "@/platform/state/guides";
 import { setTheme, useTheme } from "@/platform/theme";
@@ -26,16 +31,33 @@ function PreferencesPage() {
   const retention = useAuditRetention();
   const update = useUpdateAuditRetention();
   const [days, setDays] = useState("");
+  const mintRate = useMintRateLimit();
+  const updateMintRate = useUpdateMintRateLimit();
+  const [mintPerMinute, setMintPerMinute] = useState("");
 
   useEffect(() => {
     if (retention.data) setDays(String(retention.data.retention_days));
   }, [retention.data]);
+
+  useEffect(() => {
+    if (mintRate.data) setMintPerMinute(String(mintRate.data.limit_per_minute));
+  }, [mintRate.data]);
 
   const max = retention.data?.max_days ?? 0;
   const parsed = Number(days);
   const valid = Number.isInteger(parsed) && parsed >= 1 && parsed <= max;
   const daysError =
     days === "" || valid ? undefined : parsed > max ? `Maximum ${max} days.` : "Enter 1 or more.";
+
+  const mintMax = mintRate.data?.max_per_minute ?? 0;
+  const mintParsed = Number(mintPerMinute);
+  const mintValid = Number.isInteger(mintParsed) && mintParsed >= 1 && mintParsed <= mintMax;
+  const mintError =
+    mintPerMinute === "" || mintValid
+      ? undefined
+      : mintParsed > mintMax
+        ? `Maximum ${mintMax} per minute; raise STS_MINT_RATE_LIMIT_PER_MIN to go higher.`
+        : "Enter 1 or more.";
 
   function saveRetention() {
     update.mutate(parsed, {
@@ -50,6 +72,25 @@ function PreferencesPage() {
         toast({
           tone: "error",
           title: "Could not save retention window",
+          description: err instanceof Error ? err.message : "Unexpected error.",
+        });
+      },
+    });
+  }
+
+  function saveMintRate() {
+    updateMintRate.mutate(mintParsed, {
+      onSuccess: (result) => {
+        toast({
+          tone: "success",
+          title: "Mint rate limit saved",
+          description: `Each Resource and Application pair can mint ${result.limit_per_minute} mandates per minute.`,
+        });
+      },
+      onError: (err) => {
+        toast({
+          tone: "error",
+          title: "Could not save mint rate limit",
           description: err instanceof Error ? err.message : "Unexpected error.",
         });
       },
@@ -141,6 +182,42 @@ function PreferencesPage() {
             Last set by <CreatedBy id={retention.data.updated_by} />
             {retention.data.updated_at
               ? ` on ${new Date(retention.data.updated_at).toLocaleString()}`
+              : ""}
+            .
+          </p>
+        ) : null}
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Mint rate limit"
+        description="How many mandate mints per minute the STS allows for each Resource and Application pair, across all zones; requests beyond it are denied until the minute rolls over. The deployment ceiling comes from STS_MINT_RATE_LIMIT_PER_MIN."
+        action={
+          <Button onClick={saveMintRate} disabled={!mintValid} loading={updateMintRate.isPending}>
+            Save
+          </Button>
+        }
+      >
+        <div className="min-h-[3.75rem] max-w-[11rem]">
+          {mintRate.isLoading ? (
+            <Skeleton className="h-[3.75rem] w-full" />
+          ) : (
+            <Field
+              label="Mints per minute"
+              type="number"
+              min={1}
+              max={mintMax}
+              value={mintPerMinute}
+              onChange={(e) => setMintPerMinute(e.target.value)}
+              error={mintError}
+              hint={`Maximum ${mintMax} per minute.`}
+            />
+          )}
+        </div>
+        {mintRate.data?.updated_by ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Last set by <CreatedBy id={mintRate.data.updated_by} />
+            {mintRate.data.updated_at
+              ? ` on ${new Date(mintRate.data.updated_at).toLocaleString()}`
               : ""}
             .
           </p>

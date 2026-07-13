@@ -52,13 +52,12 @@ function Home() {
 }
 
 function ReadmeSection() {
-  const tabs = ["Start", "Web", "Run"];
+  const tabs = ["Start", "Run"];
   const [active, setActive] = useState("Start");
   const [edition, setEdition] = useState<"oss" | "enterprise">("oss");
   const [menuOpen, setMenuOpen] = useState(false);
   const cmds: Record<string, string> = {
     Start: "caracal up",
-    Web: "caracal web",
     Run: "caracal run -- node worker.js",
   };
   return (

@@ -115,8 +115,8 @@ caracal-install: download the Caracal runtime CLI from GitHub Releases.
 Usage:
   install.sh [--version vX.Y.Z[-rc.N]] [--prefix PATH] [--install-dir PATH] [--destdir PATH] [--uninstall] [--no-verify-provenance]
 
-Installs the thin 'caracal' runtime CLI. Start the stack with 'caracal up' and
-open the web console with 'caracal web'.
+Installs the thin 'caracal' runtime CLI. Start the stack with 'caracal up';
+the web console is then served at http://localhost:3001.
 
 Release archives are always checksum-verified. Provenance attestation is
 verified when the GitHub CLI (gh) is available; set CARACAL_REQUIRE_PROVENANCE=1
@@ -412,6 +412,6 @@ printf '  Release: %s (%s)\n' "${tag}" "${mode}"
 printf '  Refresh shell cache: hash -r\n'
 printf '  Start the stack: caracal up\n'
 printf '  Existing install? Roll onto this release: caracal upgrade\n'
-printf '  Open the web console: caracal web\n'
+printf '  Open the web console: http://localhost:3001 (after caracal up)\n'
 section "Uninstall"
 printf '  install.sh --install-dir %s --uninstall\n' "${INSTALL_DIR}"

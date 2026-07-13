@@ -237,6 +237,6 @@ Write-Section 'Next steps'
 Write-Host "  Release: $tag ($mode)"
 Write-Host '  Start the stack: caracal up'
 Write-Host '  Existing install? Roll onto this release: caracal upgrade'
-Write-Host '  Open the web console: caracal web'
+Write-Host '  Open the web console: http://localhost:3001 (after caracal up)'
 Write-Section 'Uninstall'
 Write-Host "  Remove caracal.exe from $InstallDir and the user PATH entry."
