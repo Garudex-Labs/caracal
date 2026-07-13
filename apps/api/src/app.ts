@@ -63,6 +63,7 @@ import { zoneEventsRoutes } from './routes/zone-events.js'
 import { zoneOverviewRoutes } from './routes/zone-overview.js'
 import { adminTokensRoutes } from './routes/admin-tokens.js'
 import { auditRetentionRoutes } from './routes/audit-retention.js'
+import { mintRateLimitRoutes } from './routes/mint-rate-limit.js'
 import { operatorRoutes } from './routes/operator.js'
 import { buildAutopilotPolicy } from './operator-autopilot.js'
 import { buildGovernanceLimits } from './operator-ai-governance.js'
@@ -312,6 +313,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(zoneOverviewRoutes, { prefix: '/v1' })
   await app.register(adminTokensRoutes, { prefix: '/v1' })
   await app.register(auditRetentionRoutes, { prefix: '/v1' })
+  await app.register(mintRateLimitRoutes, { prefix: '/v1' })
   // Mutable holder for the Operator's resolved identities. Populated by the system zone
   // provisioner after the server is listening, when the control plane is reachable over
   // loopback, and refreshed by every credential rotation. Consumers read it only through

@@ -75,6 +75,7 @@ export interface Config {
   requestTimeoutMs: number
   keepAliveTimeoutMs: number
   auditRetentionMaxDays: number
+  stsMintRateLimitPerMin: number
   db: {
     poolMax: number
     statementTimeoutMs: number
@@ -267,6 +268,7 @@ export function loadConfig(): Config {
     // sporadic 502s during steady traffic.
     keepAliveTimeoutMs: intEnv('KEEP_ALIVE_TIMEOUT_MS', 75_000, 1),
     auditRetentionMaxDays: intEnv('AUDIT_RETENTION_DAYS', 365, 1),
+    stsMintRateLimitPerMin: intEnv('STS_MINT_RATE_LIMIT_PER_MIN', 1000, 1),
     db: {
       poolMax: intEnv('DB_POOL_MAX', 20, 1),
       statementTimeoutMs: intEnv('DB_STATEMENT_TIMEOUT_MS', 15_000, 1),

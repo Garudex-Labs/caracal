@@ -98,6 +98,7 @@ const keys = {
     ["console", "sink-deliveries", zoneId, sinkId] as const,
   audit: (zoneId: string | null) => ["console", "audit", zoneId] as const,
   auditRetention: ["console", "audit-retention"] as const,
+  mintRateLimit: ["console", "mint-rate-limit"] as const,
   auditExplain: (zoneId: string | null, requestId: string | null) =>
     ["console", "audit-explain", zoneId, requestId] as const,
   adminAudit: (zoneId: string | null) => ["console", "admin-audit", zoneId] as const,
@@ -1180,6 +1181,26 @@ export function useUpdateAuditRetention() {
     mutationFn: (days: number) => consoleApi.auditRetention.update(days),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.auditRetention });
+    },
+  });
+}
+
+// Platform-wide STS mint rate working limit: how many mandate mints per minute
+// each zone, resource, and acting application combination is allowed before the
+// STS denies with rate_limited.
+export function useMintRateLimit() {
+  return useQuery({
+    queryKey: keys.mintRateLimit,
+    queryFn: ({ signal }) => consoleApi.mintRateLimit.get(signal),
+  });
+}
+
+export function useUpdateMintRateLimit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (limitPerMinute: number) => consoleApi.mintRateLimit.update(limitPerMinute),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.mintRateLimit });
     },
   });
 }
