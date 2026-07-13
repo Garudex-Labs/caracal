@@ -415,6 +415,13 @@ export interface AuditRetention {
   updated_at: string | null;
 }
 
+export interface MintRateLimit {
+  limit_per_minute: number;
+  max_per_minute: number;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
 export type StepUpState = "pending" | "approved" | "rejected" | "expired" | "consumed";
 
 export interface StepUpChallenge {

@@ -18,6 +18,7 @@ import type {
   ApplicationInput,
   ApplicationPatchInput,
   AuditRetention,
+  MintRateLimit,
   AuditEvent,
   AuditQuery,
   SessionQuery,
@@ -1393,6 +1394,15 @@ export const consoleApi = {
       request<AuditRetention>("/v1/audit-retention", {
         method: "PUT",
         body: JSON.stringify({ retention_days: days }),
+      }),
+  },
+
+  mintRateLimit: {
+    get: (signal?: AbortSignal) => request<MintRateLimit>("/v1/mint-rate-limit", { signal }),
+    update: (limitPerMinute: number) =>
+      request<MintRateLimit>("/v1/mint-rate-limit", {
+        method: "PUT",
+        body: JSON.stringify({ limit_per_minute: limitPerMinute }),
       }),
   },
 
