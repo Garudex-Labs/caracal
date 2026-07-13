@@ -1366,7 +1366,7 @@ func (s *Server) authenticateApp(ctx context.Context, req TokenExchangeRequest) 
 		return app, zoneID, nil
 	}
 	if app.ClientSecretHash != nil {
-		if !verifyClientSecret(*app.ClientSecretHash, req.ClientSecret) {
+		if !s.secretVerifier.verify(*app.ClientSecretHash, req.ClientSecret) {
 			return nil, "", errSecretMismatch
 		}
 	} else {
@@ -1400,7 +1400,7 @@ func (s *Server) detectZoneMismatch(ctx context.Context, req TokenExchangeReques
 	if err != nil || other == nil || other.ZoneID == zoneID || other.ClientSecretHash == nil {
 		return nil
 	}
-	if !verifyClientSecret(*other.ClientSecretHash, req.ClientSecret) {
+	if !s.secretVerifier.verify(*other.ClientSecretHash, req.ClientSecret) {
 		return nil
 	}
 	return &zoneMismatchError{requested: zoneID, actual: other.ZoneID}

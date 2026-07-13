@@ -67,6 +67,20 @@ func (d *DB) CurrentTime(ctx context.Context) (time.Time, error) {
 	return now, err
 }
 
+// ConfiguredMintRateLimit returns the console-managed mint rate working limit,
+// or ok=false when no override row exists.
+func (d *DB) ConfiguredMintRateLimit(ctx context.Context) (int64, bool, error) {
+	var limit int64
+	err := d.pool.QueryRow(ctx, `SELECT limit_per_minute FROM sts_rate_limit WHERE singleton`).Scan(&limit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return limit, true, nil
+}
+
 // DBQuerier is the interface that Server and KeyCache use to access the database.
 // Concrete implementations are DB (production) and test doubles.
 type DBQuerier interface {
@@ -105,6 +119,7 @@ type DBQuerier interface {
 	GetApplicationByIDGlobal(ctx context.Context, id string) (*Application, error)
 	GetWorkloadByID(ctx context.Context, id string) (*Workload, error)
 	ListBoundZoneIDs(ctx context.Context) ([]string, error)
+	ConfiguredMintRateLimit(ctx context.Context) (int64, bool, error)
 }
 
 // Application holds the fields STS needs from the applications table.

@@ -22,16 +22,18 @@ const maxOPAPollSeconds = 300
 
 type Config struct {
 	config.Base
-	SecretBackend      string
-	IssuerURL          string
-	MaxGrantTTLSeconds int
-	AuditReplayDir     string
-	StreamsHMACKey     string
-	GatewayHMACKey     []byte
-	OPAPollSeconds     int
-	MetricsBearer      string
-	AdminToken         string
-	PrivateEgressHosts []string
+	SecretBackend           string
+	IssuerURL               string
+	MaxGrantTTLSeconds      int
+	AuditReplayDir          string
+	StreamsHMACKey          string
+	GatewayHMACKey          []byte
+	OPAPollSeconds          int
+	MetricsBearer           string
+	AdminToken              string
+	PrivateEgressHosts      []string
+	MintRateLimitPerMin     int
+	SecretVerifyConcurrency int
 }
 
 func loadConfig() (Config, error) {
@@ -54,6 +56,14 @@ func loadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	mintRateLimitPerMin, err := positiveIntEnv("STS_MINT_RATE_LIMIT_PER_MIN", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	secretVerifyConcurrency, err := positiveIntEnv("STS_SECRET_VERIFY_CONCURRENCY", 2)
+	if err != nil {
+		return Config{}, err
+	}
 	issuerURL := strings.TrimSpace(os.Getenv("ISSUER_URL"))
 	issuer, err := url.Parse(issuerURL)
 	if err != nil || issuer.Hostname() == "" || (issuer.Scheme != "https" && issuer.Scheme != "http") || issuer.User != nil || issuer.RawQuery != "" || issuer.Fragment != "" {
@@ -71,17 +81,19 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 	return Config{
-		Base:               base,
-		SecretBackend:      secretBackend,
-		IssuerURL:          issuerURL,
-		MaxGrantTTLSeconds: maxGrantTTLSeconds,
-		AuditReplayDir:     config.Getenv("AUDIT_REPLAY_DIR", "/var/lib/caracal/audit-replay"),
-		StreamsHMACKey:     config.Getenv("STREAMS_HMAC_KEY", ""),
-		GatewayHMACKey:     gatewayKey,
-		OPAPollSeconds:     opaPollSeconds,
-		MetricsBearer:      os.Getenv("METRICS_BEARER"),
-		AdminToken:         os.Getenv("STS_ADMIN_TOKEN"),
-		PrivateEgressHosts: config.CSVEnv("CARACAL_PRIVATE_EGRESS_HOSTS"),
+		Base:                    base,
+		SecretBackend:           secretBackend,
+		IssuerURL:               issuerURL,
+		MaxGrantTTLSeconds:      maxGrantTTLSeconds,
+		AuditReplayDir:          config.Getenv("AUDIT_REPLAY_DIR", "/var/lib/caracal/audit-replay"),
+		StreamsHMACKey:          config.Getenv("STREAMS_HMAC_KEY", ""),
+		GatewayHMACKey:          gatewayKey,
+		OPAPollSeconds:          opaPollSeconds,
+		MetricsBearer:           os.Getenv("METRICS_BEARER"),
+		AdminToken:              os.Getenv("STS_ADMIN_TOKEN"),
+		PrivateEgressHosts:      config.CSVEnv("CARACAL_PRIVATE_EGRESS_HOSTS"),
+		MintRateLimitPerMin:     mintRateLimitPerMin,
+		SecretVerifyConcurrency: secretVerifyConcurrency,
 	}, nil
 }
 

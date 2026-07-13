@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	sharedcrypto "github.com/garudex-labs/caracal/packages/core/go/crypto"
@@ -50,6 +51,8 @@ type Server struct {
 	opa                *OPAEngine
 	keys               *KeyCache
 	secrets            secretstore.Backend
+	secretVerifier     verifiedSecretCache
+	mintRateOverride   atomic.Int64
 	auditBuffer        *AuditBuffer
 	metrics            *STSMetrics
 	refreshGroup       singleflight.Group
@@ -131,7 +134,7 @@ func New(ctx context.Context) (*Server, error) {
 		return nil, fmt.Errorf("audit: %w", err)
 	}
 
-	return &Server{
+	srv := &Server{
 		cfg:            cfg,
 		db:             db,
 		redis:          rdb,
@@ -143,7 +146,9 @@ func New(ctx context.Context) (*Server, error) {
 		subjectKeys:    newSubjectKeyCache(cfg.PrivateEgressHosts),
 		consumersReady: make(chan struct{}),
 		log:            log,
-	}, nil
+	}
+	srv.secretVerifier.configure(cfg.SecretVerifyConcurrency)
+	return srv, nil
 }
 
 // Run starts the HTTP server and all background workers; blocks until ctx is cancelled.
@@ -156,6 +161,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.opa.StartPGPolling(ctx)
 	go s.opa.SeedZones(ctx)
 	go s.startStepUpSweeper(ctx)
+	go s.startMintRateRefresh(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/2/token", s.handleTokenExchange)
