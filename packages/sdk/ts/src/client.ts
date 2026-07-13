@@ -1036,7 +1036,7 @@ export class Caracal {
     this.ensureOpen()
     const credentialGeneration = identity.credentialGeneration ?? ''
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
-    const labels = opts.labels ?? [identity.applicationId]
+    const labels = opts.labels?.length ? opts.labels : [identity.applicationId]
     const stale: AppAuthorityEntry[] = []
     const now = Date.now() / 1000
     for (const [cachedKey, entry] of this.appAuthorities) {
@@ -1062,7 +1062,7 @@ export class Caracal {
     const pending = (async () => {
       try {
         const fresh = await this.withAppProvisioning(signal, () =>
-          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts, signal),
+          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, { ...opts, labels }, signal),
         )
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
@@ -1144,7 +1144,7 @@ export class Caracal {
     const spawnReq = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
-      labels: opts.labels ?? [identity.applicationId],
+      labels: opts.labels,
       ttlSeconds: sessionTtl,
     }
     const sessions: string[] = []
