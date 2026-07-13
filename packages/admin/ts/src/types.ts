@@ -419,7 +419,9 @@ export interface WorkloadUpdateInput {
 }
 
 export interface ProviderConnectionInput {
-  subject_id: string
+  // Omit to connect a zone-shared upstream account; provide a subject only for
+  // per-subject (federated) connections.
+  subject_id?: string
   provider_id: string
   access_token: string
   refresh_token?: string
@@ -427,7 +429,9 @@ export interface ProviderConnectionInput {
 }
 
 export interface ProviderConnectionAuthorizeInput {
-  subject_id: string
+  // Omit to connect a zone-shared upstream account; provide a subject only for
+  // per-subject (federated) connections.
+  subject_id?: string
   provider_id: string
 }
 
@@ -438,7 +442,9 @@ export interface ProviderConnectionAuthorize {
 }
 
 export interface ProviderConnectionRevokeInput {
-  subject_id: string
+  // Omit to target the zone-shared upstream account; provide a subject only for
+  // per-subject (federated) connections.
+  subject_id?: string
   provider_id: string
 }
 

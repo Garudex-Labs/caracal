@@ -258,6 +258,9 @@ func ecPublicKeyFromJWK(k subjectJWK) (*ecdsa.PublicKey, error) {
 // compares it byte-for-byte everywhere, so two byte-distinct values are two
 // subjects. The rejections are exactly:
 //   - empty, or longer than 512 bytes (well under the btree index row bound);
+//   - inside Caracal's reserved internal subject namespace (the "caracal:"
+//     prefix), which anchors platform sentinels such as the shared provider
+//     connection and must never be mintable by an external issuer;
 //   - invalid UTF-8, or containing U+FFFD (a replacement char would let two
 //     byte-distinct upstream values collapse into one stored identity);
 //   - control characters, including NUL (Postgres text rejects it), newlines,
@@ -272,6 +275,9 @@ func validateSubjectIdentifier(sub string) error {
 	}
 	if len(sub) > subjectIDMaxBytes {
 		return fmt.Errorf("sub exceeds %d bytes", subjectIDMaxBytes)
+	}
+	if strings.HasPrefix(sub, ReservedSubjectPrefix) {
+		return errors.New("sub uses a reserved Caracal namespace")
 	}
 	if !utf8.ValidString(sub) {
 		return errors.New("sub is not valid UTF-8")

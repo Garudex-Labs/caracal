@@ -1068,12 +1068,18 @@ type ProviderConnection struct {
 	RefreshTokenVersion int
 }
 
+// ReservedSubjectPrefix namespaces Caracal-internal subject identifiers, such as the
+// shared provider-connection sentinel below. External federation rejects any subject in
+// this namespace (see validateSubjectIdentifier), so an upstream issuer can never mint a
+// subject that collides with an internal sentinel.
+const ReservedSubjectPrefix = "caracal:"
+
 // SharedConnectionSubject is the reserved subject id for a zone-shared provider
 // connection: one upstream account that serves every session policy authorizes
 // through the provider, without binding the credential to a per-caller subject.
 // A federated per-subject connection still matches exactly and takes precedence
 // over the shared row, so per-customer upstream accounts are unaffected.
-const SharedConnectionSubject = "caracal:shared"
+const SharedConnectionSubject = ReservedSubjectPrefix + "shared"
 
 // GetProviderConnection resolves the upstream credential to attach for a caller.
 // It prefers a connection stored for the caller's exact subject and otherwise

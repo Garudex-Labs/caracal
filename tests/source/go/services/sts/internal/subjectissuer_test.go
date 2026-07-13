@@ -181,6 +181,8 @@ func TestValidateSubjectIdentifierIsFormatAgnostic(t *testing.T) {
 		{"bidi isolate", "user\u2066123"},
 		{"replacement char", "user\uFFFD123"},
 		{"invalid utf8", "user\xff\xfe123"},
+		{"reserved caracal namespace", "caracal:shared"},
+		{"reserved caracal namespace arbitrary", "caracal:tenant-42"},
 	}
 	for _, tc := range rejected {
 		if err := validateSubjectIdentifier(tc.sub); err == nil {
