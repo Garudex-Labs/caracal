@@ -3,9 +3,9 @@
 //
 // Loads the operator env file so every `caracal` command reads one centralized configuration.
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { loadEnvFile } from 'node:process'
+import { parseEnv } from 'node:util'
 import { runtimePaths } from './runtime.js'
 
 // Dev is signalled by CARACAL_MODE=dev or, as the workspace launcher does, by the presence
@@ -33,10 +33,10 @@ function operatorEnvFiles(env: NodeJS.ProcessEnv): string[] {
 }
 
 // Loads the operator env file(s) into process.env so `caracal run`, `caracal web`, and
-// `caracal up` share one configuration source. Node's loadEnvFile never overwrites a
-// variable that is already set, so a real process environment - exported shell variables,
-// secret-manager injection, or CI - always wins over the file. Absent or unreadable files
-// are skipped. Returns the paths that were applied.
+// `caracal up` share one configuration source. Parsed file values fill only variables that
+// are unset, so a real process environment - exported shell variables, secret-manager
+// injection, or CI - always wins over the file. Absent or unreadable files are skipped.
+// Returns the paths that were applied.
 export function loadOperatorEnv(env: NodeJS.ProcessEnv = process.env): string[] {
   const applied: string[] = []
   const seen = new Set<string>()
@@ -45,7 +45,10 @@ export function loadOperatorEnv(env: NodeJS.ProcessEnv = process.env): string[] 
     seen.add(file)
     if (!existsSync(file)) continue
     try {
-      loadEnvFile(file)
+      const parsed = parseEnv(readFileSync(file, 'utf8'))
+      for (const [key, value] of Object.entries(parsed)) {
+        if (process.env[key] === undefined) process.env[key] = value
+      }
       applied.push(file)
     } catch {
       // A malformed operator file must not brick the CLI; commands continue with the

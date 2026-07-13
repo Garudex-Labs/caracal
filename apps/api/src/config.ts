@@ -3,9 +3,9 @@
 //
 // API service configuration loaded from environment variables.
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { loadEnvFile } from 'node:process'
+import { parseEnv } from 'node:util'
 import { getenv, mustGetenv, intEnv, boolEnv, resolveFileSecrets, isPublished } from '@caracalai/server-core'
 import type { ProviderConfig } from './operator-gateway.js'
 
@@ -27,7 +27,11 @@ function loadEnvChain(): void {
   for (const path of candidates) {
     if (seen.has(path)) continue
     seen.add(path)
-    if (existsSync(path)) loadEnvFile(path)
+    if (!existsSync(path)) continue
+    const parsed = parseEnv(readFileSync(path, 'utf8'))
+    for (const [key, value] of Object.entries(parsed)) {
+      if (process.env[key] === undefined) process.env[key] = value
+    }
   }
 }
 
