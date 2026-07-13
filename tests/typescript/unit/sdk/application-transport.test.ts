@@ -156,6 +156,17 @@ describe('Caracal.applicationTransport', () => {
     expect(mint.get('subject_token')).toBeNull()
   })
 
+  it('defaults explicit empty labels to the application id for both sessions', async () => {
+    const { fetchImpl, calls } = fakeFetch()
+    const appFetch = client(fetchImpl).applicationTransport(RESOURCE, { scopes: ['data:read'], labels: [] })
+
+    await appFetch(`${GATEWAY}/v1/things`, { method: 'POST', body: '{}' })
+
+    const spawns = calls.filter((call) => call.url.endsWith('/agents') && call.method === 'POST')
+    expect(spawns).toHaveLength(2)
+    for (const spawn of spawns) expect(JSON.parse(spawn.body!).labels).toEqual(['app-1'])
+  })
+
   it('close terminates the sessions backing cached mandates', async () => {
     const { fetchImpl, calls } = fakeFetch()
     const c = client(fetchImpl)
