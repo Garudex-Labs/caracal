@@ -9,15 +9,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-fastmcp"
-version = "0.2.0rc4"
+version = "0.2.0rc5"
 description = "FastMCP adapter for Caracal mandate verification"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "caracalai-verify==0.2.0rc4",
-  "caracalai-revocation==0.2.0rc4",
+  "caracalai-verify==0.2.0rc5",
+  "caracalai-revocation==0.2.0rc5",
 ]
 
 [project.optional-dependencies]

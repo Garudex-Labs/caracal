@@ -1,0 +1,16 @@
+{
+  "release": "v0.2.0-rc.5",
+  "channel": "rc",
+  "date": "2026-07-13",
+  "assets": [
+    "SHA256SUMS",
+    "caracal-runtime-darwin-amd64-v0.2.0-rc.5.tar.gz",
+    "caracal-runtime-darwin-arm64-v0.2.0-rc.5.tar.gz",
+    "caracal-runtime-linux-amd64-v0.2.0-rc.5.tar.gz",
+    "caracal-runtime-linux-arm64-v0.2.0-rc.5.tar.gz",
+    "caracal-runtime-windows-amd64-v0.2.0-rc.5.zip",
+    "install.ps1",
+    "install.sh",
+    "manifest.json"
+  ]
+}

@@ -10,7 +10,7 @@ kubeContext    = "production-cluster"
 namespace      = "caracal"
 
 # Pin the released chart version to deploy.
-chartVersion = "0.2.0-rc.4"
+chartVersion = "0.2.0-rc.5"
 
 # Externally managed HA data stores; stable mode rejects in-cluster defaults.
 databaseHost = "postgres-ha.data-platform.svc.cluster.local"
