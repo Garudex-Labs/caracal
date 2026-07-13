@@ -196,6 +196,31 @@ export const ENV_SCHEMA = {
   // The console fails closed: an allowlisted email still needs one configured
   // sign-in method. Configure OAuth (Google or GitHub) or password sign-up with
   // a mail transport for the required verification email.
+  CARACAL_WEB_URL: {
+    kind: 'url',
+    description: 'Public web console origin the browser loads; also the only trusted origin for credentialed requests.',
+    default: 'http://localhost:3001',
+    exposed: true,
+  },
+  CARACAL_WEB_ORIGIN: {
+    kind: 'string',
+    description: 'Comma-separated additional trusted browser origins for split deployments. Empty trusts only the console origin.',
+    default: '',
+    exposed: true,
+  },
+  CARACAL_OPEN_REGISTRATION: {
+    kind: 'bool',
+    description: 'Open console registration beyond the host allowlist posture. Published modes default closed.',
+    default: '',
+    exposed: true,
+  },
+  CARACAL_AUTH_TRUST_PROXY: {
+    kind: 'bool',
+    description:
+      "Trust the immediate reverse proxy's forwarded client address for auth rate limiting. Enable only behind a controlled proxy.",
+    default: '',
+    exposed: true,
+  },
   CARACAL_PASSWORD_SIGNUP: {
     kind: 'bool',
     description:
