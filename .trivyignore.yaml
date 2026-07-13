@@ -28,6 +28,67 @@ vulnerabilities:
     statement: "libssl3 fix pending upstream distroless/nodejs24 rebuild; no newer base digest available."
     expired_at: 2026-07-21
 
+# The same distroless/nodejs24-debian12 base carries the medium and low severity
+# libssl3 CVEs below, fixed in 3.0.19-1~deb12u2 / 3.0.20-1~deb12u2. Node links its
+# own statically-compiled OpenSSL 3.5.5; the node binary has no NEEDED entry for
+# libssl.so.3 or libcrypto.so.3, so the api, coordinator, and web BFF never load
+# the system libssl3 and these findings are not reachable at runtime. The fix
+# still requires an upstream distroless rebuild: the :nonroot tag resolves to our
+# pinned digest and distroless ships no package manager to upgrade in place.
+  - id: CVE-2026-31790
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-34182
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-45445
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-34180
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-42766
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-42770
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-45446
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-7383
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-9076
+    statement: "System libssl3 not linked by Node (bundled OpenSSL 3.5.5); unreachable. Fix pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+
+# The same distroless base ships glibc (libc6) 2.36-9+deb12u13; the CVEs below are
+# fixed in 2.36-9+deb12u14. Node dynamically links libc.so.6, but these paths are
+# reached only through hostile input Caracal does not expose: crafted responses
+# from an untrusted DNS resolver (Caracal uses the trusted cluster resolver),
+# iconv() with attacker-chosen charsets, wordexp(), or attacker-chosen allocation
+# alignment. Remediation needs the upstream distroless rebuild - the :nonroot tag
+# resolves to our pinned digest and distroless has no package manager.
+  - id: CVE-2026-0915
+    statement: "libc6 resolver info disclosure; not reachable via Caracal's trusted-cluster DNS. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-4046
+    statement: "libc6 iconv() DoS needs an attacker-chosen charset Caracal never passes. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-4437
+    statement: "libc6 crafted DNS response parsing; not reachable via Caracal's trusted-cluster DNS resolver. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2025-15281
+    statement: "libc6 wordexp() path is unused by the Node services. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-0861
+    statement: "libc6 memalign integer overflow needs an attacker-controlled allocation alignment Caracal never supplies. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+  - id: CVE-2026-4438
+    statement: "libc6 gethostbyaddr legacy reverse-DNS API is unused; trusted-cluster DNS. Fix in deb12u14 pending distroless rebuild; no newer digest, no in-image package manager."
+    expired_at: 2026-07-21
+
 # The postgres:18-alpine base image ships gosu built against golang.org/x/sys
 # v0.1.0. CVE-2026-39824 is in the x/sys windows package (NewNTUnicodeString),
 # which is not compiled into the linux/amd64 gosu binary, so the finding is not

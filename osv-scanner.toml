@@ -1,0 +1,17 @@
+# Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
+# Caracal, a product of Garudex Labs
+#
+# OSV-Scanner suppressions for advisories that are not reachable in Caracal's dependency graph.
+
+# GO-2026-5932 marks golang.org/x/crypto/openpgp as unmaintained. The advisory is
+# scoped by its ecosystem_specific.imports to the openpgp/* packages, none of which
+# any Caracal Go module imports; golang.org/x/crypto is pulled in only for argon2
+# (services/sts/internal/secrets.go) and chacha20poly1305
+# (packages/core/go/secretstore/envelope.go). osv-scanner's `scan source` mode
+# already reports this as unreachable, but the recursive lockfile sweep used in CI
+# flags it module-wide. The advisory has no fixed version (permanent deprecation),
+# so ignoreUntil forces periodic re-verification that openpgp is still unused.
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-10-11
+reason = "golang.org/x/crypto/openpgp is never imported; x/crypto is required only for argon2 (services/sts) and chacha20poly1305 (packages/core). The openpgp advisory is package-scoped and unreachable."
