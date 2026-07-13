@@ -1,0 +1,83 @@
+---
+title: Review OSS Adoption Readiness
+description: Build an evidence-led decision for adopting the self-hosted
+  open-source Caracal product.
+pageType: workflow
+slug: v0.2/security/adoption-review
+---
+
+Use this review when security, platform, compliance, procurement, or operations teams need a decision record for the product implemented in this repository. Caracal is a technical authority and audit component, not a compliance program or contractual assurance.
+
+This repository does not establish a managed service, service-level agreement, support entitlement, commercial edition, certification, regulatory conformity, or FIPS validation. Treat any requirement without implementation and evidence here as unavailable until a separate authoritative source is reviewed.
+
+## What You Can Evaluate
+
+| Area | Evidence in this repository | Adopter-owned decision |
+| --- | --- | --- |
+| Authority enforcement | STS exchange, policy evaluation, Gateway and adapter verification, revocation, replay controls, tests | Which resources and actions require Caracal enforcement |
+| Deployment | Versioned Compose, Helm, and OpenTofu assets | Availability topology, infrastructure provider, ingress, and capacity |
+| Secrets and cryptography | Secret backends, envelope encryption, zone signing, HMAC boundaries, rotation procedures | Secret manager, key custody, rotation cadence, and required cryptographic validation |
+| Evidence | Request IDs, audit ingestion, tamper checks, replay, DLQ, export paths | Retention, legal hold, SIEM ownership, and evidence access |
+| Operations | Readiness, metrics, alerts, backup/restore, failure drills, upgrade flow | SLOs, RTO/RPO, on-call coverage, and escalation |
+| Supply chain | Lockfiles, checksums, release verification, build and publishing workflows | Artifact allowlisting, vulnerability acceptance, and deployment admission |
+| Human identity | Self-hosted Console sign-in and host-managed admission | Identity provider configuration, account lifecycle, privileged access review |
+
+## Prerequisites
+
+Before the review, collect:
+
+* the exact Caracal release, image digests, chart or Compose assets, and configuration under review;
+* the protected resources, workload identities, Subjects, operators, and data classes in scope;
+* authoritative security and compliance requirements;
+* availability, recovery, retention, privacy, and incident objectives;
+* named owners for infrastructure, identity, secrets, policy, audit, and application integration.
+
+## Review Procedure
+
+1. **Verify the release.** Validate checksums, provenance, signatures or attestations that are actually present, image digests, and version alignment across packages.
+2. **Review the threat model.** Map in-scope assets and trust boundaries to the deployed topology. Record assumptions the repository cannot enforce, including host and cloud controls.
+3. **Render the deployment.** Inspect the exact Compose or Helm output for public endpoints, TLS termination, service accounts, NetworkPolicy, storage, secret mounts, resource limits, and published mode.
+4. **Exercise authority failures.** Test expected allow, deny, insufficient scope, wrong audience, replay, expired Mandate, revoked Authority record, revoked Session, revoked Delegation, and unsafe upstream cases.
+5. **Exercise human and administrative controls.** Verify Console admission, operator credential scope, Subject federation where used, Approval decisions, and administrative audit attribution.
+6. **Exercise evidence paths.** Trace request IDs from authorization through action result, test audit interruption and replay, inspect DLQ handling, and verify export or SIEM ingestion.
+7. **Exercise operations.** Verify readiness, authenticated metrics, alerts, capacity assumptions, upgrade behavior, data-plus-secret restore, failure drills, and incident intake.
+8. **Record every gap.** For each requirement, record Caracal evidence, deployment evidence, missing control, compensating control, owner, due date, and retest trigger.
+
+Framework mappings are review aids, not automatic coverage. A technical control can contribute evidence to an organizational requirement without satisfying the requirement by itself.
+
+## Minimum Evidence Set
+
+Retain:
+
+* artifact verification output and immutable version identifiers;
+* rendered deployment manifests or resolved Compose configuration;
+* threat-model findings and accepted assumptions;
+* positive and negative test results with request IDs;
+* evidence-pack output, including the reason for every skipped check;
+* alert routing and failure-drill results;
+* backup and secret-custody evidence plus a successful isolated restore;
+* upgrade rehearsal and rollback or roll-forward decision;
+* final risks, owners, approval, expiry date, and review triggers.
+
+## Decision Rules
+
+Approve only the exact release and environment reviewed. Do not convert the presence of a workflow, test, manifest, or documentation page into a guarantee about a deployed environment.
+
+Reject or conditionally approve when:
+
+* a required enforcement path can bypass Gateway or verifier checks;
+* revocation or audit freshness cannot be observed;
+* operator secrets can reach workload or agent environments;
+* a restore cannot recover both durable data and required key material;
+* critical alerts have no owner or tested response;
+* an organizational, contractual, or certification requirement is being inferred from repository intent alone.
+
+## Review Triggers
+
+Repeat the review when a release, service boundary, public endpoint, identity flow, secret backend, storage platform, deployment substrate, protected data class, policy model, recovery objective, or authoritative requirement changes.
+
+Missing evidence means **unverified**. It does not mean planned, inherited, or satisfied.
+
+## Next Step
+
+Complete [Harden Security Posture](/v0.2/security/hardening/), [Generate an Evidence Pack](/v0.2/security/evidence-pack/), and [Hand Off to Platform Teams](/v0.2/operations/platform-team-handoff/).

@@ -1,0 +1,55 @@
+---
+title: Use Event Topics
+description: Redis Stream topic names, producers, consumers, and contracts.
+pageType: api
+slug: v0.2/api/event-topics
+---
+
+Caracal uses Redis Streams for propagation. Published modes sign stream messages with `STREAMS_HMAC_KEY`.
+
+**Internal wire API:** applications normally should not consume these topics. They are deployment contracts for Caracal services, audit exporters, and revocation backends. Topic names and payload fields are protocol-facing and may retain `agents` terminology.
+
+## Topics
+
+| Topic                            | Producers                               | Consumers                                          |
+| -------------------------------- | --------------------------------------- | -------------------------------------------------- |
+| `caracal.audit.events`           | API, STS, Gateway, Coordinator, Control | Audit `audit-ingestor`, SIEM exporters             |
+| `caracal.audit.events.dlq`       | Audit                                   | DLQ observers                                      |
+| `caracal.policy.invalidate`      | API                                     | STS policy loader                                  |
+| `caracal.sessions.revoke`        | API, Coordinator                        | STS, Gateway, resource-server revocation consumers |
+| `caracal.keys.invalidate`        | API, STS                                | STS key caches                                     |
+| `caracal.agents.lifecycle`       | Coordinator                             | Coordinator lifecycle relay job                    |
+| `caracal.invocations.lifecycle`  | Coordinator                             | Invocation observers                               |
+| `caracal.delegations.invalidate` | Coordinator                             | Delegation observers                               |
+| `caracal.providers.ratelimit`    | Provisioner/provider coordination       | Provider rate-limit coordination                   |
+
+## Consumer Groups
+
+| Topic                            | Groups                          |
+| -------------------------------- | ------------------------------- |
+| `caracal.audit.events`           | `audit-ingestor`, `siem-export` |
+| `caracal.audit.events.dlq`       | `audit-dlq-observer`            |
+| `caracal.policy.invalidate`      | `opa-engine`                    |
+| `caracal.sessions.revoke`        | `sts-revocation`, stable per-host `gateway-revocation:<host>`, deployment-specific resource groups |
+| `caracal.keys.invalidate`        | `sts-keys`                      |
+| `caracal.agents.lifecycle`       | `coordinator-relay`             |
+| `caracal.invocations.lifecycle`  | `invocations-observer`          |
+| `caracal.delegations.invalidate` | `delegations-observer`          |
+
+## Message Integrity
+
+Signed stream messages include the `_sig` field. Consumers in published modes must reject unsigned or mismatched messages for streams that require origin verification.
+
+Messages use Redis Stream IDs and field/value maps. Consumers must validate required fields and bounds before applying state, deduplicate by the event identity carried by the producer, and acknowledge only after durable application. Poison messages go to the stream's bounded dead-letter path where implemented. Pending messages must be claimed and retried with consumer-group semantics rather than copied as a new logical event.
+
+Revocation and Delegation epoch updates are monotonic security state: delayed delivery must never reduce the recorded epoch. Audit events are append-only evidence and must preserve `request_id`, occurrence time, and signature fields unchanged.
+
+## Access and Stability
+
+Use a dedicated least-privilege Redis identity and private TLS connectivity. Do not expose Redis publicly or distribute Admin tokens to consumers. Consumer group names shown here are repository defaults, not a multi-tenant coordination API; independently deployed resource servers should use deployment-specific groups and unique consumer names.
+
+## Related Pages
+
+* [Propagate Events](/v0.2/architecture/event-streams/)
+* [Operate Redis Streams](/v0.2/operations/redis/)
+* [Wire Contracts](/v0.2/reference/interoperability-contracts/)

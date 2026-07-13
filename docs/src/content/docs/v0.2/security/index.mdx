@@ -1,0 +1,56 @@
+---
+title: Secure Caracal
+description: Review, verify, harden, and respond to security risks in the
+  open-source runtime.
+pageType: landing
+slug: v0.2/security
+---
+
+This section covers OSS code and assets in this repository, not enterprise code, customer infrastructure, external identity providers/upstreams, or model behavior.
+
+## The Security Model in Brief
+
+Caracal's core security idea is that programs hold **authority, not credentials**: instead of standing API keys, a program receives a short-lived signed pass for exactly one approved action, and every link in that chain fails closed. Four properties carry the model:
+
+| Property | What it means | Mechanics |
+| --- | --- | --- |
+| Deny by default | Nothing is callable until a resource is registered, a grant path exists, and the active policy allows the request. | [Authority and Enforcement](/v0.2/concepts/authority-model/) |
+| Fail closed | A policy, key, replay, revocation, Session, or Approval failure stops issuance; a verification failure stops the request before the upstream. | [Mandates](/v0.2/concepts/mandate/) |
+| Central revocation | Ending a Session, Delegation, or Authority record invalidates dependent authority without key rotation or redeploys. | [Sessions and Revocation](/v0.2/concepts/sessions-revocation/) |
+| Tamper-evident evidence | Decisions and results are recorded append-only with integrity checks, replay, and dead-letter paths. | [Audit and Request Traces](/v0.2/concepts/audit-ledger/) |
+
+## What Is Enforced, Recommended, and Yours
+
+An honest evaluation separates three categories. Repository code enforces the first; documentation recommends the second; only you can provide the third.
+
+**Enforced by the code** (verifiable in source and tests):
+
+* STS fails closed on Policy, key, replay, revocation, Session, Approval, and signing failures.
+* Gateway authorizes before dispatch and applies binding, egress, redirect, replay, and revocation controls.
+* Published modes require integrity keys and authenticated metrics.
+* Audit is append-only/tamper-evident with replay and DLQ paths.
+* Runtime secrets remain outside untrusted application/agent workspaces.
+* OSS behavior does not depend on enterprise code.
+
+**Recommended practices** (documented, not forced): pin and [verify releases](/v0.2/security/verify-releases/), keep mandate TTLs short, use shared revocation stores in production, route provider credentials through Gateway brokering, and walk the [hardening checklist](/v0.2/security/hardening/) before real traffic.
+
+**Your responsibilities** (outside the repository's reach): host and network isolation, TLS termination, identity-provider governance, key custody and rotation cadence, backup and restore testing, monitoring ownership, and any compliance program. Repository controls contribute evidence to those programs; they never satisfy them alone.
+
+## Choose a Review
+
+| Goal | Page |
+| --- | --- |
+| Assets, boundaries, threats, residual risk | [Review the Threat Model](/v0.2/security/threat-model/) |
+| Deployed environment review | [Harden Security Posture](/v0.2/security/hardening/) |
+| Artifact verification | [Verify a Release](/v0.2/security/verify-releases/) |
+| Repository evidence | [Generate an Evidence Pack](/v0.2/security/evidence-pack/) |
+| Private reporting | [Report a Vulnerability](/v0.2/security/disclosure/) |
+| Adoption controls and non-claims | [Review OSS Adoption Readiness](/v0.2/security/adoption-review/) |
+
+## Review Completion
+
+Tie every claim to version, config, source/test evidence, and observed result. Repository controls do not replace host hardening, identity governance, recovery testing, or compliance programs.
+
+## Next Step
+
+Start with [Review the Threat Model](/v0.2/security/threat-model/).

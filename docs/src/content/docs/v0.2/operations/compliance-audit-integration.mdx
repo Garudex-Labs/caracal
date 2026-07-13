@@ -1,0 +1,31 @@
+---
+title: Export Audit Evidence
+description: Operate and verify audit ingestion and optional S3-compatible
+  export without claiming compliance.
+pageType: workflow
+slug: v0.2/operations/compliance-audit-integration
+---
+
+Audit records are technical evidence, not certification or a complete organizational trail. Audit consumes Redis, writes append-only Postgres rows, checks tamper state, and can export complete hourly Parquet partitions.
+
+## Prerequisites
+
+Define evidence scope, retention, access, encryption, legal hold, and archive ownership. Configure `AUDIT_EXPORT_S3_*` only when needed and size `AUDIT_EXPORT_TMP_DIR` for the largest hourly partition.
+
+## Procedure
+
+1. Verify Audit readiness, HMAC, stream group, DLQ, and tamper metrics.
+2. Configure an operator-owned S3-compatible endpoint and least-privilege credentials.
+3. Enable export; monitor watermark, scratch space, upload failures, and objects.
+4. Correlate a canary request across producer, stream, Postgres, and export.
+5. Retain applicable HMAC material with verification evidence.
+
+The watermark advances only after successful upload.
+
+## Verify and Recover
+
+Compare counts for a closed interval, inspect DLQ/lag, and verify intended reader access. On failure preserve Postgres, pending entries, DLQ, replay, scratch output, and logs before replay or deletion.
+
+## Next Step
+
+Generate an [Generate an Evidence Pack](/v0.2/security/evidence-pack/) or complete [Hand Off to Platform Teams](/v0.2/operations/platform-team-handoff/).

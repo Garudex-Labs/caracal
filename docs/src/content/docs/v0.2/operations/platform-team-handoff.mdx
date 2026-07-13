@@ -1,0 +1,35 @@
+---
+title: Hand Off to Platform Teams
+description: Accept ownership only after operators can deploy, verify, recover,
+  and escalate the OSS runtime.
+pageType: workflow
+slug: v0.2/operations/platform-team-handoff
+---
+
+This transfers operational responsibility; it does not create support or availability guarantees.
+
+## Prerequisites
+
+Name service, storage, security, release, and on-call owners. Provide deployed values, secret inventory, monitoring, backups, and private incident access.
+
+## Acceptance Procedure
+
+1. Reproduce release verification and rendering.
+2. Start or upgrade staging.
+3. Verify migrations, health/readiness, metrics, authorization, revocation, and audit.
+4. Trigger alerts and confirm routing.
+5. Produce data and separate secret backups; restore both in isolation.
+6. Rehearse dependency failure and security intake.
+7. Record known limits and absent enterprise assurances.
+
+## Acceptance Evidence
+
+Retain version/digests, values, migration/readiness output, canary IDs, alert tests, restore results, owners, escalation, and risks.
+
+## Recovery
+
+Reject handoff when an owner, secret, backup, alert, or recovery test is missing. Continue staging ownership until closed.
+
+## Next Step
+
+Use [Respond to Incidents](/v0.2/operations/incident-response/) as the on-call entry point.

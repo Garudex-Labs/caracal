@@ -1,0 +1,110 @@
+{
+  "release": "v0.2.0",
+  "mode": "stable",
+  "publishedAt": "2026-07-13",
+  "version": "0.2.0",
+  "generatedAt": "2026-07-13T17:33:42.471Z",
+  "registries": {
+    "npm": "https://registry.npmjs.org/",
+    "pypi": "https://pypi.org/simple/",
+    "oci": "ghcr.io/garudex-labs",
+    "githubReleases": "https://github.com/Garudex-Labs/caracal/releases/download"
+  },
+  "binaries": {
+    "runtime": "0.2.0"
+  },
+  "runtimeImage": "0.2.0",
+  "containers": {
+    "go": "0.2.0",
+    "node": "0.2.0",
+    "web": "0.2.0",
+    "postgres": "0.2.0",
+    "redis": "0.2.0"
+  },
+  "helm": {
+    "chartVersion": "0.2.0",
+    "appVersion": "0.2.0",
+    "imageTag": "0.2.0"
+  },
+  "images": {
+    "go": "ghcr.io/garudex-labs/caracal-go:v0.2.0",
+    "node": "ghcr.io/garudex-labs/caracal-node:v0.2.0",
+    "web": "ghcr.io/garudex-labs/caracal-web:v0.2.0",
+    "postgres": "ghcr.io/garudex-labs/caracal-postgres:v0.2.0",
+    "redis": "ghcr.io/garudex-labs/caracal-redis:v0.2.0",
+    "runtime": "ghcr.io/garudex-labs/caracal-runtime:v0.2.0"
+  },
+  "pypi": {
+    "caracalai-core": "0.2.0",
+    "caracalai-oauth": "0.2.0",
+    "caracalai-admin": "0.2.0",
+    "caracalai-identity": "0.2.0",
+    "caracalai-revocation": "0.2.0",
+    "caracalai-sdk": "0.2.0",
+    "caracalai-verify": "0.2.0",
+    "caracalai-fastmcp": "0.2.0",
+    "caracalai-asgi": "0.2.0",
+    "caracalai-revocation-redis": "0.2.0"
+  },
+  "npm": {
+    "@caracalai/core": "0.2.0",
+    "@caracalai/oauth": "0.2.0",
+    "@caracalai/admin": "0.2.0",
+    "@caracalai/identity": "0.2.0",
+    "@caracalai/revocation": "0.2.0",
+    "@caracalai/sdk": "0.2.0",
+    "@caracalai/verify": "0.2.0",
+    "@caracalai/express": "0.2.0",
+    "@caracalai/fastmcp": "0.2.0",
+    "@caracalai/revocation-redis": "0.2.0"
+  },
+  "packages": {
+    "published": {
+      "npm": {
+        "@caracalai/core": "0.2.0",
+        "@caracalai/oauth": "0.2.0",
+        "@caracalai/admin": "0.2.0",
+        "@caracalai/identity": "0.2.0",
+        "@caracalai/revocation": "0.2.0",
+        "@caracalai/sdk": "0.2.0",
+        "@caracalai/verify": "0.2.0",
+        "@caracalai/express": "0.2.0",
+        "@caracalai/fastmcp": "0.2.0",
+        "@caracalai/revocation-redis": "0.2.0"
+      },
+      "pypi": {
+        "caracalai-core": "0.2.0",
+        "caracalai-oauth": "0.2.0",
+        "caracalai-admin": "0.2.0",
+        "caracalai-identity": "0.2.0",
+        "caracalai-revocation": "0.2.0",
+        "caracalai-sdk": "0.2.0",
+        "caracalai-verify": "0.2.0",
+        "caracalai-fastmcp": "0.2.0",
+        "caracalai-asgi": "0.2.0",
+        "caracalai-revocation-redis": "0.2.0"
+      },
+      "go": {
+        "github.com/garudex-labs/caracal/packages/core/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/oauth/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/admin/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/identity/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/revocation/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/sdk/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/verify/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/adapters/nethttp/go": "0.2.0",
+        "github.com/garudex-labs/caracal/packages/backends/redis/go": "0.2.0"
+      }
+    },
+    "unchanged": {
+      "npm": {},
+      "pypi": {},
+      "go": {}
+    }
+  },
+  "githubRelease": {
+    "tag": "v0.2.0",
+    "assets": "https://github.com/Garudex-Labs/caracal/releases/download/v0.2.0"
+  },
+  "promotedFrom": "v0.2.0-rc.6"
+}

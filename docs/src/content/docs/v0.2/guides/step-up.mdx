@@ -1,0 +1,142 @@
+---
+title: Human Approval
+description: Declare approval tiers in policy data, hold the exchange, and
+  decide it from the web console, the Admin API, or your application's federated
+  end user.
+slug: v0.2/guides/step-up
+---
+
+Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
+
+:::note[One object, two names]
+An Approval is one object with a wire name: SDKs expose it as `approvalId`, while the STS and Admin API call the same value `challenge_id` and serve it under `/step-up/{id}` and `/v1/zones/{zone}/step-up-challenges/{id}` paths. This page says *Approval* for the object and *hold* for its undecided state; the [wire-name mapping](/v0.2/reference/interoperability-contracts/#product-to-wire-mapping) is the canonical translation table.
+:::
+
+## When to use approval
+
+Use it for infrequent high-impact authority where waiting is safer than automatic issuance. Do not use approval as user authentication, a substitute for least privilege, or a repair for an overbroad provider credential.
+
+## Prerequisites
+
+* Valid grant data for the underlying scope; approval can gate authority but cannot create it.
+* An operator approval path, or a registered subject issuer plus implemented federation for subject-only decisions.
+* A durable place to persist `approvalId` and operation identity across worker restarts.
+
+## Flow
+
+```mermaid
+flowchart LR
+  Exchange["Exchange for gated scope"] --> Hold["interaction_required with challenge_id + binding"]
+  Hold --> Wait["Agent waits on the hold"]
+  Decide["Approver decides: Console, Admin API, or end user"] --> Wait
+  Wait --> Retry["Retry exchange with challenge_id"]
+  Retry --> Mandate["Mandate issued, approval consumed"]
+```
+
+## Declare the gate in policy data
+
+Approval is declared as data, like every other policy input. `risk` names a tier for each sensitive scope; `approval_tiers` declares which tiers hold a mint for a decision:
+
+```rego
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+risk := [
+  {"scope": "pipernet:refund", "tier": "high"},
+]
+
+approval_tiers := [
+  {"tier": "high", "approver": "operator", "ttl_seconds": 1800, "privacy": "identified"},
+]
+```
+
+| Field         | Meaning                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tier`        | Your tier name; the platform fixes no taxonomy. Required - a declaration without a tier fails the mint closed.                                                     |
+| `approver`    | Who may decide: `operator` (approve-capable admin credential), `subject` (the application's own federated end user - see below), or `any`. Defaults to `operator`. |
+| `ttl_seconds` | How long the hold stays decidable, clamped between 60 seconds and 7 days. Defaults to 1800.                                                                        |
+| `privacy`     | How much approver identity the decision record retains: `identified`, `pseudonymous`, or `anonymous`. Defaults to `identified`.                                    |
+
+When one mint matches several compatible tiers, the shortest window and most protective privacy mode win, and a specific `operator` or `subject` requirement wins over `any`. A request that combines an operator-only tier with a subject-only tier is denied and must be split into separate mints: one decision cannot satisfy two independent approver roles. Invalid approver, privacy, or TTL declarations fail the mint closed.
+
+Tune `ttl_seconds` to the tier's real decision window: it bounds how long an approved-but-unconsumed hold stays spendable, so a shorter TTL shrinks the window in which a leaked approval could be consumed, while a TTL shorter than your approvers' actual response time just converts legitimate requests into expiries. High-value, rarely exercised operations warrant minutes; routine operator flows can keep the 30-minute default.
+
+## Handle the hold in the agent
+
+The `interaction_required` error carries the approval id, tier, expiry, and an opaque `binding`. The binding covers the principal, Authority record, governed Session, Delegation, application, canonical resource and scope sets, active policy-set manifest, and platform decision contract. A retry after policy or execution context changes cannot spend an earlier decision. The SDK runs the whole flow - catch the hold, wait for the decision, retry with the approval id so the retried mint consumes it - in one call:
+
+```ts
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+
+const mandate = await caracal.withApproval((approvalId) => caracal.mintMandate('resource://pipernet', ['pipernet:refund'], { approvalId }))
+```
+
+When the wait outcome is anything but `approved` - rejected, expired, already consumed, or the wait timed out - `withApproval` rethrows the original `ApprovalRequiredError`. Its `approvalId` is durable: persist it and resume later with `waitForApproval`, which long-polls and returns the typed final state without re-raising the hold:
+
+```ts
+const state = await caracal.waitForApproval(persistedApprovalId, { timeoutMs: 600_000 })
+// 'approved'  -> retry the mint with { approvalId } to consume the decision
+// 'pending'   -> nobody has decided; waiting again is safe
+// 'rejected' | 'expired' | 'consumed' -> terminal; re-request the operation
+```
+
+An approval is **single-use**: the first mint that presents the approval id under its bound Authority record spends it. When two in-flight attempts from the same run race one approval - a retried queue message picked up while the first mint is still outstanding - one wins and the loser receives the typed `approval_consumed` error. This is not a new `ApprovalRequired` hold and is not an error to wait out: check whether the intended effect already happened before requesting another approval. A worker that has since restarted returns with a new Authority record and cannot spend a decision approved for the prior run; it re-requests the operation and raises a fresh hold.
+
+The Python and Go clients expose the same surface as `with_approval`/`wait_for_approval` and `WithApproval`/`WaitForApproval`. The lower-level `@caracalai/oauth` client offers `waitForApproval` directly for integrations that drive the exchange themselves. Under `caracal run` none of this is hand-written: the engine prints an `approval_required` notice with the approval id and binding, waits on the hold, and retries the exchange itself.
+
+## Decide as an operator
+
+Open the zone's **Approvals** page in the web console to review pending holds - each shows the requesting principal, the tier, the binding to cross-check against the agent's notice, and the approval window - and approve or reject with an optional reason. For automation, the Admin API exposes the same decision:
+
+```bash
+curl -X POST \
+  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/approve" \
+  -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "PiperNet refund reviewed against baseline v3"}'
+```
+
+Use `/reject` to settle the hold terminally. Deciding requires an admin token minted with the `approve` capability - `write` alone cannot decide a hold, so day-to-day automation credentials never carry approval authority. The approver is recorded from the authenticated actor, never from the request body. To hear about new holds without watching the web console, add a [notification sink](/v0.2/guides/approval-notifications/) that pushes approval events to your team's own systems.
+
+## Decide as the application's end user
+
+A hold declared `"approver": "subject"` reserves the decision for the application's own end user and refuses every operator decision with `subject_approval_required`. Deciding it takes a user session mandate minted through subject federation: register the application's identity system as a zone subject issuer, exchange the end user's identity token (`subject_token_type=urn:ietf:params:oauth:token-type:id_token`) for the user's session mandate, then post the decision to the STS:
+
+```bash
+curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
+  -H "Authorization: Bearer $USER_SESSION_MANDATE" \
+  -H "Content-Type: application/json" \
+  -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
+```
+
+The SDKs wrap both steps: `caracal.federateSubject(idToken)` creates the Subject's Authority record and returns its `subjectAuthorityRecordId` plus mandate; Python and Go expose `subject_authority_record_id` and `SubjectAuthorityRecordID`. The OAuth client's `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly. The Session that raised the hold cannot approve itself, and the deciding Subject must have federated through the application that raised it. Without a registered Subject issuer, a Subject-reserved hold can only expire.
+
+## Retry the exchange
+
+Retry with `challenge_id` once the hold is approved. STS verifies the complete binding against the current execution and policy context, then consumes it: an approval releases at most one mandate for the held capability and cannot be replayed. STS emits issuance, decision, and consumption lifecycle events to the zone audit pipeline.
+
+## Troubleshooting
+
+| Symptom                                | Check                                                                                                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deny without a `challenge_id`          | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`.                                                                          |
+| `subject_approval_required` on approve | The tier declares `"approver": "subject"`: only the application's own federated end user can decide it. Relay the hold to the user, or redeclare the tier as `operator` or `any`. |
+| `challenge_not_decidable`              | The hold was already decided, consumed, or expired; the response names its current state.                                                                                         |
+| `approve_capability_required`          | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability.                                                                                       |
+| Retry still denied                     | The approval may have expired, or the retry changed its principal, Authority record, Session, Delegation, application, resource, scopes, policy set, or decision contract. Request a fresh approval for the current context. |
+
+## Validate the flow
+
+Test approve, reject, expiry, concurrent consumption, changed binding, and missing issuer for a subject-only tier. Expected result: exactly one matching retry consumes an approval; no decision widens resource, scopes, Session, Delegation, application, or policy binding.
+
+:::caution[Failure point: subject authority]
+Subject approval works only when the application registers a trusted issuer, federates the end user's token, and presents the resulting user Session mandate. A caller-supplied subject ID or Session label cannot approve a hold.
+:::
+
+## Next Step
+
+Add [Approval Notifications](/v0.2/guides/approval-notifications/) if operators need push delivery, then add all terminal states to [Test Caracal Integrations](/v0.2/guides/testing/).

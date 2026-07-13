@@ -1,0 +1,53 @@
+---
+title: Control Console Access
+description: Admit console users, understand sign-in denial, and distinguish
+  account access from zone authority.
+pageType: workflow
+slug: v0.2/runtime-console/console-access
+---
+
+The runtime host controls who may register and sign in: after the stack starts, nobody can use the console until you admit their email from the machine that runs Caracal. Zone roles and product authority are separate concerns applied after authentication.
+
+## Admit a Person or Domain
+
+```bash
+caracal allowlist add richard.hendricks@piedpiper.example
+caracal allowlist add @piedpiper.example
+caracal allowlist list
+```
+
+Entries are exact email addresses or `@domain` suffixes. An exact entry takes precedence over a domain entry. While any active or locked entries exist, the allowlist is the sign-in authority. With an empty list, registration follows deployment configuration: open in development and closed in production unless configured otherwise.
+
+## Suspend, Restore, or Remove Access
+
+```bash
+caracal allowlist lock monica.hall@piedpiper.example
+caracal allowlist unlock monica.hall@piedpiper.example
+caracal allowlist remove gavin.belson@hooli.example
+```
+
+| Action              | Sign-in effect                              | Account effect                                                                                                 |
+| ------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `lock`              | Blocks sign-in and console requests.        | Revokes sessions; retains the account and product data.                                                        |
+| `unlock`            | Restores access.                            | Retains the existing account.                                                                                  |
+| `remove`            | Blocks access until explicitly re-admitted. | Revokes sessions and erases sign-in records on the person's next contact; zone data and audit evidence remain. |
+| `add` after removal | Allows registration again.                  | Starts a fresh admission.                                                                                      |
+
+Removal is stored as an explicit marker. A missing, empty, or unreadable allowlist may deny access, but it does not trigger account erasure.
+
+## Interpret Access Denial
+
+The browser deliberately shows the same access-denied page when an address was never admitted, is locked, or was removed. This prevents the UI from revealing account status. Runtime auth logs retain the concrete reason for operators.
+
+To resolve a denial:
+
+1. Run `caracal allowlist list` on the runtime host.
+2. Unlock a locked entry, or add an intended address.
+3. Check the configured email/password or OAuth sign-in method.
+4. If the allowlist is empty, check `CARACAL_OPEN_REGISTRATION` and the deployment environment.
+
+Being admitted to the console does not make a person a workload Subject. Console accounts authenticate operators. Subjects are identities that applications act for and are observed inside a selected zone.
+
+## Next Step
+
+[Use the Web Console](/v0.2/runtime-console/console/).

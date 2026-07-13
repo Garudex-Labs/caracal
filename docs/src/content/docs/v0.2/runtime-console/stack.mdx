@@ -1,0 +1,61 @@
+---
+title: Start and Check the Stack
+description: Start local Caracal services, distinguish health from readiness,
+  open the packaged console, and reset state deliberately.
+pageType: workflow
+slug: v0.2/runtime-console/stack
+---
+
+The stack is the set of containers `caracal up` manages: Caracal's services, PostgreSQL, Redis, and the packaged web console. This page covers its day-to-day lifecycle; [Install Caracal](/v0.2/get-started/install-caracal/) covers getting the CLI and Docker in place.
+
+## Start
+
+```bash
+caracal up
+caracal status --ready
+```
+
+`caracal up` starts the stack in the background. Development mode builds local images; release modes use the installed runtime assets. Continue only when `status --ready` exits `0`.
+
+`caracal status` checks liveness. `caracal status --ready` also checks service dependencies. A service can be healthy while Postgres, Redis, policy state, or another required dependency is not ready.
+
+For machine-readable checks:
+
+```bash
+caracal status --ready --json
+```
+
+## Open the Packaged Console
+
+Open [http://localhost:3001](http://localhost:3001). Compose maps loopback port `3001` to the combined web/auth service on container port `3002`.
+
+The other loopback bindings are API `3000`, Coordinator `4000`, STS `8080`, Gateway `8081`, and Audit `9090`. They are useful for documented clients and probes, not substitutes for console workflows.
+
+## Stop or Reset
+
+```bash
+caracal down
+```
+
+This stops the stack while preserving volumes. `caracal down -v` also removes Compose volumes. Use `caracal purge` only when intentionally removing selected local artifacts or all local runtime state. A destructive reset can invalidate generated tokens and remove product data; rebuild zones and product objects through the console afterward.
+
+## Recover Common Startup Failures
+
+| Result                                     | Meaning                                                              | Next action                                                                   |
+| ------------------------------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `status` fails                             | At least one service is not live.                                    | Inspect container/service logs and port conflicts.                            |
+| `status` passes but `status --ready` fails | A live service cannot satisfy a dependency or readiness threshold.   | Open Diagnostics if available; otherwise inspect the failing readiness probe. |
+| Console does not open but readiness passes | Host port `3001` is occupied or the web service failed separately.   | Check the web service and local listener.                                     |
+| Credentials fail after reset               | A shell variable or file contains a credential from the prior state. | Use freshly generated local secret files or rotate the affected credential.   |
+
+For infrastructure diagnosis, use [Debug Infrastructure Issues](/v0.2/operations/debugging/).
+
+## Development Console Launcher
+
+`caracal web` is for console development. It stops the packaged web container to avoid a port collision, starts the local UI and auth backend, and leaves the packaged container stopped when it exits. Run `caracal up` afterward to restore the packaged console.
+
+`caracal web --allow-offline` permits UI or sign-in development while runtime services are unavailable. Product views still cannot perform their backend work.
+
+## Next Step
+
+[Control Console Access](/v0.2/runtime-console/console-access/).

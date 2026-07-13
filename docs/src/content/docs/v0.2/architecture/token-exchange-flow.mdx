@@ -1,0 +1,60 @@
+---
+title: Exchange Tokens
+description: Trace authentication, policy, approval, issuance, and audit through
+  the STS boundary.
+pageType: architecture
+slug: v0.2/architecture/token-exchange-flow
+---
+
+Use this flow when an SDK, `caracal run`, or Gateway cannot obtain authority.
+
+## Request Flow
+
+```mermaid
+sequenceDiagram
+  participant Client as SDK / caracal run / Gateway
+  participant STS
+  participant PG as Postgres
+  participant Redis
+  participant Audit
+  Client->>STS: POST /oauth/2/token or run credential request
+  STS->>PG: authenticate client; load resource, policy, authority, session, delegation
+  STS->>Redis: use invalidation and revocation state
+  STS->>STS: evaluate requested resource, scopes, operation, constraints
+  alt approval required
+    STS-->>Client: interaction_required + hold id + expiry
+  else denied
+    STS-->>Client: typed denial
+    STS->>Redis: signed audit event
+  else allowed
+    STS-->>Client: scoped, short-lived mandate or provider credential
+    STS->>Redis: signed audit event
+    Redis->>Audit: ingest evidence
+  end
+```
+
+## What the Integrator Supplies
+
+The caller authenticates an application or workload, identifies the zone and target resource, and requests scopes. A subject token can contribute a federated `sub`; a prior Caracal mandate can be narrowed. Session and Delegation identifiers supply execution lineage when the SDK flow created them.
+
+The protocol fields `session_id`, `agent_session_id`, and `delegation_edge_id` refer respectively to an Authority record, a Coordinator Session, and a Delegation. They are not interchangeable IDs.
+
+## Approval Branch
+
+An Approval is a hold, not a credential. An eligible operator or end user decides it, then the waiting client retries with the hold ID. STS consumes an approved hold once while issuing the credential. Rejected, expired, undecided, or already-consumed holds deny.
+
+`caracal run` waits and retries once. SDK applications should follow their language SDK's interaction-required contract. See [Approvals](/v0.2/concepts/step-up/) for the canonical model.
+
+## Failure and TTL Implications
+
+* Resource mandates are capped at 15 minutes; Session mandates are capped at 60 minutes.
+* Gateway rejects an inbound token that is too close to expiry before proxying.
+* Invalid client proof, subject issuer, resource, policy, Session, Delegation, operation, scope, or approval fails before issuance.
+* Gateway-authenticated exchanges are signed over the exact form body with a timestamp and nonce; query ambiguity and duplicate singleton fields are rejected.
+* Audit delivery is asynchronous, but STS and Gateway use replay storage when immediate Redis publication is unavailable.
+
+For exact request fields and errors, use [Use STS Endpoint](/v0.2/api/sts/). Do not call STS internal policy or key-rotation routes; the API service owns those calls.
+
+## Next Step
+
+[Coordinate Sessions](/v0.2/architecture/delegation-flow/).

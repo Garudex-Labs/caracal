@@ -1,0 +1,47 @@
+---
+title: Troubleshoot by Symptom
+description: Triage an application-visible failure and route it to
+  authorization, configuration, or infrastructure diagnosis.
+pageType: workflow
+slug: v0.2/operations/troubleshooting
+---
+
+Use this when an SDK, HTTP request, console action, or protected call failed. It identifies the failed surface; it does not repair infrastructure.
+
+## Prerequisites
+
+Capture timestamp, request ID, zone, application, resource, operation, status, error code, and version. Redact credentials.
+
+## Triage Procedure
+
+1. Check readiness. If any service is NotReady, use [Debug Infrastructure Issues](/v0.2/operations/debugging/).
+2. For client startup failure, verify explicit profile, endpoints, IDs, and credential file.
+3. For `401`, verify credential type, issuer, expiry, and intended surface.
+4. For STS `403`, inspect Grants, Resource/scopes, Policy set, Session, Delegation, and Approval.
+5. For resource/Gateway `403`, verify mandate issuer, audience, scope, `X-Caracal-Resource`, binding, revocation, and verifier.
+6. Search Audit by request ID. If absent, confirm the request reached enforcement, then inspect the audit path.
+
+## Verification
+
+Repeat one safe request and confirm its expected status and audit subject/resource/scopes/policy/result.
+
+## Recovery Boundary
+
+Do not widen policy, bypass Gateway, disable revocation, or replace credentials until the surface is identified.
+
+## Diagnostic Bundle
+
+Caracal exposes diagnosis through existing supported surfaces rather than a separate `doctor` command:
+
+| Evidence | Surface |
+| --- | --- |
+| Runtime health and readiness | `caracal status --json` and `caracal status --ready --json` |
+| Service, Zone, and provider checks | Web console **Diagnostics** |
+| Recent decisions and operational events | Web console **Audit** or the Admin API audit list |
+| One correlated authorization path | Request trace by request ID |
+
+Capture those outputs with the timestamp, version, Zone, and request ID. Redact credentials before attaching the bundle to an incident.
+
+## Next Step
+
+Use [Debug Infrastructure Issues](/v0.2/operations/debugging/) or [Debug Authorization Decisions](/v0.2/guides/authorize-access/).

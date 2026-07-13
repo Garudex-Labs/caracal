@@ -1,0 +1,95 @@
+---
+title: Configure Service Environment
+description: Set runtime configuration with the implemented precedence, mode,
+  port, and file-secret rules.
+pageType: reference
+slug: v0.2/operations/env-vars
+---
+
+Use this page before first start or after a release adds configuration. Service variables and workload SDK variables are separate concerns.
+
+## The Operator Env File
+
+Every `caracal` command - `up`, `web`, and `run` - loads one operator env file at startup. It holds everything you enter by hand: the web console's sign-in settings, without which `caracal web` cannot authenticate anyone; the runtime launcher's workload identity and secret; the STS URL; and any service override. A variable already set in the process environment always wins over the file, and for a supported secret `NAME_FILE` is resolved before `NAME`.
+
+On an installed host the file is `$CARACAL_HOME/caracal.env`, created `0600` on the first `caracal up`. It lives outside your project, so open it in an editor - it is plain `KEY=VALUE`:
+
+```bash
+${EDITOR:-nano} ~/.local/share/caracal/caracal.env                 # Linux
+${EDITOR:-nano} ~/Library/Application\ Support/caracal/caracal.env  # macOS
+notepad $env:LOCALAPPDATA\caracal\caracal.env                      # Windows (PowerShell)
+```
+
+Set `CARACAL_ENV_FILE` to point at a different path. In development the file is `.env` at the repository root - copy the committed `.env.example` - and `infra/docker/dev.env` holds the Compose defaults. Apply a change by rerunning the affected command.
+
+Use `CARACAL_MODE=dev` only locally. `rc` and `stable` share fail-closed configuration checks; `rc` denotes release maturity, not weaker security.
+
+## Fixed Endpoints
+
+Every service binds a fixed local port with `/health`, `/ready`, and `/metrics` endpoints; the canonical map is in [Monitor Health and Metrics](/v0.2/operations/observability/#endpoint-map). Compose publishes the web console on host port `3001` (container `3002`) and other services on their service ports, all on loopback; bare port numbers are listed in [Defaults and Limits](/v0.2/reference/defaults-and-limits/#ports).
+
+## Required Secret Classes
+
+Published deployments require storage URLs, admin and Coordinator credentials, `SECRET_STORE_KEK`, `AUDIT_HMAC_KEY`, `STREAMS_HMAC_KEY`, `IDEMPOTENCY_HMAC_KEY`, `GATEWAY_STS_HMAC_KEY`, and `METRICS_BEARER` where consumed. Use the release-matched Compose/chart secret mapping rather than guessing `_FILE` support.
+
+## Web Console BFF
+
+| Variable | Purpose |
+| --- | --- |
+| `CARACAL_AUTH_URL` | Public auth/Web BFF URL; packaged local default is `http://localhost:3001`. |
+| `CARACAL_OPEN_REGISTRATION` | Opens registration beyond the host allowlist posture when explicitly enabled. |
+| `CARACAL_PASSWORD_SIGNUP` | Enables email/password signup; published mode also requires working verification mail. |
+| `CARACAL_SMTP_URL`, `CARACAL_SMTP_FROM` | SMTP transport and sender for verification and reset messages. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Enables Google sign-in when both values are present. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Enables GitHub sign-in when both values are present. |
+| `CARACAL_AUTH_TRUST_PROXY` | Trusts forwarded client/protocol headers only when the deployment has an approved proxy boundary. |
+
+Provider credentials and SMTP URLs support their implemented `_FILE` variants. Registration admission and authentication method are separate: an allowlisted email still needs one configured sign-in method.
+
+## STS Egress Trust
+
+| Variable | Purpose |
+| --- | --- |
+| `CARACAL_PRIVATE_EGRESS_HOSTS` | Comma-separated hosts on private address ranges that subject-issuer JWKS, provider token endpoints, and notification sink deliveries may reach; empty blocks private-range egress. |
+| `CARACAL_TLS_EXTRA_CA_FILE` | PEM bundle appended to system trust for STS egress TLS, so internal-PKI subject issuers and provider endpoints verify without replacing public trust. |
+
+The packaged Compose stack wires `CARACAL_TLS_EXTRA_CA_FILE` for you: drop a PEM bundle at `$CARACAL_HOME/ca/extra-ca.pem` and restart with `caracal up`. An absent bundle leaves system trust untouched; an unreadable or unparseable bundle fails STS egress closed rather than silently ignoring the stated trust intent.
+
+## STS Capacity
+
+| Variable | Purpose |
+| --- | --- |
+| `STS_MINT_RATE_LIMIT_PER_MIN` | Deployment ceiling for mandate mints per minute for each zone, resource, and acting application; default 1000. Set it on the STS and API services together. The web console's Preferences page manages a working limit below this ceiling. |
+| `STS_SECRET_VERIFY_CONCURRENCY` | Concurrent Argon2id credential verifications; default 2. Each in-flight verification allocates 64 MB, and verified credentials are cached, so this bounds cold-start bursts, not steady-state throughput. |
+| `CARACAL_STS_CPU_LIMIT`, `CARACAL_STS_MEM_LIMIT` | Packaged Compose STS container resources; defaults 2.0 CPUs and 1G. Size per [Performance and Scalability](/v0.2/operations/performance-benchmarks/). |
+
+## API Operator and Control
+
+| Variable | Purpose |
+| --- | --- |
+| `API_OPERATOR_ENABLED` | Registers the Operator capability and routes; default is enabled. |
+| `API_OPERATOR_ALLOWED_CAPABILITIES` | Optional comma-separated ceiling over executable Operator capabilities. |
+| `API_OPERATOR_AUTOPILOT_ENABLED` | Master switch that permits conversation-level automatic plan Approval. |
+| `API_OPERATOR_AUTOPILOT_WRITE_BUDGET` | Optional cumulative write-operation budget for an autopilot conversation. |
+| `API_OPERATOR_AI_MAX_OUTPUT_TOKENS` | Per-call model output ceiling. |
+| `API_OPERATOR_AI_MAX_CALLS_PER_TURN` | Per-turn model-call budget. |
+| `CARACAL_CONTROL_ENABLED`, `CONTROL_GATE_FILE` | Build-time Control mount and runtime invoke gate. |
+
+The API process also accepts `API_OPERATOR_AI_PROVIDERS` plus per-ID `API_OPERATOR_AI_<ID>_BASE_URL`, `_MODEL`, optional `_API_KEY`, `_TIMEOUT_MS`, and `_CONTEXT_WINDOW`. IDs are tried in listed order before console-managed providers. Those variables are a direct API-process configuration path; the installed-runtime Compose and Helm surfaces do not forward provider-specific entries. For the packaged workflow, configure providers under **Settings → AI Operator → Models**, where keys are sealed into `caracal.sys` and never returned.
+
+## Safe Procedure
+
+1. Start from the shipped env template or chart values for the same release.
+2. Put non-secret overrides in `caracal.env` or environment-owned Helm values.
+3. Put secrets in owner-only files or a Kubernetes Secret projection.
+4. Set external origins and issuer to exact HTTPS URLs.
+5. Enable Control, public ingress, private egress exceptions, password signup, or proxy trust only when required.
+6. Restart changed services and gate on `/ready`.
+
+## Verify and Recover
+
+Run `caracal status --ready` or inspect Kubernetes readiness. Published metrics must reject a missing bearer and accept the configured one. If startup fails, revert the last override; do not replace generated secrets merely to clear validation errors.
+
+## Next Step
+
+Choose a [Configure Secret Backends](/v0.2/operations/secret-backends/) and apply [Harden Production](/v0.2/operations/tls-hardening/).

@@ -1,0 +1,91 @@
+---
+title: Protect an Express App
+description: Add the caracalAuth middleware to Express routes to verify mandates
+  and enforce scope requirements.
+slug: v0.2/guides/protect-express
+---
+
+Use `@caracalai/express` when an Express app should verify Caracal mandates before route handlers run.
+
+## Prerequisites
+
+* A Caracal-mandate resource whose audience matches this service.
+* The zone STS issuer, zone ID, and a shared production revocation store.
+* A route-by-route scope and target map.
+
+## Install
+
+```bash
+npm install express @caracalai/express @caracalai/verify @caracalai/revocation
+```
+
+Use a Redis-backed revocation store in production. The in-memory store is only suitable for local development and tests.
+
+## Add middleware
+
+```ts
+import express from 'express'
+import { caracalAuth, type CaracalRequest } from '@caracalai/express'
+import { createMandateVerifier } from '@caracalai/verify'
+import { InMemoryRevocationStore } from '@caracalai/revocation'
+
+const app = express()
+
+const verifier = createMandateVerifier({
+  issuer: process.env.CARACAL_ISSUER!,
+  audience: 'resource://pipernet',
+  zoneId: process.env.CARACAL_ZONE_ID!,
+  revocations: new InMemoryRevocationStore(),
+})
+
+await verifier.warmup()
+
+app.use(
+  '/reports',
+  caracalAuth(
+    { verifier },
+    {
+      requiredScopes: ['pipernet:read'],
+      requiredTargets: ['resource://pipernet'],
+    },
+  ),
+)
+
+app.get('/reports', (req: CaracalRequest, res) => {
+  res.json({
+    principal: req.caracalClaims?.sub,
+    reports: ['market-risk', 'quarterly'],
+  })
+})
+```
+
+The middleware attaches verified claims to `req.caracal` and `req.caracalClaims`, plus the propagation context at `req.caracalContext`.
+
+## Enforce the right boundary
+
+| Option              | Use it for                        |
+| ------------------- | --------------------------------- |
+| `requiredScopes`    | Tool or route-level scope checks. |
+| `requiredTargets`   | Resource-target checks.           |
+| `requireSession`    | Require a governed Session.       |
+| `requireDelegation` | Require delegated authority.      |
+| `maxHopCount`       | Limit delegation depth.           |
+
+## Validate
+
+1. Exchange for a mandate that targets the resource.
+2. Call the protected route with `Authorization: Bearer <mandate>`.
+3. Remove a required scope and confirm the route returns `403`.
+4. Revoke the session and confirm the route rejects the old mandate.
+
+Expected result: missing or invalid credentials return `401`, valid but insufficient authority returns `403`, and protected handlers run only after `req.caracalClaims` and `req.caracalContext` are populated.
+
+:::caution[Failure point: revocation]
+`InMemoryRevocationStore` proves local behavior only. Every production replica must share the Redis-backed store and consume revocation events; otherwise one replica can continue accepting a revoked Session.
+:::
+
+For middleware option signatures, use [Express Adapter reference](/v0.2/sdks/adapters/express/).
+
+## Next Step
+
+Add route-specific requirements, then test the boundary with [Test Caracal Integrations](/v0.2/guides/testing/).

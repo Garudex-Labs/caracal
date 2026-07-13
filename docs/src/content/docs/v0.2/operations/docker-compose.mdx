@@ -1,0 +1,44 @@
+---
+title: Deploy with Docker Compose
+description: Start and verify the development or released single-host Caracal stack.
+pageType: workflow
+slug: v0.2/operations/docker-compose
+---
+
+Use Compose for local development or one Docker host. It is not a multi-host or HA deployment.
+
+## Prerequisites
+
+* Docker with Compose support.
+* For repository development, installed workspace dependencies.
+* For a released runtime, an installed Caracal binary and writable `CARACAL_HOME`.
+* Host backup and TLS exposure plans before production use.
+
+## Procedure
+
+```bash
+caracal up
+caracal status --ready
+```
+
+Development builds `infra/docker/docker-compose.yml`; installed `rc` and `stable` runtimes use the embedded release topology. API `3000`, STS `8080`, Gateway `8081`, Audit `9090`, Coordinator `4000`, and web `3001` bind to `127.0.0.1`. The web container listens internally on `3002`.
+
+`caracal up` creates missing managed secret files and preserves non-empty values. Keep `$CARACAL_HOME/secrets` or `CARACAL_SECRETS_DIR` outside source and agent workspaces. Put overrides in `$CARACAL_HOME/caracal.env`; do not edit the installed compose file.
+
+## Verify
+
+`caracal status` checks `/health`; `caracal status --ready` checks dependencies. From a checkout, `bash infra/scripts/smokeTest.sh` probes the five core services on loopback. Open `http://localhost:3001` only after readiness passes.
+
+## Stop and Recover
+
+Use `caracal down` to stop services while retaining volumes.
+
+:::danger[Data loss]
+`caracal down -v` and purge operations can remove state. Do not use them until Postgres, Redis, replay state, and separately stored secrets have recoverable backups.
+:::
+
+If startup fails, preserve volumes and secrets, inspect `caracal status --json` and container logs, then use [Debug Infrastructure Issues](/v0.2/operations/debugging/).
+
+## Next Step
+
+Review [Configure Service Environment](/v0.2/operations/env-vars/) before exposing an endpoint.

@@ -1,0 +1,45 @@
+---
+title: Back Up and Retain Data
+description: Back up and destructively restore the shipped Compose stack with
+  separate secret custody.
+pageType: workflow
+slug: v0.2/operations/backup-retention
+---
+
+Repository scripts support Compose only. Kubernetes/external stores require operator tooling.
+
+## Bundle Scope
+
+`backup.sh` writes Postgres globals/database dumps, Redis AOF after rewrite, and available STS/Gateway replay state. It excludes secrets.
+
+## Backup Procedure
+
+```bash
+CARACAL_BACKUP_DIR=/var/backups/caracal CARACAL_BACKUP_RETAIN=7 bash infra/scripts/backup.sh
+```
+
+Set the Compose project when non-default. Encrypt/copy off-host and back up matching secrets separately.
+
+## Verify Backup
+
+Inspect manifest/dumps/AOF/replay, then restore with copied secrets into an isolated project and verify readiness, policy, sessions, revocation, authorization, and audit.
+
+## Restore Procedure
+
+:::danger[Destructive restore]
+Restore stops apps, drops/recreates databases, replaces Redis, and overwrites replay state.
+:::
+
+```bash
+CARACAL_COMPOSE_PROJECT=<isolated-project> CARACAL_RESTORE_CONFIRM=yes bash infra/scripts/restore.sh <bundle.tar.gz>
+```
+
+Postgres/Redis containers and matching secrets must exist.
+
+## Recovery
+
+On failure keep isolated, preserve output/state, recreate clean volumes, and retry from original bundle/secrets. Never reopen partial restore.
+
+## Next Step
+
+Use [Respond to Incidents](/v0.2/operations/incident-response/) after data loss or tampering.

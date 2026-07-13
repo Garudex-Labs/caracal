@@ -1,0 +1,65 @@
+---
+title: Use Examples
+description: Choose the right runnable example for learning, automation,
+  validation, or full reference-lab integration.
+pageType: landing
+slug: v0.2/examples
+---
+
+Examples show Caracal integrated into concrete applications and automation scripts. Use them after the first tutorials when you want runnable code that matches a specific integration job. All examples live in the dedicated [Caracal examples repository](https://github.com/Garudex-Labs/examples); clone it once and every guide below runs from that checkout:
+
+```bash
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+```
+
+## Prerequisites
+
+* Complete [First Protected Call](/v0.2/get-started/first-protected-call/) and know whether you are integrating an application or a resource server.
+* Use an isolated development zone and synthetic credentials.
+* Run the example's offline tests before connecting it to a live runtime.
+
+## Choose an example
+
+| Goal                                                                                        | Start here                                                | Code path                                                                                 |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Need a local protected target for the first Gateway call.                                   | [Run Echo Upstream](/v0.2/examples/echo-upstream/)             | [echoUpstream](https://github.com/Garudex-Labs/examples/tree/main/echoUpstream)           |
+| Want to automate zone setup from a script or pipeline through the Control API.              | [Bootstrap Control State](/v0.2/examples/control-bootstrap/)   | [controlBootstrap](https://github.com/Garudex-Labs/examples/tree/main/controlBootstrap)   |
+| Need to prove a provider-backed resource is ready.                                          | [Check Provider Readiness](/v0.2/examples/provider-preflight/) | [providerPreflight](https://github.com/Garudex-Labs/examples/tree/main/providerPreflight) |
+| Need to turn a denial into a safe policy fix.                                               | [Iterate Policy Safely](/v0.2/examples/policy-iterate/)        | [policyIterate](https://github.com/Garudex-Labs/examples/tree/main/policyIterate)         |
+| Want to launch a plain CLI agent with injected provider credentials.                        | [Launch Research Agent](/v0.2/examples/research-agent/)        | [ResearchAgent](https://github.com/Garudex-Labs/examples/tree/main/ResearchAgent)         |
+| Want a full app reference lab with agents, providers, Gateway, STS, and Console inspection. | [Run Lynx Capital](/v0.2/examples/lynx-capital/)               | [lynxCapital](https://github.com/Garudex-Labs/examples/tree/main/lynxCapital)             |
+
+## Recommended order
+
+1. Start with [Run Echo Upstream](/v0.2/examples/echo-upstream/) if you have not completed a Gateway-mediated request yet.
+2. Use [Bootstrap Control State](/v0.2/examples/control-bootstrap/) when automation should own zone setup instead of manual Console clicks.
+3. Run [Check Provider Readiness](/v0.2/examples/provider-preflight/) before the first real provider-backed Gateway call.
+4. Use [Iterate Policy Safely](/v0.2/examples/policy-iterate/) when an audit denial needs to become a tested policy change.
+5. Try [Launch Research Agent](/v0.2/examples/research-agent/) to see `caracal run` inject provider-native credentials into an existing-style CLI process.
+6. Study [Run Lynx Capital](/v0.2/examples/lynx-capital/) when you need a full app topology and live Console inspection path.
+
+## Use examples safely
+
+* Start Caracal through the released runtime and Console path described by the example.
+* Use the web console for zones, applications, providers, resources, policies, control keys, and launch bindings.
+* Keep example fixtures inside their own example directory in the examples repository.
+* Run each example's offline tests before adapting it.
+* Do not commit provider secrets, admin tokens, or real third-party credentials.
+
+Expected result: each example proves one job and leaves a request ID, test output, or drift report. Examples are not production libraries and must be adapted with your own identity, secret, retry, timeout, and deployment controls.
+
+:::caution[Fixed example names]
+`ResearchAgent` and `lynxCapital` are checked-in source names in the examples repository; the walkthroughs use them as-is. Objects you create around them (zones, applications, providers) can use any names - these pages use the same sample names as the rest of the documentation.
+:::
+
+## Related Sections
+
+* [Get Started](/v0.2/get-started/)
+* [Tutorials](/v0.2/tutorials/)
+* [Guides](/v0.2/guides/)
+* [SDKs](/v0.2/sdks/)
+* [Runtime and Console](/v0.2/runtime-console/)
+
+## Next Step
+
+Choose one row in **Choose an example**; do not run the full reference lab when a smaller example proves the required boundary.

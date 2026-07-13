@@ -1,0 +1,38 @@
+---
+title: Page not found
+description: We could not find that Caracal documentation page.
+template: splash
+editUrl: false
+slug: v0.2/404
+---
+
+import LandingFooter from '../../../components/LandingFooter.astro'
+
+<div class="notfound">
+  <div class="notfound__inner">
+    <p class="notfound__eyebrow">Error · 404</p>
+    <h1 class="notfound__title">This docs path is not available.</h1>
+
+    <p class="notfound__lede">
+      Check the selected documentation version and use site search for the page title. If the link came from code or an older release, open
+      the matching stable minor before assuming the behavior moved.
+    </p>
+
+    <div class="notfound__actions">
+      <a class="landing-button landing-button--primary" href="/">
+        Go to docs home
+      </a>
+
+      <a class="landing-button landing-button--secondary" href="/reference/">
+        Search reference
+      </a>
+    </div>
+
+    <p class="notfound__lede">
+      New evaluator: <a href="/v0.2/get-started/">Get Started</a>. Operator: <a href="/v0.2/operations/">Operations</a>. Integrator:{' '}
+      <a href="/v0.2/guides/">Guides</a>. Contributor: <a href="/v0.2/contributing/">Contributing</a>.
+    </p>
+  </div>
+</div>
+
+<LandingFooter />

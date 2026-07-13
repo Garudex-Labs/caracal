@@ -1,0 +1,140 @@
+---
+title: Govern Agent Frameworks
+description: Use Caracal with LangChain, LangGraph, and CrewAI by passing the
+  governed transport into the model clients the framework already accepts.
+slug: v0.2/guides/frameworks
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+Caracal does not ship framework connectors for LangChain, LangGraph, or CrewAI, because it does not need them. Frameworks orchestrate model and tool calls through the provider clients you construct; Caracal governs those clients through the [transport wiring](/v0.2/guides/provider-recipes/#wire-the-transport-into-provider-clients). Configure the client once, and every chain, graph node, agent, and tool call the framework issues is authenticated, policy-checked, and audited - with no framework-version coupling to maintain.
+
+## When to use this guide
+
+Use it after a direct SDK-to-Gateway call works and before handing the governed client to an agent framework. It is not an onboarding path and does not govern arbitrary framework-local tool calls.
+
+## Prerequisites
+
+* One working provider recipe and resource binding per network host the framework can call.
+* A scoped SDK transport tested without the framework.
+* A Session and Delegation design for parallel agents and subagents.
+
+The pattern is always the same:
+
+1. Bind the provider upstream to a Caracal resource.
+2. Build the provider client with a scoped transport and `gateway-only` propagation.
+3. Hand that client to the framework.
+4. Run framework work inside `session()` so each agent execution gets its own Session ID.
+
+## LangChain
+
+LangChain model classes accept the same custom HTTP client hooks as the underlying provider SDKs.
+
+<Tabs syncKey="lang">
+  <TabItem label="Python">
+    ```python
+    from caracalai import Caracal
+    from langchain_openai import ChatOpenAI
+
+    caracal = Caracal()
+
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key="caracal-gateway",
+        http_client=caracal.sync_transport(
+            scopes=["inference:invoke"], propagation="gateway-only"
+        ),
+        http_async_client=caracal.transport(
+            scopes=["inference:invoke"], propagation="gateway-only"
+        ),
+    )
+    ```
+  </TabItem>
+
+  <TabItem label="TypeScript">
+    ```ts
+    import { Caracal } from '@caracalai/sdk'
+    import { ChatOpenAI } from '@langchain/openai'
+
+    const caracal = new Caracal()
+
+    const llm = new ChatOpenAI({
+      model: 'gpt-4o',
+      apiKey: 'caracal-gateway',
+      configuration: {
+        fetch: caracal.transport({ scopes: ['inference:invoke'], propagation: 'gateway-only' }),
+      },
+    })
+    ```
+  </TabItem>
+</Tabs>
+
+The `configuration` object forwards to the OpenAI SDK, so the governed `fetch` carries every LangChain invocation. Anthropic and Gemini model classes take the corresponding hooks from their provider recipes.
+
+## LangGraph
+
+LangGraph nodes call whatever model client the graph was built with, so a governed client governs the whole graph. What LangGraph adds is concurrency: parallel branches and subgraphs fan out, and each logical agent should be distinguishable in policy and audit. Start a labeled Session around each run, or around each branch that represents a distinct agent:
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(llm, tools)
+
+async with caracal.session(labels=["research-agent"]):
+    result = await agent.ainvoke({"messages": [("user", question)]})
+```
+
+Every model call and governed tool call inside the run carries that Session's identity. To narrow a subagent below its parent, start its Session with reduced authority; see [Implement Multi-Agent Delegation](/v0.2/guides/delegation/).
+
+## CrewAI
+
+CrewAI routes model traffic through LiteLLM, so the LiteLLM session hooks govern an entire crew:
+
+```python
+import litellm
+from caracalai import Caracal
+
+caracal = Caracal()
+litellm.client_session = caracal.sync_transport(
+    scopes=["inference:invoke"], propagation="gateway-only"
+)
+litellm.aclient_session = caracal.transport(
+    scopes=["inference:invoke"], propagation="gateway-only"
+)
+```
+
+Set the sessions before constructing agents. Each provider LiteLLM reaches needs its own resource binding, exactly as in the [LiteLLM recipe](/v0.2/guides/provider-recipes/#litellm).
+
+## Framework tools
+
+Tools are where agent traffic actually touches your systems, and they follow the same rule as models: build the tool's HTTP client from the transport.
+
+```python
+pipernet = caracal.transport(scopes=["pipernet:read"])
+
+
+async def fetch_report(report_id: str) -> dict:
+    response = await pipernet.get(f"https://api.pipernet.example/reports/{report_id}")
+    return response.json()
+```
+
+Build the transport once and share it: identity is resolved per request from the bound context, so concurrent agents can safely use the same client. Passing `scopes` mints the narrowed `use=gateway` mandate required for each call, so a tool holds only the authority it needs. For a complete multi-agent LangChain and LangGraph deployment governed this way, see the [Lynx Capital example](/v0.2/examples/lynx-capital/).
+
+## Related
+
+* [Provider Recipes](/v0.2/guides/provider-recipes/)
+* [Integrate the Python SDK](/v0.2/guides/sdk-python/)
+* [Integrate the TypeScript SDK](/v0.2/guides/sdk-typescript/)
+* [Implement Multi-Agent Delegation](/v0.2/guides/delegation/)
+
+## Validate the framework integration
+
+Capture every outbound host in a test run. Each governed host must route through Gateway under the expected resource; an unknown host must not receive Caracal headers. Run parallel branches and confirm distinct labeled Sessions in Audit.
+
+:::caution[Failure point: framework tools]
+Passing a governed model client does not govern a tool that constructs its own HTTP client. Inject a Caracal transport into every network client or protect the destination as a resource server.
+:::
+
+## Next Step
+
+Add [multi-agent delegation](/v0.2/guides/delegation/) only after single-Session transport and audit validation pass.

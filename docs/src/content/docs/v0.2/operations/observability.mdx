@@ -1,0 +1,38 @@
+---
+title: Monitor Health and Metrics
+description: Gate traffic and changes on verified liveness, readiness, metrics,
+  and end-to-end evidence.
+pageType: workflow
+slug: v0.2/operations/observability
+---
+
+Use `/health` for liveness and `/ready` for traffic and rollout gates.
+
+## Endpoint Map
+
+| Service | Port | Health | Readiness | Metrics |
+| --- | ---: | --- | --- | --- |
+| API | 3000 | `/health` | `/ready` | `/metrics` |
+| STS | 8080 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Gateway | 8081 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Audit | 9090 | `/health` | `/ready` | `/metrics`, `/metrics.json` |
+| Coordinator | 4000 | `/health` | `/ready` | `/metrics` |
+
+Published metrics require `Authorization: Bearer <METRICS_BEARER>`. Keep them private even when authenticated.
+
+## Procedure
+
+1. Scrape every enabled service with the metrics secret.
+2. Track readiness, DB pool, policy age/compile errors, provider refresh, audit lag/DLQ/tamper/replay, outbox, STS circuit, and revocation freshness.
+3. Correlate logs and audit by request ID.
+4. Gate deployment on readiness plus canary exchange, Gateway call, and audit lookup.
+
+For Compose run `caracal status --ready`; from a checkout use `bash infra/scripts/smokeTest.sh`. For Helm, verify Jobs, workloads, ServiceMonitor discovery, and rules.
+
+## Recovery
+
+If health passes but readiness fails, preserve the readiness reason and inspect its dependency/safety latch. Restore the cause and drain backlogs. Preserve evidence before replacing an `audit_evidence_lost` process.
+
+## Next Step
+
+Route signals with [Configure Alerts](/v0.2/operations/alerts/).

@@ -1,0 +1,74 @@
+---
+title: Understand the Model
+description: Learn the mental model behind scoped authority, policy decisions,
+  delegation, revocation, and audit in Caracal.
+sidebar:
+  order: 1
+slug: v0.2/concepts
+---
+
+Read this section after Get Started when you need to design an integration or explain a decision. Get Started gave you the working vocabulary - application, resource, policy, mandate, Gateway, audit, zone. This section completes the model with the pieces behind them: how a **Session** bounds one run, how an optional **Subject** adds end-user attribution, how a **Delegation** narrows authority between Sessions, and how revocation and audit tie it all together. One sentence holds the whole picture: an Application acts in a Zone, a Session bounds execution, Delegation narrows authority, policy approves a Resource request, and a Mandate carries the result.
+
+## Read This Section in Order
+
+| Start here                                                | Use it to understand                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Caracal Mental Model](/v0.2/concepts/model-overview/)         | The smallest useful picture of Caracal.                                       |
+| [Authority and Enforcement](/v0.2/concepts/authority-model/)   | Where decisions happen before requests reach a target.                        |
+| [Zones](/v0.2/concepts/zone/)                                  | The tenant boundary that owns keys, policies, resources, sessions, and audit. |
+| [Identities and Applications](/v0.2/concepts/principal/)       | Application credentials, optional Subjects, Authority records, and Sessions.  |
+| [Resources and Grants](/v0.2/concepts/resource-grant/)         | What can be accessed and which scopes are granted.                            |
+| [Providers](/v0.2/concepts/provider/)                          | The credential Caracal attaches to the upstream target.                       |
+| [Policies and Policy Sets](/v0.2/concepts/policy/)             | Rego rules evaluated by the STS during token exchange.                        |
+| [Mandates](/v0.2/concepts/mandate/)                            | The short-lived JWT that carries approved authority.                          |
+| [Approvals](/v0.2/concepts/step-up/)                           | How sensitive actions are held for a human decision.                          |
+| [Session Delegation](/v0.2/concepts/delegation/)               | How one agent passes bounded authority to another.                            |
+| [Delegation Constraints](/v0.2/concepts/constraint/)           | The limits attached to delegated authority.                                   |
+| [Sessions and Revocation](/v0.2/concepts/sessions-revocation/) | How active authority is ended and propagated.                                 |
+| [Audit and Request Traces](/v0.2/concepts/audit-ledger/)       | The event trail behind decisions and runs.                                    |
+| [Caracal Operator](/v0.2/concepts/operator/)                   | An optional governed assistant for reviewed console changes.                  |
+
+## Core Flow
+
+```mermaid
+flowchart LR
+  App["Application"] --> Session["Session"]
+  Subject["Optional Subject"] -. attribution .-> Session
+  Session --> SDK["SDK / Gateway request"]
+  SDK --> STS["STS token exchange"]
+  STS --> Policy["Active policy set"]
+  Policy --> Mandate["Mandate JWT"]
+  Mandate --> Gateway["Gateway or adapter"]
+  Gateway --> Resource["Protected resource"]
+  STS --> Audit["Audit ledger"]
+  Gateway --> Audit
+```
+
+The same model appears across the product:
+
+* Onboarding uses the web console guided setup to create the first zone, application, provider, resource, and policy, then makes the first protected call with the application's identity through an SDK transport.
+* Guides use the SDKs, web console, Admin API, and adapters to build repeatable integrations.
+* Operations pages use the same terms when explaining keys, revocation, audit, and runtime health.
+
+## Term Map
+
+| Term              | Short definition                                                                                         | Canonical page                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Zone              | Tenant boundary for authority data and signing keys.                                                     | [Zones](/v0.2/concepts/zone/)                                  |
+| Application       | Registered client or agent workload.                                                                     | [Identities and Applications](/v0.2/concepts/principal/)       |
+| Subject           | Optional identity federated from your identity provider for attribution and supported approval flows. | [Identities and Applications](/v0.2/concepts/principal/)       |
+| Authority record  | Immutable record of identity and authority context created by an exchange.                             | [Identities and Applications](/v0.2/concepts/principal/)       |
+| Resource          | Protected API, MCP server, tool group, or upstream target.                                               | [Resources and Grants](/v0.2/concepts/resource-grant/)         |
+| Grant             | Policy data that describes which Application roles may request Resource scopes.                         | [Resources and Grants](/v0.2/concepts/resource-grant/)         |
+| Provider          | Credential mode Caracal uses toward the upstream target.                                                 | [Providers](/v0.2/concepts/provider/)                          |
+| Policy            | Versioned Rego logic evaluated at token exchange.                                                        | [Policies and Policy Sets](/v0.2/concepts/policy/)             |
+| Policy set        | Versioned bundle of policies activated for a zone.                                                       | [Policies and Policy Sets](/v0.2/concepts/policy/)             |
+| Mandate           | Short-lived JWT issued by the STS after policy approval.                                                 | [Mandates](/v0.2/concepts/mandate/)                            |
+| Delegation        | Bounded authority transfer between Sessions.                                                             | [Session Delegation](/v0.2/concepts/delegation/)               |
+| Revocation anchor | Authority record ID, Root authority record ID, Session ID, or Delegation ID checked by resource servers. | [Sessions and Revocation](/v0.2/concepts/sessions-revocation/) |
+| Caracal Operator  | Governed natural-language assistant that turns intent into reviewed control-plane changes.               | [Caracal Operator](/v0.2/concepts/operator/)                   |
+| System zone       | Reserved `caracal.sys/` zone for the infrastructure that runs Caracal.                                   | [Zones](/v0.2/concepts/zone/#system-zone)                      |
+
+## What to Read Next
+
+After the concepts, use [Guides](/v0.2/guides/) for task-focused procedures or [SDKs](/v0.2/sdks/) for language-specific reference.

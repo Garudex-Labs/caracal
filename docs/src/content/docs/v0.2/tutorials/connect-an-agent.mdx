@@ -1,0 +1,123 @@
+---
+title: Make Runs Identifiable with Labels
+description: Label the protected calls your code makes so each agent's work is
+  identifiable in the audit trail.
+pageType: workflow
+slug: v0.2/tutorials/connect-an-agent
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+Your SDK example works, but imagine it a month from now: one application identity backing a dozen agents, all making protected calls. When something misbehaves, which run was it? This tutorial solves that by adding a **label** - a short tag your code attaches to its runs - so the audit trail can tell your agents' work apart.
+
+You will:
+
+1. point your working example at the resource from the previous tutorial;
+2. add one label to the transport call;
+3. find that label in the audit trail and understand what it does and does not do.
+
+## Prerequisites
+
+* Complete [Protect Your First Real API](../protect-an-api/).
+* Keep the working profile and SDK example from Get Started.
+
+## 1. Point the Example at Your Real Resource
+
+If your shell still has the variables from the previous tutorial, you are already set. Otherwise:
+
+<Tabs syncKey="os">
+  <TabItem label="Linux / macOS">
+    ```sh
+    export CARACAL_CONFIG=/path/to/caracal.toml
+    export CARACAL_RESOURCE_ID=resource://pipernet
+    export CARACAL_RESOURCE_PATH=/
+    export CARACAL_RESOURCE_SCOPE=pipernet:read
+    ```
+  </TabItem>
+
+  <TabItem label="Windows">
+    ```powershell
+    $env:CARACAL_CONFIG = "C:\path\to\caracal.toml"
+    $env:CARACAL_RESOURCE_ID = "resource://pipernet"
+    $env:CARACAL_RESOURCE_PATH = "/"
+    $env:CARACAL_RESOURCE_SCOPE = "pipernet:read"
+    ```
+  </TabItem>
+</Tabs>
+
+Run the example once, unchanged, to confirm the baseline still works.
+
+**After this step:** the example prints your service's response, exactly as at the end of the previous tutorial.
+
+## 2. Add a Label to the Transport
+
+Keep the complete example from [Add SDK to Your App](/v0.2/get-started/add-sdk-to-your-app/). Change only the transport options: add the label `pipernet-reader`.
+
+<Tabs syncKey="lang">
+  <TabItem label="TypeScript">
+    ```typescript
+    const governedFetch = caracal.applicationTransport(resourceId, {
+        scopes: [resourceScope],
+        labels: ['pipernet-reader'],
+    })
+    ```
+  </TabItem>
+
+  <TabItem label="Python">
+    ```python
+    async with caracal.application_transport(
+        resource_id,
+        scopes=[resource_scope],
+        labels=["pipernet-reader"],
+    ) as governed:
+        response = await governed.get(target.url)
+    ```
+  </TabItem>
+
+  <TabItem label="Go">
+    ```go
+    governed, err := c.ApplicationTransport(nil, resourceID, caracal.ApplicationTransportOptions{
+        Scopes: []string{resourceScope},
+        Labels: []string{"pipernet-reader"},
+    })
+    if err != nil {
+        panic(err)
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Run the example again.
+
+**After this step:** the call succeeds exactly as before - the label changes nothing about what is allowed. It changes what is *recorded*.
+
+## 3. Find the Label in Audit
+
+Open web console **Audit** and locate the request you just made. A complete Gateway-routed call produces two events - the authorization decision and the Gateway's action result - and the run now carries your `pipernet-reader` label alongside its session IDs.
+
+That is the payoff. In an app with many agents, give each agent role its own label (`report-writer`, `calendar-sync`, ...) and the audit trail stays separable while everything runs under one application identity.
+
+Two boundaries to keep straight:
+
+* **Labels describe; they never authorize.** Access still comes from scopes and the active policy. A label like `admin` grants nothing.
+* **Labels group; sessions identify.** As introduced in [What Each Call Does](/v0.2/get-started/add-sdk-to-your-app/#what-each-call-does), the SDK opens a session for each run. Many runs can share a label; each run's session ID is unique. When exact attribution matters, use the session ID from Audit.
+
+**After this step:** you can find a run by its label in Audit and read its session IDs from the event detail.
+
+## Expected Outcome
+
+Audit shows your application, the `pipernet-reader` label, distinct session IDs, and the Gateway result for `resource://pipernet`. You know which of those facts identifies the run (the session ID) and which merely describes it (the label).
+
+## Common Mistakes
+
+* Labels do not authorize access. Keep `pipernet:read` in the active policy.
+* Do not wrap `applicationTransport` in a session of your own expecting that session to grant resource authority; the transport provisions its own bounded path.
+* Do not reach for per-agent applications to get attribution; labels and session IDs exist so one application serves all your agents.
+
+## Going Further
+
+If your app hands work from one agent to another and the receiving agent should hold *less* authority, that hand-off is a delegation - the narrowing mechanism you met briefly in Get Started. [Implement Multi-Agent Delegation](/v0.2/guides/delegation/) covers it after this tutorial path.
+
+## Next Step
+
+Continue with [Trace One Protected Request](../inspect-a-run/) to dissect the request you just made - and the deny you produced earlier.

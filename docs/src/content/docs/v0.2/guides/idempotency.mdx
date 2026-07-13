@@ -1,0 +1,184 @@
+---
+title: Safe Retries and Idempotency
+description: Understand what Caracal retries automatically, when to supply a
+  stable operation identifier, and why external side effects still need
+  destination-side protection.
+slug: v0.2/guides/idempotency
+---
+
+Most developers can ignore idempotency. Caracal automatically protects its own session and delegation creation calls against the network failures and transient server errors that ordinary applications encounter.
+
+This guide explains the exceptional case: work delivered by a queue, webhook provider, workflow engine, or scheduler that can arrive again after the original process has stopped.
+
+## Prerequisites
+
+* The source system's immutable delivery, event, workflow, or schedule identifier.
+* The destination's idempotency or transactional deduplication mechanism.
+* A retry budget that distinguishes network/`5xx`/`408`/`425`/`429` from terminal authorization and validation failures.
+
+## What Idempotency Means
+
+An operation is **idempotent** when repeating the same request has the same effect as performing it once. For example, asking Caracal twice to create the same governed Session should not create two Session records.
+
+Idempotency does not mean that arbitrary application code runs exactly once. A process can call an external API successfully and crash before recording success. After restart, no generic SDK can determine whether the external API committed the change.
+
+## The Default: Do Nothing
+
+For a normal request handler, command, or in-process task, omit `idempotencyKey`:
+
+```ts
+await caracal.session(
+  async () => {
+    await caracal.fetch('resource://pipernet', '/reports/market-risk')
+  },
+  {
+    labels: ['research-agent'],
+    task: 'Prepare the market risk report',
+  },
+)
+```
+
+The SDK generates a cryptographically random operation identifier before contacting the Coordinator. If the connection drops, the Coordinator returns a transient error, or the SDK refreshes a rejected bearer, every retry reuses that identifier. The Coordinator stores a durable receipt in PostgreSQL, so a committed session or delegation creation is replayed instead of created again.
+
+The receipt contains:
+
+* a keyed digest of the operation identifier, never the plaintext value;
+* the authenticated tenant and application scope;
+* a canonical fingerprint of every security-relevant request field;
+* the original response and created resource id;
+* an explicit expiry time.
+
+Receipts store only bounded operational response fields. They do not duplicate session metadata, invocation parameters, credentials, or bearer tokens.
+
+The default receipt window is seven days for explicit stable identifiers (`IDEMPOTENCY_RETENTION_SECONDS`) and one day for automatically generated retry identifiers (`GENERATED_IDEMPOTENCY_RETENTION_SECONDS`). The shorter generated window contains storage growth without weakening process-local retry safety.
+
+Each application and operation can retain at most 10,000 live receipts by default (`IDEMPOTENCY_MAX_RECEIPTS_PER_SCOPE`), preventing a compromised workload from growing the receipt index without bound. The Coordinator also caps request bodies at 256 KiB (`COORDINATOR_BODY_LIMIT_BYTES`).
+
+## When an Explicit Key Helps
+
+Supply a key only when the system delivering work already has a stable identifier that survives process restart:
+
+| Source          | Use                                                       |
+| --------------- | --------------------------------------------------------- |
+| Queue           | Queue or subscription namespace plus immutable message id |
+| Webhook         | Verified provider namespace plus delivery or event id     |
+| CloudEvents     | `source` plus `id`                                        |
+| Workflow engine | Workflow namespace, run id, and step or activity id       |
+| Scheduler       | Schedule namespace plus intended fire time                |
+
+```ts
+async function handleWorkItem(message: QueueMessage<Ticket>) {
+  const ticket = message.body
+  await caracal.session(
+    async () => {
+      await caracal.fetch('resource://pipernet', '/reports/market-risk')
+    },
+    {
+      labels: ['research-agent'],
+      task: `${ticket.title} (${ticket.key})`,
+      idempotencyKey: `ticket-queue:v1:${message.id}`,
+    },
+  )
+}
+```
+
+Python uses `idempotency_key=`. Go uses `SessionOptions{IdempotencyKey: ...}`.
+
+The namespace and version prevent unrelated integrations from colliding. Change the version only when intentionally defining a different operation.
+
+## Exact Guarantee
+
+With the same key and the same request fields, Caracal replays the original **Coordinator creation response** during the configured retention window. A replay carries the `Idempotency-Replayed: true` response header and appears as `replayed: true` on SDK coordinator events.
+
+With the same key and different fields, Caracal returns `409 idempotency_key_conflict`. This includes changes to the Subject authority record ID, parent Session, application, lifecycle, labels, task or metadata, authority mode, TTL, Delegation endpoints, resource, scopes, constraints, or invocation parameters.
+
+If the receipt's governed Session or Delegation has already terminated, expired, or been revoked, Caracal returns `409 idempotency_result_inactive` instead of replaying an unusable identity. This prevents a delayed sequential redelivery from entering the callback. Use a newly versioned operation id only for an intentional rerun.
+
+While the original session remains active, a valid replay still enters your callback. The key does not claim a queue message, serialize consumers, cache the callback result, or make downstream effects exactly once. Two concurrent consumers can both execute application code. Use the queue's own visibility/lease mechanism to prevent concurrent delivery.
+
+## Protect External Side Effects
+
+Pass a stable operation id to every destination that supports idempotency:
+
+```ts
+const operationId = `market-risk:v1:${message.id}`
+
+await caracal.session(
+  async () => {
+    await caracal.fetch('resource://pipernet', '/reports/market-risk', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': operationId },
+    })
+  },
+  {
+    task: `Prepare ${ticket.key}`,
+    labels: ['research-agent'],
+    idempotencyKey: `session:${operationId}`,
+  },
+)
+```
+
+For a database mutation, use a transactional inbox or unique operation-id constraint in the same database transaction as the mutation. For asynchronous publication, use a transactional outbox. For APIs that do not support idempotency, reconcile the destination state before retrying.
+
+The unavoidable failure case is:
+
+1. The destination commits the effect.
+2. The process crashes before recording completion.
+3. The source redelivers the work.
+
+Only the destination, a shared transaction, or a durable workflow engine can close that gap.
+
+## What Caracal Does Not Infer
+
+Caracal does not derive stable keys from payload hashes, task descriptions, trace ids, timestamps, user ids, URLs, or handler arguments. Those values are not reliable operation identities: identical payloads can represent legitimate separate work, and descriptions can change between retries.
+
+Framework adapters do not guess provider-specific message ids. When an integration has a verified stable source id, map it explicitly at the queue, webhook, workflow, or scheduler boundary. Ordinary HTTP resource-server adapters only verify authority and bind context; they do not create governed Sessions or deduplicate handlers.
+
+## Validation and Security
+
+Explicit keys must be non-empty, at most 255 UTF-8 bytes, contain no control characters, and have no surrounding whitespace. Both SDK and Coordinator enforce the contract.
+
+Treat a key as an operational identifier, not a credential:
+
+* never put tokens, secrets, passwords, prompts, request bodies, email addresses, or URLs with credentials in it;
+* prefer provider-generated opaque ids;
+* if creating an id yourself, use at least 128 random bits and persist it with the source operation;
+* do not log raw keys;
+* do not reuse one key for different operations;
+* do not use a mutable title or task description as the key.
+
+The Coordinator stores only an HMAC-SHA-256 digest under `IDEMPOTENCY_HMAC_KEY`. During key rotation, set `IDEMPOTENCY_HMAC_KEY_PREVIOUS` for at least one full receipt-retention window, then remove it.
+
+## Common Mistakes
+
+| Mistake                                          | Why it fails                                             | Use instead                                                |
+| ------------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------- |
+| Generate a random key inside every queue attempt | Restart creates a different key                          | Use the immutable delivery or workflow id                  |
+| Hash the payload                                 | Separate legitimate messages may have identical payloads | Use the source event id                                    |
+| Use `ticket.key` for every operation on a ticket | Different operations collide                             | Namespace and version each operation                       |
+| Change labels or task while reusing the key      | Fingerprint conflict                                     | Use the original request or define a new operation version |
+| Assume the callback is skipped on replay         | Session creation and callback execution are separate     | Use source leases and destination-side deduplication       |
+| Put personal data in the key                     | Keys may reach headers and diagnostics                   | Use an opaque provider id                                  |
+
+## Operations
+
+Monitor:
+
+* `caracal_idempotency_requests_total{outcome="created|replayed|conflicts|invalid|expired"}`;
+* `caracal_idempotency_receipts`;
+* `caracal_idempotency_oldest_seconds`;
+* retention-cleaner failures and database storage growth.
+
+A conflict usually indicates a programming error or an operation namespace reused across different work. A sudden replay spike usually indicates source redelivery or network instability. Raw keys never appear in these metric labels.
+
+## Validate the retry design
+
+Deliver the same work twice with identical fields, then with one changed security field, then after the governed result becomes inactive. Expect a replayed Coordinator response, `409 idempotency_key_conflict`, and `409 idempotency_result_inactive` respectively. Separately prove the destination effect occurs once.
+
+:::caution[Failure point: Gateway calls]
+Caracal's Coordinator receipt does not deduplicate an upstream HTTP mutation. Forward the stable operation ID to the destination's `Idempotency-Key` or use a transactional inbox/outbox.
+:::
+
+## Next Step
+
+Encode replay, conflict, and destination-dedup cases in [Test Caracal Integrations](/v0.2/guides/testing/).

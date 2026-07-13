@@ -1,0 +1,71 @@
+---
+title: Express Adapter
+description: Express 5 middleware for Caracal mandate verification.
+slug: v0.2/sdks/adapters/express
+---
+
+`@caracalai/express` protects Express routes by parsing the bearer token, verifying the mandate through `@caracalai/verify`, and attaching Caracal claims to the request.
+
+Use it for Express 5 ingress. Do not use it as outbound SDK middleware or as a replacement for Gateway.
+
+## Install
+
+```bash
+npm install @caracalai/express @caracalai/verify @caracalai/revocation-redis
+```
+
+The adapter has an Express `^5.0.0` peer dependency and targets Node `>=22`.
+
+## Middleware
+
+```ts
+import express from 'express'
+import { caracalAuth } from '@caracalai/express'
+import { createMandateVerifier } from '@caracalai/verify'
+import { RedisRevocationStore } from '@caracalai/revocation-redis'
+
+const app = express()
+
+const verifier = createMandateVerifier({
+  issuer: 'https://sts.pipernet.example',
+  audience: 'resource://pipernet',
+  zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
+  revocations: new RedisRevocationStore(redis),
+})
+
+app.use(
+  '/mcp',
+  caracalAuth(
+    { verifier },
+    {
+      requiredScopes: ['mcp:tool:call'],
+      requiredTargets: ['resource://pipernet'],
+      requireSession: true,
+    },
+  ),
+)
+```
+
+## Request shape
+
+The middleware attaches Caracal claims to `req.caracal` and `req.caracalClaims` when verification succeeds. Use the exported `CaracalRequest` type when a handler needs typed access.
+
+`caracalAuth(options, routeOverrides?)` is the public middleware entry point. Pass either verify dependencies or `{ verifier }`. `bindContext` defaults to true and also sets `req.caracalContext`; set it false only when ambient SDK context is intentionally unwanted.
+
+```ts
+import type { CaracalRequest } from '@caracalai/express'
+
+app.post('/mcp/tools/search', (req: CaracalRequest, res) => {
+  res.json({ subject: req.caracal?.sub })
+})
+```
+
+## Failure behavior
+
+Failed verification returns a verify-engine error code such as `missing_token`, `invalid_token`, `insufficient_scope`, or `session_revoked`, plus a safe `error_hint` field. Pair the adapter with a shared revocation store when multiple resource-server instances serve the same resource.
+
+## Related Pages
+
+* [Protect an Express App](/v0.2/guides/protect-express/)
+* [Verify Package](/v0.2/sdks/verify/)
+* [Redis Revocation Store](/v0.2/sdks/backends/redis/)

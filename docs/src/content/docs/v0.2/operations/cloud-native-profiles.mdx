@@ -1,0 +1,38 @@
+---
+title: Choose a Cloud Profile
+description: Map operator-owned cloud services to Caracal's portable Helm interfaces.
+pageType: reference
+slug: v0.2/operations/cloud-native-profiles
+---
+
+Caracal does not ship provider resources or a managed-cloud service. Use this page to connect services you operate to standard Helm interfaces.
+
+## Use Criteria
+
+Proceed only when the platform provides Kubernetes, TLS ingress, Postgres, Redis with Streams, secret projection, replay storage, and metrics collection. Provider product names are examples, not certifications.
+
+## Dependency Contract
+
+| Dependency | Required behavior |
+| --- | --- |
+| Postgres | TLS connection, migration privileges, capacity, and operator-owned backup/restore |
+| Redis | Streams, authentication, persistence, `noeviction`, and observable pending entries |
+| Secrets | Complete runtime Secret; no plaintext in Git or plans |
+| Ingress | HTTPS, exact origins and paths, explicit NetworkPolicy ingress |
+| Monitoring | Authenticated metrics scraping and actionable alert routing |
+
+## Procedure
+
+1. Provision dependencies with platform tooling.
+2. Project runtime credentials into the namespace.
+3. Set external hosts and internal URLs in environment values.
+4. Allow only required DNS, storage, identity-provider, upstream, and export egress.
+5. Render and review the chart before installation.
+
+## Verify and Recover
+
+Confirm secret synchronization, TLS, network reachability, migrations, `/ready`, metrics auth, canary authorization, revocation, and audit capture. Test provider-native backup restore. Retain the prior values and release; never rely on provider marketing or chart defaults for recovery behavior.
+
+## Next Step
+
+Use [Deploy on Managed Kubernetes](/v0.2/operations/cloud-reference-deployments/) for the repository examples and their limits.

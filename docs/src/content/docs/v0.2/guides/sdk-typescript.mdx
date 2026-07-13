@@ -1,0 +1,204 @@
+---
+title: Integrate the TypeScript SDK
+description: Install @caracalai/sdk, load a runtime profile, run governed
+  sessions, delegate authority, and inject Caracal headers.
+slug: v0.2/guides/sdk-typescript
+---
+
+Use `@caracalai/sdk` in a Node application that must create governed Sessions, narrow authority, call Gateway-routed resources, or propagate verified Caracal context. Resource servers that only verify inbound mandates should use [the Express adapter](/v0.2/guides/protect-express/) or [verify package](/v0.2/sdks/verify/) instead.
+
+## Prerequisites
+
+* A managed application credential, active policy, resource, provider binding, and Gateway route.
+* `CARACAL_CONFIG` or a complete `CARACAL_*` environment configuration.
+* A destination timeout and idempotency plan for mutating calls.
+
+## Install
+
+```bash
+npm install @caracalai/sdk
+```
+
+## Configure
+
+`new Caracal()` loads exactly the profile named by `CARACAL_CONFIG` when set; otherwise it loads `CARACAL_*` environment variables. It does not search default profile or credential paths, and conflicting credential modes fail at startup. Use `Caracal.fromClientSecret(...)` for complete static credentials supplied in code. Power-user loaders and resolver-backed credentials live in `@caracalai/sdk/advanced`.
+
+## Connect and call a protected resource
+
+The smallest protected call needs no session code at all: `applicationTransport()` pins a fetch to one resource and calls as the application's own identity, provisioning the required Session and Delegation for you.
+
+```ts
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+const governedFetch = caracal.applicationTransport('resource://pipernet', {
+  scopes: ['pipernet:read'],
+})
+const target = caracal.gatewayRequest('resource://pipernet', '/reports')
+const response = await governedFetch(target.url)
+```
+
+When your code already runs inside a governed Session - an agent step, a worker task - call through the Session instead: `fetch()` mints a one-shot Gateway mandate under the Session's authority.
+
+```ts
+import { Authority, Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+const resourceId = 'resource://pipernet'
+
+await caracal.session(async () => {
+  await caracal.session(
+    async () => {
+      await caracal.fetch(resourceId, '/reports', { scopes: ['pipernet:read'] })
+    },
+    {
+      authority: Authority.narrow(['pipernet:read'], {
+        resourceId,
+        ttlSeconds: 600,
+      }),
+    },
+  )
+})
+```
+
+Why two levels? The outer `session()` is the lifecycle parent; the narrowed child creates the positive-TTL Delegation that resource authority requires. Both Sessions terminate when their callbacks exit. `applicationTransport()` builds exactly this structure internally, which is why it is the right starting point for application-owned calls.
+
+To make agents distinguishable in policy and audit, pass `labels`. These become `input.principal.labels`, so several agents under one application stay separable without one application per agent. `labels` are descriptive, for policy and audit, not grants; authority always comes from scopes and Delegation. The Session lifecycle is handled for you: `session()` records a `task` Session, while `startSession()` records a heartbeat-leased `service` Session.
+
+```ts
+await caracal.session(
+  async (ctx) => {
+    console.log('refund Session', ctx.sessionId)
+  },
+  { labels: ['refund-agent'] },
+)
+```
+
+See [If many agents share one managed application, can policy and audit still tell them apart?](/v0.2/reference/faq/#faq-008).
+
+## Long-lived Sessions
+
+Daemons and workers that outlive a single request use `startSession()` instead of `session()`. It returns a handle you own: the SDK renews the lease from an independent background timer by default, and you retire the Session with `close()`. Each renewal extends the lease. If heartbeats stop before the lease expires, Coordinator suspends the Session for explicit recovery or termination. The stored protocol lifecycle is `service`; unlike `task`, it is not subject to the wall-clock TTL sweeper.
+
+```ts
+const svc = await caracal.startSession({ labels: ['fiona-worker'] })
+try {
+  while (running) {
+    await caracal.bind(svc.context, async () => {
+      await doWork(await caracal.headersAsync())
+    }) // lease renews in the background
+  }
+} finally {
+  await svc.close()
+}
+```
+
+The renewal cadence is controlled by `heartbeatIntervalMs`:
+
+| `heartbeatIntervalMs` | Behavior                                                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| unset                 | Cadence derives from the server lease: renew at roughly a third of the remaining lease, with jitter. The right default for almost every worker. |
+| positive              | Fixed cadence. Use when you need deterministic renewal timing, for example under test clocks.                                                   |
+| `0` or negative       | No background timer; the lease is renewed only by your own `heartbeat()` calls, and a missed renewal lets the lease lapse.                      |
+
+The handle exposes `deadlineAt` and `leaseGeneration`. The generation is a monotonic ownership token: every heartbeat and `close()` sends it, so a process holding an earlier generation cannot renew or terminate the Session after another process takes ownership. Because renewal runs on an independent timer, the lease stays current even while your code is blocked on a long `await` (a streaming response, a slow tool).
+
+Transient renewal errors are logged and retried on the next tick rather than crashing the worker. If Coordinator reports the Session permanently gone or the generation has been fenced by a new holder, the timer stops and `onLeaseLost` fires once so the worker can resign instead of spinning. An expired lease instead suspends the Session and reports `suspended` through `onStateChange`.
+
+The handle's `status` follows Coordinator heartbeat responses. If it becomes `suspended`, automatic heartbeat stops and `onStateChange` reports the transition. Stop taking work, resolve the cause, resume the Session through the control plane, and call `attachSession()` to restart lease renewal. `onLeaseLost` remains reserved for terminal loss.
+
+```ts
+const svc = await caracal.startSession({
+  labels: ['voice-worker'],
+  onLeaseLost: () => shutdown(),
+})
+```
+
+A renewal cannot run while the event loop is blocked synchronously; in that case the lease correctly lapses, which is the liveness signal working as intended.
+
+A worker that restarts does not need a fresh session: persist `svc.sessionId` and re-attach with `attachSession()`. Attach atomically acquires a new lease generation and renews the deadline, fencing every older handle. A Session the Coordinator no longer holds live fails with `CoordinatorError`; a suspended Session must be resumed through the control plane before attachment. The returned handle behaves like one from `startSession()`:
+
+```ts
+const svc = await caracal.attachSession(persistedSessionId, {
+  onLeaseLost: () => shutdown(),
+})
+```
+
+The rebuilt context carries the Session identity only; Delegations bound by the previous holder are re-presented with `acceptDelegation()`.
+
+## Start a narrowed child
+
+The nested pattern from the [connect example](#connect-and-call-a-protected-resource) is how narrowing always looks; add typed constraints when the child's authority should carry explicit bounds:
+
+```ts
+authority: Authority.narrow(['pipernet:read'], {
+  resourceId: 'resource://pipernet',
+  constraints: { maxHops: 1 },
+  ttlSeconds: 600,
+}),
+```
+
+A plain `session()` runs the child under its parent's effective authority - the application's authority for a root parent, or the parent's narrowed slice when the parent was itself narrowed (transitive least-privilege). Pass `authority: Authority.narrow(...)` only when the child should hold a smaller subset, or `Authority.none()` for a child with no inherited authority. Use `delegate()` when you need to grant authority to a Session that already exists, typically in another application: it returns the delegation, and the receiving session presents it with `acceptDelegation(delegationId, fn)` - the full two-sided flow is in [Implement Multi-Agent Delegation](/v0.2/guides/delegation/).
+
+## Handle approvals
+
+A mint whose scope is approval-gated throws `ApprovalRequiredError`. `withApproval` runs the whole flow - catch the hold, wait for the decision, retry with the approval id - in one call:
+
+```ts
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate('resource://pipernet', ['pipernet:admin'], { approvalId }),
+)
+```
+
+A rejected, expired, or already-consumed decision rethrows the original `ApprovalRequiredError`; its `approvalId` lets you resume waiting later with `waitForApproval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`).
+
+## Route through the Gateway
+
+```ts
+await caracal.fetch('resource://pipernet', '/reports', {
+  scopes: ['pipernet:read'],
+})
+```
+
+For provider SDKs that accept a custom `fetch`, pass `caracal.transport({ scopes: ['pipernet:read'], propagation: 'gateway-only' })` so Caracal mints a Gateway-ingress mandate and applies routing automatically. `gatewayRequest()` only builds a URL and routing header; it does not authenticate the request.
+
+## Call as the application
+
+Background jobs with no inbound user context use `applicationTransport(resourceId, { scopes })` - the same call the [connect example](#connect-and-call-a-protected-resource) opens with. There is no ambient authority to borrow, so each mint cycle builds the authority the platform requires: a source and target Session pair plus a narrowing Delegation, which keeps every request session-attributed, policy-checked, and delegation-bounded in audit. Provisioning costs and caching behavior are in the [TypeScript SDK reference](/v0.2/sdks/typescript/#call-protected-resources); tune `mandateTtlSeconds` for authority lifetime, not to eliminate per-request exchange.
+
+```ts
+const llm = new OpenAI({
+  baseURL: 'https://api.pipernet.example/v1',
+  apiKey: 'unused-gateway-injects-credentials',
+  fetch: caracal.applicationTransport('resource://pipernet', { scopes: ['pipernet:chat'] }),
+})
+```
+
+## Shut down cleanly
+
+`await caracal.close()` terminally releases client-held state: cached application mandates and in-flight mint cycles are dropped, the credential exchanger's cached lifecycle token is invalidated, and the Sessions backing released application transports are terminated best-effort (anything missed retires on its own TTL). Repeated close is safe. Construct a new client for later work; operations on the closed client fail deterministically.
+
+Two things `close()` deliberately does **not** do. It does not retire `startSession()`/`attachSession()` handles - those Sessions are yours, so call `handle.close()` on each before the process exits, or persist the Session ID and re-attach after restart. It also does not abort in-flight requests on transports you handed to provider SDKs; bound them with `timeoutMs` or an `AbortSignal` and let them drain.
+
+## Troubleshooting
+
+| Symptom                         | Check                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Caracal: missing ...`          | Confirm the named profile or required `CARACAL_*` variables are present.                     |
+| Root headers rejected           | Call `headersAsync({ asApplication: true })` only when service-root identity is intentional. |
+| Delegation fails                | Ensure the call runs inside `session()` or another bound context.                            |
+| Gateway request misses resource | Confirm `gateway_url`, resource bindings, and `X-Caracal-Resource`.                          |
+
+## Validate the integration
+
+Run an allowed call, a call with one extra scope, a revoked-Session call, and a timeout. Expect only the allowed call to reach the upstream; expect the SDK error or Gateway response to carry a request ID for Audit. Close every owned Session handle and then `await caracal.close()` during shutdown.
+
+:::caution[Failure point: automatic retries]
+The SDK retries selected Coordinator and STS transient failures with stable operation identity. It does not retry Gateway side effects. Use [Safe Retries and Idempotency](/v0.2/guides/idempotency/) before retrying a mutation.
+:::
+
+For exact constructors, options, and return types, use [TypeScript SDK reference](/v0.2/sdks/typescript/).
+
+## Next Step
+
+Add [multi-agent delegation](/v0.2/guides/delegation/) only if one Session must hand a narrower slice to another; otherwise validate the resource boundary with [Protect a Gateway-Routed HTTP API](/v0.2/guides/protect-gateway-http/).

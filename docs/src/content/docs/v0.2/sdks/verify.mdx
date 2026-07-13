@@ -1,0 +1,145 @@
+---
+title: Verify Package
+description: Framework-neutral verification engine for bearer parsing, mandate
+  verification, and revocation checks.
+slug: v0.2/sdks/verify
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+The verify packages authenticate Caracal mandates without tying the check to Express, FastMCP, or Go net/http. Framework adapters build on this engine.
+
+Use one long-lived verifier per trust boundary so JWKS and revocation state are reused. Do not use it to mint mandates or create Sessions.
+
+## Install
+
+| Ecosystem  | Package                                                     |
+| ---------- | ----------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/verify`                             |
+| Python     | `pip install caracalai-verify`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/verify/go` |
+
+## Core APIs
+
+| API                                                                        | Purpose                                                                                                      |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `extractBearer` / `extract_bearer` / `ExtractBearer`                       | Parse a bearer token from an `Authorization` header.                                                         |
+| `createMandateVerifier` / `NewVerifier`                                    | Build a reusable verifier with secure defaults, JWKS caching, revocation checks, and per-route overrides.    |
+| `create_mandate_verifier`                                                  | Python reusable verifier with the same defaults, warmup, and per-route override model.                       |
+| `authenticate` / `Authenticate`                                            | Verify one token against identity claims and revocation anchors.                                             |
+| `authenticateRequest` / `unauthorizedResponse`                             | Authenticate a fetch-standard `Request` and render an `AuthError` as a JSON `Response` in WinterTC runtimes. |
+| `checkActiveAuthority` / `check_active_authority` / `CheckActiveAuthority` | Check expiry and revoked anchors for verified claims.                                                        |
+
+## Verify One Request
+
+<Tabs syncKey="lang">
+  <TabItem label="TypeScript">
+    ```ts
+    import { createMandateVerifier } from '@caracalai/verify'
+    import { InMemoryRevocationStore } from '@caracalai/revocation'
+
+    const verifier = createMandateVerifier({
+      issuer: 'https://sts.pipernet.example',
+      audience: 'resource://pipernet',
+      zoneId: '0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f',
+      revocations: new InMemoryRevocationStore(),
+    })
+
+    const result = await verifier.authorization(req.headers.authorization, {
+      requiredScopes: ['mcp:tool:call'],
+      requiredTargets: ['resource://pipernet'],
+      requireSession: true,
+    })
+
+    if (!result.ok) {
+      throw new Error(`${result.error.code}: ${result.error.hint}`)
+    }
+    ```
+
+    Add route-level scopes or targets through `verifier.authorization(..., overrides)` or `verifier.require(overrides)`.
+  </TabItem>
+
+  <TabItem label="Python">
+    ```python
+    from caracalai_revocation import InMemoryRevocationStore
+    from caracalai_verify import AuthOptions, create_mandate_verifier
+
+    verifier = create_mandate_verifier(
+        AuthOptions(
+            issuer="https://sts.pipernet.example",
+            audience="https://api.pipernet.example",
+            expected_zone_id="0195f2a9-1b22-7c3d-9e4f-5a6b7c8d9e0f",
+            revocations=InMemoryRevocationStore(),
+        )
+    )
+
+    await verifier.warmup()
+
+    result = await verifier.authorization(
+        request.headers.get("authorization"),
+        required_scopes=["pipernet:read"],
+        required_targets=["resource://pipernet"],
+    )
+
+    if not result.ok:
+        raise PermissionError(f"{result.error.code}: {result.error.hint}")
+    ```
+  </TabItem>
+</Tabs>
+
+Use one verifier per resource server. The verifier defaults to resource mandates, checks the STS issuer and audience, enforces zone, scope, target, Session, Delegation, and hop constraints, checks expiry, and queries the Authority record ID, Root authority record ID, Session ID, and Delegation ID parsed claims as revocation anchors. See the [parsed claim mapping](/v0.2/sdks/identity/#parsed-claim-names) for language-level and raw JWT names.
+
+## Fetch-standard runtimes
+
+Runtimes built on WinterTC `Request`/`Response` globals - Node 18+, Deno, Bun, and edge workers - can authenticate without a framework adapter:
+
+```ts
+import { authenticateRequest, unauthorizedResponse } from '@caracalai/verify'
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const result = await authenticateRequest(request, deps)
+    if (!result.ok) {
+      return unauthorizedResponse(result.error)
+    }
+    return handle(request, result.principal)
+  },
+}
+```
+
+`unauthorizedResponse` maps error codes to 401 or 403 and renders the same JSON error body as the framework adapters. The same pair drops into any fetch-based framework. In Hono:
+
+```ts
+app.use('/api/*', async (c, next) => {
+  const result = await authenticateRequest(c.req.raw, deps)
+  if (!result.ok) return unauthorizedResponse(result.error)
+  c.set('principal', result.principal)
+  await next()
+})
+```
+
+And in a Next.js route handler:
+
+```ts
+export async function GET(request: Request): Promise<Response> {
+  const result = await authenticateRequest(request, deps)
+  if (!result.ok) return unauthorizedResponse(result.error)
+  return Response.json(await loadReports(result.principal))
+}
+```
+
+Python and Go services cover this role with the [ASGI adapter](/v0.2/sdks/adapters/asgi/) and the [net/http adapter](/v0.2/sdks/adapters/nethttp/), which wrap their ecosystems' native request types.
+
+## Error codes
+
+`authenticate` and reusable verifiers normalize failures into typed error codes: `missing_token`, `invalid_token`, `invalid_zone`, `insufficient_scope`, `session_revoked`, `delegation_stale`, `session_required`, `delegation_required`, `chain_mismatch`, and `hop_count_exceeded`. TypeScript, Python, and Go reusable verifiers include a safe debugging hint for operator logs and API error bodies. STS and Gateway report the zone and scope conditions with their own spellings, `zone_invalid` and `scope_insufficient`; see [Error Codes](/v0.2/reference/errors/) for the per-surface mapping.
+
+Authentication performs no retry of the protected operation. A JWKS or revocation-store failure fails verification rather than widening authority. Warm the verifier at process startup where the language API exposes `warmup`; close any caller-owned HTTP or Redis clients during service shutdown.
+
+## Related Pages
+
+* [Verification Layer Overview](/v0.2/sdks/verification-layer/)
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)
+* [Express Adapter](/v0.2/sdks/adapters/express/)
+* [FastMCP Adapter](/v0.2/sdks/adapters/fastmcp/)
+* [Go net/http Adapter](/v0.2/sdks/adapters/nethttp/)

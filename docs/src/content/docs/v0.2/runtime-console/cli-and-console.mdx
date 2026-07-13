@@ -1,0 +1,53 @@
+---
+title: Choose the Right Surface
+description: Route each lifecycle, human-management, automation, and workload
+  task to its supported Caracal surface.
+pageType: workflow
+slug: v0.2/runtime-console/cli-and-console
+---
+
+Choose a surface from the outcome you need, not from where a similarly named object happens to appear.
+
+## Decision Table
+
+| You need to                                             | Use                      | Why                                                                                                                      |
+| ------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Start, stop, inspect, upgrade, or reset a local runtime | `caracal`                | These operations concern local processes and storage.                                                                    |
+| Launch a command with scoped credentials                | `caracal run`            | It authenticates a Launcher workload and injects its configured bindings.                                                |
+| Admit, suspend, or remove a console user                | `caracal allowlist`      | Access is host-level auth configuration, not zone product state.                                                         |
+| Create or change product objects                        | Web console              | It provides selected-zone context, validation, guided setup, and audited secret handling.                                |
+| Investigate or intervene in live authority              | Web console              | Subjects, Authority records, Sessions, Delegations, Approvals, Audit, and Diagnostics are structured operator workflows. |
+| Manage product state from CI or another trusted host    | Control API or Admin SDK | These are authenticated automation surfaces.                                                                             |
+
+## Runtime CLI Boundary
+
+The top-level runtime commands are lifecycle and launch commands:
+
+```text
+up  down  status  upgrade  purge  allowlist  run  web
+```
+
+`web` is a development launcher for the console UI and auth backend. It is not a product-management command. The packaged console already runs as part of `caracal up` and is opened in a browser at `http://localhost:3001`.
+
+Do not look for top-level commands to create zones, policies, applications, resources, workloads, Sessions, Delegations, Approvals, or Control keys. Use the console for human work. Use the Admin SDK or Control API for automation.
+
+## Console Versus Automation
+
+Use the web console when a person needs to follow guided setup, review selected-zone validation, reveal a secret with an audit record, activate policy, inspect a trace, decide an eligible Approval, or intervene in a Session.
+
+Use automation only from a trusted operator environment. The Admin SDK provides direct management APIs. The optional Control API provides zone-bound, scoped, replay-protected remote invocation. Neither surface starts Docker or launches workload processes.
+
+Never give workload code root admin, Coordinator, Control, or secret-store credentials. Workloads authenticate with application, SDK, or Launcher workload credentials.
+
+## If the Wrong Surface Seems Necessary
+
+| Symptom                                                | Action                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| A zone or policy command is absent from `caracal`      | Open the web console; the absence is intentional.                                   |
+| A lifecycle command asks for a zone or admin token     | Treat it as a boundary violation.                                                   |
+| CI needs repeatable configuration                      | Use the Admin SDK or Control API, not browser scripting.                            |
+| The console is unavailable but lifecycle must continue | Use `caracal status`, `down`, or `up`; lifecycle does not depend on console access. |
+
+## Next Step
+
+[Start and Check the Stack](/v0.2/runtime-console/stack/).

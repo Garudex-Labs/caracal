@@ -1,0 +1,47 @@
+---
+title: Ingest Audit Evidence
+description: Understand the evidence pipeline, supported read surfaces, delayed
+  delivery, integrity failures, and recovery signals.
+pageType: reference
+slug: v0.2/services/audit
+---
+
+Audit consumes signed events from Redis, verifies them, writes append-only evidence to Postgres, manages failed delivery, and exposes operator search and metrics on local port `9090`.
+
+## Supported Read Paths
+
+Human operators use the console **Audit** workspace. Zone-scoped automation uses the API service's documented audit routes. The Audit service's direct search and DLQ routes are operator endpoints protected by `AUDIT_ADMIN_TOKEN`; when that token is not configured, they return `404`.
+
+| Route                                       | Purpose                               |
+| ------------------------------------------- | ------------------------------------- |
+| `GET /health`, `/ready`                     | Liveness and dependency/lag readiness |
+| `GET /metrics`, `/metrics.json`             | Authorized monitoring                 |
+| `GET /api/audit/search`                     | Direct operator search                |
+| `GET /api/audit/dlq`, `/api/audit/dlq/{id}` | Inspect failed events                 |
+| `POST /api/audit/dlq/replay`                | Retry selected failed evidence        |
+
+Do not send application audit records to these routes. Caracal services publish the signed event contract. Service environment variables are cataloged in [Configure Service Environment](/v0.2/operations/env-vars/).
+
+## Delivery and Recovery
+
+Audit consumes `caracal.audit.events` in the `audit-ingestor` group. It drains its pending entries, claims orphaned work, retries failures, and moves events beyond the delivery limit to the DLQ. STS and Gateway replay volumes preserve events that could not reach Redis at emission time.
+
+## Integrity and Readiness
+
+`AUDIT_HMAC_KEY` verifies producer signatures in published modes. Content-hash mismatch, chain breaks, and HMAC failures are security signals, not retryable formatting issues. The database role cannot update or delete evidence rows.
+
+Readiness considers DLQ size, consumer lag, and oldest pending-entry age. A healthy HTTP process can therefore be not ready because evidence is no longer being retained within the configured operating bounds.
+
+## Operator Response
+
+1. Check Audit readiness and metrics.
+2. Check Redis connectivity, lag, pending entries, and replay volume growth.
+3. Inspect DLQ detail before replaying.
+4. Treat integrity failures as incidents; do not replay tampered payloads as trusted evidence.
+5. Confirm recovery with a fresh protected request and console decision trace.
+
+Use [Audit and Request Traces](/v0.2/concepts/audit-ledger/) for evidence semantics and [Configure Alerts](/v0.2/operations/alerts/) for thresholds.
+
+## Next Step
+
+[Automate Management](/v0.2/services/control/) when a trusted remote client needs product-management automation.

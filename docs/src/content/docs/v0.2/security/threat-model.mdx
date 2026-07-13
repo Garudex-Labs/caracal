@@ -1,0 +1,38 @@
+---
+title: Review the Threat Model
+description: Review the canonical OSS threat model, validate boundaries, and
+  record residual risk.
+pageType: workflow
+slug: v0.2/security/threat-model
+---
+
+The canonical model is `governance/THREAT_MODEL.md`. This is a review procedure, not a duplicate inventory.
+
+## Use Criteria
+
+Review before adoption and whenever auth, policy, tokens, keys, revocation, audit, streams, egress, services, ports, secrets, installers, releases, or product boundaries change.
+
+## Prerequisites
+
+Pin source/deployed release. Gather rendered deployment, endpoints, secret flow, dependency topology, features, and targeted tests.
+
+## Review Procedure
+
+1. Confirm deployment fits the documented OSS scope.
+2. Walk each boundary: untrusted input, mediation, credential, fail-closed behavior, evidence, owner.
+3. Map assets to the canonical model's threat categories T1-T14 and run relevant negative checks.
+4. Review every canonical known limit against deployment.
+5. Record operator controls: TLS, host isolation, IdP, backup, monitoring, incident process.
+6. Reject claims relying on enterprise-only or unverified platform controls.
+
+## Verification
+
+Retain references/results for accepted threats and owner/containment/acceptance/date for residual risks.
+
+## Recovery
+
+Disable or isolate unsupported boundaries. Report exploitable defects privately.
+
+## Next Step
+
+Apply [Harden Security Posture](/v0.2/security/hardening/).

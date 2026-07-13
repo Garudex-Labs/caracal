@@ -1,0 +1,129 @@
+---
+title: Use Coordinator API
+description: Session, long-lived Session, invocation, and Delegation protocol
+  endpoints served by Coordinator.
+pageType: api
+slug: v0.2/api/coordinator
+---
+
+Coordinator is served on port `4000`. It owns governed Session and Delegation graph state. This page documents the raw protocol, whose stable paths and fields retain `agents`, `agent_session_id`, and `delegation_edge_id` names.
+
+**Wire-facing API:** application code normally should not call Coordinator directly. The SDK owns credential selection, idempotency, retries, context binding, generation fencing, and cleanup.
+
+## Authentication and Errors
+
+Runtime routes require a Caracal bearer mandate whose zone matches `:zoneId`, whose application is active, and whose scope authorizes the operation. The configured operator token is accepted only on an allowlisted management subset; traversal and impact require `coordinator.admin`. `/v1/verify`, health, and readiness are exceptions documented below.
+
+Protocol errors are JSON with at least `error`; common statuses are `400` validation, `401` missing/invalid/expired bearer, `403` ownership or scope failure, `404` missing object, `409` lifecycle/idempotency conflict, `429` capacity or receipt limit, and `5xx` dependency failure.
+
+## Health and Metrics
+
+| Method | Path       | Purpose                       |
+| ------ | ---------- | ----------------------------- |
+| `GET`  | `/health`  | Liveness check.               |
+| `GET`  | `/ready`   | Dependency and job readiness. |
+| `GET`  | `/metrics` | Service metrics.              |
+
+## Session Management
+
+| Method   | Path                                 | Purpose                                          |
+| -------- | ------------------------------------ | ------------------------------------------------ |
+| `POST`   | `/zones/:zoneId/agents`              | Start a Session. `/agents` is the protocol path. |
+| `GET`    | `/zones/:zoneId/agents`              | List Sessions.                                   |
+| `GET`    | `/zones/:zoneId/agents/:id`          | Inspect one Session.                             |
+| `GET`    | `/zones/:zoneId/agents/:id/children` | List child Sessions.                             |
+| `PATCH`  | `/zones/:zoneId/agents/:id/suspend`  | Suspend a Session subtree.                       |
+| `PATCH`  | `/zones/:zoneId/agents/:id/resume`   | Resume a suspended Session subtree.              |
+| `DELETE` | `/zones/:zoneId/agents/:id`          | Terminate a Session.                             |
+
+`POST /zones/:zoneId/agents` accepts `application_id`, protocol field `subject_session_id` (the Subject Authority-record ID), optional `parent_id`, `lifecycle` (`task` or `service`), `labels`, `ttl_seconds`, `parent_authority` (`inherit` or `none`), `inherit_parent_edge_id`, and `metadata`. Task TTL defaults to 3600 seconds and is bounded to 1–86400. Service lifetime is lease-based. The response carries protocol `agent_session_id`, optional inherited `delegation_edge_id`, and lifecycle/lease data.
+
+Lists accept `limit` (default 100, maximum 500), opaque `cursor`, and route-specific filters. Responses use `{ "items": [...], "next_cursor": string | null }`.
+
+A task Session start and its `201` response:
+
+```json
+// POST /zones/{zoneId}/agents
+{ "application_id": "0198f3e2-...", "lifecycle": "task", "ttl_seconds": 900 }
+```
+
+```json
+{
+  "agent_session_id": "0198f4a1-...",
+  "zone_id": "0198f3d0-...",
+  "application_id": "0198f3e2-...",
+  "parent_id": null,
+  "subject_authority_record_id": "0198f3f7-...",
+  "lifecycle": "task",
+  "labels": null,
+  "status": "active",
+  "depth": 0,
+  "ttl_seconds": 900,
+  "started_at": "2026-07-11T13:00:00.000Z",
+  "last_heartbeat_at": null,
+  "heartbeat_deadline_at": null,
+  "lease_generation": 0,
+  "delegation_edge_id": null
+}
+```
+
+## Long-lived Sessions and Invocations
+
+| Method  | Path                                      | Purpose                                                                               |
+| ------- | ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST`  | `/zones/:zoneId/agent-services`           | Register or update a long-lived Session lease. `agent-services` is the protocol path. |
+| `GET`   | `/zones/:zoneId/agent-services`           | List long-lived Session leases.                                                       |
+| `POST`  | `/zones/:zoneId/agents/:id/heartbeat`     | Refresh a long-lived Session lease.                                                   |
+| `POST`  | `/zones/:zoneId/invocations`              | Create an invocation.                                                                 |
+| `GET`   | `/zones/:zoneId/invocations/:id`          | Inspect an invocation.                                                                |
+| `PATCH` | `/zones/:zoneId/invocations/:id/start`    | Mark an invocation running.                                                           |
+| `PATCH` | `/zones/:zoneId/invocations/:id/cancel`   | Cancel an invocation.                                                                 |
+| `PATCH` | `/zones/:zoneId/invocations/:id/complete` | Complete an invocation.                                                               |
+
+`POST /zones/:zoneId/agents/:id/lease` acquires a new generation before an SDK attaches. Heartbeat must carry the current generation; an older holder is fenced with conflict. Terminal missing, expired, or fenced results stop SDK auto-heartbeat.
+
+## Delegation
+
+Runtime credentials see only Delegations where their application is the issuer or receiver. Recursive traversal and impact analysis are operator-only because descendants can cross application boundaries and expose another application's topology or Authority record IDs. The managed operator token retains zone-wide inspection for web console and Admin SDK workflows.
+
+| Method  | Path                                                   | Purpose                                                                                              |
+| ------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `POST`  | `/zones/:zoneId/delegations`                           | Create a Delegation. The response field `delegation_edge_id` is the protocol name for Delegation ID. |
+| `GET`   | `/zones/:zoneId/delegations/active`                    | List active Delegations.                                                                             |
+| `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId`        | List inbound edges for a session.                                                                    |
+| `GET`   | `/zones/:zoneId/delegations/inbound/:sessionId/:id`    | Validate one opaque inbound Delegation ID for its receiver Session.                                  |
+| `GET`   | `/zones/:zoneId/delegations/outbound/:sessionId`       | List outbound edges for a session.                                                                   |
+| `GET`   | `/zones/:zoneId/delegations/:id/traverse`              | Traverse a Delegation; `coordinator.admin` required.                                                  |
+| `GET`   | `/zones/:zoneId/delegations/:id/impact`                | Compute revocation impact; `coordinator.admin` required.                                              |
+| `GET`   | `/zones/:zoneId/agents/:sessionId/effective-authority` | Compute effective authority for a Session.                                                           |
+| `PATCH` | `/zones/:zoneId/delegations/:id/revoke`                | Revoke delegated authority.                                                                          |
+
+Delegation creation requires `source_session_id`, `target_session_id`, issuer and receiver application IDs, and an expiry (`expires_at` or positive `ttl_seconds`). Optional narrowing includes `parent_edge_id`, `resource_id`, `scopes`, and strict constraints (`resources`, `max_depth`, `max_hops`, `budget`, `ttl_seconds`, `expires_at`, plus audit metadata). Self-Delegation is rejected. A resource-unbound edge requires an explicit broad-Delegation scope.
+
+## Idempotency and Retries
+
+Session and Delegation creation accept `Idempotency-Key`. Repeating the same canonical request returns the recorded result; reusing the key with different input returns `409 idempotency_key_conflict`. SDK-generated keys also carry `Idempotency-Key-Kind: generated`. Keep one key across retries of one logical operation and generate a new key for a new operation.
+
+The SDK retries transient Session creation twice and Delegation creation once. Direct callers must implement the same bounded policy and must not retry non-idempotent writes without a key. Honor `Retry-After` on retryable congestion responses.
+
+## Language-Neutral Verification
+
+| Method | Path         | Purpose                                                                                       |
+| ------ | ------------ | --------------------------------------------------------------------------------------------- |
+| `POST` | `/v1/verify` | Verify a mandate through the configured identity verifier for language-neutral integrations. |
+
+`/v1/verify` is public in the HTTP routing sense but is a wire utility, not a replacement for local resource-server verification and shared revocation state.
+
+SDK lifecycle clients use the zone-scoped Session, lease, heartbeat, termination, and Delegation endpoints above. Coordinator exposes no parallel flat lifecycle or Delegation protocol.
+
+Delegation creation authenticates the issuer and records an offer. Receiver credentials are not distributed to the issuer. The receiver consents by presenting the opaque ID, while STS verifies its target Session and application binding. The web console intentionally has no creation form.
+
+## Next Step
+
+Continue to [Use STS Endpoint](/v0.2/api/sts/) to see how Session IDs and Delegation IDs participate in token exchange.
+
+## Related Pages
+
+* [Coordinate Session State](/v0.2/services/coordinator/)
+* [Coordinate Sessions](/v0.2/architecture/delegation-flow/)
+* [Manage Sessions and Delegation](/v0.2/runtime-console/agents/)

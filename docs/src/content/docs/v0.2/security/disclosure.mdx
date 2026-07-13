@@ -1,0 +1,35 @@
+---
+title: Report a Vulnerability
+description: Submit a suspected vulnerability through the private channel
+  appropriate to its scope.
+pageType: workflow
+slug: v0.2/security/disclosure
+---
+
+Do not open public issues or pull requests for credential exposure, policy bypass, unsafe execution/routing, audit compromise, malicious artifacts, or exploitable failures.
+
+## Choose a Channel
+
+| Scope | Channel |
+| --- | --- |
+| OSS code | `https://github.com/Garudex-Labs/caracal/security/advisories/new` |
+| Sensitive attachments/context | `support@caracal.run` |
+| Enterprise-only/private customer context | Email only; outside this workspace |
+
+## Report Procedure
+
+Include summary, version/commit, boundary, prerequisites, minimal reproduction, observed/expected, impact, and mitigation if known. Redact credentials/customer data.
+
+Maintainers aim to respond within up to seven days; this is not a resolution SLA.
+
+## Verify Submission
+
+Retain identifier and sanitized copy. Continue through the same private channel.
+
+## Recovery and Disclosure
+
+Keep private until fix/mitigation or coordinated outcome. For active exploitation, contain with [Respond to Incidents](/v0.2/operations/incident-response/).
+
+## Next Step
+
+Review [Review the Threat Model](/v0.2/security/threat-model/).

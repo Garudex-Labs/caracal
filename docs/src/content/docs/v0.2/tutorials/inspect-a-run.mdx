@@ -1,0 +1,87 @@
+---
+title: Trace One Protected Request
+description: Use the audit trail and decision trace to explain exactly why a
+  request was allowed or denied.
+pageType: workflow
+slug: v0.2/tutorials/inspect-a-run
+---
+
+The previous tutorials left you with two real events: an allowed call to `resource://pipernet` and a deliberate deny for `pipernet:write`. This tutorial teaches the skill you will use every time something behaves unexpectedly: proving *why* a request got its result, from evidence instead of guesswork.
+
+You will investigate both of your requests:
+
+1. find each request in the audit trail;
+2. read the pair of events an allowed call produces;
+3. open the decision trace and answer "which rule decided this?";
+4. know where session and delegation context lives for deeper questions.
+
+## Prerequisites
+
+* Complete [Make Runs Identifiable with Labels](../connect-an-agent/).
+* Have the request ID from your deny in [Protect Your First Real API](../protect-an-api/#5-prove-the-deny), or reproduce it - denials are free.
+* Keep the same zone selected in the web console.
+
+## 1. Find Your Requests
+
+Open **Audit** in the web console at [http://localhost:3001](http://localhost:3001). The live view lists recent events immediately and supports filters, reload, and pause/resume.
+
+Every protected request carries a **request ID** - one identifier stamped on everything that request touched, across services. You can copy it from the SDK error, the audit event, or the trace view. Find two entries:
+
+* your labeled allowed call from the previous tutorial (search for the `pipernet-reader` label);
+* your `pipernet:write` deny.
+
+**After this step:** you have both events open and both request IDs in hand.
+
+## 2. Read What an Allowed Call Produces
+
+Your allowed call produced two events, and the pair matters:
+
+| Event | Written by | What it proves |
+| --- | --- | --- |
+| Authorization decision | The token service (STS) | Policy was evaluated for this application, resource, scopes, and session context - and allowed it. |
+| Action result | The Gateway | The request was verified, forwarded, and the upstream answered with this result. |
+
+The pair is your completeness check. An authorization event *without* an action result means policy said yes but the request never completed through the Gateway - look at the Gateway URL, the `X-Caracal-Resource` header, or upstream reachability, not at policy.
+
+Now look at your deny: there is no action-result event at all. The request was stopped at the decision, before your service ever saw it - which is exactly what step 5 of the earlier tutorial claimed.
+
+**After this step:** given any request ID, you can say whether it was decided, whether it completed, and where it stopped.
+
+## 3. Open the Decision Trace
+
+Press the trace action on your denied event. The decision trace is the full story of one request:
+
+* the application and its sessions;
+* the resource and the scopes it requested;
+* the active policy set version and the rules involved;
+* the decision - allow, deny, or partial - with policy diagnostics;
+* delegation constraints, when the request used delegated authority.
+
+For your deny, the trace shows the request asked for `pipernet:write` while the active rule allows only `pipernet:read`. That is the answer format the trace always gives you: not just *what* happened but *which rule and which version* decided it.
+
+Do the same for your allowed request and confirm the opposite: the rule that matched, the policy set version, and the label you attached.
+
+**After this step:** you can name the deciding rule and policy version for both of your requests.
+
+## 4. Know Where the Deeper Context Lives
+
+Two follow-up questions come up in real investigations:
+
+* **"What else did this run do?"** Open **Sessions** and find the session IDs from your trace. A session is the record of one governed run, so its timeline groups everything that run touched.
+* **"Who handed authority to whom?"** The Sessions page also holds the delegation view. Each delegation edge records the source session, target session, narrowed scopes, lifetime, and resource constraints. Your labeled call has one - the SDK created it when it narrowed the transport's authority, as described in [What Each Call Does](/v0.2/get-started/add-sdk-to-your-app/#what-each-call-does).
+
+One more behavior worth knowing before production: revocation. Revoking a session, grant, delegation, or an application's emergency state invalidates the authority anchored to it - Gateway-routed calls check revocation before accepting a request and while streaming responses, and Audit records the revocation and marks interrupted results. You do not need to exercise it now; just know the evidence will be in the same trail you have been reading.
+
+## Expected Outcome
+
+For any request ID you can now identify the application, session, resource, requested scopes, active policy version, final decision, and Gateway result - and for a failure, you can say which boundary stopped it. This replaces guesswork with the same evidence trail you will rely on in production.
+
+## Common Mistakes
+
+* Do not debug from application logs alone; the decision trace is the source of truth for authorization outcomes.
+* Do not read a missing action result as a policy problem - policy already said yes; the request failed after the decision.
+* If a Subject (a federated user identity) appears in a trace, treat it as attribution, not authorization - resource authority still comes from the application, policy, and delegation.
+
+## Next Step
+
+Continue with [Choose Your Production Integration Path](../choose-production-path/).

@@ -1,0 +1,34 @@
+---
+title: Respond to Incidents
+description: Contain, preserve, recover, and close security and reliability incidents.
+pageType: workflow
+slug: v0.2/operations/incident-response
+---
+
+Use for policy bypass, credential exposure, unsafe routing, audit integrity/loss, malicious release, stale revocation, or serious availability failure. Canonical detail is in `governance/INCIDENT_RESPONSE.md`.
+
+## Prerequisites
+
+Assign Incident Lead, Driver, and Reviewer. Use a private advisory for OSS security issues and approved private evidence storage.
+
+## Procedure
+
+1. Record source, time, version, mode, boundary, assets, and severity.
+2. Contain severe incidents first: revoke/rotate, deny, block, disable, or remove traffic.
+3. Preserve logs, metrics, audit, Redis pending/DLQ, replay, config, images, and request IDs.
+4. Reproduce minimally in isolation and identify the missing guard/failure.
+5. Remove the path, validate reproduction and a negative variant, and search sibling boundaries.
+6. Recover and reconcile Postgres, Redis, outbox, revocation, sessions, and audit.
+7. Communicate affected versions/actions after containment or fix.
+
+## Verification
+
+Close only when behavior fails safely, targeted validation passes, readiness/safety signals recover, communication completes, and follow-ups have owners.
+
+## Recovery Boundary
+
+Keep containment until validation. Do not delete evidence or publish exploit detail to accelerate closure.
+
+## Next Step
+
+Use [Plan a Platform Rollout](/v0.2/operations/platform-rollout-kit/) for correction.

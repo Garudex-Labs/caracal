@@ -1,0 +1,259 @@
+---
+title: TypeScript SDK
+description: Public API reference for @caracalai/sdk.
+slug: v0.2/sdks/typescript
+---
+
+`@caracalai/sdk` is the main TypeScript package for Session lifecycle, Delegation, Gateway routing, and Caracal context propagation.
+
+Use it in application code. Do not use it to create zones, applications, policies, resources, or grants; those operations belong to [Admin Package](/v0.2/sdks/admin/).
+
+## Install
+
+```bash
+npm install @caracalai/sdk
+```
+
+The package is ESM-only and targets Node `>=22`. To consume it from a CommonJS project, use a dynamic `await import('@caracalai/sdk')` or set `"type": "module"` in your `package.json`.
+
+## Connect and Configure
+
+| API                                 | Use it when                                                                                              |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `new Caracal()`                     | Use normal deployment configuration: exactly `CARACAL_CONFIG` when set, otherwise `CARACAL_*` variables. |
+| `Caracal.fromClientSecret(options)` | Supply one complete static client-secret configuration directly.                                         |
+
+```ts
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+```
+
+The constructor never searches home directories or default profile paths. Multiple credential modes fail at startup instead of using precedence. Explicit environment mappings, profile loading, dynamic credential resolvers, custom transports, and raw configuration live in `@caracalai/sdk/advanced`.
+
+`Caracal.fromClientSecret` requires the static `zoneId`/`applicationId`/`clientSecret` triple. Resources are optional for per-resource application transports; Session and lifecycle operations fail clearly when no lifecycle resource audience is configured. It refreshes application subject tokens automatically.
+
+## Make Your First Protected Call
+
+The smallest complete integration pins a transport to one resource and sends a request through the Gateway:
+
+```ts
+import { Caracal } from '@caracalai/sdk'
+
+const caracal = new Caracal()
+const governedFetch = caracal.applicationTransport('resource://pipernet', {
+  scopes: ['pipernet:read'],
+})
+const target = caracal.gatewayRequest('resource://pipernet', '/reports')
+
+try {
+  const response = await governedFetch(target.url, { method: 'GET' })
+  if (!response.ok) throw new Error(`protected call failed: ${response.status}`)
+  console.log(await response.text())
+} finally {
+  await caracal.close()
+}
+```
+
+The zone, application, and resource behind this call come from your runtime profile; [Add SDK to Your App](/v0.2/get-started/add-sdk-to-your-app/) walks that setup end to end. The sections below group the client API by task.
+
+## Run Work in Sessions
+
+| Method                                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session(fn, options?)`                        | Run `fn` inside a governed Session; `fn` receives the bound context, including its Session ID. Pass `authority: Authority.narrow(...)` to bound authority and `task` to describe the work. Retry protection is automatic; ordinary code should omit `idempotencyKey`. See [Safe Retries and Idempotency](/v0.2/guides/idempotency/) for durable-source redelivery.                                                                                                                                  |
+| `startSession(options?)`                       | Start a governed Session that outlives a block; auto-renews its generation-fenced lease and returns a handle with `heartbeat()`, `deadlineAt`, `leaseGeneration`, and `close()`. Service lifetime is lease-only. Pass `authority: Authority.narrow(...)` with a positive Delegation TTL to bound the handle's authority. Retry protection is automatic.                                                                                                                                                  |
+| `attachSession(sessionId, options?)`           | Re-attach to an active persisted long-lived Session after a restart: atomically acquires a new generation, fences older holders, and returns the same handle `startSession` does.                                                                                                                                                                                                                                                                                                                  |
+
+Session patterns for long-lived services and restart recovery are walked through in [Integrate the TypeScript SDK](/v0.2/guides/sdk-typescript/).
+
+## Hand Off Authority Between Agents
+
+| Method                                         | Purpose |
+| ---------------------------------------------- | ------- |
+| `delegate(options)`                            | Delegate a slice of the current Session's authority to an existing peer Session; returns the Delegation for the receiver to accept. A transient Coordinator failure is retried once under an idempotency key, so no duplicate Delegation is issued.                                                                                                                                                                                                                                            |
+| `revokeDelegation(delegationId)`               | Revoke a Delegation issued by this application.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `acceptDelegation(delegationId, fn, options?)` | Present a received Delegation: bind a derived context carrying it while `fn` runs. Pass `{ validate: true }` to confirm with the Coordinator that the Delegation is live for the bound Session first.                                                                                                                                                                                                                                                                                          |
+
+The full hand-off workflow, including safe constraint choices, lives in [Implement Multi-Agent Delegation](/v0.2/guides/delegation/).
+
+## Propagate Context Across Services
+
+| Method                                         | Purpose |
+| ---------------------------------------------- | ------- |
+| `headers(options?)`                            | Project the current bound context into HTTP headers synchronously.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `headersAsync(options?)`                       | Project headers when a root token may require async refresh.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `bindFromHeaders(headers, fn, options?)`       | Bind inbound Caracal envelope headers to the current async context.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+## Call Protected Resources
+
+| Method                                         | Purpose |
+| ---------------------------------------------- | ------- |
+| `transport(options?)`                          | Return a fetch-compatible function that mints the `use=gateway` mandate from `scopes` and applies Gateway routing. Also accepts `approvalId` and `timeoutMs`. |
+| `applicationTransport(resourceId, options)`    | Return a fetch pinned to one resource, calling as the application's own identity; provisions its own Session pair and Delegation. |
+| `mintMandate(resourceId, scopes, options?)`    | Mint a cached resource mandate carrying the bound Session and Delegation; returns `{ token, expiresInSeconds }`. Requires client-secret credentials. |
+| `fetch(resourceId, path, init?)`               | One-call Gateway request to a resource: builds the Gateway URL, mints the scoped mandate from `init.scopes`, and sends the request with context and authority injected. |
+
+Use `applicationTransport()` when your service calls as itself; use `transport()` inside a Session when work already runs under session or delegated authority. Propagation defaults to `"gateway-only"`; use `"always"` only for a known Caracal-aware direct service chain, and note that Gateway redirects are surfaced without automatic replay. Application-transport provisioning starts one source/target Session pair and one narrowed Delegation per cache key: a cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange, a warm call still performs both per-request STS exchanges, and `close()` retires backing Sessions best-effort. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/v0.2/guides/provider-recipes/#wire-the-transport-into-provider-clients).
+
+## Act for End Users and Approvals
+
+| Method                                         | Purpose |
+| ---------------------------------------------- | ------- |
+| `federateSubject(idToken, options?)`           | Exchange an end user's identity token for an Authority record and return `{ subjectAuthorityRecordId, token, expiresInSeconds }`. Start attributed work with both `subjectAuthorityRecordId` and `subjectAuthorityRecordToken: token`; Coordinator verifies the signed proof before binding the record. This does not by itself propagate the federated `sub` into later resource mandates. The returned mandate also remains the Subject's credential for supported approval and exchange paths. |
+| `waitForApproval(approvalId, options?)`        | Long-poll an approval raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`).                                                                                                                                                                                                                                                                                                                                       |
+| `withApproval(fn, options?)`                   | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                          |
+
+Approval gating is a policy feature; [Human Approval](/v0.2/guides/step-up/) covers the tiers and the operator decision path.
+
+## Build Requests and Manage the Client
+
+| Method                                         | Purpose |
+| ---------------------------------------------- | ------- |
+| `gatewayRequest(resourceId, path?)`            | Build a Gateway URL and `X-Caracal-Resource` header.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `identity()`                                   | The zone and application the client acts as, for logging and metric labels.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `close()`                                      | Terminally close the client: drop cached application mandates, invalidate credentials, and terminate application-transport Sessions best-effort. Repeated close is safe; later operations fail.                                                                                                                                                                                                                                                                                              |
+| `current()`                                    | Return the currently bound `CaracalContext`, if present.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+## Context Propagation
+
+```ts
+import { Authority } from '@caracalai/sdk'
+
+await caracal.session(
+  async () => {
+    await fetch('https://api.pipernet.example/reports', {
+      headers: await caracal.headersAsync(),
+    })
+  },
+  {
+    authority: Authority.narrow(['pipernet:read'], {
+      resourceId: 'resource://pipernet',
+      constraints: {
+        maxHops: 1,
+        policyApproved: true,
+      },
+      ttlSeconds: 600,
+    }),
+  },
+)
+```
+
+`DelegationConstraints` uses camelCase fields: `resources`, `maxDepth`, `maxHops`, `ttlSeconds`, `policyApproved`, `expiresAt`, and `broadReason`. `policyApproved` and `broadReason` are audit/display metadata, not authorization decisions.
+
+Gateway-bound requests sent through `transport()` carry the context envelope: W3C `traceparent`/`tracestate` plus `caracal.*` baggage entries for Session, Delegation, and Subject authority record correlation. These are visible correlation identifiers, never credentials. Direct non-Gateway requests omit the envelope by default. Use `propagation: "always"` only for a known Caracal-aware direct service chain. The bearer is attached only inside the configured Gateway origin and base path, and Gateway strips `caracal.*` baggage before forwarding upstream. Gateway-bound calls without `scopes` are valid only when the bound token is already a `use=gateway` mandate; lifecycle and resource tokens fail locally.
+
+## Protect Inbound Requests
+
+Use `bindFromHeaders()` to propagate a Caracal context after an upstream Gateway, adapter, or verify-engine verifier has accepted the inbound mandate. Pass `{ verify }` to enforce the bearer token at the boundary itself. The callback must throw on failure and return a complete authoritative `VerifiedClaims` projection. Zone, application, and hop are required. Optional Session, Delegation, parent Delegation, and Subject authority record fields omitted from the result are authoritatively absent; they never fall back to unsigned caller baggage after verification.
+
+`caracal.contextMiddleware()` is the Express-style wrapper over this binding - it mounts with `app.use(...)`. It is not the same job as `caracalAuth` from [`@caracalai/express`](/v0.2/sdks/adapters/express/): `caracalAuth` **enforces** inbound mandates (401/403 before your handler); `contextMiddleware` **propagates or binds** context, enforcing only when you pass a `verify` callback.
+
+```ts
+import { verify as verifyToken } from '@caracalai/identity'
+
+app.use(
+  caracal.contextMiddleware({
+    verify: async (token) => {
+      const claims = await verifyToken(token, {
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        zoneId: ZONE_ID,
+      })
+      return {
+        zoneId: claims.zoneId,
+        applicationId: claims.clientId,
+        sessionId: claims.sessionId,
+        delegationId: claims.delegationId,
+        subjectAuthorityRecordId: claims.authorityRecordId,
+        hop: claims.hopCount ?? 0,
+      }
+    },
+  }),
+)
+```
+
+Trace context and non-Caracal baggage remain propagation data. Use [Verification Layer Overview](/v0.2/sdks/verification-layer/) when the TypeScript service must also enforce revocation, scopes, targets, Session identity, or Delegation requirements. The advanced `caracalFastifyHook()` entrypoint is intended for Fastify's `onRequest` hook; ambient context is inherited by asynchronous work created during request dispatch, so detached background work must capture only the context it intentionally retains.
+
+Production propagation-only ingress must pass `{ trustedPropagation: true }` to state that an upstream Gateway or verifier already enforced the request. Omitting both `verify` and `trustedPropagation` fails closed in production.
+
+Header and transport helpers refuse to fall back to the application root token unless you pass `{ asApplication: true }`. Use that option only for trusted service-root ingress or setup calls. When inbound middleware injects application identity, caller-supplied Caracal authority baggage is discarded. Normal agent work should run inside `session()`, `delegate()`, or `bindFromHeaders()`.
+
+## Errors and Observability
+
+STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `ApprovalRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
+
+```ts
+import { Caracal, CaracalError } from '@caracalai/sdk'
+
+try {
+  await caracal.mintMandate('resource://pipernet', ['pipernet:read'])
+} catch (err) {
+  if (err instanceof CaracalError && err.code === 'access_denied') {
+    console.warn(`denied by policy (request ${err.requestId})`)
+  }
+}
+
+caracal.onEvent((event) => {
+  metrics.timing(`caracal.${event.type}`, event.durationMs, { ok: event.ok })
+})
+```
+
+`onEvent(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `approvalId` and the final `state`), `coordinator.call` (with `method`, `path`, and `status`), and `delegation.accept` (with `delegationId` and `sessionId`, so delegation presentations are auditable client-side). Each event carries `ok` and `durationMs`, ready to bridge into any metrics or tracing system. A hook that throws is ignored and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `isRetryable`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```ts
+import { Counter, Histogram } from 'prom-client'
+
+const operations = new Counter({
+  name: 'caracal_operations_total',
+  help: 'Caracal control-plane operations',
+  labelNames: ['type', 'ok'],
+})
+const latency = new Histogram({
+  name: 'caracal_operation_duration_ms',
+  help: 'Caracal control-plane operation latency',
+  labelNames: ['type'],
+})
+
+caracal.onEvent((event) => {
+  operations.inc({ type: event.type, ok: String(event.ok) })
+  latency.observe({ type: event.type }, event.durationMs)
+})
+```
+
+Operational warnings - lease loss, cleanup failures, an unverified inbound boundary in production - go to `console.warn` by default; pass `logger` in `CaracalConfig` to route them into your logging system instead.
+
+## Retries and Cleanup
+
+Session creation retries transient Coordinator failures twice under one generated idempotency key; Delegation creation retries once. Reusing the key with different input is a conflict. STS exchange deliberately performs one network attempt because a lost response may already represent a minted one-shot mandate. Gateway transports do not replay redirects or request bodies.
+
+Use `session()` for bounded work. For long-lived work, close the `SessionHandle`, then call `await caracal.close()` during shutdown. `close()` is terminal and idempotent. A canceled local wait does not prove the remote operation did not commit.
+
+Approval-gated flows resolve in one call with `withApproval`, which encapsulates the catch-wait-retry dance:
+
+```ts
+const mandate = await caracal.withApproval((approvalId) =>
+  caracal.mintMandate('resource://pipernet', ['pipernet:admin'], { approvalId }),
+)
+```
+
+When a policy denies a mint for a session that carries no delegation, the error message appends a hint naming the cause - the session holds lifecycle-only authority - and the three remediations: `Authority.narrow`, `acceptDelegation`, or `applicationTransport`.
+
+## Advanced Surface
+
+`@caracalai/sdk/advanced` is the low-level entrypoint for integrations that outgrow the facade: the envelope codec (`decodeEnvelope`, `encodeEnvelope`, header and baggage constants), bound-context plumbing (`bind`, `current`, `captureContext`), the raw Coordinator client (`startCoordinatorSession`, `acquireSessionLease`, `createDelegation`, `heartbeatSession`, `listInboundDelegations`, `terminateSession`), and the Session primitives (`session`, `startSession`, `attachSession`, `delegate`, and the context-deriving `acceptDelegation`) that take explicit inputs instead of client configuration. Everything in it is supported API; reach for it when building middleware, custom transports, or another layer's Caracal integration, and stay on `Caracal` for application code.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom fetch through `fetchImpl` (on `CaracalConfig.coordinator` and `Caracal.fromClientSecret`), so deployments that require mutual TLS or a private CA toward the STS and coordinator inject a fetch bound to an `https.Agent` (for example via `undici.Agent` with client certificates) instead of patching globals. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: JavaScript strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the `credentials` resolver for rotation, and treat heap access as full credential compromise in your threat model.
+
+## Related Pages
+
+* [Integrate the TypeScript SDK](/v0.2/guides/sdk-typescript/)
+* [Verification Layer Overview](/v0.2/sdks/verification-layer/)
+* [Enforce, propagate, or attribute](/v0.2/concepts/authority-model/#enforce-propagate-or-attribute)
+* [Session Delegation](/v0.2/concepts/delegation/)

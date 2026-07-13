@@ -1,0 +1,42 @@
+---
+title: Recover from Failures
+description: Recover a diagnosed dependency or safety failure in the required order.
+pageType: workflow
+slug: v0.2/operations/failure-modes
+---
+
+Use this only after diagnosis. Restore durable state, then services, then evidence and access-safety freshness.
+
+## Recovery Order
+
+1. Freeze rollouts and risky traffic.
+2. Restore Postgres, then Redis.
+3. Restore API, STS, Gateway, Audit, Coordinator, and web readiness.
+4. Drain outboxes, pending entries, audit replay, and DLQ.
+5. Prove policy and revocation freshness.
+6. Run canary allow/deny and locate audit evidence.
+
+## Failure Procedures
+
+| Failure | Recovery |
+| --- | --- |
+| Postgres | Restore connectivity/capacity, migrations and pools, then outboxes |
+| Redis | Restore persistence/`noeviction`, groups and pending entries, then replay |
+| STS | Restore stores, policy bundle, signing/KEK, JWKS, Gateway HMAC |
+| Gateway | Restore STS exchange, binding, revocation, egress, replay |
+| Audit | Restore stores/HMAC, drain replay/DLQ, check tamper state |
+| Coordinator | Restore stores, service token, outbox, workers |
+
+`audit_replay_unavailable` can clear after storage recovers. `audit_evidence_lost` is latched: preserve evidence, scope the interval, then replace the process as an incident action.
+
+## Verification
+
+Readiness passes; queues are drained/understood; revoked sessions deny; current policy applies; audit records canaries.
+
+## Rollback
+
+Return to preserved config/dependency snapshot if repair worsens state. Database restore is separate destructive recovery.
+
+## Next Step
+
+Rehearse [Run Failure Drills](/v0.2/operations/failure-drills/).

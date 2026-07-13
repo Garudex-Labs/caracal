@@ -1,0 +1,36 @@
+---
+title: Deploy Policy Changes
+description: Validate, activate, verify, and recover policy changes through
+  product-management surfaces.
+pageType: workflow
+slug: v0.2/operations/policy-deployment
+---
+
+Use web console, Admin SDK, or API. Runtime CLI does not manage policy.
+
+## Prerequisites
+
+Record active version, allow/deny cases, Resources/scopes, Grants, Approval behavior, rollback version, and STS/Audit readiness.
+
+## Procedure
+
+1. Create version and compile merged bundle.
+2. Simulate allow, deny, missing-scope, revoked-Session, and Approval cases.
+3. Activate in a test zone/cohort.
+4. Poll activation status until `propagation_status` is `loaded` and STS version matches.
+5. Run canaries and inspect audit.
+6. Expand only after pass.
+
+Allow the configured STS poll interval for multi-replica convergence.
+
+## Verify
+
+Canaries match simulation, STS reports intended bundle, no compile/staleness alert fires, Gateway matches, and audit identifies determining policy.
+
+## Rollback or Recovery
+
+Activate the last known-good version and repeat convergence/canaries. Do not edit stored versions or weaken unrelated grants.
+
+## Next Step
+
+Use [Upgrade Caracal](/v0.2/operations/upgrade/) only for runtime/chart/schema changes.

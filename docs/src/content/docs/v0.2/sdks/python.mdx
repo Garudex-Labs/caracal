@@ -1,0 +1,233 @@
+---
+title: Python SDK
+description: Public API reference for caracalai-sdk.
+slug: v0.2/sdks/python
+---
+
+`caracalai-sdk` is the main Python package for async Session lifecycle, Delegation, Gateway routing, and ASGI context propagation.
+
+Use it in application code. Product management belongs to [Admin Package](/v0.2/sdks/admin/), and direct inbound enforcement belongs to an adapter or the verify package.
+
+## Install
+
+```bash
+pip install caracalai-sdk
+```
+
+The package requires Python `>=3.12`.
+
+## Connect and Configure
+
+| API                               | Use it when                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Caracal()`                       | Use normal deployment configuration: exactly `CARACAL_CONFIG` when set, otherwise `CARACAL_*` variables. |
+| `Caracal.from_client_secret(...)` | Supply one complete static client-secret configuration directly.                                         |
+
+```python
+from caracalai import Caracal
+
+caracal = Caracal()
+```
+
+The constructor never searches home directories or default profile paths. Multiple credential modes fail at startup. Explicit environment mappings, profile loading, dynamic credential resolvers, and raw configuration live in `caracalai.advanced`.
+
+## Make Your First Protected Call
+
+The smallest complete integration pins a transport to one resource and sends a request through the Gateway:
+
+```python
+import asyncio
+
+from caracalai import Caracal
+
+
+async def main() -> None:
+    caracal = Caracal()
+    target = caracal.gateway_request("resource://pipernet", "/reports")
+    try:
+        async with caracal.application_transport(
+            "resource://pipernet",
+            scopes=["pipernet:read"],
+        ) as governed:
+            response = await governed.get(target.url)
+            response.raise_for_status()
+            print(response.text)
+    finally:
+        await caracal.aclose()
+
+
+asyncio.run(main())
+```
+
+The zone, application, and resource behind this call come from your runtime profile; [Add SDK to Your App](/v0.2/get-started/add-sdk-to-your-app/) walks that setup end to end. The sections below group the client API by task.
+
+## Run Work in Sessions
+
+| Method                                                                                                      | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `async with caracal.session(...)`                                                                           | Run the block inside a governed Session - a bounded identity Caracal establishes around whatever the block executes; pass `authority=Authority.narrow(...)` to bound its authority and `task=` to record what the Session is for. Retry protection is automatic; ordinary code should omit `idempotency_key`. See [Safe Retries and Idempotency](/v0.2/guides/idempotency/) for durable-source redelivery.                                                                                                                                                                          |
+| `await caracal.start_session(...)`                                                                          | Start a governed Session that outlives a block; auto-renews its generation-fenced lease and returns a handle with `heartbeat()`, `heartbeat_deadline_at`, `lease_generation`, and `aclose()`. Service lifetime is lease-only. Pass `authority=Authority.narrow(...)` with a positive Delegation TTL to bound the handle's authority. Retry protection is automatic.                                                                                                                                                  |
+| `await caracal.attach_session(session_id, ...)`                                                             | Re-attach to an active persisted long-lived Session after a restart: atomically acquires a new generation, fences older holders, and returns the same handle `start_session` does.                                                                                                                                                                                                                                                                                                                                                                                              |
+
+Session patterns for long-lived services and restart recovery are walked through in [Integrate the Python SDK](/v0.2/guides/sdk-python/).
+
+## Hand Off Authority Between Agents
+
+| Method | Purpose |
+| --- | --- |
+| `await caracal.delegate(...)`                                                                               | Delegate a slice of the bound Session's authority to an existing peer Session; returns the Delegation for the receiver to accept. A transient Coordinator failure is retried once under an idempotency key, so no duplicate Delegation is issued.                                                                                                                                                                                                                                                                                                                              |
+| `await caracal.revoke_delegation(delegation_id)`                                                            | Revoke a Delegation issued by this application.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `async with caracal.accept_delegation(delegation_id, validate=False)`                                       | Present a received Delegation: bind a derived context carrying it. Pass `validate=True` to confirm with the Coordinator that the Delegation is live for the bound Session first.                                                                                                                                                                                                                                                                                                                                                                                               |
+
+The full hand-off workflow, including safe constraint choices, lives in [Implement Multi-Agent Delegation](/v0.2/guides/delegation/).
+
+## Propagate Context Across Services
+
+| Method | Purpose |
+| --- | --- |
+| `caracal.headers(as_application=False, ctx=None)`                                                           | Project the bound context (or an explicit `ctx`) into HTTP headers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `async with caracal.bind(ctx)`                                                                              | Rebind a captured context into a new async task.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `async with caracal.bind_from_headers(headers, as_application=False, verifier=None, trusted_propagation=False)` | Bind inbound Caracal envelope headers; pass `verifier=` to enforce the bearer token or `trusted_propagation=True` when an upstream boundary already enforced it.                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+## Call Protected Resources
+
+| Method | Purpose |
+| --- | --- |
+| `caracal.transport(as_application=False, ctx=None, scopes=None, approval_id=None, propagation="gateway-only", **kwargs)`       | Return an `httpx.AsyncClient` that mints the `use=gateway` mandate from `scopes=` and applies Gateway routing. Pass `ctx=` from thread pools or executors and `approval_id=` to consume an approved hold. |
+| `caracal.sync_transport(as_application=False, ctx=None, scopes=None, approval_id=None, **kwargs)`                             | Synchronous `httpx.Client` counterpart.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `caracal.application_transport(resource_id, scopes=[...], approval_id=None, labels=None, mandate_ttl_seconds=None, **kwargs)` | Return an `httpx.AsyncClient` pinned to one resource, calling as the application's own identity; provisions its own Session pair and Delegation. `sync_application_transport(...)` is the synchronous counterpart. |
+| `await caracal.fetch(resource_id, path, ctx=None, scopes=None, ...)`                                        | One-call Gateway request to a resource with context and authority injected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `caracal.gateway_request(resource_id, path="/")`                                                            | Build a Gateway URL and `X-Caracal-Resource` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `caracal.mint_mandate(resource_id, scopes, ctx=None, ttl_seconds=None)`                                     | Mint a cached resource mandate carrying the bound Session and Delegation; returns a `MintedMandate` with `token` and `expires_in_seconds`. Requires client-secret credentials.                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+Use `application_transport()` when your service calls as itself; use `transport()` inside a Session when work already runs under session or delegated authority. Propagation defaults to `"gateway-only"`; use `propagation="always"` only for a known Caracal-aware direct service chain, and note that automatic redirects are rejected because request mandates are single-use. Application-transport provisioning starts one source/target Session pair and one narrowed Delegation per cache key: a cold call costs four provisioning calls plus the final SDK mint and Gateway STS exchange, and a warm call still performs both per-request STS exchanges. Wiring these transports into OpenAI, Anthropic, and other provider clients is covered in [Provider Recipes](/v0.2/guides/provider-recipes/#wire-the-transport-into-provider-clients).
+
+## Enforce Inbound Requests, Users, and Approvals
+
+| Method | Purpose |
+| --- | --- |
+| `caracal.context_middleware(verifier=None)`                                                                 | ASGI middleware factory: propagates context, and enforces at the boundary when a `verifier` is passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `caracal.federate_subject(id_token, ttl_seconds=None)`                                                      | Exchange an end user's identity token for an Authority record and return a `FederatedSubject` with `subject_authority_record_id`, `token`, and `expires_in_seconds`. Start attributed work with both `subject_authority_record_id` and `subject_authority_record_token=token`; Coordinator verifies the signed proof before binding the record. This does not by itself propagate the federated `sub` into later resource mandates. The returned mandate also remains the Subject's credential for supported approval and exchange paths. |
+| `caracal.wait_for_approval(challenge_id, timeout_seconds=300.0)`                                            | Long-poll an approval challenge raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`).                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `await caracal.with_approval(fn, timeout_seconds=300.0)`                                                    | Run an approval-gated operation end to end: on `ApprovalRequired` the client waits for the decision and, once approved, awaits `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+Approval gating is a policy feature; [Human Approval](/v0.2/guides/step-up/) covers the tiers and the operator decision path.
+
+## Client Lifecycle
+
+| Method | Purpose |
+| --- | --- |
+| `await caracal.aclose()`                                                                                     | Terminally close the client, owned HTTP pools, and application-transport Sessions best-effort. Repeated close is safe; later operations fail.                                                                                                                                                                                                                                                                                                                                                                     |
+
+## Context Propagation
+
+```python
+from caracalai import DelegationConstraints
+
+constraints = DelegationConstraints(
+    max_hops=1,
+    policy_approved=True,
+)
+```
+
+`DelegationConstraints` uses Python field names: `resources`, `max_depth`, `max_hops`, `ttl_seconds`, `policy_approved`, `expires_at`, and `broad_reason`. `policy_approved` and `broad_reason` are audit/display metadata, not authorization decisions.
+
+## Protect Inbound Requests
+
+`context_middleware()` is framework-agnostic and runs on any ASGI app (FastAPI, Starlette, Quart, Django ASGI).
+
+Without a verifier it only **propagates**: it binds the inbound Caracal envelope into request context but does not check JWT signatures, audience, scopes, token use, or revocation. In production, pass `trusted_propagation=True` to state explicitly that a Gateway already enforced the mandate upstream; omitting both modes fails closed.
+
+Pass `verifier=` to **enforce at the boundary**. The callable receives the bearer token, must raise on failure, and must return a complete authoritative `VerifiedClaims` projection. Zone, application, and hop are required. Optional authority fields omitted from the projection are authoritatively absent and never fall back to unsigned caller baggage. The SDK never inspects token internals itself.
+
+```python
+from caracalai_identity import verify_token
+from caracalai import Caracal, VerifiedClaims
+
+caracal = Caracal()
+app = FastAPI()
+
+async def verify(token: str) -> VerifiedClaims:
+    claims = await verify_token(
+        token,
+        issuer=ISSUER,
+        audience=AUDIENCE,
+        expected_zone_id=ZONE_ID,
+    )
+    return VerifiedClaims(
+        zone_id=str(claims["zone_id"]),
+        application_id=str(claims["client_id"]),
+        session_id=str(claims["agent_session_id"]) if claims.get("agent_session_id") else None,
+        delegation_id=str(claims["delegation_edge_id"]) if claims.get("delegation_edge_id") else None,
+        subject_authority_record_id=str(claims["sid"]),
+        hop=int(claims.get("hop_count") or 0),
+    )
+
+app.add_middleware(caracal.context_middleware(verifier=verify))
+```
+
+Trace context and non-Caracal baggage remain propagation data. Middleware that uses `as_application=True` discards inbound Caracal authority baggage before binding the application credential.
+
+See [Enforce, propagate, or attribute](/v0.2/concepts/authority-model/#enforce-propagate-or-attribute) for which call path verifies authority.
+
+## Errors and Observability
+
+STS denials raise typed subclasses of `CaracalError` (`AccessDenied`, `ScopeInsufficient`, `ZoneMismatch`, and the rest of the taxonomy), each carrying `code`, `http_status`, and `request_id`, so callers branch on the exception type instead of matching message text. Approval-gated exchanges raise `ApprovalRequired` with the challenge fields, and coordinator failures raise `CoordinatorError` with `status`, `method`, and `path`.
+
+```python
+from caracalai import AccessDenied, Caracal
+
+try:
+    caracal.mint_mandate("resource://pipernet", ["pipernet:read"])
+except AccessDenied as err:
+    print(f"denied by policy (request {err.request_id})")
+
+caracal.on_event(
+    lambda event: metrics.timing(f"caracal.{event.type}", event.duration_ms)
+)
+```
+
+`on_event(hook)` reports every control-plane operation: `token.exchange` (with `resources`, `scopes`, and `cached` for cache hits), `approval.wait` (with `challenge_id` and the final `state`), `coordinator.call` (with `method`, `path`, and `status`), and `delegation.accept` (with `delegation_id` and `session_id`, so delegation presentations are auditable client-side). Each event carries `ok` and `duration_ms`, ready to bridge into any metrics or tracing system. A hook that raises is ignored and never disturbs the operation that emitted the event, and the call returns a disposer that removes the hook. Errors the platform reports carry `is_retryable`, a hint that transport-level congestion and availability failures are worth retrying while policy denials are not.
+
+Bridging into Prometheus takes one hook; the same shape feeds an OpenTelemetry meter:
+
+```python
+from prometheus_client import Counter, Histogram
+
+operations = Counter(
+    "caracal_operations_total", "Caracal control-plane operations", ["type", "ok"]
+)
+latency = Histogram(
+    "caracal_operation_duration_ms", "Caracal control-plane operation latency", ["type"]
+)
+
+caracal.on_event(
+    lambda event: (
+        operations.labels(type=event.type, ok=str(event.ok)).inc(),
+        latency.labels(type=event.type).observe(event.duration_ms),
+    )
+)
+```
+
+## Retries and Cleanup
+
+Session creation retries transient Coordinator failures twice with one generated idempotency key; Delegation creation retries once. STS exchange makes one network attempt, and Gateway transports do not replay redirects or request bodies.
+
+Use `async with caracal.session()` for bounded work. Close long-lived handles with `await handle.aclose()`, close owned synchronous `httpx` clients, and finish shutdown with `await caracal.aclose()`. Repeated facade close is safe; later operations fail.
+
+## Advanced Surface
+
+`caracalai.advanced` is the low-level entrypoint for adapter authors and tests that deliberately own lifecycle wiring: envelope codecs, bound-context plumbing, raw Coordinator calls including `acquire_session_lease()`, middleware classes, and Session primitives with explicit dependencies. Application code should use `caracalai.Caracal`; advanced symbols are not duplicated in the package root.
+
+## Transport Security and Credential Handling
+
+Every control-plane client accepts a custom HTTP client. `from_client_secret` takes the synchronous `http_client` used by STS exchange and the asynchronous `coordinator_http_client` used by lifecycle calls; the advanced `CoordinatorClient` also exposes its async client directly. Supply both from the same TLS/proxy policy when deployments require mutual TLS or a private CA. Standard `httpx` keyword arguments (`verify=`, `cert=`, `transport=`) configure data-plane transports. Production configuration refuses plaintext `http` control-plane URLs outside loopback; `CARACAL_ALLOW_INSECURE_CONFIG_URLS=true` overrides that gate and logs a warning banner at startup so the exception stays visible until TLS is in place.
+
+Tokens, client secrets, and minted mandates live in ordinary process memory for their lifetime: Python strings are immutable and garbage-collected, so the SDK cannot zeroize them, and anything able to read the process heap (a debugger, a core dump, a compromised dependency) can read them. Keep secrets out of logs and error trackers - the SDK never logs them and caps error bodies for the same reason - rely on short token lifetimes and the credentials resolver for rotation, and treat heap access as full credential compromise in your threat model.
+
+## Related Pages
+
+* [Integrate the Python SDK](/v0.2/guides/sdk-python/)
+* [Protect a FastMCP App](/v0.2/guides/protect-fastmcp/)
+* [Verification Layer Overview](/v0.2/sdks/verification-layer/)
+* [Verify Package](/v0.2/sdks/verify/)

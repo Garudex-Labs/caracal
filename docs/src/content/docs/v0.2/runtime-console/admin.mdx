@@ -1,0 +1,49 @@
+---
+title: Manage Product Objects
+description: Maintain zone configuration in the console and hand repeatable
+  workflows to supported automation surfaces.
+pageType: workflow
+slug: v0.2/runtime-console/admin
+---
+
+Use the console for human management after guided setup. Keep work inside the active ordinary zone.
+
+## Maintain the Access Chain
+
+```text
+application + provider + resource + active policy → authorized access
+```
+
+| Area                    | Operator task                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Applications**        | Register managed application identities and rotate or reveal client secrets.                                             |
+| **Providers**           | Configure the upstream credential mode and rotate provider secrets.                                                      |
+| **Resources**           | Define `resource://` identifiers, operations/scopes, upstream URLs, Gateway application bindings, and provider bindings. |
+| **Policies**            | Author and validate policy versions.                                                                                     |
+| **Policy Sets**         | Compose, simulate, and activate the policy that STS evaluates.                                                           |
+| **Services → Launcher** | Create workload identities and launch bindings.                                                                          |
+| **Services → Control**  | Enable scoped remote automation and manage Control credentials.                                                          |
+
+Follow [Author Policy Data](/v0.2/guides/author-policy/) and [Activate a Policy Set](/v0.2/guides/activate-policy-set/) for the canonical policy workflow rather than duplicating it here.
+
+## Treat Secrets as Audited Operations
+
+Application and workload secrets are sealed after creation. A reveal action retrieves the current value from Secret Store custody and writes an admin-audit record. A rotation invalidates the previous value. Copy the replacement directly into the consuming secret store; do not place it in source, screenshots, chat, or audit annotations.
+
+Provider secret fields remain masked and are accepted only by the supported credential create or rotation flow.
+
+## Hand Off to Automation
+
+Use the Admin SDK for trusted direct management clients. Use **Services → Control** when remote automation needs a zone-bound credential and the optional Control endpoint is enabled.
+
+Control credentials are scoped to management nouns and verbs. Control calls are replay-protected, rate-limited, and audited. They do not receive the root admin token. Control is not a top-level `caracal` command and does not manage stack lifecycle.
+
+See [Automate Management](/v0.2/services/control/) for dependency and failure implications, and [Use the Admin API](/v0.2/api/control-plane/) for endpoint reference.
+
+## System Zone
+
+The reserved system-zone viewer is read-only. It exists to expose Caracal-owned state for transparency, not as a management target. Return to an ordinary selected zone before creating, editing, revealing, rotating, deciding, or deleting anything.
+
+## Next Step
+
+[Manage Runtime Authority](/v0.2/runtime-console/agents/) for Subjects, Authority records, Sessions, Delegations, and Approvals.

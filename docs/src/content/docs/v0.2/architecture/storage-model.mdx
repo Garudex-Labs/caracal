@@ -1,0 +1,45 @@
+---
+title: Store State
+description: Decide what to back up, what can be replayed, and what must never
+  be treated as an application API.
+pageType: architecture
+slug: v0.2/architecture/storage-model
+---
+
+## Data Classes
+
+| State                                                                            | Store                                   | Operational implication                                                      |
+| -------------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------- |
+| Product, policy, authority, Session, Delegation, admin-audit, and audit evidence | Postgres                                | Primary durable backup and restore target.                                   |
+| Invalidation, revocation, lifecycle, audit delivery, consumer coordination       | Redis Streams                           | Preserve when possible; recover propagation from durable state and outboxes. |
+| Undelivered STS/Gateway audit events                                             | Replay volumes                          | Restore before discarding Redis state so evidence can drain.                 |
+| Provider, application, workload, signing, HMAC, and encryption secrets           | Secret backend and runtime secret files | Restore with matching key material; ciphertext alone is insufficient.        |
+
+## Ownership Boundaries
+
+The API owns product and policy data. STS owns issuance behavior and Authority records. Coordinator owns Sessions and Delegations. Audit owns append-only evidence ingestion. Shared Postgres does not make one service's tables a supported API for another client.
+
+Some schema names retain protocol history, including `agent_services`, `agent_invocations`, and `delegation_edges`. Public surfaces expose Sessions, invocations, and Delegations. Integrations must use public names and APIs rather than retained table names.
+
+## Integrity Guarantees
+
+* Production migrations move forward and are recorded in `schema_migrations`.
+* Policy versions are immutable.
+* Zone-scoped reads use fail-closed row-level security.
+* The Audit database role cannot update or delete evidence rows.
+* Outboxes couple a state change to eventual event publication.
+* Secret envelopes bind encrypted values to key fingerprints and purposes.
+
+## Restore Order
+
+1. Restore Postgres and the runtime/secret-backend keys needed to decrypt it.
+2. Restore STS and Gateway audit replay volumes.
+3. Restore Redis streams and pending entries when available, or allow durable publishers and snapshots to rebuild propagation state.
+4. Reconnect audit exports and verify retention watermarks.
+5. Run readiness, Diagnostics, a policy simulation, a protected request, and an Audit trace.
+
+Use [Back Up and Retain Data](/v0.2/operations/backup-retention/) for procedures. Do not use direct SQL as a management or migration shortcut.
+
+## Next Step
+
+[Manage Keys](/v0.2/architecture/crypto-keys/).

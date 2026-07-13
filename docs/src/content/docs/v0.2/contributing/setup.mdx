@@ -1,0 +1,76 @@
+---
+title: Set Up Locally
+description: Install dependencies and start a local Caracal development stack.
+pageType: workflow
+slug: v0.2/contributing/setup
+---
+
+## Prerequisites
+
+| Tool                | Version    |
+| ------------------- | ---------- |
+| Node.js             | 24+        |
+| pnpm                | 11.1.1     |
+| Docker + Compose v2 | Docker 25+ |
+| Go                  | 1.26+      |
+| Python              | 3.14+      |
+| Bun                 | 1.3.14     |
+
+The contributor toolchain is intentionally newer than the supported user runtime floors (Node 22+, Python 3.12+ in [Compatibility](/v0.2/reference/compatibility/)); packages are built with current tools while still targeting the published floors.
+
+## Install Dependencies
+
+```bash
+git clone https://github.com/Garudex-Labs/caracal.git
+cd caracal
+pnpm run setup
+```
+
+`pnpm run setup` installs the Node workspace, downloads Go modules, creates `.venv`, installs pinned Python test/style tools, and installs local Python packages in editable mode. Use plain `pnpm install` only when the Node workspace is the entire scope.
+
+Read [CONTRIBUTING.md](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md) in the repository root for the contributor policy, review expectations, and testing requirements.
+
+## Start the Local Stack
+
+```bash
+pnpm caracal up
+pnpm caracal status --ready
+```
+
+The runtime initializes its managed development secrets during startup, builds local service images, and binds host ports to loopback. Run `pnpm secrets:init` only when a focused infrastructure task explicitly needs the standalone secret initializer.
+
+## Open the Web Console
+
+```bash
+open http://localhost:3001
+```
+
+The packaged web console starts with the stack. Use `pnpm caracal web` only when developing the web console or auth BFF locally.
+
+## Verify the Checkout
+
+```bash
+pnpm run style
+scripts/testCi.sh --smoke
+```
+
+If either command fails on an untouched checkout, resolve the toolchain problem before editing source.
+
+## Stop or Reset
+
+```bash
+pnpm caracal down
+pnpm caracal purge
+```
+
+Use `purge` only when you intentionally want to remove local stack/runtime state.
+
+## Next Step
+
+Read [Follow Project Standards](/v0.2/contributing/style/) before editing source files.
+
+## Related Pages
+
+* [Runtime and Web Console](/v0.2/runtime-console/)
+* [Deploy with Docker Compose](/v0.2/operations/docker-compose/)
+* [Validate Changes](/v0.2/contributing/testing/)

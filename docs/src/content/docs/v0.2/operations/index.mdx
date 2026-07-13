@@ -1,0 +1,84 @@
+---
+title: Operate Caracal
+description: Verified runbooks for deploying, observing, recovering, and
+  changing the open-source Caracal runtime.
+pageType: landing
+slug: v0.2/operations
+---
+
+Use this section when you own a Caracal deployment. These runbooks describe behavior present in this repository; they do not promise an availability level, managed service, or compliance outcome.
+
+## Choose a Runbook
+
+The runbooks follow the deployment lifecycle. Work down the phases for a new deployment; jump straight to a phase for day-to-day operations.
+
+**Deploy** - pick a substrate and stand the stack up:
+
+| Need | Runbook |
+| --- | --- |
+| Choose a substrate | [Choose a Deployment Profile](/v0.2/operations/deployment-profiles/) |
+| Review measured performance, sizing, and failure results | [Performance and Scalability](/v0.2/operations/performance-benchmarks/) |
+| Run one Docker host | [Deploy with Docker Compose](/v0.2/operations/docker-compose/) |
+| Deploy the repository chart | [Deploy with Helm](/v0.2/operations/kubernetes-helm/) |
+| Provision chart or VM bootstrap declaratively | [Provision with OpenTofu](/v0.2/operations/opentofu/) |
+| Map managed cloud services to the chart | [Choose a Cloud Profile](/v0.2/operations/cloud-native-profiles/) and [Deploy on Managed Kubernetes](/v0.2/operations/cloud-reference-deployments/) |
+| Hand a reviewed deployment package to another team | [Package an Install Kit](/v0.2/operations/install-kit/) |
+
+**Configure and secure** - before real credentials or traffic:
+
+| Need | Runbook |
+| --- | --- |
+| Set service variables and secrets | [Configure Service Environment](/v0.2/operations/env-vars/) |
+| Choose where sealed credentials are stored | [Configure Secret Backends](/v0.2/operations/secret-backends/) |
+| Pass the pre-production hardening checklist | [Harden Production](/v0.2/operations/tls-hardening/) |
+| Rotate keys, HMACs, and service tokens | [Rotate Keys and Secrets](/v0.2/operations/key-management/) |
+| Operate the durable stores | [Operate PostgreSQL](/v0.2/operations/postgres/) and [Operate Redis Streams](/v0.2/operations/redis/) |
+| Size and scale services | [Scale Capacity](/v0.2/operations/scale-capacity/) |
+
+**Observe** - know the deployment is healthy before users tell you it is not:
+
+| Need | Runbook |
+| --- | --- |
+| Wire health, readiness, and metrics | [Monitor Health and Metrics](/v0.2/operations/observability/) |
+| Alert on measured thresholds | [Configure Alerts](/v0.2/operations/alerts/) |
+| Diagnose a failed request | [Troubleshoot by Symptom](/v0.2/operations/troubleshooting/) |
+| Diagnose unhealthy infrastructure | [Debug Infrastructure Issues](/v0.2/operations/debugging/) |
+
+**Recover** - when something is wrong or before it can be:
+
+| Need | Runbook |
+| --- | --- |
+| Recover a known failure | [Recover from Failures](/v0.2/operations/failure-modes/) |
+| Prove recovery works before you need it | [Run Failure Drills](/v0.2/operations/failure-drills/) |
+| Back up or restore Compose state | [Back Up and Retain Data](/v0.2/operations/backup-retention/) |
+| Handle a security or availability incident | [Respond to Incidents](/v0.2/operations/incident-response/) |
+
+**Change** - roll out versions, policy, and responsibility:
+
+| Need | Runbook |
+| --- | --- |
+| Change versions | [Upgrade Caracal](/v0.2/operations/upgrade/) |
+| Roll out infrastructure changes | [Plan a Platform Rollout](/v0.2/operations/platform-rollout-kit/) |
+| Activate policy changes safely | [Deploy Policy Changes](/v0.2/operations/policy-deployment/) |
+| Export audit evidence for compliance tooling | [Export Audit Evidence](/v0.2/operations/compliance-audit-integration/) |
+| Transfer operational ownership | [Hand Off to Platform Teams](/v0.2/operations/platform-team-handoff/) |
+
+## Operating Invariants
+
+* Postgres is the durable system of record. Redis carries streams and correctness-critical revocation state.
+* `dev` is local-development posture. `rc` and `stable` enforce published-mode configuration; `rc` is not a production stability claim.
+* Compose publishes service ports on loopback. Expose them only through an operator-owned TLS proxy.
+* Helm and OpenTofu are deployment assets, not a managed Kubernetes, HA, backup, or SLO service.
+* Runtime lifecycle belongs to `caracal up`, `down`, `status`, `upgrade`, and `purge`. Product administration belongs to the web console, Admin SDK, or Control API.
+
+## Baseline Verification
+
+For Compose, run `caracal status --ready`. For Kubernetes, inspect Jobs and pod readiness, then test required service endpoints. `/health` proves liveness; only `/ready` is a traffic gate.
+
+## Recovery Boundary
+
+Before a risky change, retain the current version, configuration, data backup, and secrets backup. Database migrations are forward-only; application rollback is safe only when the older version accepts the migrated schema.
+
+## Next Step
+
+Choose the substrate in [Choose a Deployment Profile](/v0.2/operations/deployment-profiles/).

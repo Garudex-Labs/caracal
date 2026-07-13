@@ -1,0 +1,113 @@
+---
+title: Release Caracal
+description: Lockstep SemVer releases, package publishing, protected workflows,
+  and rollback rules.
+pageType: reference
+slug: v0.2/contributing/release
+---
+
+Every Caracal release artifact shares one Semantic Version from `release.config.json` `product.version`. The current source state is `0.2.0-rc.3`; successive release candidates increment `-rc.N`. `scripts/release.sh stamp` propagates the configured version to owned artifact metadata.
+
+## Release Surfaces
+
+| Surface         | Source                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| Product version | `release.config.json` `product.version`, currently `0.2.0-rc.3`.                          |
+| Runtime binary  | `apps/runtime/dist/caracal-*`.                                                            |
+| Containers      | Shared Go/Node role images, Web, Postgres, Redis, and Runtime from `release.config.json`. |
+| Helm            | `infra/helm/caracal`.                                                                     |
+| npm packages    | Public `@caracalai/*` packages from `release.config.json`.                                |
+| PyPI packages   | Public `caracalai-*` packages from `release.config.json`.                                 |
+
+## Build Targets
+
+Runtime release builds compile Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries through Bun compile scripts.
+
+Go-based service container builds strip debug symbols by default (`GO_LDFLAGS` defaults to `-s -w`) and honor native build arguments passed to Docker: `CGO_ENABLED`, `CC`, `CFLAGS`, `CXX`, `CXXFLAGS`, `LDFLAGS`, `GOFLAGS`, `GO_BUILDFLAGS`, and `GO_LDFLAGS`. The Dockerfiles add `-mod=readonly` and `-trimpath`; override `GO_LDFLAGS` for diagnostic builds that need symbol tables.
+
+## Release Flow
+
+| Stage          | Command pattern                                                              |
+| -------------- | ---------------------------------------------------------------------------- |
+| RC prepare     | Set `product.version` to `X.Y.Z-rc.N`, then `scripts/release.sh rc prepare`  |
+| RC dry run     | `scripts/release.sh rc dry-run --local`, then `scripts/release.sh rc dry-run` |
+| RC publish     | `scripts/release.sh rc publish [--watch]`                                      |
+| Stable dry run | Add `--local` first, then run `scripts/release.sh stable --dry-run` remotely  |
+| Stable publish | `scripts/release.sh stable [--watch]`                                        |
+| Prepare stable | `scripts/release.sh promote --from vX.Y.Z-rc.N`, review, and commit          |
+
+Run `pnpm release:plan` and `pnpm release:stamp:check` before publication. Preparation generates a source-neutral release plan and the docs release record. On its first invocation, the publish command atomically creates the root tag and every nested Go module tag, then queues a dry run from that immutable tag. Invoke the same publish command again after the dry run succeeds, or pass `--watch` to track the dry run and dispatch the publication automatically in one command; only then can CI publish and finalize the customer manifest with the full tag commit. Do not author release evidence as an independent source of truth.
+
+Publication requires a successful release-workflow dry run for the exact commit. A green branch test run is necessary but does not replace the archive, image, package, and documentation preflight performed by that dry run.
+
+The root release workflow owns production publication. npm package workflow dispatches are dry-run only. PyPI production publication is dispatched by the release orchestrator through the protected `publishPypi.yml` Trusted Publisher workflow with an exact release tag and source SHA. Every release publishes all publishable packages at the shared version, and Python distributions publish registry attestations. A retry reuses an existing package, image, chart, or GitHub Release only after its digest and provenance verify against the exact release tag and commit. Any mismatch consumes the version and requires a roll-forward release.
+
+PyPI publication is dispatched directly through `publishPypi.yml`, matching its Trusted Publisher identity. If publication stops after immutable artifacts exist, `resumeRelease.yml` verifies the retained release-assets artifact and every npm, PyPI, OCI, and Helm artifact before creating the missing GitHub Release. The resume path never rebuilds or replaces an existing artifact.
+
+## Pipeline Safeguards
+
+Release workflows execute from the immutable tag snapshot, so a workflow defect can only be corrected on `main` and recovered through `resumeRelease.yml`. To keep defects out of tags, CI statically validates release-workflow invariants on every change:
+
+```bash
+node scripts/validateWorkflows.mjs
+```
+
+The validator enforces reusable-workflow permission coverage, declared `workflow_call` inputs, SHA-pinned actions, job timeouts, repository guards, explicit job permissions, `GH_REPO` on checkout-free `gh` usage, and the run-name contracts that release tooling matches against. Run titles are single-sourced in `scripts/lib/releaseSpec.mjs`; unit tests reject drift between workflow `run-name` templates and the formats the scripts expect.
+
+Every publish step checks published state before acting and verifies digests and provenance afterward, so rerunning a failed job never duplicates or replaces an artifact. A failed run appends a failure report to the workflow summary naming the failed jobs and steps with log links and recovery guidance; a successful publication appends a summary of everything that shipped.
+
+## Documentation Versions
+
+Open Source documentation is versioned by product minor release:
+
+* `v0.2`, `v0.3`, `v0.4`, and `v1.0` are documentation versions.
+* Patch releases such as `v0.2.1` and `v0.2.2` update the existing `v0.2` documentation; they never create new documentation versions.
+* Release candidates never create documentation versions.
+* The latest stable minor is the default at `https://docs.caracal.run/`. The unversioned source is available at `/next/` after the first stable documentation release.
+* Superseded minors remain available at `/vX.Y/`, lose their edit link, and are protected by a committed SHA-256 digest.
+
+`v0.2.0` is the first versioned documentation release. `docs/versions.json` currently has `target: "v0.2"`, `current: null`, and no snapshots. Until stable `v0.2.0` is cut, edit `docs/src/content/docs/`; the site serves it from `/v0.2/`, but no `v0.2` source directory exists. Do not create one manually. The stable release snapshots that exact source and registers it as current.
+
+After `v0.2.0`, patch documentation changes for the active release line go directly into `docs/src/content/docs/v0.2/`. Work intended for the next minor continues in the unversioned source. When `v0.3.0` is published, release automation performs one transaction:
+
+1. Archive the unversioned source as `v0.3` and preserve its sidebar and referenced assets.
+2. Make `v0.3` the default stable documentation.
+3. Lock `v0.2` and record its content digest.
+4. Leave the unversioned source in place as the starting point for `/next/`.
+
+The same process repeats for every later minor. `scripts/release.sh stable` and `scripts/release.sh promote` invoke it automatically. Maintainers can inspect the decision without changing files:
+
+```bash
+node scripts/docsVersion.mjs plan 0.3.0
+node scripts/docsVersion.mjs verify
+```
+
+Do not edit `docs/versions.json` to bypass the release command. CI compares every previously locked entry and snapshot with the base branch, so replacing both a historical page and its digest is rejected.
+
+## Rollback Rule
+
+Do not delete published tags. Roll forward with a new SemVer tag. Pinned `vX.Y.Z` tags are immutable; the floating `vX.Y` series tag moves with the new cut.
+
+## Registry Cleanup After the SemVer Cutover
+
+The migration from CalVer to lockstep SemVer leaves registry state that only a maintainer with registry access can retire. Complete these steps manually after the first `v0.2.0` stable release is live:
+
+1. Deprecate dead npm names with a pointer to their successors - never unpublish:
+   ```bash
+   npm deprecate @caracalai/transport-mcp@'*' 'renamed: use the current @caracalai packages'
+   npm deprecate @caracalai/transport-a2a@'*' 'renamed: use the current @caracalai packages'
+   npm deprecate @caracalai/mcp-express@'*' 'renamed: use @caracalai/express'
+   npm deprecate @caracalai/mcp-fastmcp@'*' 'renamed: use @caracalai/fastmcp'
+   npm deprecate @caracalai/tokenstate-postgres@'*' 'renamed: use the current @caracalai packages'
+   ```
+2. Deprecate the pre-0.2.0 CalVer and `0.1.x` versions on live npm names the same way.
+3. Yank (PEP 592) the pre-0.2.0 versions on live PyPI projects and all versions of dead-name PyPI projects. Yanking keeps files installable by exact pin while removing them from resolution.
+4. Delete the CalVer `ghcr.io` image tags (`v2026.*`, `2026.*`) and CalVer OCI Helm chart versions. CalVer sorts above SemVer, so any surviving `2026.*` tag would outrank `0.2.0` in version resolution.
+5. Mark pre-0.2.0 GitHub Releases as pre-release with a note pointing to the current release line. Do this only after `v0.2.0` is published so `releases/latest` never resolves to nothing.
+6. Keep all git tags: deleting them breaks reproducibility and Go module caching.
+7. Refresh the `lynxCapital` dependency pins in the [examples repository](https://github.com/Garudex-Labs/examples) to the published `0.2.0` packages.
+
+## Related Pages
+
+* [Release Map](/v0.2/reference/release-package-runtime-map/)
+* [Upgrade Caracal](/v0.2/operations/upgrade/)

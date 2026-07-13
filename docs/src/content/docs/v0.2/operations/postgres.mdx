@@ -1,0 +1,41 @@
+---
+title: Operate PostgreSQL
+description: Run migrations, verify schema protections, monitor capacity, and
+  recover the durable store.
+pageType: workflow
+slug: v0.2/operations/postgres
+---
+
+Postgres holds product, authority, policy, session, delegation, outbox, key-reference, and audit state.
+
+## Prerequisites
+
+Use release-matched migrations, an administrative migration role, service-specific credentials, and a tested backup. Do not grant service roles ownership or `BYPASSRLS`.
+
+## Procedure
+
+Compose and Helm run `infra/postgres/scripts/migrate.sh` in a one-shot workload. Files apply in order, one transaction each, under an advisory lock. Production operation is forward-only.
+
+In a disposable database, run:
+
+```bash
+bash infra/postgres/scripts/validateMigrations.sh
+```
+
+Monitor pools, long transactions, timeouts, storage, audit partitions, and outbox age. Increase database capacity before aggregate service pools.
+
+## Verify
+
+Confirm migrations, `schema_migrations`, service roles, RLS, append-only audit permissions, and dependent readiness.
+
+## Recovery
+
+Restore connectivity/capacity, then verify migrations, pools, outboxes, and readiness. For data loss, use complete restore; do not reconstruct authority or audit rows manually.
+
+:::danger[Schema and evidence damage]
+Do not run down migrations, drop databases, disable RLS, or mutate audit rows as an outage shortcut.
+:::
+
+## Next Step
+
+Verify event delivery with [Operate Redis Streams](/v0.2/operations/redis/).

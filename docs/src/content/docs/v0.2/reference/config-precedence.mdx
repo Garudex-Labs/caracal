@@ -1,0 +1,67 @@
+---
+title: Configuration Order
+description: How Caracal chooses runtime profiles, environment values, file
+  secrets, and deployment values.
+pageType: config
+slug: v0.2/reference/config-precedence
+---
+
+## caracal run Workload Identity
+
+`caracal run` reads no profile file. It resolves only the workload identity:
+
+1. `CARACAL_WORKLOAD_ID` names the workload created on the console's Launcher page.
+2. The workload secret comes from `CARACAL_WORKLOAD_SECRET`, or `CARACAL_WORKLOAD_SECRET_FILE`, or (eligible local modes only) the owner-only file at `<Caracal config dir>/runtime/<workload_id>/secret`. Setting both variables is an error.
+3. `CARACAL_STS_URL` overrides the STS endpoint; local dev and stable resolve it automatically.
+
+The credential bindings, zone, scopes, and failure behavior come from the workload's launch bindings, authored in the web console and served by STS at launch.
+
+## SDK Profile Resolution
+
+SDK loaders use this order:
+
+1. `CARACAL_CONFIG`, when set. A missing file at that path is an error, not a fallthrough.
+2. Environment runtime config.
+
+SDKs do not read `./caracal.toml` from the current working directory.
+
+Environment config uses `CARACAL_ZONE_ID` and `CARACAL_APPLICATION_ID` with one
+explicit credential source. SDKs read secret and manifest files only when named
+by `CARACAL_APP_CLIENT_SECRET_FILE` or an explicit profile field. Setting `CARACAL_ENV=production` requires explicit
+service URLs. Cloud and custom deployments can provide
+`CARACAL_RESOURCES_FILE` values when mounted
+secret or config paths differ from the local convention. A deployment without a
+client secret can instead supply a pre-minted session mandate through
+`CARACAL_BOOTSTRAP_TOKEN`; the SDK rejects a bootstrap token that is already
+expired at startup.
+
+Resource bindings resolve from profile credentials, then
+`CARACAL_RESOURCES_FILE`, then `CARACAL_RESOURCES`. Later bindings with the
+same resource ID override earlier bindings, so a short environment override can
+replace one entry from a mounted JSON file without duplicating the file.
+
+Conflicting credential modes fail closed. A client-secret configuration and `CARACAL_BOOTSTRAP_TOKEN` are alternatives, not fallback layers.
+
+## File-Secret Resolution
+
+Services support `*_FILE` variants for configured secret keys. File values are resolved before validation so deployment templates can mount secrets instead of placing sensitive material directly in environment variables. Previous-key variables used during KEK or idempotency-key rotation are separate overlap inputs, not precedence fallbacks.
+
+## Deployment Values
+
+| Deployment path | Precedence model                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Docker Compose  | Shell environment overrides defaults in compose files; secrets are mounted from files.                          |
+| Helm            | CLI `--set` and later values files override earlier chart values; runtime Secret keys feed mounted service env. |
+
+## Troubleshooting
+
+| Symptom                                | Check                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Expected SDK profile is ignored        | Set `CARACAL_CONFIG` to the exact profile path; SDKs do not search default directories.   |
+| `caracal run` cannot find bindings     | Bindings live on the **Launcher** page in the web console, not in a local file.           |
+| Service fails with missing secret      | Confirm the `*_FILE` variable name is supported by that service and the file is readable. |
+| Helm values render unexpected defaults | Check values file order and CLI overrides.                                                |
+
+## Next Step
+
+Use [Defaults and Limits](/v0.2/reference/defaults-and-limits/) to confirm ports, TTLs, request limits, and stream defaults.

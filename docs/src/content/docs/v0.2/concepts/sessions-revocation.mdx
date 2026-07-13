@@ -1,0 +1,72 @@
+---
+title: Sessions and Revocation
+description: Authority records, Sessions, Delegations, cascading revocation, and
+  the revocation event stream.
+sidebar:
+  order: 13
+slug: v0.2/concepts/sessions-revocation
+---
+
+Read this page after [Delegation Constraints](/v0.2/concepts/constraint/). Authority records, Sessions, and Delegations make authority temporary and revocable. A Mandate refers to these records so the Gateway or verified service can reject authority that has ended.
+
+## Identity and Execution Records
+
+| Record                | Role                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Subject               | Opaque JWT `sub` identity. The web console's **Subjects** page groups Authority records by this value.                                                              |
+| Authority record      | Immutable record created by an identity or authority exchange; an audit and revocation anchor.                                                                  |
+| Root Authority record | First record in an authority ancestry; revoking it can end the descendant authority chain.                                                                      |
+| Session               | Governed execution. A delegated Session is still a Session, with an inbound Delegation.                                                                          |
+
+## Subject Identity Is Federated
+
+Caracal does not generate Subjects, and **Subjects** is not a login surface. The `sub` on an Authority record is taken verbatim from the token the application exchanges. To federate end users, a zone registers the identity system as a Subject issuer and the application exchanges each identity token for an Authority record with no resource authority.
+
+A Session may attach the federated Subject's Authority record only while presenting proof of control. That Subject remains immutable attribution and a revocation anchor for the Session. It does not automatically replace the Application identity on later Resource Mandates and does not create per-Subject scopes.
+
+## Revocation Anchors
+
+Resource servers check every relevant anchor: Authority record ID, Root authority record ID, Session ID, and Delegation ID. The [parsed claim mapping](/v0.2/sdks/identity/#parsed-claim-names) lists the canonical language-level names and raw JWT fields.
+
+If any anchor is revoked, the mandate should be rejected as `session_revoked`.
+
+## Revocation Flow
+
+```mermaid
+sequenceDiagram
+  participant Control as Console or Admin API
+  participant State as Authority state
+  participant Distribution as Revocation distribution
+  participant Resource as Gateway or adapter
+
+  Control->>State: Revoke Authority record, Session, or Delegation
+  State->>Distribution: Publish revocation anchor
+  Resource->>Distribution: Consume revocation
+  Resource->>Resource: Cache revoked anchor
+  Resource-->>Resource: Reject matching mandates
+```
+
+Suspension is reversible Session state, not permanent revocation. Gateway-routed requests perform a fresh STS exchange and reject a suspended Session immediately through authoritative Session validation. Already issued mandates checked directly by a resource verifier can remain usable until their mandate TTL expires; keep mandate TTLs within the documented 15-minute cap when suspension latency matters. Termination and Delegation revocation remain monotonic revocation events.
+
+## Cascade Behavior
+
+Revocation should follow authority:
+
+* revoking an Authority record invalidates authority descended from it;
+* revoking a Session invalidates its child Delegations;
+* revoking a Delegation invalidates downstream delegated authority;
+* revoking a grant prevents future exchange and can invalidate active Authority records and Sessions depending on workflow.
+
+## Resource-Server Responsibility
+
+The Gateway and adapters must be configured with a revocation store. For development, an in-memory store can be useful. For production, use a shared store and stream consumer so revocations propagate across resource-server instances.
+
+## Next Step
+
+Read [Audit and Request Traces](/v0.2/concepts/audit-ledger/) to understand how decisions and requests are explained.
+
+## Related Pages
+
+* [Mandates](/v0.2/concepts/mandate/)
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)
+* [Tail and Query the Audit Stream](/v0.2/guides/audit-stream/)

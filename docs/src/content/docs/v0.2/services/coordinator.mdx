@@ -1,0 +1,46 @@
+---
+title: Coordinate Session State
+description: Understand supported Coordinator use, lease behavior, durable
+  lifecycle state, and propagation failures.
+pageType: reference
+slug: v0.2/services/coordinator
+---
+
+Coordinator owns governed Sessions, service leases, invocations, Delegations, graph epochs, and their durable outbox.
+
+## Who Calls It
+
+Applications use Caracal SDK Session and Delegation APIs or the documented Coordinator API. The console BFF uses an operator credential to inspect and intervene. Top-level runtime commands do not manage Coordinator state.
+
+Do not place the operator Coordinator token in workload code. Do not write Coordinator tables or Redis lifecycle topics directly.
+
+## Runtime Contract
+
+| Item      | Local value    |
+| --------- | -------------- |
+| Port      | `4000`         |
+| Liveness  | `GET /health`  |
+| Readiness | `GET /ready`   |
+| Metrics   | `GET /metrics` |
+
+Use [Use Coordinator API](/v0.2/api/coordinator/) for routes and SDK contracts. Service environment variables are cataloged in [Configure Service Environment](/v0.2/operations/env-vars/).
+
+## Operational Flow
+
+Session and Delegation writes commit to Postgres with outbox rows. Publishers relay lifecycle, invocation, delegation-invalidation, and revocation events through Redis. STS consults authoritative state before issuing authority tied to that lineage.
+
+Task Sessions expire by TTL. Service Sessions require heartbeat renewal. Sweepers mark stale leases, enforce invocation deadlines, expire Delegations, and clean terminal records according to retention settings.
+
+## Failure Implications
+
+| Failure                     | User impact                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| Postgres unavailable        | Session/Delegation operations and readiness fail.                                           |
+| Redis/outbox delayed        | Downstream lifecycle and invalidation views lag; durable state remains available for retry. |
+| Service heartbeat stops     | The Session becomes unhealthy or expires even if its process still exists.                  |
+| Sweeper unavailable         | Stale state remains longer; alert on job/readiness metrics.                                 |
+| Operator credential missing | Console Session and Delegation views fail; workload SDK credentials are a separate path.    |
+
+## Next Step
+
+[Issue Mandates](/v0.2/services/sts/) for the authority path, [Coordinate Sessions](/v0.2/architecture/delegation-flow/) for the cross-service flow, or [Manage Runtime Authority](/v0.2/runtime-console/agents/) for the operator workflow.

@@ -1,0 +1,88 @@
+---
+title: Check Provider Readiness
+description: Validate service readiness, dependencies, provider configuration,
+  reachability, and policy authorization before the first Gateway request.
+pageType: workflow
+slug: v0.2/examples/provider-preflight
+---
+
+Provider Preflight is an automatable readiness check in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `providerPreflight/`. It walks the same chain a real Gateway request depends on - control plane, Gateway dependencies, application identity, provider binding and configuration, network paths, and the active policy decision - and reports exactly which link is broken and how to fix it.
+
+## When to use it
+
+Run it after creating a provider-backed resource, before cutting traffic over, and from CI before each deploy. It proves the chain is ready; it does not replace the first real audited request as enforcement evidence.
+
+## Prerequisites
+
+* A provisioned application, provider, resource, operation set, and active policy.
+* A read-capable Admin token stored only in the CI secret environment.
+* Network placement comparable to Gateway for meaningful reachability checks.
+
+## What it checks
+
+Checks run in five phases:
+
+| Phase         | Check                  | What it confirms                                                                                                       |
+| ------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| readiness     | Admin API readiness    | The control plane responds ready on `GET /ready`.                                                                      |
+| readiness     | Gateway readiness      | The Gateway responds ready, which verifies its bindings, Postgres, Redis, revocation freshness, audit replay, and STS. |
+| dependencies  | Resource binding       | The resource resolves to exactly one credential provider and a Gateway application.                                    |
+| dependencies  | Application            | The application exists, is not expired, and matches the resource's routing binding.                                    |
+| configuration | Provider configuration | Kind-required fields are present and `allowed_token_hosts` covers the token endpoint.                                  |
+| configuration | Scope coverage         | Every requested scope is declared on the resource.                                                                     |
+| configuration | Runtime injection      | Runtime-injection eligibility is enabled when required.                                                                |
+| connectivity  | Token endpoint host    | OAuth token endpoints are HTTPS and publicly routable, or explicitly granted as private egress.                        |
+| connectivity  | Callback reachability  | Authorization-code callback origins are HTTPS and reachable.                                                           |
+| connectivity  | Upstream reachability  | The protected upstream is reachable, with a warning when it resolves to a private address.                             |
+| authorization | Policy authorization   | Simulating the active policy set with the input shape STS uses for real token exchanges returns `allow`.               |
+
+The preflight fails closed. Any failed check exits non-zero, and every failure or warning prints a `fix:` line with the concrete remediation.
+
+## Run the preflight
+
+```bash
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/providerPreflight
+CARACAL_API_URL=http://127.0.0.1:3000 \
+CARACAL_ADMIN_TOKEN=<admin-token> \
+PREFLIGHT_ZONE_ID=<zone-id> \
+PREFLIGHT_RESOURCE_ID=<resource-id> \
+PREFLIGHT_APPLICATION_ID=<app-id> \
+PREFLIGHT_SCOPES=pipernet:read,pipernet:write \
+npm run preflight
+```
+
+Optional settings:
+
+| Variable                                   | Purpose                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `PREFLIGHT_GATEWAY_URL`                    | Probes the Gateway's `/ready` endpoint; without it the Gateway phase reports a warning instead of validating. |
+| `PREFLIGHT_REQUIRE_RUNTIME_INJECTION=true` | Requires providers to allow runtime injection.                                                                |
+| `PREFLIGHT_OUTPUT=json`                    | Emits the full report as JSON for CI pipelines and dashboards.                                                |
+
+Exit codes: `0` when all checks pass, `1` when any check fails, `2` when the preflight itself cannot run.
+
+## Network position
+
+`Upstream reachability` and `Callback reachability` run from the host executing the script. Run it from a network position comparable to Gateway, or inside the cluster, when you need the reachability result to match production routing.
+
+## Test
+
+```bash
+cd caracal-examples/providerPreflight
+npm test
+```
+
+The tests inject network, DNS, and policy responses and do not call live systems.
+
+## Validate the preflight
+
+Run once with valid config and once with a deliberately missing scope. Expect exit `0` and a clean summary, then exit `1` with a specific `fix:` line. JSON mode must remain parseable while narration stays off stdout.
+
+:::caution[Failure point: simulation is not traffic]
+A passing policy simulation and host probe do not prove credential injection or upstream behavior. Follow preflight with one real Gateway request and audit trace.
+:::
+
+## Next Step
+
+Continue to [Iterate Policy Safely](/v0.2/examples/policy-iterate/) when a denied request needs to become a tested policy change.

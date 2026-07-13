@@ -1,0 +1,198 @@
+---
+title: Admin Package
+description: Automation clients for the Caracal Admin API and Coordinator
+  management surfaces in TypeScript, Python, and Go.
+slug: v0.2/sdks/admin
+---
+
+The admin package is the automation client for control-plane objects. It mirrors Console management workflows for scripts and services, and ships in three languages: `@caracalai/admin` (TypeScript), `caracalai-admin` (Python), and `github.com/garudex-labs/caracal/packages/admin/go` (Go).
+
+Use it from trusted operator automation. Do not embed admin tokens in agent or resource-server processes, and do not use this client for the SDK Session lifecycle.
+
+## Install
+
+```bash
+npm install @caracalai/admin
+```
+
+```bash
+pip install caracalai-admin
+```
+
+```bash
+go get github.com/garudex-labs/caracal/packages/admin/go
+```
+
+## Create a client
+
+```ts
+import { AdminClient } from '@caracalai/admin'
+
+const admin = new AdminClient({
+  apiUrl: process.env.CARACAL_API_URL!,
+  coordinatorUrl: process.env.CARACAL_COORDINATOR_URL,
+  adminToken: process.env.CARACAL_ADMIN_TOKEN!,
+  coordinatorToken: process.env.CARACAL_COORDINATOR_TOKEN,
+})
+```
+
+`apiUrl` and `adminToken` are required for API-backed resources. `coordinatorUrl` and `coordinatorToken` are required for Session lifecycle and Delegation methods.
+
+Python:
+
+```python
+from caracalai_admin import AdminClient
+
+admin = AdminClient(
+    api_url=os.environ["CARACAL_API_URL"],
+    admin_token=os.environ["CARACAL_ADMIN_TOKEN"],
+    coordinator_url=os.environ.get("CARACAL_COORDINATOR_URL"),
+    coordinator_token=os.environ.get("CARACAL_COORDINATOR_TOKEN"),
+)
+```
+
+Go:
+
+```go
+import admin "github.com/garudex-labs/caracal/packages/admin/go"
+
+client := admin.NewAdminClient(admin.AdminClientOptions{
+    APIURL:           os.Getenv("CARACAL_API_URL"),
+    AdminToken:       os.Getenv("CARACAL_ADMIN_TOKEN"),
+    CoordinatorURL:   os.Getenv("CARACAL_COORDINATOR_URL"),
+    CoordinatorToken: os.Getenv("CARACAL_COORDINATOR_TOKEN"),
+})
+```
+
+## API groups
+
+| Group              | Methods                                                                                                                                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zones`            | `list`, `get`, `dcrStatus`, `create`, `patch`, `delete`                                                                                                                                                                                                       |
+| `applications`     | `list`, `get`, `create`, `patch`, `rotateSecret`, `getClientSecret`, `delete`, `dcr`                                                                                                                                                                        |
+| `resources`        | `list`, `get`, `create`, `patch`, `delete`                                                                                                                                                                                                                    |
+| `providers`        | `list`, `get`, `create`, `patch`, `delete`                                                                                                                                                                                                                    |
+| `policies`         | `list`, `get`, `create`, `validate`, `addVersion`, `delete`                                                                                                                                                                                                   |
+| `policyTemplates`  | `list`, `get`                                                                                                                                                                                                                                                 |
+| `policySets`       | `list`, `get`, `create`, `addVersion`, `listVersions`, `simulate`, `activate`, `activationStatus`, `delete`                                                                                                                                                   |
+| `grants`           | `list`, `get`, `create`, `revoke`                                                                                                                                                                                                                             |
+| `subjectIssuers`   | `list`, `get`, `create`, `patch`, `delete`                                                                                                                                                                                                                    |
+| `providerConnections` | `create`, `authorizeOAuth`, `revoke`. To switch the upstream account, `revoke` then `authorizeOAuth` again, or re-run `authorizeOAuth` to replace the active connection in place. |
+| `workloads`        | `list`, `get`, `create`, `update`, `rotateSecret`, `getSecret`, `delete`                                                                                                                                                                                     |
+| `authorityRecords` | `list`                                                                                                                                                                                                                                                        |
+| `subjects`         | `revoke` - the kill switch: one call revokes every live Authority record for the Subject, terminates linked Sessions, revokes their Delegations and provider connections, and feeds the revocation stream so in-flight mandates die before `exp`. Idempotent. |
+| `sessions`         | `list`, `get`, `children`, `suspend`, `resume`, `terminate`, `effectiveAuthority`                                                                                                                                                                             |
+| `audit`            | `list`, `byRequest`, `explain`                                                                                                                                                                                                                                |
+| `adminAudit`       | `list`                                                                                                                                                                                                                                                        |
+| `stepUpChallenges` | `list`, `get`, `approve`, `reject`                                                                                                                                                                                                                            |
+| `delegations`      | `active`, `inbound`, `outbound`, `traverse`, `impact`, `revoke`                                                                                                                                                                                               |
+
+The same groups exist in every language with idiomatic naming: `admin.policySets.addVersion(...)` in TypeScript is `admin.policy_sets.add_version(...)` in Python and `client.PolicySets.AddVersion(...)` in Go.
+
+## Policy activation example
+
+```ts
+const policy = await admin.policies.create(zoneId, {
+  name: 'pipernet-read',
+  content: policySource,
+})
+
+const set = await admin.policySets.create(zoneId, 'pipernet')
+const version = await admin.policySets.addVersion(zoneId, set.id, [{ policy_version_id: policy.version.id }])
+
+await admin.policySets.activate(zoneId, set.id, version.id)
+
+let status = await admin.policySets.activationStatus(zoneId, set.id, version.id)
+while (status.propagation_status !== 'loaded' && status.propagation_status !== 'failed') {
+  await new Promise((resolve) => setTimeout(resolve, 2000))
+  status = await admin.policySets.activationStatus(zoneId, set.id, version.id)
+}
+```
+
+## Idempotent provisioning
+
+Alongside the API groups, the package exports `ensure*` reconcilers - `ensureApplication`, `ensureApiKeyProvider`, `ensureResource`, `ensureGrants`, and `ensureActivePolicySet` - that converge an object to a desired state: create it when absent, patch it only on drift, and return the live object. They are safe to rerun, so provisioning scripts and CI jobs declare state instead of scripting create-then-patch sequences.
+
+`ensureGovernedUpstreams` composes them for the most common declaration: a set of upstream APIs, each with a sealed credential provider, a gateway-routed resource, and its application grants, converged in dependency order in one call.
+
+```ts
+import { ensureGovernedUpstreams } from '@caracalai/admin'
+
+const results = await ensureGovernedUpstreams(admin, zoneId, {
+  upstreams: [
+    {
+      provider: {
+        name: 'OpenAI key',
+        identifier: 'provider://openai',
+        publicConfig: { auth_location: 'header', header_name: 'Authorization', auth_scheme: 'Bearer' },
+        apiKey: process.env.OPENAI_API_KEY,
+      },
+      resource: {
+        name: 'OpenAI',
+        identifier: 'resource://openai',
+        scopes: ['models:read', 'chat:write'],
+        upstream_url: 'https://api.openai.com',
+      },
+      grants: [{ applicationId: agentAppId, scopes: ['models:read', 'chat:write'] }],
+    },
+  ],
+})
+```
+
+Each run seals the provider key, binds the resource to it, and rewrites the zone's grant document to exactly the declared set - an upstream removed from the input loses its grants on the next run, which is the revocation. An upstream whose provider has no sealed key fails closed before any resource binds a dead credential. The same reconcilers ship in the Python package (`caracalai-admin`, as `ensure_governed_upstreams`) and the Go module (`github.com/garudex-labs/caracal/packages/admin/go`, as `EnsureGovernedUpstreams`).
+
+## Credential custody
+
+Managed application client secrets and workload secrets are generated server-side, verified only by hash, and held sealed in the Secret Store. Create and rotate responses carry the plaintext for immediate delivery, and `applications.getClientSecret()` / `workloads.getSecret()` retrieve it later - each retrieval is recorded in the zone audit timeline as a credential reveal, so provisioning pipelines can fetch a credential at deploy time instead of persisting it at creation time.
+
+```ts
+const { client_secret } = await admin.applications.getClientSecret(zoneId, appId)
+const { secret } = await admin.workloads.getSecret(zoneId, workloadId)
+```
+
+## Dynamic Client Registration (DCR)
+
+DCR is the **only** way to create short-lived, self-registering client identities, and it is **programmatic-only** - Console creates managed applications, not DCR applications. Use `applications.dcr()` from a control-plane workload (per-tenant onboarding, a CI job, a per-integration identity) that already holds an admin token.
+
+```ts
+const app = await admin.applications.dcr(zoneId, {
+  name: 'tenant-hooli-job',
+  expires_in: 900, // seconds; capped at 3600
+})
+// app.client_secret is returned ONCE and never retrievable again.
+```
+
+Creation is hardened server-side and cannot be misused as open self-registration:
+
+* **Admin token required** - the endpoint sits behind admin-bearer auth; a workload must hold a real, revocable, zone-scoped admin credential. Agent SDKs (`caracalai`) cannot create applications.
+* **Zone feature gate** - refused with `dcr_disabled` unless an operator enabled `dcr_enabled` on the zone.
+* **Rate-limited and capped** - per-actor request limiting plus a per-zone cap on live DCR applications (`dcr_rate_limit_exceeded` / `dcr_limit_exceeded`).
+* **Short-lived by construction** - `expires_in` is capped at one hour; expired applications are denied at token authentication and later archived by DCR cleanup.
+* **Secret hygiene** - the client secret is generated server-side, stored only as a hash, and returned exactly once.
+* **Authority is still policy-bound** - a DCR application is a credential, not a grant. It authenticates default-deny and receives no tool access until a policy (typically keyed on `registration_method == "dcr"`) grants scopes.
+
+DCR applications remain visible read-only in Console under the `dcr` method for audit and inspection.
+
+## Rotating a managed application secret
+
+Two rotation paths exist and differ in who generates the secret. `applications.rotateSecret()` generates a strong secret server-side and returns the plaintext once - the path the web console's **rotate secret** action uses, and the right default. `applications.patch({ client_secret })` instead stores a secret you supply; the server keeps only its hash and the patch response does not echo it - use it only when an external system must own secret generation.
+
+```ts
+await admin.applications.patch(zoneId, appId, {
+  client_secret: newSecret, // store it yourself; the patch response does not echo it
+})
+```
+
+Rotation is rejected with `client_secret_not_configured` if the application has no secret to replace. DCR applications are not rotated - they are short-lived and replaced by re-registration.
+
+## Error handling
+
+Failed HTTP responses throw `AdminApiError` (TypeScript and Python) or return `*AdminAPIError` (Go) with `status`, `code`, parsed response details, and the base surface (`api` or `coordinator`). Non-idempotent write methods are not retried; read methods retry transient statuses.
+
+The default request timeout is 30 seconds and the default read retry budget is three. Retry handling honors `Retry-After` up to 30 seconds. Collection helpers follow `next_cursor` and stop after a bounded number of pages. Writes require caller-owned idempotency or reconciliation; the client does not replay them.
+
+Core groups and reconcilers are implemented in all three languages with idiomatic names. Do not infer that a newly introduced group exists in another language until its public package exports it; the raw [Admin API](/v0.2/api/control-plane/) remains the wire source of truth.
+
+## Boundary
+
+Use the Admin package for automation. Use the web console for human workflows. Do not expose Admin operations as top-level `caracal` runtime commands.

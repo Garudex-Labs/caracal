@@ -1,0 +1,36 @@
+---
+title: Debug Infrastructure Issues
+description: Diagnose an unhealthy deployment from orchestration through
+  storage, streams, services, and safety state.
+pageType: workflow
+slug: v0.2/operations/debugging
+---
+
+Use this after readiness, rollout, or dependency failure. It diagnoses infrastructure; recovery is separate.
+
+## Prerequisites
+
+Preserve the first failing readiness response, deployment/config diff, workload status, logs, and alert timeline before restart.
+
+## Diagnosis Procedure
+
+1. Inspect Compose containers or Kubernetes pods, Jobs, events, and rollout.
+2. Compare mode, Secret keys, URLs, ports, origins, and release pin with the release.
+3. Test Postgres connectivity, migrations, pools, and outbox age.
+4. Test Redis connectivity, `noeviction`, persistence, groups, and pending entries.
+5. Read exact readiness reason and correlated logs.
+6. Inspect policy age, STS circuit, revocation snapshot, audit DLQ/replay, and evidence-loss latch.
+
+Start with `caracal status --json`, Compose status/logs, or Kubernetes get/describe/logs.
+
+## Verification
+
+Diagnosis is complete when one dependency, value, ceiling, or safety invariant explains readiness with log/metric evidence.
+
+## Recovery Boundary
+
+Do not delete volumes, reset streams, restore data, or clear evidence before selecting recovery.
+
+## Next Step
+
+Apply [Recover from Failures](/v0.2/operations/failure-modes/).

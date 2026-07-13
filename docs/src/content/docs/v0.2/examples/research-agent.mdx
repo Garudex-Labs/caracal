@@ -1,0 +1,111 @@
+---
+title: Launch Research Agent
+description: Run a plain CLI agent with Google and OpenAI provider credentials
+  injected by caracal run.
+pageType: workflow
+slug: v0.2/examples/research-agent
+---
+
+Research Agent is a `caracal run` example in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `ResearchAgent/`. It launches a normal Node.js CLI agent and injects provider-native credentials only into the child process after Caracal authorizes the run.
+
+## When to use it
+
+Use it to evaluate one-shot runtime credential injection for an existing CLI that cannot accept an SDK transport. The launcher limits described in [Run an Agent with caracal run](/v0.2/guides/runtime-run/) apply: do not use it for a long-running service or as proof of request-level Gateway enforcement.
+
+## Prerequisites
+
+* Three provider-backed resources with runtime injection enabled and least-privilege binding scopes.
+* A Launcher workload and owner-only workload secret.
+* Synthetic or development provider credentials; the offline test does not call third parties.
+
+## What it demonstrates
+
+| Resource | Injected env | Used for |
+| --- | --- | --- |
+| `resource://google-drive` | `GOOGLE_DRIVE_ACCESS_TOKEN` | Searching and exporting Google Drive documents. |
+| `resource://google-calendar` | `GOOGLE_CALENDAR_ACCESS_TOKEN` | Reading relevant Calendar events. |
+| `resource://openai` | `OPENAI_API_KEY` | Answering the terminal question with model context. |
+
+The agent has no Caracal SDK dependency. It reads provider-native environment variables and behaves like an existing third-party terminal tool.
+
+## Console setup
+
+Use the web console to create or select:
+
+| Object | Purpose |
+| --- | --- |
+| Zone | Owns the workload, providers, resources, and policies. |
+| Workload | Identity used by `caracal run` to call STS; created on the **Launcher** page. |
+| Google Drive provider | Returns a Drive read token. |
+| Google Calendar provider | Returns a Calendar read token. |
+| OpenAI provider | Returns an OpenAI-compatible credential. |
+| Resources | Map `resource://google-drive`, `resource://google-calendar`, and `resource://openai` to providers. |
+| Policy | Allows the workload to request all three resources. |
+
+Enable runtime injection on each provider.
+
+Then open the console's **Launcher** page, create a workload named `research agent`, and add three launch bindings:
+
+| Environment variable | Resource |
+| --- | --- |
+| `GOOGLE_DRIVE_ACCESS_TOKEN` | `resource://google-drive` |
+| `GOOGLE_CALENDAR_ACCESS_TOKEN` | `resource://google-calendar` |
+| `OPENAI_API_KEY` | `resource://openai` |
+
+Select the read-only scopes on the Drive and Calendar bindings so each injected credential carries only what the agent needs. The Launcher page then shows the exact launch commands.
+
+## Store the workload secret
+
+The launcher needs one local file: the workload's secret at the runtime secret path. Copy it from the Launcher page - it stays retrievable there, with every reveal audited.
+
+```bash
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
+mkdir -p ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID
+printf '%s' '<workload secret>' > ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
+chmod 600 ~/.config/caracal/runtime/$CARACAL_WORKLOAD_ID/secret
+```
+
+Do not export `GOOGLE_DRIVE_ACCESS_TOKEN`, `GOOGLE_CALENDAR_ACCESS_TOKEN`, or `OPENAI_API_KEY` yourself. Caracal injects them into the child process after STS authorization.
+
+## Launch the agent
+
+```bash
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/ResearchAgent
+export CARACAL_WORKLOAD_ID="<workload ID from the Launcher page>"
+caracal run -- node agent.mjs
+```
+
+The agent confirms the injected credentials (values masked) and opens an interactive prompt:
+
+```text
+[agent] credential preflight (values masked, injected by launcher):
+[agent]   GOOGLE_DRIVE_ACCESS_TOKEN  present  -> Google Drive (read-only scope)
+[agent]   GOOGLE_CALENDAR_ACCESS_TOKEN  present  -> Google Calendar (read-only scope)
+[agent]   OPENAI_API_KEY  present  -> OpenAI
+Caracal run research agent ready. Ask about Drive docs or Calendar events. Type "exit" to quit.
+>
+```
+
+Started directly with `node agent.mjs`, the preflight fails with exit code 2 before any network call. Credentials disappear with the child-process environment when the process exits.
+
+## Test
+
+```bash
+cd caracal-examples/ResearchAgent
+pnpm test
+```
+
+The tests do not contact Google, OpenAI, or Caracal.
+
+## Validate the launch
+
+Run the agent directly and expect exit `2`, then run it through `caracal run` and expect all three masked preflight entries. Confirm binding fetch and credential mints in Audit, then exit and verify credentials are absent from the parent shell.
+
+:::caution[Failure point: static authority]
+Injected API keys or bearer tokens can carry more upstream authority than Caracal binding scopes suggest. Scopes gate release; they cannot narrow a static provider credential. Prefer Gateway brokering for strong per-request enforcement.
+:::
+
+## Next Step
+
+Continue to [Run Lynx Capital](/v0.2/examples/lynx-capital/) when you want a full app reference lab with live Console inspection.

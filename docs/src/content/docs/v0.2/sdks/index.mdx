@@ -1,0 +1,58 @@
+---
+title: Choose an SDK or Package
+description: Choose the Caracal SDK, verification engine, framework adapter,
+  admin client, or state backend for your integration.
+slug: v0.2/sdks
+---
+
+Use SDKs when you need package-level details after a guide. The [Guides](/v0.2/guides/) section shows task workflows; this section explains package names, install commands, public APIs, runtime requirements, and where each package fits.
+
+:::caution[Three separate boundaries]
+Application SDKs create and carry authority, the Admin package changes product state, and verification packages enforce inbound mandates. Do not use an application credential for administration or treat context propagation as authentication.
+:::
+
+## Choose by What You Are Building
+
+| I am building...                     | Start here                                           | Then read                                                                                             |
+| ------------------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| TypeScript app or agent workflow     | [TypeScript SDK](./typescript/)                      | [OAuth Package](./oauth/), [Verify Package](./verify/)                                                |
+| Python app, agent, or ASGI service   | [Python SDK](./python/)                              | [ASGI Adapter](./adapters/asgi/), [FastMCP Adapter](./adapters/fastmcp/), [Verify Package](./verify/) |
+| Go service or agent workflow         | [Go SDK](./go/)                                      | [Go net/http Adapter](./adapters/nethttp/)                                                            |
+| Express resource server              | [Express Adapter](./adapters/express/)               | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/)                              |
+| FastAPI or Starlette resource server | [ASGI Adapter](./adapters/asgi/)                     | [Verify Package](./verify/), [Redis Revocation Store](./backends/redis/)                              |
+| FastMCP server                       | [FastMCP Adapter](./adapters/fastmcp/)               | [Verify Package](./verify/)                                                                           |
+| Custom verification boundary         | [Verification Layer Overview](./verification-layer/) | [Identity Package](./identity/), [Revocation Package](./revocation/)                                  |
+| Admin or provisioning automation     | [Admin Package](./admin/)                            | [Use the Admin API](/v0.2/api/control-plane/)                                                              |
+| Shared revocation storage            | [Redis Revocation Store](./backends/redis/)          | [Revocation Package](./revocation/)                                                                   |
+
+## Package Map
+
+| Area                   | TypeScript / Node             | Python                       | Go                                                             |
+| ---------------------- | ----------------------------- | ---------------------------- | -------------------------------------------------------------- |
+| App SDK                | `@caracalai/sdk`              | `caracalai-sdk`              | `github.com/garudex-labs/caracal/packages/sdk/go`              |
+| Identity verification  | `@caracalai/identity`         | `caracalai-identity`         | `github.com/garudex-labs/caracal/packages/identity/go`         |
+| OAuth token exchange   | `@caracalai/oauth`            | `caracalai-oauth`            | `github.com/garudex-labs/caracal/packages/oauth/go`            |
+| Revocation store       | `@caracalai/revocation`       | `caracalai-revocation`       | `github.com/garudex-labs/caracal/packages/revocation/go`       |
+| Verification engine    | `@caracalai/verify`           | `caracalai-verify`           | `github.com/garudex-labs/caracal/packages/verify/go`           |
+| Express adapter        | `@caracalai/express`          | Not applicable               | Not applicable                                                 |
+| FastMCP adapter        | `@caracalai/fastmcp`          | `caracalai-fastmcp`          | Not applicable                                                 |
+| ASGI adapter           | Not applicable                | `caracalai-asgi`             | Not applicable                                                 |
+| net/http adapter       | Not applicable                | Not applicable               | `github.com/garudex-labs/caracal/packages/adapters/nethttp/go` |
+| Redis revocation store | `@caracalai/revocation-redis` | `caracalai-revocation-redis` | `github.com/garudex-labs/caracal/packages/backends/redis/go`   |
+
+## Runtime Requirements
+
+| Ecosystem | Current package target                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| Node.js   | Node `>=22` for published TypeScript packages that declare an engine.                                                 |
+| Python    | Python `>=3.12` for published Python packages.                                                                        |
+| Go        | Module paths under `github.com/garudex-labs/caracal/packages/...`; current modules declare Go `1.26` where specified. |
+
+Each Go submodule has a path-prefixed release tag at the same commit as the product tag, so an exact Caracal SemVer resolves without a pseudo-version. Adapter availability is intentionally ecosystem-specific; parity covers behavior exposed by all three application facades, not identical framework packages.
+
+## Related Guides
+
+* [Add SDK to Your App](/v0.2/get-started/add-sdk-to-your-app/)
+* [Make Runs Identifiable with Labels](/v0.2/tutorials/connect-an-agent/)
+* [Protect a Gateway-Routed HTTP API](/v0.2/guides/protect-gateway-http/)
+* [Implement Multi-Agent Delegation](/v0.2/guides/delegation/)

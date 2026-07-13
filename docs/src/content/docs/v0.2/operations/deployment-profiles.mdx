@@ -1,0 +1,43 @@
+---
+title: Choose a Deployment Profile
+description: Decide between the shipped Compose, Helm, and OpenTofu paths
+  without assuming unsupported availability.
+pageType: reference
+slug: v0.2/operations/deployment-profiles
+---
+
+Choose a profile from requirements you can verify. Caracal ships deployment mechanics; it does not certify capacity, high availability, multi-region operation, or a cloud service.
+
+## Decision
+
+| Requirement | Use | Do not infer |
+| --- | --- | --- |
+| Local development from source | `caracal up` with development Compose | Production hardening |
+| One Docker host with bundled stores | Installed runtime and packaged Compose | Host redundancy or zero downtime |
+| Kubernetes 1.30+ with operator dependencies | Helm chart | A tested SLO or managed stores |
+| Declarative chart installation | `caracalStack` OpenTofu module | Resources beyond namespace, optional Secret, and Helm release |
+| Provider-neutral VM bootstrap | `caracalHost` OpenTofu module | VM, firewall, TLS, backup, or monitoring creation |
+
+## Prerequisites
+
+Define ingress, recovery objectives, storage ownership, secret delivery, monitoring, and maintenance policy. If availability matters, prove it in your environment; replicas, PDBs, HPAs, and atomic upgrades are mechanisms, not guarantees.
+
+## Safe Procedure
+
+1. Use `dev` only on a local development host.
+2. Pin a release and use `stable` for production evaluation.
+3. Keep Compose ports loopback-bound; add an operator-owned TLS proxy for remote access.
+4. For Helm, provide Postgres, Redis, runtime Secret, ingress, and network egress explicitly.
+5. Establish backup, restore, metrics, alerts, and incident ownership before production traffic.
+
+## Verify
+
+Confirm assets render, secrets resolve, migrations finish, and `/ready` passes. Run a canary token exchange and Gateway request, then locate its audit evidence.
+
+## Rollback or Recovery
+
+Keep the prior release and values. Restore data only from a tested backup and restore secrets separately. Helm rollback never reverses database migrations.
+
+## Next Step
+
+Use [Deploy with Docker Compose](/v0.2/operations/docker-compose/) or [Deploy with Helm](/v0.2/operations/kubernetes-helm/).

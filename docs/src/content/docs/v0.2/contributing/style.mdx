@@ -1,0 +1,58 @@
+---
+title: Follow Project Standards
+description: Repository conventions for code, docs, naming, command ownership,
+  and product boundaries.
+pageType: reference
+slug: v0.2/contributing/style
+---
+
+Caracal style favors small, explicit boundaries and source-aligned documentation.
+
+## Language Style Guides
+
+| Language                  | Required style                                                              | Enforcement                                                                     |
+| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| TypeScript and JavaScript | Existing repository patterns plus the pinned Prettier workspace dependency. | `pnpm run style` checks changed TS/JS source files with Prettier.               |
+| Go                        | Effective Go with canonical `gofmt` formatting.                             | `pnpm run style` checks changed Go source files with `gofmt -l`.                |
+| Python                    | PEP 8 layout as formatted by the pinned Ruff version.                       | `pnpm run style` checks changed Python source files with `ruff format --check`. |
+
+The pre-commit hook activated by `pnpm install` formats staged files automatically on every commit, and `pnpm run style:fix` formats changed files on demand. The gate always runs the Ruff version pinned in `scripts/pythonStyleRequirements.in`, so local formatting matches CI exactly. Pull requests run the same changed-file style gate automatically for primary-language source files.
+
+## Code Conventions
+
+| Convention                  | Apply it                                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keep changes focused        | Avoid unrelated refactors in feature or docs PRs.                                                                                                         |
+| Prefer explicit validation  | Fail closed on auth, policy, config, stream, and key errors.                                                                                              |
+| Preserve product boundaries | Do not couple open-source code to enterprise-only code.                                                                                                   |
+| Respect command ownership   | Runtime CLI is lifecycle and setup; the web console is the human surface, the Admin API is broad automation, and the Control API is Zone-scoped dispatch. |
+| Use existing shared layers  | Reuse core config, errors, crypto, logging, engine dispatch, and SDK helpers.                                                                             |
+| Preserve language parity    | SDK capability and wire changes in shared packages must land idiomatically in TypeScript, Python, and Go with equivalent tests.                           |
+| Preserve file headers       | Source files keep the repository copyright/product header in the language's comment syntax.                                                               |
+
+## Documentation Conventions
+
+| Page type    | Pattern                                                               |
+| ------------ | --------------------------------------------------------------------- |
+| Landing      | Purpose, audience, map, recommended reading path.                     |
+| Workflow     | Prerequisites, steps, validation, troubleshooting, related links.     |
+| Reference    | Exact names, defaults, tables, examples, source-of-truth links.       |
+| Architecture | Diagram, component responsibilities, flow, boundaries, related pages. |
+
+Recurring sections use fixed names and casing: `## Prerequisites`, `## Expected Outcome`, `## Common Mistakes`, `## Troubleshooting`, `## Related Pages`, and `## Next Step`. Cross-reference link text matches the target page's title or sidebar label. Web console locations are written as breadcrumbs (**Services → Launcher**). Clause separators are spaced hyphens (`-`), not em dashes; quotes are straight. Example data uses the PiperNet/Hooli sample universe with reserved `.example` hosts and UUID-style zone IDs; scopes in a snippet must match the resource the snippet targets. Rego policy-data blocks are fenced as `rego`.
+
+Do not use docs to preserve stale command names, screenshots, package names, or workflows. Update the whole affected page coherently.
+
+## Project Boundaries
+
+* Top-level `caracal` commands are limited to runtime lifecycle, upgrade, purge, console admission, `caracal run`, and the optional web development launcher.
+* Product-management workflows for Zones, Policy, Grants, audit, Sessions, Delegation, and Control belong in the web console, Admin SDK, or Control API docs.
+* Open-source code must not import, reference, or depend on enterprise-only code.
+
+## Naming
+
+Use canonical terms from [Glossary](/v0.2/reference/glossary/). Keep raw names such as `agent_session_id`, `delegation_edge_id`, and `/agents` at explicit protocol boundaries only, and link the [Product-to-Wire Mapping](/v0.2/reference/interoperability-contracts/#product-to-wire-mapping) wherever a raw name must appear. Capitalize Caracal object nouns (Session, Zone, Delegation, Mandate, Approval) when naming the product object; keep fully generic uses lowercase, and never mix both styles in one page.
+
+## Next Step
+
+Use [Make a Change](/v0.2/contributing/workflow/) to plan and submit a focused pull request.

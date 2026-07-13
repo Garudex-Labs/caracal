@@ -1,0 +1,78 @@
+---
+title: Proxy Through Gateway
+description: Protected reverse-proxy behavior, routing headers, denial checks,
+  and upstream forwarding.
+pageType: api
+slug: v0.2/api/gateway
+---
+
+Gateway is served on port `8081`. It is not a CRUD API; it is a protected reverse proxy for configured resources.
+
+Use an SDK transport instead of constructing requests manually. Gateway does not offer pagination, management CRUD, or an application-visible idempotency API.
+
+## Operator Endpoints
+
+| Method | Path                           | Purpose                     |
+| ------ | ------------------------------ | --------------------------- |
+| `GET`  | `/health`                      | Liveness check.             |
+| `GET`  | `/ready`                       | Readiness check.            |
+| `GET`  | `/metrics`                     | Prometheus metrics.         |
+| `GET`  | `/metrics.json`                | JSON metrics.               |
+| `POST` | `/internal/revocations/reload` | Reload revocation snapshot. |
+
+## Request Requirements
+
+| Input                       | Required | Purpose                                                      |
+| --------------------------- | -------- | ------------------------------------------------------------ |
+| `Authorization: Bearer ...` | yes      | One-shot Caracal Gateway-ingress mandate (`use=gateway`).    |
+| `X-Caracal-Resource`        | yes      | Resource identifier STS resolves to the routed upstream.     |
+| Request path                | yes      | Forwarded to the configured upstream after traversal checks. |
+
+The original HTTP method, query, headers, and body are proxied after safety filtering. Gateway strips hop-by-hop headers, caller `Authorization`, internal Caracal routing headers, `Forwarded`, and `X-Real-IP`, then applies the resource's provider credential. `X-Caracal-Resource` is routing metadata, not authorization; the signed mandate and STS decision are authoritative.
+
+Gateway rejects any request that sets `X-Caracal-Client-ID`; the caller's application identity derives from the verified mandate's `client_id` claim.
+
+A proxied request:
+
+```bash
+curl -s http://localhost:8081/v1/models \
+  -H "Authorization: Bearer $GATEWAY_MANDATE" \
+  -H 'X-Caracal-Resource: resource://pipernet'
+```
+
+## Denial Checks
+
+Gateway rejects before upstream dispatch. Treat these checks as the safety gate in front of every protected upstream.
+
+| Stage               | Checks                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Request preflight   | Bearer token exists, token size is bounded, `X-Caracal-Resource` exists, and request path is not traversal.                      |
+| Token validation    | Token is well formed, not expiring inside the preflight window, signature-valid, not replayed, not revoked, and includes a zone. |
+| Resource resolution | STS resolves `(zone_id, resource)` to a gateway-routed resource, and the returned upstream passes host safety checks.            |
+| STS exchange        | Gateway's STS circuit is closed and the signed exchange succeeds; STS enforces the resource's declared scopes on the mandate.    |
+
+## Forwarding Behavior
+
+After checks pass, Gateway performs a signed STS exchange of the inbound `use=gateway` mandate, receives a `use=resource` mandate plus a private upstream directive, forwards the request to the resource's upstream, and emits audit evidence. Request and upstream timeouts are controlled by Gateway service config.
+
+Gateway proxies HTTP request/response traffic, including streamed responses such as SSE. Streamed bodies are flushed chunk by chunk, and revocation anchors are re-checked on every chunk boundary; a mid-stream revocation truncates the stream and sets the `X-Caracal-Revoked` trailer. Gateway does not proxy WebSocket connections: hop-by-hop headers, including `Upgrade`, are stripped before forwarding, so upgrade handshakes never reach the upstream. Protect WebSocket workloads with in-process verification at the service edge instead, using [Protect an MCP Server](/v0.2/guides/protect-mcp/) or a framework adapter.
+
+## Replay Protection
+
+Every Gateway-ingress mandate is single-use. On first presentation Gateway records the token's `jti` in Redis with a lifetime equal to the token's remaining validity; presenting the same mandate again is rejected as a confirmed replay and emits a `replay_detected` audit event carrying the request id, resource, and client identity. Session mandates are not valid Gateway inputs. There is no client-side nonce to manage: the mandate's `jti` is the replay key. Scoped SDK transports therefore bypass mandate caching and single-flight for the final exchange, and application transports cache only their source/target Session and Delegation state before minting a fresh Gateway-ingress mandate per request. They never retry the data-plane request or replay its body. When Redis is unreachable, the production default rejects the request rather than silently widening the replay window; a deployment can opt into fail-open, which forwards the request and logs the tracker error.
+
+## Responses and Failures
+
+After dispatch, Gateway streams the upstream status, headers, and body. Before dispatch, Caracal failures use JSON `error`, `error_description`, and request correlation where available. Typical classes are `400` malformed routing input, `401` missing/invalid/expired/replayed/revoked mandate, `403` operation or authority denial, `404` unresolved resource, `502` upstream or STS failure, and `503` open dependency circuit. Do not assume a non-2xx response came from Gateway after dispatch; it may be the upstream's response.
+
+Retries are a business-operation decision. Mint a fresh mandate for each new attempt and retry only when the HTTP method/body and upstream contract are idempotent.
+
+## Next Step
+
+Continue to [Use Event Topics](/v0.2/api/event-topics/) to understand the Redis Stream topics that carry audit, invalidation, revocation, and Session lifecycle events.
+
+## Related Pages
+
+* [Protect Upstreams](/v0.2/services/gateway/)
+* [Enforce Boundaries](/v0.2/architecture/trust-boundaries/)
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)

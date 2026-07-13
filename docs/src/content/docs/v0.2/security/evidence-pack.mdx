@@ -1,0 +1,36 @@
+---
+title: Generate an Evidence Pack
+description: Run the repository evidence script and interpret PASS, FAIL, and
+  SKIPPED honestly.
+pageType: workflow
+slug: v0.2/security/evidence-pack
+---
+
+`evidencePack.sh` captures image provenance, schema validation, runtime smoke readiness, and the threat model. It is not compliance, penetration testing, an SBOM archive, config audit, or HA proof.
+
+## Prerequisites
+
+Provide checkout, release version/authenticated `gh`, database credentials/`psql`, reachable runtime, and protected output as applicable.
+
+## Procedure
+
+```bash
+export CARACAL_VERSION=<tag>
+export PGHOST=<host> PGPORT=5432 PGUSER=<user> PGDATABASE=<database> PGPASSWORD=<password>
+export CARACAL_SMOKE_HOST=<host>
+bash infra/scripts/evidencePack.sh
+```
+
+Output is under `evidence/caracal-evidence-<UTC>/`. Executed failures exit non-zero; missing inputs produce non-failing `SKIPPED`.
+
+## Verify
+
+Require relevant checks to be `PASS`; skipped means missing evidence. Add rendered deployment, digests, config review, canaries, alerts, and restore evidence separately.
+
+## Recovery
+
+Preserve raw failure output, correct the boundary, and generate a new pack. Never edit generated status.
+
+## Next Step
+
+Use [Review OSS Adoption Readiness](/v0.2/security/adoption-review/).

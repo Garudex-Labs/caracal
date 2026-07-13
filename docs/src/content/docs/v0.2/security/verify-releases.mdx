@@ -1,0 +1,41 @@
+---
+title: Verify a Release
+description: Verify archive checksums and GitHub build provenance before installation.
+pageType: workflow
+slug: v0.2/security/verify-releases
+---
+
+The release workflow publishes archive checksums and GitHub Artifact Attestations; container builds request provenance and SBOM attestations. Verify only artifacts present for the selected release.
+
+## Prerequisites
+
+Download from official GitHub/GHCR. Install/authenticate GitHub CLI. Record tag and digest/hash.
+
+## Archive Procedure
+
+```bash
+sha256sum --check SHA256SUMS
+gh attestation verify caracal-runtime-<platform>-<version>.tar.gz --repo Garudex-Labs/caracal
+jq '{release, sha, source, imageDigests}' manifest.json
+```
+
+Use `shasum -a 256 --check` on macOS or `Get-FileHash` on PowerShell. The manifest `sha` and `source.gitSha` must both equal the full commit behind the release tag, `source.dirty` must be `false`, and every deployed image must have an immutable `imageDigests` entry. Installers always verify checksum; provenance is opportunistic unless `CARACAL_REQUIRE_PROVENANCE=1`.
+
+## Container Procedure
+
+```bash
+gh attestation verify oci://ghcr.io/garudex-labs/caracal-go:<tag> --repo Garudex-Labs/caracal
+docker buildx imagetools inspect ghcr.io/garudex-labs/caracal-go:<tag>
+```
+
+Repeat for every deployed image and pin digests. Inspect available attestations; do not infer SBOM presence from provenance alone.
+
+Compare each inspected OCI index digest with the corresponding manifest `imageDigests` value and compare the chart digest with `helm.digest`. A matching tag without a matching digest is a different artifact and must not be admitted.
+
+## Failure Recovery
+
+Do not run failed/unverifiable artifacts. Re-download and confirm tag/repository. Preserve hashes/output and report privately if persistent.
+
+## Next Step
+
+Capture deployment evidence with [Generate an Evidence Pack](/v0.2/security/evidence-pack/).

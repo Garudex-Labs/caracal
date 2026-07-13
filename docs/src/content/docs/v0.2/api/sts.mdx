@@ -1,0 +1,124 @@
+---
+title: Use STS Endpoint
+description: OAuth token exchange, JWKS, Approval, and internal policy endpoints
+  served by STS.
+pageType: api
+slug: v0.2/api/sts
+---
+
+STS is served on port `8080` and issues scoped Caracal mandate JWTs.
+
+Applications normally call it through the OAuth or application SDK. The public exchange follows RFC 8693 framing with Caracal parameters; internal policy and signing-key endpoints are service-to-service only.
+
+## Public Endpoints
+
+| Method | Path                                    | Purpose                                                                               |
+| ------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST` | `/oauth/2/token`                        | OAuth token exchange for resource, session, Gateway, or delegated mandates.           |
+| `GET`  | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone.                        |
+| `GET`  | `/step-up/{id}`                         | Approval hold state; `?wait={seconds}` long-polls until the state changes.            |
+| `POST` | `/step-up/{id}/decision`                | Subject-plane approval decision, authenticated with a federated user session mandate. |
+| `GET`  | `/health`                               | Liveness check.                                                                       |
+| `GET`  | `/ready`                                | Readiness check.                                                                      |
+| `GET`  | `/metrics`                              | Prometheus metrics.                                                                   |
+| `GET`  | `/metrics.json`                         | JSON metrics.                                                                         |
+
+## Token Exchange Request
+
+`POST /oauth/2/token` accepts body-only `application/x-www-form-urlencoded` parameters. Query parameters, duplicate singleton fields, and other media types are rejected. Repeated `resource` fields are allowed; STS trims, exact-deduplicates, and sorts them before evaluation.
+
+| Parameter                                                    | Purpose                                                                                               |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `grant_type`                                                 | OAuth grant type.                                                                                     |
+| `subject_token`, `subject_token_type`                        | Existing authority to exchange: a session mandate this STS issued.                                    |
+| `resource`                                                   | One or more target resource identifiers.                                                              |
+| `scope`                                                      | Requested scopes.                                                                                     |
+| `zone_id`                                                    | Zone boundary.                                                                                        |
+| `application_id`                                             | Calling application.                                                                                  |
+| `client_secret`                                             | Application authentication.                                                                           |
+| `session_id`, `agent_session_id`, `delegation_edge_id`       | Protocol names for Authority record ID, Session ID, and Delegation ID. They are distinct identifiers. |
+| `ttl_seconds`                                                | Requested TTL.                                                                                        |
+| `challenge_id`                                               | Consumes an approved Approval hold during retry.                                                      |
+
+`grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`. `subject_token_type` must match the presented token class. `scope` is a space-delimited string. `ttl_seconds` must be a positive integer within server limits. Resource identifiers, zone, application, Session, Authority-record, and Delegation bindings are validated server-side; caller-supplied identifiers never establish authority by themselves.
+
+RFC 8693 `actor_token` is not supported: a request that carries one is rejected with `invalid_token`. Public `client_assertion` and `client_assertion_type` fields are also rejected; application authentication uses `client_secret`. The acting application's identity reaches policy input as `input.context.actor_claims.caracal_client_id`.
+
+A minimal application-principal exchange:
+
+```bash
+curl -s http://localhost:8080/oauth/2/token \
+  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+  --data-urlencode "zone_id=$CARACAL_ZONE_ID" \
+  --data-urlencode "application_id=$CARACAL_APPLICATION_ID" \
+  --data-urlencode "client_secret=$CARACAL_APP_CLIENT_SECRET" \
+  --data-urlencode 'resource=resource://pipernet' \
+  --data-urlencode 'scope=pipernet:read'
+```
+
+## Subject Identity
+
+STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. Two subject token classes are accepted:
+
+* `urn:ietf:params:oauth:token-type:access_token` - a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
+* `urn:ietf:params:oauth:token-type:id_token` - **subject federation**: an end user's identity token from a registered Subject issuer. The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS and creates an Authority record whose `sub` is copied verbatim. A federation exchange names no resources and mints no scopes: the record is an identity and revocation anchor, not resource authority.
+
+The Subject identifier is opaque to Caracal. It may be a user ID, UUID, employee ID, or customer ID. STS requires only that the same identity always presents the same value. The Authority record stores that `sub`; provider connections, approval bindings, revocation, and audit can attribute activity to it. Scope authority is decided by application bindings, resource grants, Delegation narrowing, and label confinement - not by the Subject identifier.
+
+When an SDK starts a Session with `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`, that field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's federated `sub`.
+
+### Subject Identifier Guarantees
+
+Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails, numeric ids, prefixed ids such as `auth0|507f...`, URIs, ARNs, or unicode names. Caracal never parses, normalizes, case-folds, or trims the value: it is compared byte-for-byte everywhere, so two byte-distinct values are two subjects, and the recorded value is always byte-identical to what the issuer signed. A federation exchange rejects only values that are unsafe to store, index, log, or display:
+
+| Rejected                                                         | Reason                                                                                                 |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Empty, or longer than 512 bytes                                  | Bounded storage, indexing, and display.                                                                |
+| Inside the reserved `caracal:` namespace                         | Anchors Caracal-internal subject sentinels such as the shared provider connection; an external issuer must never mint one. |
+| Invalid UTF-8, or containing U+FFFD                              | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
+| Control characters (including NUL, newlines, escapes)            | Log forging and storage safety.                                                                        |
+| Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text.                                                              |
+| Leading or trailing whitespace                                   | Rejected rather than trimmed, preserving the byte-exact identity.                                      |
+
+## Responses
+
+Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
+
+```json
+{
+	"access_token": "<mandate JWT>",
+	"token_type": "Bearer",
+	"expires_in": 900,
+	"target_resources": ["resource://pipernet"]
+}
+```
+
+Public clients never receive Gateway's private upstream directive or provider credential.
+
+## Retry and Idempotency
+
+The exchange endpoint has no public idempotency key. SDK OAuth clients make one network attempt because the STS may mint before a response is lost. Do not automatically replay a timed-out exchange. Approval retry is different: after an approved hold, send the exact `challenge_id` with the same bound resource/scope request; consumed, rejected, expired, or mismatched holds fail.
+
+`GET /step-up/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Subject decision endpoint requires the federated Subject mandate and exact challenge binding.
+
+## Internal Endpoints
+
+| Method | Path                                          | Purpose                     |
+| ------ | --------------------------------------------- | --------------------------- |
+| `POST` | `/internal/policy/simulate`                   | Simulate policy input.      |
+| `GET`  | `/internal/policy/status/{zoneID}`            | Inspect policy load status. |
+| `POST` | `/internal/zones/{zoneID}/signing-key/rotate` | Rotate zone signing key.    |
+
+Internal endpoints are for service/admin integration, not normal application traffic.
+
+They require the service authentication configured for API-to-STS calls and carry no external stability guarantee.
+
+## Next Step
+
+Use [Proxy Through Gateway](/v0.2/api/gateway/) to understand how Gateway validates inbound authority and exchanges with STS per request.
+
+## Related Pages
+
+* [Exchange Tokens](/v0.2/architecture/token-exchange-flow/)
+* [OAuth Package](/v0.2/sdks/oauth/)
+* [Mandates](/v0.2/concepts/mandate/)

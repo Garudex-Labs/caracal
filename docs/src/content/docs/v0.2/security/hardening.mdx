@@ -1,0 +1,35 @@
+---
+title: Harden Security Posture
+description: Verify a deployed environment against implemented security boundaries.
+pageType: workflow
+slug: v0.2/security/hardening
+---
+
+Use after operational hardening and before production traffic. [Harden Production](/v0.2/operations/tls-hardening/) configures the environment; this page verifies the security boundaries actually hold in it.
+
+## Prerequisites
+
+Use a pinned verified release, stable mode, complete Secret, private storage, TLS ingress, authenticated metrics, and tested backup/incident paths.
+
+## Procedure
+
+1. Expose only required endpoints; keep storage, Audit, Coordinator, and Control private.
+2. Retain non-root, read-only, dropped-capability, seccomp, and no-new-privileges settings.
+3. Confirm secrets are projected, restricted, separately backed up, and inaccessible to agents.
+4. Verify browser origins, cookies, registration allowlist, password/SMTP policy, and proxy trust.
+5. Verify STS deny cases for credentials, scope, revocation, replay, and Approval.
+6. Verify Gateway binding/header, egress, dangerous addresses, redirects, revocation, and pre-dispatch denial.
+7. Verify stream/audit HMAC, tamper, DLQ/replay, and metrics auth.
+8. Reserve bootstrap admin credentials for break-glass.
+
+## Verification
+
+Retain negative-test IDs, readiness, rendered settings, network results, provenance, alert test, and restore evidence.
+
+## Recovery
+
+Remove affected endpoint/workload from traffic, restore verified config, and open an incident for possible exposure. Never switch to dev or disable safety checks.
+
+## Next Step
+
+Verify artifacts with [Verify a Release](/v0.2/security/verify-releases/).

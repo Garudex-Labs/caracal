@@ -1,0 +1,54 @@
+---
+title: Contribute to Caracal
+description: Contributor guide for local setup, project standards, workflow,
+  validation, governance, and releases.
+pageType: landing
+slug: v0.2/contributing
+---
+
+Caracal welcomes bug reports, documentation fixes, tests, SDK improvements, and platform features. This section is the contributor journey from a fresh clone to a merged pull request; the canonical policy lives in [CONTRIBUTING.md](https://github.com/Garudex-Labs/caracal/blob/main/CONTRIBUTING.md).
+
+## Repository Map
+
+The workspace is multi-language: TypeScript applications, Go services, multi-language SDK packages, Docker/Helm infrastructure, and Astro documentation.
+
+| Directory   | What lives there                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `apps/`     | TypeScript applications: the Admin API, Coordinator, runtime CLI, web console, and console auth backend.           |
+| `services/` | Go data-plane services: STS, Gateway, and Audit.                                                                   |
+| `packages/` | SDKs and shared libraries in TypeScript, Python, and Go: core, engine, SDK, identity, OAuth, verify, and adapters. |
+| `infra/`    | Docker, Helm, Postgres, Redis, and OpenTofu deployment assets.                                                     |
+| `docs/`     | This documentation site.                                                                                            |
+| `tests/`    | Cross-language test suites and shared fixtures.                                                                     |
+| `scripts/`  | Repository automation for setup, style, tests, and releases.                                                        |
+
+Each service, app, and package directory self-documents its rules in an `instructions.md` file.
+
+## Contributor Path
+
+Follow the path in order; each page ends where the next begins.
+
+| Need                                            | Page                                             |
+| ----------------------------------------------- | ------------------------------------------------ |
+| Prepare your machine                            | [Set Up Locally](/v0.2/contributing/setup/)           |
+| Learn project boundaries and naming conventions | [Follow Project Standards](/v0.2/contributing/style/) |
+| Work on an issue or pull request                | [Make a Change](/v0.2/contributing/workflow/)         |
+| Run the right checks                            | [Validate Changes](/v0.2/contributing/testing/)       |
+
+## Maintainer Path
+
+| Need                                               | Page                                               |
+| -------------------------------------------------- | -------------------------------------------------- |
+| Understand review, ownership, and security process | [Understand Governance](/v0.2/contributing/governance/) |
+| Prepare, publish, or recover a release             | [Release Caracal](/v0.2/contributing/release/)          |
+
+## Before You Start
+
+* File bugs, documentation gaps, and feature requests through the [issue templates](https://github.com/Garudex-Labs/caracal/issues/new/choose). A small focused fix can go straight to a pull request; medium and larger changes start with an issue or proposal before code, as sized in [Contribution Scale](/v0.2/contributing/governance/#contribution-scale).
+* Report suspected vulnerabilities through [Report a Vulnerability](/v0.2/security/disclosure/), never in public issues.
+* Interactions follow the repository [Code of Conduct](https://github.com/Garudex-Labs/caracal/blob/main/.github/CODE_OF_CONDUCT.md).
+* Toolchain versions are pinned in [Set Up Locally](/v0.2/contributing/setup/#prerequisites); no prior knowledge of the repository is assumed beyond those tools.
+
+## Next Step
+
+Start with [Set Up Locally](/v0.2/contributing/setup/) before making source changes.

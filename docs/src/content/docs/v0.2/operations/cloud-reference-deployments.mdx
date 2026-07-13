@@ -1,0 +1,34 @@
+---
+title: Deploy on Managed Kubernetes
+description: Adapt the External Secrets and Helm examples without treating them
+  as provider-certified deployments.
+pageType: workflow
+slug: v0.2/operations/cloud-reference-deployments
+---
+
+Files under `infra/helm/caracal/examples` demonstrate External Secrets Operator and Helm interfaces. They are templates, not complete or certified AWS, Azure, or Google Cloud deployments.
+
+## Prerequisites
+
+Operate Kubernetes 1.30+, Postgres, Redis with Streams, External Secrets Operator, a TLS issuer, ingress controller, and Prometheus Operator when using chart monitoring resources.
+
+## Procedure
+
+1. Adapt one `external-secrets/secretstore-*.yaml`; replace every identity and store reference.
+2. Store every value referenced by `externalsecret-runtime.yaml` in the provider secret manager.
+3. Apply the adapted SecretStore and ExternalSecret.
+4. Copy `values.cloud-managed.yaml`; replace hosts, domains, storage class, ingress class, issuer, and egress selectors.
+5. Render. Reject plaintext Secret data, default hosts, broad ingress, and unintended public API, Gateway, or STS endpoints.
+6. Install the reviewed overlay.
+
+## Verify
+
+Confirm Secret synchronization, migration Jobs, pod readiness, HTTPS origins, STS issuer, NetworkPolicy paths, metrics collection, alerts, and a canary protected call with audit evidence.
+
+## Rollback and Recovery
+
+Retain the previous Helm revision and values. Roll back only when schema-compatible. Use provider-native storage recovery and restore runtime secrets separately; examples do not create or test backups.
+
+## Next Step
+
+Apply [Harden Production](/v0.2/operations/tls-hardening/) before admitting traffic.

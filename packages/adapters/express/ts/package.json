@@ -1,6 +1,6 @@
 {
   "name": "@caracalai/express",
-  "version": "0.2.0-rc.6",
+  "version": "0.2.0",
   "description": "Caracal mandate verification adapter for Express.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Garudex-Labs/caracal",
@@ -44,9 +44,9 @@
     "express": "^5.0.0"
   },
   "dependencies": {
-    "@caracalai/identity": "0.2.0-rc.6",
-    "@caracalai/sdk": "0.2.0-rc.6",
-    "@caracalai/verify": "0.2.0-rc.6"
+    "@caracalai/identity": "0.2.0",
+    "@caracalai/sdk": "0.2.0",
+    "@caracalai/verify": "0.2.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

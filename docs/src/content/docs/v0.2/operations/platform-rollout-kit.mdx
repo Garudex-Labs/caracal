@@ -1,0 +1,34 @@
+---
+title: Plan a Platform Rollout
+description: Gate version, configuration, network, secret, and chart changes on
+  measurable safety checks.
+pageType: workflow
+slug: v0.2/operations/platform-rollout-kit
+---
+
+Use this for infrastructure changes. Policy activation has a separate [Deploy Policy Changes](/v0.2/operations/policy-deployment/) procedure.
+
+## Prerequisites
+
+Retain current version, rendered config, values, secrets, data backup, and schema-compatibility decision. Prepare readiness, authorization, revocation, and audit checks.
+
+## Procedure
+
+1. Verify provenance and render exact configuration.
+2. Review migrations, Secret keys, endpoints, NetworkPolicies, volumes, resources, and alerts.
+3. Confirm storage/event health.
+4. Apply migrations, then roll via supported runtime or Helm path.
+5. Stop on migration, readiness, audit, outbox, policy, revocation, or STS-exchange failure.
+6. Resume only after canary authorization and audit evidence.
+
+## Verify
+
+Record migration, rollout, `/ready`, queues/replay, metrics, and allow/deny canary request IDs.
+
+## Rollback or Recovery
+
+Use prior app/config only when schema-compatible; otherwise roll forward. Restore data only for declared disaster recovery, not ordinary rollback.
+
+## Next Step
+
+Complete [Hand Off to Platform Teams](/v0.2/operations/platform-team-handoff/).

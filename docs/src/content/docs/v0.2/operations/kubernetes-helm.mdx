@@ -1,0 +1,54 @@
+---
+title: Deploy with Helm
+description: Render, install, verify, and recover the repository Helm chart on
+  Kubernetes 1.30 or newer.
+pageType: workflow
+slug: v0.2/operations/kubernetes-helm
+---
+
+Use the chart when you already operate Kubernetes, Postgres, Redis, secrets, ingress, and monitoring. It does not provision a cluster or managed dependencies and makes no availability claim.
+
+## Prerequisites
+
+* Kubernetes `>=1.30`, Helm, and namespace privileges.
+* A pinned chart version or reviewed checkout.
+* External Postgres and Redis for `stable` mode.
+* A complete runtime Secret; production values set `secrets.create=false`.
+* Explicit DNS, ingress-controller, dependency, provider, and object-store network rules.
+
+## Safe Procedure
+
+1. Create an environment-owned values file from `values.production.yaml`.
+2. Set the image tag, service URLs, `services.web.publicUrl`, storage hosts, Secret name, and only required ingress.
+3. Render before apply:
+
+```bash
+helm lint infra/helm/caracal
+helm template caracal infra/helm/caracal --namespace caracal --values <environment-values> > caracal.rendered.yaml
+```
+
+4. Review Secret references, NetworkPolicies, Ingresses, migration Jobs, image tags, PVCs, and security contexts.
+5. Install:
+
+```bash
+helm upgrade --install caracal infra/helm/caracal --namespace caracal --create-namespace --atomic --wait --wait-for-jobs --values <environment-values>
+```
+
+STS and Gateway render as StatefulSets when replay persistence is enabled. PDBs, HPAs, ServiceMonitor, and PrometheusRule require compatible controllers and do not prove HA.
+
+## Verify
+
+Check migration Jobs, pods, services, and rollout status. Confirm `/ready`, run a canary token exchange and Gateway call, and locate audit evidence. Verify the scraper authenticates with `METRICS_BEARER`.
+
+## Rollback and Recovery
+
+```bash
+helm -n caracal history caracal
+helm -n caracal rollback caracal <revision>
+```
+
+Rollback does not reverse Postgres migrations. Verify schema compatibility or roll forward. Preserve replay PVCs and the runtime Secret.
+
+## Next Step
+
+Use [Choose a Cloud Profile](/v0.2/operations/cloud-native-profiles/) to integrate operator-owned dependencies.

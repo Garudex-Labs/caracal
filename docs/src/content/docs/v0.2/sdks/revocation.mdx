@@ -1,0 +1,48 @@
+---
+title: Revocation Package
+description: Revocation-store interfaces and in-memory stores for resource servers.
+slug: v0.2/sdks/revocation
+---
+
+The revocation packages define the store contract resource servers use to reject mandates after an Authority record, Root authority record, Session, or Delegation has been revoked.
+
+They do not consume streams, verify JWTs, or revoke product objects by themselves. Use the Redis backend and its consumers for distributed enforcement; use the Admin API to initiate revocation.
+
+## Install
+
+| Ecosystem  | Package                                                         |
+| ---------- | --------------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/revocation`                             |
+| Python     | `pip install caracalai-revocation`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/revocation/go` |
+
+## Contract
+
+| Operation                                                                    | Meaning                                                                                                                                      |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isRevoked(anchorId)` / `is_revoked(anchor_id)` / `IsRevoked(anchorID)`                      | Return whether an Authority record, Root authority record, Session, or Delegation anchor is revoked. |
+| `markRevoked(anchorId, ttl)` / `mark_revoked(anchor_id, ttl)` / `MarkRevoked(anchorID, ttl)` | Record a revocation anchor for a TTL.                                                                |
+| `currentDelegationEpoch(zoneId)` / idiomatic equivalent | Return the newest observed Delegation graph epoch when the backend supports stale-edge detection. |
+| `markDelegationEpoch(zoneId, epoch, ttl)` / idiomatic equivalent | Advance that epoch without allowing delayed messages to regress it. |
+
+## In-memory stores
+
+Use in-memory stores for local development, tests, and single-process examples:
+
+| Ecosystem  | In-memory API                                               |
+| ---------- | ----------------------------------------------------------- |
+| TypeScript | `new InMemoryRevocationStore({ defaultTtlMs, maxEntries })` |
+| Python     | `InMemoryRevocationStore(default_ttl_ms=...)`               |
+| Go         | `revocation.NewInMemoryStore(defaultTTL)`                   |
+
+In-memory stores do not share revocation state across processes. Production resource servers should use a shared backend and consume `caracal.sessions.revoke`.
+
+## Production path
+
+Use [Redis Revocation Store](/v0.2/sdks/backends/redis/) for multi-instance resource servers. The Redis backend reads signed revocation stream messages, marks every revocation anchor, and lets verifiers fail closed when Redis is unavailable.
+
+## Related Pages
+
+* [Sessions and Revocation](/v0.2/concepts/sessions-revocation/)
+* [Verify Package](/v0.2/sdks/verify/)
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)

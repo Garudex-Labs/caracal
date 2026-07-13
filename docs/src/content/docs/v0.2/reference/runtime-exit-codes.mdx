@@ -1,0 +1,39 @@
+---
+title: CLI Exit Codes
+description: Exit behavior for top-level caracal runtime CLI commands and web
+  console launch.
+pageType: reference
+slug: v0.2/reference/runtime-exit-codes
+---
+
+Top-level `caracal` commands use `0` for success and non-zero for failure. Commands that delegate to Compose or a child process can propagate that program's non-zero status.
+
+## Exit Behavior
+
+| Command                                                       | Success                                                                                              | Failure                                                                                                               |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `caracal up`                                                  | `0` after stack start succeeds.                                                                      | Non-zero when Compose/build/start fails.                                                                              |
+| `caracal down`                                                | `0` after stack stop succeeds.                                                                       | Non-zero when Compose stop fails.                                                                                     |
+| `caracal status`                                              | `0` when health probes pass.                                                                         | `1` when service health fails.                                                                                        |
+| `caracal status --ready`                                      | `0` when readiness probes pass.                                                                      | `1` when dependency readiness fails.                                                                                  |
+| `caracal upgrade`                                             | `0` after images stage, migrations apply, services roll, and readiness passes.                       | Non-zero when image staging, migration, the roll, or the readiness gate fails.                                        |
+| `caracal purge`                                               | `0` after selected state is removed.                                                                 | Non-zero when cleanup fails.                                                                                          |
+| `caracal allowlist <add\|remove\|lock\|unlock\|list> [email]` | `0` after the entry change or listing succeeds, including no-op repeats.                             | `1` on an unknown subcommand, malformed entry, missing entry, locked entry on `add`, or an unreadable allowlist file. |
+| `caracal run -- <command>`                                    | Child process exit code after credentials are acquired; `128 + N` when the child dies from signal N. | `1` before start when config, credential exchange, or Approval fails; `127` when the command cannot start.            |
+| `caracal web`                                                 | `0` after the web console exits cleanly.                                                             | `127` when a required executable is absent; otherwise a propagated build, preflight, auth BFF, or child failure.      |
+
+Help and version output exit `0`. Unknown commands and invalid usage exit non-zero. A child can return the same numeric status as a pre-start launcher failure, so automation that must distinguish them should preserve launcher logs or wrapper metadata.
+
+## Structured Output
+
+`caracal status --json` emits machine-readable status. Web-console-owned diagnostics are available through the web console **Diagnostics** section and management command catalog, not as top-level runtime CLI workflows.
+
+## Next Step
+
+Use [Compatibility](/v0.2/reference/compatibility/) before changing supported runtime, package manager, deployment, or docs build targets.
+
+## Related Pages
+
+* [Choose the Right Surface](/v0.2/runtime-console/cli-and-console/)
+* [Start and Check the Stack](/v0.2/runtime-console/stack/)
+* [Run Workloads](/v0.2/runtime-console/runtime/)

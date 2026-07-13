@@ -1,0 +1,54 @@
+---
+title: Verification Layer Overview
+description: Choose between framework adapters, the verify engine, identity
+  verification, revocation stores, and state backends.
+slug: v0.2/sdks/verification-layer
+---
+
+Use this page when you are protecting an inbound resource-server boundary and need to choose the right package layer. Start with the highest-level adapter that fits your framework; use lower-level packages only when you are building a custom boundary.
+
+The verification layer consumes `use=resource` mandates at a resource server. Gateway ingress consumes `use=gateway` mandates instead. A Session or lifecycle mandate must not be accepted at either boundary. The classes are defined in [Mandate Use Classes](/v0.2/concepts/mandate/#mandate-use-classes).
+
+## Which Layer Should I Use?
+
+| Need                                                      | Use                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Express route middleware                                  | [Express Adapter](/v0.2/sdks/adapters/express/)                                           |
+| FastAPI/Starlette (ASGI) middleware                       | [ASGI Adapter](/v0.2/sdks/adapters/asgi/)                                                 |
+| FastMCP server or tool authentication                     | [FastMCP Adapter](/v0.2/sdks/adapters/fastmcp/)                                           |
+| Go `net/http` middleware                                  | [Go net/http Adapter](/v0.2/sdks/adapters/nethttp/)                                       |
+| Framework-neutral bearer parsing and mandate verification | [Verify Package](/v0.2/sdks/verify/)                                                      |
+| Custom JWT claim verification                             | [Identity Package](/v0.2/sdks/identity/)                                                  |
+| Shared revocation checks                                  | [Revocation Package](/v0.2/sdks/revocation/) plus [Redis Revocation Store](/v0.2/sdks/backends/redis/) |
+
+## Framework Adapters
+
+Adapters bind the shared verify and identity packages to common server frameworks. They should reject failed requests before your handler or tool runs, attach verified claims to framework context, and preserve the same 401/403 behavior across languages.
+
+Use adapters first when your framework is supported. They reduce boilerplate and keep error mapping consistent with the rest of Caracal.
+
+## Verify Package
+
+[Verify Package](/v0.2/sdks/verify/) is the reusable verification engine under the adapters. Use it when your framework is unsupported or when you need direct control over bearer parsing, verifier defaults, route-level scopes, targets, Session requirements, Delegation requirements, hop limits, and safe error hints.
+
+## Identity Package
+
+[Identity Package](/v0.2/sdks/identity/) verifies mandate JWT claims directly. Use it when you are composing a custom verifier or adapter. It does not provide the full verify-engine error mapping or revocation-store integration by itself.
+
+## Revocation and Shared State
+
+Resource servers must reject mandates anchored to a revoked Authority record ID, Root authority record ID, Session ID, or Delegation ID. Use in-memory revocation stores for local development only. Use [Redis Revocation Store](/v0.2/sdks/backends/redis/) for multi-instance resource servers that consume the protocol stream `caracal.sessions.revoke`.
+
+## Failure Behavior
+
+All HTTP verification layers preserve one status contract - `401` when the credential itself was not accepted, `403` when a verified mandate lacks the route's required authority. The canonical per-code mapping and the shared status function live in [Framework Adapters](/v0.2/sdks/adapters/#boundary-semantics); the code catalog is in [Error Codes](/v0.2/reference/errors/).
+
+JWT verification establishes signed claims; revocation checks establish whether their authority remains active. Both are required where revocation-before-expiry is part of the resource's security contract.
+
+## Related Pages
+
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)
+* [Protect an Express App](/v0.2/guides/protect-express/)
+* [Protect a FastAPI App](/v0.2/guides/protect-fastapi/)
+* [Protect a FastMCP App](/v0.2/guides/protect-fastmcp/)
+* [Protect a Go net/http Service](/v0.2/guides/protect-nethttp/)

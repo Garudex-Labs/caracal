@@ -1,0 +1,42 @@
+---
+title: Scale Capacity
+description: Scale from observed bottlenecks without claiming unmeasured
+  performance or availability.
+pageType: workflow
+slug: v0.2/operations/scale-capacity
+---
+
+Caracal publishes signals and Helm controls, but no universal throughput, latency, or availability figure. Establish a baseline with your workload. For measured reference results from the v0.2.0 validation under stated test conditions, see [Performance and Scalability](/v0.2/operations/performance-benchmarks/).
+
+## Decision Criteria
+
+| Signal | Investigate first |
+| --- | --- |
+| Database pool pressure | Slow queries, transactions, connections, I/O |
+| Audit lag, DLQ, replay age | Audit write path, Redis, Postgres, replay storage |
+| Gateway STS circuit | STS readiness and exchange latency |
+| Revocation lag | Redis latency, pending entries, snapshot refresh |
+| Readiness flapping | CPU, memory, dependencies, probes |
+
+## Prerequisites
+
+Collect authenticated metrics, latency, dependency metrics, logs, and repeatable load. Know storage connection/memory ceilings.
+
+## Safe Procedure
+
+1. Record baseline and first saturated resource.
+2. Correct dependencies or slow queries before replicas.
+3. Change one limit or replica count at a time.
+4. Keep aggregate pools within database capacity.
+5. Repeat load and compare readiness, errors, lag, DLQ, replay, and revocation.
+6. Set environment thresholds from measured bounds.
+
+Chart replica/HPA defaults are not capacity recommendations.
+
+## Rollback
+
+Restore the previous value if pressure or errors increase and retain both measurements.
+
+## Next Step
+
+Build gates in [Monitor Health and Metrics](/v0.2/operations/observability/).

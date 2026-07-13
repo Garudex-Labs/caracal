@@ -1,0 +1,64 @@
+---
+title: Validate Changes
+description: Test commands and validation strategy for Caracal contributors.
+pageType: reference
+slug: v0.2/contributing/testing
+---
+
+Run the smallest relevant suite first, then broaden when a change touches shared code, security boundaries, generated artifacts, or deployment behavior.
+
+## Testing Policy
+
+This policy is mandatory and is enforced during review:
+
+* Major new functionality MUST add automated tests covering that functionality, in the same change that introduces it.
+* Every bug fix MUST add a regression test that fails without the fix and passes with it.
+* Reviewers MUST confirm the required tests exist and run in CI before approving; pull requests that omit them are not merged.
+
+## Root Commands
+
+| Command                     | Purpose                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `pnpm run build:typescript` | Build TypeScript apps and packages.                         |
+| `pnpm run lint`             | Run package linters where present.                          |
+| `pnpm run typecheck`        | Run TypeScript type checks.                                 |
+| `pnpm run test`             | Full TypeScript, Go, and Python test suite.                 |
+| `pnpm run test:typescript`  | TypeScript app/package tests.                               |
+| `pnpm run test:go`          | Go service/package and interoperability tests.              |
+| `pnpm run test:python`      | Python package tests.                                       |
+| `pnpm run ci`               | Build, lint, typecheck, and test sequence.                  |
+| `pnpm docs:version:verify`  | Validate documentation version metadata and snapshot locks. |
+
+## Targeted Examples
+
+| Area                             | Command                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| Runtime CLI                      | `pnpm --dir apps/runtime test`                                              |
+| Web console                      | `pnpm --dir apps/web test`                                                  |
+| Web backend-for-frontend         | `pnpm --dir apps/auth test`                                                 |
+| API                              | `pnpm --dir apps/api test`                                                  |
+| Coordinator                      | `pnpm --dir apps/coordinator test`                                          |
+| STS, Gateway, Audit, Go packages | `pnpm run test:go` (the repository harness owns its multi-module workspace) |
+| Docs                             | `pnpm --dir docs build`                                                     |
+| Docs versioning only             | `pnpm exec vitest run tests/typescript/unit/docs/versioning.test.ts`        |
+
+Runnable examples live in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) and carry their own test suites and CI.
+
+## CI Mirror
+
+```bash
+scripts/testCi.sh
+scripts/testCi.sh --smoke
+scripts/testCi.sh --go
+scripts/testCi.sh --py
+scripts/testCi.sh --ts
+scripts/testCi.sh --docs
+```
+
+Use broader checks when a change affects auth, crypto, config, release, infra, shared packages, SDK contracts, or interoperability schemas.
+
+Record the exact commands and results in the pull request. Do not claim the full suite when only targeted checks ran.
+
+## Next Step
+
+After validation, review [Understand Governance](/v0.2/contributing/governance/) for contribution scale, review ownership, and private security process.

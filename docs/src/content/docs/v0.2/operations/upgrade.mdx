@@ -1,0 +1,37 @@
+---
+title: Upgrade Caracal
+description: Upgrade the packaged runtime or Helm release with forward-only
+  migration and explicit rollback checks.
+pageType: workflow
+slug: v0.2/operations/upgrade
+---
+
+Migrations are forward-only. Runtime stages images, migrates, rolls services, then waits up to two minutes for readiness. This is not a zero-downtime guarantee.
+
+## Prerequisites
+
+Read release notes, use supported sequential upgrades, [back up data and secrets](/v0.2/operations/backup-retention/), record current config, verify audit/streams, and prepare canaries. Install the new runtime binary before upgrading.
+
+## Runtime Procedure
+
+```bash
+caracal upgrade
+```
+
+It refreshes assets, preserves env/non-empty secrets, stages, migrates, rolls, and gates readiness. `--no-pull` uses staged images. Attempts append to `$CARACAL_HOME/upgrade.log` outside dev. Re-run after interruption.
+
+## Helm Procedure
+
+Render/diff exact values, run pinned Helm upgrade with wait/atomic behavior, and inspect migration Jobs/rollout. Use a diff plugin only if installed.
+
+## Verify
+
+Confirm migrations, readiness, queues/replay, exchange, protected request, revocation denial, and audit evidence.
+
+## Rollback
+
+Prefer roll forward. Use older apps only after schema/config compatibility review. Never delete secrets or bypass the runtime version guard casually.
+
+## Next Step
+
+Record result in [Plan a Platform Rollout](/v0.2/operations/platform-rollout-kit/).

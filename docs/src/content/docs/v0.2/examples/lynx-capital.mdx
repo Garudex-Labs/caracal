@@ -1,0 +1,172 @@
+---
+title: Run Lynx Capital
+description: Run the agent-swarm reference protected by one Caracal managed
+  application per permission boundary and per-agent labeled sessions.
+pageType: workflow
+slug: v0.2/examples/lynx-capital
+---
+
+Lynx Capital is a runnable reference in the [Caracal examples repository](https://github.com/Garudex-Labs/examples) under `lynxCapital/`. It models a
+finance-operations platform: an LLM swarm of orchestrators, regional workflows, and
+thousands of ephemeral domain workers executes payout cycles across twenty partner
+providers, with every agent and every provider call governed by Caracal. It is the primary
+reference for modelling permission boundaries, Sessions for agents, providers, resources, and
+policies on Caracal.
+
+## When to use it
+
+Use this fixed-name reference only after a smaller example works. Study it for multi-application permission boundaries, per-agent Sessions, provider views, policy data, and test organization; do not copy its finance domain or dependency pins blindly.
+
+## Prerequisites
+
+* Python, Docker, OPA (for the offline policy-data tests), an isolated development zone, and a scoped provisioning Control key.
+* Capacity to run offline policy and Python suites before live provisioning.
+* Separate secrets for every managed application boundary.
+
+## Architecture
+
+| Building block | Role                                                                                                                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Applications   | `lynx-operations`, `lynx-intake`, `lynx-ledger`, `lynx-compliance`, `lynx-treasury`, `lynx-payments`, `lynx-audit` - one **managed application** per permission boundary, each holding only its own partner authority.           |
+| Agents         | Every agent execution - orchestrator or worker - is its own **Session** under its role's application, labeled `[role, lynx-swarm]` with run and agent metadata, narrowed by a Delegation to its role's scopes and views.         |
+| Providers      | Twenty partner **credential providers** (`provider://<slug>`), each registered in the exact config shape its kind supports: API key, bearer token, OAuth client credentials, OAuth authorization code, Caracal mandate, or none. |
+| Resources      | Per-application **resource views** (`resource://<app>-<provider>`). The Gateway binds each view to exactly one application, so shared partners expose one view per boundary, each carrying only that boundary's scopes.          |
+| Policy set     | `lynx-finance-ops`: generated policy data documents - application bindings, per-view grants, and label confinement - that the default-deny platform decision contract evaluates, allowing exactly each application's role-granted mandate mints and gateway calls. |
+
+The model is declared once in `config/tenancy.yaml`; the SDK seam, agent runner,
+provisioning, and policy all read from it.
+
+### Why one application per permission boundary
+
+A Caracal application is a credential and trust boundary, and the Gateway binds each
+resource to exactly one application. Splitting the swarm by permission boundary means a
+payments worker and an audit worker can both reach the same partner - through different
+views, with different scopes - while a compromised intake agent can never present payment
+authority. Agent executions are Sessions, not applications: each started Session gets its own identity, labels,
+Delegation, and audit trail without minting new application credentials.
+
+### Sessions for agents
+
+The swarm's runner gives every agent its own session via the SDK's `session()`:
+orchestrators inherit under the operations boundary; each domain worker starts under its
+application's per-run dispatcher root with `Authority.narrow(role scopes, views, max_hops=1,
+run TTL)`. Ad-hoc partner-integration workers resolve their boundary, scope, and view
+dynamically from the requested provider operation. Logs and policy decisions identify
+exactly which agent did what.
+
+### Customer attribution and confinement
+
+Workers acting on one customer's records - invoicing, dunning, payment application - start Sessions
+with a `customer:<id>` label and a `customer_id` metadata key. The metadata key makes
+per-customer audit a direct filter over the shared zone trail; the label is policy input,
+and the base policy confines customer-labeled agents to the customer-record scopes, so a
+worker dunning one customer can never mint treasury or payment-rail authority. This is the
+[Serve Your Own Customers](/v0.2/guides/serve-customers/) pattern applied to app-only work: one
+zone, customer separation carried by sessions, labels, metadata, and policy.
+
+## Setup flow
+
+```mermaid
+flowchart LR
+  Install[Install Python deps] --> Zone[Console: zone + Control key]
+  Zone --> Provision[scripts/provision.py]
+  Provision --> Objects[Applications + providers + views + policy set]
+  Objects --> Env[Export per-application credentials]
+  Env --> Reference[scripts/reference.py]
+  Reference --> Inspect[Inspect sessions and delegation in Console]
+```
+
+## Commands
+
+```bash
+git clone https://github.com/Garudex-Labs/examples.git caracal-examples
+cd caracal-examples/lynxCapital
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp -n .env.example .env
+```
+
+The workload `.env` carries the zone and one `LYNX_CARACAL_<APP>_APPLICATION_ID` /
+`_CLIENT_SECRET` pair per boundary. Provisioning uses a separate operator file and a
+scoped Control key created once in Console.
+
+```bash
+cp -n .env.provision.example .env.provision   # set CONTROL_CLIENT_ID / _SECRET
+. .env.provision
+python scripts/provision.py     # applications, providers, views, policy set (idempotent)
+python scripts/reference.py     # SDK walkthrough: labeled Sessions, narrowed authority, mandates
+python scripts/teardown.py      # remove the provisioned objects
+```
+
+`provision.py` prints the per-application credential exports as it creates each
+application; each client secret is returned exactly once. It also renders the
+application-id bindings into the policy library before authoring it, so policy decisions
+key on the real control-plane UUIDs.
+
+## Policies
+
+`policies/` is an importable, OPA-tested library of **policy data documents** - Caracal adopters author data, never decision logic, because the platform [decision contract](/v0.2/concepts/policy/#decision-contract) owns every `result`. The generated documents carry the application bindings (`app_ids`), the resource-view grants (`grants`), and the customer-label confinement; the contract then allows exactly the mandate mints (scope ∩ Delegation, role label granted, view owned by the caller) and gateway uses (mandate target includes the view) those documents describe, naming the deciding application boundary in every decision. Expected access behavior is documented in `policies/README.md`.
+
+The locally installed OPA from the prerequisites exists only for this offline test loop - it exercises the data documents against a vendored copy of the platform contract before anything is provisioned:
+
+```bash
+opa test policies/ -v
+```
+
+## SDK integration
+
+Application code uses two seams: `app/caracal.py` (per-application runtimes, worker
+authority, mandate minting, gateway calls) and `app/agents/runner.py` (per-Session
+lifecycle):
+
+```python
+handle = await runner.aspawn("payment-execution", "payments.us", parent=fc, layer="worker")
+result = partners.call("meridian-pay", "create_payout", payload, authority=handle.authority)
+```
+
+Every partner call resolves the operation's scope from the model, verifies the calling
+agent's grant client-side, mints (or reuses) a resource mandate for the agent's view, and
+posts through the Gateway - which re-evaluates policy, natively enforces the resource's
+declared operation authority, injects the provider credential, and forwards upstream. Agents
+never hold partner secrets.
+
+## Tests
+
+```bash
+opa test policies/ -v
+pytest tests/
+```
+
+The tests cover the policy decision suite, the identity-model and provisioning-plan
+builders, the runner and authority seams, and the provider transports, topology, and
+lifecycle of the bundled workload.
+
+Expected result: policy and Python suites pass offline; provisioning is idempotent; the reference run produces labeled Sessions and narrowed Delegations under expected application boundaries; teardown removes only example-owned state.
+
+:::caution[Failure point: source drift]
+The checked-in example is authoritative for its package versions and commands. If its manifest differs from this page, follow the repository manifest and report the ambiguity rather than forcing current workspace package assumptions onto the external example.
+:::
+
+## Bundled demo workload
+
+The repository ships the FastAPI and LangGraph swarm with a simulated payout cycle against
+local provider fixtures under `_mock/`.
+
+```bash
+docker compose -f _mock/docker-compose.yml up -d --build --wait
+python -m uvicorn app.main:app --reload --port 8000
+docker compose -f _mock/docker-compose.yml down
+```
+
+Open `http://localhost:8000`; the guided `/setup` wizard teaches the one-zone,
+per-boundary-application, provider, resource-view, and policy-library flow.
+
+## Related Examples
+
+* [Run Echo Upstream](/v0.2/examples/echo-upstream/)
+* [Launch Research Agent](/v0.2/examples/research-agent/)
+
+## Next Step
+
+Map one Lynx pattern - not the whole domain - onto [Model Your Application in Caracal](/v0.2/guides/modeling-recipes/) and add equivalent tests to your integration.

@@ -1,0 +1,93 @@
+---
+title: Policies and Policy Sets
+description: Versioned policy data documents the platform decision contract
+  evaluates inside the STS at token-exchange time.
+sidebar:
+  order: 8
+slug: v0.2/concepts/policy
+---
+
+Use this page to understand what policy owners configure and what Caracal guarantees. Caracal owns the decision contract. You author versioned policy data describing Application bindings, Resource grants, confinement, restrictions, risk, and Approval tiers. One policy-set version is active per Zone.
+
+## Policy Objects
+
+| Object                    | Purpose                                             |
+| ------------------------- | --------------------------------------------------- |
+| Policy                    | Named policy data document with immutable versions. |
+| Policy version            | A specific content hash and schema version.         |
+| Policy set                | A named bundle of policy versions.                  |
+| Policy set version        | A specific manifest of policy versions.             |
+| Active policy set version | The version the STS evaluates for a zone.           |
+
+## Decision Contract
+
+The decision contract is deny by default. You never replace its decision result; you supply the data it reads. This keeps structural checks, Delegation narrowing, and Approval behavior consistent across Zones. Under the hood the contract is Rego evaluated by an embedded [Open Policy Agent](https://www.openpolicyagent.org/) engine inside the STS - which is why policy content is Rego syntax and offline policy tests use `opa test` - but the decision rules are platform-owned; adopters ship data.
+
+```rego
+# caracal:data-document
+package caracal.authz
+
+import rego.v1
+
+grants := {
+  "resource://pipernet": {
+    "application": "anton",
+    "roles": {"operator": ["pipernet:read"]},
+  },
+}
+```
+
+The contract reads six adopter documents:
+
+| Document      | Shape                                                | Effect                                                                                                                           |
+| ------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `app_ids`     | `{binding_key: application_id}`                      | Binds a readable Application key to its registered ID.                                                                           |
+| `grants`      | `{resource: {application, roles: {role: [scopes]}}}` | Declares which application owns a resource view and which scopes each role may hold.                                             |
+| `confinement` | `[{label_prefix, scopes}]`                           | Caps every Session with a matching label prefix to a fixed scope set. Optional; omitting it confines nothing.                   |
+| `restrict`    | set of reasons                                       | Deny overlay. Any entry denies every exchange in the zone. Optional; keep it empty to authorize normally.                        |
+| `risk`        | `[{scope, tier}]`                                    | Names a risk tier for each sensitive scope. Optional; feeds the approval gate.                                                    |
+| `approval_tiers` | `[{tier, approver, ttl_seconds, privacy}]`        | Declares which tiers hold a mint for a human decision. Optional; a zone without it never raises a hold.                            |
+
+A zone that supplies no data authorizes nothing: every allow rule collapses to the default deny.
+
+## Policy Input Contract
+
+Every evaluation receives documented Application, Resource, action, Session, Delegation, requested-scope, optional Subject-claim, Approval, and trace context. Use [Author Policy Data](/v0.2/guides/author-policy/) for the current field-level contract.
+
+| Context area | What policy can reason about |
+| --- | --- |
+| Application | Registered ID, kind, and Zone. |
+| Session | ID, task or service lifecycle, and labels. |
+| Resource and action | Stable Resource identifier, declared scopes, requested scopes, and Gateway HTTP operation when present. |
+| Delegation | Source, target, narrowed Resource and scopes, and verified chain context. |
+| Subject | Verified claims for structural binding and audit, not an independent scope grant. |
+| Approval and trace | Whether the matching Approval was resolved and the request trace ID. |
+
+Verified Subject claims are available for structural binding and audit. The built-in allow rules do not turn those claims into per-Subject scope grants. If a product needs user-specific business authorization, keep that in the product's own authorization system rather than claiming Caracal federation provides it.
+
+## Policy Outcomes
+
+| Outcome       | Effect                                                                     |
+| ------------- | -------------------------------------------------------------------------- |
+| `allow`       | STS signs a mandate if token and session checks also pass.                 |
+| `deny`        | STS refuses the exchange and records diagnostics.                          |
+| approval gate | STS holds the mint and returns `interaction_required` with a challenge ID. |
+
+Approval gates are declared as data: `risk` names a tier for each sensitive scope and `approval_tiers` declares which tiers require a human decision. When a mint requests a gated scope, STS creates a durable hold and releases the Mandate only after an authorized approver decides it. See [Approvals](/v0.2/concepts/step-up/).
+
+## Authoring Rules
+
+* Author data documents only; mark each with `# caracal:data-document`. The platform decision contract owns every `result`.
+* Validate through the web console or Admin API before activation - a data document must define data and must not define `result`.
+* Activate through a policy set version, not by editing active content in place.
+* Keep `grants`, `app_ids`, `confinement`, and `restrict` in separate documents so ownership and review stay clear.
+* Tighten authority through `confinement` and `restrict`; neither can widen what the contract already allows.
+
+## Next Step
+
+Read [Mandates](/v0.2/concepts/mandate/) to understand the short-lived proof an allowed exchange produces.
+
+## Related Pages
+
+* [Author Policy Data](/v0.2/guides/author-policy/)
+* [Activate a Policy Set](/v0.2/guides/activate-policy-set/)

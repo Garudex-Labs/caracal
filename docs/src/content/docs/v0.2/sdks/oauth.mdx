@@ -1,0 +1,77 @@
+---
+title: OAuth Package
+description: RFC 8693 token exchange clients for Caracal STS.
+slug: v0.2/sdks/oauth
+---
+
+The OAuth packages call the STS `/oauth/2/token` endpoint for RFC 8693 exchanges. The returned mandate class depends on the authenticated flow: lifecycle bootstrap returns `use=session`, a bound direct mint returns `use=gateway`, and Gateway's authenticated exchange returns `use=resource` privately to Gateway.
+
+Use this package only when composing a custom authority client. Normal applications should use the language SDK facade, which supplies the correct Authority-record, Session, and Delegation identifiers.
+
+## Install
+
+| Ecosystem  | Package                                                    |
+| ---------- | ---------------------------------------------------------- |
+| TypeScript | `npm install @caracalai/oauth`                             |
+| Python     | `pip install caracalai-oauth`                              |
+| Go         | `go get github.com/garudex-labs/caracal/packages/oauth/go` |
+
+## Exchange inputs
+
+| Option                     | Meaning                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Subject token              | Existing session mandate or registered external identity token; omit for application-principal exchanges.                    |
+| Resource                   | One or more resource identifiers. Clients trim, exact-deduplicate, and sort the set.                                           |
+| Client secret              | Application authentication. Public client assertions are not supported.                                                       |
+| Authority record ID        | Sent in the STS form field `session_id`. It is distinct from a governed Session ID.                                           |
+| Session ID                 | Sent in the STS form field `agent_session_id`.                                                                                |
+| Delegation ID              | Sent in the STS form field `delegation_edge_id`.                                                                              |
+| Scopes                     | Requested resource scopes.                                                                                                    |
+| TTL seconds                | Requested mandate lifetime.                                                                                                   |
+
+## TypeScript example
+
+```ts
+import { OAuthClient, ApprovalRequiredError } from '@caracalai/oauth'
+
+const oauth = new OAuthClient(stsUrl, zoneId, applicationId)
+
+try {
+  const token = await oauth.exchange(subjectToken, 'resource://pipernet', {
+    scopes: ['pipernet:read'],
+    clientSecret: process.env.CARACAL_APP_CLIENT_SECRET,
+  })
+  console.log(token.accessToken, token.expiresIn)
+} catch (error) {
+  if (error instanceof ApprovalRequiredError) {
+    console.log('approval required', error.approvalId)
+  } else {
+    throw error
+  }
+}
+```
+
+## Behavior
+
+* Successful responses are validated for `access_token`, `token_type`, and `expires_in`.
+* Public responses expose the granted `target_resources` subset; private Gateway upstream directives are not part of the SDK response type.
+* Cache-enabled responses are isolated by identity, canonical resources, scopes, TTL, and credential context. One-shot, approval-bearing, and cache-disabled exchanges bypass both cache and single-flight sharing.
+* Issuance uses one network attempt. A lost response may hide a successfully minted token, so the clients never retry STS exchange automatically.
+* STS `interaction_required` responses surface as `ApprovalRequiredError`.
+* Default exchange timeout is 30 seconds. `invalidate()` / `invalidate` clears the client cache; it does not revoke already issued mandates or cancel exchanges already in flight.
+* Never retry an exchange merely because the response was lost. If the surrounding business operation is replayable, mint a fresh mandate for that new attempt.
+
+## Subject Federation
+
+When the zone registers the application's identity system as a Subject issuer, the client exchanges an end user's identity token for a Caracal Authority record and can post that user's decision on a Subject-reserved approval hold:
+
+* `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns the Subject mandate response. Never cached: each federation is an explicit identity event, and the record carries no resource authority. The high-level SDK wrappers also return the Authority record ID as `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`.
+* `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
+
+See [Human Approval](/v0.2/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.
+
+## Related Pages
+
+* [Human Approval](/v0.2/guides/step-up/)
+* [Mandates](/v0.2/concepts/mandate/)
+* [Use STS Endpoint](/v0.2/api/sts/)

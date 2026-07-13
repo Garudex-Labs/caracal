@@ -1,0 +1,81 @@
+---
+title: Mandates
+description: The short-lived, signed JWT that carries approved session or
+  resource authority.
+sidebar:
+  order: 9
+slug: v0.2/concepts/mandate
+---
+
+Read this page after [Policies and Policy Sets](/v0.2/concepts/policy/). A Mandate is the short-lived signed proof Caracal issues after policy allows a request. The Gateway or a verified service checks it before the action runs.
+
+## What a Mandate Proves
+
+A valid mandate proves:
+
+* which zone issued it;
+* which Application is acting and which optional Subject context is present;
+* which session anchors are active;
+* which resource targets and scopes were approved;
+* which Authority record, Session, and Delegation supplied the authority;
+* when the authority expires.
+
+## Issuance Path
+
+```mermaid
+flowchart LR
+  Subject["Subject token or Session context"] --> Exchange["OAuth token exchange"]
+  Exchange --> Policy["Policy evaluation"]
+  Policy -->|"allow"| Mandate["Mandate JWT"]
+  Mandate --> Verify["Gateway or adapter verification"]
+  Verify --> Resource["Protected resource"]
+```
+
+## Mandate Use Classes
+
+Every mandate carries a `use` claim naming the boundary that may accept it. Pages across the docs refer to these classes as `use=session`, `use=gateway`, and `use=resource`:
+
+| `use` claim | Minted when | Accepted by |
+| --- | --- | --- |
+| `session` | An application's lifecycle bootstrap exchange, with no Session or Delegation context. Reusable within its TTL. | Coordinator lifecycle operations and later exchanges as a subject token. |
+| `gateway` | A direct mint with Session and Delegation context - what SDK transports send to the Gateway. Single-use. | Gateway ingress only. |
+| `resource` | The Gateway's own authenticated exchange of an inbound `use=gateway` mandate. | The upstream path: `caracal_mandate` resources and in-process verifiers. |
+
+A verifier must accept only its own class: resource servers require `use=resource`, the Gateway requires `use=gateway`, and neither accepts a Session or lifecycle mandate.
+
+## Where Mandates Are Verified
+
+| Boundary           | Verification focus                                                             |
+| ------------------ | ------------------------------------------------------------------------------ |
+| Gateway request    | Issuer, audience, zone, resource, scopes, expiry, replay, revocation.          |
+| MCP tool call      | Bearer token, required scopes, required targets, Session and Delegation constraints. |
+| SDK outbound call  | Context propagation and mandate header injection.                              |
+| Delegated exchange | Session, Delegation, scopes, hop count, and constraints.                       |
+
+## Mandates Are Not Credentials to Store
+
+Mandates are intentionally short lived and context bound. Do not store them as durable credentials, copy them into configuration files, or reuse them across unrelated Resources.
+
+Resource servers should always verify a mandate at request time. Verification includes signature and claim checks plus revocation checks for the Authority record ID, Root authority record ID, Session ID, and Delegation ID when those claims are present. See the [parsed claim mapping](/v0.2/sdks/identity/#parsed-claim-names) for language-level and raw JWT names.
+
+## Failure Modes
+
+| Failure                   | Meaning                                                                   |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `invalid_token`           | Signature, issuer, audience, required claim, or expiry validation failed. |
+| `scope_insufficient`      | The mandate does not contain a required scope. In-process verifiers report the same condition as `insufficient_scope`. |
+| `session_revoked`         | One of the mandate revocation anchors has been revoked.                   |
+| `session_required`        | The resource requires authority from a governed Session.                  |
+| `delegation_required`     | The resource requires delegated authority.                                |
+| `chain_mismatch`          | The delegation chain does not include the required application.           |
+| `hop_count_exceeded`      | The delegation path exceeds the configured hop limit.                     |
+
+## Next Step
+
+Read [Approvals](/v0.2/concepts/step-up/) to understand how sensitive requests wait for a human decision before a Mandate is issued.
+
+## Related Pages
+
+* [Sessions and Revocation](/v0.2/concepts/sessions-revocation/)
+* [Protect an MCP Server](/v0.2/guides/protect-mcp/)
+* [Run an Agent with caracal run](/v0.2/guides/runtime-run/)

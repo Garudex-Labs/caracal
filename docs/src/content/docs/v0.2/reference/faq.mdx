@@ -1,0 +1,684 @@
+---
+title: FAQ
+description: Stable, searchable answers to recurring Caracal modeling, runtime,
+  provider, troubleshooting, and repository-scope questions.
+pageType: reference
+slug: v0.2/reference/faq
+---
+
+import FaqRegistryScript from '../../../../components/FaqRegistryScript.astro'
+
+<section className="faqSearchPanel" aria-label="Search FAQs">
+  <div className="faqSearchMeta">
+    <span id="faq-search-status" className="faqSearchStatus" aria-live="polite">
+      32 results
+    </span>
+  </div>
+
+  <div className="faqSearchRow">
+    <label className="faqSearchLabel" htmlFor="faq-search">
+      Search FAQs
+    </label>
+
+    <input id="faq-search" className="faqSearchInput" type="search" placeholder="Search by FAQ ID, title, keyword..." aria-controls="faq-registry" autocomplete="off" />
+
+    <button type="button" className="faqClearFilters" data-faq-clear hidden>
+      Clear
+    </button>
+
+    <button type="button" className="faqFilterToggle" data-faq-filter-toggle aria-expanded="false" aria-controls="faq-filter-popover">
+      <span data-faq-filter-label>Filter</span>
+
+      <svg className="faqFilterIcon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M2.5 4.5h11M5.5 8h5M7 11.5h2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      </svg>
+    </button>
+  </div>
+
+  <div id="faq-filter-popover" className="faqFilterPopover" data-faq-filter-popover aria-label="Filter FAQs by category" hidden>
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="platform" data-faq-filter-name="Platform" /> <span>Platform</span>
+    </label>
+
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="model" data-faq-filter-name="Model" /> <span>Model</span>
+    </label>
+
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="resources" data-faq-filter-name="Resources" /> <span>Resources</span>
+    </label>
+
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="providers" data-faq-filter-name="Providers" /> <span>Providers</span>
+    </label>
+
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="runtime" data-faq-filter-name="Runtime" /> <span>Runtime</span>
+    </label>
+
+    <label className="faqFilterOption">
+      <input type="checkbox" data-faq-filter-option="scope" data-faq-filter-name="Scope" /> <span>Scope</span>
+    </label>
+  </div>
+</section>
+
+<nav className="faqStrip" data-faq-strip aria-label="Suggested FAQs">
+  <a className="faqStripItem" href="#faq-001">
+    <span>FAQ-001</span>
+    <strong>What problem does Caracal solve?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-003">
+    <span>FAQ-003</span>
+    <strong>What should a zone represent?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-006">
+    <span>FAQ-006</span>
+    <strong>Should I create one application per agent?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-008">
+    <span>FAQ-008</span>
+    <strong>Can policy and audit tell agents apart under one application?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-021">
+    <span>FAQ-021</span>
+    <strong>Policy vs grant - which wins?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-016">
+    <span>FAQ-016</span>
+    <strong>403 from STS vs Gateway?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-017">
+    <span>FAQ-017</span>
+    <strong>Where is the diagnostic bundle or doctor command?</strong>
+  </a>
+
+  <a className="faqStripItem" href="#faq-019">
+    <span>FAQ-019</span>
+    <strong>What does this documentation verify?</strong>
+  </a>
+</nav>
+
+<section className="faqListPanel" aria-label="FAQ results">
+  <p id="faq-empty" className="faqEmpty" hidden>No FAQs match that search.</p>
+
+  <div id="faq-registry" className="faqRegistry">
+    <details id="faq-001" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-001" data-faq-title="What problem does Caracal solve?" data-keywords="authority broker short-lived credentials policy STS Gateway Audit automation workflows">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-001</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>What problem does Caracal solve?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-001">Share</button>
+      </summary>
+
+      <span id="faq-what-problem-does-caracal-solve" className="faqAnchor" />
+
+      <p>Caracal gives agents and automated workflows short-lived, policy-approved authority instead of long-lived credentials. The agent asks for scoped authority at the moment it acts, STS evaluates policy, Gateway or an adapter enforces the mandate, and Audit records the decision and result.</p>
+      <p>See <a href="/v0.2/concepts/authority-model/">Authority and Enforcement</a> and the <a href="/v0.2/concepts/model-overview/">Caracal Mental Model</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-003">FAQ-003</a>, <a href="#faq-016">FAQ-016</a></p>
+    </details>
+
+    <details id="faq-002" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-002" data-faq-title="Is Caracal an identity provider, secrets manager, or API gateway?" data-keywords="IdP identity provider secrets manager API gateway authority broker provider credentials">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-002</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Is Caracal an identity provider, secrets manager, or API gateway?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-002">Share</button>
+      </summary>
+
+      <span id="faq-is-caracal-an-idp-secrets-manager-or-api-gateway" className="faqAnchor" />
+
+      <p>No. Caracal is an authority broker for agent and workload actions. It can sit in front of HTTP resources like a protected Gateway, and it can broker provider credentials, but it does not replace your IdP, your static config store, or your general API management layer.</p>
+      <p>Use an IdP for human login, a secret manager for static application configuration, and Caracal when an agent or service needs scoped, auditable authority for a resource.</p>
+      <p className="faqRelated">Related: <a href="#faq-001">FAQ-001</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-013">FAQ-013</a></p>
+    </details>
+
+    <details id="faq-003" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-003" data-faq-title="What should a zone represent?" data-keywords="zone architecture trust boundary signing keys policy activation audit trails isolation">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-003</span>
+        <span className="faqTag faqTagModel">Architecture</span>
+        <h3>What should a zone represent?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-003">Share</button>
+      </summary>
+
+      <span id="faq-what-should-a-zone-represent" className="faqAnchor" />
+
+      <p>A zone should represent a trust boundary: the set of resources, sessions, policies, signing keys, and audit records that are allowed to share authority state. Use a separate zone when two workloads need independent signing keys, policy activation, or audit trails. Use one zone with separate resources when the same trust boundary protects multiple upstreams.</p>
+      <p>For examples, see <a href="/v0.2/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-011">FAQ-011</a></p>
+    </details>
+
+    <details id="faq-004" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-004" data-faq-title="Does this repository implement managed multi-tenancy?" data-keywords="open source multi-tenancy tenant teams SSO zones repository scope">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-004</span>
+        <span className="faqTag faqTagModel">Architecture</span>
+        <h3>Does this repository implement managed multi-tenancy?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-004">Share</button>
+      </summary>
+
+      <span id="faq-does-open-source-include-managed-multi-tenancy" className="faqAnchor" />
+
+      <p>No. The open-source product gives you Zones as an isolation primitive. You can model customers, environments, or trust tiers with Zones and automate them through the Admin API. Managed tenant, team, SSO, and hosted lifecycle are not implemented in this repository.</p>
+      <p>To serve many of your own customers from one deployment without per-customer zones, see <a href="/v0.2/guides/serve-customers/">Serve Your Own Customers</a>.</p>
+      <p>Evaluate any separate offering from its own current source, contract, and demonstrated behavior; this documentation cannot verify it.</p>
+      <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-019">FAQ-019</a></p>
+    </details>
+
+    <details id="faq-005" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-005" data-faq-title="What is the difference between an application, Subject, Authority record, and Session?" data-keywords="application subject authority record session identity runtime credential policy">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-005</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>What is the difference between an application, Subject, Authority record, and Session?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-005">Share</button>
+      </summary>
+
+      <span id="faq-application-subject-authority-record-session" className="faqAnchor" />
+
+      <p>An application is registered software that authenticates to Caracal. A Subject is the opaque JWT <code>sub</code> identity the work is attributed to. An Authority record is one STS exchange record. A Session is one governed Coordinator execution.</p>
+      <p>These identifiers are distinct: Authority record ID identifies one STS exchange, Root authority record ID identifies its exchange-chain root, and Session ID identifies one governed Coordinator execution.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
+    </details>
+
+    <details id="faq-006" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-006" data-faq-title="Should I create one application per agent?" data-keywords="application per agent managed application Session DCR fan out delegation common mistake">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-006</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>Should I create one application per agent?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-006">Share</button>
+      </summary>
+
+      <span id="faq-one-application-per-agent" className="faqAnchor" />
+
+      <p>No. This is the most common modeling mistake, and it does not match how Caracal scales. An <strong>application</strong> and an <strong>agent</strong> are different layers:</p>
+
+      <ul>
+        <li>An <strong>application</strong> is the credentialed security boundary. It is operator-provisioned (managed) or dynamically registered (DCR), holds a server-owned secret, and is the identity Caracal authenticates. Creating one is a deliberate, secret-bearing act.</li>
+        <li>An <strong>Session</strong> is the scalable runtime unit. The process that already holds the application credential creates Sessions at runtime - no secret, no registration, no Console step. One application backs many concurrent Sessions (up to 200 per application by default).</li>
+      </ul>
+
+      <p>The default model is <strong>one managed application per durable service, with many Sessions under it</strong>. When that service fans out across sub-agents or jobs, each execution is a new Session under the <em>same</em> application. Policy and audit tell them apart by Session ID, lifecycle, labels, and Delegation chain.</p>
+      <p>Use a separate application only when an independently launched agent or workload needs an isolated, expiring credential and registry-visible identity. DCR supplies that boundary and binds exactly one Session.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a> and the <a href="/v0.2/concepts/model-overview/">Caracal Mental Model</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
+    </details>
+
+    <details id="faq-007" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-007" data-faq-title="When should I use a managed application versus DCR?" data-keywords="managed application DCR dynamic client registration durable service short-lived ephemeral credentials">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-007</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>When should I use a managed application versus DCR?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-007">Share</button>
+      </summary>
+
+      <span id="faq-managed-application-versus-dcr" className="faqAnchor" />
+
+      <p>Use a managed application for durable software you intentionally operate: a backend service, Gateway application, orchestrator, or agent runtime. Ordinary Session fan-out does <strong>not</strong> need DCR. Use DCR only when an independently launched identity needs an isolated, auto-expiring credential boundary, such as a per-tenant or per-integration process. DCR applications are registered through the Admin API, always expire, bind exactly one Session, and cannot parent further Sessions.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a></p>
+    </details>
+
+    <details id="faq-008" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-008" data-faq-title="If many agents share one managed application, can policy and audit still tell them apart?" data-keywords="managed application shared agents policy audit attribution credential isolation labels delegation chain lifecycle">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-008</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>If many agents share one managed application, can policy and audit still tell them apart?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-008">Share</button>
+      </summary>
+
+      <span id="faq-distinguish-agents-under-one-application" className="faqAnchor" />
+
+      <p>Yes, with one important distinction between <em>attribution</em> and <em>credential isolation</em>.</p>
+      <p>Each execution has a unique Session ID. Policy and audit record it with lifecycle, labels, parentage, and Delegation context. The web console **Sessions** view shows the same execution records.</p>
+      <p>Authority, not labels, is the security boundary. Labels are asserted by the credentialed workload and help policy and audit classify work; scopes, Delegations, and policy contain compromised workloads.</p>
+      <p>Filter the Admin API audit endpoint by <code>session\_id</code> for one exact Session or by <code>label</code> for a role across many Sessions.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a> and <a href="/v0.2/guides/modeling-recipes/">Model Your Application in Caracal</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-005">FAQ-005</a>, <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a></p>
+    </details>
+
+    <details id="faq-009" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-009" data-faq-title="What is the difference between a resource and a provider?" data-keywords="resource provider protected target policy audience upstream URL Gateway routing credentials OAuth API key bearer token">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-009</span>
+        <span className="faqTag faqTagResource">Resources</span>
+        <h3>What is the difference between a resource and a provider?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-009">Share</button>
+      </summary>
+
+      <span id="faq-resource-versus-provider" className="faqAnchor" />
+
+      <p>A resource is the protected target and policy audience: the thing a mandate authorizes access to. A provider describes how Gateway authenticates upstream: no credential, Caracal mandate, OAuth, API key, or bearer token.</p>
+      <p>Keep target identity, scopes, and upstream URL on the resource. Keep secrets, token endpoints, OAuth settings, API keys, and bearer tokens on the provider.</p>
+      <p className="faqRelated">Related: <a href="#faq-010">FAQ-010</a>, <a href="#faq-011">FAQ-011</a>, <a href="#faq-013">FAQ-013</a></p>
+    </details>
+
+    <details id="faq-010" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-010" data-faq-title="Why must the resource identifier stay stable if the upstream URL can change?" data-keywords="stable resource identifier upstream URL resource audience URI policy grants mandates audit continuity">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-010</span>
+        <span className="faqTag faqTagResource">Resources</span>
+        <h3>Why must the resource identifier stay stable if the upstream URL can change?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-010">Share</button>
+      </summary>
+
+      <span id="faq-stable-resource-identifier" className="faqAnchor" />
+
+      <p>Policies, grants, mandates, and audit records refer to the resource identifier. If you use a mutable deployment hostname as the identifier, changing infrastructure also changes your authority boundary and breaks audit continuity. Use a stable audience URI such as <code>resource://pipernet</code>, then change the upstream URL when routing changes.</p>
+      <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-011">FAQ-011</a></p>
+    </details>
+
+    <details id="faq-011" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-011" data-faq-title="How should I design scopes?" data-keywords="scope design action-oriented scopes payments read tickets comment mcp tool call tenant environment policy input">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-011</span>
+        <span className="faqTag faqTagResource">Resources</span>
+        <h3>How should I design scopes?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-011">Share</button>
+      </summary>
+
+      <span id="faq-scope-design" className="faqAnchor" />
+
+      <p>Use small action-oriented scopes such as <code>pipernet:read</code>, <code>piperchat:comment</code>, or <code>mcp\:tool:call</code>. Do not encode environment, tenant, user, or hostname into scope names when that data belongs in the zone, principal, resource, or policy input.</p>
+      <p>Scopes answer "what action is allowed?" Resource identifiers answer "what target is protected?"</p>
+      <p className="faqRelated">Related: <a href="#faq-003">FAQ-003</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-012">FAQ-012</a></p>
+    </details>
+
+    <details id="faq-012" className="faqEntry" data-faq-entry data-faq-category="resources" data-faq-id="FAQ-012" data-faq-title="Do I manage grants directly?" data-keywords="grants active policy set allow deny step-up subject application resource scopes request trace">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-012</span>
+        <span className="faqTag faqTagResource">Resources</span>
+        <h3>Do I manage grants directly?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-012">Share</button>
+      </summary>
+
+      <span id="faq-do-i-manage-grants-directly" className="faqAnchor" />
+
+      <p>In the current web-console flow, you usually define Resources, scopes, Applications, Subjects, and Policy rather than managing Grants as a separate daily object. Policy data can declare role-to-scope grants, while managed delegated Grants are lifecycle and revocation records. The active Policy set still makes the final allow, deny, or Approval decision.</p>
+      <p>If access is denied, inspect the active policy, subject, application, resource, and scopes through <a href="/v0.2/operations/troubleshooting/">request trace</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-011">FAQ-011</a>, <a href="#faq-016">FAQ-016</a></p>
+    </details>
+
+    <details id="faq-013" className="faqEntry" data-faq-entry data-faq-category="providers" data-faq-id="FAQ-013" data-faq-title="Is an application secret the same as a provider credential?" data-keywords="application secret provider credential upstream provider Google Slack OpenAI API long-lived credentials mandates">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-013</span>
+        <span className="faqTag faqTagSecurity">Security</span>
+        <h3>Is an application secret the same as a provider credential?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-013">Share</button>
+      </summary>
+
+      <span id="faq-app-secret-versus-provider-credential" className="faqAnchor" />
+
+      <p>No. An application secret authenticates the application to Caracal. A provider credential authenticates Gateway or STS to an upstream provider such as Google, Slack, OpenAI, or an internal API. Agents should authenticate to Caracal and receive short-lived mandates; they should not receive long-lived provider credentials.</p>
+      <p>See <a href="/v0.2/guides/resources-providers/">Define Resources and Providers</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-009">FAQ-009</a>, <a href="#faq-014">FAQ-014</a></p>
+    </details>
+
+    <details id="faq-014" className="faqEntry" data-faq-entry data-faq-category="providers" data-faq-id="FAQ-014" data-faq-title="When should I use per-user OAuth instead of a shared provider credential?" data-keywords="per-user OAuth shared provider credential authorization code client credentials api_key bearer_token consent">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-014</span>
+        <span className="faqTag faqTagSecurity">Security</span>
+        <h3>When should I use per-user OAuth instead of a shared provider credential?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-014">Share</button>
+      </summary>
+
+      <span id="faq-per-user-oauth-versus-shared-credential" className="faqAnchor" />
+
+      <p>Use a connected upstream account (<code>oauth2\_authorization\_code</code>) when the upstream call must act as a specific consented account: a human completes the provider's consent screen once for the shared account, or once per subject when the connection is bound to a specific customer. Use a shared service credential (<code>oauth2\_client\_credentials</code>, <code>api\_key</code>, or <code>bearer\_token</code>) when the agent acts as the application with one operator-configured credential.</p>
+      <p>The concrete setup fields are in <a href="/v0.2/guides/provider-recipes/">Provider Recipes</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-013">FAQ-013</a>, <a href="#faq-016">FAQ-016</a></p>
+    </details>
+
+    <details id="faq-015" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-015" data-faq-title="Why are zone and policy commands in the web console instead of the caracal CLI?" data-keywords="caracal CLI web console Admin API SDK commands runtime lifecycle zones policies management surface">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-015</span>
+        <span className="faqTag faqTagRuntime">Runtime</span>
+        <h3>Why are zone and policy commands in the web console instead of the <code>caracal</code> CLI?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-015">Share</button>
+      </summary>
+
+      <span id="faq-why-console-instead-of-cli" className="faqAnchor" />
+
+      <p>The top-level <code>caracal</code> CLI is intentionally limited to local runtime lifecycle, process execution, upgrades, Console sign-in admission, and web console launch: <code>up</code>, <code>down</code>, <code>status</code>, <code>upgrade</code>, <code>purge</code>, <code>allowlist</code>, <code>run</code>, and <code>web</code>. Product-management workflows such as zones, applications, providers, resources, policies, audit, diagnostics, agents, and delegation live in the web console, Control API, and Admin SDK so they use one management surface and do not drift into duplicated CLI commands.</p>
+      <p>See <a href="/v0.2/runtime-console/cli-and-console/">Choose the Right Surface</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-017">FAQ-017</a>, <a href="#faq-018">FAQ-018</a></p>
+    </details>
+
+    <details id="faq-016" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-016" data-faq-title="What is the difference between a 403 from STS and a 403 from Gateway?" data-keywords="403 STS Gateway verifier policy denied mandate resource binding scope check revocation route safety request trace">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-016</span>
+        <span className="faqTag faqTagOps">Operations</span>
+        <h3>What is the difference between a 403 from STS and a 403 from Gateway?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-016">Share</button>
+      </summary>
+
+      <span id="faq-sts-403-versus-gateway-403" className="faqAnchor" />
+
+      <p>A 403 from STS means the exchange was authenticated but Policy did not allow the requested Resource scopes, or an Approval, Grant, or Session condition blocked issuance. A 403 from Gateway or a verifier means the request reached a protected boundary but the Mandate, Resource binding, scope check, revocation state, or route safety check failed.</p>
+      <p>Use <a href="/v0.2/operations/troubleshooting/">request trace</a> with the request ID to identify the surface before changing policy or resource configuration.</p>
+      <p className="faqRelated">Related: <a href="#faq-011">FAQ-011</a>, <a href="#faq-012">FAQ-012</a>, <a href="#faq-017">FAQ-017</a></p>
+    </details>
+
+    <details id="faq-017" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-017" data-faq-title="Where is the diagnostic bundle or doctor command?" data-keywords="diagnostic bundle doctor command status json diagnostics health readiness zones preflight audit request trace">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-017</span>
+        <span className="faqTag faqTagOps">Operations</span>
+        <h3>Where is the diagnostic bundle or doctor command?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-017">Share</button>
+      </summary>
+
+      <span id="faq-diagnostic-bundle" className="faqAnchor" />
+
+      <p>The diagnostic bundle is exposed through existing surfaces instead of a separate top-level command. Use <code>caracal status --json</code> for runtime status, web console <strong>Diagnostics</strong> for Doctor checks (<code>health</code>, <code>readiness</code>, <code>zones</code>, <code>preflight</code>), <code>audit</code> for recent decisions, and <code>request trace</code> for a known request ID.</p>
+      <p>See <a href="/v0.2/operations/troubleshooting/#diagnostic-bundle">Troubleshoot by Symptom</a> and <a href="/v0.2/runtime-console/observability/">Inspect Diagnostics and Audit</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-016">FAQ-016</a>, <a href="#faq-018">FAQ-018</a></p>
+    </details>
+
+    <details id="faq-018" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-018" data-faq-title="Why is an audit event missing?" data-keywords="audit event missing request ID zone time window Audit service Redis stream replay backlog DLQ action result">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-018</span>
+        <span className="faqTag faqTagOps">Operations</span>
+        <h3>Why is an audit event missing?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-018">Share</button>
+      </summary>
+
+      <span id="faq-missing-audit-event" className="faqAnchor" />
+
+      <p>First confirm the request reached a Caracal-protected boundary. If it did, check the selected zone, time window, request ID, Audit service readiness, Redis stream health, replay backlog, and DLQ. If the request failed before STS, Gateway, Coordinator, or an adapter emitted evidence, there may be no action-result event for that boundary.</p>
+      <p>Start with <a href="/v0.2/runtime-console/observability/">Inspect Diagnostics and Audit</a> and <a href="/v0.2/operations/debugging/">Debug Infrastructure Issues</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-016">FAQ-016</a>, <a href="#faq-017">FAQ-017</a></p>
+    </details>
+
+    <details id="faq-019" className="faqEntry" data-faq-entry data-faq-category="scope" data-faq-id="FAQ-019" data-faq-title="What does this documentation verify?" data-keywords="repository scope product boundary managed service SSO SCIM RBAC support lifecycle">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-019</span>
+        <span className="faqTag faqTagEdition">Scope</span>
+        <h3>What does this documentation verify?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-019">Share</button>
+      </summary>
+
+      <span id="faq-enterprise-only-features" className="faqAnchor" />
+
+      <p>This documentation verifies only behavior implemented by the self-hosted open-source product and supported deployment assets in this repository. It does not establish managed hosting, SSO, SCIM, organization RBAC, commercial support, an SLA, certification, or regulatory conformity.</p>
+      <p>Use <a href="/v0.2/security/adoption-review/">Review OSS Adoption Readiness</a> to separate repository evidence from deployment and organizational responsibilities.</p>
+      <p className="faqRelated">Related: <a href="#faq-004">FAQ-004</a></p>
+    </details>
+
+    <details id="faq-020" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-020" data-faq-title="Two agents share the same application and labels - how do I tell which one acted?" data-keywords="Session id attribution which agent did this fungible fan out labels metadata trace id audit filter observability identity">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-020</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>Two agents share the same application and labels - how do I tell which one acted?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-020">Share</button>
+      </summary>
+
+      <span id="faq-which-session-acted" className="faqAnchor" />
+
+      <p>Every governed execution has one canonical Session ID. It is returned when <code>session()</code> or <code>startSession()</code> starts the Session and is stamped onto its token exchanges and audit events.</p>
+      <p>Identical Sessions are interchangeable on purpose. A hundred <code>\["pricing-worker"]</code> Sessions fanned out under one application are meant to be fungible - that is how fan-out works, and it is why labels are a descriptor rather than a unique name. When you need to tell Sessions apart by <em>meaning</em> rather than by raw id, give them distinguishing <code>labels</code>, attach business correlation in <code>metadata</code>, or propagate a <code>trace\_id</code> through the work.</p>
+      <p>To investigate, the zone audit endpoint filters directly on these fields: query <code>session\_id</code> to follow one exact Session end to end, or <code>label</code> to scope to a role across a whole fleet of Sessions. The web console audit view exposes both filters.</p>
+      <p>To see Sessions that have ended, the Admin API exposes <code>GET /v1/zones/\{zone}/sessions</code>. It supports status, lifecycle, label, parent Session, and application filters plus CSV export.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-021">FAQ-021</a></p>
+    </details>
+
+    <details id="faq-021" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-021" data-faq-title="A started Session uses application policy and narrowed authority - which wins?" data-keywords="policy authority scope intersection narrower wins least privilege delegation application authorization defense in depth">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-021</span>
+        <span className="faqTag faqTagSecurity">Security</span>
+        <h3>A started Session uses application policy and narrowed authority - which wins?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-021">Share</button>
+      </summary>
+
+      <span id="faq-policy-and-grant-composition" className="faqAnchor" />
+
+      <p>Both apply, and they compose as a strict intersection - a logical <strong>AND</strong> - so the <em>narrower</em> of the two always wins. They are two independent layers with different jobs: a <strong>grant</strong> (the Delegation a narrowing <code>session(grant=…)</code> creates) caps <em>which scopes the token may carry at all</em>, while <strong>policy</strong> decides <em>whether the action is allowed</em>. Neither layer can ever add authority; each one can only subtract.</p>
+      <p>At token exchange a resource is released only if it passes every gate: the requested scopes must be within the resource's own scopes, within the grant edge's scopes (which is itself re-validated to be within the parent's authority), the resource must fall inside the delegation, and policy must return <code>allow</code>. The effective authority is therefore <code>policy ∩ grant ∩ resource ∩ delegation</code>. This holds in both directions: if policy is the narrower of the two, policy wins and the grant cannot widen past it; if the grant is the narrower, the grant wins, because the token cannot request scopes outside the grant and resources outside the delegation are rejected even when policy would have allowed them.</p>
+      <p>There is no clash. A plain <code>session()</code> under a top-level parent runs at the application's policy-bounded authority. Under a narrowed parent, Coordinator mirrors the parent's Delegation onto the child. Use <code>session(authority=Authority.narrow(\[...]))</code> when the child should hold less. Every layer is subtractive.</p>
+      <p>See <a href="/v0.2/concepts/delegation/">Delegation</a> and <a href="/v0.2/concepts/policy/">Policy</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-011">FAQ-011</a></p>
+    </details>
+
+    <details id="faq-022" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-022" data-faq-title="If child Sessions use the parent's application, when is DCR used?" data-keywords="DCR ephemeral Session lifecycle managed authenticate client credentials per tenant isolation use case orchestrator">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-022</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>If child Sessions use the parent's application, when is DCR used?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-022">Share</button>
+      </summary>
+
+      <span id="faq-when-is-dcr-actually-used" className="faqAnchor" />
+
+      <p>A DCR application is used by <strong>authenticating as it</strong>, not by starting it as a child. Because <code>session()</code> uses the caller's application, a DCR application bound to exactly one Session cannot parent another Session.</p>
+      <p>The credential boundary between durable managed identities and short-lived DCR identities is named by <code>registration\_method</code> (managed vs DCR), not by an agent's <code>lifecycle</code>. A Session's <code>lifecycle</code> is either <code>task</code> (the default) or <code>service</code> (heartbeat-leased), and a DCR application cannot host a <code>service</code> Session, so its one Session is always a <code>task</code> Session. A short-lived worker is therefore <em>not</em> a separate lifecycle - it is an ordinary <code>task</code> Session with a TTL (see <a href="#faq-023">FAQ-023</a>).</p>
+      <p>The Admin API registers the DCR application and returns a one-time client secret and short expiry. An orchestrator injects those credentials into an independently launched workload, which authenticates with <code>client\_credentials</code> and starts its single Session. STS creates Authority records as that workload exchanges.</p>
+      <p>The credential split is deliberate: minting a new credentialed identity is a privileged control-plane action, so a runtime cannot register applications for itself. The SDK <em>consumes</em> a DCR application by being configured with its credentials; only an operator or orchestrator with Admin API access <em>mints</em> one.</p>
+      <p>Because a DCR root has no parent and no Delegation, its authority is decided entirely by <strong>policy</strong>, not by inheritance - and policy is <strong>default-deny</strong>, so a DCR identity opens no tools until a policy grants it scopes. Policies receive <code>input.principal.registration\_method</code>, so you write <em>one</em> policy class targeting <code>registration\_method == "dcr"</code> (optionally narrowed by <code>labels</code>, resource, or zone) that covers every DCR application; you do not author a policy per DCR app. Pair that with per-tenant or per-job resources to keep each DCR identity scoped to its own data.</p>
+      <p>DCR provides a credential-isolated, independently revocable, auto-expiring, registry-visible identity for a per-tenant, per-job, or per-integration workload. It does not add execution attribution; Session ID already provides that.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a> and <a href="/v0.2/reference/faq/#faq-007">FAQ-007</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-007">FAQ-007</a>, <a href="#faq-008">FAQ-008</a></p>
+    </details>
+
+    <details id="faq-023" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-023" data-faq-title="How do I model an orchestrator, managers, and short-lived workers?" data-keywords="orchestrator manager worker ephemeral short lived session ttl tree hierarchy authority parent application client credentials inherit narrow">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-023</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>How do I model an orchestrator, managers, and short-lived workers?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-023">Share</button>
+      </summary>
+
+      <span id="faq-orchestrator-worker-tree" className="faqAnchor" />
+
+      <p>Model the runtime under <strong>one managed application</strong>. Every execution is a Session. A short-lived worker is a task Session; least privilege is expressed with narrowed authority, and <code>ttl\_seconds</code> adds an optional wall-clock cap.</p>
+
+      <ul>
+        <li>The <strong>orchestrator</strong> uses a long-lived Session from <code>startSession()</code> when it needs a heartbeat lease.</li>
+        <li>Each <strong>manager</strong> is a plain <code>session()</code> that inherits the application's authority.</li>
+        <li>Each <strong>task worker</strong> is <code>session(authority=Authority.narrow(\[...]))</code> - bounded to a subset of authority and auto-terminated when its block exits - with <code>ttl\_seconds=…</code> added only when you also want a wall-clock cap.</li>
+      </ul>
+
+      <p>A Session's authority comes from its application, bounded by policy. A parent matters when authority is narrowed: <code>Authority.narrow(\[...])</code> creates a Delegation that the server validates as a subset of the parent's effective authority. Cross-application authority uses <code>delegate(to=peer)</code>; the receiver consents by presenting the opaque, target-bound Delegation ID.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a>, <a href="/v0.2/concepts/delegation/">Delegation</a>, and <a href="/v0.2/reference/faq/#faq-022">FAQ-022</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-006">FAQ-006</a>, <a href="#faq-008">FAQ-008</a>, <a href="#faq-022">FAQ-022</a></p>
+    </details>
+
+    <details id="faq-024" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="security" data-faq-id="FAQ-024" data-faq-title="If A narrows authority to B and B starts C, does C stay bounded?" data-keywords="delegation chain inherit narrow authority escalation A B C subset application boundary policy least privilege subtree hop transitive">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-024</span>
+        <span className="faqTag faqTagSecurity">Security</span>
+        <h3>If A narrows authority to B and B starts C, does C stay bounded?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-024">Share</button>
+      </summary>
+
+      <span id="faq-inherit-vs-narrow-chain" className="faqAnchor" />
+
+      <p>Yes. <code>inherit</code> carries the parent's effective authority forward, so least privilege is transitive down a same-application Session tree. Suppose A starts B with <code>Authority.narrow(\[pipernet:read])</code>, then B starts C:</p>
+
+      <ul>
+        <li>With <strong>inherit</strong>, Coordinator mirrors B's Delegation onto C. C stays within B's scopes, resource, constraints, and expiry.</li>
+        <li>With further narrowing, Coordinator rejects C unless <code>C ⊆ B</code>.</li>
+        <li>If B has no inbound Delegation, C runs under the application's authority bounded by policy.</li>
+      </ul>
+
+      <p>Cross-application authority is never inherited automatically; it requires <code>delegate(to=peer)</code>, followed by receiver presentation of the opaque, target-bound Delegation ID. Application plus policy remains the hard boundary.</p>
+      <p>See <a href="/v0.2/concepts/delegation/">Delegation</a> and <a href="/v0.2/reference/faq/#faq-023">FAQ-023</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-021">FAQ-021</a>, <a href="#faq-023">FAQ-023</a>, <a href="#faq-008">FAQ-008</a></p>
+    </details>
+
+    <details id="faq-025" className="faqEntry faqEntryImportant" data-faq-entry data-faq-category="model" data-faq-id="FAQ-025" data-faq-title="What is the difference between a task and a service lifecycle - and how do I model a task-and-die worker versus a time-limited one?" data-keywords="task service lifecycle scoped ttl heartbeat lease worker search agent die descriptor registration method">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-025</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>What is the difference between a task and a service lifecycle - and how do I model a task-and-die worker versus a time-limited one?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-025">Share</button>
+      </summary>
+
+      <span id="faq-agent-lifecycle-kinds" className="faqAnchor" />
+
+      <p>Every runtime actor is an <strong>Session</strong>; <code>lifecycle</code> only describes how it runs. There are <strong>two lifecycles</strong>, and they map directly onto the two SDK primitives:</p>
+
+      <ul>
+        <li><strong>Task</strong> - created with <code>session()</code>, recorded as <code>lifecycle = "task"</code>. It lives for the duration of its task: when its block exits it is terminated automatically. This single behavior covers <em>both</em> of the cases you are distinguishing. A "do one task and die" worker (for example a search sub-agent) is just <code>session()</code> whose block returns when the task is done. A "live up to N seconds then expire" worker is the same <code>session()</code> with <code>ttl\_seconds=N</code>, which adds a hard wall-clock cap enforced by the TTL sweeper. The difference between "task-and-die" and "time-limited" is <strong>whether you set a TTL</strong>, not a different lifecycle.</li>
+        <li><strong>Service</strong> - created with <code>startSession()</code>, <code>start\_session()</code>, or <code>StartSession()</code> and recorded as <code>lifecycle = "service"</code>. This long-lived Session is governed by a renewable heartbeat lease rather than the task TTL sweeper.</li>
+      </ul>
+
+      <p>The stored <code>lifecycle</code> column carries exactly these two protocol values. Use a long-lived Session when work must outlive one task; otherwise use <code>session()</code> with an optional TTL.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a> and <a href="/v0.2/reference/faq/#faq-023">FAQ-023</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-023">FAQ-023</a>, <a href="#faq-007">FAQ-007</a></p>
+    </details>
+
+    <details id="faq-026" className="faqEntry" data-faq-entry data-faq-category="model" data-faq-id="FAQ-026" data-faq-title="Can two DCR applications have different policies, and can a DCR Session start children?" data-keywords="DCR policy per application labels application id different policy parent leaf one session bind registration method lifecycle">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-026</span>
+        <span className="faqTag faqTagIdentity">Identity</span>
+        <h3>Can two DCR applications have different policies, and can a DCR Session start children?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-026">Share</button>
+      </summary>
+
+      <span id="faq-dcr-policy-and-session-parenting" className="faqAnchor" />
+
+      <p><strong>Different policies per DCR app: yes.</strong> Policy evaluation receives the full principal, including the specific <code>input.principal.id</code> (the application id), <code>input.principal.labels</code>, and <code>input.principal.registration\_method</code>. Matching on <code>registration\_method == "dcr"</code> is just the convenient way to write <em>one</em> rule that covers every DCR app; when two DCR apps need different authority, target their distinct application ids or labels, or scope them to different resources. There is no requirement that all DCR apps share a policy.</p>
+      <p><strong>Can a DCR application start child Sessions: no.</strong> It binds exactly one Session; a second start is rejected with the protocol error <code>dcr\_application\_already\_bound</code>.</p>
+      <p><strong>Which Sessions can be parents:</strong> Sessions under managed applications can start child Sessions. A task parent cannot start a service child; the protocol reports <code>task\_session\_cannot\_start\_service</code>. DCR Sessions are isolated leaves, reported by the protocol as <code>dcr\_application\_cannot\_start\_child</code> and <code>dcr\_application\_cannot\_be\_child</code>.</p>
+      <p>See <a href="/v0.2/concepts/principal/">Identities and Applications</a> and <a href="/v0.2/reference/faq/#faq-022">FAQ-022</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-022">FAQ-022</a>, <a href="#faq-025">FAQ-025</a>, <a href="#faq-007">FAQ-007</a></p>
+    </details>
+
+    <details id="faq-027" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-027" data-faq-title="Where does Caracal read caracal.toml from?" data-keywords="caracal.toml config profile CARACAL_CONFIG current directory home search precedence">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-027</span>
+        <span className="faqTag faqTagRuntime">Runtime</span>
+        <h3>Where does Caracal read <code>caracal.toml</code> from?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-027">Share</button>
+      </summary>
+
+      <span id="faq-where-caracal-reads-config" className="faqAnchor" />
+
+      <p>SDK loaders read exactly the path in <code>CARACAL\_CONFIG</code>. If that variable is unset, they use SDK environment variables. They do not search the current directory, home directory, or OS Caracal config directory for <code>caracal.toml</code>. <code>caracal run</code> does not use an SDK profile; it loads a Workload identity locally and fetches launch bindings from STS.</p>
+      <p>See <a href="/v0.2/reference/config-precedence/">Configuration Order</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-028">FAQ-028</a></p>
+    </details>
+
+    <details id="faq-028" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-028" data-faq-title="Does caracal run renew injected credentials?" data-keywords="caracal run credential renewal expiry long running workload SDK environment injection">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-028</span>
+        <span className="faqTag faqTagRuntime">Runtime</span>
+        <h3>Does <code>caracal run</code> renew injected credentials?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-028">Share</button>
+      </summary>
+
+      <span id="faq-caracal-run-renewal" className="faqAnchor" />
+
+      <p>No. It fetches bindings and mints each credential once before starting the child. The child receives a scrubbed environment and exits with those credentials' existing expiry. Use a Caracal SDK for long-running software that must exchange on demand.</p>
+      <p>See <a href="/v0.2/runtime-console/runtime/">Run Workloads</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-015">FAQ-015</a>, <a href="#faq-027">FAQ-027</a></p>
+    </details>
+
+    <details id="faq-029" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-029" data-faq-title="Can Gateway proxy WebSockets?" data-keywords="Gateway WebSocket websocket Upgrade SSE streaming HTTP proxy">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-029</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Can Gateway proxy WebSockets?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-029">Share</button>
+      </summary>
+
+      <span id="faq-gateway-websockets" className="faqAnchor" />
+
+      <p>No. Gateway proxies HTTP request/response traffic and streamed responses such as SSE, but strips hop-by-hop headers including <code>Upgrade</code>. Protect WebSocket services with an in-process verifier or framework adapter at the service edge.</p>
+      <p>See <a href="/v0.2/api/gateway/">Proxy Through Gateway</a> and <a href="/v0.2/sdks/verification-layer/">Verification Layer Overview</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-016">FAQ-016</a></p>
+    </details>
+
+    <details id="faq-030" className="faqEntry" data-faq-entry data-faq-category="runtime" data-faq-id="FAQ-030" data-faq-title="Why did retrying an STS exchange create uncertainty?" data-keywords="STS retry timeout lost response issuance idempotency ambiguous outcome mandate retry">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-030</span>
+        <span className="faqTag faqTagOps">Operations</span>
+        <h3>Why did retrying an STS exchange create uncertainty?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-030">Share</button>
+      </summary>
+
+      <span id="faq-sts-exchange-retry" className="faqAnchor" />
+
+      <p>Mandate issuance uses one network attempt. If the response is lost, the server might have minted successfully, so the SDK cannot prove that a retry is the same issuance. Reconcile the operation or explicitly retry according to the protected action's idempotency contract. Session and Delegation creation are different: Coordinator uses durable idempotency receipts and can replay their creation response safely.</p>
+      <p>See <a href="/v0.2/guides/idempotency/">Safe Retries and Idempotency</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-016">FAQ-016</a>, <a href="#faq-028">FAQ-028</a></p>
+    </details>
+
+    <details id="faq-031" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-031" data-faq-title="Which Caracal versions can I mix?" data-keywords="version compatibility mix packages images npm pypi go SemVer lockstep upgrade">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-031</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Which Caracal versions can I mix?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-031">Share</button>
+      </summary>
+
+      <span id="faq-version-mixing" className="faqAnchor" />
+
+      <p>None intentionally. Caracal packages, images, chart metadata, and binaries release in lockstep and are tested as one version. Pin exact versions and upgrade them together. On the pre-1.0 line, patch releases preserve documented public behavior; minor releases can change public contracts.</p>
+      <p>See <a href="/v0.2/reference/compatibility/">Compatibility</a> and <a href="/v0.2/reference/release-package-runtime-map/">Release Map</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-002">FAQ-002</a>, <a href="#faq-032">FAQ-032</a></p>
+    </details>
+
+    <details id="faq-032" className="faqEntry" data-faq-entry data-faq-category="platform" data-faq-id="FAQ-032" data-faq-title="Why does the documentation URL say v0.2 before v0.2.0 is released?" data-keywords="documentation version v0.2 target snapshot current next release docs versions URL">
+      <summary className="faqEntryHeader">
+        <span className="faqNumber">FAQ-032</span>
+        <span className="faqTag faqTagPlatform">Platform</span>
+        <h3>Why does the documentation URL say <code>v0.2</code> before <code>v0.2.0</code> is released?</h3>
+        <button type="button" className="faqShareButton" data-faq-share aria-label="Share FAQ-032">Share</button>
+      </summary>
+
+      <span id="faq-docs-v02-before-release" className="faqAnchor" />
+
+      <p><code>v0.2</code> is the configured first documentation target. Before stable <code>v0.2.0</code>, unversioned source is served on shareable <code>/v0.2/</code> routes, but no snapshot exists. The stable release creates and registers that snapshot. RCs create no snapshot, and later <code>v0.2.x</code> patches update the same current minor.</p>
+      <p>See <a href="/v0.2/contributing/release/#documentation-versions">Documentation Versions</a>.</p>
+      <p className="faqRelated">Related: <a href="#faq-031">FAQ-031</a></p>
+    </details>
+  </div>
+
+  <nav className="faqPagination" data-faq-pagination aria-label="FAQ pagination" hidden>
+    <button type="button" className="faqPageNav faqPagePrev" data-faq-page-prev>Previous</button>
+
+    <div className="faqPageNumbers" data-faq-page-numbers />
+
+    <button type="button" className="faqPageNav faqPageNext" data-faq-page-next>Next</button>
+
+    <span className="faqPageStatus" data-faq-page-status />
+  </nav>
+</section>
+
+<dialog className="faqDialog" data-faq-dialog aria-labelledby="faq-dialog-title">
+  <div className="faqDialogShell">
+    <header className="faqDialogHeader">
+      <div>
+        <div className="faqDialogMeta">
+          <span className="faqNumber" data-faq-dialog-id />
+
+          <span className="faqTag" data-faq-dialog-tag />
+        </div>
+
+        <h2 id="faq-dialog-title" data-faq-dialog-title />
+      </div>
+
+      <button type="button" className="faqDialogClose" data-faq-dialog-close aria-label="Close FAQ">
+        Close
+      </button>
+    </header>
+
+    <div className="faqDialogBody" data-faq-dialog-body />
+
+    <footer className="faqDialogFooter">
+      <button type="button" className="faqDialogCopy" data-faq-dialog-copy>
+        Copy FAQ
+      </button>
+
+      <button type="button" className="faqDialogShare" data-faq-dialog-share>
+        Share FAQ
+      </button>
+    </footer>
+  </div>
+</dialog>
+
+## Next Step
+
+Use [Glossary](/v0.2/reference/glossary/) when you need canonical terms for concepts, API names, web console labels, and examples.
+
+<FaqRegistryScript />

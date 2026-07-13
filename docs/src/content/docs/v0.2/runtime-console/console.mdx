@@ -1,0 +1,75 @@
+---
+title: Use the Web Console
+description: Sign in, finish onboarding, complete guided setup, navigate zone
+  state, and understand system-zone restrictions.
+pageType: workflow
+slug: v0.2/runtime-console/console
+---
+
+The web console is where people manage Caracal: it carries account onboarding, guided setup, every product form, audit, and live intervention. This page orients you in it; the pages after it go deep on each workflow.
+
+## Open the Correct Console
+
+For normal local operation, open [http://localhost:3001](http://localhost:3001) after `caracal up`. This is the packaged console served with its session-guarded backend-for-frontend.
+
+Use `caracal web` only while developing the console. That development launcher is unrelated to the console's **Launcher** workload page:
+
+| Name                    | Purpose                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `caracal web`           | Starts local web-development processes. It does not create or run governed workloads.                                  |
+| **Services → Launcher** | Creates workload identities and credential bindings consumed by `caracal run`. It does not start a development server. |
+
+## Sign In and Finish Account Onboarding
+
+After admission through the host allowlist, sign in with a configured method at `/sign-in` (registration at `/sign-up`) under the console origin. A first account visit collects the operator profile and creates or selects the first ordinary zone. This account onboarding is distinct from in-zone guided setup.
+
+The console keeps the active zone in the URL and profile state. Zone-scoped pages require a selected zone.
+
+## Complete Guided Setup
+
+Guided setup reads live zone inventory and opens the real product forms. It teaches one deny-by-default path:
+
+1. **Register an application** such as Anton. This is the identity requesting access.
+2. **Connect a provider** such as Hooli OIDC. This supplies upstream credentials at runtime.
+3. **Define a resource** such as `resource://pipernet`, including its scopes and upstream.
+4. **Activate a policy** that authorizes the intended application and scopes.
+5. **Verify** from the dashboard, policy simulation, Sessions, and Audit.
+
+The guide marks a step complete from actual zone state. It does not create a Launcher workload. After access is enforcing, open **Services → Launcher** to configure `caracal run`.
+
+For field-level guidance, use [Define Resources and Providers](/v0.2/guides/resources-providers/) and [Activate a Policy Set](/v0.2/guides/activate-policy-set/).
+
+## Read the Console by Task
+
+| Task                                             | Console area                  |
+| ------------------------------------------------ | ----------------------------- |
+| Review posture and recent activity               | **Dashboard**                 |
+| Configure applications, providers, and resources | **Access**                    |
+| Author, simulate, and activate policy            | **Policy**                    |
+| Investigate Subjects and authority               | **Subjects**                  |
+| Intervene in Sessions, Delegations, or Approvals | **Runtime**                   |
+| Search decisions and run health checks           | **Audit** and **Diagnostics** |
+| Configure workload launch                        | **Services → Launcher**       |
+| Configure scoped remote automation               | **Services → Control**        |
+
+## System-Zone Read-Only View
+
+Caracal's reserved system zone is not offered in the normal active-zone switcher. The Settings entry opens it in a separate transparency view. In that tab, editable fields and mutating controls are disabled, every non-GET/HEAD console API request is blocked with `system_zone_read_only`, and settings, Operator, and other hide-locked routes are unavailable.
+
+Do not use the system-zone viewer for customer or application configuration. Return to an ordinary zone to make changes.
+
+## Secret Handling
+
+Application and Launcher workload secrets are held in Secret Store custody. Copy a secret at creation or use the object's reveal action later. Every reveal is audited. Rotation invalidates the current secret, so update the consuming secret store or file immediately.
+
+Provider secrets are entered during supported create or rotation flows and remain masked. The console does not write revealed values to the workload host.
+
+## Caracal Operator
+
+Open **Caracal Operator** from the utility rail or command palette. Each conversation runs in **Ask** mode for read-only investigation or **Agent** mode for answers, live reads, and change plans. A mutating plan is validated and previewed against current state, then waits for Approval before it is revalidated and applied. Conversation memory records activity; live reads and execution previews remain the source of truth for current state.
+
+Configure natural-language models under **Settings → AI Operator → Models**. The page can add, edit, test, rotate, and delete OpenAI-compatible providers. A new or rotated key is sent once, sealed into the reserved `caracal.sys` Zone, and never returned. Caracal routes model calls through the governed Gateway. The Operator can still expose deterministic catalog and plan behavior when no model provider is configured, but natural-language assistance remains unavailable.
+
+## Next Step
+
+[Configure Workloads](/v0.2/runtime-console/config-file/).

@@ -1,0 +1,36 @@
+---
+title: Operate Redis Streams
+description: Provision, verify, monitor, and recover Caracal stream and
+  revocation transport.
+pageType: workflow
+slug: v0.2/operations/redis
+---
+
+Redis carries audit, invalidation, revocation, agent, invocation, and delegation streams. It is correctness-critical, not an evictable cache.
+
+## Prerequisites
+
+Use Streams, authentication, persistence, `maxmemory-policy noeviction`, and enough memory. The bundled image uses AOF with `appendfsync everysec`; validate external services separately.
+
+## Procedure
+
+Provisioning is automatic in the bundled stack. From a checkout:
+
+```bash
+bash infra/redis/provision-streams.sh
+bash infra/redis/scripts/verify.sh
+```
+
+Provide Redis host, port, and password file when needed. Monitor stream length, groups, pending entries, reclaim/retry, DLQ, memory, persistence, and latency.
+
+## Verify
+
+Confirm expected streams/groups, idempotent provisioning, `noeviction`, persistence, and policy/revocation/audit delivery.
+
+## Recovery
+
+Restore Redis, verify groups, then drain consumers and replay. Reconcile Postgres outboxes and replay directories. Never delete pending entries or reset groups until durable handling is proven.
+
+## Next Step
+
+Use [Scale Capacity](/v0.2/operations/scale-capacity/) when lag or memory grows.

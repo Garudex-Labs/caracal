@@ -1,0 +1,38 @@
+---
+title: Run Failure Drills
+description: Rehearse one bounded failure at a time and measure detection and
+  recovery without claiming resilience.
+pageType: workflow
+slug: v0.2/operations/failure-drills
+---
+
+Run only in isolated non-production with restorable data and secrets.
+
+## Prerequisites
+
+Establish green readiness, understood backlogs, tested alert routing, recovery owner, stop condition, backup, and baseline canary/audit results.
+
+## Procedure
+
+1. Select one fault: block Redis/Postgres, isolate Gateway from STS, pause Audit, delay revocation, or activate invalid test policy.
+2. Inject only that fault with a time limit.
+3. Record readiness, traffic, alerts, logs, lag, and detection time.
+4. Remove the fault.
+5. Execute [Recover from Failures](/v0.2/operations/failure-modes/).
+6. Record readiness, drain, freshness, canary, and audit recovery times.
+
+:::danger[Destructive drill]
+Audit tampering, restore, Redis replacement, volume deletion, and key loss require disposable infrastructure and explicit approval.
+:::
+
+## Pass Criteria
+
+Alert reaches the owner; services fail closed where expected; recovery follows the runbook; readiness and canary evidence return without unexplained queues.
+
+## Recovery
+
+If a stop condition is exceeded, terminate injection, preserve evidence, restore last known-good, and open an incident.
+
+## Next Step
+
+Update thresholds/runbooks, then validate [Back Up and Retain Data](/v0.2/operations/backup-retention/).

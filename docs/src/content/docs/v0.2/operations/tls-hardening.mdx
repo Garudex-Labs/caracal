@@ -1,0 +1,36 @@
+---
+title: Harden Production
+description: Apply verified network, TLS, secret, browser, container, and egress controls.
+pageType: workflow
+slug: v0.2/operations/tls-hardening
+---
+
+Use this checklist before a `stable` deployment receives real credentials or traffic.
+
+## Prerequisites
+
+Own the TLS endpoint, DNS, runtime Secret, ingress or proxy, dependency firewall rules, and monitoring path. Caracal does not configure host firewalls or issue Compose certificates.
+
+## Procedure
+
+1. Set `CARACAL_MODE=stable`; never expose `dev`.
+2. Keep Postgres, Redis, API, Coordinator, Audit, and Control private unless explicitly required.
+3. Expose the same-origin web BFF through HTTPS and set its exact public origin. Trust proxy headers only from a controlled direct proxy.
+4. Deliver secrets through files/projections and deny agents access to runtime secrets and Docker socket.
+5. Retain non-root, dropped-capability, read-only-filesystem, and `no-new-privileges` settings.
+6. Permit only required ingress and egress. Pin Gateway destinations with `UPSTREAM_HOST_ALLOWLIST` when appropriate.
+7. Require authenticated metrics and route critical audit/revocation alerts.
+
+Gateway blocks dangerous address classes and does not follow redirects, but operator-provisioned private upstreams are intentionally supported. Network policy remains the outer boundary.
+
+## Verify
+
+Test HTTPS and issuer/JWKS identity, denied direct storage access, rejected cross-origin browser writes, rejected unauthenticated metrics, blocked upstreams, and revoked sessions denied before dispatch.
+
+## Rollback or Recovery
+
+Revert the narrowest policy change while keeping services private. Never recover by switching to `dev`, disabling revocation safety, publishing storage, or placing secrets inline.
+
+## Next Step
+
+Complete [Rotate Keys and Secrets](/v0.2/operations/key-management/) and [Configure Alerts](/v0.2/operations/alerts/).

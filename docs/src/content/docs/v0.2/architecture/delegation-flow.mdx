@@ -1,0 +1,49 @@
+---
+title: Coordinate Sessions
+description: Trace governed execution and delegated authority from SDK calls
+  through Coordinator and STS.
+pageType: architecture
+slug: v0.2/architecture/delegation-flow
+---
+
+Use this flow when a request depends on execution lineage, long-lived leases, or authority delegated between Sessions.
+
+## Session and Delegation Flow
+
+```mermaid
+sequenceDiagram
+  participant SDK
+  participant Coord as Coordinator
+  participant PG as Postgres
+  participant Redis
+  participant STS
+  SDK->>Coord: start Session
+  Coord->>PG: persist Session, parent, lifecycle, lease
+  Coord->>Redis: publish lifecycle from durable outbox
+  SDK->>Coord: create bounded Delegation
+  Coord->>PG: persist edge, constraints, expiry, graph epoch
+  Coord->>Redis: publish delegation invalidation
+  SDK->>STS: exchange with Authority record, Session, Delegation IDs
+  STS->>PG: validate live lineage and bounds
+  STS-->>SDK: mandate or denial
+```
+
+## Choose a Session Lifecycle
+
+Task Sessions use a TTL and expire. Service Sessions use heartbeat leases and become unhealthy when renewal stops. The process that owns a service Session must continue heartbeating; container liveness alone does not renew authority.
+
+A Session tree records parent-child execution. Suspending or terminating a subtree affects governed execution state. A Delegation separately records exactly which resource, scopes, constraints, and expiry cross from one Session to another.
+
+## Consistency and Failure
+
+Coordinator writes state and outbox records durably in Postgres, then publishes lifecycle and invalidation events through Redis. A short propagation delay is possible. STS validates authoritative Session and Delegation state before issuing delegated authority, so a stale consumer view does not grant authority by itself.
+
+Operational jobs expire stale task Sessions and Delegations, detect missed service leases, enforce invocation deadlines, publish outbox rows, and clean retained terminal data. Backlogged or dead outbox rows mean downstream views and revocation consumers can lag; surface that in Diagnostics before assuming the SDK failed.
+
+## Operator and Integrator Surfaces
+
+Applications use an SDK or the documented Coordinator API. Human operators use console **Sessions**, Delegation views, and Audit. Do not mutate Coordinator tables or publish lifecycle topics directly. Top-level `caracal` commands do not manage Sessions or Delegations.
+
+## Next Step
+
+[Propagate Events](/v0.2/architecture/event-streams/).

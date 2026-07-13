@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
-  "target": "v0.2",
-  "current": null,
-  "versions": []
+  "target": null,
+  "current": "v0.2",
+  "versions": [
+    {
+      "version": "v0.2",
+      "release": "v0.2.0",
+      "releasedAt": "2026-07-13",
+      "locked": false,
+      "digest": null
+    }
+  ]
 }
