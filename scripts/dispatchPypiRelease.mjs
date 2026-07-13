@@ -86,15 +86,15 @@ async function main() {
   }
   process.stdout.write(`tracking PyPI publish run ${run.id}: ${run.html_url}\n`)
   gh(['run', 'watch', String(run.id), '--exit-status', '--interval', '30'], { stdio: 'inherit' })
-  const conclusion = JSON.parse(gh(['run', 'view', String(run.id), '--json', 'displayTitle,headBranch,status,conclusion,path']))
+  const finished = JSON.parse(gh(['api', `repos/${repository}/actions/runs/${run.id}`]))
   if (
-    conclusion.displayTitle !== title ||
-    conclusion.headBranch !== branch ||
-    conclusion.path !== pypiWorkflowPath ||
-    conclusion.status !== 'completed' ||
-    conclusion.conclusion !== 'success'
+    finished.display_title !== title ||
+    finished.head_branch !== branch ||
+    finished.path !== pypiWorkflowPath ||
+    finished.status !== 'completed' ||
+    finished.conclusion !== 'success'
   ) {
-    throw new Error(`PyPI publish run ${run.id} did not complete successfully: ${JSON.stringify(conclusion)}`)
+    throw new Error(`PyPI publish run ${run.id} did not complete successfully: ${JSON.stringify(finished)}`)
   }
   process.stdout.write(`PyPI publish run ${run.id} completed successfully\n`)
 }
