@@ -102,20 +102,91 @@ func TestArgon2idRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(hash, argon2Prefix) {
 		t.Fatalf("hash missing argon2id prefix: %q", hash)
 	}
-	if !verifyClientSecret(hash, "hunter2") {
+	cache := &verifiedSecretCache{}
+	if !cache.verify(hash, "hunter2") {
 		t.Fatal("argon2id verify must succeed")
 	}
-	if verifyClientSecret(hash, "wrong") {
+	if cache.verify(hash, "wrong") {
 		t.Fatal("wrong secret must not verify")
 	}
 }
 
 func TestVerifyClientSecretEmptyInputs(t *testing.T) {
-	if verifyClientSecret("", "x") {
+	cache := &verifiedSecretCache{}
+	if cache.verify("", "x") {
 		t.Error("empty stored must reject")
 	}
-	if verifyClientSecret("x", "") {
+	if cache.verify("x", "") {
 		t.Error("empty presented must reject")
+	}
+}
+
+func TestVerifiedSecretCacheHitSkipsDerivation(t *testing.T) {
+	hash, err := hashClientSecret("hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &verifiedSecretCache{}
+	if !cache.verify(hash, "hunter2") {
+		t.Fatal("cold verify must succeed")
+	}
+	entry, ok := cache.entries[hash]
+	if !ok {
+		t.Fatal("successful verify must populate the cache")
+	}
+	start := time.Now()
+	if !cache.verify(hash, "hunter2") {
+		t.Fatal("warm verify must succeed")
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Millisecond {
+		t.Fatalf("warm verify must skip Argon2id, took %v", elapsed)
+	}
+	if cache.entries[hash] != entry {
+		t.Fatal("warm verify must not rewrite the entry")
+	}
+	if cache.verify(hash, "wrong") {
+		t.Fatal("cached entry must not admit a different secret")
+	}
+}
+
+func TestVerifiedSecretCacheRotationInvalidates(t *testing.T) {
+	first, err := hashClientSecret("generation-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := hashClientSecret("generation-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &verifiedSecretCache{}
+	if !cache.verify(first, "generation-one") {
+		t.Fatal("first generation must verify")
+	}
+	if cache.verify(second, "generation-one") {
+		t.Fatal("rotated hash must reject the retired secret")
+	}
+	if !cache.verify(second, "generation-two") {
+		t.Fatal("rotated hash must verify its own secret")
+	}
+}
+
+func TestVerifiedSecretCacheExpiredEntryReverifies(t *testing.T) {
+	hash, err := hashClientSecret("hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &verifiedSecretCache{}
+	if !cache.verify(hash, "hunter2") {
+		t.Fatal("cold verify must succeed")
+	}
+	stale := cache.entries[hash]
+	stale.expiresAt = time.Now().Add(-time.Minute)
+	cache.entries[hash] = stale
+	if !cache.verify(hash, "hunter2") {
+		t.Fatal("expired entry must fall through to a successful derivation")
+	}
+	if !time.Now().Before(cache.entries[hash].expiresAt) {
+		t.Fatal("reverification must refresh the entry expiry")
 	}
 }
 

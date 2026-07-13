@@ -108,7 +108,7 @@ func TestRunCredentialResourceFailures(t *testing.T) {
 	t.Run("rate limited", func(t *testing.T) {
 		db := runCredentialFlowStub(t)
 		srv := runCredentialFlowServer(t, &db, runCredentialAllowPolicy)
-		srv.redis = &fakeSTSRedis{failures: rateLimitMax}
+		srv.redis = &fakeSTSRedis{failures: defaultMintRateLimit}
 		w := runCredentialRequest(t, srv, runCredentialForm(nil))
 		if w.Code != http.StatusTooManyRequests {
 			t.Fatalf("status = %d", w.Code)

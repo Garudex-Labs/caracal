@@ -322,9 +322,20 @@ type stubDB struct {
 	workload                 *Workload
 	workloadErr              error
 	markedExpired            []string
+	mintRateLimit            int64
+	mintRateLimitErr         error
 }
 
 func (s *stubDB) Ping(_ context.Context) error { return nil }
+func (s *stubDB) ConfiguredMintRateLimit(_ context.Context) (int64, bool, error) {
+	if s.mintRateLimitErr != nil {
+		return 0, false, s.mintRateLimitErr
+	}
+	if s.mintRateLimit == 0 {
+		return 0, false, nil
+	}
+	return s.mintRateLimit, true, nil
+}
 func (s *stubDB) CurrentTime(_ context.Context) (time.Time, error) {
 	if s.now.IsZero() {
 		return time.Now(), nil

@@ -311,7 +311,7 @@ func TestCheckRateLimitAllowsWithinLimitAndFailsClosed(t *testing.T) {
 	if err := (&Server{redis: &fakeSTSRedis{}}).checkRateLimit(context.Background(), "z", "r", "a"); err != nil {
 		t.Fatalf("first request should pass: %v", err)
 	}
-	if err := (&Server{redis: &fakeSTSRedis{failures: rateLimitMax}}).checkRateLimit(context.Background(), "z", "r", "a"); err == nil {
+	if err := (&Server{redis: &fakeSTSRedis{failures: defaultMintRateLimit}}).checkRateLimit(context.Background(), "z", "r", "a"); err == nil {
 		t.Fatal("counter above limit must fail")
 	}
 	if err := (&Server{redis: &fakeSTSRedis{incrErr: errors.New("redis down")}}).checkRateLimit(context.Background(), "z", "r", "a"); err == nil {
