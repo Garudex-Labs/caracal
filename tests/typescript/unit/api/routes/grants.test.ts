@@ -328,6 +328,36 @@ describe('OAuth provider grant browser flow', () => {
     expect(redis.set).toHaveBeenCalledWith(`api:provider_oauth_state:${body.state}`, expect.any(String), 'EX', 600)
   })
 
+  it('defaults the authorization to the shared connection subject when none is given', async () => {
+    const { app, db, redis } = buildRouteApp(grantsRoutes)
+    redis.set.mockResolvedValue('OK')
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
+            client_id: 'google-client',
+          },
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/provider-connections/oauth/authorize',
+      payload: { provider_id: 'provider-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stateArg = redis.set.mock.calls[0][1] as string
+    expect(JSON.parse(stateArg)).toMatchObject({ subject_id: 'caracal:shared', provider_id: 'provider-1' })
+  })
+
   it('rejects authorization setup with invalid provider configuration', async () => {
     const { app, db } = buildRouteApp(grantsRoutes)
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }).mockResolvedValueOnce({

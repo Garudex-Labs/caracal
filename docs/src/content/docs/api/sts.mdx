@@ -72,6 +72,7 @@ Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails,
 | Rejected                                                         | Reason                                                                                                 |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Empty, or longer than 512 bytes                                  | Bounded storage, indexing, and display.                                                                |
+| Inside the reserved `caracal:` namespace                         | Anchors Caracal-internal subject sentinels such as the shared provider connection; an external issuer must never mint one. |
 | Invalid UTF-8, or containing U+FFFD                              | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
 | Control characters (including NUL, newlines, escapes)            | Log forging and storage safety.                                                                        |
 | Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text.                                                              |

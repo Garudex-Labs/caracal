@@ -658,6 +658,10 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
 
 /* --------------------------- Provider connections --------------------------- */
 
+// The reserved subject id the STS falls back to for a zone-shared upstream account.
+// Kept in sync with SHARED_CONNECTION_SUBJECT (API) and SharedConnectionSubject (STS).
+const SHARED_CONNECTION_SUBJECT = "caracal:shared";
+
 // A connection is healthy while its upstream token is live or STS can refresh it on
 // use; a lapsed token with no refresh token needs the subject to reconnect.
 function ConnectionHealthBadge({ connection }: { connection: ProviderConnection }) {
@@ -716,8 +720,8 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
         </div>
       ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No subjects connected yet. Use “Connect” to authorize an upstream account for a subject;
-          the stored connection then serves every resource routed through this provider.
+          Not connected yet. Use “Connect” to authorize one shared upstream account for this
+          provider; it then serves every resource and caller that policy routes through it.
         </p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
@@ -727,7 +731,9 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
                 <tr key={connection.id}>
                   <td className="px-3 py-2 align-top">
                     <div className="break-all font-mono text-xs text-foreground">
-                      {connection.subject_id}
+                      {connection.subject_id === SHARED_CONNECTION_SUBJECT
+                        ? "Shared account"
+                        : connection.subject_id}
                     </div>
                   </td>
                   <td className="px-3 py-2 align-top text-right">
@@ -773,7 +779,7 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
         open={revokeTarget !== null}
         onClose={() => setRevokeTarget(null)}
         title="Revoke connection"
-        description={`Revoking ${provider.name} for "${revokeTarget?.subject_id ?? ""}" immediately invalidates the stored upstream tokens for every resource routed through this provider. The subject must reconnect to regain access.`}
+        description={`Revoking ${provider.name} for ${revokeTarget?.subject_id === SHARED_CONNECTION_SUBJECT ? "the shared account" : `"${revokeTarget?.subject_id ?? ""}"`} immediately invalidates the stored upstream tokens for every resource routed through this provider. Reconnect to regain access.`}
         confirmLabel="Revoke connection"
         tone="danger"
         onConfirm={async () => {
@@ -836,6 +842,7 @@ function ConnectProviderModal({
   const applicationsQuery = useApplications(zoneId);
   const authorize = useAuthorizeProviderConnection(zoneId);
   const [subjectId, setSubjectId] = useState("");
+  const [advanced, setAdvanced] = useState(false);
   const [result, setResult] = useState<{ url: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -845,6 +852,7 @@ function ConnectProviderModal({
 
   function reset() {
     setSubjectId("");
+    setAdvanced(false);
     setResult(null);
     setError(null);
   }
@@ -856,10 +864,11 @@ function ConnectProviderModal({
 
   async function submit() {
     setError(null);
-    if (!subjectId.trim()) return setError("A subject is required.");
+    if (advanced && !subjectId.trim())
+      return setError("Enter a subject, or switch back to a shared account.");
     try {
       const res = await authorize.mutateAsync({
-        subject_id: subjectId.trim(),
+        subject_id: advanced ? subjectId.trim() : undefined,
         provider_id: provider.id,
       });
       setResult({ url: res.authorization_url, expiresAt: res.expires_at });
@@ -874,7 +883,7 @@ function ConnectProviderModal({
       open={open}
       onClose={handleClose}
       title={`Connect ${provider.name}`}
-      description="Authorize an upstream account for a subject. The connection serves every resource routed through this provider."
+      description="Authorize one upstream account for this provider. It serves every resource and caller that policy routes through the provider."
       footer={
         result ? (
           <Button onClick={handleClose}>Done</Button>
@@ -917,23 +926,42 @@ function ConnectProviderModal({
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <Field
-            label="Subject"
-            info="The runtime identity that will use this connection. It must exactly match the Subject of the Sessions making calls; for an Application acting as itself, use the Application ID."
-            hint="For an Application acting as itself, use the Application ID."
-            placeholder="Select or paste an application ID"
-            list="connect-subject-suggestions"
-            value={subjectId}
-            onChange={(e) => setSubjectId(e.target.value)}
-            autoFocus
-          />
-          <datalist id="connect-subject-suggestions">
-            {(applicationsQuery.data ?? []).map((app) => (
-              <option key={app.id} value={app.id}>
-                {app.name}
-              </option>
-            ))}
-          </datalist>
+          <p className="text-sm text-muted-foreground">
+            {advanced
+              ? "This connection is bound to one subject and is used only when that subject makes the call — for per-customer upstream accounts you federate."
+              : "This connects one shared upstream account. Every caller that policy authorizes through this provider uses it — no per-caller subject needed."}
+          </p>
+          {advanced ? (
+            <>
+              <Field
+                label="Subject"
+                info="The runtime identity that will use this connection. It must exactly match the Subject of the Sessions making calls; for an Application acting as itself, use the Application ID."
+                hint="For an Application acting as itself, use the Application ID."
+                placeholder="Select or paste an application ID"
+                list="connect-subject-suggestions"
+                value={subjectId}
+                onChange={(e) => setSubjectId(e.target.value)}
+                autoFocus
+              />
+              <datalist id="connect-subject-suggestions">
+                {(applicationsQuery.data ?? []).map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.name}
+                  </option>
+                ))}
+              </datalist>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="self-start text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+            onClick={() => {
+              setAdvanced((v) => !v);
+              setError(null);
+            }}
+          >
+            {advanced ? "Use a shared account instead" : "Bind to a specific subject (advanced)"}
+          </button>
           {upstreamScopes.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               The provider will request these upstream scopes during consent:{" "}
