@@ -266,10 +266,22 @@ async function providerHttpRequest(
         method,
         headers,
         timeout: PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS,
-        lookup: async (host, _options, callback) => {
+        // Node's autoSelectFamily (Happy Eyeballs, default-enabled since Node 20) calls
+        // this hook with { all: true } and expects the full resolved address list; the
+        // single-address callback form makes the connection fail with "Invalid IP
+        // address: undefined". Every address resolveSafeHost returns is SSRF-validated,
+        // so honoring the all option keeps the connection pinned to safe hosts either way.
+        lookup: async (host, options, callback) => {
           try {
             const addresses = await resolveSafeHost(host)
-            callback(null, addresses[0].address, addresses[0].family)
+            if ((options as { all?: boolean }).all) {
+              ;(callback as unknown as (err: NodeJS.ErrnoException | null, addresses: { address: string; family: number }[]) => void)(
+                null,
+                addresses,
+              )
+            } else {
+              callback(null, addresses[0].address, addresses[0].family)
+            }
           } catch (err) {
             callback(err instanceof Error ? err : new Error(String(err)), '', 4)
           }
