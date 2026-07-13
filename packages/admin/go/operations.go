@@ -88,8 +88,9 @@ func (q *GrantQuery) values() url.Values {
 	return values
 }
 
-// ProviderConnection is the admin API provider connection row: one subject's
-// authenticated upstream account on a provider.
+// ProviderConnection is the admin API provider connection row: an authenticated
+// upstream account on a provider, shared across the zone by default or bound to a
+// subject for per-subject (federated) connections.
 type ProviderConnection struct {
 	ID                 string  `json:"id"`
 	ZoneID             string  `json:"zone_id"`

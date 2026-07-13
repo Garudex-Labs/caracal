@@ -1068,15 +1068,28 @@ type ProviderConnection struct {
 	RefreshTokenVersion int
 }
 
+// SharedConnectionSubject is the reserved subject id for a zone-shared provider
+// connection: one upstream account that serves every session policy authorizes
+// through the provider, without binding the credential to a per-caller subject.
+// A federated per-subject connection still matches exactly and takes precedence
+// over the shared row, so per-customer upstream accounts are unaffected.
+const SharedConnectionSubject = "caracal:shared"
+
+// GetProviderConnection resolves the upstream credential to attach for a caller.
+// It prefers a connection stored for the caller's exact subject and otherwise
+// falls back to the zone-shared connection, so a shared upstream account needs no
+// per-caller subject while federated per-subject accounts keep exact precedence.
 func (d *DB) GetProviderConnection(ctx context.Context, zoneID, subjectID string, providerID *string) (*ProviderConnection, error) {
 	var c ProviderConnection
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, zone_id, subject_id, provider_id,
 		        access_token_ct, refresh_token_ct, expires_at, refresh_token_version
 		 FROM provider_connections
-		 WHERE zone_id = $1 AND subject_id = $2 AND status = 'active'
+		 WHERE zone_id = $1 AND status = 'active'
 		   AND ($3::text IS NULL OR provider_id = $3)
-		 ORDER BY created_at DESC LIMIT 1`, zoneID, subjectID, providerID,
+		   AND subject_id IN ($2, $4)
+		 ORDER BY (subject_id = $2) DESC, created_at DESC LIMIT 1`,
+		zoneID, subjectID, providerID, SharedConnectionSubject,
 	).Scan(&c.ID, &c.ZoneID, &c.SubjectID, &c.ProviderID,
 		&c.AccessTokenCt, &c.RefreshTokenCt, &c.ExpiresAt, &c.RefreshTokenVersion)
 	if err != nil {
