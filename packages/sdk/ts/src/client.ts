@@ -1062,7 +1062,7 @@ export class Caracal {
     const pending = (async () => {
       try {
         const fresh = await this.withAppProvisioning(signal, () =>
-          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, { ...opts, labels }, signal),
+          this.appAuthorityCycle(exchanger, identity, resourceId, scopes, opts, signal),
         )
         if (generation !== this.appGeneration) {
           await this.retireAppAuthorities(exchanger, [fresh])
@@ -1141,10 +1141,11 @@ export class Caracal {
     const mandateTtl = opts.mandateTtlSeconds ?? APP_MANDATE_TTL_SECONDS
     const sessionTtl = mandateTtl + APP_SESSION_TTL_BUFFER_SECONDS
     const bootstrap = (await exchanger.mintMandate(resourceId, [LIFECYCLE_SCOPE], { signal })).token
+    const labels = opts.labels?.length ? opts.labels : [identity.applicationId]
     const spawnReq = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
-      labels: opts.labels,
+      labels,
       ttlSeconds: sessionTtl,
     }
     const sessions: string[] = []

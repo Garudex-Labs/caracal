@@ -23,13 +23,13 @@ const CARDS = [
   {
     title: "GitHub",
     desc: "Star the repo, file issues, and send PRs.",
-    stat: "100+ ★",
+    stat: "150+ ★",
     href: "https://github.com/Garudex-Labs/caracal",
   },
   {
     title: "Discord",
     desc: "Chat with maintainers and the community in real time.",
-    stat: "60+ members",
+    stat: "100+ members",
     href: "https://discord.gg/WX7dNMhM7E",
   },
   {
