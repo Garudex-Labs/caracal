@@ -281,7 +281,7 @@ func TestExchangeDenyTaxonomy(t *testing.T) {
 
 	t.Run("rate limited resource is skipped", func(t *testing.T) {
 		srv := exchangeFlowServer(t, exchangeFlowDB(t), runCredentialAllowPolicy)
-		srv.redis = &fakeSTSRedis{failures: rateLimitMax}
+		srv.redis = &fakeSTSRedis{failures: defaultMintRateLimit}
 		_, _, code, _ := srv.exchange(context.Background(), baseExchangeRequest(), "req-1")
 		if code != http.StatusForbidden {
 			t.Fatalf("code = %d", code)
