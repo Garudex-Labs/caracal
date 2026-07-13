@@ -9,15 +9,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-verify"
-version = "0.2.0rc3"
+version = "0.2.0rc4"
 description = "Framework-neutral mandate verification for Caracal-issued JWTs"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "caracalai-identity==0.2.0rc3",
-  "caracalai-revocation==0.2.0rc3",
+  "caracalai-identity==0.2.0rc4",
+  "caracalai-revocation==0.2.0rc4",
 ]
 
 [tool.hatch.build.targets.wheel]

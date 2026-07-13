@@ -28,7 +28,7 @@ The install script downloads the archive for your platform, verifies its checksu
 <TabItem label="Linux / macOS">
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --version v0.2.0-rc.3
+curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.sh | sh -s -- --version v0.2.0-rc.4
 ```
 
 </TabItem>
@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.s
 ```powershell
 $installer = "$env:TEMP\install.ps1"
 iwr -useb https://raw.githubusercontent.com/Garudex-Labs/caracal/main/install.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Version v0.2.0-rc.3
+powershell -ExecutionPolicy Bypass -File $installer -Version v0.2.0-rc.4
 ```
 
 The installer places `caracal.exe` in `%LOCALAPPDATA%\Programs\caracal` and adds it to the user `Path`; open a new shell afterward.
@@ -51,7 +51,7 @@ Prefer to download and verify manually? Each [release](https://github.com/Garude
 <TabItem label="Linux / macOS">
 
 ```sh
-tag=v0.2.0-rc.3
+tag=v0.2.0-rc.4
 platform=linux-amd64   # or linux-arm64, darwin-amd64, darwin-arm64
 curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/caracal-runtime-${platform}-${tag}.tar.gz"
 curl -fsSLO "https://github.com/Garudex-Labs/caracal/releases/download/${tag}/SHA256SUMS"
@@ -66,7 +66,7 @@ Make sure the destination directory is on your `PATH`.
 <TabItem label="Windows">
 
 ```powershell
-$tag = 'v0.2.0-rc.3'
+$tag = 'v0.2.0-rc.4'
 Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/caracal-runtime-windows-amd64-$tag.zip" -OutFile caracal.zip
 Invoke-WebRequest "https://github.com/Garudex-Labs/caracal/releases/download/$tag/SHA256SUMS" -OutFile SHA256SUMS
 Get-FileHash .\caracal.zip -Algorithm SHA256   # compare with the matching SHA256SUMS entry

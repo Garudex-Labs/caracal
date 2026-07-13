@@ -7,4 +7,4 @@ module github.com/garudex-labs/caracal/packages/admin/go
 
 go 1.26
 
-require github.com/garudex-labs/caracal/packages/core/go v0.2.0-rc.3
+require github.com/garudex-labs/caracal/packages/core/go v0.2.0-rc.4
