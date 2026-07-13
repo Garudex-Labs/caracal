@@ -243,7 +243,8 @@ export const ENV_SCHEMA = {
   },
   GOOGLE_CLIENT_ID: {
     kind: 'string',
-    description: 'Google OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/google.',
+    description:
+      'Google OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/google; packaged default http://localhost:3001/api/auth/callback/google.',
     default: '',
     exposed: true,
   },
@@ -255,7 +256,8 @@ export const ENV_SCHEMA = {
   },
   GITHUB_CLIENT_ID: {
     kind: 'string',
-    description: 'GitHub OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/github.',
+    description:
+      'GitHub OAuth client id for console sign-in. Callback URL: <console origin>/api/auth/callback/github; packaged default http://localhost:3001/api/auth/callback/github.',
     default: '',
     exposed: true,
   },
