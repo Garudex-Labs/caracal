@@ -1144,7 +1144,7 @@ export class Caracal {
     const spawnReq = {
       zoneId: identity.zoneId,
       applicationId: identity.applicationId,
-      labels: opts.labels ?? [identity.applicationId],
+      labels: opts.labels,
       ttlSeconds: sessionTtl,
     }
     const sessions: string[] = []
