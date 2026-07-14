@@ -122,7 +122,7 @@ class AdminClient:
         self.sessions = _Sessions(self)
         self.audit = _Audit(self)
         self.admin_audit = _AdminAudit(self)
-        self.step_up_challenges = _StepUpChallenges(self)
+        self.approvals = _Approvals(self)
         self.delegations = _Delegations(self)
 
     def with_default_headers(self, headers: dict[str, str]) -> AdminClient:
@@ -762,32 +762,26 @@ class _AdminAudit:
         return _unwrap(response, "items", "admin audit response missing items")
 
 
-class _StepUpChallenges:
+class _Approvals:
     def __init__(self, client: AdminClient) -> None:
         self._client = client
 
     def list(self, zone_id: str) -> Any:
-        return self._client._list_all(
-            f"/v1/zones/{zone_id}/step-up-challenges", "step-up challenges"
-        )
+        return self._client._list_all(f"/v1/zones/{zone_id}/approvals", "approvals")
 
-    def get(self, zone_id: str, challenge_id: str) -> Any:
-        return self._client._request(
-            f"/v1/zones/{zone_id}/step-up-challenges/{challenge_id}"
-        )
+    def get(self, zone_id: str, approval_id: str) -> Any:
+        return self._client._request(f"/v1/zones/{zone_id}/approvals/{approval_id}")
 
-    def approve(
-        self, zone_id: str, challenge_id: str, reason: str | None = None
-    ) -> Any:
+    def approve(self, zone_id: str, approval_id: str, reason: str | None = None) -> Any:
         return self._client._request(
-            f"/v1/zones/{zone_id}/step-up-challenges/{challenge_id}/approve",
+            f"/v1/zones/{zone_id}/approvals/{approval_id}/approve",
             method="POST",
             body={"reason": reason} if reason else {},
         )
 
-    def reject(self, zone_id: str, challenge_id: str, reason: str | None = None) -> Any:
+    def reject(self, zone_id: str, approval_id: str, reason: str | None = None) -> Any:
         return self._client._request(
-            f"/v1/zones/{zone_id}/step-up-challenges/{challenge_id}/reject",
+            f"/v1/zones/{zone_id}/approvals/{approval_id}/reject",
             method="POST",
             body={"reason": reason} if reason else {},
         )

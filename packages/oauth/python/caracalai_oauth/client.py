@@ -111,7 +111,7 @@ class OAuthClient:
         if reason:
             body["reason"] = reason
         response = await self._http_client.post(
-            f"{self._sts_url}/step-up/{quote(approval_id, safe='')}/decision",
+            f"{self._sts_url}/approvals/{quote(approval_id, safe='')}/decision",
             json=body,
             headers={"Authorization": f"Bearer {subject_token}"},
             timeout=timeout_ms / 1000,
@@ -135,7 +135,7 @@ class OAuthClient:
         preflight_window = timeout_ms / 1000 + 30
         cache_subject = self._cache_subject(subject_token, opts)
         cache_resource = self._cache_resource(resources, opts)
-        one_shot = opts.one_shot or not opts.cache or bool(opts.challenge_id)
+        one_shot = opts.one_shot or not opts.cache or bool(opts.approval_id)
         cached = (
             self._cache.get(cache_subject, cache_resource)
             if not one_shot and not opts.force_refresh
@@ -259,7 +259,7 @@ class OAuthClient:
         _set_value(data, "session_id", opts.authority_record_id)
         _set_value(data, "agent_session_id", opts.session_id)
         _set_value(data, "delegation_edge_id", opts.delegation_id)
-        _set_value(data, "challenge_id", opts.challenge_id)
+        _set_value(data, "approval_id", opts.approval_id)
         scope = _normalized_scopes(opts.scopes)
         if scope:
             data["scope"] = scope

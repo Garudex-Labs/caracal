@@ -388,7 +388,7 @@ class ClientSecretExchanger:
         if ttl_seconds is not None:
             data["ttl_seconds"] = str(ttl_seconds)
         if approval_id:
-            data["challenge_id"] = approval_id
+            data["approval_id"] = approval_id
         return data
 
     async def await_approval(
@@ -411,7 +411,7 @@ class ClientSecretExchanger:
                         break
                     wait = max(1, min(25, int(remaining)))
                     response = await client.get(
-                        f"{self._sts_url}/step-up/{approval_id}?wait={wait}",
+                        f"{self._sts_url}/approvals/{approval_id}?wait={wait}",
                         timeout=min(remaining, wait + 10.0),
                     )
                     response.raise_for_status()
@@ -509,7 +509,7 @@ class ClientSecretExchanger:
             if remaining <= 0:
                 return finish("pending", True)
             wait = max(1, min(25, int(remaining)))
-            url = f"{self._sts_url}/step-up/{approval_id}?wait={wait}"
+            url = f"{self._sts_url}/approvals/{approval_id}?wait={wait}"
             resp = self._http.get(url, timeout=wait + 10.0)
             try:
                 resp.raise_for_status()

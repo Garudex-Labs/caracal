@@ -192,10 +192,10 @@ def raise_for_caracal_error(resp: httpx.Response) -> None:
     code = str(body.get("error", ""))
     description = str(body.get("error_description", ""))
     request_id = str(body.get("requestId", ""))
-    if code == ApprovalRequired.code and body.get("challenge_type") == "human_approval":
+    if code == ApprovalRequired.code and body.get("approval_type") == "human_approval":
         raise ApprovalRequired(
-            approval_id=str(body.get("challenge_id", "")),
-            expires_at=str(body.get("challenge_expires_at", "")),
+            approval_id=str(body.get("approval_id", "")),
+            expires_at=str(body.get("approval_expires_at", "")),
             state=str(body.get("state", "")),
             tier=str(body.get("tier", "")),
             binding=str(body.get("binding", "")),

@@ -45,7 +45,7 @@ class ExchangeOptions:
     authority_record_id: str | None = None
     session_id: str | None = None
     delegation_id: str | None = None
-    challenge_id: str | None = None
+    approval_id: str | None = None
     scopes: list[str] = field(default_factory=list)
     timeout_ms: int = 30_000
     ttl_seconds: int | None = None
