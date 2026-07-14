@@ -143,7 +143,7 @@ describe('OAuthClient', () => {
     const approved = await client.exchange('', 'resource://api', {
       clientSecret: 'secret',
       scopes: ['read'],
-      challengeId: 'approval-1',
+      approvalId: 'approval-1',
     })
 
     expect(approved.accessToken).toBe('token-2')
@@ -176,7 +176,7 @@ describe('OAuthClient', () => {
         json: async () => ({
           error: 'interaction_required',
           error_description: 'MFA required',
-          challenge_id: 'chal-1',
+          approval_id: 'chal-1',
         }),
       }),
     )
@@ -461,7 +461,7 @@ describe('OAuthClient', () => {
         json: async () => ({
           error: 'interaction_required',
           error_description: 'Approval required',
-          challenge_id: 'chal-9',
+          approval_id: 'chal-9',
           requestId: 'req-9',
         }),
       }),
@@ -604,7 +604,7 @@ describe('decideApproval', () => {
       reason: 'refund reviewed',
     })
     const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toBe('http://sts:8080/step-up/ch-1/decision')
+    expect(String(url)).toBe('http://sts:8080/approvals/ch-1/decision')
     expect(init.headers.Authorization).toBe('Bearer user-session-token')
     expect(JSON.parse(init.body as string)).toEqual({ decision: 'approved', binding: 'abcd', reason: 'refund reviewed' })
   })

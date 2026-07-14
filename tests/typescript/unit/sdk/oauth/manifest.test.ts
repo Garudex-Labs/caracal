@@ -116,7 +116,7 @@ describe('fetchRunCredential', () => {
     expect(body.get('workload_id')).toBe('wl1')
     expect(body.get('secret')).toBe('ws_secret')
     expect(body.get('env')).toBe('CARACAL_RESOURCE_PIPERNET_TOKEN')
-    expect(body.get('challenge_id')).toBeNull()
+    expect(body.get('approval_id')).toBeNull()
     expect(minted).toEqual({ env: 'CARACAL_RESOURCE_PIPERNET_TOKEN', credential: 'pipernet-api-key', expiresAt: 1234 })
   })
 
@@ -128,7 +128,7 @@ describe('fetchRunCredential', () => {
     })
     await fetchRunCredential('http://sts:8080', 'wl1', 'ws_secret', 'OPT', { fetchImpl: fetchMock, approvalId: 'ch-1' })
     const body = fetchMock.mock.calls[0][1].body as URLSearchParams
-    expect(body.get('challenge_id')).toBe('ch-1')
+    expect(body.get('approval_id')).toBe('ch-1')
   })
 
   it('raises ApprovalRequiredError when the mint is held for approval', async () => {
@@ -138,7 +138,7 @@ describe('fetchRunCredential', () => {
       json: async () => ({
         error: 'interaction_required',
         error_description: 'Approval required',
-        challenge_id: 'ch-9',
+        approval_id: 'ch-9',
         state: 'pending',
         tier: 'sensitive',
       }),

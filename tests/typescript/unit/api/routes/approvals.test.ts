@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Step-up challenge route unit tests for lookup, decision guards, and audit enqueue.
+// Approval route unit tests for lookup, decision guards, and audit enqueue.
 
 import { describe, it, expect, vi } from 'vitest'
-import { stepUpChallengesRoutes } from '../../../../../apps/api/src/routes/step-up-challenges.js'
+import { approvalsRoutes } from '../../../../../apps/api/src/routes/approvals.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
 
 const OPERATOR = { actor: { id: 'op-1', name: 'operator', scope: 'global', zoneId: null } }
@@ -31,9 +31,9 @@ function txClient(handler: (sql: string, params?: unknown[]) => { rows: unknown[
   return client
 }
 
-describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
+describe('GET /v1/zones/:zoneId/approvals', () => {
   it('lists challenges with derived state and keyset pagination', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    const { app, db } = buildRouteApp(approvalsRoutes)
     db.query.mockResolvedValueOnce({
       rows: [
         { id: 'challenge-2', zone_id: 'z1', state: 'pending', created_at: '2026-01-02T00:00:00.000Z' },
@@ -42,7 +42,7 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges?limit=1' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/approvals?limit=1' })
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
@@ -53,13 +53,13 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
   })
 
   it('filters by derived state and principal server-side', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    const { app, db } = buildRouteApp(approvalsRoutes)
     db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/zones/z1/step-up-challenges?state=pending&principal=user%3Arichard.hendricks',
+      url: '/v1/zones/z1/approvals?state=pending&principal=user%3Arichard.hendricks',
     })
 
     expect(res.statusCode).toBe(200)
@@ -70,25 +70,25 @@ describe('GET /v1/zones/:zoneId/step-up-challenges', () => {
   })
 
   it('rejects an unknown state filter', async () => {
-    const { app } = buildRouteApp(stepUpChallengesRoutes)
+    const { app } = buildRouteApp(approvalsRoutes)
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges?state=bogus' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/approvals?state=bogus' })
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_query' })
   })
 })
 
-describe('GET /v1/zones/:zoneId/step-up-challenges/counts', () => {
+describe('GET /v1/zones/:zoneId/approvals/counts', () => {
   it('aggregates every derived state in one pass', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    const { app, db } = buildRouteApp(approvalsRoutes)
     db.query.mockResolvedValueOnce({
       rows: [{ pending: '2', approved: '1', rejected: '0', expired: '3', consumed: '4' }],
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges/counts' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/approvals/counts' })
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({ pending: 2, approved: 1, rejected: 0, expired: 3, consumed: 4 })
@@ -98,35 +98,35 @@ describe('GET /v1/zones/:zoneId/step-up-challenges/counts', () => {
   })
 })
 
-describe('GET /v1/zones/:zoneId/step-up-challenges/:id', () => {
+describe('GET /v1/zones/:zoneId/approvals/:id', () => {
   it('returns a zone-scoped challenge with its approval fact', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    const { app, db } = buildRouteApp(approvalsRoutes)
     db.query.mockResolvedValueOnce({
-      rows: [{ id: 'challenge-1', zone_id: 'z1', challenge_type: 'human_approval', tier: 'money', state: 'pending', binding: 'aa11' }],
+      rows: [{ id: 'challenge-1', zone_id: 'z1', approval_type: 'human_approval', tier: 'money', state: 'pending', binding: 'aa11' }],
     })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges/challenge-1' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/approvals/challenge-1' })
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'challenge-1', tier: 'money', state: 'pending', binding: 'aa11' })
   })
 
   it('returns 404 when challenge is missing or outside the zone', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes)
+    const { app, db } = buildRouteApp(approvalsRoutes)
     db.query.mockResolvedValueOnce({ rows: [] })
 
     await app.ready()
-    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/step-up-challenges/challenge-1' })
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/approvals/challenge-1' })
 
     expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'challenge_not_found' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'approval_not_found' })
   })
 })
 
-describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
+describe('POST /v1/zones/:zoneId/approvals/:id decisions', () => {
   it('approves a live hold, attributes the actor, and enqueues the audit event in the same transaction', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) return { rows: [DECIDED_ROW] }
       return undefined
@@ -134,7 +134,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ id: 'challenge-1', state: 'approved', approver_subject_id: 'admin:op-1' })
@@ -155,7 +155,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
   })
 
   it('carries the requesting agent labels from the challenge into the decision audit', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const labels = ['payout-execution', 'case:CASE-RESTART-01', 'settlement:stl_90002']
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) {
@@ -166,7 +166,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(200)
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE step_up_challenges'))
@@ -177,7 +177,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
   })
 
   it('carries the subject anchor from the challenge into the decision audit', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) {
         return { rows: [{ ...DECIDED_ROW, subject_anchor: 'user:richard.hendricks@piedpiper.example' }] }
@@ -187,7 +187,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(200)
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE step_up_challenges'))
@@ -198,7 +198,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
   })
 
   it('rejects a live hold and records the rationale', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient((sql) => {
       if (sql.includes('UPDATE step_up_challenges')) {
         return { rows: [{ ...DECIDED_ROW, satisfied_at: null, rejected_at: '2026-05-05T00:00:00.000Z', decision_reason: 'wrong amount' }] }
@@ -210,7 +210,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/step-up-challenges/challenge-1/reject',
+      url: '/v1/zones/z1/approvals/challenge-1/reject',
       payload: { reason: 'wrong amount' },
     })
 
@@ -226,7 +226,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
 
   it('attributes a console decision through the bound account profile id', async () => {
     const { app, db } = buildRouteApp(
-      stepUpChallengesRoutes,
+      approvalsRoutes,
       { prefix: '/v1' },
       {
         ...OPERATOR,
@@ -242,7 +242,7 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(200)
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE step_up_challenges'))
@@ -250,19 +250,19 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
   })
 
   it('returns 404 when no such challenge exists in the zone', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient(() => undefined)
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(404)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'challenge_not_found' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'approval_not_found' })
   })
 
   it('refuses the operator plane a subject-only hold', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient((sql) => {
       if (sql.includes('SELECT approver_class')) return { rows: [{ approver_class: 'subject', state: 'pending' }] }
       return undefined
@@ -270,14 +270,14 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/approve', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/approve', payload: {} })
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'subject_approval_required' })
   })
 
   it('returns 409 with the settled state when the hold is no longer decidable', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     const client = txClient((sql) => {
       if (sql.includes('SELECT approver_class')) return { rows: [{ approver_class: 'operator', state: 'expired' }] }
       return undefined
@@ -285,20 +285,20 @@ describe('POST /v1/zones/:zoneId/step-up-challenges/:id decisions', () => {
     db.connect.mockResolvedValueOnce(client)
 
     await app.ready()
-    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/step-up-challenges/challenge-1/reject', payload: {} })
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/approvals/challenge-1/reject', payload: {} })
 
     expect(res.statusCode).toBe(409)
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'challenge_not_decidable', state: 'expired' })
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'approval_not_decidable', state: 'expired' })
   })
 
   it('refuses an oversized rationale', async () => {
-    const { app, db } = buildRouteApp(stepUpChallengesRoutes, { prefix: '/v1' }, OPERATOR)
+    const { app, db } = buildRouteApp(approvalsRoutes, { prefix: '/v1' }, OPERATOR)
     db.connect.mockResolvedValueOnce(txClient(() => undefined))
 
     await app.ready()
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/step-up-challenges/challenge-1/reject',
+      url: '/v1/zones/z1/approvals/challenge-1/reject',
       payload: { reason: 'x'.repeat(501) },
     })
 

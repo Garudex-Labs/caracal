@@ -7,13 +7,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const fetchRunCredentialMock = vi.hoisted(() => vi.fn())
 const fetchRunManifestMock = vi.hoisted(() => vi.fn())
-const pollStepUpStateMock = vi.hoisted(() => vi.fn())
+const pollApprovalStateMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@caracalai/oauth', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>
   return {
     ...actual,
-    pollStepUpState: pollStepUpStateMock,
+    pollApprovalState: pollApprovalStateMock,
   }
 })
 
@@ -45,7 +45,7 @@ function profile(bindings: RunBinding[]): RunProfile {
 afterEach(() => {
   fetchRunCredentialMock.mockReset()
   fetchRunManifestMock.mockReset()
-  pollStepUpStateMock.mockReset()
+  pollApprovalStateMock.mockReset()
   vi.restoreAllMocks()
 })
 
@@ -142,12 +142,12 @@ describe('buildRunEnv', () => {
     fetchRunCredentialMock
       .mockRejectedValueOnce(new ApprovalRequiredError('approval required', 'chal-1', { binding: 'aa' }))
       .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
-    pollStepUpStateMock.mockResolvedValue('approved')
+    pollApprovalStateMock.mockResolvedValue('approved')
     const lines: string[] = []
     const env = await buildRunEnv(profile([binding({ resource: 'r' })]), { onLine: (l) => lines.push(l) })
     expect(env.API_KEY).toBe('after-approval')
     expect(lines.some((l) => l.includes('approval_required') && l.includes('chal-1') && l.includes('"binding":"aa"'))).toBe(true)
-    expect(pollStepUpStateMock).toHaveBeenCalledWith('http://localhost:8080', 'chal-1', { timeoutMs: 300_000 })
+    expect(pollApprovalStateMock).toHaveBeenCalledWith('http://localhost:8080', 'chal-1', { timeoutMs: 300_000 })
     expect(fetchRunCredentialMock).toHaveBeenLastCalledWith('http://localhost:8080', 'wl1', 'ws_secret', 'API_KEY', {
       approvalId: 'chal-1',
       launchId: 'launch-1',
@@ -162,16 +162,16 @@ describe('buildRunEnv', () => {
         }),
       )
       .mockResolvedValueOnce({ env: 'API_KEY', credential: 'after-approval' })
-    pollStepUpStateMock.mockResolvedValue('approved')
+    pollApprovalStateMock.mockResolvedValue('approved')
     await buildRunEnv(profile([binding({ resource: 'r' })]))
-    const timeoutMs = pollStepUpStateMock.mock.calls[0][2].timeoutMs as number
+    const timeoutMs = pollApprovalStateMock.mock.calls[0][2].timeoutMs as number
     expect(timeoutMs).toBeGreaterThan(50_000)
     expect(timeoutMs).toBeLessThanOrEqual(60_000)
   })
 
   it('fails the credential when the approval is rejected', async () => {
     fetchRunCredentialMock.mockRejectedValue(new ApprovalRequiredError('approval required', 'chal-1', {}))
-    pollStepUpStateMock.mockResolvedValue('rejected')
+    pollApprovalStateMock.mockResolvedValue('rejected')
     await expect(buildRunEnv(profile([binding({ resource: 'r' })]))).rejects.toThrow('approval_rejected')
     expect(fetchRunCredentialMock).toHaveBeenCalledTimes(1)
   })

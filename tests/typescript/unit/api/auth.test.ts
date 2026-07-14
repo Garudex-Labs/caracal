@@ -116,8 +116,8 @@ async function buildPluginApp(
   app.post('/v1/zones', async () => ({ ok: true }))
   app.delete('/v1/zones/:zoneId', async () => ({ ok: true }))
   app.post('/v1/policies/validate', async () => ({ ok: true }))
-  app.post('/v1/zones/:zoneId/step-up-challenges/:id/approve', async () => ({ ok: true }))
-  app.post('/v1/zones/:zoneId/step-up-challenges/:id/reject', async () => ({ ok: true }))
+  app.post('/v1/zones/:zoneId/approvals/:id/approve', async () => ({ ok: true }))
+  app.post('/v1/zones/:zoneId/approvals/:id/reject', async () => ({ ok: true }))
   return app
 }
 
@@ -254,8 +254,8 @@ describe('adminAuthPlugin', () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'approve' }))
     for (const probe of [
       { method: 'GET' as const, url: '/v1/zones' },
-      { method: 'POST' as const, url: '/v1/zones/z1/step-up-challenges/c1/approve' },
-      { method: 'POST' as const, url: '/v1/zones/z1/step-up-challenges/c1/reject' },
+      { method: 'POST' as const, url: '/v1/zones/z1/approvals/c1/approve' },
+      { method: 'POST' as const, url: '/v1/zones/z1/approvals/c1/reject' },
     ]) {
       const res = await app.inject({ ...probe, headers: { authorization: 'Bearer secret' } })
       expect(res.statusCode, `${probe.method} ${probe.url}`).toBe(200)
@@ -280,7 +280,7 @@ describe('adminAuthPlugin', () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-derived-write' }))
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      url: '/v1/zones/z1/approvals/c1/approve',
       headers: { authorization: 'Bearer secret' },
     })
     expect(res.statusCode).toBe(403)
@@ -292,7 +292,7 @@ describe('adminAuthPlugin', () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'read' }))
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/step-up-challenges/c1/reject',
+      url: '/v1/zones/z1/approvals/c1/reject',
       headers: { authorization: 'Bearer secret' },
     })
     expect(res.statusCode).toBe(403)
@@ -304,7 +304,7 @@ describe('adminAuthPlugin', () => {
     const app = await buildPluginApp(makeDb({ token: 'secret', capability: 'write', createdBy: 'env-bootstrap' }))
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/zones/z1/step-up-challenges/c1/approve',
+      url: '/v1/zones/z1/approvals/c1/approve',
       headers: { authorization: 'Bearer secret' },
     })
     expect(res.statusCode).toBe(200)

@@ -11,7 +11,7 @@ const READ = 'cat_read_only'
 const WRITE = 'cat_write'
 const APPROVE = 'cat_approve'
 const ZONE_PATH = '/v1/zones/z1/applications'
-const DECISION_PATH = '/v1/zones/z1/step-up-challenges/chal-1/approve'
+const DECISION_PATH = '/v1/zones/z1/approvals/chal-1/approve'
 
 describe('selectProxyCredential', () => {
   it('uses the read token with an admin fallback for GET', () => {
@@ -34,7 +34,7 @@ describe('selectProxyCredential', () => {
 
   it('presents the approve token on a step-up decision', () => {
     for (const verb of ['approve', 'reject']) {
-      const path = `/v1/zones/z1/step-up-challenges/chal-1/${verb}`
+      const path = `/v1/zones/z1/approvals/chal-1/${verb}`
       expect(selectProxyCredential('POST', path, ADMIN, READ, WRITE, APPROVE), verb).toEqual({ token: APPROVE, fallbackToken: ADMIN })
     }
   })
@@ -42,7 +42,7 @@ describe('selectProxyCredential', () => {
   it('never presents the approve token off the decision surface', () => {
     expect(selectProxyCredential('POST', ZONE_PATH, ADMIN, READ, WRITE, APPROVE).token).toBe(WRITE)
     expect(selectProxyCredential('GET', DECISION_PATH, ADMIN, READ, WRITE, APPROVE).token).toBe(READ)
-    expect(selectProxyCredential('POST', '/v1/zones/z1/step-up-challenges/chal-1', ADMIN, READ, WRITE, APPROVE).token).toBe(WRITE)
+    expect(selectProxyCredential('POST', '/v1/zones/z1/approvals/chal-1', ADMIN, READ, WRITE, APPROVE).token).toBe(WRITE)
   })
 
   it('never presents the read token on a write', () => {

@@ -209,13 +209,13 @@ describe('Authority record, approval, and audit endpoints', () => {
   it('lists, approves, and rejects approval holds', async () => {
     const calls = record()
     await consoleApi.approvals.list('z1', { state: 'pending', cursor: 'cur1' })
-    expect(last(calls).url).toContain('/v1/zones/z1/step-up-challenges?limit=100&cursor=cur1&state=pending')
+    expect(last(calls).url).toContain('/v1/zones/z1/approvals?limit=100&cursor=cur1&state=pending')
     await consoleApi.approvals.counts('z1')
-    expect(last(calls).url).toContain('/v1/zones/z1/step-up-challenges/counts')
+    expect(last(calls).url).toContain('/v1/zones/z1/approvals/counts')
     await consoleApi.approvals.approve('z1', 'ch1', 'reviewed against baseline v3')
     expect(last(calls)).toMatchObject({ method: 'POST', body: { reason: 'reviewed against baseline v3' } })
     await consoleApi.approvals.reject('z1', 'ch1')
-    expect(last(calls)).toMatchObject({ method: 'POST', url: '/api/console/v1/zones/z1/step-up-challenges/ch1/reject', body: {} })
+    expect(last(calls)).toMatchObject({ method: 'POST', url: '/api/console/v1/zones/z1/approvals/ch1/reject', body: {} })
   })
 
   it('queries audit streams, request detail, explain, retention, and admin audit', async () => {

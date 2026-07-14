@@ -480,10 +480,10 @@ describe('AdminClient', () => {
     await c.authorityRecords.list('z1', { status: 'active' } as never)
     await c.subjects.revoke('z1', { subject_id: 'auth0|507f1f77bcf86cd799439011', reason: 'credential compromise' })
     await c.audit.list('z1', { limit: 5 } as never)
-    await c.stepUpChallenges.list('z1')
-    await c.stepUpChallenges.get('z1', 'challenge1')
-    await c.stepUpChallenges.approve('z1', 'challenge1')
-    await c.stepUpChallenges.reject('z1', 'challenge1', 'wrong amount')
+    await c.approvals.list('z1')
+    await c.approvals.get('z1', 'challenge1')
+    await c.approvals.approve('z1', 'challenge1')
+    await c.approvals.reject('z1', 'challenge1', 'wrong amount')
 
     await c.sessions.get('z1', 'ag1')
     await c.sessions.children('z1', 'ag1')
@@ -511,8 +511,8 @@ describe('AdminClient', () => {
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1' && x.method === 'PUT')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1/rotate-secret' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/workloads/wl1' && x.method === 'DELETE')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/approve' && x.method === 'POST')).toBe(true)
-    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/step-up-challenges/challenge1/reject' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/approvals/challenge1/approve' && x.method === 'POST')).toBe(true)
+    expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/approvals/challenge1/reject' && x.method === 'POST')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/agents/ag1/suspend' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://coord/zones/z1/delegations/d1/revoke' && x.method === 'PATCH')).toBe(true)
     expect(calls.some((x) => x.url === 'http://api/v1/zones/z1/authority-records?status=active')).toBe(true)
@@ -533,7 +533,7 @@ describe('AdminClient', () => {
       (c) => c.sessions.list('z1'),
       (c) => c.audit.list('z1'),
       (c) => c.adminAudit.list('z1'),
-      (c) => c.stepUpChallenges.list('z1'),
+      (c) => c.approvals.list('z1'),
       (c) => c.workloads.list('z1'),
       (c) => c.sessions.children('z1', 'ag1'),
     ]

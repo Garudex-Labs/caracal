@@ -7,10 +7,10 @@ Unit tests for the approval hold session lineage read from challenge metadata.
 import { describe, expect, it } from 'vitest'
 
 import { sessionLineage } from '../../../../apps/web/src/lib/approvalMetadata'
-import type { StepUpChallenge } from '../../../../apps/web/src/platform/api/types'
+import type { Approval } from '../../../../apps/web/src/platform/api/types'
 
-function challenge(meta: Record<string, unknown> | null): StepUpChallenge {
-  return { metadata_json: meta } as unknown as StepUpChallenge
+function challenge(meta: Record<string, unknown> | null): Approval {
+  return { metadata_json: meta } as unknown as Approval
 }
 
 describe('sessionLineage', () => {
