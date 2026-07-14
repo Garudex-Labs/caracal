@@ -29,13 +29,13 @@ describe('retrieveDocs', () => {
     expect(joined).toContain('@caracalai/sdk')
   })
 
-  it('surfaces the step-up endpoint from the densest passage of a long API page', () => {
-    const results = retrieveDocs('exact API endpoint to approve a step-up challenge')
+  it('surfaces the approval decision endpoint from the densest passage of a long API page', () => {
+    const results = retrieveDocs('subject-plane decision endpoint authenticated with a federated user session mandate')
     const joined = results.map((r) => r.snippet).join('\n')
-    // The approve route lives deep in the control-plane API reference; the densest-window snippet
+    // The decision route lives deep in the STS API reference; the densest-window snippet
     // must reach it rather than stopping at the page's opening lines.
     expect(joined).toContain('/step-up/{id}/decision')
-    expect(results.some((r) => r.id.includes('step-up'))).toBe(true)
+    expect(results.some((r) => r.id.includes('sts'))).toBe(true)
   })
 
   it('keeps Caracal identifiers intact as searchable terms', () => {
