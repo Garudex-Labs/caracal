@@ -45,7 +45,7 @@ const STATE_PREDICATES: Record<string, string> = {
 // agent asked about. The prior_* counts are the recent history of the same binding in this
 // zone: the challenge store retains terminal rows for a day, so they honestly answer "has this
 // exact authority been decided recently?" without reaching into the audit stream.
-const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id, challenge_type,
+const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id, challenge_type AS approval_type,
        tier, approver_class, privacy_mode, subject_anchor, encode(resource_set_hash, 'hex') AS binding,
        metadata_json, decision_reason, created_at, expires_at,
        satisfied_at, rejected_at, consumed_at, approver_subject_id,
@@ -211,7 +211,7 @@ export const approvalsRoutes: FastifyPluginAsync = async (fastify) => {
        FROM step_up_challenges WHERE id = $1 AND zone_id = $2`,
       [params.id, params.zoneId],
     )
-    if (!rows[0]) return reply.code(404).send({ error: 'challenge_not_found' })
+    if (!rows[0]) return reply.code(404).send({ error: 'approval_not_found' })
     return rows[0]
   })
 
@@ -255,11 +255,11 @@ export const approvalsRoutes: FastifyPluginAsync = async (fastify) => {
            FROM step_up_challenges WHERE id = $1 AND zone_id = $2`,
           [params.id, params.zoneId],
         )
-        if (!existing[0]) throw new TxAbort(reply.code(404).send({ error: 'challenge_not_found' }))
+        if (!existing[0]) throw new TxAbort(reply.code(404).send({ error: 'approval_not_found' }))
         if (existing[0].state === 'pending' && existing[0].approver_class === 'subject') {
           throw new TxAbort(reply.code(403).send({ error: 'subject_approval_required' }))
         }
-        throw new TxAbort(reply.code(409).send({ error: 'challenge_not_decidable', state: existing[0].state }))
+        throw new TxAbort(reply.code(409).send({ error: 'approval_not_decidable', state: existing[0].state }))
       }
       await enqueueDecisionAudit(client, fastify.cfg?.auditHmacKey ?? null, req, params.zoneId, decision, rows[0])
       return {

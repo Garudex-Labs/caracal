@@ -422,15 +422,15 @@ export interface MintRateLimit {
   updated_at: string | null;
 }
 
-export type StepUpState = "pending" | "approved" | "rejected" | "expired" | "consumed";
+export type ApprovalState = "pending" | "approved" | "rejected" | "expired" | "consumed";
 
-export interface StepUpChallenge {
+export interface Approval {
   id: string;
   zone_id: string;
   session_id: string;
   principal_id: string;
   application_id: string | null;
-  challenge_type: string;
+  approval_type: string;
   tier: string | null;
   approver_class: "operator" | "subject" | "any";
   privacy_mode: "identified" | "pseudonymous" | "anonymous";
@@ -446,10 +446,10 @@ export interface StepUpChallenge {
   approver_subject_id: string | null;
   prior_approved: number;
   prior_rejected: number;
-  state: StepUpState;
+  state: ApprovalState;
 }
 
-export interface StepUpDecision {
+export interface ApprovalDecision {
   id: string;
   state: "approved" | "rejected";
   satisfied_at: string | null;
@@ -458,7 +458,7 @@ export interface StepUpDecision {
 }
 
 export interface ApprovalQuery {
-  state?: StepUpState;
+  state?: ApprovalState;
   cursor?: string;
 }
 

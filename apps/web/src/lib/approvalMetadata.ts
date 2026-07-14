@@ -4,11 +4,11 @@ Caracal, a product of Garudex Labs
 
 This file reads approval hold challenge metadata into the facts an approver decides on.
 */
-import type { StepUpChallenge } from "@/platform/api/types";
+import type { Approval } from "@/platform/api/types";
 
 // Requested scopes and resources travel in the challenge metadata as authorization facts.
 // Anything else in the metadata stays visible through the raw record, not the summary.
-export function requestedAuthority(challenge: StepUpChallenge): {
+export function requestedAuthority(challenge: Approval): {
   scopes: string[];
   resources: string[];
 } {
@@ -24,7 +24,7 @@ export function requestedAuthority(challenge: StepUpChallenge): {
 // The requesting session run, when the exchange carried lineage. Lets an approver jump from
 // the hold to the exact run asking for authority before deciding. The session id travels in
 // the challenge metadata as agent_session_id, the same key the exchange and audit trail use.
-export function sessionLineage(challenge: StepUpChallenge): { session?: string; edge?: string } {
+export function sessionLineage(challenge: Approval): { session?: string; edge?: string } {
   const meta = challenge.metadata_json;
   if (!meta) return {};
   return {

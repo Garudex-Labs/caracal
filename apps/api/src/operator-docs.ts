@@ -92,7 +92,7 @@ const STOP_WORDS = new Set([
 
 // Tokenizes text into lowercase terms for scoring: alphanumerics plus the separators that appear in
 // Caracal identifiers (@, /, :, ., -) are kept inside a token so "@caracalai/sdk", "resource://",
-// and "step-up-challenges" survive as searchable terms rather than being split apart.
+// and "provider-connections" survive as searchable terms rather than being split apart.
 function tokenize(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9][a-z0-9@/:._-]*/g) ?? []).filter((token) => token.length > 1)
 }

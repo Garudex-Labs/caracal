@@ -70,8 +70,8 @@ import type {
   SubjectQuery,
   SubjectSummary,
   SimulateResult,
-  StepUpChallenge,
-  StepUpDecision,
+  Approval,
+  ApprovalDecision,
   ApprovalQuery,
   ApprovalCounts,
   NotificationSink,
@@ -913,26 +913,26 @@ export const consoleApi = {
   // lifecycle state; approve/reject decide a live operator-plane hold, with an optional rationale
   // recorded on the hold and in the zone audit stream.
   approvals: {
-    list: (zoneId: string, query: ApprovalQuery = {}): Promise<Paged<StepUpChallenge>> =>
-      requestList<StepUpChallenge>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges${queryString({
+    list: (zoneId: string, query: ApprovalQuery = {}): Promise<Paged<Approval>> =>
+      requestList<Approval>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/approvals${queryString({
           limit: 100,
           cursor: query.cursor,
           state: query.state,
         })}`,
       ).then((res) => ({ rows: res.rows, nextCursor: res.nextCursor })),
     counts: (zoneId: string, signal?: AbortSignal): Promise<ApprovalCounts> =>
-      request<ApprovalCounts>(`/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/counts`, {
+      request<ApprovalCounts>(`/v1/zones/${encodeURIComponent(zoneId)}/approvals/counts`, {
         signal,
       }),
     approve: (zoneId: string, id: string, reason?: string) =>
-      request<StepUpDecision>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/${encodeURIComponent(id)}/approve`,
+      request<ApprovalDecision>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/approvals/${encodeURIComponent(id)}/approve`,
         { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
       ),
     reject: (zoneId: string, id: string, reason?: string) =>
-      request<StepUpDecision>(
-        `/v1/zones/${encodeURIComponent(zoneId)}/step-up-challenges/${encodeURIComponent(id)}/reject`,
+      request<ApprovalDecision>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/approvals/${encodeURIComponent(id)}/reject`,
         { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
       ),
   },
