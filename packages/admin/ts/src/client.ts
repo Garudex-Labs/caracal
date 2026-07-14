@@ -51,8 +51,8 @@ import type {
   SessionQuery,
   SubjectRevokeInput,
   SubjectRevokeResult,
-  StepUpChallenge,
-  StepUpDecision,
+  Approval,
+  ApprovalDecision,
   Workload,
   WorkloadUpdateInput,
   Zone,
@@ -553,16 +553,16 @@ export class AdminClient {
     },
   }
 
-  stepUpChallenges = {
-    list: (zoneId: string) => this.listAll<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges`, 'step-up challenges'),
-    get: (zoneId: string, id: string) => this.request<StepUpChallenge>(`/v1/zones/${zoneId}/step-up-challenges/${id}`),
+  approvals = {
+    list: (zoneId: string) => this.listAll<Approval>(`/v1/zones/${zoneId}/approvals`, 'approvals'),
+    get: (zoneId: string, id: string) => this.request<Approval>(`/v1/zones/${zoneId}/approvals/${id}`),
     approve: (zoneId: string, id: string, reason?: string) =>
-      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/approve`, {
+      this.request<ApprovalDecision>(`/v1/zones/${zoneId}/approvals/${id}/approve`, {
         method: 'POST',
         body: reason ? { reason } : {},
       }),
     reject: (zoneId: string, id: string, reason?: string) =>
-      this.request<StepUpDecision>(`/v1/zones/${zoneId}/step-up-challenges/${id}/reject`, {
+      this.request<ApprovalDecision>(`/v1/zones/${zoneId}/approvals/${id}/reject`, {
         method: 'POST',
         body: reason ? { reason } : {},
       }),

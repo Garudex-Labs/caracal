@@ -34,11 +34,11 @@ interface RunRequestOptions {
 interface RunErrorResponse {
   error?: string
   error_description?: string
-  challenge_id?: string
+  approval_id?: string
   state?: string
   tier?: string
   binding?: string
-  challenge_expires_at?: string
+  approval_expires_at?: string
   requestId?: string
 }
 
@@ -89,16 +89,16 @@ export async function fetchRunCredential(
   opts: RunRequestOptions & { approvalId?: string } = {},
 ): Promise<RunCredentialResponse> {
   const body = new URLSearchParams({ workload_id: workloadId, secret, env })
-  if (opts.approvalId) body.set('challenge_id', opts.approvalId)
+  if (opts.approvalId) body.set('approval_id', opts.approvalId)
   const res = await postRunForm(stsUrl, '/v1/run/credential', body, opts)
   if (!res.ok) {
     const err = await readRunError(res)
     if (err.error === 'interaction_required') {
-      throw new ApprovalRequiredError(err.error_description ?? 'Approval required', err.challenge_id ?? '', {
+      throw new ApprovalRequiredError(err.error_description ?? 'Approval required', err.approval_id ?? '', {
         state: err.state,
         tier: err.tier,
         binding: err.binding,
-        expiresAt: err.challenge_expires_at,
+        expiresAt: err.approval_expires_at,
         requestId: err.requestId,
         httpStatus: res.status,
       })

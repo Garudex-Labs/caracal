@@ -603,13 +603,13 @@ export interface SessionQuery {
   limit?: number
 }
 
-export interface StepUpChallenge {
+export interface Approval {
   id: string
   zone_id: string
   session_id: string
   principal_id: string
   application_id: string | null
-  challenge_type: string
+  approval_type: string
   tier: string | null
   approver_class: string
   privacy_mode: string
@@ -626,7 +626,7 @@ export interface StepUpChallenge {
   approver_subject_id: string | null
 }
 
-export interface StepUpDecision {
+export interface ApprovalDecision {
   id: string
   state: string
   satisfied_at: string | null

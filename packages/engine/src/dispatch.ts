@@ -381,7 +381,7 @@ const auditHandler = bySubcommand({
 })
 
 const approvalHandler = bySubcommand({
-  list: ({ principal, ctx }) => ctx.admin.stepUpChallenges.list(requireZone(principal)),
+  list: ({ principal, ctx }) => ctx.admin.approvals.list(requireZone(principal)),
 })
 
 const explainHandler: Handler = async ({ principal, flags, ctx }) =>
