@@ -5,7 +5,6 @@ Caracal, a product of Garudex Labs
 This file renders the right-edge utility rail: Contact us, Customize, and Sponsor us actions.
 */
 import { navTarget } from "@/platform/nav/appLink";
-import Cal, { getCalApi } from "@calcom/embed-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -17,7 +16,7 @@ import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { PINNED_NAV_ITEMS, toggleNavItem, useHiddenNavItems } from "@/platform/state/sidebarPrefs";
 import { toggleTheme, useTheme } from "@/platform/theme";
 
-const CAL_LINK = "rawx18/caracal-enterprise-sales";
+const CAL_LINK = "https://cal.com/rawx18/caracal-enterprise-sales";
 const SPONSOR_LINK = "https://github.com/sponsors/RAWx18";
 const ISSUE_LINK = "https://github.com/Garudex-Labs/caracal/issues/new/choose";
 
@@ -210,19 +209,10 @@ function RailButton({
 }
 
 function ContactPanel() {
-  const theme = useTheme();
-
-  useEffect(() => {
-    (async () => {
-      const cal = await getCalApi();
-      cal("ui", { theme, hideEventTypeDetails: false, layout: "month_view" });
-    })();
-  }, [theme]);
-
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="absolute bottom-0 right-full z-40 mr-2 w-[34rem] max-w-[calc(100vw-5rem)] cursor-default overflow-hidden rounded-xl border border-border bg-popover text-left shadow-xl"
+      className="absolute bottom-0 right-full z-40 mr-2 w-80 max-w-[calc(100vw-5rem)] cursor-default overflow-hidden rounded-xl border border-border bg-popover text-left shadow-xl"
     >
       <div className="border-b border-border px-4 py-3">
         <p className="text-sm font-semibold text-foreground">Talk to sales</p>
@@ -230,12 +220,15 @@ function ContactPanel() {
           Book an Enterprise call - SSO, multi-tenancy, and managed services.
         </p>
       </div>
-      <div className="scrollbar-thin max-h-[32rem] overflow-y-auto">
-        <Cal
-          calLink={CAL_LINK}
-          style={{ width: "100%", height: "520px", overflow: "scroll" }}
-          config={{ layout: "month_view", theme }}
-        />
+      <div className="p-4">
+        <a
+          href={CAL_LINK}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex w-full items-center justify-center rounded-md bg-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90"
+        >
+          Book an enterprise call
+        </a>
       </div>
     </div>
   );

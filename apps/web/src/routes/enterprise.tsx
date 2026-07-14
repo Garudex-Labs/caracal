@@ -5,11 +5,9 @@ Caracal, a product of Garudex Labs
 This file defines the enterprise route.
 */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
-import Cal, { getCalApi } from "@calcom/embed-react";
 import { SectionLabel } from "@/components/SiteShell";
 
-const CAL_LINK = "rawx18/caracal-enterprise-sales";
+const CAL_LINK = "https://cal.com/rawx18/caracal-enterprise-sales";
 
 export const Route = createFileRoute("/enterprise")({
   head: () => ({
@@ -108,25 +106,23 @@ function ComparisonTable() {
   );
 }
 function BookACall() {
-  useEffect(() => {
-    (async () => {
-      const cal = await getCalApi();
-      cal("ui", { theme: "auto", hideEventTypeDetails: false, layout: "month_view" });
-    })();
-  }, []);
   return (
     <section id="book" className="mt-20">
       <SectionLabel>Talk to sales</SectionLabel>
       <h2 className="mt-4 text-2xl font-medium tracking-tight md:text-3xl">
         Book an enterprise call
       </h2>
-      <div className="mt-6 overflow-hidden rounded-md border border-border bg-background">
-        <Cal
-          calLink={CAL_LINK}
-          style={{ width: "100%", height: "760px", overflow: "scroll" }}
-          config={{ layout: "month_view", theme: "auto" }}
-        />
-      </div>
+      <p className="mt-4 max-w-2xl text-muted-foreground">
+        Schedule time with our team to walk through SSO, multi-tenancy, and managed services.
+      </p>
+      <a
+        href={CAL_LINK}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="mt-6 inline-flex rounded-md bg-foreground px-5 py-3 text-sm font-medium text-background hover:bg-foreground/90"
+      >
+        Book an enterprise call
+      </a>
     </section>
   );
 }
