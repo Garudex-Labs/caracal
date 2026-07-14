@@ -112,6 +112,8 @@ curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
 
 The SDKs wrap both steps: `caracal.federateSubject(idToken)` creates the Subject's Authority record and returns its `subjectAuthorityRecordId` plus mandate; Python and Go expose `subject_authority_record_id` and `SubjectAuthorityRecordID`. The OAuth client's `decideApproval({...})` posts the decision. The decision must echo the hold's binding exactly. The Session that raised the hold cannot approve itself, and the deciding Subject must have federated through the application that raised it. Without a registered Subject issuer, a Subject-reserved hold can only expire.
 
+When the gated execution acts for a known end user - the exchange carried a user subject token, or the requesting Session was started with a federated Subject's authority record - the hold anchors to that exact Subject and the decision is reserved for that person. A session mandate for any other user is refused, so one user of an application can never approve authority requested on behalf of another. Because the requester's own token lineage still cannot decide the hold, approving means the same human authenticating freshly through the application's identity system. Holds raised by executions with no Subject attribution - a workload credential, an application-only Session - carry no anchor and stay decidable by any of the application's federated end users; attribute Sessions to their Subjects at start when the tier's decision must be personal.
+
 ## Retry the exchange
 
 Retry with `challenge_id` once the hold is approved. STS verifies the complete binding against the current execution and policy context, then consumes it: an approval releases at most one mandate for the held capability and cannot be replayed. STS emits issuance, decision, and consumption lifecycle events to the zone audit pipeline.
@@ -122,13 +124,14 @@ Retry with `challenge_id` once the hold is approved. STS verifies the complete b
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Deny without a `challenge_id`          | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`.                                                                          |
 | `subject_approval_required` on approve | The tier declares `"approver": "subject"`: only the application's own federated end user can decide it. Relay the hold to the user, or redeclare the tier as `operator` or `any`. |
+| Reserved-subject decision refused       | The hold anchors to the Subject the requesting agent acts for, and the presented session mandate belongs to someone else. Relay the approval to the acting Subject; no other user can decide it.  |
 | `challenge_not_decidable`              | The hold was already decided, consumed, or expired; the response names its current state.                                                                                         |
 | `approve_capability_required`          | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability.                                                                                       |
 | Retry still denied                     | The approval may have expired, or the retry changed its principal, Authority record, Session, Delegation, application, resource, scopes, policy set, or decision contract. Request a fresh approval for the current context. |
 
 ## Validate the flow
 
-Test approve, reject, expiry, concurrent consumption, changed binding, and missing issuer for a subject-only tier. Expected result: exactly one matching retry consumes an approval; no decision widens resource, scopes, Session, Delegation, application, or policy binding.
+Test approve, reject, expiry, concurrent consumption, changed binding, a second user deciding a Subject-anchored hold, and missing issuer for a subject-only tier. Expected result: exactly one matching retry consumes an approval; no decision widens resource, scopes, Session, Delegation, application, or policy binding; a Subject-anchored hold is decidable only by its own Subject.
 
 :::caution[Failure point: subject authority]
 Subject approval works only when the application registers a trusted issuer, federates the end user's token, and presents the resulting user Session mandate. A caller-supplied subject ID or Session label cannot approve a hold.

@@ -12,12 +12,15 @@
 - Must use PostgreSQL 18 and port 5432.
 - Must add production schema changes as forward-only `NNNN_*.up.sql` files.
 - Must keep `NNNN_*.down.sql` files as developer-local reset aids only.
-- Must keep committed migrations immutable after merge.
+- Must put schema changes for the upcoming stable release in the single open migration pair (the one not listed in `migrations/released.sha256`), amending it in place through that release's rc train.
+- Must create a new migration pair only after a stable minor or major release ships, using the next sequential prefix.
+- Must regenerate `migrations/released.sha256` with `scripts/freezeMigrations.sh` when a stable minor or major release ships.
 - Must preserve audit append-only behavior and policy-version immutability.
 - Must store secrets only as ciphertext with nonce and DEK metadata.
 
 ## Forbidden
-- Must not edit a committed migration in place.
+- Must not edit any migration listed in `migrations/released.sha256`.
+- Must not create more than one open migration pair per upcoming stable release.
 - Must not reference `*.down.sql` from production tooling, Helm, Compose, or CI release paths.
 - Must not grant UPDATE or DELETE on append-only audit records.
 - Must not store plaintext private keys, credentials, tokens, or subject claims.
