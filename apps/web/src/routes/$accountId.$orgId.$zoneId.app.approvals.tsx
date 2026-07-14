@@ -32,7 +32,7 @@ import {
   useDecideApproval,
   useResources,
 } from "@/platform/api/hooks";
-import type { ApprovalCounts, StepUpChallenge, StepUpState } from "@/platform/api/types";
+import type { Approval, ApprovalCounts, ApprovalState } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/approvals")({
   component: ApprovalsRoute,
@@ -50,7 +50,7 @@ function ApprovalsRoute() {
   );
 }
 
-function stateTone(state: StepUpState): "warning" | "success" | "danger" | "muted" | "neutral" {
+function stateTone(state: ApprovalState): "warning" | "success" | "danger" | "muted" | "neutral" {
   if (state === "pending") return "warning";
   if (state === "approved") return "success";
   if (state === "consumed") return "neutral";
@@ -58,13 +58,13 @@ function stateTone(state: StepUpState): "warning" | "success" | "danger" | "mute
   return "muted";
 }
 
-const APPROVER_CLASS_LABELS: Record<StepUpChallenge["approver_class"], string> = {
+const APPROVER_CLASS_LABELS: Record<Approval["approver_class"], string> = {
   operator: "Zone operator",
   subject: "End user only",
   any: "Operator or end user",
 };
 
-const PRIVACY_MODE_LABELS: Record<StepUpChallenge["privacy_mode"], string> = {
+const PRIVACY_MODE_LABELS: Record<Approval["privacy_mode"], string> = {
   identified: "Identified: approvers see who is asking",
   pseudonymous: "Pseudonymous: approvers see a stable alias",
   anonymous: "Anonymous: approvers see only what is requested",
@@ -73,18 +73,18 @@ const PRIVACY_MODE_LABELS: Record<StepUpChallenge["privacy_mode"], string> = {
 // A hold is decidable in the console while it is pending and the policy that raised it
 // admits operator-plane approval. Subject-only holds are the application's promise that
 // only its own end user decides; the console shows them but never offers a verdict.
-function isDecidable(challenge: StepUpChallenge): boolean {
+function isDecidable(challenge: Approval): boolean {
   return challenge.state === "pending" && challenge.approver_class !== "subject";
 }
 
 // The instant a hold reached its recorded state, used to order settled holds in the list.
-function decidedAt(challenge: StepUpChallenge): string | null {
+function decidedAt(challenge: Approval): string | null {
   return challenge.consumed_at ?? challenge.rejected_at ?? challenge.satisfied_at;
 }
 
 function ApprovalsPage({ zoneId }: { zoneId: string }) {
   const [state, setState] = useState<string>("all");
-  const feed = useApprovalsFeed(zoneId, state === "all" ? {} : { state: state as StepUpState });
+  const feed = useApprovalsFeed(zoneId, state === "all" ? {} : { state: state as ApprovalState });
   const counts = useApprovalCounts(zoneId);
   const apps = useApplications(zoneId);
   const resources = useResources(zoneId);
@@ -96,12 +96,11 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
     () => new Map((resources.data ?? []).map((r) => [r.identifier, r.name])),
     [resources.data],
   );
-  const appName = (c: StepUpChallenge) =>
-    (c.application_id && appNames.get(c.application_id)) || null;
+  const appName = (c: Approval) => (c.application_id && appNames.get(c.application_id)) || null;
   const rows = useMemo(() => (feed.data?.pages ?? []).flatMap((page) => page.rows), [feed.data]);
   const now = Date.now();
 
-  const columns: Column<StepUpChallenge>[] = [
+  const columns: Column<Approval>[] = [
     {
       id: "principal",
       header: "Requested by",
@@ -307,7 +306,7 @@ function SessionContext({ zoneId, sessionId }: { zoneId: string; sessionId: stri
 // The recent history of this exact authority (same binding hash, last day - the
 // challenge store's retention window). One sentence, strongest signal first: a
 // recent rejection is a warning; a pile of identical approvals is policy debt.
-function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
+function PatternLine({ challenge }: { challenge: Approval }) {
   if (challenge.prior_rejected > 0) {
     return (
       <BriefRow label="History">
@@ -343,7 +342,7 @@ function PatternLine({ challenge }: { challenge: StepUpChallenge }) {
 // The hold's recorded history as ordered events. Decision events carry the deciding
 // identity and rationale inline, and the terminal event states what the outcome means,
 // so the story reads top to bottom without a separate explanation box.
-function holdEvents(challenge: StepUpChallenge, now: number): TimelineEvent[] {
+function holdEvents(challenge: Approval, now: number): TimelineEvent[] {
   const windowLive = Date.parse(challenge.expires_at) > now;
   const decidedBy = challenge.approver_subject_id ? (
     <>
@@ -430,7 +429,7 @@ function ApprovalDetail({
   applicationName,
   resourceNames,
 }: {
-  challenge: StepUpChallenge;
+  challenge: Approval;
   zoneId: string;
   applicationName: string | null;
   resourceNames: Map<string, string>;
@@ -599,7 +598,7 @@ function ApprovalDetail({
 // Verdict controls for a live operator-decidable hold. Approving releases exactly one token
 // for the bound resources and scopes; rejecting settles the hold terminally. Both verdicts
 // land in the zone audit stream with the deciding identity and the optional rationale.
-function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zoneId: string }) {
+function DecisionPanel({ challenge, zoneId }: { challenge: Approval; zoneId: string }) {
   const toast = useToast();
   const decide = useDecideApproval(zoneId);
   const [reason, setReason] = useState("");
@@ -621,7 +620,7 @@ function DecisionPanel({ challenge, zoneId }: { challenge: StepUpChallenge; zone
             : "The hold is settled; the session's exchange fails closed.",
       });
     } catch (err) {
-      if (err instanceof ConsoleApiError && err.code === "challenge_not_decidable") {
+      if (err instanceof ConsoleApiError && err.code === "approval_not_decidable") {
         toast({
           tone: "error",
           title: "Hold already settled",
