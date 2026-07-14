@@ -112,16 +112,16 @@ func TestChallengeLifecycleState(t *testing.T) {
 		challenge StepUpChallengePG
 		want      string
 	}{
-		{"pending", StepUpChallengePG{ExpiresAt: live}, ChallengeStatePending},
-		{"approved", StepUpChallengePG{ExpiresAt: live, SatisfiedAt: &now}, ChallengeStateApproved},
-		{"rejected", StepUpChallengePG{ExpiresAt: live, RejectedAt: &now}, ChallengeStateRejected},
-		{"expired", StepUpChallengePG{ExpiresAt: past}, ChallengeStateExpired},
-		{"expired approval reads expired", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now}, ChallengeStateExpired},
-		{"consumed outranks expiry", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now, ConsumedAt: &now}, ChallengeStateConsumed},
-		{"rejected outranks expiry", StepUpChallengePG{ExpiresAt: past, RejectedAt: &now}, ChallengeStateRejected},
+		{"pending", StepUpChallengePG{ExpiresAt: live}, ApprovalStatePending},
+		{"approved", StepUpChallengePG{ExpiresAt: live, SatisfiedAt: &now}, ApprovalStateApproved},
+		{"rejected", StepUpChallengePG{ExpiresAt: live, RejectedAt: &now}, ApprovalStateRejected},
+		{"expired", StepUpChallengePG{ExpiresAt: past}, ApprovalStateExpired},
+		{"expired approval reads expired", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now}, ApprovalStateExpired},
+		{"consumed outranks expiry", StepUpChallengePG{ExpiresAt: past, SatisfiedAt: &now, ConsumedAt: &now}, ApprovalStateConsumed},
+		{"rejected outranks expiry", StepUpChallengePG{ExpiresAt: past, RejectedAt: &now}, ApprovalStateRejected},
 	}
 	for _, tc := range cases {
-		if got := challengeLifecycleState(&tc.challenge, now); got != tc.want {
+		if got := approvalLifecycleState(&tc.challenge, now); got != tc.want {
 			t.Errorf("%s: want %q, got %q", tc.name, tc.want, got)
 		}
 	}

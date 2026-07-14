@@ -124,10 +124,10 @@ func approverMandate(t *testing.T, srv *Server, subType string) string {
 
 func decideStepUp(t *testing.T, srv *Server, mandate, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := pathValueRequest(http.MethodPost, "/step-up/x/decision", body, "b3b8f7ce-0000-4000-8000-00000000d001")
+	req := pathValueRequest(http.MethodPost, "/approvals/x/decision", body, "b3b8f7ce-0000-4000-8000-00000000d001")
 	req.Header.Set("Authorization", "Bearer "+mandate)
 	w := httptest.NewRecorder()
-	srv.handleStepUpDecision(w, req)
+	srv.handleApprovalDecision(w, req)
 	return w
 }
 
@@ -281,13 +281,13 @@ func TestStepUpStatusWaitReturnsTerminalState(t *testing.T) {
 		SatisfiedAt:   &satisfied,
 	}}
 	w := httptest.NewRecorder()
-	srv.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x?wait=99", "", "b3b8f7ce-0000-4000-8000-00000000e001"))
+	srv.handleApprovalStatus(w, pathValueRequest(http.MethodGet, "/approvals/x?wait=99", "", "b3b8f7ce-0000-4000-8000-00000000e001"))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"state":"approved"`) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	srv.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x?wait=-1", "", "b3b8f7ce-0000-4000-8000-00000000e001"))
+	srv.handleApprovalStatus(w, pathValueRequest(http.MethodGet, "/approvals/x?wait=-1", "", "b3b8f7ce-0000-4000-8000-00000000e001"))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("negative wait status = %d", w.Code)
 	}

@@ -67,7 +67,7 @@ func TestStepUpStatusReportsChallengeState(t *testing.T) {
 	}}
 
 	w := httptest.NewRecorder()
-	server.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x", "", "b3b8f7ce-0000-4000-8000-000000000001"))
+	server.handleApprovalStatus(w, pathValueRequest(http.MethodGet, "/approvals/x", "", "b3b8f7ce-0000-4000-8000-000000000001"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
@@ -80,16 +80,16 @@ func TestStepUpStatusReportsChallengeState(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	server.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x?wait=oops", "", "b3b8f7ce-0000-4000-8000-000000000001"))
+	server.handleApprovalStatus(w, pathValueRequest(http.MethodGet, "/approvals/x?wait=oops", "", "b3b8f7ce-0000-4000-8000-000000000001"))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("invalid wait status = %d", w.Code)
 	}
 
 	server.db = &stepUpDB{}
 	w = httptest.NewRecorder()
-	server.handleStepUpStatus(w, pathValueRequest(http.MethodGet, "/step-up/x", "", "b3b8f7ce-0000-4000-8000-000000000001"))
+	server.handleApprovalStatus(w, pathValueRequest(http.MethodGet, "/approvals/x", "", "b3b8f7ce-0000-4000-8000-000000000001"))
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("missing challenge status = %d", w.Code)
+		t.Fatalf("missing approval status = %d", w.Code)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 	t.Run("malformed challenge id", func(t *testing.T) {
 		server := testSTSServer(t)
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, "not-a-uuid")))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, "not-a-uuid")))
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("status = %d", w.Code)
 		}
@@ -114,7 +114,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 	t.Run("missing bearer is challenged", func(t *testing.T) {
 		server := testSTSServer(t)
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, pathValueRequest(http.MethodPost, "/decision", validBody, id))
+		server.handleApprovalDecision(w, pathValueRequest(http.MethodPost, "/decision", validBody, id))
 		if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
 			t.Fatalf("status=%d headers=%v", w.Code, w.Header())
 		}
@@ -123,7 +123,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 	t.Run("malformed body", func(t *testing.T) {
 		server := testSTSServer(t)
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", "{not json", id)))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", "{not json", id)))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d", w.Code)
 		}
@@ -132,7 +132,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 	t.Run("unknown decision verb", func(t *testing.T) {
 		server := testSTSServer(t)
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", `{"decision":"maybe","binding":"aa"}`, id)))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", `{"decision":"maybe","binding":"aa"}`, id)))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d", w.Code)
 		}
@@ -142,7 +142,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 		server := testSTSServer(t)
 		body := `{"decision":"rejected","binding":"aa","reason":"` + strings.Repeat("x", stepUpReasonMaxLength+1) + `"}`
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", body, id)))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", body, id)))
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d", w.Code)
 		}
@@ -152,7 +152,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 		server := testSTSServer(t)
 		server.db = &stepUpDB{}
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("status = %d", w.Code)
 		}
@@ -169,7 +169,7 @@ func TestStepUpDecisionAuthorizationAndValidation(t *testing.T) {
 			ExpiresAt:     time.Now().Add(time.Minute),
 		}}
 		w := httptest.NewRecorder()
-		server.handleStepUpDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
+		server.handleApprovalDecision(w, authorize(pathValueRequest(http.MethodPost, "/decision", validBody, id)))
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("a garbage bearer must fail mandate validation, got %d body=%s", w.Code, w.Body.String())
 		}
