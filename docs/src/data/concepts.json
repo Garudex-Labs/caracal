@@ -124,7 +124,7 @@
   },
   "approval": {
     "title": "Approval",
-    "path": "/concepts/step-up/",
+    "path": "/concepts/approvals/",
     "description": "A policy-raised, single-use hold that requires an authorized operator or federated Subject decision before STS issues a Mandate.",
     "aliases": ["interaction_required", "approval hold", "challenge ID"],
     "relations": {

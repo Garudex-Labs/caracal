@@ -35,6 +35,8 @@ const legacyRedirects = {
   '/tutorials/trace-request/': '/tutorials/inspect-a-run/',
   '/guides/model-application/': '/guides/modeling-recipes/',
   '/guides/debug-authorization/': '/guides/authorize-access/',
+  '/guides/step-up/': '/guides/human-approval/',
+  '/concepts/step-up/': '/concepts/approvals/',
   '/guides/production-integration-patterns/': '/guides/production-patterns/',
   '/guides/enterprise-runtime-patterns/': '/guides/production-patterns/',
   '/operations/enterprise-install-kit/': '/operations/install-kit/',
@@ -219,7 +221,7 @@ export default defineConfig({
               items: [
                 { label: 'Tail and Query the Audit Stream', link: '/guides/audit-stream/' },
                 { label: 'Implement Multi-Agent Delegation', link: '/guides/delegation/' },
-                { label: 'Human Approval', link: '/guides/step-up/' },
+                { label: 'Human Approval', link: '/guides/human-approval/' },
                 { label: 'Approval Notifications', link: '/guides/approval-notifications/' },
                 { label: 'Production Integration Patterns', link: '/guides/production-patterns/' },
               ],
@@ -311,7 +313,7 @@ export default defineConfig({
                 { label: 'Providers', link: '/concepts/provider/' },
                 { label: 'Policies and Policy Sets', link: '/concepts/policy/' },
                 { label: 'Mandates', link: '/concepts/mandate/' },
-                { label: 'Approvals', link: '/concepts/step-up/' },
+                { label: 'Approvals', link: '/concepts/approvals/' },
               ],
             },
             {
