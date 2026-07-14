@@ -88,7 +88,7 @@ func TestSTSHealthStepUpAndWriteErrorResponses(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	writeStepUp(w, "req-1", &challengeState{ID: "challenge-1", ChallengeType: humanApprovalChallengeType, State: ChallengeStatePending, Tier: "money", Binding: []byte{0xaa}, ExpiresAt: time.Unix(100, 0).UTC()})
+	writeApprovalRequired(w, "req-1", &approvalState{ID: "challenge-1", ChallengeType: humanApprovalChallengeType, State: ApprovalStatePending, Tier: "money", Binding: []byte{0xaa}, ExpiresAt: time.Unix(100, 0).UTC()})
 	if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") == "" {
 		t.Fatalf("step-up status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 	}
@@ -105,9 +105,9 @@ func TestSTSHealthStepUpAndWriteErrorResponses(t *testing.T) {
 
 func TestSTSStepUpStatusRejectsMalformedIDs(t *testing.T) {
 	w := httptest.NewRecorder()
-	testSTSServer(t).handleStepUpStatus(w, httptest.NewRequest(http.MethodGet, "/step-up/not-a-uuid", nil))
+	testSTSServer(t).handleApprovalStatus(w, httptest.NewRequest(http.MethodGet, "/approvals/not-a-uuid", nil))
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("malformed challenge status = %d", w.Code)
+		t.Fatalf("malformed approval status = %d", w.Code)
 	}
 }
 

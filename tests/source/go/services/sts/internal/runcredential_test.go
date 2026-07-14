@@ -242,12 +242,12 @@ func TestRunCredentialStepUpHold(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401 hold: %s", w.Code, w.Body.String())
 	}
-	var challenge StepUpChallenge
+	var challenge ApprovalRequired
 	if err := json.Unmarshal(w.Body.Bytes(), &challenge); err != nil {
 		t.Fatalf("decode challenge: %v", err)
 	}
-	if challenge.Error != "interaction_required" || challenge.ChallengeID == "" {
-		t.Fatalf("want interaction_required challenge, got %+v", challenge)
+	if challenge.Error != "interaction_required" || challenge.ApprovalID == "" {
+		t.Fatalf("want interaction_required approval, got %+v", challenge)
 	}
 }
 

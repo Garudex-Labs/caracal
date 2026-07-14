@@ -203,7 +203,7 @@ func TestRunCredentialChallengeLifecycle(t *testing.T) {
 		db.stubDB.provider = runCredentialProvider(true)
 		db.stubDB.storeEnvelopes = runCredentialProviderSecret(t, zek)
 		srv := runCredentialFlowServer(t, db, runCredentialAllowPolicy)
-		w := runCredentialRequest(t, srv, runCredentialForm(url.Values{"challenge_id": {challenge.ID}}))
+		w := runCredentialRequest(t, srv, runCredentialForm(url.Values{"approval_id": {challenge.ID}}))
 		return w.Code, w.Body.String()
 	}
 

@@ -234,7 +234,7 @@ func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 	db := &stubApprovalDB{}
 	srv := &Server{db: db}
 	binding := approvalBindingContext{PrincipalID: "p", ApplicationID: "app-1"}
-	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}, binding); err != ErrChallengeInvalid {
+	if err := srv.consumeApproval(context.Background(), "z", "p", "", []string{"r"}, []string{"s"}, binding); err != ErrApprovalInvalid {
 		t.Fatalf("empty id must reject, got %v", err)
 	}
 	if err := srv.consumeApproval(context.Background(), "z", "p", "id", []string{"resource://nucleus"}, []string{"nucleus:pay"}, binding); err != nil {
@@ -250,10 +250,10 @@ func TestConsumeApprovalBindsRequestHash(t *testing.T) {
 }
 
 func TestConsumeApprovalPropagatesInvalid(t *testing.T) {
-	db := &stubApprovalDB{consumeErr: ErrChallengeInvalid}
+	db := &stubApprovalDB{consumeErr: ErrApprovalInvalid}
 	srv := &Server{db: db}
-	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil, approvalBindingContext{}); err != ErrChallengeInvalid {
-		t.Fatalf("want ErrChallengeInvalid, got %v", err)
+	if err := srv.consumeApproval(context.Background(), "z", "p", "c", []string{"r"}, nil, approvalBindingContext{}); err != ErrApprovalInvalid {
+		t.Fatalf("want ErrApprovalInvalid, got %v", err)
 	}
 }
 
