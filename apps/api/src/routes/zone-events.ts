@@ -226,6 +226,7 @@ const AUDIT_METADATA_FIELDS = [
   'approver_class',
   'privacy_mode',
   'approver_subject_id',
+  'subject_anchor',
 ] as const
 
 const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]

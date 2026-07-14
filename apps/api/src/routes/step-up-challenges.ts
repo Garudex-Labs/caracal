@@ -46,7 +46,7 @@ const STATE_PREDICATES: Record<string, string> = {
 // zone: the challenge store retains terminal rows for a day, so they honestly answer "has this
 // exact authority been decided recently?" without reaching into the audit stream.
 const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id, challenge_type,
-       tier, approver_class, privacy_mode, encode(resource_set_hash, 'hex') AS binding,
+       tier, approver_class, privacy_mode, subject_anchor, encode(resource_set_hash, 'hex') AS binding,
        metadata_json, decision_reason, created_at, expires_at,
        satisfied_at, rejected_at, consumed_at, approver_subject_id,
        (SELECT COUNT(*)::int FROM step_up_challenges p
@@ -72,6 +72,7 @@ interface DecidedRow {
   tier: string | null
   approver_class: string
   privacy_mode: string
+  subject_anchor: string | null
   binding: string
   metadata_json: Record<string, unknown> | null
   satisfied_at: string | null
@@ -114,6 +115,7 @@ async function enqueueDecisionAudit(
     approver_subject_id: row.approver_subject_id,
   }
   if (row.application_id) metadata.application_id = row.application_id
+  if (row.subject_anchor) metadata.subject_anchor = row.subject_anchor
   if (row.decision_reason) metadata.reason = row.decision_reason
   // The requesting agent's business labels ride the decision event so the operator plane records
   // the same case and settlement context the STS emits on issue and consume.
@@ -235,7 +237,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
            AND approver_class IN ('operator', 'any')
            AND satisfied_at IS NULL AND rejected_at IS NULL AND consumed_at IS NULL
            AND expires_at > now()
-         RETURNING id, session_id, application_id, tier, approver_class, privacy_mode,
+         RETURNING id, session_id, application_id, tier, approver_class, privacy_mode, subject_anchor,
                    encode(resource_set_hash, 'hex') AS binding, metadata_json,
                    satisfied_at, rejected_at, decision_reason, approver_subject_id`,
         [params.id, params.zoneId, approver, body.data.reason ?? null],

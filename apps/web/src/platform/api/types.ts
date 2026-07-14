@@ -434,6 +434,7 @@ export interface StepUpChallenge {
   tier: string | null;
   approver_class: "operator" | "subject" | "any";
   privacy_mode: "identified" | "pseudonymous" | "anonymous";
+  subject_anchor: string | null;
   binding: string;
   metadata_json: Record<string, unknown> | null;
   decision_reason: string | null;

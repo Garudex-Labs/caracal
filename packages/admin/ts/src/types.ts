@@ -613,6 +613,7 @@ export interface StepUpChallenge {
   tier: string | null
   approver_class: string
   privacy_mode: string
+  subject_anchor: string | null
   binding: string
   state: string
   metadata_json: JsonObject
