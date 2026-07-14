@@ -135,7 +135,7 @@ function isReadOnlyRequest(method: string, url: string): boolean {
 function isApprovalDecisionPath(method: string, url: string): boolean {
   if (method !== 'POST') return false
   const path = url.split('?')[0]
-  return /^\/v1\/zones\/[^/]+\/step-up-challenges\/[^/]+\/(approve|reject)$/.test(path)
+  return /^\/v1\/zones\/[^/]+\/approvals\/[^/]+\/(approve|reject)$/.test(path)
 }
 
 export async function lookupAdminToken(db: DB, plaintext: string): Promise<Actor | null> {
