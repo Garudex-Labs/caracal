@@ -144,7 +144,7 @@ mandate, err := caracal.WithApproval(ctx, client, 10*time.Minute,
 	})
 ```
 
-A rejected, expired, or already-consumed decision returns the original `*oauth.ApprovalRequiredError`; its `ApprovalID` lets you resume waiting later with `client.WaitForApproval(ctx, approvalID, timeout)`, which returns the typed final state. [Human Approval](/guides/step-up/) covers the tiers and decision paths.
+A rejected, expired, or already-consumed decision returns the original `*oauth.ApprovalRequiredError`; its `ApprovalID` lets you resume waiting later with `client.WaitForApproval(ctx, approvalID, timeout)`, which returns the typed final state. [Human Approval](/guides/human-approval/) covers the tiers and decision paths.
 
 ## Troubleshooting
 

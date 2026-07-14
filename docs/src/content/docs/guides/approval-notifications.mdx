@@ -3,7 +3,7 @@ title: Approval Notifications
 description: Push approval lifecycle events to your own systems with signed, retried webhook sinks, and verify each delivery before acting on it.
 ---
 
-Approval holds are decided fastest when the right person hears about them immediately. A notification sink is a zone-scoped webhook endpoint that Caracal pushes approval lifecycle events to: your relay turns the delivery into a page, a chat message, or a ticket in whatever system your team watches. Sinks are optional - a zone without one loses nothing except the push, since the web console badges pending holds and the [Approvals page](/guides/step-up/#decide-as-an-operator) remains the decision surface.
+Approval holds are decided fastest when the right person hears about them immediately. A notification sink is a zone-scoped webhook endpoint that Caracal pushes approval lifecycle events to: your relay turns the delivery into a page, a chat message, or a ticket in whatever system your team watches. Sinks are optional - a zone without one loses nothing except the push, since the web console badges pending holds and the [Approvals page](/guides/human-approval/#decide-as-an-operator) remains the decision surface.
 
 ## Prerequisites
 
@@ -33,6 +33,8 @@ Endpoints must be HTTPS; plain HTTP is accepted only for loopback addresses duri
 | `step_up_issued`   | A hold is created and waits for a decision. This is the event to page on.                               |
 | `step_up_decided`  | An approver settles the hold - the payload's `decision` field says whether it was approved or rejected. |
 | `step_up_consumed` | The approved hold releases its mandate to the retrying agent.                                           |
+
+The `step_up_` event-type prefix is the audit stream's stable taxonomy: routing rules and SIEM pipelines keyed on these types stay valid across releases.
 
 ## Verify every delivery
 
@@ -92,7 +94,7 @@ Delivery is at-least-once with per-sink ordering by the zone audit sequence. A n
 
 Rotating the secret (Console or `POST …/notification-sinks/{id}/rotate-secret`) invalidates the old value immediately and reveals the replacement once; update the receiver in the same change window. Sink creation, edits, rotations, and deletions are themselves recorded in the zone audit stream, with secret material redacted.
 
-Related pages: [Human Approval](/guides/step-up/) and [Tail and Query the Audit Stream](/guides/audit-stream/).
+Related pages: [Human Approval](/guides/human-approval/) and [Tail and Query the Audit Stream](/guides/audit-stream/).
 
 ## Validate the sink
 
@@ -104,4 +106,4 @@ A valid webhook proves Caracal emitted an event; it is not authority to approve 
 
 ## Next Step
 
-Create alerts for abandoned deliveries and test the operator decision path in [Human Approval](/guides/step-up/).
+Create alerts for abandoned deliveries and test the operator decision path in [Human Approval](/guides/human-approval/).

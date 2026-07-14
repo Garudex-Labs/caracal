@@ -170,7 +170,7 @@ mandate = await caracal.with_approval(
 )
 ```
 
-A rejected, expired, or already-consumed decision re-raises the original `ApprovalRequired`; its approval id lets you resume waiting later with `wait_for_approval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`). [Human Approval](/guides/step-up/) covers the tiers and decision paths.
+A rejected, expired, or already-consumed decision re-raises the original `ApprovalRequired`; its approval id lets you resume waiting later with `wait_for_approval`, which returns the typed final state (`approved`, `rejected`, `expired`, `consumed`, or `pending`). [Human Approval](/guides/human-approval/) covers the tiers and decision paths.
 
 ## Use httpx transport injection
 

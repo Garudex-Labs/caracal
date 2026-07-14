@@ -5,8 +5,8 @@ description: Declare approval tiers in policy data, hold the exchange, and decid
 
 Human approval pauses a token exchange until a person decides it. A policy data document classifies scopes into risk tiers and declares which tiers need a human decision; when an agent requests a gated scope, the STS parks the exchange on a durable hold and returns `interaction_required` instead of a mandate. The gate is optional: a zone that declares no approval tiers never sees a hold.
 
-:::note[One object, two names]
-An Approval is one object with a wire name: SDKs expose it as `approvalId`, while the STS and Admin API call the same value `challenge_id` and serve it under `/step-up/{id}` and `/v1/zones/{zone}/step-up-challenges/{id}` paths. This page says *Approval* for the object and *hold* for its undecided state; the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping) is the canonical translation table.
+:::note[One object, one name]
+An Approval is called an Approval on every surface: SDKs expose it as `approvalId`, the wire carries `approval_id`, and the STS and Admin API serve it under `/approvals` paths. This page says *Approval* for the object and *hold* for its undecided state. Only the audit stream retains the historical `step_up_` event-type prefix and `challenge_id` metadata key, so SIEM pipelines and saved queries stay stable; the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping) records that exception.
 :::
 
 ## When to use approval
@@ -23,10 +23,10 @@ Use it for infrequent high-impact authority where waiting is safer than automati
 
 ```mermaid
 flowchart LR
-  Exchange["Exchange for gated scope"] --> Hold["interaction_required with challenge_id + binding"]
+  Exchange["Exchange for gated scope"] --> Hold["interaction_required with approval_id + binding"]
   Hold --> Wait["Agent waits on the hold"]
   Decide["Approver decides: Console, Admin API, or end user"] --> Wait
-  Wait --> Retry["Retry exchange with challenge_id"]
+  Wait --> Retry["Retry exchange with approval_id"]
   Retry --> Mandate["Mandate issued, approval consumed"]
 ```
 
@@ -91,7 +91,7 @@ Open the zone's **Approvals** page in the web console to review pending holds - 
 
 ```bash
 curl -X POST \
-  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/step-up-challenges/$CHALLENGE_ID/approve" \
+  "$CARACAL_API_URL/v1/zones/$CARACAL_ZONE_ID/approvals/$APPROVAL_ID/approve" \
   -H "Authorization: Bearer $CARACAL_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "PiperNet refund reviewed against baseline v3"}'
@@ -104,7 +104,7 @@ Use `/reject` to settle the hold terminally. Deciding requires an admin token mi
 A hold declared `"approver": "subject"` reserves the decision for the application's own end user and refuses every operator decision with `subject_approval_required`. Deciding it takes a user session mandate minted through subject federation: register the application's identity system as a zone subject issuer, exchange the end user's identity token (`subject_token_type=urn:ietf:params:oauth:token-type:id_token`) for the user's session mandate, then post the decision to the STS:
 
 ```bash
-curl -X POST "$CARACAL_STS_URL/step-up/$CHALLENGE_ID/decision" \
+curl -X POST "$CARACAL_STS_URL/approvals/$APPROVAL_ID/decision" \
   -H "Authorization: Bearer $USER_SESSION_MANDATE" \
   -H "Content-Type: application/json" \
   -d '{"decision": "approved", "binding": "'$BINDING'", "reason": "refund confirmed"}'
@@ -116,16 +116,16 @@ When the gated execution acts for a known end user - the exchange carried a user
 
 ## Retry the exchange
 
-Retry with `challenge_id` once the hold is approved. STS verifies the complete binding against the current execution and policy context, then consumes it: an approval releases at most one mandate for the held capability and cannot be replayed. STS emits issuance, decision, and consumption lifecycle events to the zone audit pipeline.
+Retry with `approval_id` once the hold is approved. STS verifies the complete binding against the current execution and policy context, then consumes it: an approval releases at most one mandate for the held capability and cannot be replayed. STS emits issuance, decision, and consumption lifecycle events to the zone audit pipeline.
 
 ## Troubleshooting
 
 | Symptom                                | Check                                                                                                                                                                             |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deny without a `challenge_id`          | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`.                                                                          |
+| Deny without an `approval_id`          | The deny was not an approval gate. Confirm the scope appears in `risk` and its tier in `approval_tiers`.                                                                          |
 | `subject_approval_required` on approve | The tier declares `"approver": "subject"`: only the application's own federated end user can decide it. Relay the hold to the user, or redeclare the tier as `operator` or `any`. |
 | Reserved-subject decision refused       | The hold anchors to the Subject the requesting agent acts for, and the presented session mandate belongs to someone else. Relay the approval to the acting Subject; no other user can decide it.  |
-| `challenge_not_decidable`              | The hold was already decided, consumed, or expired; the response names its current state.                                                                                         |
+| `approval_not_decidable`               | The hold was already decided, consumed, or expired; the response names its current state.                                                                                         |
 | `approve_capability_required`          | The admin token carries `write`, not `approve`. Mint a token with the `approve` capability.                                                                                       |
 | Retry still denied                     | The approval may have expired, or the retry changed its principal, Authority record, Session, Delegation, application, resource, scopes, policy set, or decision contract. Request a fresh approval for the current context. |
 

@@ -97,7 +97,7 @@ For resources whose compromise is unacceptable - payouts, key material, producti
 | -------------- | -------------------------------------------------------------------------------------------------------------- |
 | Dedicated zone | Put the sensitive resource in its own zone with distinct signing keys and a separate audit trail.              |
 | Tight scopes   | Split actions into the smallest scopes, such as `pipernet:read` and `pipernet:refund`, so grants stay minimal. |
-| Approval       | Hold the sensitive action for a human decision through [Human Approval](/guides/step-up/).                    |
+| Approval       | Hold the sensitive action for a human decision through [Human Approval](/guides/human-approval/).                    |
 
 Trade-off: a dedicated zone gives the cleanest audit and key separation; in-zone tight scopes plus approval are lighter and often enough. Combine them for the highest-risk targets.
 

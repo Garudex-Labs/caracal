@@ -69,9 +69,9 @@ Verified Subject claims are available for structural binding and audit. The buil
 | ------------- | -------------------------------------------------------------------------- |
 | `allow`       | STS signs a mandate if token and session checks also pass.                 |
 | `deny`        | STS refuses the exchange and records diagnostics.                          |
-| approval gate | STS holds the mint and returns `interaction_required` with a challenge ID. |
+| approval gate | STS holds the mint and returns `interaction_required` with an approval ID. |
 
-Approval gates are declared as data: `risk` names a tier for each sensitive scope and `approval_tiers` declares which tiers require a human decision. When a mint requests a gated scope, STS creates a durable hold and releases the Mandate only after an authorized approver decides it. See [Approvals](/concepts/step-up/).
+Approval gates are declared as data: `risk` names a tier for each sensitive scope and `approval_tiers` declares which tiers require a human decision. When a mint requests a gated scope, STS creates a durable hold and releases the Mandate only after an authorized approver decides it. See [Approvals](/concepts/approvals/).
 
 ## Authoring Rules
 
