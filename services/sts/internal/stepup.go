@@ -247,9 +247,11 @@ func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // created or returned, so duplicate mints share one challenge, a rejection stays
 // authoritative until it expires, and a decided hold is found again by the retry that
 // consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
-// requesting agent run before deciding. The second return reports whether a new hold was
+// requesting agent run before deciding. subjectAnchor is the federated Subject the
+// gated execution acts for, when one exists; a subject-plane decision on the hold is
+// reserved for that exact Subject. The second return reports whether a new hold was
 // created.
-func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes, labels []string) (*StepUpChallengePG, bool, error) {
+func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID, subjectAnchor string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes, labels []string) (*StepUpChallengePG, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, false, err
@@ -286,6 +288,7 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 		Tier:              approval.Tier,
 		ApproverClass:     approval.Approver,
 		PrivacyMode:       approval.Privacy,
+		SubjectAnchor:     subjectAnchor,
 		ResourceSetHash: hashApprovalBinding(resources, scopes, approvalBindingContext{
 			PrincipalID:       principalID,
 			AuthorityRecordID: authorityRecordID,
@@ -376,4 +379,20 @@ func sameApprovalPolicy(a, b ZoneBundleInfo) bool {
 		a.ManifestSHA == b.ManifestSHA &&
 		a.DecisionContractVersion == b.DecisionContractVersion &&
 		a.DecisionContractSHA == b.DecisionContractSHA
+}
+
+// approvalSubjectAnchor resolves the federated Subject a gated mint acts for. A
+// user-typed subject token names the Subject directly; otherwise the governed
+// Session's immutable subject attribution names it when that authority record is a
+// user record. A workload or application-only execution has no Subject and yields an
+// empty anchor, which leaves the hold decidable by any of the application's
+// authenticated end users exactly as an anchor-free hold always was.
+func approvalSubjectAnchor(subjectClaims map[string]any, session *Session) string {
+	if claimString(subjectClaims, "sub_type") == SubTypeUser {
+		return claimString(subjectClaims, "sub")
+	}
+	if session != nil && session.SubjectAuthorityRecordType == "user" {
+		return session.SubjectAuthorityRecordSubject
+	}
+	return ""
 }

@@ -394,6 +394,15 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval requires an operator decision"))
 		return
 	}
+	// A hold raised by an execution acting for a federated Subject is reserved for
+	// that exact Subject: the approver's authenticated identity must equal the
+	// Subject the requesting Session or subject token was bound to at issuance.
+	// Combined with the lineage guard below, deciding demands the same human on a
+	// fresh authentication, never merely any user of the same application.
+	if c.SubjectAnchor != "" && claimString(claims, "sub") != c.SubjectAnchor {
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval is reserved for the subject the requesting agent acts for"))
+		return
+	}
 	related, err := s.db.AuthorityRecordsRelated(r.Context(), c.ZoneID, approverAuthorityRecordID, c.AuthorityRecordID)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "authority record lineage unavailable"))

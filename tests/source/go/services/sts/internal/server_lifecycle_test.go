@@ -200,6 +200,34 @@ func TestStepUpDecisionSubjectApproval(t *testing.T) {
 		}
 	})
 
+	t.Run("anchored hold refuses a different subject", func(t *testing.T) {
+		challenge := stepUpDecisionChallenge()
+		challenge.SubjectAnchor = "user-2"
+		db := &lineageDB{stepUpDB: decisionStub(t, challenge)}
+		srv := stepUpDecisionServer(t, db)
+		w := decideStepUp(t, srv, approverMandate(t, srv, SubTypeUser), approvedBody)
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "reserved for the subject") {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		}
+		if len(db.decided) != 0 {
+			t.Fatalf("a mismatched subject must not decide: %#v", db.decided)
+		}
+	})
+
+	t.Run("anchored hold admits the acting subject", func(t *testing.T) {
+		challenge := stepUpDecisionChallenge()
+		challenge.SubjectAnchor = "user-1"
+		db := &lineageDB{stepUpDB: decisionStub(t, challenge)}
+		srv := stepUpDecisionServer(t, db)
+		w := decideStepUp(t, srv, approverMandate(t, srv, SubTypeUser), approvedBody)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+		}
+		if len(db.decided) != 1 || !db.decided[0].Approve {
+			t.Fatalf("decision record = %#v", db.decided)
+		}
+	})
+
 	t.Run("lineage lookup failure is unavailable", func(t *testing.T) {
 		db := &lineageDB{stepUpDB: decisionStub(t, stepUpDecisionChallenge()), relatedErr: errors.New("pg down")}
 		srv := stepUpDecisionServer(t, db)
