@@ -675,7 +675,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		if resolveErr != nil {
 			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, resolveErr.Error())
 		}
-		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, resolved, bundle, req.Resources, scopes, sessionLabels(session))
+		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, approvalSubjectAnchor(subjectClaims, session), resolved, bundle, req.Resources, scopes, sessionLabels(session))
 		if holdErr != nil {
 			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
 		}
@@ -1653,6 +1653,9 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 		"privacy_mode":   c.PrivacyMode,
 		"binding":        hex.EncodeToString(c.ResourceSetHash),
 		"expires_at":     c.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	if c.SubjectAnchor != "" {
+		meta["subject_anchor"] = c.SubjectAnchor
 	}
 	if c.ApplicationID != "" {
 		meta["application_id"] = c.ApplicationID

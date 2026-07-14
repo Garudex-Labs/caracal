@@ -38,7 +38,7 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 	approval := resolvedApproval{Tier: "money", Approver: ApproverClassSubject, TTL: 10 * time.Minute, Privacy: PrivacyAnonymous}
 	bundle := ZoneBundleInfo{PolicySetVersionID: "policy-v1", ManifestSHA: "manifest-v1", DecisionContractVersion: "contract-v1", DecisionContractSHA: "contract-sha-v1"}
 	before := time.Now()
-	hold, created, err := server.ensureApproval(context.Background(), "zone-1", "session-1", "agent-session-1", "edge-1", "principal-1", "app-1", approval, bundle, []string{" Resource://B ", "resource://a"}, []string{"nucleus:pay"}, []string{"case:CASE-1", "payout-execution"})
+	hold, created, err := server.ensureApproval(context.Background(), "zone-1", "session-1", "agent-session-1", "edge-1", "principal-1", "app-1", "user-1", approval, bundle, []string{" Resource://B ", "resource://a"}, []string{"nucleus:pay"}, []string{"case:CASE-1", "payout-execution"})
 	if err != nil {
 		t.Fatalf("ensure approval: %v", err)
 	}
@@ -47,6 +47,9 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 	}
 	if hold.ID == "" || hold.ZoneID != "zone-1" || hold.AuthorityRecordID != "session-1" || hold.PrincipalID != "principal-1" || hold.ApplicationID != "app-1" {
 		t.Fatalf("unexpected hold: %+v", hold)
+	}
+	if hold.SubjectAnchor != "user-1" {
+		t.Fatalf("hold must carry the acting subject anchor: %+v", hold)
 	}
 	if hold.ChallengeType != humanApprovalChallengeType || hold.Tier != "money" || hold.ApproverClass != ApproverClassSubject || hold.PrivacyMode != PrivacyAnonymous {
 		t.Fatalf("resolved declaration not carried: %+v", hold)
@@ -83,7 +86,7 @@ func TestEnsureApprovalPersistsResolvedHold(t *testing.T) {
 func TestEnsureApprovalConvergesOnLiveHold(t *testing.T) {
 	live := &StepUpChallengePG{ID: "existing", ZoneID: "zone-1", ChallengeType: humanApprovalChallengeType}
 	db := &approvalStoreDB{stored: live}
-	hold, created, err := (&Server{db: db}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, ZoneBundleInfo{}, []string{"resource://a"}, nil, nil)
+	hold, created, err := (&Server{db: db}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", "", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, ZoneBundleInfo{}, []string{"resource://a"}, nil, nil)
 	if err != nil {
 		t.Fatalf("ensure approval: %v", err)
 	}
@@ -94,7 +97,7 @@ func TestEnsureApprovalConvergesOnLiveHold(t *testing.T) {
 
 func TestEnsureApprovalReturnsStoreErrors(t *testing.T) {
 	want := errors.New("database unavailable")
-	_, _, err := (&Server{db: &approvalStoreDB{err: want}}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, ZoneBundleInfo{}, nil, nil, nil)
+	_, _, err := (&Server{db: &approvalStoreDB{err: want}}).ensureApproval(context.Background(), "zone-1", "session-1", "", "", "principal-1", "app-1", "", resolvedApproval{Tier: "money", Approver: ApproverClassOperator, TTL: time.Minute, Privacy: PrivacyIdentified}, ZoneBundleInfo{}, nil, nil, nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("want store error, got %v", err)
 	}
@@ -119,6 +122,29 @@ func TestChallengeLifecycleState(t *testing.T) {
 	}
 	for _, tc := range cases {
 		if got := challengeLifecycleState(&tc.challenge, now); got != tc.want {
+			t.Errorf("%s: want %q, got %q", tc.name, tc.want, got)
+		}
+	}
+}
+
+func TestApprovalSubjectAnchor(t *testing.T) {
+	userSession := &Session{SubjectAuthorityRecordType: "user", SubjectAuthorityRecordSubject: "user:richard.hendricks@piedpiper.example"}
+	appSession := &Session{SubjectAuthorityRecordType: "application", SubjectAuthorityRecordSubject: "app1"}
+	cases := []struct {
+		name    string
+		claims  map[string]any
+		session *Session
+		want    string
+	}{
+		{"user subject token names the subject", map[string]any{"sub": "user-7", "sub_type": SubTypeUser}, nil, "user-7"},
+		{"user token outranks session attribution", map[string]any{"sub": "user-7", "sub_type": SubTypeUser}, userSession, "user-7"},
+		{"application token defers to session attribution", map[string]any{"sub": "app1", "sub_type": SubTypeApplication}, userSession, "user:richard.hendricks@piedpiper.example"},
+		{"user-attributed session names the subject", nil, userSession, "user:richard.hendricks@piedpiper.example"},
+		{"application-attributed session has no anchor", nil, appSession, ""},
+		{"no subject context has no anchor", nil, nil, ""},
+	}
+	for _, tc := range cases {
+		if got := approvalSubjectAnchor(tc.claims, tc.session); got != tc.want {
 			t.Errorf("%s: want %q, got %q", tc.name, tc.want, got)
 		}
 	}
