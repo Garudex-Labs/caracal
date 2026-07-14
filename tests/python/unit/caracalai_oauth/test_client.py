@@ -168,11 +168,11 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
                 json={
                     "error": "interaction_required",
                     "error_description": "step up",
-                    "challenge_id": "challenge1",
-                    "challenge_type": "human_approval",
+                    "approval_id": "challenge1",
+                    "approval_type": "human_approval",
                     "acr_values": "urn:mfa",
                     "binding": "abc123",
-                    "challenge_expires_at": "2026-01-01T00:05:00Z",
+                    "approval_expires_at": "2026-01-01T00:05:00Z",
                 },
                 headers={"content-type": "application/json"},
             )
@@ -191,7 +191,7 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.binding, "abc123")
         self.assertEqual(raised.exception.expires_at, "2026-01-01T00:05:00Z")
 
-    async def test_exchange_sends_challenge_id(self) -> None:
+    async def test_exchange_sends_approval_id(self) -> None:
         seen: dict[str, str] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -218,9 +218,9 @@ class OAuthClientTests(unittest.IsolatedAsyncioTestCase):
         await client.exchange(
             "subject",
             "resource://api",
-            ExchangeOptions(challenge_id="challenge1"),
+            ExchangeOptions(approval_id="challenge1"),
         )
-        self.assertEqual(seen.get("challenge_id"), "challenge1")
+        self.assertEqual(seen.get("approval_id"), "challenge1")
 
     async def test_exchange_does_not_retry_unauthorized(self) -> None:
         requests = 0
@@ -569,7 +569,7 @@ class SubjectFederationTests(unittest.IsolatedAsyncioTestCase):
             reason="refund reviewed",
         )
         self.assertEqual(captured["auth"], "Bearer user-session-token")
-        self.assertEqual(captured["path"], "/step-up/ch-1/decision")
+        self.assertEqual(captured["path"], "/approvals/ch-1/decision")
         self.assertIn('"binding":"abcd"', str(captured["body"]))
         with self.assertRaises(ValueError):
             await client.decide_approval(

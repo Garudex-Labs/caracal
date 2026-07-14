@@ -199,7 +199,7 @@ class GovernedCycleTests(unittest.TestCase):
         ) as client:
             self.assertEqual(client.get(f"{UPSTREAM}/tasks").status_code, 200)
 
-        self.assertEqual(platform.mint_forms()[-1]["challenge_id"], ["approval-1"])
+        self.assertEqual(platform.mint_forms()[-1]["approval_id"], ["approval-1"])
 
     def test_gateway_targeted_requests_pass_through(self) -> None:
         platform = _Platform()

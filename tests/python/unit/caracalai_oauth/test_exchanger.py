@@ -323,12 +323,12 @@ class MintMandateTests(unittest.TestCase):
                 401,
                 json={
                     "error": "interaction_required",
-                    "challenge_type": "human_approval",
-                    "challenge_id": "chal_1",
+                    "approval_type": "human_approval",
+                    "approval_id": "chal_1",
                     "state": "pending",
                     "tier": "money",
                     "binding": "ab12",
-                    "challenge_expires_at": "2026-01-01T00:00:00Z",
+                    "approval_expires_at": "2026-01-01T00:00:00Z",
                 },
             )
 
@@ -355,7 +355,7 @@ class MintMandateTests(unittest.TestCase):
             state = _exchanger().wait_for_approval("chal_1", timeout_seconds=60.0)
         self.assertEqual(state, "approved")
         self.assertEqual(len(seen), 2)
-        self.assertIn("/step-up/chal_1?wait=", seen[0])
+        self.assertIn("/approvals/chal_1?wait=", seen[0])
 
     def test_wait_for_approval_returns_pending_on_timeout(self):
         with _patch_client(lambda req: httpx.Response(200, json={"state": "pending"})):
@@ -374,7 +374,7 @@ class MintMandateTests(unittest.TestCase):
                 _exchanger().wait_for_approval("chal_1", timeout_seconds=60.0)
         self.assertIn("unknown challenge state: vaporized", str(caught.exception))
 
-    def test_sends_challenge_id_when_approval_id_set(self):
+    def test_sends_approval_id_when_approval_id_set(self):
         captured: list[bytes] = []
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -389,7 +389,7 @@ class MintMandateTests(unittest.TestCase):
                 scopes=["pay:write"],
                 approval_id="chal_1",
             )
-        self.assertIn("challenge_id=chal_1", captured[0].decode())
+        self.assertIn("approval_id=chal_1", captured[0].decode())
 
 
 class TypedErrorTests(unittest.TestCase):

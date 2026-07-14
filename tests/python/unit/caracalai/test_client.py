@@ -515,7 +515,7 @@ class WithApprovalTests(unittest.IsolatedAsyncioTestCase):
         polled = iter(states)
 
         def handler(req: httpx.Request) -> httpx.Response:
-            if "/step-up/" in str(req.url):
+            if "/approvals/" in str(req.url):
                 return httpx.Response(200, json={"state": next(polled)})
             return httpx.Response(200, json={"access_token": "unused"})
 

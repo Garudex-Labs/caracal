@@ -438,21 +438,21 @@ class AdminOperationsTests(unittest.TestCase):
             "http://api/v1/zones/z1/audit/by-request/req-1/explain",
         )
 
-    def test_step_up_decisions_send_reason_only_when_present(self):
+    def test_approval_decisions_send_reason_only_when_present(self):
         requests: list[httpx.Request] = []
         client = make_client([httpx.Response(200, json={})] * 2, requests)
 
-        client.step_up_challenges.approve("z1", "ch-1")
-        client.step_up_challenges.reject("z1", "ch-1", reason="policy violation")
+        client.approvals.approve("z1", "ch-1")
+        client.approvals.reject("z1", "ch-1", reason="policy violation")
 
         self.assertEqual(
             str(requests[0].url),
-            "http://api/v1/zones/z1/step-up-challenges/ch-1/approve",
+            "http://api/v1/zones/z1/approvals/ch-1/approve",
         )
         self.assertEqual(json.loads(requests[0].content), {})
         self.assertEqual(
             str(requests[1].url),
-            "http://api/v1/zones/z1/step-up-challenges/ch-1/reject",
+            "http://api/v1/zones/z1/approvals/ch-1/reject",
         )
         self.assertEqual(
             json.loads(requests[1].content), {"reason": "policy violation"}
