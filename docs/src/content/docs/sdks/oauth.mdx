@@ -67,10 +67,10 @@ When the zone registers the application's identity system as a Subject issuer, t
 - `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns the Subject mandate response. Never cached: each federation is an explicit identity event, and the record carries no resource authority. The high-level SDK wrappers also return the Authority record ID as `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`.
 - `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
 
-See [Human Approval](/guides/step-up/#decide-as-the-applications-end-user) for the end-to-end flow.
+See [Human Approval](/guides/human-approval/#decide-as-the-applications-end-user) for the end-to-end flow.
 
 ## Related Pages
 
-- [Human Approval](/guides/step-up/)
+- [Human Approval](/guides/human-approval/)
 - [Mandates](/concepts/mandate/)
 - [Use STS Endpoint](/api/sts/)

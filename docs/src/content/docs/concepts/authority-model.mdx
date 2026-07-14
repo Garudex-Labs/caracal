@@ -34,7 +34,7 @@ sequenceDiagram
     Guard->>Resource: Forward approved request
     Guard->>Audit: Record resource decision
   else denied or Approval required
-    STS-->>Client: Error or interaction_required challenge
+    STS-->>Client: Error or interaction_required hold
   end
 ```
 

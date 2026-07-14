@@ -103,7 +103,7 @@ Use `applicationTransport()` when your service calls as itself; use `transport()
 | `waitForApproval(approvalId, options?)`        | Long-poll an approval raised by an approval-gated mint; returns the final `ApprovalState` (`approved`, `rejected`, `expired`, `consumed`, or `pending`).                                                                                                                                                                                                                                                                                                                                       |
 | `withApproval(fn, options?)`                   | Run an approval-gated operation end to end: on `ApprovalRequiredError` the client waits for the decision and, once approved, invokes `fn` again with the approval id.                                                                                                                                                                                                                                                                                                                          |
 
-Approval gating is a policy feature; [Human Approval](/guides/step-up/) covers the tiers and the operator decision path.
+Approval gating is a policy feature; [Human Approval](/guides/human-approval/) covers the tiers and the operator decision path.
 
 ## Build Requests and Manage the Client
 
@@ -180,7 +180,7 @@ Header and transport helpers refuse to fall back to the application root token u
 
 ## Errors and Observability
 
-STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `ApprovalRequiredError`, a `CaracalError` subclass that adds the challenge fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
+STS denials throw `CaracalError` carrying `code`, `httpStatus`, and `requestId`, so callers branch on the machine-readable code instead of matching message text. Approval-gated exchanges throw `ApprovalRequiredError`, a `CaracalError` subclass that adds the approval fields, and coordinator failures throw `CoordinatorError` with `status`, `method`, and `path`. A client built on a `credentials` resolver throws `CredentialsUnavailableError` while the resolver returns no usable credential, so a not-yet-provisioned or expired identity fails closed rather than reaching the wire.
 
 ```ts
 import { Caracal, CaracalError } from '@caracalai/sdk'

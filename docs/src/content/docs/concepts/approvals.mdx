@@ -7,7 +7,7 @@ sidebar:
 
 Read this page after [Policies and Policy Sets](/concepts/policy/). An Approval pauses a sensitive authority request until an eligible human decides it. Policy data maps scopes to risk tiers and identifies whether an operator, the federated Subject, or either may decide.
 
-Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one. One naming rule carries through every surface: the SDKs call the decision's identifier `approvalId`, while the STS and Admin API call the same value `challenge_id` under `step-up` paths - see the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping).
+Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one. One name carries through every surface: the SDKs call the decision's identifier `approvalId` and the wire calls it `approval_id` under `/approvals` paths; only the audit stream keeps the historical `step_up_` event-type prefix and `challenge_id` metadata key - see the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping).
 
 ## Approval Flow
 
@@ -21,11 +21,11 @@ sequenceDiagram
   App->>STS: Exchange for gated scope
   STS->>Policy: Evaluate request
   Policy-->>STS: allow, gated by matched approval tiers
-  STS-->>App: interaction_required with challenge_id + binding
-  App->>STS: GET /step-up/{id} (long-poll)
+  STS-->>App: interaction_required with approval_id + binding
+  App->>STS: GET /approvals/{id} (long-poll)
   Approver->>STS: approve or reject the hold
   STS-->>App: state: approved
-  App->>STS: Retry exchange with challenge_id
+  App->>STS: Retry exchange with approval_id
   STS-->>App: Mandate (approval consumed)
 ```
 
@@ -33,8 +33,8 @@ sequenceDiagram
 
 | Plane    | Approver                                                  | Surface                                                                                                 |
 | -------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/step-up-challenges/{id}/approve` / `/reject`.          |
-| Subject  | The requesting application's own authenticated end user.  | `POST /step-up/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
+| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/approvals/{id}/approve` / `/reject`.                  |
+| Subject  | The requesting application's own authenticated end user.  | `POST /approvals/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
 
 The tier's `approver` declaration picks the plane: `operator`, `subject`, or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
 
@@ -50,7 +50,7 @@ A Subject-only Approval requires the Application to federate its end user throug
 | Application          | Relays subject-plane holds to its own federated end user and posts the decision with the user's session mandate.                       |
 | SDK or OAuth client  | Surfaces `interaction_required` and waits on the hold (`waitForApproval`); `caracal run` parks and retries automatically.              |
 
-## Challenge Lifecycle
+## Approval Lifecycle
 
 | State      | Meaning                                                                                  |
 | ---------- | ---------------------------------------------------------------------------------------- |
@@ -72,7 +72,7 @@ The tier's `privacy` declaration controls what the decision record retains of a 
 - Keep the decision outside policy; policy declares that a decision is needed, never performs it.
 - Use `subject` tiers when the risk belongs to the application's end user and the application federates its users through a zone subject issuer; use `operator` tiers when the risk belongs to the zone.
 - Give automation credentials `write` without `approve`, so no pipeline can silently settle a hold.
-- Cross-check the binding: the agent prints it beside the challenge id, and the web console shows it on the hold.
+- Cross-check the binding: the agent prints it beside the approval id, and the web console shows it on the hold.
 
 ## Next Step
 
@@ -80,6 +80,6 @@ Read [Session Delegation](/concepts/delegation/) to understand how approved auth
 
 ## Related Pages
 
-- [Human Approval](/guides/step-up/)
+- [Human Approval](/guides/human-approval/)
 - [Policies and Policy Sets](/concepts/policy/)
 - [Audit and Request Traces](/concepts/audit-ledger/)

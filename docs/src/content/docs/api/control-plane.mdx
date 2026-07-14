@@ -83,7 +83,7 @@ Use the web console when you are performing these operations interactively. Use 
 | Authority records | `GET /v1/zones/:zoneId/authority-records`. Filter by `authority_record_id`, `subject_id`, or `status`; use `format=csv` to export.                                                                                                                                                                                |
 | Subjects          | `GET /v1/zones/:zoneId/subjects`, `GET /v1/zones/:zoneId/subjects/overview?subject_id=`, `POST /v1/zones/:zoneId/subjects/revoke` (the kill switch revokes every live Authority record for the Subject, terminates linked Sessions, revokes Delegations and provider connections, and feeds the revocation stream) |
 | Sessions          | `GET /v1/zones/:zoneId/sessions`. Filter by `status`, `lifecycle`, `label`, `parent_session_id`, or `application_id`; use `format=csv` to export.                                                                                                                                                                 |
-| Approvals         | `GET /v1/zones/:zoneId/step-up-challenges`, `GET /v1/zones/:zoneId/step-up-challenges/:id`, `POST /v1/zones/:zoneId/step-up-challenges/:id/approve`, `POST /v1/zones/:zoneId/step-up-challenges/:id/reject`; `step-up-challenges` is the protocol path.                                                            |
+| Approvals         | `GET /v1/zones/:zoneId/approvals`, `GET /v1/zones/:zoneId/approvals/counts`, `GET /v1/zones/:zoneId/approvals/:id`, `POST /v1/zones/:zoneId/approvals/:id/approve`, `POST /v1/zones/:zoneId/approvals/:id/reject`.                                                                                                 |
 
 ## Platform Administration
 

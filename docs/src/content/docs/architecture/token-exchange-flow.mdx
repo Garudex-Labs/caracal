@@ -41,7 +41,7 @@ The protocol fields `session_id`, `agent_session_id`, and `delegation_edge_id` r
 
 An Approval is a hold, not a credential. An eligible operator or end user decides it, then the waiting client retries with the hold ID. STS consumes an approved hold once while issuing the credential. Rejected, expired, undecided, or already-consumed holds deny.
 
-`caracal run` waits and retries once. SDK applications should follow their language SDK's interaction-required contract. See [Approvals](/concepts/step-up/) for the canonical model.
+`caracal run` waits and retries once. SDK applications should follow their language SDK's interaction-required contract. See [Approvals](/concepts/approvals/) for the canonical model.
 
 ## Failure and TTL Implications
 

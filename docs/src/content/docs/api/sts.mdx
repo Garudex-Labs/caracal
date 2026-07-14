@@ -14,8 +14,8 @@ Applications normally call it through the OAuth or application SDK. The public e
 | ------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
 | `POST` | `/oauth/2/token`                        | OAuth token exchange for resource, session, Gateway, or delegated mandates.           |
 | `GET`  | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone.                        |
-| `GET`  | `/step-up/{id}`                         | Approval hold state; `?wait={seconds}` long-polls until the state changes.            |
-| `POST` | `/step-up/{id}/decision`                | Subject-plane approval decision, authenticated with a federated user session mandate. |
+| `GET`  | `/approvals/{id}`                       | Approval hold state; `?wait={seconds}` long-polls until the state changes.            |
+| `POST` | `/approvals/{id}/decision`              | Subject-plane approval decision, authenticated with a federated user session mandate. |
 | `GET`  | `/health`                               | Liveness check.                                                                       |
 | `GET`  | `/ready`                                | Readiness check.                                                                      |
 | `GET`  | `/metrics`                              | Prometheus metrics.                                                                   |
@@ -36,7 +36,7 @@ Applications normally call it through the OAuth or application SDK. The public e
 | `client_secret`                                             | Application authentication.                                                                           |
 | `session_id`, `agent_session_id`, `delegation_edge_id`       | Protocol names for Authority record ID, Session ID, and Delegation ID. They are distinct identifiers. |
 | `ttl_seconds`                                                | Requested TTL.                                                                                        |
-| `challenge_id`                                               | Consumes an approved Approval hold during retry.                                                      |
+| `approval_id`                                                | Consumes an approved Approval hold during retry.                                                      |
 
 `grant_type` must be `urn:ietf:params:oauth:grant-type:token-exchange`. `subject_token_type` must match the presented token class. `scope` is a space-delimited string. `ttl_seconds` must be a positive integer within server limits. Resource identifiers, zone, application, Session, Authority-record, and Delegation bindings are validated server-side; caller-supplied identifiers never establish authority by themselves.
 
@@ -80,7 +80,7 @@ Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails,
 
 ## Responses
 
-Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `challenge_id`, `challenge_type`, `state`, `tier`, `binding`, and `challenge_expires_at`, so the caller can wait on `/step-up/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
+Successful exchanges return an OAuth-style token response with `access_token`, `token_type`, `expires_in`, and related fields. When policy gates the mint on human approval, the STS answers `401` with `error: interaction_required` plus the hold's `approval_id`, `approval_type`, `state`, `tier`, `binding`, and `approval_expires_at`, so the caller can wait on `/approvals/{id}` and retry. Other errors use the shared `error` and `error_description` shape.
 
 ```json
 {
@@ -95,9 +95,9 @@ Public clients never receive Gateway's private upstream directive or provider cr
 
 ## Retry and Idempotency
 
-The exchange endpoint has no public idempotency key. SDK OAuth clients make one network attempt because the STS may mint before a response is lost. Do not automatically replay a timed-out exchange. Approval retry is different: after an approved hold, send the exact `challenge_id` with the same bound resource/scope request; consumed, rejected, expired, or mismatched holds fail.
+The exchange endpoint has no public idempotency key. SDK OAuth clients make one network attempt because the STS may mint before a response is lost. Do not automatically replay a timed-out exchange. Approval retry is different: after an approved hold, send the exact `approval_id` with the same bound resource/scope request; consumed, rejected, expired, or mismatched holds fail.
 
-`GET /step-up/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Subject decision endpoint requires the federated Subject mandate and exact challenge binding.
+`GET /approvals/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Subject decision endpoint requires the federated Subject mandate and exact approval binding.
 
 ## Internal Endpoints
 

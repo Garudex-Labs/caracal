@@ -38,7 +38,9 @@ Fixtures include valid examples for audit events, audit exporter manifests, Gate
 | Root authority record ID | `rootAuthorityRecordId`                      | JWT `root_sid`                                     |
 | Session ID               | `sessionId`                                  | `agent_session_id` and Coordinator `/agents` paths |
 | Delegation ID            | `delegationId`                               | `delegation_edge_id` and internal edge records     |
-| Approval ID              | `approvalId`                                 | `challenge_id` and `/step-up/{id}`                 |
+| Approval ID              | `approvalId`                                 | `approval_id` and `/approvals/{id}`                |
+
+Approval audit events are the one deliberate exception: the audit taxonomy is a stable contract for SIEM pipelines and historical queries, so event types keep the `step_up_` prefix (`step_up_issued`, `step_up_decided`, `step_up_consumed`) and audit metadata keeps the `challenge_id` key.
 
 Do not rename raw fields in an interoperable implementation. Map them at the SDK or product boundary.
 
