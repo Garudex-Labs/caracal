@@ -131,7 +131,7 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		ZoneID:               form.Get("zone_id"),
 		ApplicationID:        form.Get("application_id"),
 		ClientSecret:         form.Get("client_secret"),
-		ChallengeID:          form.Get("challenge_id"),
+		ApprovalID:           form.Get("approval_id"),
 		AuthorityRecordID:    form.Get("session_id"),
 		SessionID:            form.Get("agent_session_id"),
 		DelegationEdgeID:     form.Get("delegation_edge_id"),
@@ -175,7 +175,7 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if challenge != nil {
-		writeStepUp(w, requestID, challenge)
+		writeApprovalRequired(w, requestID, challenge)
 		return
 	}
 
@@ -336,7 +336,7 @@ func authorizeOperation(resource *Resource, method, path string, mandate map[str
 		method, path, resource.Identifier))
 }
 
-func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, requestID string) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
+func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, requestID string) (*TokenResponse, *approvalState, int, *sharederr.CaracalError) {
 	app, zoneID, err := s.authenticateApp(ctx, req)
 	if err != nil {
 		var zoneErr *zoneMismatchError
@@ -412,13 +412,13 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	challengeResolved := false
 	var approval *StepUpChallengePG
-	if req.ChallengeID != "" {
+	if req.ApprovalID != "" {
 		// Verify the presented approval against every binding without consuming it:
 		// consumption happens after the policy loop, immediately before the session is
 		// created, so a downstream deny never burns a granted approval. The generic
 		// invalid answer covers lookup failure and every binding mismatch alike, so a
-		// probe cannot distinguish another zone's challenge from a wrong scope set.
-		existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ChallengeID)
+		// probe cannot distinguish another zone's approval from a wrong scope set.
+		existing, lookupErr := s.db.GetStepUpChallenge(ctx, req.ApprovalID)
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != principalID ||
 			existing.AuthorityRecordID != req.AuthorityRecordID ||
@@ -428,27 +428,27 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			}
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not found or bindings do not match")
 		}
-		switch challengeLifecycleState(existing, exchangeNow) {
-		case ChallengeStateConsumed:
+		switch approvalLifecycleState(existing, exchangeNow) {
+		case ApprovalStateConsumed:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
 			return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval already used; another request consumed it")
-		case ChallengeStateRejected:
+		case ApprovalStateRejected:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
 				mergeAuditMeta(appMeta, stepUpAuditMeta(existing))); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
 			return nil, nil, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected")
-		case ChallengeStateExpired:
+		case ApprovalStateExpired:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_expired", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
 			return nil, nil, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval expired")
-		case ChallengeStatePending:
-			// Still pending: re-surface the same challenge so a premature retry waits
+		case ApprovalStatePending:
+			// Still pending: re-surface the same approval so a premature retry waits
 			// on the approver rather than failing.
-			return nil, challengeWire(existing, exchangeNow), http.StatusUnauthorized, nil
+			return nil, approvalWire(existing, exchangeNow), http.StatusUnauthorized, nil
 		default:
 			approval = existing
 			challengeResolved = true
@@ -677,13 +677,13 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 		hold, created, holdErr := s.ensureApproval(ctx, zoneID, req.AuthorityRecordID, req.SessionID, req.DelegationEdgeID, principalID, app.ID, approvalSubjectAnchor(subjectClaims, session), resolved, bundle, req.Resources, scopes, sessionLabels(session))
 		if holdErr != nil {
-			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed")
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "approval hold creation failed")
 		}
-		switch challengeLifecycleState(hold, exchangeNow) {
-		case ChallengeStateApproved:
+		switch approvalLifecycleState(hold, exchangeNow) {
+		case ApprovalStateApproved:
 			approval = hold
 			challengeResolved = true
-		case ChallengeStateRejected:
+		case ApprovalStateRejected:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
 				mergeAuditMeta(appMeta, stepUpAuditMeta(hold))); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -696,7 +696,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 					return nil, nil, http.StatusInternalServerError, auditErr
 				}
 			}
-			return nil, challengeWire(hold, exchangeNow), http.StatusUnauthorized, nil
+			return nil, approvalWire(hold, exchangeNow), http.StatusUnauthorized, nil
 		}
 	}
 
@@ -1679,14 +1679,14 @@ func stepUpAuditMeta(c *StepUpChallengePG) map[string]any {
 	return meta
 }
 
-// challengeWire converts a stored challenge row to the 401 interaction_required body.
-func challengeWire(c *StepUpChallengePG, now time.Time) *challengeState {
-	return &challengeState{
+// approvalWire converts a stored approval row to the 401 interaction_required body.
+func approvalWire(c *StepUpChallengePG, now time.Time) *approvalState {
+	return &approvalState{
 		ID:                c.ID,
 		ZoneID:            c.ZoneID,
 		AuthorityRecordID: c.AuthorityRecordID,
 		ChallengeType:     c.ChallengeType,
-		State:             challengeLifecycleState(c, now),
+		State:             approvalLifecycleState(c, now),
 		Tier:              c.Tier,
 		Binding:           c.ResourceSetHash,
 		ExpiresAt:         c.ExpiresAt,
@@ -2213,19 +2213,19 @@ func writeError(w http.ResponseWriter, code int, err *sharederr.CaracalError) {
 	json.NewEncoder(w).Encode(err)
 }
 
-func writeStepUp(w http.ResponseWriter, requestID string, challenge *challengeState) {
+func writeApprovalRequired(w http.ResponseWriter, requestID string, challenge *approvalState) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("WWW-Authenticate", `Bearer error="interaction_required"`)
 	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(StepUpChallenge{
-		Error:              "interaction_required",
-		ErrorDescription:   "Human approval required for this request",
-		ChallengeID:        challenge.ID,
-		ChallengeType:      challenge.ChallengeType,
-		State:              challenge.State,
-		Tier:               challenge.Tier,
-		Binding:            hex.EncodeToString(challenge.Binding),
-		ChallengeExpiresAt: challenge.ExpiresAt.Format(time.RFC3339),
-		RequestID:          requestID,
+	json.NewEncoder(w).Encode(ApprovalRequired{
+		Error:             "interaction_required",
+		ErrorDescription:  "Human approval required for this request",
+		ApprovalID:        challenge.ID,
+		ApprovalType:      challenge.ChallengeType,
+		State:             challenge.State,
+		Tier:              challenge.Tier,
+		Binding:           hex.EncodeToString(challenge.Binding),
+		ApprovalExpiresAt: challenge.ExpiresAt.Format(time.RFC3339),
+		RequestID:         requestID,
 	})
 }

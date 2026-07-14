@@ -356,10 +356,10 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 // verbatim. The minted session carries no scopes and no resource authority - it
 // is the identity anchor for attribution, approvals, provider connections, and
 // revocation, never an authorization input.
-func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, app *Application, zoneID, requestID string) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
+func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, app *Application, zoneID, requestID string) (*TokenResponse, *approvalState, int, *sharederr.CaracalError) {
 	appMeta := applicationAuditMeta(app)
 	if len(req.Resources) > 0 || req.Scope != "" ||
-		req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" || req.ChallengeID != "" {
+		req.AuthorityRecordID != "" || req.SessionID != "" || req.DelegationEdgeID != "" || req.ApprovalID != "" {
 		if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "subject_federation_invalid", &OPAResult{}, appMeta); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}

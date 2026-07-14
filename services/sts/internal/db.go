@@ -508,7 +508,7 @@ func (d *DB) InsertAuthorityRecordWithApproval(ctx context.Context, s *Authority
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrChallengeInvalid
+		return ErrApprovalInvalid
 	}
 	return nil
 }
@@ -600,7 +600,7 @@ func (d *DB) InsertDelegatedAuthorityRecord(ctx context.Context, s *AuthorityRec
 			 RETURNING true`, approval.ID, approval.ZoneID, approval.PrincipalID, approval.ResourceSetHash,
 		).Scan(&consumed)
 		if errors.Is(err, pgx.ErrNoRows) || !consumed {
-			return ErrChallengeInvalid
+			return ErrApprovalInvalid
 		}
 		if err != nil {
 			return err
@@ -785,7 +785,7 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 // DecideStepUpChallenge atomically records an approver's decision on a pending hold.
 // The update only lands on a live, undecided, unconsumed human-approval challenge in
 // the named zone, so an expired hold, a decided one, or a replay cannot be re-decided.
-// Returns ErrChallengeInvalid when no such challenge exists.
+// Returns ErrApprovalInvalid when no such challenge exists.
 func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error {
 	tag, err := d.pool.Exec(ctx,
 		`UPDATE step_up_challenges
@@ -807,7 +807,7 @@ func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) er
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrChallengeInvalid
+		return ErrApprovalInvalid
 	}
 	return nil
 }
@@ -817,7 +817,7 @@ func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) er
 // having approved it, no rejection, not yet expired, not yet consumed, and the
 // originating session, when the hold is bound to one, still active. A human approval
 // carries no client secret, so consumption proves an authenticated approver approved
-// this exact request rather than a returned proof. Returns ErrChallengeInvalid
+// this exact request rather than a returned proof. Returns ErrApprovalInvalid
 // otherwise.
 func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error {
 	tag, err := d.pool.Exec(ctx,
@@ -846,7 +846,7 @@ func (d *DB) ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalPara
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrChallengeInvalid
+		return ErrApprovalInvalid
 	}
 	return nil
 }

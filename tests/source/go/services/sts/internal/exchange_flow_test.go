@@ -503,7 +503,7 @@ func (d *approvalFlowDB) ConsumeApprovalChallenge(context.Context, ConsumeApprov
 
 func (d *approvalFlowDB) InsertAuthorityRecordWithApproval(_ context.Context, sess *AuthorityRecord, _ ConsumeApprovalParams) error {
 	if d.consumeErr != nil {
-		return ErrChallengeInvalid
+		return ErrApprovalInvalid
 	}
 	d.insertedAuthorityRecords = append(d.insertedAuthorityRecords, sess)
 	return nil
@@ -531,7 +531,7 @@ func exchangeApprovalChallenge(t *testing.T) *StepUpChallengePG {
 
 func TestExchangeChallengeLifecycle(t *testing.T) {
 	now := time.Now()
-	run := func(t *testing.T, mutate func(*StepUpChallengePG), consumeErr error) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
+	run := func(t *testing.T, mutate func(*StepUpChallengePG), consumeErr error) (*TokenResponse, *approvalState, int, *sharederr.CaracalError) {
 		t.Helper()
 		challenge := exchangeApprovalChallenge(t)
 		if mutate != nil {
@@ -540,7 +540,7 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 		db := &approvalFlowDB{stepUpDB: stepUpDB{stubDB: *exchangeFlowDB(t), challenge: challenge}, consumeErr: consumeErr}
 		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
 		req := baseExchangeRequest()
-		req.ChallengeID = challenge.ID
+		req.ApprovalID = challenge.ID
 		return srv.exchange(context.Background(), req, "req-challenge")
 	}
 
@@ -564,7 +564,7 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 	})
 	t.Run("pending resurfaces the challenge", func(t *testing.T) {
 		_, challenge, code, apiErr := run(t, nil, nil)
-		if code != http.StatusUnauthorized || apiErr != nil || challenge == nil || challenge.State != ChallengeStatePending {
+		if code != http.StatusUnauthorized || apiErr != nil || challenge == nil || challenge.State != ApprovalStatePending {
 			t.Fatalf("code=%d challenge=%+v err=%#v", code, challenge, apiErr)
 		}
 	})
@@ -590,7 +590,7 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 
 func TestExchangeStepUpGate(t *testing.T) {
 	now := time.Now()
-	run := func(t *testing.T, hold *StepUpChallengePG) (*approvalFlowDB, *TokenResponse, *challengeState, int, *sharederr.CaracalError) {
+	run := func(t *testing.T, hold *StepUpChallengePG) (*approvalFlowDB, *TokenResponse, *approvalState, int, *sharederr.CaracalError) {
 		t.Helper()
 		db := &approvalFlowDB{stepUpDB: stepUpDB{stubDB: *exchangeFlowDB(t)}, hold: hold}
 		srv := exchangeFlowServer(t, db, runCredentialGatedPolicy)
@@ -603,7 +603,7 @@ func TestExchangeStepUpGate(t *testing.T) {
 		if code != http.StatusUnauthorized || apiErr != nil || challenge == nil {
 			t.Fatalf("code=%d challenge=%+v err=%#v", code, challenge, apiErr)
 		}
-		if challenge.State != ChallengeStatePending || challenge.Tier != "money" {
+		if challenge.State != ApprovalStatePending || challenge.Tier != "money" {
 			t.Fatalf("hold shape wrong: %+v", challenge)
 		}
 		if db.created == nil || db.created.SubjectAnchor != "" {
