@@ -33,7 +33,7 @@ type TokenExchangeRequest struct {
 	ZoneID               string
 	ApplicationID        string
 	ClientSecret         string
-	ChallengeID          string // identifier of a previously issued step-up challenge
+	ApprovalID           string // identifier of a previously issued approval hold
 	AuthorityRecordID    string
 	SessionID            string
 	DelegationEdgeID     string
@@ -139,19 +139,19 @@ type OPAResult struct {
 	Bundle              ZoneBundleInfo   `json:"-"`
 }
 
-// StepUpChallenge describes the 401 response body for interaction_required. State is
-// the challenge's current lifecycle state so a retry against a pending approval is
-// distinguishable from a fresh hold. Binding is the hex request hash an approver echoes
-// on the decision endpoint, proving the decision targets this exact challenge instance;
+// ApprovalRequired describes the 401 response body for interaction_required. State is
+// the approval's current lifecycle state so a retry against a pending hold is
+// distinguishable from a fresh one. Binding is the hex request hash an approver echoes
+// on the decision endpoint, proving the decision targets this exact approval instance;
 // the requesting application relays it to its approver surface alongside the id.
-type StepUpChallenge struct {
-	Error              string `json:"error"`
-	ErrorDescription   string `json:"error_description"`
-	ChallengeID        string `json:"challenge_id"`
-	ChallengeType      string `json:"challenge_type"`
-	State              string `json:"state"`
-	Tier               string `json:"tier,omitempty"`
-	Binding            string `json:"binding"`
-	ChallengeExpiresAt string `json:"challenge_expires_at"`
-	RequestID          string `json:"requestId"`
+type ApprovalRequired struct {
+	Error             string `json:"error"`
+	ErrorDescription  string `json:"error_description"`
+	ApprovalID        string `json:"approval_id"`
+	ApprovalType      string `json:"approval_type"`
+	State             string `json:"state"`
+	Tier              string `json:"tier,omitempty"`
+	Binding           string `json:"binding"`
+	ApprovalExpiresAt string `json:"approval_expires_at"`
+	RequestID         string `json:"requestId"`
 }

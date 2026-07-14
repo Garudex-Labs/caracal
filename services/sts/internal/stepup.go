@@ -43,13 +43,13 @@ const (
 	PrivacyAnonymous    = "anonymous"
 )
 
-// Challenge lifecycle states surfaced on the wire.
+// Approval lifecycle states surfaced on the wire.
 const (
-	ChallengeStatePending  = "pending"
-	ChallengeStateApproved = "approved"
-	ChallengeStateRejected = "rejected"
-	ChallengeStateExpired  = "expired"
-	ChallengeStateConsumed = "consumed"
+	ApprovalStatePending  = "pending"
+	ApprovalStateApproved = "approved"
+	ApprovalStateRejected = "rejected"
+	ApprovalStateExpired  = "expired"
+	ApprovalStateConsumed = "consumed"
 )
 
 // tierDeclaration is one approval gate declaration matched by the decision contract:
@@ -211,8 +211,8 @@ func strongerPrivacy(a, b string) string {
 	return a
 }
 
-// challengeState is the in-memory view of a step-up challenge surfaced on the wire.
-type challengeState struct {
+// approvalState is the in-memory view of an approval hold surfaced on the wire.
+type approvalState struct {
 	ID                string
 	ZoneID            string
 	AuthorityRecordID string
@@ -223,21 +223,21 @@ type challengeState struct {
 	ExpiresAt         time.Time
 }
 
-// challengeLifecycleState derives the wire state from a stored challenge row. A
+// approvalLifecycleState derives the wire state from a stored approval row. A
 // terminal decision outranks expiry so a consumed or rejected hold reads as what was
 // decided, not merely as expired.
-func challengeLifecycleState(c *StepUpChallengePG, now time.Time) string {
+func approvalLifecycleState(c *StepUpChallengePG, now time.Time) string {
 	switch {
 	case c.ConsumedAt != nil:
-		return ChallengeStateConsumed
+		return ApprovalStateConsumed
 	case c.RejectedAt != nil:
-		return ChallengeStateRejected
+		return ApprovalStateRejected
 	case !c.ExpiresAt.After(now):
-		return ChallengeStateExpired
+		return ApprovalStateExpired
 	case c.SatisfiedAt != nil:
-		return ChallengeStateApproved
+		return ApprovalStateApproved
 	default:
-		return ChallengeStatePending
+		return ApprovalStatePending
 	}
 }
 
@@ -306,16 +306,16 @@ func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, 
 // zone, principal, the request hash over resources and scopes, an approver decision, no
 // rejection, not expired, not yet consumed, and the originating session still active.
 // Called as late as possible in the mint so a downstream deny never burns an approval.
-func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, challengeID string, resources, scopes []string, binding approvalBindingContext) error {
-	if challengeID == "" {
-		return ErrChallengeInvalid
+func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, approvalID string, resources, scopes []string, binding approvalBindingContext) error {
+	if approvalID == "" {
+		return ErrApprovalInvalid
 	}
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return err
 	}
 	return s.db.ConsumeApprovalChallenge(ctx, ConsumeApprovalParams{
-		ID:              challengeID,
+		ID:              approvalID,
 		ZoneID:          zoneID,
 		PrincipalID:     principalID,
 		ResourceSetHash: hashApprovalBinding(resources, scopes, binding),
@@ -323,11 +323,11 @@ func (s *Server) consumeApproval(ctx context.Context, zoneID, principalID, chall
 	})
 }
 
-// ErrChallengeInvalid means the supplied challenge did not match a live binding.
-var ErrChallengeInvalid = errors.New("step-up challenge invalid or expired")
+// ErrApprovalInvalid means the supplied approval did not match a live binding.
+var ErrApprovalInvalid = errors.New("approval invalid or expired")
 
-// ErrChallengeAlreadyConsumed means the challenge was already consumed by another request.
-var ErrChallengeAlreadyConsumed = errors.New("step-up challenge already consumed")
+// ErrApprovalAlreadyConsumed means the approval was already consumed by another request.
+var ErrApprovalAlreadyConsumed = errors.New("approval already consumed")
 
 // ErrApprovalClassConflict means one mint combines scopes that require independent
 // operator and subject decisions, which a single-decision hold cannot represent.

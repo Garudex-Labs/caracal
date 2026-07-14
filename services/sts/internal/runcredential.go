@@ -41,7 +41,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	workloadID := strings.TrimSpace(form.Get("workload_id"))
 	secret := form.Get("secret")
 	env := strings.TrimSpace(form.Get("env"))
-	challengeID := strings.TrimSpace(form.Get("challenge_id"))
+	approvalID := strings.TrimSpace(form.Get("approval_id"))
 	if workloadID == "" || secret == "" || env == "" {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "workload_id, secret, and env are required"))
 		return
@@ -165,13 +165,13 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 	challengeResolved := false
 	var approval *StepUpChallengePG
 	var approvalBundle ZoneBundleInfo
-	if challengeID != "" {
+	if approvalID != "" {
 		approvalBundle = s.opa.BundleInfo(zoneID)
 		// Verify the presented approval against the binding without consuming it:
 		// consumption happens after policy evaluation so a downstream deny never
 		// burns a granted approval. The generic invalid answer covers lookup failure
 		// and every binding mismatch alike.
-		existing, lookupErr := s.db.GetStepUpChallenge(ctx, challengeID)
+		existing, lookupErr := s.db.GetStepUpChallenge(ctx, approvalID)
 		if lookupErr != nil || existing.ChallengeType != humanApprovalChallengeType ||
 			existing.ZoneID != zoneID || existing.PrincipalID != workload.ID ||
 			existing.AuthorityRecordID != "" ||
@@ -186,15 +186,15 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval not found or bindings do not match"))
 			return
 		}
-		switch challengeLifecycleState(existing, now) {
-		case ChallengeStateConsumed:
+		switch approvalLifecycleState(existing, now) {
+		case ApprovalStateConsumed:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, resourceMeta); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)
 				return
 			}
 			writeError(w, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval already used; another request consumed it"))
 			return
-		case ChallengeStateRejected:
+		case ApprovalStateRejected:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
 				mergeAuditMeta(resourceMeta, stepUpAuditMeta(existing))); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)
@@ -202,15 +202,15 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 			}
 			writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval was rejected"))
 			return
-		case ChallengeStateExpired:
+		case ApprovalStateExpired:
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_expired", &OPAResult{}, resourceMeta); auditErr != nil {
 				writeError(w, http.StatusInternalServerError, auditErr)
 				return
 			}
 			writeError(w, http.StatusUnauthorized, sharederr.New(sharederr.AccessDenied, "approval expired"))
 			return
-		case ChallengeStatePending:
-			writeStepUp(w, requestID, challengeWire(existing, now))
+		case ApprovalStatePending:
+			writeApprovalRequired(w, requestID, approvalWire(existing, now))
 			return
 		default:
 			approval = existing
@@ -288,15 +288,15 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 			}
 			hold, created, holdErr := s.ensureApproval(ctx, zoneID, "", "", "", workload.ID, "", "", resolved, result.Bundle, boundResources, scopes, nil)
 			if holdErr != nil {
-				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge creation failed"))
+				writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "approval hold creation failed"))
 				return
 			}
 			approvalBundle = result.Bundle
-			switch challengeLifecycleState(hold, now) {
-			case ChallengeStateApproved:
+			switch approvalLifecycleState(hold, now) {
+			case ApprovalStateApproved:
 				approval = hold
 				challengeResolved = true
-			case ChallengeStateRejected:
+			case ApprovalStateRejected:
 				if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_rejected", &OPAResult{},
 					mergeAuditMeta(resourceMeta, stepUpAuditMeta(hold))); auditErr != nil {
 					writeError(w, http.StatusInternalServerError, auditErr)
@@ -312,7 +312,7 @@ func (s *Server) handleRunCredential(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				}
-				writeStepUp(w, requestID, challengeWire(hold, now))
+				writeApprovalRequired(w, requestID, approvalWire(hold, now))
 				return
 			}
 		}

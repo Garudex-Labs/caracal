@@ -168,8 +168,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /v1/run/manifest", s.handleRunManifest)
 	mux.HandleFunc("POST /v1/run/credential", s.handleRunCredential)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.handleJWKS)
-	mux.HandleFunc("GET /step-up/{id}", s.handleStepUpStatus)
-	mux.HandleFunc("POST /step-up/{id}/decision", s.handleStepUpDecision)
+	mux.HandleFunc("GET /approvals/{id}", s.handleApprovalStatus)
+	mux.HandleFunc("POST /approvals/{id}/decision", s.handleApprovalDecision)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /ready", s.handleReady)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
@@ -264,16 +264,16 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleStepUpStatus reports the lifecycle state of a challenge and nothing else. The
-// challenge id is an unguessable capability held by the party that received the 401,
+// handleApprovalStatus reports the lifecycle state of an approval and nothing else. The
+// approval id is an unguessable capability held by the party that received the 401,
 // and the body discloses no approver identity, no request metadata, and no bindings,
 // so polling it leaks nothing worth authenticating. An optional wait parameter
 // long-polls until the state leaves pending or the window closes, replacing tight
 // client-side polling loops.
-func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
-	challengeID := r.PathValue("id")
-	if _, err := uuid.Parse(challengeID); err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+func (s *Server) handleApprovalStatus(w http.ResponseWriter, r *http.Request) {
+	approvalID := r.PathValue("id")
+	if _, err := uuid.Parse(approvalID); err != nil {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "approval not found"))
 		return
 	}
 	wait := time.Duration(0)
@@ -296,9 +296,9 @@ func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+		c, err := s.db.GetStepUpChallenge(r.Context(), approvalID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+			writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "approval not found"))
 			return
 		}
 		now, err := s.db.CurrentTime(r.Context())
@@ -306,9 +306,9 @@ func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
 			return
 		}
-		state := challengeLifecycleState(c, now)
-		if state != ChallengeStatePending || !time.Now().Before(deadline) {
-			writeStepUpState(w, c, state)
+		state := approvalLifecycleState(c, now)
+		if state != ApprovalStatePending || !time.Now().Before(deadline) {
+			writeApprovalState(w, c, state)
 			return
 		}
 		select {
@@ -319,7 +319,7 @@ func (s *Server) handleStepUpStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeStepUpState(w http.ResponseWriter, c *StepUpChallengePG, state string) {
+func writeApprovalState(w http.ResponseWriter, c *StepUpChallengePG, state string) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 		"id":         c.ID,
@@ -328,20 +328,20 @@ func writeStepUpState(w http.ResponseWriter, c *StepUpChallengePG, state string)
 	})
 }
 
-// handleStepUpDecision records an approver's decision on a pending hold from the
+// handleApprovalDecision records an approver's decision on a pending hold from the
 // subject plane: the approver is an authenticated end user of the requesting
 // application, presenting the session mandate that application minted for them.
 // Caracal never learns who the application's users are beyond this mandate; the
-// application owns the approval surface and relays only the challenge id and binding.
-// The guards, in order: the mandate must verify for the challenge's zone and belong to
+// application owns the approval surface and relays only the approval id and binding.
+// The guards, in order: the mandate must verify for the approval's zone and belong to
 // a user, its session must be live and minted by the very application the hold binds,
 // the hold must admit subject decisions, the approver's session may not share a
 // delegation lineage with the session that raised the hold, and the echoed binding
 // must match the hold exactly. The decision record applies the tier's privacy mode.
-func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
-	challengeID := r.PathValue("id")
-	if _, err := uuid.Parse(challengeID); err != nil {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request) {
+	approvalID := r.PathValue("id")
+	if _, err := uuid.Parse(approvalID); err != nil {
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "approval not found"))
 		return
 	}
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -367,9 +367,9 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, sharederr.New(sharederr.InvalidToken, "reason too long"))
 		return
 	}
-	c, err := s.db.GetStepUpChallenge(r.Context(), challengeID)
+	c, err := s.db.GetStepUpChallenge(r.Context(), approvalID)
 	if err != nil || c.ChallengeType != humanApprovalChallengeType {
-		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "challenge not found"))
+		writeError(w, http.StatusNotFound, sharederr.New(sharederr.ResourceNotFound, "approval not found"))
 		return
 	}
 	claims, err := s.validateSubjectToken(r.Context(), token, c.ZoneID)
@@ -382,7 +382,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.ApplicationID == "" {
-		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "challenge does not admit subject decisions"))
+		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "approval does not admit subject decisions"))
 		return
 	}
 	approverAuthorityRecordID, serr := s.validateAuthorityRecord(r.Context(), c.ZoneID, c.ApplicationID, "", claims)
@@ -425,7 +425,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		Reason:                    body.Reason,
 	})
 	if decideErr != nil {
-		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "challenge is not pending"))
+		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "approval is not pending"))
 		return
 	}
 	if auditErr := s.emitStepUpAudit(c.ID, c.ZoneID, "step_up_decided", body.Decision,
@@ -438,7 +438,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := s.db.GetStepUpChallenge(r.Context(), c.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "challenge reload failed"))
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "approval reload failed"))
 		return
 	}
 	now, err := s.db.CurrentTime(r.Context())
@@ -446,7 +446,7 @@ func (s *Server) handleStepUpDecision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, sharederr.New(sharederr.STSUnavailable, "trusted time unavailable"))
 		return
 	}
-	writeStepUpState(w, updated, challengeLifecycleState(updated, now))
+	writeApprovalState(w, updated, approvalLifecycleState(updated, now))
 }
 
 // approverRecordID applies a hold's privacy mode to the approver identity the decision
