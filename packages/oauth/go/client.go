@@ -48,14 +48,14 @@ type exchangeCall struct {
 }
 
 type stsErrorResponse struct {
-	Error              string `json:"error"`
-	ErrorDescription   string `json:"error_description"`
-	ChallengeID        string `json:"challenge_id"`
-	State              string `json:"state"`
-	Tier               string `json:"tier"`
-	Binding            string `json:"binding"`
-	ChallengeExpiresAt string `json:"challenge_expires_at"`
-	RequestID          string `json:"requestId"`
+	Error             string `json:"error"`
+	ErrorDescription  string `json:"error_description"`
+	ApprovalID        string `json:"approval_id"`
+	State             string `json:"state"`
+	Tier              string `json:"tier"`
+	Binding           string `json:"binding"`
+	ApprovalExpiresAt string `json:"approval_expires_at"`
+	RequestID         string `json:"requestId"`
 }
 
 type stsSuccessResponse struct {
@@ -118,7 +118,7 @@ func (c *Client) ExchangeResources(ctx context.Context, subjectToken string, res
 	cacheResource := c.cacheResource(resources, opts)
 	eventResources := resourceList(resources)
 	eventScopes := strings.Fields(normalizedScopes(opts.Scopes))
-	oneShot := opts.OneShot || opts.ChallengeID != ""
+	oneShot := opts.OneShot || opts.ApprovalID != ""
 	if !oneShot && !opts.ForceRefresh {
 		if cached, ok := c.cache.Get(cacheSubject, cacheResource); ok {
 			// The preflight window is capped at half the token lifetime so
@@ -248,7 +248,7 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 	if opts.TTLSeconds > 0 {
 		form.Set("ttl_seconds", ttlString(opts.TTLSeconds))
 	}
-	setFormValue(form, "challenge_id", opts.ChallengeID)
+	setFormValue(form, "approval_id", opts.ApprovalID)
 
 	if !time.Now().Before(deadline) {
 		return TokenExchangeResponse{}, fmt.Errorf("STS request timed out")
@@ -283,12 +283,12 @@ func (c *Client) doExchange(ctx context.Context, subjectToken string, resources 
 			}
 			return TokenExchangeResponse{}, &ApprovalRequiredError{
 				Message:    msg,
-				ApprovalID: body.ChallengeID,
+				ApprovalID: body.ApprovalID,
 				Resource:   firstResource(resources),
 				State:      body.State,
 				Tier:       body.Tier,
 				Binding:    body.Binding,
-				ExpiresAt:  body.ChallengeExpiresAt,
+				ExpiresAt:  body.ApprovalExpiresAt,
 				RequestID:  body.RequestID,
 				HTTPStatus: res.StatusCode,
 			}
@@ -335,7 +335,7 @@ func validateSuccess(body stsSuccessResponse) (TokenExchangeResponse, error) {
 
 // WaitForApproval long-polls an approval until an approver decides it, it
 // expires, or the timeout elapses. Returns the final lifecycle state: ApprovalApproved
-// means a retry of Exchange with ChallengeID will mint; ApprovalRejected and
+// means a retry of Exchange with ApprovalID will mint; ApprovalRejected and
 // ApprovalExpired are terminal; ApprovalPending means the timeout elapsed with no
 // decision and waiting again is safe.
 func (c *Client) WaitForApproval(ctx context.Context, approvalID string, timeout time.Duration) (ApprovalState, error) {
@@ -361,7 +361,7 @@ func (c *Client) WaitForApproval(ctx context.Context, approvalID string, timeout
 			wait = 1
 		}
 		reqCtx, cancel := context.WithDeadline(ctx, deadline)
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/step-up/%s?wait=%d", c.stsURL, url.PathEscape(approvalID), wait), nil)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fmt.Sprintf("%s/approvals/%s?wait=%d", c.stsURL, url.PathEscape(approvalID), wait), nil)
 		if err != nil {
 			cancel()
 			return finish("", err)
@@ -499,7 +499,7 @@ func (c *Client) DecideApproval(ctx context.Context, input DecideApprovalInput) 
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost,
-		fmt.Sprintf("%s/step-up/%s/decision", c.stsURL, url.PathEscape(input.ApprovalID)), strings.NewReader(string(body)))
+		fmt.Sprintf("%s/approvals/%s/decision", c.stsURL, url.PathEscape(input.ApprovalID)), strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}

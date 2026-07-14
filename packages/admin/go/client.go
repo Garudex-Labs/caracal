@@ -96,7 +96,7 @@ type AdminClient struct {
 	Sessions            *SessionsService
 	Audit               *AuditService
 	AdminAudit          *AdminAuditService
-	StepUpChallenges    *StepUpChallengesService
+	Approvals           *ApprovalsService
 	Delegations         *DelegationsService
 }
 
@@ -139,7 +139,7 @@ func NewAdminClient(opts AdminClientOptions) *AdminClient {
 	client.Sessions = &SessionsService{client}
 	client.Audit = &AuditService{client}
 	client.AdminAudit = &AdminAuditService{client}
-	client.StepUpChallenges = &StepUpChallengesService{client}
+	client.Approvals = &ApprovalsService{client}
 	client.Delegations = &DelegationsService{client}
 	return client
 }

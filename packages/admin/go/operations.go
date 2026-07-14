@@ -339,14 +339,14 @@ func (q *AdminAuditQuery) values() url.Values {
 	return values
 }
 
-// StepUpChallenge is the pending or resolved approval challenge row.
-type StepUpChallenge struct {
+// Approval is the pending or resolved approval hold row.
+type Approval struct {
 	ID                string         `json:"id"`
 	ZoneID            string         `json:"zone_id"`
 	SessionID         string         `json:"session_id"`
 	PrincipalID       string         `json:"principal_id"`
 	ApplicationID     *string        `json:"application_id"`
-	ChallengeType     string         `json:"challenge_type"`
+	ApprovalType      string         `json:"approval_type"`
 	Tier              *string        `json:"tier"`
 	ApproverClass     string         `json:"approver_class"`
 	PrivacyMode       string         `json:"privacy_mode"`
@@ -363,8 +363,8 @@ type StepUpChallenge struct {
 	ApproverSubjectID *string        `json:"approver_subject_id"`
 }
 
-// StepUpDecision is the resolution state after an approve or reject.
-type StepUpDecision struct {
+// ApprovalDecision is the resolution state after an approve or reject.
+type ApprovalDecision struct {
 	ID                string  `json:"id"`
 	State             string  `json:"state"`
 	SatisfiedAt       *string `json:"satisfied_at"`
@@ -732,14 +732,14 @@ func (s *AdminAuditService) List(ctx context.Context, zoneID string, query *Admi
 	return out.Items, nil
 }
 
-// StepUpChallengesService covers /v1/zones/{zone}/step-up-challenges.
-type StepUpChallengesService struct{ client *AdminClient }
+// ApprovalsService covers /v1/zones/{zone}/approvals.
+type ApprovalsService struct{ client *AdminClient }
 
-func (s *StepUpChallengesService) List(ctx context.Context, zoneID string) ([]StepUpChallenge, error) {
+func (s *ApprovalsService) List(ctx context.Context, zoneID string) ([]Approval, error) {
 	var out struct {
-		Items []StepUpChallenge `json:"items"`
+		Items []Approval `json:"items"`
 	}
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/step-up-challenges", nil, &out, false); err != nil {
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/approvals", nil, &out, false); err != nil {
 		return nil, err
 	}
 	if out.Items == nil {
@@ -748,31 +748,31 @@ func (s *StepUpChallengesService) List(ctx context.Context, zoneID string) ([]St
 	return out.Items, nil
 }
 
-func (s *StepUpChallengesService) Get(ctx context.Context, zoneID, challengeID string) (*StepUpChallenge, error) {
-	var out StepUpChallenge
-	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/step-up-challenges/"+challengeID, nil, &out, false); err != nil {
+func (s *ApprovalsService) Get(ctx context.Context, zoneID, approvalID string) (*Approval, error) {
+	var out Approval
+	if err := s.client.do(ctx, http.MethodGet, "/v1/zones/"+zoneID+"/approvals/"+approvalID, nil, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// Approve resolves the challenge; an empty reason is omitted from the body.
-func (s *StepUpChallengesService) Approve(ctx context.Context, zoneID, challengeID, reason string) (*StepUpDecision, error) {
-	return s.decide(ctx, zoneID, challengeID, "approve", reason)
+// Approve resolves the hold; an empty reason is omitted from the body.
+func (s *ApprovalsService) Approve(ctx context.Context, zoneID, approvalID, reason string) (*ApprovalDecision, error) {
+	return s.decide(ctx, zoneID, approvalID, "approve", reason)
 }
 
-// Reject resolves the challenge; an empty reason is omitted from the body.
-func (s *StepUpChallengesService) Reject(ctx context.Context, zoneID, challengeID, reason string) (*StepUpDecision, error) {
-	return s.decide(ctx, zoneID, challengeID, "reject", reason)
+// Reject resolves the hold; an empty reason is omitted from the body.
+func (s *ApprovalsService) Reject(ctx context.Context, zoneID, approvalID, reason string) (*ApprovalDecision, error) {
+	return s.decide(ctx, zoneID, approvalID, "reject", reason)
 }
 
-func (s *StepUpChallengesService) decide(ctx context.Context, zoneID, challengeID, action, reason string) (*StepUpDecision, error) {
+func (s *ApprovalsService) decide(ctx context.Context, zoneID, approvalID, action, reason string) (*ApprovalDecision, error) {
 	body := map[string]any{}
 	if reason != "" {
 		body["reason"] = reason
 	}
-	var out StepUpDecision
-	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/step-up-challenges/"+challengeID+"/"+action, body, &out, false); err != nil {
+	var out ApprovalDecision
+	if err := s.client.do(ctx, http.MethodPost, "/v1/zones/"+zoneID+"/approvals/"+approvalID+"/"+action, body, &out, false); err != nil {
 		return nil, err
 	}
 	return &out, nil

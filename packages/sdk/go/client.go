@@ -641,7 +641,7 @@ func (e *clientSecretExchanger) mintMandate(ctx context.Context, resourceID stri
 		SessionID:    sessionID,
 		DelegationID: delegationID,
 		TTLSeconds:   opts.TTLSeconds,
-		ChallengeID:  opts.ApprovalID,
+		ApprovalID:   opts.ApprovalID,
 		OneShot:      opts.OneShot || sessionID != "" && delegationID != "",
 	})
 }

@@ -19,7 +19,7 @@ type ExchangeOptions struct {
 	Scopes            []string
 	TimeoutMillis     int
 	TTLSeconds        int
-	ChallengeID       string
+	ApprovalID        string
 	// ForceRefresh skips the cached token and mints a fresh one; the result
 	// still refills the cache.
 	ForceRefresh bool
