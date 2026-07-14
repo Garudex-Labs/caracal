@@ -140,8 +140,8 @@ async function enqueueDecisionAudit(
   await enqueueOutbox(client, { streamName: AUDIT_STREAM, payload, requestId: req.id })
 }
 
-export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/zones/:zoneId/step-up-challenges', async (req, reply) => {
+export const approvalsRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/zones/:zoneId/approvals', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const page = parseListPagination(req, reply)
@@ -180,7 +180,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
   // One aggregate over the zone's live approval table, cheap enough to poll: the counts
   // behind navigation badges and dashboard summaries. Terminal rows age out of this table
   // on the retention sweep, so the counts reflect the actionable working set, not history.
-  fastify.get('/zones/:zoneId/step-up-challenges/counts', async (req, reply) => {
+  fastify.get('/zones/:zoneId/approvals/counts', async (req, reply) => {
     const params = parseParams(ZoneParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query<Record<string, string>>(
@@ -203,7 +203,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  fastify.get('/zones/:zoneId/step-up-challenges/:id', async (req, reply) => {
+  fastify.get('/zones/:zoneId/approvals/:id', async (req, reply) => {
     const params = parseParams(ZoneIdParams, req, reply)
     if (!params) return
     const { rows } = await fastify.db.query(
@@ -272,7 +272,7 @@ export const stepUpChallengesRoutes: FastifyPluginAsync = async (fastify) => {
     })
   }
 
-  fastify.post('/zones/:zoneId/step-up-challenges/:id/approve', async (req, reply) => decide(req, reply, 'approved'))
+  fastify.post('/zones/:zoneId/approvals/:id/approve', async (req, reply) => decide(req, reply, 'approved'))
 
-  fastify.post('/zones/:zoneId/step-up-challenges/:id/reject', async (req, reply) => decide(req, reply, 'rejected'))
+  fastify.post('/zones/:zoneId/approvals/:id/reject', async (req, reply) => decide(req, reply, 'rejected'))
 }

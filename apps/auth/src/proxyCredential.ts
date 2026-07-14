@@ -15,7 +15,7 @@ export interface ProxyCredential {
 // precision so the BFF and the API always agree on which credential a request needs.
 function isApprovalDecision(method: string, path: string): boolean {
   if (method !== 'POST') return false
-  return /^\/v1\/zones\/[^/]+\/step-up-challenges\/[^/]+\/(approve|reject)$/.test(path.split('?')[0])
+  return /^\/v1\/zones\/[^/]+\/approvals\/[^/]+\/(approve|reject)$/.test(path.split('?')[0])
 }
 
 // Decides the credential for one proxied console request. A read (GET or HEAD) presents the
