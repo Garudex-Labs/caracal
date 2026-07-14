@@ -296,7 +296,7 @@ func TestApplicationTransportConsumesApprovedChallenge(t *testing.T) {
 	_ = governedGet(t, client, governedUpstream+"/tasks")
 
 	forms := platform.finalMints()
-	if len(forms) != 1 || forms[0].Get("challenge_id") != "approval-1" {
+	if len(forms) != 1 || forms[0].Get("approval_id") != "approval-1" {
 		t.Fatalf("approved challenge was not sent on final mint: %#v", forms)
 	}
 }

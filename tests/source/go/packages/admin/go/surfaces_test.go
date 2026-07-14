@@ -169,11 +169,11 @@ func TestServiceMethodsPropagateAPIErrors(t *testing.T) {
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.StepUpChallenges.Get(ctx, "z1", "ch")
+			_, err := c.Approvals.Get(ctx, "z1", "ch")
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
-			_, err := c.StepUpChallenges.Approve(ctx, "z1", "ch", "")
+			_, err := c.Approvals.Approve(ctx, "z1", "ch", "")
 			return err
 		},
 		func(c *admin.AdminClient, ctx context.Context) error {
@@ -227,25 +227,25 @@ func TestGrantsCRUDPaths(t *testing.T) {
 	}
 }
 
-func TestStepUpChallengesListAndGet(t *testing.T) {
+func TestApprovalsListAndGet(t *testing.T) {
 	transport := &scripted{steps: []any{
 		ok(`{"items":[{"id":"ch-1","state":"pending"}],"next_cursor":null}`),
 		ok(`{"id":"ch-1","state":"pending"}`),
 	}}
 	client := newAdmin(transport, -1)
 
-	challenges, err := client.StepUpChallenges.List(context.Background(), "z1")
+	challenges, err := client.Approvals.List(context.Background(), "z1")
 	if err != nil || len(challenges) != 1 || challenges[0].ID != "ch-1" {
 		t.Fatalf("list: %+v %v", challenges, err)
 	}
-	challenge, err := client.StepUpChallenges.Get(context.Background(), "z1", "ch-1")
+	challenge, err := client.Approvals.Get(context.Background(), "z1", "ch-1")
 	if err != nil || challenge.State != "pending" {
 		t.Fatalf("get: %+v %v", challenge, err)
 	}
-	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/step-up-challenges" {
+	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/approvals" {
 		t.Fatalf("url: %s", got)
 	}
-	if got := transport.requests[1].url; got != "http://api/v1/zones/z1/step-up-challenges/ch-1" {
+	if got := transport.requests[1].url; got != "http://api/v1/zones/z1/approvals/ch-1" {
 		t.Fatalf("url: %s", got)
 	}
 }

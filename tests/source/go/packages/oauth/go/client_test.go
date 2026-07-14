@@ -150,7 +150,7 @@ func TestExchangeReturnsApprovalRequiredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"interaction_required","error_description":"step up","challenge_id":"challenge1","acr_values":"urn:mfa"}`))
+		w.Write([]byte(`{"error":"interaction_required","error_description":"step up","approval_id":"challenge1","acr_values":"urn:mfa"}`))
 	}))
 	defer server.Close()
 
@@ -583,7 +583,7 @@ func TestDecideApprovalPostsBearerDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotAuth != "Bearer user-session-token" || gotPath != "/step-up/ch-1/decision" {
+	if gotAuth != "Bearer user-session-token" || gotPath != "/approvals/ch-1/decision" {
 		t.Fatalf("unexpected request: auth=%q path=%q", gotAuth, gotPath)
 	}
 	if gotBody["decision"] != "approved" || gotBody["binding"] != "abcd" || gotBody["reason"] != "refund reviewed" {

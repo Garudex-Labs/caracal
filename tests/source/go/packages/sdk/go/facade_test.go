@@ -315,7 +315,7 @@ func TestMintMandateCarriesBoundIdentityAndOptions(t *testing.T) {
 	if form.Get("agent_session_id") != "agent-1" || form.Get("delegation_edge_id") != "edge-1" {
 		t.Fatalf("bound identity missing from mint: %v", form)
 	}
-	if form.Get("ttl_seconds") != "120" || form.Get("challenge_id") != "chal-1" {
+	if form.Get("ttl_seconds") != "120" || form.Get("approval_id") != "chal-1" {
 		t.Fatalf("mandate options missing from mint: %v", form)
 	}
 }
@@ -485,7 +485,7 @@ func TestWaitForApprovalPolls(t *testing.T) {
 	}
 
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/step-up/chal-1") {
+		if !strings.HasPrefix(r.URL.Path, "/approvals/chal-1") {
 			t.Errorf("unexpected poll path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -516,7 +516,7 @@ func stepUpClient(t *testing.T, state string) *sdk.Caracal {
 	t.Helper()
 	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if strings.HasPrefix(r.URL.Path, "/step-up/") {
+		if strings.HasPrefix(r.URL.Path, "/approvals/") {
 			fmt.Fprintf(w, `{"state":%q}`, state)
 			return
 		}

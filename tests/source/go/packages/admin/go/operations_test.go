@@ -143,18 +143,18 @@ func TestStepUpDecisionsSendReasonOnlyWhenPresent(t *testing.T) {
 	}}
 	client := newAdmin(transport, -1)
 
-	if _, err := client.StepUpChallenges.Approve(context.Background(), "z1", "ch-1", ""); err != nil {
+	if _, err := client.Approvals.Approve(context.Background(), "z1", "ch-1", ""); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if _, err := client.StepUpChallenges.Reject(context.Background(), "z1", "ch-1", "policy violation"); err != nil {
+	if _, err := client.Approvals.Reject(context.Background(), "z1", "ch-1", "policy violation"); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 
-	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/step-up-challenges/ch-1/approve" {
+	if got := transport.requests[0].url; got != "http://api/v1/zones/z1/approvals/ch-1/approve" {
 		t.Fatalf("url: %s", got)
 	}
 	assertJSONEqual(t, transport.requests[0].body, map[string]any{})
-	if got := transport.requests[1].url; got != "http://api/v1/zones/z1/step-up-challenges/ch-1/reject" {
+	if got := transport.requests[1].url; got != "http://api/v1/zones/z1/approvals/ch-1/reject" {
 		t.Fatalf("url: %s", got)
 	}
 	assertJSONEqual(t, transport.requests[1].body, map[string]any{"reason": "policy violation"})
