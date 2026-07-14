@@ -493,9 +493,11 @@ function ApprovalDetail({
             Waiting on the application&apos;s end user
           </div>
           <p className="mt-0.5">
-            The policy that raised this hold reserves the decision for the application&apos;s own
-            end user. No zone credential can decide it; it settles through the application or
-            expires {relativeTime(challenge.expires_at, now)}.
+            {challenge.subject_anchor
+              ? "The requesting agent acts for a specific end user, and the policy reserves this decision for exactly that person. "
+              : "The policy that raised this hold reserves the decision for the application's own end user. "}
+            No zone credential can decide it; it settles through the application or expires{" "}
+            {relativeTime(challenge.expires_at, now)}.
           </p>
         </div>
       ) : null}
@@ -532,6 +534,14 @@ function ApprovalDetail({
           {subjectPrincipal ? (
             <DetailField label="Principal" hint="The subject principal the token is minted for">
               <CopyValue value={challenge.principal_id} />
+            </DetailField>
+          ) : null}
+          {challenge.subject_anchor ? (
+            <DetailField
+              label="Reserved approver"
+              hint="The federated Subject the agent acts for; only this person can decide the hold on the subject plane"
+            >
+              <CopyValue value={challenge.subject_anchor} />
             </DetailField>
           ) : null}
           {challenge.session_id ? (

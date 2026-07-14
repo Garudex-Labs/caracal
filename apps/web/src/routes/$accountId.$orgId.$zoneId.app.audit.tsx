@@ -198,6 +198,7 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "approver_class", label: "Approver class" },
   { id: "privacy_mode", label: "Privacy mode" },
   { id: "approver_subject_id", label: "Approver subject" },
+  { id: "subject_anchor", label: "Reserved approver" },
   { id: "ingested_at", label: "Ingested at" },
 ];
 
