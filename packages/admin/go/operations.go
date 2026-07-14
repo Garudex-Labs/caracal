@@ -350,6 +350,7 @@ type StepUpChallenge struct {
 	Tier              *string        `json:"tier"`
 	ApproverClass     string         `json:"approver_class"`
 	PrivacyMode       string         `json:"privacy_mode"`
+	SubjectAnchor     *string        `json:"subject_anchor"`
 	Binding           string         `json:"binding"`
 	State             string         `json:"state"`
 	MetadataJSON      map[string]any `json:"metadata_json"`

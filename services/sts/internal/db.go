@@ -339,6 +339,7 @@ type Session struct {
 	ApplicationID                   string
 	SubjectAuthorityRecordID        string
 	SubjectAuthorityRecordType      string
+	SubjectAuthorityRecordSubject   string
 	SubjectAuthorityRecordStatus    string
 	SubjectAuthorityRecordExpiresAt time.Time
 	Lifecycle                       string
@@ -396,7 +397,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 	var s Session
 	err := d.pool.QueryRow(ctx,
 		`SELECT session.id, session.zone_id, session.application_id, session.subject_authority_record_id,
-		        authority.session_type, authority.status, authority.expires_at,
+		        authority.session_type, COALESCE(authority.subject_id, ''), authority.status, authority.expires_at,
 		        session.lifecycle, session.labels, session.status, session.started_at,
 		        COALESCE(session.ttl_seconds, 0), session.heartbeat_deadline_at, session.parent_id, session.depth
 		 FROM sessions session
@@ -404,7 +405,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (*Session, error) {
 		 WHERE session.id = $1`, id,
 	).Scan(
 		&s.ID, &s.ZoneID, &s.ApplicationID, &s.SubjectAuthorityRecordID,
-		&s.SubjectAuthorityRecordType, &s.SubjectAuthorityRecordStatus, &s.SubjectAuthorityRecordExpiresAt,
+		&s.SubjectAuthorityRecordType, &s.SubjectAuthorityRecordSubject, &s.SubjectAuthorityRecordStatus, &s.SubjectAuthorityRecordExpiresAt,
 		&s.Lifecycle, &s.Labels, &s.Status, &s.StartedAt, &s.TTLSeconds,
 		&s.HeartbeatDeadlineAt, &s.ParentID, &s.Depth,
 	)
@@ -661,6 +662,7 @@ type StepUpChallengePG struct {
 	Tier                      string
 	ApproverClass             string
 	PrivacyMode               string
+	SubjectAnchor             string
 	ResourceSetHash           []byte
 	ExpiresAt                 time.Time
 	SatisfiedAt               *time.Time
@@ -697,7 +699,7 @@ type DecideStepUpParams struct {
 }
 
 const stepUpChallengeColumns = `id, zone_id, session_id, challenge_type, principal_id,
-	application_id, tier, approver_class, privacy_mode, resource_set_hash, expires_at,
+	application_id, tier, approver_class, privacy_mode, subject_anchor, resource_set_hash, expires_at,
 	satisfied_at, rejected_at, consumed_at, approver_subject_id, approver_session_id,
 	decision_reason, metadata_json`
 
@@ -705,8 +707,9 @@ func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
 	var c StepUpChallengePG
 	var appID *string
 	var tier *string
+	var subjectAnchor *string
 	err := row.Scan(&c.ID, &c.ZoneID, &c.AuthorityRecordID, &c.ChallengeType, &c.PrincipalID,
-		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &c.ResourceSetHash, &c.ExpiresAt,
+		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &subjectAnchor, &c.ResourceSetHash, &c.ExpiresAt,
 		&c.SatisfiedAt, &c.RejectedAt, &c.ConsumedAt, &c.ApproverSubjectID, &c.ApproverAuthorityRecordID,
 		&c.DecisionReason, &c.MetadataJSON)
 	if err != nil {
@@ -717,6 +720,9 @@ func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
 	}
 	if tier != nil {
 		c.Tier = *tier
+	}
+	if subjectAnchor != nil {
+		c.SubjectAnchor = *subjectAnchor
 	}
 	return &c, nil
 }
@@ -748,13 +754,13 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 	row := tx.QueryRow(ctx,
 		`INSERT INTO step_up_challenges
 		   (id, zone_id, session_id, challenge_type, principal_id, application_id,
-		    tier, approver_class, privacy_mode, resource_set_hash, expires_at, metadata_json)
-		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11, $12)
+		    tier, approver_class, privacy_mode, subject_anchor, resource_set_hash, expires_at, metadata_json)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, NULLIF($10, ''), $11, $12, $13)
 		 ON CONFLICT (zone_id, principal_id, session_id, resource_set_hash)
 		   WHERE consumed_at IS NULL DO NOTHING
 		 RETURNING `+stepUpChallengeColumns,
 		c.ID, c.ZoneID, c.AuthorityRecordID, c.ChallengeType, c.PrincipalID, c.ApplicationID,
-		c.Tier, c.ApproverClass, c.PrivacyMode, c.ResourceSetHash, c.ExpiresAt, metadata,
+		c.Tier, c.ApproverClass, c.PrivacyMode, c.SubjectAnchor, c.ResourceSetHash, c.ExpiresAt, metadata,
 	)
 	created, err := scanStepUpChallenge(row)
 	if err == nil {

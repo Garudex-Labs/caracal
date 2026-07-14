@@ -485,6 +485,7 @@ type approvalFlowDB struct {
 	stepUpDB
 	hold        *StepUpChallengePG
 	holdCreated bool
+	created     *StepUpChallengePG
 	consumeErr  error
 }
 
@@ -492,6 +493,7 @@ func (d *approvalFlowDB) GetOrCreateApprovalChallenge(_ context.Context, c *Step
 	if d.hold != nil {
 		return d.hold, d.holdCreated, nil
 	}
+	d.created = c
 	return c, true, nil
 }
 
@@ -588,26 +590,57 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 
 func TestExchangeStepUpGate(t *testing.T) {
 	now := time.Now()
-	run := func(t *testing.T, hold *StepUpChallengePG) (*TokenResponse, *challengeState, int, *sharederr.CaracalError) {
+	run := func(t *testing.T, hold *StepUpChallengePG) (*approvalFlowDB, *TokenResponse, *challengeState, int, *sharederr.CaracalError) {
 		t.Helper()
 		db := &approvalFlowDB{stepUpDB: stepUpDB{stubDB: *exchangeFlowDB(t)}, hold: hold}
 		srv := exchangeFlowServer(t, db, runCredentialGatedPolicy)
-		return srv.exchange(context.Background(), baseExchangeRequest(), "req-gate")
+		resp, challenge, code, apiErr := srv.exchange(context.Background(), baseExchangeRequest(), "req-gate")
+		return db, resp, challenge, code, apiErr
 	}
 
 	t.Run("fresh hold pauses the mint", func(t *testing.T) {
-		_, challenge, code, apiErr := run(t, nil)
+		db, _, challenge, code, apiErr := run(t, nil)
 		if code != http.StatusUnauthorized || apiErr != nil || challenge == nil {
 			t.Fatalf("code=%d challenge=%+v err=%#v", code, challenge, apiErr)
 		}
 		if challenge.State != ChallengeStatePending || challenge.Tier != "money" {
 			t.Fatalf("hold shape wrong: %+v", challenge)
 		}
+		if db.created == nil || db.created.SubjectAnchor != "" {
+			t.Fatalf("an application-only mint must persist no subject anchor: %+v", db.created)
+		}
+	})
+	t.Run("subject-attributed session anchors the hold", func(t *testing.T) {
+		db := &approvalFlowDB{stepUpDB: stepUpDB{stubDB: *exchangeFlowDB(t)}}
+		db.stepUpDB.stubDB.sessions = []*Session{{
+			ID:                              "agent-1",
+			ZoneID:                          "zone1",
+			ApplicationID:                   "app1",
+			SubjectAuthorityRecordID:        "subject-record-1",
+			SubjectAuthorityRecordType:      "user",
+			SubjectAuthorityRecordSubject:   "user:richard.hendricks@piedpiper.example",
+			SubjectAuthorityRecordStatus:    "active",
+			SubjectAuthorityRecordExpiresAt: time.Now().Add(time.Hour),
+			Lifecycle:                       "task",
+			Status:                          "active",
+			StartedAt:                       time.Now().Add(-time.Minute),
+			TTLSeconds:                      600,
+		}}
+		srv := exchangeFlowServer(t, db, runCredentialGatedPolicy)
+		req := baseExchangeRequest()
+		req.SessionID = "agent-1"
+		_, challenge, code, apiErr := srv.exchange(context.Background(), req, "req-gate-subject")
+		if code != http.StatusUnauthorized || apiErr != nil || challenge == nil {
+			t.Fatalf("code=%d challenge=%+v err=%#v", code, challenge, apiErr)
+		}
+		if db.created == nil || db.created.SubjectAnchor != "user:richard.hendricks@piedpiper.example" {
+			t.Fatalf("the hold must anchor to the session's attributed subject: %+v", db.created)
+		}
 	})
 	t.Run("granted hold releases the mint", func(t *testing.T) {
 		hold := exchangeApprovalChallenge(t)
 		hold.SatisfiedAt = &now
-		resp, _, code, apiErr := run(t, hold)
+		_, resp, _, code, apiErr := run(t, hold)
 		if code != http.StatusOK || apiErr != nil || resp == nil || resp.AccessToken == "" {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
 		}
@@ -615,7 +648,7 @@ func TestExchangeStepUpGate(t *testing.T) {
 	t.Run("rejected hold denies the mint", func(t *testing.T) {
 		hold := exchangeApprovalChallenge(t)
 		hold.RejectedAt = &now
-		_, _, code, apiErr := run(t, hold)
+		_, _, _, code, apiErr := run(t, hold)
 		if code != http.StatusForbidden || apiErr == nil || !strings.Contains(apiErr.Description, "rejected") {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
 		}
