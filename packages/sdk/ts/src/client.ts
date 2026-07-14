@@ -2003,7 +2003,7 @@ function createClientSecretTokenSource(
         sessionId: opts.sessionId,
         delegationId: opts.delegationId,
         ttlSeconds: opts.ttlSeconds,
-        challengeId: opts.approvalId,
+        approvalId: opts.approvalId,
         signal: opts.signal,
         cache: opts.cache ?? !(opts.sessionId && opts.delegationId),
       })

@@ -35,7 +35,7 @@ export interface ExchangeOptions {
   scopes?: string[]
   timeoutMs?: number
   ttlSeconds?: number
-  challengeId?: string
+  approvalId?: string
   /** Skip the cached token and mint a fresh one; the result still refills the cache. */
   forceRefresh?: boolean
   /** Mint without reading, writing, or joining the token cache. */

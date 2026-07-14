@@ -7,7 +7,7 @@ import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { scrubTokens } from './crash.js'
-import { ApprovalRequiredError, pollStepUpState } from '@caracalai/oauth'
+import { ApprovalRequiredError, pollApprovalState } from '@caracalai/oauth'
 import { fetchRunCredential, fetchRunManifest } from './runClient.js'
 import type { RunBinding, RunCredentialResponse } from './runClient.js'
 import { RuntimeConfigValidationError, assertCredentialEnvName } from './runtimeConfig.js'
@@ -129,14 +129,14 @@ async function mintWithStepUp(
     onLine?.(
       JSON.stringify({
         resource: binding.resource,
-        challenge_id: err.approvalId,
+        approval_id: err.approvalId,
         binding: err.binding,
         expires_at: err.expiresAt,
         reason: 'approval_required',
       }),
       'stderr',
     )
-    const state = await pollStepUpState(identity.sts_url, err.approvalId, { timeoutMs: stepUpWaitMs(err.expiresAt) })
+    const state = await pollApprovalState(identity.sts_url, err.approvalId, { timeoutMs: stepUpWaitMs(err.expiresAt) })
     if (state !== 'approved') throw new Error(`approval_${state}`)
     return fetchRunCredential(identity.sts_url, identity.workload_id, identity.workload_secret, binding.env, {
       approvalId: err.approvalId,

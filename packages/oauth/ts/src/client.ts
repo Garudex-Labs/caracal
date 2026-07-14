@@ -11,11 +11,11 @@ import type { ApprovalState, ExchangeOptions, OAuthEvent, TokenExchangeResponse 
 interface STSErrorResponse {
   error?: string
   error_description?: string
-  challenge_id?: string
+  approval_id?: string
   state?: string
   tier?: string
   binding?: string
-  challenge_expires_at?: string
+  approval_expires_at?: string
   requestId?: string
 }
 
@@ -85,7 +85,7 @@ export class OAuthClient {
   async exchange(subjectToken: string, resource: string | string[], opts: ExchangeOptions = {}): Promise<TokenExchangeResponse> {
     const timeoutMs = opts.timeoutMs ?? 30_000
     const preflightWindow = timeoutMs / 1000 + 30
-    const oneShot = opts.cache === false || Boolean(opts.challengeId)
+    const oneShot = opts.cache === false || Boolean(opts.approvalId)
 
     const resources = resourceList(resource)
     const scopes = [...new Set(opts.scopes ?? [])].sort()
@@ -200,7 +200,7 @@ export class OAuthClient {
     const scope = this.normalizedScopes(opts.scopes)
     if (scope) body.set('scope', scope)
     if (opts.ttlSeconds) body.set('ttl_seconds', String(opts.ttlSeconds))
-    if (opts.challengeId) body.set('challenge_id', opts.challengeId)
+    if (opts.approvalId) body.set('approval_id', opts.approvalId)
 
     if (opts.signal?.aborted) throw abortReason(opts.signal)
     const remainingMs = deadlineMs - performance.now()
@@ -227,12 +227,12 @@ export class OAuthClient {
         throw new Error(`STS error ${res.status}: invalid error response`)
       }
       if (err['error'] === 'interaction_required') {
-        throw new ApprovalRequiredError(err['error_description'] ?? 'Approval required', err['challenge_id'] ?? '', {
+        throw new ApprovalRequiredError(err['error_description'] ?? 'Approval required', err['approval_id'] ?? '', {
           resource: resourceList(resource)[0],
           state: err['state'],
           tier: err['tier'],
           binding: err['binding'],
-          expiresAt: err['challenge_expires_at'],
+          expiresAt: err['approval_expires_at'],
           requestId: err['requestId'],
           httpStatus: res.status,
         })
@@ -253,7 +253,7 @@ export class OAuthClient {
   /**
    * Long-polls an approval until an approver decides it, it expires, or
    * the timeout elapses. Returns the final lifecycle state: 'approved' means a
-   * retry of exchange() with challengeId will mint; 'rejected' and 'expired' are
+   * retry of exchange() with approvalId will mint; 'rejected' and 'expired' are
    * terminal; 'pending' means the timeout elapsed and waiting again is safe.
    * Pass `signal` to abort the wait early.
    */
@@ -261,7 +261,7 @@ export class OAuthClient {
     if (!approvalId) throw new Error('waitForApproval requires an approvalId')
     const start = performance.now()
     try {
-      const state = await pollStepUpState(this.stsUrl, approvalId, { ...opts, fetchImpl: this.fetchImpl })
+      const state = await pollApprovalState(this.stsUrl, approvalId, { ...opts, fetchImpl: this.fetchImpl })
       this.emit({ type: 'approval.wait', approvalId, state, ok: true, durationMs: performance.now() - start })
       return state
     } catch (err) {
@@ -336,7 +336,7 @@ export class OAuthClient {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 30_000)
     try {
-      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/step-up/${encodeURIComponent(input.approvalId)}/decision`, {
+      const res = await (this.fetchImpl ?? fetch)(`${this.stsUrl}/approvals/${encodeURIComponent(input.approvalId)}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.subjectToken}` },
         body: JSON.stringify({ decision: input.decision, binding: input.binding, ...(input.reason ? { reason: input.reason } : {}) }),
@@ -372,7 +372,7 @@ async function waitForShared<T>(pending: Promise<T>, signal?: AbortSignal): Prom
  * context: only the approval id and the STS URL are required, so run launches and
  * exchange clients share one polling path.
  */
-export async function pollStepUpState(
+export async function pollApprovalState(
   stsUrl: string,
   approvalId: string,
   opts: { timeoutMs?: number; signal?: AbortSignal; fetchImpl?: typeof fetch } = {},
@@ -385,7 +385,7 @@ export async function pollStepUpState(
     const wait = Math.max(1, Math.min(25, Math.floor(remainingMs / 1000)))
     const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)))
     const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout
-    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/step-up/${encodeURIComponent(approvalId)}?wait=${wait}`, { signal })
+    const res = await (opts.fetchImpl ?? fetch)(`${stsUrl}/approvals/${encodeURIComponent(approvalId)}?wait=${wait}`, { signal })
     if (!res.ok) throw new Error(`step-up status failed: ${res.status}`)
     const data = (await res.json()) as { state?: unknown }
     if (typeof data.state === 'string' && data.state !== 'pending') return approvalState(data.state)
