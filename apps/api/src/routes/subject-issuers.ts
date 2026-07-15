@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// Subject issuer endpoints: zone-scoped external identity trust for subject federation.
+// Federated user issuer endpoints: zone-scoped external identity trust for federating users; the wire resource is subject-issuers.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'

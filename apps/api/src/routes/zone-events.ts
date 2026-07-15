@@ -102,6 +102,7 @@ const AuthorityRecordQuery = z.object({
   authority_record_id: z.string().min(1).max(128).optional(),
   status: z.enum(['active', 'revoked', 'expired']).optional(),
   subject_id: z.string().min(1).optional(),
+  kind: z.enum(['user', 'application']).optional(),
   format: z.enum(['json', 'csv']).default('json'),
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
@@ -125,6 +126,7 @@ const SessionQuery = z.object({
   lifecycle: z.enum(['task', 'service']).optional(),
   application_id: z.string().min(1).optional(),
   parent_session_id: z.string().min(1).optional(),
+  subject_id: z.string().min(1).optional(),
   label: z.string().min(1).max(64).optional(),
   format: z.enum(['json', 'csv']).default('json'),
   cursor: z.string().min(1).max(512).optional(),
@@ -140,6 +142,10 @@ const SESSION_CSV_COLUMNS = [
   'labels',
   'depth',
   'child_count',
+  'subject_authority_record_id',
+  'subject_id',
+  'federated_user_id',
+  'federated_user_issuer',
   'started_at',
   'last_active_at',
   'terminated_at',
@@ -152,7 +158,7 @@ function toCsvCell(value: unknown): string {
   let text = value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.join(' ') : String(value)
   // Formula-injection guard: a cell starting with a formula trigger is prefixed
   // with a single quote so spreadsheet applications render it as text. Exported
-  // values such as federated subject identifiers are issuer-controlled, so every
+  // values such as Federated user identifiers are issuer-controlled, so every
   // cell is treated as hostile.
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
@@ -170,6 +176,7 @@ const AUTHORITY_RECORD_CSV_COLUMNS = [
   'authority_record_id',
   'authority_record_type',
   'subject_id',
+  'federated_user_issuer',
   'parent_authority_record_id',
   'status',
   'authenticated_at',
@@ -227,6 +234,8 @@ const AUDIT_METADATA_FIELDS = [
   'privacy_mode',
   'approver_subject_id',
   'subject_anchor',
+  'subject_kind',
+  'federated_user_issuer',
 ] as const
 
 const AUDIT_EXPORT_FIELDS: readonly string[] = [...AUDIT_ROW_FIELDS, ...AUDIT_METADATA_FIELDS]
@@ -546,6 +555,10 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
       values.push(q.subject_id)
       conds.push(`subject_id = $${values.length}`)
     }
+    if (q.kind) {
+      values.push(q.kind)
+      conds.push(`session_type = $${values.length}`)
+    }
 
     const cursor = q.cursor ? decodeCursor(q.cursor) : null
     if (q.cursor && !cursor) return reply.code(400).send({ error: 'invalid_cursor' })
@@ -558,6 +571,7 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { rows } = await fastify.db.query(
       `SELECT id AS authority_record_id, zone_id, session_type AS authority_record_type, subject_id,
+              CASE WHEN session_type = 'user' THEN claims_json->>'iss' END AS federated_user_issuer,
               parent_id AS parent_authority_record_id, status, expires_at,
               authenticated_at, created_at, revoked_at, revoked_reason
       FROM authority_records
@@ -585,27 +599,31 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
     const q = parsed.data
 
-    const conds = ['zone_id = $1']
+    const conds = ['session.zone_id = $1']
     const values: (string | number)[] = [params.zoneId]
     if (q.status) {
       values.push(q.status)
-      conds.push(`status = $${values.length}`)
+      conds.push(`session.status = $${values.length}`)
     }
     if (q.lifecycle) {
       values.push(q.lifecycle)
-      conds.push(`lifecycle = $${values.length}`)
+      conds.push(`session.lifecycle = $${values.length}`)
     }
     if (q.application_id) {
       values.push(q.application_id)
-      conds.push(`application_id = $${values.length}`)
+      conds.push(`session.application_id = $${values.length}`)
     }
     if (q.parent_session_id) {
       values.push(q.parent_session_id)
-      conds.push(`parent_id = $${values.length}`)
+      conds.push(`session.parent_id = $${values.length}`)
+    }
+    if (q.subject_id) {
+      values.push(q.subject_id)
+      conds.push(`ar.subject_id = $${values.length}`)
     }
     if (q.label) {
       values.push(`{${q.label}}`)
-      conds.push(`labels @> $${values.length}`)
+      conds.push(`session.labels @> $${values.length}`)
     }
 
     const cursor = q.cursor ? decodeCursor(q.cursor) : null
@@ -613,16 +631,24 @@ export const zoneEventsRoutes: FastifyPluginAsync = async (fastify) => {
     if (cursor) {
       values.push(cursor.ts)
       values.push(cursor.id)
-      conds.push(`(started_at, id) < ($${values.length - 1}, $${values.length})`)
+      conds.push(`(session.started_at, session.id) < ($${values.length - 1}, $${values.length})`)
     }
     values.push(q.limit)
 
+    // The subject attribution join resolves who each Session acts for: the Subject on
+    // its authority record, and the explicit Federated user identity when that Subject
+    // was federated from a registered external identity provider.
     const { rows } = await fastify.db.query(
-      `SELECT id AS session_id, application_id, parent_id AS parent_session_id, status, lifecycle, labels, depth, child_count,
-          started_at, last_active_at, terminated_at, termination_reason, ttl_seconds
-        FROM sessions
+      `SELECT session.id AS session_id, session.application_id, session.parent_id AS parent_session_id,
+          session.status, session.lifecycle, session.labels, session.depth, session.child_count,
+          session.subject_authority_record_id, ar.subject_id,
+          CASE WHEN ar.session_type = 'user' THEN ar.subject_id END AS federated_user_id,
+          CASE WHEN ar.session_type = 'user' THEN ar.claims_json->>'iss' END AS federated_user_issuer,
+          session.started_at, session.last_active_at, session.terminated_at, session.termination_reason, session.ttl_seconds
+        FROM sessions session
+        LEFT JOIN authority_records ar ON ar.zone_id = session.zone_id AND ar.id = session.subject_authority_record_id
        WHERE ${conds.join(' AND ')}
-        ORDER BY started_at DESC, id DESC
+        ORDER BY session.started_at DESC, session.id DESC
        LIMIT $${values.length}`,
       values,
     )

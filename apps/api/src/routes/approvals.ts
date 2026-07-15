@@ -49,6 +49,10 @@ const CHALLENGE_COLUMNS = `id, zone_id, session_id, principal_id, application_id
        tier, approver_class, privacy_mode, subject_anchor, encode(resource_set_hash, 'hex') AS binding,
        metadata_json, decision_reason, created_at, expires_at,
        satisfied_at, rejected_at, consumed_at, approver_subject_id,
+       EXISTS(SELECT 1 FROM authority_records fu
+         WHERE fu.zone_id = step_up_challenges.zone_id
+           AND fu.subject_id = step_up_challenges.principal_id
+           AND fu.session_type = 'user') AS principal_federated,
        (SELECT COUNT(*)::int FROM step_up_challenges p
          WHERE p.zone_id = step_up_challenges.zone_id
            AND p.resource_set_hash = step_up_challenges.resource_set_hash
@@ -84,8 +88,9 @@ interface DecidedRow {
 // The identity recorded as the deciding approver, always a stable id: a console decision is
 // attributed by the verified account's profile id behind the BFF assertion; a direct admin or
 // automation call is attributed to the credential itself. Approver identities are recorded
-// verbatim regardless of the hold's privacy mode: privacy modes shield an application's end
-// users on the subject plane, while zone operators act under full admin accountability.
+// verbatim regardless of the hold's privacy mode: privacy modes shield an application's
+// Federated users on the federated-user plane, while zone operators act under full admin
+// accountability.
 function approverId(req: FastifyRequest): string {
   const account = req.account
   if (account) return `console:${account.id}`
@@ -95,7 +100,8 @@ function approverId(req: FastifyRequest): string {
 // The zone audit record of an operator-plane decision, enqueued through the transactional
 // outbox inside the decision's own transaction: the decision commits if and only if its audit
 // event is durably queued for the audit stream. The payload is the same wire shape the STS
-// emits for subject-plane decisions, so the zone timeline reads uniformly across both planes.
+// emits for federated-user-plane decisions, so the zone timeline reads uniformly across both
+// planes.
 async function enqueueDecisionAudit(
   client: ClientLike,
   hmacKey: Buffer | null,
@@ -217,9 +223,9 @@ export const approvalsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Decides a live hold on the operator plane. The guards live in the UPDATE itself, so a
   // decision lands exactly once on exactly one live hold: it must still be pending (never
-  // decided, never consumed), unexpired, and open to operators - a subject-only hold is the
-  // application's promise that only its own end user may approve, and no zone credential
-  // overrides that. A miss is then classified for the caller: absent, operator-forbidden, or
+  // decided, never consumed), unexpired, and open to operators - a hold reserved for the
+  // application's own Federated user (wire approver class `subject`) admits no zone
+  // credential. A miss is then classified for the caller: absent, operator-forbidden, or
   // already settled with its current state.
   const decide = async (req: FastifyRequest, reply: FastifyReply, decision: 'approved' | 'rejected'): Promise<unknown> => {
     const params = parseParams(ZoneIdParams, req, reply)

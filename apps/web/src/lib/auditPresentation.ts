@@ -113,8 +113,8 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
     hint: "The provider or policy refused injection for this binding; review the provider's runtime injection setting.",
   },
   no_user_principal: {
-    label: "No authenticated user session backs this request",
-    hint: "The subject must sign in before the application can exchange for this resource.",
+    label: "No Subject backs this request",
+    hint: "The exchange presented no subject token, so there is no Subject to bind the user-consent provider's connection to; exchange with a session mandate or the Federated user's mandate.",
   },
   no_provider_grant: {
     label: "The user has not granted this provider",
@@ -174,7 +174,7 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
   },
   session_revoked: {
     label: "The backing session was revoked",
-    hint: "The subject must establish a new session before access can resume.",
+    hint: "The application must exchange for a new session before access can resume.",
   },
   resource_not_found: {
     label: "The requested resource is not registered",
@@ -198,11 +198,11 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
   },
   credential_not_provisioned: {
     label: "No usable credential exists for this exchange",
-    hint: "Provision the provider credential or connect the subject's account.",
+    hint: "Provision the provider credential or connect the Subject's upstream account.",
   },
   credential_refresh_failed: {
     label: "The provider connection is expired and could not be refreshed",
-    hint: "Reconnect the subject from the provider's Connections panel.",
+    hint: "Reconnect the Subject's upstream account from the provider's Connections panel.",
   },
   approval_invalid: {
     label: "The presented approval does not match this request",
@@ -227,6 +227,14 @@ export const AUDIT_DENY_REASONS: Record<string, { label: string; hint: string }>
   exchange_denied: {
     label: "Every requested resource was refused",
     hint: "Each per-resource denial in this request has its own event; open the decision trace for the full picture.",
+  },
+  subject_federation_rejected: {
+    label: "The Federated user's identity token was rejected",
+    hint: "Confirm the token comes from a registered Federated user issuer and its audience, expiry, and signature verify, then federate again.",
+  },
+  subject_federation_invalid: {
+    label: "The federation exchange carried extra parameters",
+    hint: "A federation exchange carries only the identity token; remove resource, scope, session, delegation, and approval parameters.",
   },
 };
 
@@ -297,6 +305,12 @@ export function auditSummary(event: AuditEventLike, actorName?: string | null): 
 
   switch (event.event_type) {
     case "token_exchange": {
+      // A federation exchange mints identity, not resource authority: the allow
+      // event names the Federated user issuer instead of a resource.
+      const federatedIssuer = metaStr(meta, "federated_user_issuer");
+      if (federatedIssuer && event.decision !== "deny") {
+        return `${actor} federated a user identity from ${federatedIssuer}`;
+      }
       if (event.decision === "deny") {
         return `${actor} was denied a credential for ${target}${reason ? ` - ${reason.label}` : ""}`;
       }

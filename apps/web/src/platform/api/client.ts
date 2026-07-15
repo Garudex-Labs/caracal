@@ -114,6 +114,7 @@ interface WireAuthorityRecord {
   zone_id: string;
   authority_record_type: string;
   subject_id: string;
+  federated_user_issuer: string | null;
   parent_authority_record_id: string | null;
   status: string;
   expires_at: string;
@@ -179,6 +180,7 @@ function authorityRecord(record: WireAuthorityRecord): AuthorityRecord {
     zoneId: record.zone_id,
     type: record.authority_record_type,
     subjectId: record.subject_id,
+    federatedUserIssuer: record.federated_user_issuer ?? null,
     parentId: record.parent_authority_record_id,
     status: record.status,
     expiresAt: record.expires_at,

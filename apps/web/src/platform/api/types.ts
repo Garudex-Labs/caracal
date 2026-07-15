@@ -329,6 +329,9 @@ export interface AuthorityRecord {
   zoneId: string;
   type: string;
   subjectId: string;
+  // Set only when the record's Subject is a Federated user; an application
+  // Subject carries no issuer.
+  federatedUserIssuer: string | null;
   parentId: string | null;
   status: string;
   expiresAt: string;
@@ -429,6 +432,9 @@ export interface Approval {
   zone_id: string;
   session_id: string;
   principal_id: string;
+  // True when the requesting principal is a Federated user rather than an
+  // application Subject.
+  principal_federated: boolean;
   application_id: string | null;
   approval_type: string;
   tier: string | null;
