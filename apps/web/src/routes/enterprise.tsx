@@ -45,34 +45,20 @@ function EnterprisePage() {
 }
 function ComparisonTable() {
   const rows = [
-    ["Authority model: mandates, delegation, policy, audit", "Included", "Included"],
-    ["SDKs and connectors", "Included", "Included"],
-    ["Zones as a manual isolation primitive", "Included", "Included"],
+    ["Core Authority model", "Included", "Included"],
+    ["SDKs", "Included", "Included"],
+    ["Zones as isolation primitive", "Included", "Included"],
     [
       "Managed multi-tenancy",
-      "Self-modeled with zones and the Admin API",
+      "Self-modeled with zones",
       "Native tenant, organization, and workspace lifecycle",
     ],
     ["Single sign-on (SSO)", "Not included", "SAML and OIDC SSO with SCIM provisioning"],
-    [
-      "Teams and role-based access control",
-      "Not included",
-      "Org, team, and role management across tenants",
-    ],
-    [
-      "Control surface",
-      "Local Console and self-hosted Admin API",
-      "Hosted management UI for all tenants",
-    ],
+    ["Teams RBAC", "Not included", "team, and role management"],
     [
       "Gateway and services",
       "You deploy and operate every service",
       "Fully managed Gateway, STS, Coordinator, and audit plane",
-    ],
-    [
-      "Integration effort",
-      "Run the full stack, then integrate the SDK",
-      "Integrate the SDK against managed endpoints; no services to run",
     ],
     ["Support", "Community and issues", "Commercial SLA, priority support, and onboarding"],
   ];
