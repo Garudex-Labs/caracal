@@ -41,6 +41,7 @@ import { relativeTime } from "@/lib/time";
 import { ConsoleApiError } from "@/platform/api/client";
 import { coordinatorErrorMessage } from "@/platform/api/errors";
 import {
+  useAuthorityRecord,
   useSessionActivity,
   useSessionChildren,
   useSessionEffectiveAuthority,
@@ -841,6 +842,35 @@ function SessionLifecycleConfirm({
   );
 }
 
+// Who this Session acts for, resolved from its Subject authority record: the
+// application itself, or the Federated user whose identity token the application
+// exchanged. The Subject links into the Subjects workspace for investigation.
+function ActingForRow({ zoneId, recordId }: { zoneId: string; recordId: string }) {
+  const record = useAuthorityRecord(zoneId, recordId);
+  if (!record.data) return null;
+  const federated = record.data.type === "user";
+  const issuer = record.data.federatedUserIssuer;
+  return (
+    <BriefRow label="Acting for">
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <Link
+          to={appLink("/subjects")}
+          search={{ subject: record.data.subjectId }}
+          className="break-all font-mono text-xs text-foreground hover:underline"
+        >
+          {record.data.subjectId}
+        </Link>
+        <Badge tone={federated ? "neutral" : "muted"}>
+          {federated ? "Federated user" : "Application identity"}
+        </Badge>
+        {federated && issuer ? (
+          <span className="text-[10px] text-muted-foreground">via {issuer}</span>
+        ) : null}
+      </span>
+    </BriefRow>
+  );
+}
+
 function SessionInspector({
   zoneId,
   session,
@@ -926,6 +956,9 @@ function SessionInspector({
               <Mono>{session.applicationId}</Mono>
             )}
           </BriefRow>
+          {session.subjectAuthorityRecordId ? (
+            <ActingForRow zoneId={zoneId} recordId={session.subjectAuthorityRecordId} />
+          ) : null}
           {live.tone !== "success" ? (
             <BriefRow label="Health">
               <span

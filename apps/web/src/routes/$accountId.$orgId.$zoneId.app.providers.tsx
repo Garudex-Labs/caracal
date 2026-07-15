@@ -663,7 +663,7 @@ function ProviderConnectivity({ provider, zoneId }: { provider: Provider; zoneId
 const SHARED_CONNECTION_SUBJECT = "caracal:shared";
 
 // A connection is healthy while its upstream token is live or STS can refresh it on
-// use; a lapsed token with no refresh token needs the subject to reconnect.
+// use; a lapsed token with no refresh token needs the Subject to reconnect.
 function ConnectionHealthBadge({ connection }: { connection: ProviderConnection }) {
   if (connection.status !== "active") {
     return (
@@ -681,7 +681,7 @@ function ConnectionHealthBadge({ connection }: { connection: ProviderConnection 
 
 // Connections apply only to delegated OAuth (authorization_code). For every other
 // kind the upstream credential is sealed on the provider itself, so there is nothing
-// per-subject to connect. One connection serves every resource routed through the
+// per-Subject to connect. One connection serves every resource routed through the
 // provider; authorization stays per-resource through policies and grants.
 function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId: string }) {
   const isDelegatedOAuth = provider.kind === "oauth2_authorization_code";
@@ -696,8 +696,8 @@ function ProviderConnections({ provider, zoneId }: { provider: Provider; zoneId:
       <DetailSection title="Connections">
         <p className="text-xs text-muted-foreground">
           {provider.kind === "none" || provider.kind === "caracal_mandate"
-            ? "This provider issues no upstream credential, so there is nothing to connect per subject."
-            : "This provider seals a single shared upstream credential. Per-subject OAuth connections apply only to authorization-code providers."}
+            ? "This provider issues no upstream credential, so there is nothing to connect per Subject."
+            : "This provider seals a single shared upstream credential. Per-Subject OAuth connections apply only to authorization-code providers."}
         </p>
       </DetailSection>
     );

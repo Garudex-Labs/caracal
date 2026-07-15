@@ -60,8 +60,8 @@ function stateTone(state: ApprovalState): "warning" | "success" | "danger" | "mu
 
 const APPROVER_CLASS_LABELS: Record<Approval["approver_class"], string> = {
   operator: "Zone operator",
-  subject: "End user only",
-  any: "Operator or end user",
+  subject: "Federated user only",
+  any: "Operator or federated user",
 };
 
 const PRIVACY_MODE_LABELS: Record<Approval["privacy_mode"], string> = {
@@ -71,8 +71,9 @@ const PRIVACY_MODE_LABELS: Record<Approval["privacy_mode"], string> = {
 };
 
 // A hold is decidable in the console while it is pending and the policy that raised it
-// admits operator-plane approval. Subject-only holds are the application's promise that
-// only its own end user decides; the console shows them but never offers a verdict.
+// admits operator-plane approval. A hold reserved for the Federated user (wire approver
+// class `subject`) is the application's promise that only its own user decides; the
+// console shows it but never offers a verdict.
 function isDecidable(challenge: Approval): boolean {
   return challenge.state === "pending" && challenge.approver_class !== "subject";
 }
@@ -118,6 +119,9 @@ function ApprovalsPage({ zoneId }: { zoneId: string }) {
             >
               {name ?? c.principal_id}
             </div>
+            {c.principal_federated ? (
+              <div className="text-[10px] text-muted-foreground">Federated user</div>
+            ) : null}
             {sub ? <div className="font-mono text-[10px] text-muted-foreground">{sub}</div> : null}
           </div>
         );
@@ -489,12 +493,12 @@ function ApprovalDetail({
       ) : challenge.state === "pending" ? (
         <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           <div className="font-medium text-foreground">
-            Waiting on the application&apos;s end user
+            Waiting on the application&apos;s Federated user
           </div>
           <p className="mt-0.5">
             {challenge.subject_anchor
-              ? "The requesting agent acts for a specific end user, and the policy reserves this decision for exactly that person. "
-              : "The policy that raised this hold reserves the decision for the application's own end user. "}
+              ? "The requesting agent acts for a specific Federated user, and the policy reserves this decision for exactly that person. "
+              : "The policy that raised this hold reserves the decision for the application's own Federated user. "}
             No zone credential can decide it; it settles through the application or expires{" "}
             {relativeTime(challenge.expires_at, now)}.
           </p>
@@ -531,14 +535,19 @@ function ApprovalDetail({
             </DetailField>
           ) : null}
           {subjectPrincipal ? (
-            <DetailField label="Principal" hint="The subject principal the token is minted for">
-              <CopyValue value={challenge.principal_id} />
+            <DetailField label="Principal" hint="The Subject the token is minted for">
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <CopyValue value={challenge.principal_id} />
+                {challenge.principal_federated ? (
+                  <Badge tone="neutral">Federated user</Badge>
+                ) : null}
+              </span>
             </DetailField>
           ) : null}
           {challenge.subject_anchor ? (
             <DetailField
               label="Reserved approver"
-              hint="The federated Subject the agent acts for; only this person can decide the hold on the subject plane"
+              hint="The Federated user the agent acts for; only this person can decide the hold, through the application"
             >
               <CopyValue value={challenge.subject_anchor} />
             </DetailField>
@@ -629,9 +638,9 @@ function DecisionPanel({ challenge, zoneId }: { challenge: Approval; zoneId: str
       } else if (err instanceof ConsoleApiError && err.code === "subject_approval_required") {
         toast({
           tone: "error",
-          title: "Reserved for the end user",
+          title: "Reserved for the Federated user",
           description:
-            "Only the application's own federated end user can decide this hold, through the STS subject plane.",
+            "Only the application's own Federated user can decide this hold, by presenting their federated session mandate to the STS.",
         });
       } else {
         toast({ tone: "error", title: "Decision failed", description: errorMessage(err) });

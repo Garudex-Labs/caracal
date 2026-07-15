@@ -13,7 +13,7 @@ import {
   DetailGroup,
   ResourceWorkspace,
 } from "@/components/console/ResourceWorkspace";
-import { FeedToolbar } from "@/components/console/FeedToolbar";
+import { FeedTabs, FeedToolbar } from "@/components/console/FeedToolbar";
 import { ZoneScopedPage } from "@/components/console/ZoneScope";
 import {
   Badge,
@@ -26,7 +26,6 @@ import {
   Modal,
   Pagination,
   SearchInput,
-  Select,
   Skeleton,
   Tooltip,
   useCopyToClipboard,
@@ -52,22 +51,57 @@ export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/subjects")(
   component: SubjectsRoute,
   validateSearch: (
     search: Record<string, unknown>,
-  ): { subject?: string; focus?: string; record?: string } => ({
+  ): { kind?: "user" | "application"; subject?: string; focus?: string; record?: string } => ({
+    kind: search.kind === "user" || search.kind === "application" ? search.kind : undefined,
     subject: typeof search.subject === "string" ? search.subject : undefined,
     focus: typeof search.focus === "string" ? search.focus : undefined,
     record: typeof search.record === "string" ? search.record : undefined,
   }),
 });
 
+// The three Subject views: every Subject in the zone, the application Subjects
+// (software acting as itself), and the Federated users an application's own
+// identity system supplied. One Subject model, filtered by kind.
+type SubjectsView = "all" | "application" | "user";
+
+const VIEW_TABS: { id: SubjectsView; label: string }[] = [
+  { id: "all", label: "All Subjects" },
+  { id: "application", label: "Application Subjects" },
+  { id: "user", label: "Federated users" },
+];
+
 function SubjectsRoute() {
-  const { subject, record } = Route.useSearch();
+  const { kind, subject, record } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const view: SubjectsView = kind ?? "all";
+  const tabs = (
+    <FeedTabs
+      tabs={VIEW_TABS}
+      value={view}
+      onChange={(v) =>
+        navigate({
+          search: (prev) => ({ ...prev, kind: v === "all" ? undefined : v }),
+          replace: true,
+        })
+      }
+      label="Subject kind"
+    />
+  );
   return (
     <ZoneScopedPage
       title="Subjects"
-      description="The identities your applications act for, and the authority each holds now."
+      description="The identities your applications act for: each application itself by default, and the Federated users it exchanges from your identity provider."
       breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
     >
-      {(zone) => <SubjectsPage zoneId={zone.id} initialSubject={subject} recordId={record} />}
+      {(zone) => (
+        <SubjectsPage
+          zoneId={zone.id}
+          view={view}
+          tabs={tabs}
+          initialSubject={subject}
+          recordId={record}
+        />
+      )}
     </ZoneScopedPage>
   );
 }
@@ -160,7 +194,7 @@ function standingCaption(s: SubjectSummary, standing: Standing, now: number): st
 }
 
 // Who this subject is, in the words an analyst thinks in: a registered application
-// acting as itself, or an end user federated from an external identity system.
+// acting as itself, or a Federated user supplied by an external identity system.
 function subjectKindLabel(s: SubjectSummary): string {
   if (s.application_name) return "Application identity";
   if (s.federated) {
@@ -202,24 +236,25 @@ function RecordResolver({
 
 function SubjectsPage({
   zoneId,
+  view,
+  tabs,
   initialSubject,
   recordId,
 }: {
   zoneId: string;
+  view: SubjectsView;
+  tabs: ReactNode;
   initialSubject?: string;
   recordId?: string;
 }) {
-  const [kind, setKind] = useState<string>("all");
   const [search, setSearch] = useState(initialSubject ?? "");
 
   const serverQuery = useMemo(
     () => ({
-      ...(kind === "user" || kind === "application"
-        ? { kind: kind as "user" | "application" }
-        : {}),
+      ...(view === "all" ? {} : { kind: view }),
       ...(search.trim() ? { search: search.trim() } : {}),
     }),
-    [kind, search],
+    [view, search],
   );
 
   const feed = useSubjectsFeed(zoneId, serverQuery);
@@ -299,7 +334,7 @@ function SubjectsPage({
       ) : null}
       <ResourceWorkspace
         title="Subjects"
-        description="Everything below a subject - sessions, delegations, approvals, connections, audit - keys to the identity shown here. Caracal never authenticates these identities; your application's own identity system does, then exchanges them with the STS."
+        description="Everything below a Subject - sessions, delegations, approvals, connections, audit - keys to the identity shown here. A Subject is either an application acting as itself, authenticated by Caracal, or a Federated user: Caracal never authenticates Federated users; your application's own identity system does, then exchanges their tokens with the STS."
         breadcrumbs={[{ label: "Console", to: "/app" }, { label: "Subjects" }]}
         rows={rows}
         loading={feed.isLoading}
@@ -312,10 +347,9 @@ function SubjectsPage({
         }}
         toolbarExtra={
           <SubjectFilterBar
-            kind={kind}
+            tabs={tabs}
             search={search}
             loaded={rows.length}
-            onKind={setKind}
             onSearch={setSearch}
             exportControl={
               <CsvExportButton
@@ -341,10 +375,8 @@ function SubjectsPage({
           seen: (s) => Date.parse(s.last_seen) || 0,
         }}
         empty={{
-          title: feed.isError ? "Could not load subjects" : "No subjects yet",
-          description: feed.isError
-            ? errorMessage(feed.error)
-            : "Subjects appear automatically: application identities on their first exchange, and federated end users once an application exchanges their identity token with the STS.",
+          title: feed.isError ? "Could not load subjects" : EMPTY_TITLES[view],
+          description: feed.isError ? errorMessage(feed.error) : EMPTY_DESCRIPTIONS[view],
         }}
         detail={{
           title: (s) => subjectDisplayName(s),
@@ -357,31 +389,44 @@ function SubjectsPage({
   );
 }
 
-// Server-side kind and search filters so an analyst can isolate federated users from
-// application identities in enterprise-scale zones instead of scanning pages.
+// Per-view empty states so each Subject view explains how its rows come to exist.
+const EMPTY_TITLES: Record<SubjectsView, string> = {
+  all: "No subjects yet",
+  application: "No application Subjects yet",
+  user: "No Federated users yet",
+};
+
+const EMPTY_DESCRIPTIONS: Record<SubjectsView, string> = {
+  all: "Subjects appear automatically: an application Subject on the application's first exchange, and a Federated user once an application exchanges that user's identity token with the STS.",
+  application:
+    "An application Subject appears on the application's first exchange, when it starts acting as itself.",
+  user: "A Federated user appears once an application exchanges that user's identity token from a registered Federated user issuer with the STS.",
+};
+
+// Server-side search beside the kind views so an analyst can pin one identity in
+// enterprise-scale zones instead of scanning pages.
 function SubjectFilterBar({
-  kind,
+  tabs,
   search,
   loaded,
-  onKind,
   onSearch,
   exportControl,
 }: {
-  kind: string;
+  tabs: ReactNode;
   search: string;
   loaded: number;
-  onKind: (v: string) => void;
   onSearch: (v: string) => void;
   exportControl: ReactNode;
 }) {
-  const activeFilters = (kind !== "all" ? 1 : 0) + (search.trim() ? 1 : 0);
+  const activeFilters = search.trim() ? 1 : 0;
   return (
-    <FeedToolbar extra={exportControl} activeFilters={activeFilters} loaded={loaded} noun="subject">
-      <Select label="Kind" value={kind} onChange={(e) => onKind(e.target.value)}>
-        <option value="all">All subjects</option>
-        <option value="user">Federated users</option>
-        <option value="application">Application identities</option>
-      </Select>
+    <FeedToolbar
+      extra={exportControl}
+      trailing={tabs}
+      activeFilters={activeFilters}
+      loaded={loaded}
+      noun="subject"
+    >
       <Field
         label="Subject"
         placeholder="richard.hendricks@piedpiper.example"

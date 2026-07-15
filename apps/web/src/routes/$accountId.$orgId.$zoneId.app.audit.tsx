@@ -190,6 +190,8 @@ const ACTIVITY_EXPORT_FIELDS: { id: string; label: string; core?: boolean }[] = 
   { id: "auth_mode", label: "Auth mode" },
   { id: "subject_fingerprint", label: "Subject fingerprint" },
   { id: "subject", label: "Subject" },
+  { id: "subject_kind", label: "Subject kind" },
+  { id: "federated_user_issuer", label: "Federated user issuer" },
   { id: "authorized_by", label: "Authorized by" },
   { id: "command", label: "Command" },
   { id: "subcommand", label: "Subcommand" },
