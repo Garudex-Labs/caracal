@@ -49,6 +49,7 @@ describe('GET /v1/zones/:zoneId/approvals', () => {
     expect(body.items).toHaveLength(2)
     expect(body.next_cursor).toEqual(expect.any(String))
     expect(String(db.query.mock.calls[0][0])).toContain('END AS state')
+    expect(String(db.query.mock.calls[0][0])).toContain('AS principal_federated')
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 1])
   })
 

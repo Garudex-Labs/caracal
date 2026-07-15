@@ -505,6 +505,19 @@ describe('GET /v1/zones/:zoneId/authority-records', () => {
     expect(db.query.mock.calls[0][1]).toEqual(['z1', 'active', 'user-1', '2026-05-03T00:00:00.000Z', 'session-3', 2])
   })
 
+  it('filters by Subject kind so Federated users and application Subjects list separately', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/authority-records?kind=user' })
+
+    expect(res.statusCode).toBe(200)
+    expect(String(db.query.mock.calls[0][0])).toContain('session_type = $2')
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'user', 100])
+    expect(String(db.query.mock.calls[0][0])).toContain("claims_json->>'iss'")
+  })
+
   it('rejects malformed cursor values', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
 
@@ -524,6 +537,7 @@ describe('GET /v1/zones/:zoneId/authority-records', () => {
           authority_record_id: 'sess-9',
           authority_record_type: 'user',
           subject_id: 'user-1',
+          federated_user_issuer: 'https://login.hooli.example',
           parent_authority_record_id: null,
           status: 'revoked',
           authenticated_at: '2026-05-02T00:00:00.000Z',
@@ -546,10 +560,10 @@ describe('GET /v1/zones/:zoneId/authority-records', () => {
     expect(res.headers['content-disposition']).toContain('attachment; filename="authority-records-z1.csv"')
     const lines = res.body.trim().split('\r\n')
     expect(lines[0]).toBe(
-      'authority_record_id,authority_record_type,subject_id,parent_authority_record_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason',
+      'authority_record_id,authority_record_type,subject_id,federated_user_issuer,parent_authority_record_id,status,authenticated_at,created_at,expires_at,revoked_at,revoked_reason',
     )
     expect(lines[1]).toBe(
-      'sess-9,user,user-1,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked',
+      'sess-9,user,user-1,https://login.hooli.example,,revoked,2026-05-02T00:00:00.000Z,2026-05-02T00:00:00.000Z,2026-05-02T01:00:00.000Z,2026-05-02T00:30:00.000Z,grant_revoked',
     )
   })
 
@@ -606,6 +620,35 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('labels @> $'), expect.any(Array))
   })
 
+  it('resolves subject attribution and filters by subject', async () => {
+    const { app, db } = buildRouteApp(zoneEventsRoutes)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          session_id: 'as-3',
+          status: 'active',
+          subject_authority_record_id: 'ar-1',
+          subject_id: 'user-1',
+          federated_user_id: 'user-1',
+          federated_user_issuer: 'https://login.hooli.example',
+          started_at: '2026-05-02T00:00:00.000Z',
+        },
+      ],
+    })
+
+    await app.ready()
+    const res = await app.inject({ method: 'GET', url: '/v1/zones/z1/sessions?subject_id=user-1' })
+
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.items[0].federated_user_id).toBe('user-1')
+    expect(body.items[0].federated_user_issuer).toBe('https://login.hooli.example')
+    const sql = String(db.query.mock.calls[0][0])
+    expect(sql).toContain('LEFT JOIN authority_records ar')
+    expect(sql).toContain('ar.subject_id = $2')
+    expect(db.query.mock.calls[0][1]).toEqual(['z1', 'user-1', 100])
+  })
+
   it('exports filtered rows as CSV with a download header', async () => {
     const { app, db } = buildRouteApp(zoneEventsRoutes)
     db.query.mockResolvedValueOnce({
@@ -619,6 +662,10 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
           labels: ['voice', 'worker'],
           depth: 1,
           child_count: 0,
+          subject_authority_record_id: 'ar-9',
+          subject_id: 'app-1',
+          federated_user_id: null,
+          federated_user_issuer: null,
           started_at: '2026-05-02T00:00:00.000Z',
           last_active_at: '2026-05-02T00:01:00.000Z',
           terminated_at: null,
@@ -639,9 +686,11 @@ describe('GET /v1/zones/:zoneId/sessions', () => {
     expect(res.headers['content-disposition']).toContain('attachment; filename="sessions-z1.csv"')
     const lines = res.body.trim().split('\r\n')
     expect(lines[0]).toBe(
-      'session_id,application_id,parent_session_id,status,lifecycle,labels,depth,child_count,started_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
+      'session_id,application_id,parent_session_id,status,lifecycle,labels,depth,child_count,subject_authority_record_id,subject_id,federated_user_id,federated_user_issuer,started_at,last_active_at,terminated_at,termination_reason,ttl_seconds',
     )
-    expect(lines[1]).toBe('as-9,app-1,,suspended,service,voice worker,1,0,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,')
+    expect(lines[1]).toBe(
+      'as-9,app-1,,suspended,service,voice worker,1,0,ar-9,app-1,,,2026-05-02T00:00:00.000Z,2026-05-02T00:01:00.000Z,,,',
+    )
   })
 
   it('rejects an invalid status filter', async () => {
