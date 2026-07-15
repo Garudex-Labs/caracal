@@ -342,8 +342,8 @@ func writeApprovalState(w http.ResponseWriter, c *StepUpChallengePG, state strin
 }
 
 // handleApprovalDecision records an approver's decision on a pending hold from the
-// subject plane: the approver is an authenticated end user of the requesting
-// application, presenting the session mandate that application minted for them.
+// federated-user plane: the approver is the requesting application's own Federated
+// user, presenting the session mandate that application minted for them.
 // Caracal never learns who the application's users are beyond this mandate; the
 // application owns the approval surface and relays only the approval id and binding.
 // The guards, in order: the mandate must verify for the approval's zone and belong to
@@ -407,8 +407,8 @@ func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusForbidden, sharederr.New(sharederr.AccessDenied, "this approval requires an operator decision"))
 		return
 	}
-	// A hold raised by an execution acting for a federated Subject is reserved for
-	// that exact Subject: the approver's authenticated identity must equal the
+	// A hold raised by an execution acting for a Federated user is reserved for
+	// that exact person: the approver's authenticated identity must equal the
 	// Subject the requesting Session or subject token was bound to at issuance.
 	// Combined with the lineage guard below, deciding demands the same human on a
 	// fresh authentication, never merely any user of the same application.

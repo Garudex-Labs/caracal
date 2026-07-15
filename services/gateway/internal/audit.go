@@ -26,6 +26,7 @@ type gatewayAuditInput struct {
 	ApplicationID      string
 	Resource           string
 	SubjectFingerprint string
+	SubjectKind        string
 	Method             string
 	UpstreamHost       string
 	AuthMode           string
@@ -55,6 +56,9 @@ func gatewayActionEvent(input gatewayAuditInput) (audit.Event, error) {
 	}
 	if input.TraceID != "" {
 		meta["trace_id"] = input.TraceID
+	}
+	if input.SubjectKind != "" {
+		meta["subject_kind"] = input.SubjectKind
 	}
 	if input.UpstreamHost != "" {
 		meta["upstream_host"] = input.UpstreamHost

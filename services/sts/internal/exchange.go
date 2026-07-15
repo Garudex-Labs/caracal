@@ -397,6 +397,13 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		principalID = sub
 	}
+	// The Subject kind carried by this exchange: application unless the presented
+	// token descends from a Federated user. It rides audit metadata so decisions
+	// stay attributable by kind without recording the Subject identifier itself.
+	subjectKind := SubTypeApplication
+	if claimString(subjectClaims, "sub_type") == SubTypeUser {
+		subjectKind = SubTypeUser
+	}
 	bundle := ZoneBundleInfo{}
 	if s.opa != nil {
 		bundle = s.opa.BundleInfo(zoneID)
@@ -663,6 +670,7 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 				"session_id":         req.AuthorityRecordID,
 				"agent_session_id":   req.SessionID,
 				"delegation_edge_id": req.DelegationEdgeID,
+				"subject_kind":       subjectKind,
 			}), agentAuditMeta(session)), delegationMeta), bundle); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
@@ -768,10 +776,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 	if sub := claimString(subjectClaims, "sub"); sub != "" {
 		subjectID = sub
 		// The subject class propagates from the presented token: a chain descending
-		// from a federated user subject stays user-typed, while an application chain
+		// from a Federated user stays user-typed, while an application chain
 		// re-exchanged through the Gateway stays application-typed. The presence of a
 		// subject token alone proves nothing about the subject being a person.
-		if claimString(subjectClaims, "sub_type") == SubTypeUser {
+		if subjectKind == SubTypeUser {
 			sessionType = "user"
 		}
 	}

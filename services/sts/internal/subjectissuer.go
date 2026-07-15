@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Garudex Labs.  All Rights Reserved.
 // Caracal, a product of Garudex Labs
 //
-// External subject federation: trusted-issuer lookup, JWKS retrieval, and id_token validation.
+// Federated user federation: trusted-issuer lookup, JWKS retrieval, and id_token validation.
 
 package internal
 
@@ -301,7 +301,7 @@ func validateSubjectIdentifier(sub string) error {
 // validateExternalSubjectToken verifies an end user's identity token against the
 // zone's registered issuer trust: exact issuer match, issuer JWKS signature with
 // an allowlisted asymmetric algorithm, configured audience, required expiry, and
-// a safe opaque subject. The returned sub is the federated subject identity,
+// a safe opaque subject. The returned sub is the Federated user's identity,
 // recorded verbatim - the STS never rewrites, trims, or generates it.
 func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, tokenStr string) (string, *SubjectIssuer, error) {
 	unverified := jwt.MapClaims{}
@@ -349,13 +349,13 @@ func (s *Server) validateExternalSubjectToken(ctx context.Context, zoneID, token
 	return sub, issuer, nil
 }
 
-// federateSubject mints a user authority record from an end user's external
-// identity token. The authenticated application vouches for nothing beyond
-// relaying the token: the zone's issuer registration is the trust decision, the
-// issuer's signature is the identity proof, and the recorded sub is copied
-// verbatim. The minted session carries no scopes and no resource authority - it
-// is the identity anchor for attribution, approvals, provider connections, and
-// revocation, never an authorization input.
+// federateSubject mints a Federated user's authority record from that user's
+// external identity token. The authenticated application vouches for nothing
+// beyond relaying the token: the zone's issuer registration is the trust
+// decision, the issuer's signature is the identity proof, and the recorded sub
+// is copied verbatim. The minted session carries no scopes and no resource
+// authority - it is the identity anchor for attribution, approvals, provider
+// connections, and revocation, never an authorization input.
 func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, app *Application, zoneID, requestID string) (*TokenResponse, *approvalState, int, *sharederr.CaracalError) {
 	appMeta := applicationAuditMeta(app)
 	if len(req.Resources) > 0 || req.Scope != "" ||
@@ -415,7 +415,7 @@ func (s *Server) federateSubject(ctx context.Context, req TokenExchangeRequest, 
 		Diagnostics:         []map[string]any{},
 	}
 	if auditErr := s.emitAuditEvent(requestID, zoneID, result.Decision, result.EvaluationStatus, result,
-		mergeAuditMeta(appMeta, map[string]any{"issuer": issuer.Issuer, "session_id": sessID, "sub_type": SubTypeUser})); auditErr != nil {
+		mergeAuditMeta(appMeta, map[string]any{"federated_user_issuer": issuer.Issuer, "session_id": sessID, "subject_kind": SubTypeUser})); auditErr != nil {
 		return nil, nil, http.StatusInternalServerError, auditErr
 	}
 	token, jti, err := issueToken(ctx, IssueParams{

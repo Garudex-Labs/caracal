@@ -288,6 +288,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
+			SubjectKind:        jwtSubjectKind(bearer),
 			Method:             r.Method,
 			AuthMode:           res.Upstream.AuthMode,
 			ProviderID:         res.Upstream.ProviderID,
@@ -313,6 +314,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
+			SubjectKind:        jwtSubjectKind(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
@@ -339,6 +341,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
+			SubjectKind:        jwtSubjectKind(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
@@ -372,6 +375,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ApplicationID:      clientID,
 			Resource:           resource,
 			SubjectFingerprint: tokenFingerprint(bearer),
+			SubjectKind:        jwtSubjectKind(bearer),
 			Method:             r.Method,
 			UpstreamHost:       upstreamURL.Host,
 			AuthMode:           res.Upstream.AuthMode,
@@ -409,6 +413,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ApplicationID:      clientID,
 		Resource:           resource,
 		SubjectFingerprint: tokenFingerprint(bearer),
+		SubjectKind:        jwtSubjectKind(bearer),
 		Method:             r.Method,
 		UpstreamHost:       upstreamURL.Host,
 		AuthMode:           res.Upstream.AuthMode,
@@ -849,6 +854,30 @@ func jwtClientID(token string) string {
 		return ""
 	}
 	return claims.ClientID
+}
+
+// jwtSubjectKind peeks the mandate's Subject kind: "user" when the authority chain
+// descends from a Federated user, "application" when the application acts as itself.
+// The kind carries no Subject identifier, so it is safe in audit metadata.
+func jwtSubjectKind(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		SubType string `json:"sub_type"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	if claims.SubType != "user" && claims.SubType != "application" {
+		return ""
+	}
+	return claims.SubType
 }
 
 func extractBearer(h string) string {
