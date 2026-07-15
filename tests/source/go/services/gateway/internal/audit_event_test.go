@@ -39,6 +39,7 @@ func TestGatewayActionEventCarriesForensicMetadata(t *testing.T) {
 		ApplicationID:      "app-1",
 		Resource:           "resource://nucleus",
 		SubjectFingerprint: "fp-1",
+		SubjectKind:        "user",
 		Method:             "POST",
 		UpstreamHost:       "api.pipernet.example",
 		AuthMode:           "provider_oauth",
@@ -71,6 +72,9 @@ func TestGatewayActionEventCarriesForensicMetadata(t *testing.T) {
 	if meta["upstream_host"] != "api.pipernet.example" || meta["auth_mode"] != "provider_oauth" || meta["provider_id"] != "provider-1" || meta["connection_id"] != "grant-1" {
 		t.Fatalf("upstream identity metadata missing: %#v", meta)
 	}
+	if meta["subject_kind"] != "user" {
+		t.Fatalf("subject kind metadata missing: %#v", meta)
+	}
 	if meta["latency_ms"] != float64(1500) || meta["response_bytes"] != float64(64) {
 		t.Fatalf("size and latency metadata missing: %#v", meta)
 	}
@@ -89,7 +93,7 @@ func TestGatewayActionEventOmitsOptionalFields(t *testing.T) {
 	if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
 		t.Fatal(err)
 	}
-	for _, absent := range []string{"upstream_host", "auth_mode", "provider_id", "connection_id", "upstream_status", "result_class", "response_bytes", "revocation_interrupted", "error_kind"} {
+	for _, absent := range []string{"upstream_host", "auth_mode", "provider_id", "connection_id", "upstream_status", "result_class", "response_bytes", "revocation_interrupted", "error_kind", "subject_kind"} {
 		if _, ok := meta[absent]; ok {
 			t.Errorf("metadata key %q must be omitted when unset", absent)
 		}

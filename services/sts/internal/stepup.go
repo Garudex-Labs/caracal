@@ -137,12 +137,13 @@ func parseTierDeclarations(result *OPAResult) []tierDeclaration {
 
 // resolveApproval merges compatible tier declarations into one hold shape. The tier
 // label joins the distinct matched tiers. A specific operator or subject requirement
-// narrows any, while combining operator-only and subject-only tiers is rejected because
-// one decision cannot satisfy independent approver roles. The TTL is the shortest
-// declared window, clamped to the resolved class's floor and ceiling; when no tier
-// declares one, the class default applies. A hold decidable by a subject takes the
-// subject bounds, the most protective. Privacy resolves to the most protective mode
-// declared. Absent values take the platform defaults: operator and identified.
+// narrows any, while combining operator-only and Federated-user-only tiers is rejected
+// because one decision cannot satisfy independent approver roles. The TTL is the
+// shortest declared window, clamped to the resolved class's floor and ceiling; when no
+// tier declares one, the class default applies. A hold decidable by a Federated user
+// takes that class's bounds, the most protective. Privacy resolves to the most
+// protective mode declared. Absent values take the platform defaults: operator and
+// identified.
 func resolveApproval(decls []tierDeclaration) (resolvedApproval, error) {
 	tiers := map[string]struct{}{}
 	approver := ""
@@ -274,9 +275,9 @@ func approvalLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // created or returned, so duplicate mints share one challenge, a rejection stays
 // authoritative until it expires, and a decided hold is found again by the retry that
 // consumes it. Agent lineage rides in the hold's metadata so an approver can trace the
-// requesting agent run before deciding. subjectAnchor is the federated Subject the
-// gated execution acts for, when one exists; a subject-plane decision on the hold is
-// reserved for that exact Subject. The second return reports whether a new hold was
+// requesting agent run before deciding. subjectAnchor is the Federated user the
+// gated execution acts for, when one exists; a decision on the hold from that plane is
+// reserved for that exact person. The second return reports whether a new hold was
 // created.
 func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID, subjectAnchor string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes, labels []string) (*StepUpChallengePG, bool, error) {
 	// The id is an unguessable capability URL segment, so it takes the fully
@@ -407,12 +408,12 @@ func sameApprovalPolicy(a, b ZoneBundleInfo) bool {
 		a.DecisionContractSHA == b.DecisionContractSHA
 }
 
-// approvalSubjectAnchor resolves the federated Subject a gated mint acts for. A
-// user-typed subject token names the Subject directly; otherwise the governed
-// Session's immutable subject attribution names it when that authority record is a
-// user record. A workload or application-only execution has no Subject and yields an
-// empty anchor, which leaves the hold decidable by any of the application's
-// authenticated end users exactly as an anchor-free hold always was.
+// approvalSubjectAnchor resolves the Federated user a gated mint acts for. A
+// user-typed subject token names them directly; otherwise the governed
+// Session's immutable subject attribution names them when that authority record is a
+// user record. A workload or application-only execution acts for no Federated user
+// and yields an empty anchor, which leaves the hold decidable by any of the
+// application's Federated users exactly as an anchor-free hold always was.
 func approvalSubjectAnchor(subjectClaims map[string]any, session *Session) string {
 	if claimString(subjectClaims, "sub_type") == SubTypeUser {
 		return claimString(subjectClaims, "sub")

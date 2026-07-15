@@ -126,6 +126,29 @@ func exchangeHTTP(t *testing.T, srv *Server, form url.Values, header http.Header
 	return w
 }
 
+// auditMetaFor drains the audit buffer until it finds the first event matching
+// the decision and evaluation status, returning its decoded metadata.
+func auditMetaFor(t *testing.T, srv *Server, decision, evaluationStatus string) map[string]any {
+	t.Helper()
+	for {
+		select {
+		case event := <-srv.auditBuffer.ch:
+			if event.Decision == decision && event.EvaluationStatus == evaluationStatus {
+				meta := map[string]any{}
+				if len(event.MetadataJSON) > 0 {
+					if err := json.Unmarshal(event.MetadataJSON, &meta); err != nil {
+						t.Fatalf("decode audit metadata: %v", err)
+					}
+				}
+				return meta
+			}
+		default:
+			t.Fatalf("no %s/%s audit event found", decision, evaluationStatus)
+			return nil
+		}
+	}
+}
+
 func TestExchangeMintsAuthorityRecordMandate(t *testing.T) {
 	srv := exchangeFlowServer(t, exchangeFlowDB(t), runCredentialAllowPolicy)
 	w := exchangeHTTP(t, srv, url.Values{
@@ -154,6 +177,9 @@ func TestExchangeMintsAuthorityRecordMandate(t *testing.T) {
 	}
 	if resp.Scope != "pipernet:read" || len(resp.Upstreams) != 0 {
 		t.Fatalf("public exchange must carry no upstream directives: %+v", resp)
+	}
+	if meta := auditMetaFor(t, srv, "allow", "complete"); meta["subject_kind"] != SubTypeApplication {
+		t.Fatalf("bootstrap decision must record an application subject kind: %#v", meta)
 	}
 }
 
@@ -202,6 +228,9 @@ func TestExchangeGatewaySignedRequestMintsResourceMandate(t *testing.T) {
 	directive, ok := resp.Upstreams["resource://pipernet"]
 	if !ok || directive.AuthMode != UpstreamAuthCaracalJWT || directive.URL != "https://api.pipernet.example" {
 		t.Fatalf("gateway exchange must carry an upstream directive: %+v", resp.Upstreams)
+	}
+	if meta := auditMetaFor(t, srv, "allow", "complete"); meta["subject_kind"] != SubTypeUser {
+		t.Fatalf("a chain descending from a Federated user must record a user subject kind: %#v", meta)
 	}
 
 	replay := exchangeHTTP(t, srv, form, header)

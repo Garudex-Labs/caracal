@@ -306,6 +306,28 @@ func TestJWTZoneIDRejectsMalformedTokens(t *testing.T) {
 	}
 }
 
+func TestJWTSubjectKindAcceptsOnlyKnownKinds(t *testing.T) {
+	for name, token := range map[string]string{
+		"wrong parts":  "abc",
+		"bad base64":   "h.!!!.s",
+		"bad json":     "h." + base64.RawURLEncoding.EncodeToString([]byte("{")) + ".s",
+		"missing kind": "h." + base64.RawURLEncoding.EncodeToString([]byte(`{}`)) + ".s",
+		"unknown kind": "h." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub_type":"robot"}`)) + ".s",
+	} {
+		if got := jwtSubjectKind(token); got != "" {
+			t.Fatalf("%s: kind = %q", name, got)
+		}
+	}
+	user := base64.RawURLEncoding.EncodeToString([]byte(`{"sub_type":"user"}`))
+	if got := jwtSubjectKind("h." + user + ".s"); got != "user" {
+		t.Fatalf("user kind = %q", got)
+	}
+	app := base64.RawURLEncoding.EncodeToString([]byte(`{"sub_type":"application"}`))
+	if got := jwtSubjectKind("h." + app + ".s"); got != "application" {
+		t.Fatalf("application kind = %q", got)
+	}
+}
+
 func TestJWTExpRejectsMalformedTokens(t *testing.T) {
 	for name, token := range map[string]string{
 		"wrong parts": "abc",

@@ -408,14 +408,14 @@ type FederateSubjectOptions struct {
 	Timeout      time.Duration
 }
 
-// FederateSubject exchanges an end user's identity token from a zone-trusted
-// external issuer for a Caracal Subject authority record. The application
+// FederateSubject exchanges a Federated user's identity token from a
+// zone-trusted external issuer for a Caracal authority record. The application
 // authenticates itself with its client secret and relays the token verbatim;
-// the minted record is the Subject's identity anchor and carries no resource
-// authority. Never cached: each federation is an explicit identity event.
+// the minted record is the Federated user's identity anchor and carries no
+// resource authority. Never cached: each federation is an explicit identity event.
 func (c *Client) FederateSubject(ctx context.Context, idToken string, opts FederateSubjectOptions) (TokenExchangeResponse, error) {
 	if idToken == "" {
-		return TokenExchangeResponse{}, errors.New("FederateSubject requires the end user identity token")
+		return TokenExchangeResponse{}, errors.New("FederateSubject requires the Federated user identity token")
 	}
 	form := url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},

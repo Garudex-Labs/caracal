@@ -85,7 +85,7 @@ type SessionInput struct {
 	Invalidate    func()
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
-	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	// SubjectAuthorityRecordToken is the Federated user's mandate proving control of SubjectAuthorityRecordID.
 	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
@@ -529,7 +529,7 @@ type StartSessionInput struct {
 	Invalidate    func()
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
-	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	// SubjectAuthorityRecordToken is the Federated user's mandate proving control of SubjectAuthorityRecordID.
 	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string

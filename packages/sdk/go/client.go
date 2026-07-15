@@ -1241,7 +1241,7 @@ type SessionOptions struct {
 	TTLSeconds int
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
-	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	// SubjectAuthorityRecordToken is the Federated user's mandate proving control of SubjectAuthorityRecordID.
 	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
@@ -1318,7 +1318,7 @@ type StartSessionOptions struct {
 	Authority Authority
 	// SubjectAuthorityRecordID anchors Coordinator attribution; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
-	// SubjectAuthorityRecordToken is the federated Subject mandate proving control of SubjectAuthorityRecordID.
+	// SubjectAuthorityRecordToken is the Federated user's mandate proving control of SubjectAuthorityRecordID.
 	SubjectAuthorityRecordToken string
 	// Session to parent under; defaults to the session bound on the calling context.
 	ParentSessionID string
@@ -1611,7 +1611,7 @@ type FederateSubjectOptions struct {
 	Timeout    time.Duration
 }
 
-// FederatedSubject is a federated Subject and the mandate proving it.
+// FederatedSubject is a Federated user and the mandate proving it.
 type FederatedSubject struct {
 	// Anchors Coordinator attribution when attached to a Session; it does not alone propagate the user sub to later mints.
 	SubjectAuthorityRecordID string
@@ -1620,13 +1620,14 @@ type FederatedSubject struct {
 	ExpiresInSeconds int
 }
 
-// FederateSubject exchanges an end user's identity token from a zone-trusted
-// external issuer for the Subject's Caracal Authority record. The returned
-// SubjectAuthorityRecordID anchors governed work to that user (Session with
-// SubjectAuthorityRecordID set), and the returned token is the user's own mandate for
-// user-facing flows such as approval decisions. Never cached: each federation
-// is an explicit identity event, recorded in the audit stream. Requires a
-// client-secret configuration and a subject issuer registered on the zone.
+// FederateSubject exchanges a Federated user's identity token from a
+// zone-trusted external issuer for that user's Caracal Authority record. The
+// returned SubjectAuthorityRecordID anchors governed work to that user (Session
+// with SubjectAuthorityRecordID set), and the returned token is the user's own
+// mandate for user-facing flows such as approval decisions. Never cached: each
+// federation is an explicit identity event, recorded in the audit stream.
+// Requires a client-secret configuration and a Federated user issuer registered
+// on the zone.
 func (c *Caracal) FederateSubject(ctx context.Context, idToken string, opts ...FederateSubjectOptions) (FederatedSubject, error) {
 	if err := c.ensureOpen(); err != nil {
 		return FederatedSubject{}, err

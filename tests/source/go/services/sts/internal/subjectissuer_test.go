@@ -219,6 +219,13 @@ func TestFederateSubjectMintsUserAuthorityRecord(t *testing.T) {
 	if !strings.Contains(string(sess.ClaimsJSON), federationIssuer) {
 		t.Fatalf("session must record issuer provenance, got %q", sess.ClaimsJSON)
 	}
+	meta := auditMetaFor(t, srv, "allow", "complete")
+	if meta["federated_user_issuer"] != federationIssuer || meta["subject_kind"] != SubTypeUser {
+		t.Fatalf("federation audit must name the Federated user issuer and kind, got %#v", meta)
+	}
+	if _, ok := meta["sub"]; ok {
+		t.Fatalf("federation audit must not record the Subject identifier: %#v", meta)
+	}
 }
 
 func TestFederateSubjectDenies(t *testing.T) {

@@ -135,12 +135,15 @@ type Workload struct {
 	UpdatedAt          string            `json:"updated_at"`
 }
 
-// AuthorityRecord is an STS authority record.
+// AuthorityRecord is an STS authority record. FederatedUserIssuer is set only
+// when the record's Subject is a Federated user; an application Subject carries
+// no issuer.
 type AuthorityRecord struct {
 	AuthorityRecordID       string  `json:"authority_record_id"`
 	ZoneID                  string  `json:"zone_id"`
 	AuthorityRecordType     string  `json:"authority_record_type"`
 	SubjectID               string  `json:"subject_id"`
+	FederatedUserIssuer     *string `json:"federated_user_issuer"`
 	ParentAuthorityRecordID *string `json:"parent_authority_record_id"`
 	Status                  string  `json:"status"`
 	ExpiresAt               string  `json:"expires_at"`
@@ -148,11 +151,14 @@ type AuthorityRecord struct {
 	CreatedAt               string  `json:"created_at"`
 }
 
-// AuthorityRecordQuery filters authority record listings.
+// AuthorityRecordQuery filters authority record listings. Kind selects one
+// Subject kind: "user" for Federated users, "application" for application
+// Subjects.
 type AuthorityRecordQuery struct {
 	AuthorityRecordID string
 	Status            string
 	SubjectID         string
+	Kind              string
 	Cursor            string
 	Limit             int
 }
@@ -165,38 +171,47 @@ func (q *AuthorityRecordQuery) values() url.Values {
 	setParam(values, "authority_record_id", q.AuthorityRecordID)
 	setParam(values, "status", q.Status)
 	setParam(values, "subject_id", q.SubjectID)
+	setParam(values, "kind", q.Kind)
 	setParam(values, "cursor", q.Cursor)
 	setLimit(values, q.Limit)
 	return values
 }
 
-// Session is a governed execution session.
+// Session is a governed execution session. The subject fields resolve who the
+// Session acts for on zone listings: FederatedUserID and FederatedUserIssuer are
+// set only when that Subject is a Federated user.
 type Session struct {
-	SessionID           string         `json:"session_id"`
-	ZoneID              string         `json:"zone_id,omitempty"`
-	ApplicationID       string         `json:"application_id"`
-	ParentSessionID     *string        `json:"parent_session_id"`
-	Status              string         `json:"status"`
-	Lifecycle           string         `json:"lifecycle"`
-	Labels              []string       `json:"labels"`
-	Depth               int            `json:"depth"`
-	ChildCount          int            `json:"child_count"`
-	StartedAt           string         `json:"started_at"`
-	LastActiveAt        string         `json:"last_active_at"`
-	TerminatedAt        *string        `json:"terminated_at"`
-	TTLSeconds          *int           `json:"ttl_seconds"`
-	AuthorityRecordID   string         `json:"authority_record_id,omitempty"`
-	Metadata            map[string]any `json:"metadata,omitempty"`
-	LastHeartbeatAt     *string        `json:"last_heartbeat_at,omitempty"`
-	HeartbeatDeadlineAt *string        `json:"heartbeat_deadline_at,omitempty"`
+	SessionID                string         `json:"session_id"`
+	ZoneID                   string         `json:"zone_id,omitempty"`
+	ApplicationID            string         `json:"application_id"`
+	ParentSessionID          *string        `json:"parent_session_id"`
+	Status                   string         `json:"status"`
+	Lifecycle                string         `json:"lifecycle"`
+	Labels                   []string       `json:"labels"`
+	Depth                    int            `json:"depth"`
+	ChildCount               int            `json:"child_count"`
+	StartedAt                string         `json:"started_at"`
+	LastActiveAt             string         `json:"last_active_at"`
+	TerminatedAt             *string        `json:"terminated_at"`
+	TTLSeconds               *int           `json:"ttl_seconds"`
+	AuthorityRecordID        string         `json:"authority_record_id,omitempty"`
+	SubjectAuthorityRecordID string         `json:"subject_authority_record_id,omitempty"`
+	SubjectID                *string        `json:"subject_id,omitempty"`
+	FederatedUserID          *string        `json:"federated_user_id,omitempty"`
+	FederatedUserIssuer      *string        `json:"federated_user_issuer,omitempty"`
+	Metadata                 map[string]any `json:"metadata,omitempty"`
+	LastHeartbeatAt          *string        `json:"last_heartbeat_at,omitempty"`
+	HeartbeatDeadlineAt      *string        `json:"heartbeat_deadline_at,omitempty"`
 }
 
-// SessionQuery filters governed session listings.
+// SessionQuery filters governed session listings. SubjectID narrows to the
+// Sessions acting for one Subject.
 type SessionQuery struct {
 	Status          string
 	Lifecycle       string
 	ApplicationID   string
 	ParentSessionID string
+	SubjectID       string
 	Label           string
 	Cursor          string
 	Limit           int
@@ -211,6 +226,7 @@ func (q *SessionQuery) values() url.Values {
 	setParam(values, "lifecycle", q.Lifecycle)
 	setParam(values, "application_id", q.ApplicationID)
 	setParam(values, "parent_session_id", q.ParentSessionID)
+	setParam(values, "subject_id", q.SubjectID)
 	setParam(values, "label", q.Label)
 	setParam(values, "cursor", q.Cursor)
 	setLimit(values, q.Limit)
@@ -339,28 +355,31 @@ func (q *AdminAuditQuery) values() url.Values {
 	return values
 }
 
-// Approval is the pending or resolved approval hold row.
+// Approval is the pending or resolved approval hold row. PrincipalFederated
+// reports whether the requesting principal is a Federated user rather than an
+// application Subject.
 type Approval struct {
-	ID                string         `json:"id"`
-	ZoneID            string         `json:"zone_id"`
-	SessionID         string         `json:"session_id"`
-	PrincipalID       string         `json:"principal_id"`
-	ApplicationID     *string        `json:"application_id"`
-	ApprovalType      string         `json:"approval_type"`
-	Tier              *string        `json:"tier"`
-	ApproverClass     string         `json:"approver_class"`
-	PrivacyMode       string         `json:"privacy_mode"`
-	SubjectAnchor     *string        `json:"subject_anchor"`
-	Binding           string         `json:"binding"`
-	State             string         `json:"state"`
-	MetadataJSON      map[string]any `json:"metadata_json"`
-	DecisionReason    *string        `json:"decision_reason"`
-	CreatedAt         string         `json:"created_at"`
-	ExpiresAt         string         `json:"expires_at"`
-	SatisfiedAt       *string        `json:"satisfied_at"`
-	RejectedAt        *string        `json:"rejected_at"`
-	ConsumedAt        *string        `json:"consumed_at"`
-	ApproverSubjectID *string        `json:"approver_subject_id"`
+	ID                 string         `json:"id"`
+	ZoneID             string         `json:"zone_id"`
+	SessionID          string         `json:"session_id"`
+	PrincipalID        string         `json:"principal_id"`
+	PrincipalFederated bool           `json:"principal_federated"`
+	ApplicationID      *string        `json:"application_id"`
+	ApprovalType       string         `json:"approval_type"`
+	Tier               *string        `json:"tier"`
+	ApproverClass      string         `json:"approver_class"`
+	PrivacyMode        string         `json:"privacy_mode"`
+	SubjectAnchor      *string        `json:"subject_anchor"`
+	Binding            string         `json:"binding"`
+	State              string         `json:"state"`
+	MetadataJSON       map[string]any `json:"metadata_json"`
+	DecisionReason     *string        `json:"decision_reason"`
+	CreatedAt          string         `json:"created_at"`
+	ExpiresAt          string         `json:"expires_at"`
+	SatisfiedAt        *string        `json:"satisfied_at"`
+	RejectedAt         *string        `json:"rejected_at"`
+	ConsumedAt         *string        `json:"consumed_at"`
+	ApproverSubjectID  *string        `json:"approver_subject_id"`
 }
 
 // ApprovalDecision is the resolution state after an approve or reject.
