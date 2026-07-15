@@ -106,7 +106,7 @@ Run a consumer for the `caracal.sessions.revoke` stream so every resource server
 Test missing token, wrong audience, wrong target, missing scope, required Session, required Delegation, hop limit, and revoked Session before enabling traffic. Expected result: no rejected call reaches tool code and every allowed principal is derived from verified claims rather than request metadata.
 
 :::caution[Failure point: unsigned context]
-Never authorize from baggage, trace headers, tool arguments, or a caller-provided subject. Verified mandate claims are authoritative; other fields are correlation only.
+Never authorize from baggage, trace headers, tool arguments, or a caller-provided Subject. Verified mandate claims are authoritative; other fields are correlation only.
 :::
 
 For exact verifier functions and error types, use [Verify Package reference](/sdks/verify/).

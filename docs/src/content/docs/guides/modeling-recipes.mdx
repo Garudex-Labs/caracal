@@ -58,7 +58,7 @@ The simplest deployment: one team, one runtime, a handful of upstreams.
 | Zone        | One zone for the whole deployment.                                                                                                              |
 | Application | One managed application per durable service; one DCR application (a short-lived identity created through [Dynamic Client Registration](/sdks/admin/#dynamic-client-registration-dcr)) per isolated, externally-launched identity (per tenant, job, or integration). |
 | Resource    | One resource per protected upstream, with action-oriented scopes.                                                                               |
-| Grant       | One grant per application and subject that may request a resource's scopes.                                                                     |
+| Grant       | One grant per application and Subject that may request a resource's scopes.                                                                     |
 
 Trade-off: lowest operational overhead. Add zones only when you need key, policy, or audit isolation.
 
@@ -107,8 +107,8 @@ The principal is always your application; Sessions carry its labels and delegati
 
 | Dimension           | Shared broker credential                                                                           | Connected upstream account                                                                                                |
 | ------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Upstream credential | Shared credential the agent never sees: `oauth2_client_credentials`, `api_key`, or `bearer_token`. | A consented upstream account stored as a provider connection, shared across the Zone by default or bound to the exchange subject: `oauth2_authorization_code`. |
-| Consent             | None - the zone operator configures the credential once.                                           | A human completes the provider's consent screen once for the shared account, or once per subject when bound to a customer. |
+| Upstream credential | Shared credential the agent never sees: `oauth2_client_credentials`, `api_key`, or `bearer_token`. | A consented upstream account stored as a provider connection, shared across the Zone by default or bound to the exchange Subject: `oauth2_authorization_code`. |
+| Consent             | None - the zone operator configures the credential once.                                           | A human completes the provider's consent screen once for the shared account, or once per Subject when bound to a customer. |
 | Audit attribution   | Application, Session, and delegation chain.                                                        | The same, plus the provider connection the exchange used.                                                                 |
 
 Policy tells work apart with the principal registration method, Session ID, and labels documented in the [policy input contract](/concepts/policy/#policy-input-contract). Authorization inputs are the application, labels, roles, Delegation, and confinement - never the Subject identifier. See [Identities and Applications](/concepts/principal/).
@@ -122,20 +122,20 @@ Choose how the upstream credential is held.
 | Connected upstream account | The upstream call must act as a specific consented account rather than a shared credential. | `oauth2_authorization_code`                               |
 | Shared service credential  | The agent acts as the application, not a specific account.                                  | `oauth2_client_credentials`, `api_key`, or `bearer_token` |
 
-For connected accounts, Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE; use the provider **Connect** action to mint a consent URL for a subject, and revoke to disconnect it. Reconnecting the same subject and provider replaces the active connection rather than duplicating it. The concrete field tables are in [Provider Recipes](/guides/provider-recipes/).
+For connected accounts, Caracal owns `client_id`, `redirect_uri`, `state`, and PKCE; use the provider **Connect** action to mint a consent URL for a Subject, and revoke to disconnect it. Reconnecting the same Subject and provider replaces the active connection rather than duplicating it. The concrete field tables are in [Provider Recipes](/guides/provider-recipes/).
 
 ## Validate the Model
 
 After you map your architecture, confirm it end to end before relying on it:
 
-- Author and activate a policy set that allows the intended application, subject, resource, and scopes.
+- Author and activate a policy set that allows the intended application, Subject, resource, and scopes.
 - Run [Check Provider Readiness](/examples/provider-preflight/) to verify resource-to-provider binding and that the active policy set returns `allow`.
 - Send a successful request, a denied request, and a revoked-session request, then confirm each has a clear audit trail in the web console.
 
 Expected result: every workload maps to one application identity at a time, every protected target has one stable resource identifier, credentials live on providers rather than applications, and each hard isolation requirement maps to a zone.
 
 :::caution[Failure point: invented user authority]
-Caracal does not authenticate customers or derive authorization from a user name. A federated subject exists only after an application exchanges a token from a registered issuer. For app-only work, use the application, Session labels, policy data, and Delegation described here.
+Caracal does not authenticate customers or derive authorization from a user name. A Federated user exists only after an application exchanges a token from a registered Federated user issuer. For app-only work, use the application, Session labels, policy data, and Delegation described here.
 :::
 
 ## Next Step

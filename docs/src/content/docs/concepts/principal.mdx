@@ -1,13 +1,13 @@
 ---
 title: Identities and Applications
-description: Applications, Subjects, Authority records, and governed Sessions.
+description: Applications, Subjects, Federated users, Authority records, and governed Sessions.
 sidebar:
   order: 5
 ---
 
 Use this page to decide which identity is durable, which identity is optional, and which record identifies one execution.
 
-An **Application** is registered software that authenticates to Caracal. A **Subject** is an optional identity federated from your identity provider. An **Authority record** is an immutable record of identity and authority context. A **Session** is one governed execution under an Application.
+An **Application** is registered software that authenticates to Caracal. A **Subject** is the identity work is done for - the JWT `sub` recorded on Authority records and Mandates. Every exchange has a Subject, and a Subject is one of two kinds: the **Application itself** (the default, when software acts as itself) or a **Federated user** (an external identity supplied by a trusted identity provider). An **Authority record** is an immutable record of identity and authority context. A **Session** is one governed execution under an Application.
 
 ## Identity and Execution Objects
 
@@ -16,7 +16,8 @@ When you need the operator-facing view of these objects side by side - including
 | Public object    | Typical source                                | What it controls                                                                                                           |
 | ---------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Application      | Workload credential or Application secret     | The durable credential and policy boundary for software.                                                                  |
-| Subject          | Token from your registered identity provider  | Attribution, provider connection ownership, revocation anchor, and supported Subject approvals; not scope authority alone. |
+| Subject          | The application's own identity by default; a Federated user's token when one is exchanged | Attribution, provider connection ownership, revocation anchor, and supported Federated user approvals; not scope authority alone. |
+| Federated user   | Token from your registered identity provider  | One kind of Subject: an external end-user identity Caracal federates and records but never authenticates itself.          |
 | Authority record | Successful identity or authority exchange     | Immutable audit and revocation context.                                                                                    |
 | Session          | SDK runtime primitive                         | The lifetime and exact attribution of one governed execution.                                                              |
 
@@ -85,9 +86,11 @@ Every Session has one canonical Session ID. SDK context exposes it as `sessionId
 
 The Admin API audit endpoint filters by `session_id` for one Session or `label` for a role across many Sessions.
 
-## Subject Federation Is Attribution, Not a Permission Store
+## Federated Users Are Attribution, Not a Permission Store
 
-Caracal verifies a Subject token only from a Subject issuer registered in the Zone. The resulting Authority record can be attached to a Session as immutable attribution and as a revocation anchor. Supported Subject approval flows can also require that federated identity.
+A Federated user is one kind of Subject: an external end-user identity supplied by a trusted identity provider. Caracal never authenticates Federated users itself; it verifies their identity tokens only from a Federated user issuer registered in the Zone (API resource: `subject-issuers`), then federates and records the identity. The resulting Authority record can be attached to a Session as immutable attribution and as a revocation anchor. Supported Federated user approval flows can also require that identity.
+
+When no external identity is exchanged, the Subject is simply the Application's own identity - there is no Federated user, and nothing is missing.
 
 Caracal does **not** derive per-Subject Resource scopes from federation. Do not claim that attaching Richard Hendricks authorizes a call. The Application, active policy, requested scopes, and any Delegation still determine authority.
 
@@ -95,8 +98,8 @@ Caracal does **not** derive per-Subject Resource scopes from federation. Do not 
 
 ```mermaid
 flowchart TD
-  App["Application"] --> Authority["Authority record"]
-  Subject["Subject (JWT sub)"] --> Authority
+  App["Application"] --> Authority["Authority record<br/>(Subject: application or Federated user)"]
+  Fed["Federated user token (optional)"] --> Authority
   Authority --> Session["Session"]
   Session --> Delegate["Delegation"]
   Authority --> Mandate["Mandate exchange"]
@@ -108,8 +111,9 @@ Authority records, Sessions, and Delegations make authority revocable. Mandates 
 
 ## Naming Guidance
 
-- Use **Application** for registered software and **Subject** for optional federated identity in user-facing material.
-- Use **Subject** for the JWT `sub` identity.
+- Use **Application** for registered software and **Subject** for the identity work is done for in user-facing material.
+- Use **Subject** for the JWT `sub` identity. Every exchange has one: the Application itself by default, or a Federated user.
+- Use **Federated user** for the external end-user kind of Subject; never describe a Subject as only a federated identity.
 - Use **Authority record** for an STS exchange record.
 - Use **Session** for a governed Coordinator execution.
 - Avoid using "client" unless you are describing OAuth protocol fields.

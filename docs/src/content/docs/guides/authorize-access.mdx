@@ -43,7 +43,7 @@ If you do not have a request ID, reproduce the request with your runtime configu
 
 | Symptom                           | Check                                                                                     | Fix                                                                                        |
 | --------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Exchange is denied                | Active policy does not allow the application, subject, resource, or scopes.               | Update the Rego policy, simulate the denied input, and activate a new policy-set version.  |
+| Exchange is denied                | Active policy does not allow the application, Subject, resource, or scopes.               | Update the Rego policy, simulate the denied input, and activate a new policy-set version.  |
 | Scope is missing                  | Resource does not define the scope, or policy allowlist omits it.                         | Add the scope to the resource and policy deliberately.                                     |
 | Wrong resource is evaluated       | App used the wrong resource ID or Gateway header.                                         | Use the resource ID from Console and `X-Caracal-Resource`.                                 |
 | Policy change has no effect       | New policy version is not in the active policy-set version.                               | Create and activate a new policy-set version.                                              |
@@ -58,10 +58,10 @@ Every denied decision links to the policy-set version that produced it, and the 
 
 ## Authorization Design Rules
 
-- Allow only the scopes an application and subject need.
+- Allow only the scopes an application and Subject need.
 - Keep policies resource-specific instead of allowing broad cross-resource access.
 - Express context-sensitive conditions in policy rather than widening scopes.
-- Revoke active sessions when a subject leaves a workflow or an application no longer needs a resource.
+- Revoke active sessions when a Subject leaves a workflow or an application no longer needs a resource.
 - Use diagnostics for expected denial paths so request traces explain what to change.
 
 ## Related Pages

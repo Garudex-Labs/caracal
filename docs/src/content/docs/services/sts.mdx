@@ -15,7 +15,7 @@ STS authenticates application or workload proof, evaluates current authority, an
 | `POST /v1/run/credential`                            | `caracal run`                                 |
 | `GET /.well-known/jwks.json?zone_id=...`             | Verifiers                                     |
 | `GET /approvals/{id}`                                | Waiting client with the required hold context |
-| `POST /approvals/{id}/decision`                      | Subject-plane end-user decision flow          |
+| `POST /approvals/{id}/decision`                 | Federated user decision flow                  |
 
 Routes under `/internal/` for policy simulation/status and zone signing-key rotation are service-to-service APIs. Do not call or expose them as workload APIs; the API service owns those operations.
 
@@ -32,7 +32,7 @@ Service environment variables are cataloged in [Configure Service Environment](/
 
 ## Identity Boundary
 
-STS does not authenticate end users and does not invent a user `sub`. It accepts a token only from a configured subject issuer, then treats its stable `sub` as opaque. Without a subject token, application identity is the Subject.
+STS does not authenticate end users and does not invent a user `sub`. It accepts a Federated user's token only from a registered Federated user issuer, then treats its stable `sub` as opaque. Without a subject token, the application's own identity is the Subject.
 
 ## Synchronous Dependencies
 
@@ -40,7 +40,7 @@ Issuance needs Postgres product, policy, authority, Session, Delegation, approva
 
 ## Failure Posture
 
-Invalid client proof, subject issuer, resource, policy, operation, scope, Authority record, Session, Delegation, approval, signing key, or Gateway signature denies issuance. There is no fallback token. Resource mandates are capped at 15 minutes and Session mandates at 60 minutes.
+Invalid client proof, Federated user issuer, resource, policy, operation, scope, Authority record, Session, Delegation, approval, signing key, or Gateway signature denies issuance. There is no fallback token. Resource mandates are capped at 15 minutes and Session mandates at 60 minutes.
 
 An `interaction_required` response means policy raised an Approval hold. Approval alone is not issuance; the client retries and consumes the hold once.
 

@@ -33,14 +33,14 @@ Know the Application and Resource from Get Started. No protocol knowledge is req
 | ----------- | ---------------------------------------------------------------------------------- |
 | Zone        | The trust boundary for configuration, signing keys, policy, Sessions, and audit. |
 | Application | Registered software that authenticates to Caracal.                                |
-| Subject     | An optional identity federated from your identity provider for attribution.        |
+| Subject     | The identity work is done for: the Application itself by default, or a Federated user from your identity provider. |
 | Session     | One governed execution under an Application.                                       |
 | Resource    | The protected target: API, MCP server, tool group, or upstream service.            |
 | Provider    | Sealed custody of a Resource's upstream credential, attached only after approval.  |
 | Policy      | Versioned data the platform decision contract evaluates during exchange.           |
 | Mandate     | The short-lived signed proof accepted by the Gateway or a verified service.        |
 
-Get Started introduced Application, Resource, Provider, Policy, Mandate, Gateway, Audit, and Zone; this model adds the two runtime nouns behind them - Session and the optional Subject. Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
+Get Started introduced Application, Resource, Provider, Policy, Mandate, Gateway, Audit, and Zone; this model adds the two runtime nouns behind them - Session and Subject. Most of these are configured directly. A _grant_ is a permission binding for resource scopes that policy can read during evaluation; it is not the mandate a resource server verifies.
 
 ## One Application, Many Sessions
 
@@ -63,7 +63,7 @@ One application backs many Sessions. A long-running service registers **one mana
 
 Caracal evaluates the active policy with the Application, Authority record, Session, Resource, scopes, Delegation, and Approval context. If policy allows the request, Caracal signs a Mandate. If policy denies it, no Mandate is issued.
 
-A federated Subject can be attached for attribution and supported Subject approval flows. Federation does not create a separate per-Subject permission system: Resource authority still comes from the Application, policy, and any Delegation.
+A Federated user can be attached for attribution and supported Federated user approval flows. Federation does not create a separate per-Subject permission system: Resource authority still comes from the Application, policy, and any Delegation.
 
 Resource servers still verify mandates locally through the Gateway or adapters. That keeps every request protected even after token exchange succeeds.
 
@@ -76,6 +76,6 @@ Resource servers still verify mandates locally through the Gateway or adapters. 
 
 ## Outcome
 
-You should be able to separate durable Application identity, optional Subject attribution, temporary Session execution, and short-lived Mandates.
+You should be able to separate durable Application identity, Subject attribution (the Application itself or a Federated user), temporary Session execution, and short-lived Mandates.
 
 Next, read [Authority and Enforcement](/concepts/authority-model/) to see where each enforcement layer fits.

@@ -101,7 +101,7 @@ Related pages: [Human Approval](/guides/human-approval/) and [Tail and Query the
 Send a test hold, verify the raw-body signature and timestamp, return a temporary failure, and confirm retry plus delivery-ID deduplication. Rotate the secret and confirm the old signature immediately fails. Expected result: the receiver acknowledges within ten seconds and performs slow paging or ticket creation asynchronously.
 
 :::caution[Failure point: notification versus decision]
-A valid webhook proves Caracal emitted an event; it is not authority to approve it. Decisions still require the web console or Admin operator plane or a valid federated subject mandate.
+A valid webhook proves Caracal emitted an event; it is not authority to approve it. Decisions still require the web console or Admin operator plane or a valid Federated user session mandate.
 :::
 
 ## Next Step

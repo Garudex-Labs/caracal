@@ -181,7 +181,7 @@ Next, [activate the policy in a policy set](/guides/activate-policy-set/).
 Validation must return `valid: true`; preview must list only intended data rules; simulation must allow the intended role and deny a missing role, extra scope, wrong resource, and confinement escape. Syntax validity alone is not production readiness.
 
 :::caution[Failure point: identity fields]
-The acting application is `input.principal.id`; Session labels are `input.principal.labels`. Do not invent `input.user`, `input.application`, or an authoritative subject field. Federated subject identity is a separate explicit flow, not default policy authority.
+The acting application is `input.principal.id`; Session labels are `input.principal.labels`. Do not invent `input.user`, `input.application`, or an authoritative subject field. A Federated user is a separate explicit identity flow, not default policy authority.
 :::
 
 ## Next Step

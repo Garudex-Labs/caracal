@@ -11,16 +11,16 @@ Read this page after [Delegation Constraints](/concepts/constraint/). Authority 
 
 | Record                | Role                                                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Subject               | Opaque JWT `sub` identity. The web console's **Subjects** page groups Authority records by this value.                                                              |
+| Subject               | Opaque JWT `sub` identity - the application itself by default, or a Federated user. The web console's **Subjects** page groups Authority records by this value.     |
 | Authority record      | Immutable record created by an identity or authority exchange; an audit and revocation anchor.                                                                  |
 | Root Authority record | First record in an authority ancestry; revoking it can end the descendant authority chain.                                                                      |
 | Session               | Governed execution. A delegated Session is still a Session, with an inbound Delegation.                                                                          |
 
-## Subject Identity Is Federated
+## A Subject Can Be a Federated User
 
-Caracal does not generate Subjects, and **Subjects** is not a login surface. The `sub` on an Authority record is taken verbatim from the token the application exchanges. To federate end users, a zone registers the identity system as a Subject issuer and the application exchanges each identity token for an Authority record with no resource authority.
+**Subjects** is not a login surface, and a Subject is not only a federated identity. When an application exchanges as itself, the Subject is the application's own identity. When a zone registers an external identity system as a Federated user issuer and the application exchanges an end user's identity token, the Subject is that Federated user: the `sub` is recorded verbatim from the exchanged token, and the resulting Authority record carries no resource authority. Caracal never authenticates Federated users; it federates and records them.
 
-A Session may attach the federated Subject's Authority record only while presenting proof of control. That Subject remains immutable attribution and a revocation anchor for the Session. It does not automatically replace the Application identity on later Resource Mandates and does not create per-Subject scopes.
+A Session may attach the Federated user's Authority record only while presenting proof of control. That Federated user remains immutable attribution and a revocation anchor for the Session. It does not automatically replace the Application identity on later Resource Mandates and does not create per-Subject scopes.
 
 ## Revocation Anchors
 
