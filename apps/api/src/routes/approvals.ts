@@ -262,6 +262,9 @@ export const approvalsRoutes: FastifyPluginAsync = async (fastify) => {
         throw new TxAbort(reply.code(409).send({ error: 'approval_not_decidable', state: existing[0].state }))
       }
       await enqueueDecisionAudit(client, fastify.cfg?.auditHmacKey ?? null, req, params.zoneId, decision, rows[0])
+      // Wakes STS long-poll waiters the moment the decision commits; the channel
+      // name is the contract shared with the STS notification listener.
+      await client.query('SELECT pg_notify($1, $2)', ['caracal_approval_decided', params.id])
       return {
         id: rows[0].id,
         state: decision,

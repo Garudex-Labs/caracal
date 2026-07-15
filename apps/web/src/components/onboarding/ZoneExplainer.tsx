@@ -107,7 +107,7 @@ export function ZoneExplainer() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-dashed border-primary/40 bg-primary/[0.04] p-3">
+      <div className="rounded-lg border border-dashed border-primary/40 bg-primary/4 p-3">
         <div className="flex items-center gap-1.5">
           <LayersIcon className="h-3.5 w-3.5 text-primary" />
           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
@@ -132,8 +132,8 @@ export function ZoneExplainer() {
             Keep Production, Staging, and Development apart so test traffic never touches real
             credentials or live policies.
           </Reason>
-          <Reason icon={<UsersIcon className="h-4 w-4" />} title="Separate teams or customers">
-            Give each team, product, or tenant its own space, with no visibility into the others.
+          <Reason icon={<UsersIcon className="h-4 w-4" />} title="Separate products or teams">
+            Give each product or team its own space, with no visibility into the others.
           </Reason>
           <Reason icon={<ShieldIcon className="h-4 w-4" />} title="Contain blast radius">
             A misconfigured policy or leaked secret can only affect its own zone, never the rest.

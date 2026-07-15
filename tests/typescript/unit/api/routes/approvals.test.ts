@@ -151,6 +151,8 @@ describe('POST /v1/zones/:zoneId/approvals/:id decisions', () => {
       zone_id: 'z1',
       metadata_json: { challenge_id: 'challenge-1', approver_plane: 'operator', approver_subject_id: 'admin:op-1', binding: 'aa11' },
     })
+    const notify = client.query.mock.calls.find((c) => String(c[0]).includes('pg_notify'))
+    expect(notify?.[1]).toEqual(['caracal_approval_decided', 'challenge-1'])
     expect(client.query.mock.calls.map((c) => String(c[0])).at(-1)).toBe('COMMIT')
   })
 
