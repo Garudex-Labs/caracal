@@ -555,9 +555,10 @@ function promote(options) {
   applyStamp(stamped)
   for (const change of stamped) say(`stamped: ${change.path}`)
   prepareDocsVersion(stableVersion)
-  // A stable minor or major freezes the migration set: the open migration ships
-  // with this release and becomes immutable, so the next release line starts a
-  // fresh one. Patch promotions re-freeze an unchanged set, which is a no-op.
+  // Every stable release freezes the migration set: the open migration ships
+  // with this release and becomes immutable in name and content, so the next
+  // schema change starts a fresh one. A release that carried no schema change
+  // re-freezes an identical set, which is a no-op.
   execFileSync('bash', ['infra/postgres/scripts/freezeMigrations.sh'], { cwd: repoRoot, stdio: 'inherit' })
   const manifest = makeStableManifest(stableVersion, stableTag, options.values, fromTag)
   const outPath = writeManifest(manifest)
