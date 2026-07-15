@@ -306,7 +306,7 @@ export const MANAGEMENT_COMMANDS: readonly CommandDescriptor[] = Object.freeze([
     requiresZone: true,
     flags: {
       list: [
-        { name: '--subject', summary: 'Filter by subject ID' },
+        { name: '--subject', summary: 'Filter by Subject ID' },
         { name: '--status', summary: 'Filter by status' },
         { name: '--limit', summary: 'Maximum rows to return' },
       ],

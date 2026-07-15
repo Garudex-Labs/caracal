@@ -271,17 +271,17 @@ export class OAuthClient {
   }
 
   /**
-   * Exchanges an end user's identity token from a zone-trusted external issuer
-   * for a Caracal Subject authority record. The application authenticates itself
+   * Exchanges a Federated user's identity token from a zone-trusted external
+   * issuer for a Caracal authority record. The application authenticates itself
    * with its client secret and relays the token verbatim; the minted record is
-   * the subject's identity anchor and carries no resource authority. Never
-   * cached: each federation is an explicit identity event.
+   * the Federated user's identity anchor and carries no resource authority.
+   * Never cached: each federation is an explicit identity event.
    */
   async federateSubject(
     idToken: string,
     opts: { clientSecret?: string; ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<TokenExchangeResponse> {
-    if (!idToken) throw new Error('federateSubject requires the end user identity token')
+    if (!idToken) throw new Error('federateSubject requires the Federated user identity token')
     const body = new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       zone_id: this.zoneId,

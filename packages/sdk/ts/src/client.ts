@@ -97,7 +97,7 @@ export interface MintedMandate {
   expiresInSeconds: number
 }
 
-/** A federated Subject and the mandate proving it. */
+/** A Federated user and the mandate proving it. */
 export interface FederatedSubject {
   /** Anchors Coordinator attribution when passed as subjectAuthorityRecordId; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId: string
@@ -123,7 +123,7 @@ export interface ClientSecretExchanger {
     scopes: string[],
     opts?: { sessionId?: string; delegationId?: string; ttlSeconds?: number; approvalId?: string; signal?: AbortSignal; cache?: boolean },
   ): Promise<MintedMandate>
-  /** Exchanges an end user's external identity token for a Subject mandate; never cached. */
+  /** Exchanges a Federated user's external identity token for that user's session mandate; never cached. */
   federateSubject(idToken: string, opts?: { ttlSeconds?: number; timeoutMs?: number; signal?: AbortSignal }): Promise<MintedMandate>
   waitForApproval(approvalId: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<ApprovalState>
   /** Attaches the observability sink token-exchange events report to. */
@@ -151,7 +151,7 @@ export interface SessionOptions {
   ttlSeconds?: number
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
-  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  /** The Federated user's mandate proving control of subjectAuthorityRecordId. */
   subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
@@ -176,7 +176,7 @@ export interface StartSessionOptions {
   authority?: Authority
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
-  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  /** The Federated user's mandate proving control of subjectAuthorityRecordId. */
   subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
@@ -859,13 +859,13 @@ export class Caracal {
   }
 
   /**
-   * Exchange an end user's identity token from a zone-trusted external issuer
-   * for the Subject's Caracal Authority record. The returned subjectAuthorityRecordId
+   * Exchange a Federated user's identity token from a zone-trusted external issuer
+   * for that user's Caracal Authority record. The returned subjectAuthorityRecordId
    * anchors governed work to that user (`session(fn, { subjectAuthorityRecordId })`),
    * and the returned token is the user's own mandate for user-facing flows
    * such as approval decisions. Never cached: each federation is an explicit
    * identity event, recorded in the audit stream. Requires a client-secret
-   * configuration and a subject issuer registered on the zone.
+   * configuration and a Federated user issuer registered on the zone.
    */
   async federateSubject(
     idToken: string,

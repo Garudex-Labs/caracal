@@ -478,6 +478,9 @@ export interface AuthorityRecord {
   zone_id: string
   authority_record_type: string
   subject_id: string
+  // Set only when the record's Subject is a Federated user; an application
+  // Subject carries no issuer.
+  federated_user_issuer: string | null
   parent_authority_record_id: string | null
   status: string
   expires_at: string
@@ -569,6 +572,9 @@ export interface AuthorityRecordQuery {
   authority_record_id?: string
   status?: 'active' | 'revoked' | 'expired'
   subject_id?: string
+  // Selects one Subject kind: 'user' for Federated users, 'application' for
+  // application Subjects.
+  kind?: 'user' | 'application'
   cursor?: string
   limit?: number
 }
@@ -588,6 +594,12 @@ export interface Session {
   terminated_at: string | null
   ttl_seconds: number | null
   authority_record_id?: string
+  // Subject attribution on zone listings: who the Session acts for. The
+  // federated fields are set only when that Subject is a Federated user.
+  subject_authority_record_id?: string
+  subject_id?: string | null
+  federated_user_id?: string | null
+  federated_user_issuer?: string | null
   metadata?: Record<string, unknown> | null
   last_heartbeat_at?: string | null
   heartbeat_deadline_at?: string | null
@@ -598,6 +610,7 @@ export interface SessionQuery {
   lifecycle?: 'task' | 'service'
   application_id?: string
   parent_session_id?: string
+  subject_id?: string
   label?: string
   cursor?: string
   limit?: number
@@ -608,6 +621,9 @@ export interface Approval {
   zone_id: string
   session_id: string
   principal_id: string
+  // True when the requesting principal is a Federated user rather than an
+  // application Subject.
+  principal_federated: boolean
   application_id: string | null
   approval_type: string
   tier: string | null

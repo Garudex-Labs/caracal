@@ -132,7 +132,7 @@ export interface SessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
-  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  /** The Federated user's mandate proving control of subjectAuthorityRecordId. */
   subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string
@@ -487,7 +487,7 @@ export interface StartSessionInput {
   invalidate?: () => void
   /** Authority record attached to the Session for Coordinator attribution; it does not alone propagate the user sub to later mints. */
   subjectAuthorityRecordId?: string
-  /** Federated Subject mandate proving control of subjectAuthorityRecordId. */
+  /** The Federated user's mandate proving control of subjectAuthorityRecordId. */
   subjectAuthorityRecordToken?: string
   /** Session to parent under; defaults to the session bound on the calling context. */
   parentSessionId?: string

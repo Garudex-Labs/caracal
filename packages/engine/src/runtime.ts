@@ -99,7 +99,7 @@ export function installRuntimeAssets(paths: RuntimePaths = runtimePaths(), mode:
   }
   mkdirSync(paths.home, { recursive: true })
   // Operator trust directory for the STS extra-CA mount: dropping a PEM at
-  // ca/extra-ca.pem lets the stack trust internal-PKI subject issuers and
+  // ca/extra-ca.pem lets the stack trust internal-PKI Federated user issuers and
   // provider endpoints. It ships empty; an absent bundle changes nothing.
   mkdirSync(join(paths.home, 'ca'), { recursive: true })
   let created = false

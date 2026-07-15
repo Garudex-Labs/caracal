@@ -187,7 +187,7 @@ export const ENV_SCHEMA = {
   CARACAL_PRIVATE_EGRESS_HOSTS: {
     kind: 'string',
     description:
-      'STS: comma-separated hosts on private address ranges that subject-issuer JWKS and provider token endpoints may reach. Empty blocks private-range egress.',
+      'STS: comma-separated hosts on private address ranges that Federated user issuer JWKS and provider token endpoints may reach. Empty blocks private-range egress.',
     default: '',
     exposed: true,
   },
