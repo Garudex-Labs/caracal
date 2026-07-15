@@ -952,7 +952,7 @@ function FooterCTA() {
       </h2>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <a
-          href="https://cal.com/rawx18/caracal-enterprise-sales"
+          href="https://calendly.com/ryanmadhuwala/caracal"
           target="_blank"
           rel="noreferrer noopener"
           className="rounded-md bg-foreground px-5 py-3 text-sm font-medium text-background hover:bg-foreground/90"

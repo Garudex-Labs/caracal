@@ -10,7 +10,7 @@ import { Link } from "@tanstack/react-router";
 
 import { rainbowFill, rainbowFrame, rainbowGradient } from "@/components/ui";
 
-const SALES_CALL_URL = "https://cal.com/rawx18/caracal-enterprise-sales";
+const SALES_CALL_URL = "https://calendly.com/ryanmadhuwala/caracal";
 
 function UsersIcon({ className }: { className?: string }) {
   return (

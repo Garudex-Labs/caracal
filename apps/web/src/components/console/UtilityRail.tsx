@@ -16,7 +16,7 @@ import { NAV_GROUPS } from "@/platform/nav/navModel";
 import { PINNED_NAV_ITEMS, toggleNavItem, useHiddenNavItems } from "@/platform/state/sidebarPrefs";
 import { toggleTheme, useTheme } from "@/platform/theme";
 
-const CAL_LINK = "https://cal.com/rawx18/caracal-enterprise-sales";
+const CAL_LINK = "https://calendly.com/ryanmadhuwala/caracal";
 const SPONSOR_LINK = "https://github.com/sponsors/RAWx18";
 const ISSUE_LINK = "https://github.com/Garudex-Labs/caracal/issues/new/choose";
 

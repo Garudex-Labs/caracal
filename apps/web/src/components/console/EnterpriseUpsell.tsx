@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { rainbowFill, rainbowFrame, rainbowGradient } from "@/components/ui";
 import type { FeatureIcon, LockedFeature } from "@/platform/edition/lockedFeatures";
 
-const SALES_CALL_URL = "https://cal.com/rawx18/caracal-enterprise-sales";
+const SALES_CALL_URL = "https://calendly.com/ryanmadhuwala/caracal";
 
 const ICON_PATHS: Record<FeatureIcon, ReactNode> = {
   building: (

@@ -7,7 +7,7 @@ This file defines the enterprise route.
 import { createFileRoute } from "@tanstack/react-router";
 import { SectionLabel } from "@/components/SiteShell";
 
-const CAL_LINK = "https://cal.com/rawx18/caracal-enterprise-sales";
+const CAL_LINK = "https://calendly.com/ryanmadhuwala/caracal";
 
 export const Route = createFileRoute("/enterprise")({
   head: () => ({
