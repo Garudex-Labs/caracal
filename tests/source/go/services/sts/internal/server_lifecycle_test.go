@@ -144,6 +144,9 @@ func TestStepUpDecisionSubjectApproval(t *testing.T) {
 		if len(db.decided) != 1 || !db.decided[0].Approve || db.decided[0].ApproverSubjectID != "subject:user-1" {
 			t.Fatalf("decision record = %#v", db.decided)
 		}
+		if len(db.frames) != 1 || db.frames[0].ID == "" || !strings.Contains(db.frames[0].Data, `"step_up_decided"`) {
+			t.Fatalf("the decision must carry its audit frame into the same transaction: %#v", db.frames)
+		}
 		if !strings.Contains(w.Body.String(), `"state"`) {
 			t.Fatalf("decision must return the challenge state: %s", w.Body.String())
 		}

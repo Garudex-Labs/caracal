@@ -137,8 +137,22 @@ func TestResolveApprovalDefaultsAndClamps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve defaults: %v", err)
 	}
-	if got.Approver != ApproverClassOperator || got.Privacy != PrivacyIdentified || got.TTL != approvalDefaultTTL {
-		t.Errorf("absent fields must take platform defaults, got %+v", got)
+	if got.Approver != ApproverClassOperator || got.Privacy != PrivacyIdentified || got.TTL != approvalOperatorDefaultTTL {
+		t.Errorf("absent fields must take the operator-class defaults, got %+v", got)
+	}
+	subject, err := resolveApproval([]tierDeclaration{{Tier: "money", Approver: ApproverClassSubject}})
+	if err != nil {
+		t.Fatalf("resolve subject default: %v", err)
+	}
+	if subject.TTL != approvalSubjectDefaultTTL {
+		t.Errorf("a subject-decidable hold must default to the interactive window, got %v", subject.TTL)
+	}
+	anyClass, err := resolveApproval([]tierDeclaration{{Tier: "money", Approver: ApproverClassAny}})
+	if err != nil {
+		t.Fatalf("resolve any default: %v", err)
+	}
+	if anyClass.TTL != approvalSubjectDefaultTTL {
+		t.Errorf("an any-class hold takes the subject bounds, got %v", anyClass.TTL)
 	}
 	invalid, err := resolveApproval([]tierDeclaration{{Tier: "money", Approver: "root", Privacy: "secret", TTLSeconds: 1}})
 	if err != nil {
@@ -154,8 +168,15 @@ func TestResolveApprovalDefaultsAndClamps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve ceiling: %v", err)
 	}
-	if ceil.TTL != approvalMaxTTL {
-		t.Errorf("ttl must clamp to the ceiling, got %v", ceil.TTL)
+	if ceil.TTL != approvalOperatorMaxTTL {
+		t.Errorf("an operator hold must clamp to the week ceiling, got %v", ceil.TTL)
+	}
+	subjectCeil, err := resolveApproval([]tierDeclaration{{Tier: "money", Approver: ApproverClassSubject, TTLSeconds: int((30 * 24 * time.Hour).Seconds())}})
+	if err != nil {
+		t.Fatalf("resolve subject ceiling: %v", err)
+	}
+	if subjectCeil.TTL != approvalSubjectMaxTTL {
+		t.Errorf("a subject hold must clamp to the day ceiling, got %v", subjectCeil.TTL)
 	}
 }
 
@@ -442,7 +463,16 @@ func (s *stubDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallen
 func (s *stubDB) GetOrCreateApprovalChallenge(_ context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
 	return c, true, nil
 }
-func (s *stubDB) DecideStepUpChallenge(_ context.Context, _ DecideStepUpParams) error { return nil }
+func (s *stubDB) DecideApprovalWithAudit(_ context.Context, _ DecideStepUpParams, _ OutboxAuditEvent) error {
+	return nil
+}
+func (s *stubDB) ReissueConsumedApproval(_ context.Context, _ ReissueApprovalParams) (string, time.Time, error) {
+	return "", time.Time{}, ErrApprovalInvalid
+}
+func (s *stubDB) WaitForApprovalNotifications(ctx context.Context, _ func(id string)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
 func (s *stubDB) ConsumeApprovalChallenge(_ context.Context, _ ConsumeApprovalParams) error {
 	return nil
 }

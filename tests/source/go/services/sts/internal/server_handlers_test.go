@@ -25,6 +25,7 @@ type stepUpDB struct {
 	challenge *StepUpChallengePG
 	decideErr error
 	decided   []DecideStepUpParams
+	frames    []OutboxAuditEvent
 }
 
 func (d *stepUpDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChallengePG, error) {
@@ -34,11 +35,12 @@ func (d *stepUpDB) GetStepUpChallenge(_ context.Context, _ string) (*StepUpChall
 	return d.challenge, nil
 }
 
-func (d *stepUpDB) DecideStepUpChallenge(_ context.Context, p DecideStepUpParams) error {
+func (d *stepUpDB) DecideApprovalWithAudit(_ context.Context, p DecideStepUpParams, audit OutboxAuditEvent) error {
 	if d.decideErr != nil {
 		return d.decideErr
 	}
 	d.decided = append(d.decided, p)
+	d.frames = append(d.frames, audit)
 	return nil
 }
 

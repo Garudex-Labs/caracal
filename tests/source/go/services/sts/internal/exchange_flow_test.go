@@ -22,6 +22,7 @@ import (
 	sharederr "github.com/garudex-labs/caracal/packages/core/go/errors"
 	"github.com/garudex-labs/caracal/packages/core/go/secretstore"
 	corests "github.com/garudex-labs/caracal/packages/core/go/sts"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog"
 )
 
@@ -483,10 +484,12 @@ func TestExchangeOperationFloor(t *testing.T) {
 // approvalFlowDB scripts approval holds on top of the shared step-up stub.
 type approvalFlowDB struct {
 	stepUpDB
-	hold        *StepUpChallengePG
-	holdCreated bool
-	created     *StepUpChallengePG
-	consumeErr  error
+	hold          *StepUpChallengePG
+	holdCreated   bool
+	created       *StepUpChallengePG
+	consumeErr    error
+	reissueRecord string
+	reissueExpiry time.Time
 }
 
 func (d *approvalFlowDB) GetOrCreateApprovalChallenge(_ context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error) {
@@ -495,6 +498,13 @@ func (d *approvalFlowDB) GetOrCreateApprovalChallenge(_ context.Context, c *Step
 	}
 	d.created = c
 	return c, true, nil
+}
+
+func (d *approvalFlowDB) ReissueConsumedApproval(_ context.Context, _ ReissueApprovalParams) (string, time.Time, error) {
+	if d.reissueRecord == "" {
+		return "", time.Time{}, ErrApprovalInvalid
+	}
+	return d.reissueRecord, d.reissueExpiry, nil
 }
 
 func (d *approvalFlowDB) ConsumeApprovalChallenge(context.Context, ConsumeApprovalParams) error {
@@ -548,6 +558,32 @@ func TestExchangeChallengeLifecycle(t *testing.T) {
 		_, _, code, apiErr := run(t, func(c *StepUpChallengePG) { c.ConsumedAt = &now }, nil)
 		if code != http.StatusConflict || apiErr == nil || apiErr.Code != sharederr.ApprovalConsumed || !strings.Contains(apiErr.Description, "already used") {
 			t.Fatalf("code=%d err=%#v", code, apiErr)
+		}
+	})
+	t.Run("consumed with lost response re-issues the same authority", func(t *testing.T) {
+		challenge := exchangeApprovalChallenge(t)
+		challenge.ConsumedAt = &now
+		db := &approvalFlowDB{
+			stepUpDB:      stepUpDB{stubDB: *exchangeFlowDB(t), challenge: challenge},
+			reissueRecord: "record-original",
+			reissueExpiry: now.Add(10 * time.Minute),
+		}
+		srv := exchangeFlowServer(t, db, runCredentialAllowPolicy)
+		req := baseExchangeRequest()
+		req.ApprovalID = challenge.ID
+		resp, _, code, apiErr := srv.exchange(context.Background(), req, "req-reissue")
+		if code != http.StatusOK || apiErr != nil || resp == nil || resp.AccessToken == "" {
+			t.Fatalf("a lost response must be recoverable inside the window: code=%d err=%#v", code, apiErr)
+		}
+		if len(db.insertedAuthorityRecords) != 0 {
+			t.Fatalf("re-issue must not create a second authority record: %#v", db.insertedAuthorityRecords)
+		}
+		claims := jwt.MapClaims{}
+		if _, _, err := jwt.NewParser().ParseUnverified(resp.AccessToken, claims); err != nil {
+			t.Fatalf("decode re-issued token: %v", err)
+		}
+		if claims["sid"] != "record-original" {
+			t.Fatalf("the re-issued bearer must bind to the consumed authority record, got %v", claims["sid"])
 		}
 	})
 	t.Run("rejected", func(t *testing.T) {
