@@ -450,14 +450,16 @@ class ClientSecretExchanger:
     def federate_subject(
         self, id_token: str, *, ttl_seconds: int | None = None
     ) -> MintedMandate:
-        """Exchange an end user's identity token from a zone-trusted external
-        issuer for the user's Caracal Subject mandate. The application
+        """Exchange a Federated user's identity token from a zone-trusted
+        external issuer for that user's Caracal session mandate. The application
         authenticates itself with its client secret and relays the token
-        verbatim; the minted authority record is the Subject's identity anchor and
-        carries no resource authority. Never cached: each federation is an
-        explicit identity event."""
+        verbatim; the minted authority record is the Federated user's identity
+        anchor and carries no resource authority. Never cached: each federation
+        is an explicit identity event."""
         if not id_token:
-            raise ValueError("federate_subject requires the end user identity token")
+            raise ValueError(
+                "federate_subject requires the Federated user identity token"
+            )
         creds = self._resolve()
         data: dict[str, str | list[str]] = {
             "grant_type": GRANT_TYPE,

@@ -610,7 +610,10 @@ class _Workloads:
 
 
 class _AuthorityRecords:
-    """Reads STS authority records."""
+    """Reads STS authority records. Query filters: authority_record_id, status,
+    subject_id, kind ('user' selects Federated users, 'application' selects
+    application Subjects), cursor, limit. Rows carry federated_user_issuer only
+    when the record's Subject is a Federated user."""
 
     def __init__(self, client: AdminClient) -> None:
         self._client = client
@@ -665,7 +668,10 @@ def _map_delegation_traversal(value: Any) -> Any:
 
 
 class _Sessions:
-    """Reads and manages governed sessions."""
+    """Reads and manages governed sessions. Zone listings resolve subject
+    attribution: subject_authority_record_id, subject_id, and the
+    federated_user_id and federated_user_issuer fields set only when the
+    Session acts for a Federated user; subject_id also filters listings."""
 
     def __init__(self, client: AdminClient) -> None:
         self._client = client

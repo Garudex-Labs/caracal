@@ -119,7 +119,7 @@ class ResourceBinding:
 
 @dataclass(frozen=True)
 class FederatedSubject:
-    """A federated Subject and the mandate proving it.
+    """A Federated user and the mandate proving it.
 
     ``subject_authority_record_id`` anchors Coordinator attribution when
     attached to a Session; it does not alone propagate the user ``sub`` to
@@ -1798,14 +1798,14 @@ class Caracal:
     def federate_subject(
         self, id_token: str, *, ttl_seconds: int | None = None
     ) -> FederatedSubject:
-        """Exchange an end user's identity token from a zone-trusted external
-        issuer for the Subject's Caracal Authority record. The returned
+        """Exchange a Federated user's identity token from a zone-trusted
+        external issuer for that user's Caracal Authority record. The returned
         ``subject_authority_record_id`` anchors governed work to that user
         (``session(subject_authority_record_id=...)``), and the returned token is the
         user's own mandate for user-facing flows such as approval decisions.
         Never cached: each federation is an explicit identity event, recorded
-        in the audit stream. Requires client-secret credentials and a subject
-        issuer registered on the zone."""
+        in the audit stream. Requires client-secret credentials and a Federated
+        user issuer registered on the zone."""
         self._ensure_open()
         exchanger = self.config.exchanger
         if exchanger is None:

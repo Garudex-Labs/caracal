@@ -54,16 +54,18 @@ class OAuthClient:
         ttl_seconds: int | None = None,
         timeout_ms: int = 30_000,
     ) -> TokenExchangeResponse:
-        """Exchange an end user's identity token from a zone-trusted external
-        issuer for a Caracal Subject authority record.
+        """Exchange a Federated user's identity token from a zone-trusted
+        external issuer for a Caracal authority record.
 
         The application authenticates itself with its client secret and relays
-        the token verbatim; the minted record is the Subject's identity anchor
-        and carries no resource authority. Never cached: each federation is an
-        explicit identity event.
+        the token verbatim; the minted record is the Federated user's identity
+        anchor and carries no resource authority. Never cached: each federation
+        is an explicit identity event.
         """
         if not id_token:
-            raise ValueError("federate_subject requires the end user identity token")
+            raise ValueError(
+                "federate_subject requires the Federated user identity token"
+            )
         data = {
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "subject_token": id_token,
