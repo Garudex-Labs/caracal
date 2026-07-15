@@ -78,7 +78,7 @@ For any request ID you can now identify the application, session, resource, requ
 
 - Do not debug from application logs alone; the decision trace is the source of truth for authorization outcomes.
 - Do not read a missing action result as a policy problem - policy already said yes; the request failed after the decision.
-- If a Subject (a federated user identity) appears in a trace, treat it as attribution, not authorization - resource authority still comes from the application, policy, and delegation.
+- If a Federated user appears in a trace, treat it as attribution, not authorization - resource authority still comes from the application, policy, and delegation.
 
 ## Next Step
 

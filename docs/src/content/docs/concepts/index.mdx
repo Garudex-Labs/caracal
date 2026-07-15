@@ -14,7 +14,7 @@ Read this section after Get Started when you need to design an integration or ex
 | [Caracal Mental Model](/concepts/model-overview/)         | The smallest useful picture of Caracal.                                       |
 | [Authority and Enforcement](/concepts/authority-model/)   | Where decisions happen before requests reach a target.                        |
 | [Zones](/concepts/zone/)                                  | The tenant boundary that owns keys, policies, resources, sessions, and audit. |
-| [Identities and Applications](/concepts/principal/)       | Application credentials, optional Subjects, Authority records, and Sessions.  |
+| [Identities and Applications](/concepts/principal/)       | Application credentials, Subjects and Federated users, Authority records, and Sessions. |
 | [Resources and Grants](/concepts/resource-grant/)         | What can be accessed and which scopes are granted.                            |
 | [Providers](/concepts/provider/)                          | The credential Caracal attaches to the upstream target.                       |
 | [Policies and Policy Sets](/concepts/policy/)             | Rego rules evaluated by the STS during token exchange.                        |
@@ -31,7 +31,7 @@ Read this section after Get Started when you need to design an integration or ex
 ```mermaid
 flowchart LR
   App["Application"] --> Session["Session"]
-  Subject["Optional Subject"] -. attribution .-> Session
+  Subject["Federated user (optional)"] -. attribution .-> Session
   Session --> SDK["SDK / Gateway request"]
   SDK --> STS["STS token exchange"]
   STS --> Policy["Active policy set"]
@@ -54,7 +54,7 @@ The same model appears across the product:
 | ----------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Zone              | Tenant boundary for authority data and signing keys.                                                     | [Zones](/concepts/zone/)                                  |
 | Application       | Registered client or agent workload.                                                                     | [Identities and Applications](/concepts/principal/)       |
-| Subject           | Optional identity federated from your identity provider for attribution and supported approval flows. | [Identities and Applications](/concepts/principal/)       |
+| Subject           | The identity work is done for: the Application itself by default, or a Federated user for attribution and supported approval flows. | [Identities and Applications](/concepts/principal/)       |
 | Authority record  | Immutable record of identity and authority context created by an exchange.                             | [Identities and Applications](/concepts/principal/)       |
 | Resource          | Protected API, MCP server, tool group, or upstream target.                                               | [Resources and Grants](/concepts/resource-grant/)         |
 | Grant             | Policy data that describes which Application roles may request Resource scopes.                         | [Resources and Grants](/concepts/resource-grant/)         |

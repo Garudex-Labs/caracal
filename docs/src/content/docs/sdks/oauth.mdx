@@ -19,7 +19,7 @@ Use this package only when composing a custom authority client. Normal applicati
 
 | Option                     | Meaning                                                                                                                       |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Subject token              | Existing session mandate or registered external identity token; omit for application-principal exchanges.                    |
+| Subject token              | Existing session mandate, or a Federated user's identity token from a registered issuer; omit to exchange as the application Subject. |
 | Resource                   | One or more resource identifiers. Clients trim, exact-deduplicate, and sort the set.                                           |
 | Client secret              | Application authentication. Public client assertions are not supported.                                                       |
 | Authority record ID        | Sent in the STS form field `session_id`. It is distinct from a governed Session ID.                                           |
@@ -60,14 +60,14 @@ try {
 - Default exchange timeout is 30 seconds. `invalidate()` / `invalidate` clears the client cache; it does not revoke already issued mandates or cancel exchanges already in flight.
 - Never retry an exchange merely because the response was lost. If the surrounding business operation is replayable, mint a fresh mandate for that new attempt.
 
-## Subject Federation
+## Federated Users
 
-When the zone registers the application's identity system as a Subject issuer, the client exchanges an end user's identity token for a Caracal Authority record and can post that user's decision on a Subject-reserved approval hold:
+Every exchange acts for a Subject: the application itself by default, or a Federated user. When the zone registers the application's identity system as a Federated user issuer, the client exchanges an end user's identity token for a Caracal Authority record and can post that user's decision on an approval hold reserved for them:
 
-- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Subject's Authority record and returns the Subject mandate response. Never cached: each federation is an explicit identity event, and the record carries no resource authority. The high-level SDK wrappers also return the Authority record ID as `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`.
-- `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the user's decision with the session mandate, echoing the hold's exact binding.
+- `federateSubject(idToken, opts)` / `federate_subject(id_token, ...)` / `FederateSubject(ctx, idToken, opts)` - creates the Federated user's Authority record and returns its session mandate response. Never cached: each federation is an explicit identity event, and the record carries no resource authority. The high-level SDK wrappers also return the Authority record ID as `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`.
+- `decideApproval({...})` / `decide_approval(...)` / `DecideApproval(ctx, input)` - posts the Federated user's decision with their session mandate, echoing the hold's exact binding.
 
-See [Human Approval](/guides/human-approval/#decide-as-the-applications-end-user) for the end-to-end flow.
+See [Human Approval](/guides/human-approval/#decide-as-the-applications-federated-user) for the end-to-end flow.
 
 ## Related Pages
 

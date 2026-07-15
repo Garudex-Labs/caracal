@@ -36,7 +36,7 @@ Before the review, collect:
 2. **Review the threat model.** Map in-scope assets and trust boundaries to the deployed topology. Record assumptions the repository cannot enforce, including host and cloud controls.
 3. **Render the deployment.** Inspect the exact Compose or Helm output for public endpoints, TLS termination, service accounts, NetworkPolicy, storage, secret mounts, resource limits, and published mode.
 4. **Exercise authority failures.** Test expected allow, deny, insufficient scope, wrong audience, replay, expired Mandate, revoked Authority record, revoked Session, revoked Delegation, and unsafe upstream cases.
-5. **Exercise human and administrative controls.** Verify Console admission, operator credential scope, Subject federation where used, Approval decisions, and administrative audit attribution.
+5. **Exercise human and administrative controls.** Verify Console admission, operator credential scope, Federated user federation where used, Approval decisions, and administrative audit attribution.
 6. **Exercise evidence paths.** Trace request IDs from authorization through action result, test audit interruption and replay, inspect DLQ handling, and verify export or SIEM ingestion.
 7. **Exercise operations.** Verify readiness, authenticated metrics, alerts, capacity assumptions, upgrade behavior, data-plus-secret restore, failure drills, and incident intake.
 8. **Record every gap.** For each requirement, record Caracal evidence, deployment evidence, missing control, compensating control, owner, due date, and retest trigger.

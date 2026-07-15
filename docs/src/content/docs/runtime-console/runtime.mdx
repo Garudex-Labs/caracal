@@ -26,7 +26,7 @@ Static upstream credentials such as API keys remain as powerful as the upstream 
 
 If STS returns `interaction_required`, the runtime prints an `approval_required` notice containing the hold and binding, long-polls the hold, and retries the credential request once after approval. When the response has no usable expiry, it uses a five-minute fallback. Rejection, expiry, timeout, or consumption by another request prevents spawn.
 
-An operator can inspect eligible holds in the console **Approvals** page. Subject-only holds are visible there but can be decided only by the application's end user.
+An operator can inspect eligible holds in the console **Approvals** page. Holds reserved for the Federated user are visible there but can be decided only by the application's own user.
 
 ## Child Environment
 

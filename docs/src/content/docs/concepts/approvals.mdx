@@ -5,7 +5,7 @@ sidebar:
   order: 12
 ---
 
-Read this page after [Policies and Policy Sets](/concepts/policy/). An Approval pauses a sensitive authority request until an eligible human decides it. Policy data maps scopes to risk tiers and identifies whether an operator, the federated Subject, or either may decide.
+Read this page after [Policies and Policy Sets](/concepts/policy/). An Approval pauses a sensitive authority request until an eligible human decides it. Policy data maps scopes to risk tiers and identifies whether an operator, the application's Federated user, or either may decide.
 
 Approval is an optional security primitive. A zone that declares no `approval_tiers` data never creates a hold, and nothing in the platform requires one. One name carries through every surface: the SDKs call the decision's identifier `approvalId` and the wire calls it `approval_id` under `/approvals` paths; only the audit stream keeps the historical `step_up_` event-type prefix and `challenge_id` metadata key - see the [wire-name mapping](/reference/interoperability-contracts/#product-to-wire-mapping).
 
@@ -16,7 +16,7 @@ sequenceDiagram
   participant App as App or agent
   participant STS as STS
   participant Policy as Active policy set
-  participant Approver as Console, Admin API, or end user
+  participant Approver as Console, Admin API, or Federated user
 
   App->>STS: Exchange for gated scope
   STS->>Policy: Evaluate request
@@ -31,14 +31,14 @@ sequenceDiagram
 
 ## Two Decision Planes
 
-| Plane    | Approver                                                  | Surface                                                                                                 |
-| -------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Operator | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/approvals/{id}/approve` / `/reject`.                  |
-| Subject  | The requesting application's own authenticated end user.  | `POST /approvals/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
+| Plane          | Approver                                                  | Surface                                                                                                 |
+| -------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Operator       | A control-plane admin holding an `approve`-capable token. | Console Approvals page or `POST /v1/zones/{zone}/approvals/{id}/approve` / `/reject`.                  |
+| Federated user | The requesting application's own Federated user.          | `POST /approvals/{id}/decision` on the STS, requiring a user-type session mandate and the hold's binding. |
 
-The tier's `approver` declaration picks the plane: `operator`, `subject`, or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
+The tier's `approver` declaration picks the plane: `operator`, `subject` (the Federated user plane's wire value), or `any`. On the operator plane, approval authority is a distinct admin capability - a `write` token cannot decide a hold. An `any` hold admits either plane, so operators can always decide it.
 
-A Subject-only Approval requires the Application to federate its end user through a registered Subject issuer. Without that federation, the Approval can only expire. This is a decision mechanism, not per-Subject Resource authorization: the original Application, policy, scopes, and Delegation still bound the resulting Mandate.
+An Approval reserved for the Federated user requires the Application to federate that user through a registered Federated user issuer. Without that federation, the Approval can only expire. This is a decision mechanism, not per-Subject Resource authorization: the original Application, policy, scopes, and Delegation still bound the resulting Mandate.
 
 ## Components
 
@@ -47,7 +47,7 @@ A Subject-only Approval requires the Application to federate its end user throug
 | Policy data          | Declares `risk` tiers per scope and `approval_tiers` gates; the platform fixes no tier taxonomy.                                       |
 | STS                  | Creates the hold, serves its state to long-polling agents, records decisions, verifies the binding, and consumes the approval at mint. |
 | Console or Admin API | Lists, inspects, and decides operator-plane holds.                                                                                     |
-| Application          | Relays subject-plane holds to its own federated end user and posts the decision with the user's session mandate.                       |
+| Application          | Relays Federated user holds to its own user and posts the decision with that user's session mandate.                                   |
 | SDK or OAuth client  | Surfaces `interaction_required` and waits on the hold (`waitForApproval`); `caracal run` parks and retries automatically.              |
 
 ## Approval Lifecycle
@@ -64,13 +64,13 @@ An Approval releases at most one Mandate. Its binding covers the Application, Au
 
 ## Privacy Modes
 
-The tier's `privacy` declaration controls what the decision record retains of a Subject-plane approver: `identified` stores the Subject verbatim, `pseudonymous` a stable zone-scoped pseudonym, and `anonymous` a redaction marker. The approver's Authority record ID is always kept as the forensic and revocation anchor. Operator-plane decisions always record the deciding admin identity. Caracal stores authorization facts, never business context.
+The tier's `privacy` declaration controls what the decision record retains of a Federated user approver: `identified` stores the identity verbatim, `pseudonymous` a stable zone-scoped pseudonym, and `anonymous` a redaction marker. The approver's Authority record ID is always kept as the forensic and revocation anchor. Operator-plane decisions always record the deciding admin identity. Caracal stores authorization facts, never business context.
 
 ## Design Guidance
 
 - Gate high-risk scopes, not everything: approval latency is a person, so reserve it for authority worth a pause.
 - Keep the decision outside policy; policy declares that a decision is needed, never performs it.
-- Use `subject` tiers when the risk belongs to the application's end user and the application federates its users through a zone subject issuer; use `operator` tiers when the risk belongs to the zone.
+- Use `subject` tiers when the risk belongs to the application's Federated user and the application federates its users through a registered Federated user issuer; use `operator` tiers when the risk belongs to the zone.
 - Give automation credentials `write` without `approve`, so no pipeline can silently settle a hold.
 - Cross-check the binding: the agent prints it beside the approval id, and the web console shows it on the hold.
 

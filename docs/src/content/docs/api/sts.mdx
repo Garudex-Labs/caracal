@@ -15,7 +15,7 @@ Applications normally call it through the OAuth or application SDK. The public e
 | `POST` | `/oauth/2/token`                        | OAuth token exchange for resource, session, Gateway, or delegated mandates.           |
 | `GET`  | `/.well-known/jwks.json?zone_id={zone}` | Public signing keys for mandate verification, scoped per zone.                        |
 | `GET`  | `/approvals/{id}`                       | Approval hold state; `?wait={seconds}` long-polls until the state changes.            |
-| `POST` | `/approvals/{id}/decision`              | Subject-plane approval decision, authenticated with a federated user session mandate. |
+| `POST` | `/approvals/{id}/decision`              | Federated user approval decision, authenticated with the Federated user's session mandate. |
 | `GET`  | `/health`                               | Liveness check.                                                                       |
 | `GET`  | `/ready`                                | Readiness check.                                                                      |
 | `GET`  | `/metrics`                              | Prometheus metrics.                                                                   |
@@ -56,23 +56,25 @@ curl -s http://localhost:8080/oauth/2/token \
 
 ## Subject Identity
 
-STS never generates a subject identity. Every exchange records its subject verbatim: the `sub` claim of the presented `subject_token`, or the authenticated application's id when no subject token is presented. Two subject token classes are accepted:
+Every exchange records a Subject - the identity work is done for. STS never invents one: the Subject is the `sub` claim of the presented `subject_token`, or the authenticated application's own id when no subject token is presented. The Subject is therefore one of two kinds: an **application Subject** (the default) or a **Federated user**. Two subject token classes are accepted:
 
-- `urn:ietf:params:oauth:token-type:access_token` - a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation).
-- `urn:ietf:params:oauth:token-type:id_token` - **subject federation**: an end user's identity token from a registered Subject issuer. The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS and creates an Authority record whose `sub` is copied verbatim. A federation exchange names no resources and mints no scopes: the record is an identity and revocation anchor, not resource authority.
+- `urn:ietf:params:oauth:token-type:access_token` - a session mandate this STS issued for the same zone; resource mandates are rejected as subject tokens (RFC 8693 subject-confusion mitigation). The chain keeps the Subject kind of the presented mandate.
+- `urn:ietf:params:oauth:token-type:id_token` - **Federated user federation**: an end user's identity token from a registered Federated user issuer (Admin API resource: `subject-issuers`). The application authenticates with its client credentials and relays the token; STS verifies it against the issuer's JWKS and creates an Authority record whose `sub` is copied verbatim. Caracal never authenticates the user itself. A federation exchange names no resources and mints no scopes: the record is an identity and revocation anchor, not resource authority.
 
-The Subject identifier is opaque to Caracal. It may be a user ID, UUID, employee ID, or customer ID. STS requires only that the same identity always presents the same value. The Authority record stores that `sub`; provider connections, approval bindings, revocation, and audit can attribute activity to it. Scope authority is decided by application bindings, resource grants, Delegation narrowing, and label confinement - not by the Subject identifier.
+A Federated user's identifier is opaque to Caracal. It may be a user ID, UUID, employee ID, or customer ID. STS requires only that the same identity always presents the same value. The Authority record stores that `sub`; provider connections, approval bindings, revocation, and audit can attribute activity to it. Scope authority is decided by application bindings, resource grants, Delegation narrowing, and label confinement - never by the Subject identifier or kind.
 
-When an SDK starts a Session with `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`, that field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's federated `sub`.
+Minted mandates carry the Subject kind as the `sub_type` claim (`application` or `user`), and audit decision events record it as `subject_kind`, so downstream systems can distinguish the kinds without parsing identity out of identifiers.
 
-### Subject Identifier Guarantees
+When an SDK starts a Session with `subjectAuthorityRecordId`, `subject_authority_record_id`, or `SubjectAuthorityRecordID`, that field supplies a **Subject authority record ID**. It links the Session to the Authority record for attribution and lifecycle. It does not, by itself, make later resource mandates carry that record's Federated user `sub`.
 
-Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails, numeric ids, prefixed ids such as `auth0|507f...`, URIs, ARNs, or unicode names. Caracal never parses, normalizes, case-folds, or trims the value: it is compared byte-for-byte everywhere, so two byte-distinct values are two subjects, and the recorded value is always byte-identical to what the issuer signed. A federation exchange rejects only values that are unsafe to store, index, log, or display:
+### Federated User Identifier Guarantees
+
+Any stable identifier format a trusted issuer signs is accepted - UUIDs, emails, numeric ids, prefixed ids such as `auth0|507f...`, URIs, ARNs, or unicode names. Caracal never parses, normalizes, case-folds, or trims the value: it is compared byte-for-byte everywhere, so two byte-distinct values are two Subjects, and the recorded value is always byte-identical to what the issuer signed. A federation exchange rejects only values that are unsafe to store, index, log, or display:
 
 | Rejected                                                         | Reason                                                                                                 |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Empty, or longer than 512 bytes                                  | Bounded storage, indexing, and display.                                                                |
-| Inside the reserved `caracal:` namespace                         | Anchors Caracal-internal subject sentinels such as the shared provider connection; an external issuer must never mint one. |
+| Inside the reserved `caracal:` namespace                         | Anchors Caracal-internal Subject sentinels such as the shared provider connection; an external issuer must never mint one. |
 | Invalid UTF-8, or containing U+FFFD                              | A replacement character would let two byte-distinct upstream values collapse into one stored identity. |
 | Control characters (including NUL, newlines, escapes)            | Log forging and storage safety.                                                                        |
 | Bidirectional-override characters (U+202A-U+202E, U+2066-U+2069) | Visual reordering of surrounding UI text.                                                              |
@@ -97,7 +99,7 @@ Public clients never receive Gateway's private upstream directive or provider cr
 
 The exchange endpoint has no public idempotency key. SDK OAuth clients make one network attempt because the STS may mint before a response is lost. Do not automatically replay a timed-out exchange. Approval retry is different: after an approved hold, send the exact `approval_id` with the same bound resource/scope request; consumed, rejected, expired, or mismatched holds fail.
 
-`GET /approvals/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Subject decision endpoint requires the federated Subject mandate and exact approval binding.
+`GET /approvals/{id}?wait={seconds}` returns `pending`, `approved`, `rejected`, `expired`, or `consumed`; the server bounds the wait. The Federated user decision endpoint requires that user's session mandate and the exact approval binding.
 
 ## Internal Endpoints
 

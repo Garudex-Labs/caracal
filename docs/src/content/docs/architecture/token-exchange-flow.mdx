@@ -33,13 +33,13 @@ sequenceDiagram
 
 ## What the Integrator Supplies
 
-The caller authenticates an application or workload, identifies the zone and target resource, and requests scopes. A subject token can contribute a federated `sub`; a prior Caracal mandate can be narrowed. Session and Delegation identifiers supply execution lineage when the SDK flow created them.
+The caller authenticates an application or workload, identifies the zone and target resource, and requests scopes. A subject token can carry a Federated user's `sub` into the chain; a prior Caracal mandate can be narrowed. Session and Delegation identifiers supply execution lineage when the SDK flow created them.
 
 The protocol fields `session_id`, `agent_session_id`, and `delegation_edge_id` refer respectively to an Authority record, a Coordinator Session, and a Delegation. They are not interchangeable IDs.
 
 ## Approval Branch
 
-An Approval is a hold, not a credential. An eligible operator or end user decides it, then the waiting client retries with the hold ID. STS consumes an approved hold once while issuing the credential. Rejected, expired, undecided, or already-consumed holds deny.
+An Approval is a hold, not a credential. An eligible operator or Federated user decides it, then the waiting client retries with the hold ID. STS consumes an approved hold once while issuing the credential. Rejected, expired, undecided, or already-consumed holds deny.
 
 `caracal run` waits and retries once. SDK applications should follow their language SDK's interaction-required contract. See [Approvals](/concepts/approvals/) for the canonical model.
 
@@ -47,7 +47,7 @@ An Approval is a hold, not a credential. An eligible operator or end user decide
 
 - Resource mandates are capped at 15 minutes; Session mandates are capped at 60 minutes.
 - Gateway rejects an inbound token that is too close to expiry before proxying.
-- Invalid client proof, subject issuer, resource, policy, Session, Delegation, operation, scope, or approval fails before issuance.
+- Invalid client proof, Federated user issuer, resource, policy, Session, Delegation, operation, scope, or approval fails before issuance.
 - Gateway-authenticated exchanges are signed over the exact form body with a timestamp and nonce; query ambiguity and duplicate singleton fields are rejected.
 - Audit delivery is asynchronous, but STS and Gateway use replay storage when immediate Redis publication is unavailable.
 
