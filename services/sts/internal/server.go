@@ -41,6 +41,10 @@ const (
 	stepUpReasonMaxLength = 500
 	stepUpSweepInterval   = time.Hour
 	stepUpRetention       = 24 * time.Hour
+
+	// approvalPollFallback bounds how stale a long-poll answer can be when a
+	// decision notification is missed; the notification path answers immediately.
+	approvalPollFallback = 5 * time.Second
 )
 
 // Server holds all runtime state for the STS.
@@ -59,6 +63,7 @@ type Server struct {
 	providerTokenMu    sync.RWMutex
 	providerTokenCache map[string]providerServiceTokenCacheEntry
 	subjectKeys        *subjectKeyCache
+	approvals          *approvalWatch
 	consumersReady     chan struct{}
 	log                zerolog.Logger
 }
@@ -144,6 +149,7 @@ func New(ctx context.Context) (*Server, error) {
 		auditBuffer:    buf,
 		metrics:        metrics,
 		subjectKeys:    newSubjectKeyCache(cfg.PrivateEgressHosts),
+		approvals:      newApprovalWatch(),
 		consumersReady: make(chan struct{}),
 		log:            log,
 	}
@@ -161,6 +167,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.opa.StartPGPolling(ctx)
 	go s.opa.SeedZones(ctx)
 	go s.startStepUpSweeper(ctx)
+	go s.startApprovalWatch(ctx)
 	go s.startMintRateRefresh(ctx)
 
 	mux := http.NewServeMux()
@@ -294,6 +301,11 @@ func (s *Server) handleApprovalStatus(w http.ResponseWriter, r *http.Request) {
 		rc := http.NewResponseController(w)
 		_ = rc.SetWriteDeadline(time.Now().Add(wait + 5*time.Second))
 	}
+	// Subscribing before the first read closes the race where a decision lands
+	// between the read and the wait; a wakeup then re-reads immediately, and the
+	// fallback tick bounds staleness if the notification stream is interrupted.
+	decided, cancel := s.approvals.subscribe(approvalID)
+	defer cancel()
 	deadline := time.Now().Add(wait)
 	for {
 		c, err := s.db.GetStepUpChallenge(r.Context(), approvalID)
@@ -314,7 +326,8 @@ func (s *Server) handleApprovalStatus(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(time.Second):
+		case <-decided:
+		case <-time.After(approvalPollFallback):
 		}
 	}
 }
@@ -416,24 +429,34 @@ func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "binding does not match this challenge"))
 		return
 	}
-	decideErr := s.db.DecideStepUpChallenge(r.Context(), DecideStepUpParams{
+	// The decision, its audit event, and the waiter wakeup commit as one
+	// transaction through the outbox: a decision can never exist without its
+	// audit evidence, and a crash between them is impossible by construction.
+	auditEvent, buildErr := buildAuditEventWithBundle(c.ID, c.ZoneID, body.Decision, "complete", &OPAResult{},
+		mergeAuditMeta(stepUpAuditMeta(c), map[string]any{
+			"approver_plane":      "subject",
+			"approver_session_id": approverAuthorityRecordID,
+		}), ZoneBundleInfo{})
+	if buildErr != nil {
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "audit event creation failed"))
+		return
+	}
+	auditEvent.EventType = "step_up_decided"
+	frame, frameErr := s.auditBuffer.OutboxFrame(auditEvent)
+	if frameErr != nil {
+		writeError(w, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "audit event creation failed"))
+		return
+	}
+	decideErr := s.db.DecideApprovalWithAudit(r.Context(), DecideStepUpParams{
 		ID:                        c.ID,
 		ZoneID:                    c.ZoneID,
 		Approve:                   body.Decision == "approved",
 		ApproverSubjectID:         approverRecordID(c.PrivacyMode, c.ZoneID, claimString(claims, "sub")),
 		ApproverAuthorityRecordID: approverAuthorityRecordID,
 		Reason:                    body.Reason,
-	})
+	}, frame)
 	if decideErr != nil {
 		writeError(w, http.StatusConflict, sharederr.New(sharederr.AccessDenied, "approval is not pending"))
-		return
-	}
-	if auditErr := s.emitStepUpAudit(c.ID, c.ZoneID, "step_up_decided", body.Decision,
-		mergeAuditMeta(stepUpAuditMeta(c), map[string]any{
-			"approver_plane":      "subject",
-			"approver_session_id": approverAuthorityRecordID,
-		})); auditErr != nil {
-		writeError(w, http.StatusInternalServerError, auditErr)
 		return
 	}
 	updated, err := s.db.GetStepUpChallenge(r.Context(), c.ID)

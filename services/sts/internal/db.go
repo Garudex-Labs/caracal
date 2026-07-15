@@ -104,8 +104,10 @@ type DBQuerier interface {
 	RevokeAuthorityRecord(ctx context.Context, zoneID, sid, reason string) error
 	GetStepUpChallenge(ctx context.Context, id string) (*StepUpChallengePG, error)
 	GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChallengePG) (*StepUpChallengePG, bool, error)
-	DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error
+	DecideApprovalWithAudit(ctx context.Context, p DecideStepUpParams, audit OutboxAuditEvent) error
 	ConsumeApprovalChallenge(ctx context.Context, p ConsumeApprovalParams) error
+	ReissueConsumedApproval(ctx context.Context, p ReissueApprovalParams) (string, time.Time, error)
+	WaitForApprovalNotifications(ctx context.Context, handler func(id string)) error
 	AuthorityRecordsRelated(ctx context.Context, zoneID, sessionA, sessionB string) (bool, error)
 	DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error)
 	EnsureZoneSigningKeySecret(ctx context.Context, zoneID string, envelope []byte) (*SecretRow, error)
@@ -467,8 +469,9 @@ func (d *DB) InsertAuthorityRecord(ctx context.Context, s *AuthorityRecord) erro
 }
 
 // InsertAuthorityRecordWithApproval atomically consumes an approved hold and creates
-// its authority record. A failed insert leaves the hold spendable, while concurrent
-// consumers can create at most one record.
+// its authority record, recording the created record on the hold so a retry that lost
+// the response can re-issue against it. A failed insert leaves the hold spendable,
+// while concurrent consumers can create at most one record.
 func (d *DB) InsertAuthorityRecordWithApproval(ctx context.Context, s *AuthorityRecord, p ConsumeApprovalParams) error {
 	claims := s.ClaimsJSON
 	if len(claims) == 0 {
@@ -477,7 +480,8 @@ func (d *DB) InsertAuthorityRecordWithApproval(ctx context.Context, s *Authority
 	tag, err := d.pool.Exec(ctx,
 		`WITH consumed AS (
 		   UPDATE step_up_challenges c
-		      SET consumed_at = now()
+		      SET consumed_at = now(),
+		          consumed_authority_record_id = $1
 		    WHERE c.id = $9
 		      AND c.zone_id = $2
 		      AND c.principal_id = $10
@@ -663,6 +667,7 @@ type StepUpChallengePG struct {
 	ApproverClass             string
 	PrivacyMode               string
 	SubjectAnchor             string
+	ConsumedAuthorityRecordID string
 	ResourceSetHash           []byte
 	ExpiresAt                 time.Time
 	SatisfiedAt               *time.Time
@@ -698,8 +703,33 @@ type DecideStepUpParams struct {
 	Reason                    string
 }
 
+// OutboxAuditEvent is one signed audit frame enqueued through the transactional
+// outbox: the {id, data, sig} shape the shared dispatcher drains verbatim to the
+// audit stream.
+type OutboxAuditEvent struct {
+	ID   string
+	Data string
+	Sig  string
+}
+
+// ReissueApprovalParams identifies a recently consumed hold a retry wants to
+// re-issue against after losing the success response. Every binding must match the
+// original consumption exactly.
+type ReissueApprovalParams struct {
+	ID              string
+	ZoneID          string
+	PrincipalID     string
+	ResourceSetHash []byte
+	WindowSeconds   float64
+}
+
+// approvalDecidedChannel carries decision wakeups to long-poll waiters; the Control
+// API decision path notifies the same channel.
+const approvalDecidedChannel = "caracal_approval_decided"
+
 const stepUpChallengeColumns = `id, zone_id, session_id, challenge_type, principal_id,
-	application_id, tier, approver_class, privacy_mode, subject_anchor, resource_set_hash, expires_at,
+	application_id, tier, approver_class, privacy_mode, subject_anchor, consumed_authority_record_id,
+	resource_set_hash, expires_at,
 	satisfied_at, rejected_at, consumed_at, approver_subject_id, approver_session_id,
 	decision_reason, metadata_json`
 
@@ -708,8 +738,10 @@ func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
 	var appID *string
 	var tier *string
 	var subjectAnchor *string
+	var consumedRecord *string
 	err := row.Scan(&c.ID, &c.ZoneID, &c.AuthorityRecordID, &c.ChallengeType, &c.PrincipalID,
-		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &subjectAnchor, &c.ResourceSetHash, &c.ExpiresAt,
+		&appID, &tier, &c.ApproverClass, &c.PrivacyMode, &subjectAnchor, &consumedRecord,
+		&c.ResourceSetHash, &c.ExpiresAt,
 		&c.SatisfiedAt, &c.RejectedAt, &c.ConsumedAt, &c.ApproverSubjectID, &c.ApproverAuthorityRecordID,
 		&c.DecisionReason, &c.MetadataJSON)
 	if err != nil {
@@ -723,6 +755,9 @@ func scanStepUpChallenge(row pgx.Row) (*StepUpChallengePG, error) {
 	}
 	if subjectAnchor != nil {
 		c.SubjectAnchor = *subjectAnchor
+	}
+	if consumedRecord != nil {
+		c.ConsumedAuthorityRecordID = *consumedRecord
 	}
 	return &c, nil
 }
@@ -782,12 +817,20 @@ func (d *DB) GetOrCreateApprovalChallenge(ctx context.Context, c *StepUpChalleng
 	return existing, false, tx.Commit(ctx)
 }
 
-// DecideStepUpChallenge atomically records an approver's decision on a pending hold.
-// The update only lands on a live, undecided, unconsumed human-approval challenge in
-// the named zone, so an expired hold, a decided one, or a replay cannot be re-decided.
-// Returns ErrApprovalInvalid when no such challenge exists.
-func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) error {
-	tag, err := d.pool.Exec(ctx,
+// DecideApprovalWithAudit atomically records an approver's decision on a pending hold
+// together with its audit event: the decision UPDATE, the outbox row the shared
+// dispatcher drains to the audit stream, and the waiter wakeup commit or roll back as
+// one unit, so a decision can never exist without its audit evidence. The update only
+// lands on a live, undecided, unconsumed human-approval challenge in the named zone,
+// so an expired hold, a decided one, or a replay cannot be re-decided. Returns
+// ErrApprovalInvalid when no such challenge exists.
+func (d *DB) DecideApprovalWithAudit(ctx context.Context, p DecideStepUpParams, audit OutboxAuditEvent) error {
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	tag, err := tx.Exec(ctx,
 		`UPDATE step_up_challenges
 		 SET satisfied_at = CASE WHEN $3 THEN now() END,
 		     rejected_at = CASE WHEN NOT $3 THEN now() END,
@@ -809,7 +852,82 @@ func (d *DB) DecideStepUpChallenge(ctx context.Context, p DecideStepUpParams) er
 	if tag.RowsAffected() == 0 {
 		return ErrApprovalInvalid
 	}
-	return nil
+	payload := map[string]string{"id": audit.ID, "data": audit.Data}
+	if audit.Sig != "" {
+		payload["sig"] = audit.Sig
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO event_outbox (id, stream_name, payload_json, request_id)
+		 VALUES ($1, $2, $3::jsonb, $4)`,
+		audit.ID, auditStream, payloadJSON, p.ID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, $2)`, approvalDecidedChannel, p.ID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ReissueConsumedApproval reports the authority record a recently consumed hold
+// created, when the caller presents the exact original bindings inside the re-issue
+// window and that record is still active. It mutates nothing: re-issuing mints another
+// short-lived bearer for the same authority, so a lost success response costs the
+// caller a retry, never the human a second decision. Returns ErrApprovalInvalid when
+// the hold, window, bindings, or record do not line up.
+func (d *DB) ReissueConsumedApproval(ctx context.Context, p ReissueApprovalParams) (string, time.Time, error) {
+	var recordID string
+	var expiresAt time.Time
+	err := d.pool.QueryRow(ctx,
+		`SELECT a.id, a.expires_at
+		 FROM step_up_challenges c
+		 JOIN authority_records a
+		   ON a.id = c.consumed_authority_record_id AND a.zone_id = c.zone_id
+		 WHERE c.id = $1
+		   AND c.zone_id = $2
+		   AND c.principal_id = $3
+		   AND c.resource_set_hash = $4
+		   AND c.challenge_type = 'human_approval'
+		   AND c.consumed_at IS NOT NULL
+		   AND c.consumed_at > now() - make_interval(secs => $5)
+		   AND a.status = 'active'
+		   AND a.expires_at > now()`,
+		p.ID, p.ZoneID, p.PrincipalID, p.ResourceSetHash, p.WindowSeconds,
+	).Scan(&recordID, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", time.Time{}, ErrApprovalInvalid
+	}
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return recordID, expiresAt, nil
+}
+
+// WaitForApprovalNotifications blocks on the approval decision channel and invokes
+// the handler with each decided hold id. It holds one dedicated connection; the
+// caller owns reconnection when it returns an error.
+func (d *DB) WaitForApprovalNotifications(ctx context.Context, handler func(id string)) error {
+	conn, err := d.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `LISTEN `+approvalDecidedChannel); err != nil {
+		return err
+	}
+	for {
+		notification, err := conn.Conn().WaitForNotification(ctx)
+		if err != nil {
+			return err
+		}
+		if notification.Payload != "" {
+			handler(notification.Payload)
+		}
+	}
 }
 
 // ConsumeApprovalChallenge atomically transitions an approved challenge to consumed,
@@ -894,7 +1012,7 @@ func (d *DB) AuthorityRecordsRelated(ctx context.Context, zoneID, recordA, recor
 func (d *DB) DeleteExpiredStepUpChallenges(ctx context.Context, cutoff time.Time) (int64, error) {
 	tag, err := d.pool.Exec(ctx,
 		`DELETE FROM step_up_challenges
-		 WHERE GREATEST(COALESCE(consumed_at, '-infinity'), COALESCE(rejected_at, '-infinity'), expires_at) < $1`,
+		 WHERE GREATEST(COALESCE(consumed_at, '-infinity'::timestamp with time zone), COALESCE(rejected_at, '-infinity'::timestamp with time zone), expires_at) < $1`,
 		cutoff,
 	)
 	if err != nil {

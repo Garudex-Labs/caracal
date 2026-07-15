@@ -412,6 +412,8 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 
 	challengeResolved := false
 	var approval *StepUpChallengePG
+	var reissueRecordID string
+	var reissueExpires time.Time
 	if req.ApprovalID != "" {
 		// Verify the presented approval against every binding without consuming it:
 		// consumption happens after the policy loop, immediately before the session is
@@ -430,6 +432,24 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		}
 		switch approvalLifecycleState(existing, exchangeNow) {
 		case ApprovalStateConsumed:
+			// The one legitimate way to arrive here is a retry whose successful
+			// response was lost in transit. When the exact original binding returns
+			// inside the re-issue window and the authority record the consumption
+			// created is still active, the mint re-issues a bearer for that same
+			// record: same authority, no second decision, nothing new to revoke.
+			recordID, recordExpires, rerr := s.db.ReissueConsumedApproval(ctx, ReissueApprovalParams{
+				ID:              existing.ID,
+				ZoneID:          zoneID,
+				PrincipalID:     principalID,
+				ResourceSetHash: existing.ResourceSetHash,
+				WindowSeconds:   approvalReissueWindow.Seconds(),
+			})
+			if rerr == nil && recordID != "" {
+				reissueRecordID = recordID
+				reissueExpires = recordExpires
+				challengeResolved = true
+				break
+			}
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{}, appMeta); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
 			}
@@ -782,11 +802,35 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 		ExpiresAt:       now.Add(ttl),
 		AuthenticatedAt: now,
 	}
-	if approval != nil {
-		// Consume as the final fallible step before the session exists: every deny
-		// above leaves the approval intact for the corrected retry, and a concurrent
-		// consumer losing this race is told so precisely.
-		if cerr := s.consumeApproval(ctx, zoneID, principalID, approval.ID, req.Resources, scopes, approvalBinding); cerr != nil {
+	switch {
+	case reissueRecordID != "":
+		// The consumption already created this mint's authority record; issue
+		// another bearer for it, bounded by the record's remaining life so no
+		// token outlives the authority it represents.
+		sessID = reissueRecordID
+		if remaining := reissueExpires.Sub(now); remaining < ttl {
+			ttl = remaining
+		}
+		if ttl <= 0 {
+			return nil, nil, http.StatusConflict, sharederr.New(sharederr.ApprovalConsumed, "approval no longer valid; another request may have consumed it")
+		}
+		if auditErr := s.emitStepUpAudit(requestID, zoneID, "step_up_consumed", "consumed",
+			mergeAuditMeta(appMeta, map[string]any{"challenge_id": req.ApprovalID, "reissued": true, "authority_record_id": reissueRecordID})); auditErr != nil {
+			return nil, nil, http.StatusInternalServerError, auditErr
+		}
+	case approval != nil:
+		// Consume and create the authority record as one atomic statement, the
+		// final fallible step of the mint: every deny above leaves the approval
+		// intact for the corrected retry, a crash can never strand a consumed
+		// hold without its record, and a concurrent consumer losing this race is
+		// told so precisely.
+		if cerr := s.db.InsertAuthorityRecordWithApproval(ctx, record, ConsumeApprovalParams{
+			ID:              approval.ID,
+			ZoneID:          zoneID,
+			PrincipalID:     principalID,
+			ResourceSetHash: hashApprovalBinding(req.Resources, scopes, approvalBinding),
+			Now:             now,
+		}); cerr != nil {
 			if auditErr := s.emitAuditEvent(requestID, zoneID, "deny", "approval_already_consumed", &OPAResult{},
 				mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
 				return nil, nil, http.StatusInternalServerError, auditErr
@@ -797,9 +841,10 @@ func (s *Server) exchange(ctx context.Context, req TokenExchangeRequest, request
 			mergeAuditMeta(appMeta, stepUpAuditMeta(approval))); auditErr != nil {
 			return nil, nil, http.StatusInternalServerError, auditErr
 		}
-	}
-	if err := s.db.InsertAuthorityRecord(ctx, record); err != nil {
-		return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+	default:
+		if err := s.db.InsertAuthorityRecord(ctx, record); err != nil {
+			return nil, nil, http.StatusInternalServerError, sharederr.New(sharederr.Internal, "authority record creation failed")
+		}
 	}
 
 	mintedScope := mintScope(req, subjectClaims)

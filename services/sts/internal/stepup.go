@@ -22,9 +22,24 @@ const (
 	// a durable hold satisfied out-of-band by an authenticated approver.
 	humanApprovalChallengeType = "human_approval"
 
-	approvalDefaultTTL = 30 * time.Minute
-	approvalMinTTL     = time.Minute
-	approvalMaxTTL     = 7 * 24 * time.Hour
+	// Approval lifetimes are class-scoped and independent of session lifetimes. A
+	// subject decision is an interactive consent moment, so its window defaults to
+	// minutes and caps at a day; an operator decision is an administrative review,
+	// so its window defaults to hours and caps at a week. A declaration's
+	// ttl_seconds tunes the window inside its class bounds; an expired hold never
+	// resumes anything, and the requester simply raises a fresh one.
+	approvalSubjectDefaultTTL  = 15 * time.Minute
+	approvalOperatorDefaultTTL = 4 * time.Hour
+	approvalSubjectMaxTTL      = 24 * time.Hour
+	approvalOperatorMaxTTL     = 7 * 24 * time.Hour
+	approvalMinTTL             = time.Minute
+
+	// approvalReissueWindow bounds how long after consumption the same caller,
+	// presenting the same complete binding, may re-issue a bearer for the authority
+	// record that consumption created. It exists for exactly one failure: the mint
+	// succeeded and the response was lost in transit. The window only needs to
+	// outlive client retry backoff.
+	approvalReissueWindow = 2 * time.Minute
 
 	// Approver classes: who may decide a hold. operator is a control-plane approver
 	// holding an approve-capable admin credential; subject is an authenticated end user
@@ -124,9 +139,10 @@ func parseTierDeclarations(result *OPAResult) []tierDeclaration {
 // label joins the distinct matched tiers. A specific operator or subject requirement
 // narrows any, while combining operator-only and subject-only tiers is rejected because
 // one decision cannot satisfy independent approver roles. The TTL is the shortest
-// declared window, clamped to the platform floor and ceiling. Privacy resolves to the
-// most protective mode declared. Absent values take the platform defaults: operator,
-// thirty minutes, identified.
+// declared window, clamped to the resolved class's floor and ceiling; when no tier
+// declares one, the class default applies. A hold decidable by a subject takes the
+// subject bounds, the most protective. Privacy resolves to the most protective mode
+// declared. Absent values take the platform defaults: operator and identified.
 func resolveApproval(decls []tierDeclaration) (resolvedApproval, error) {
 	tiers := map[string]struct{}{}
 	approver := ""
@@ -140,22 +156,22 @@ func resolveApproval(decls []tierDeclaration) (resolvedApproval, error) {
 			return resolvedApproval{}, err
 		}
 		privacy = strongerPrivacy(privacy, normalizePrivacy(decl.Privacy))
-		declTTL := approvalDefaultTTL
 		if decl.TTLSeconds > 0 {
-			declTTL = time.Duration(decl.TTLSeconds) * time.Second
-		}
-		if ttl == 0 || declTTL < ttl {
-			ttl = declTTL
+			declTTL := time.Duration(decl.TTLSeconds) * time.Second
+			if ttl == 0 || declTTL < ttl {
+				ttl = declTTL
+			}
 		}
 	}
+	defaultTTL, maxTTL := approvalTTLBounds(approver)
 	if ttl == 0 {
-		ttl = approvalDefaultTTL
+		ttl = defaultTTL
 	}
 	if ttl < approvalMinTTL {
 		ttl = approvalMinTTL
 	}
-	if ttl > approvalMaxTTL {
-		ttl = approvalMaxTTL
+	if ttl > maxTTL {
+		ttl = maxTTL
 	}
 	names := make([]string, 0, len(tiers))
 	for name := range tiers {
@@ -168,6 +184,17 @@ func resolveApproval(decls []tierDeclaration) (resolvedApproval, error) {
 		TTL:      ttl,
 		Privacy:  privacy,
 	}, nil
+}
+
+// approvalTTLBounds returns the default and ceiling for a hold's decision window by
+// resolved approver class. A hold a subject may decide (subject or any) is an
+// interactive consent and takes the short bounds; an operator-only hold is an
+// administrative review and takes the long ones.
+func approvalTTLBounds(approver string) (time.Duration, time.Duration) {
+	if approver == ApproverClassOperator {
+		return approvalOperatorDefaultTTL, approvalOperatorMaxTTL
+	}
+	return approvalSubjectDefaultTTL, approvalSubjectMaxTTL
 }
 
 func normalizeApprover(value string) string {
@@ -252,10 +279,9 @@ func approvalLifecycleState(c *StepUpChallengePG, now time.Time) string {
 // reserved for that exact Subject. The second return reports whether a new hold was
 // created.
 func (s *Server) ensureApproval(ctx context.Context, zoneID, authorityRecordID, sessionID, delegationEdgeID, principalID, applicationID, subjectAnchor string, approval resolvedApproval, bundle ZoneBundleInfo, resources, scopes, labels []string) (*StepUpChallengePG, bool, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, false, err
-	}
+	// The id is an unguessable capability URL segment, so it takes the fully
+	// random form rather than a time-ordered one.
+	id := uuid.New()
 	now, err := s.db.CurrentTime(ctx)
 	if err != nil {
 		return nil, false, err

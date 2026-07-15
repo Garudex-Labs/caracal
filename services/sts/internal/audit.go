@@ -154,6 +154,21 @@ func (a *AuditBuffer) sign(data []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// OutboxFrame serialises and signs one event as the {id, data, sig} frame the
+// transactional outbox carries, so an event enqueued inside a database transaction
+// reaches the audit stream byte-identical to one emitted through the buffer.
+func (a *AuditBuffer) OutboxFrame(ev AuditEvent) (OutboxAuditEvent, error) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return OutboxAuditEvent{}, err
+	}
+	frame := OutboxAuditEvent{ID: ev.ID, Data: string(data)}
+	if a != nil {
+		frame.Sig = a.sign(data)
+	}
+	return frame, nil
+}
+
 // xaddEvent serialises one event and pushes it to the audit stream.
 func (a *AuditBuffer) xaddEvent(ctx context.Context, ev AuditEvent) error {
 	data, err := json.Marshal(ev)
