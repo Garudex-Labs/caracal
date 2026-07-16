@@ -13,6 +13,8 @@ import { zoneExists } from '../zone-guard.js'
 import { withTransaction, TxAbort } from '../db.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import { assertReservedNamespace } from '../reserved-namespace.js'
+import { outboundProbeAllowed } from './providers.js'
+import { runResourceVerificationCheck } from '../resource-verify.js'
 
 const HttpURL = z
   .string()
@@ -248,6 +250,44 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'resource_not_found' })
     }
     return resource
+  })
+
+  // Side-effect-free connectivity check for a Caracal-mandate-backed resource: presents an
+  // untrusted probe mandate to the upstream over HEAD and reports whether the upstream's
+  // verifier rejects it. It never sends a valid mandate, so it cannot reach the upstream's
+  // business logic; it only distinguishes "the upstream rejects an invalid mandate" from "the
+  // upstream is not verifying". Rate limited per zone like other outbound probes.
+  fastify.post('/zones/:zoneId/resources/:id/test', async (req, reply) => {
+    const params = parseParams(ZoneIdParams, req, reply)
+    if (!params) return
+    const { rows } = await fastify.db.query<{ identifier: string; upstream_url: string | null; provider_kind: string | null }>(
+      `SELECT r.identifier, r.upstream_url, p.provider_kind
+       FROM resources r
+       LEFT JOIN providers p ON p.id = r.credential_provider_id AND p.zone_id = r.zone_id AND p.archived_at IS NULL
+       WHERE r.id = $1 AND r.zone_id = $2 AND r.archived_at IS NULL`,
+      [params.id, params.zoneId],
+    )
+    const resource = rows[0]
+    if (!resource || (isControlResource(resource.identifier) && !isControlResourceOperation(req))) {
+      return reply.code(404).send({ error: 'resource_not_found' })
+    }
+    if (resource.provider_kind !== 'caracal_mandate') {
+      return reply.code(400).send({
+        error: 'resource_verification_unsupported',
+        error_description: 'Verification checks apply only to resources bound to a Caracal mandate provider.',
+      })
+    }
+    if (!resource.upstream_url) {
+      return reply
+        .code(400)
+        .send({ error: 'resource_verification_unsupported', error_description: 'The resource has no upstream URL to probe.' })
+    }
+    if (!(await outboundProbeAllowed(fastify.redis, `resourcetest:${params.zoneId}`))) {
+      return reply.code(429).send({ error: 'resource_test_rate_limited' })
+    }
+    const issuer = fastify.cfg?.control?.issuer ?? fastify.cfg?.stsUrl
+    if (!issuer) return reply.code(503).send({ error: 'service_unconfigured' })
+    return runResourceVerificationCheck(resource.upstream_url, issuer, resource.identifier, params.zoneId)
   })
 
   fastify.post('/zones/:zoneId/resources', async (req, reply) => {

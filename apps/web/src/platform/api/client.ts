@@ -59,6 +59,7 @@ import type {
   ProviderInput,
   ProviderPatchInput,
   ProviderTestResult,
+  ResourceTestResult,
   Resource,
   ResourceInput,
   ResourcePatchInput,
@@ -703,6 +704,11 @@ export const consoleApi = {
       request<void>(`/v1/zones/${encodeURIComponent(zoneId)}/resources/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+    test: (zoneId: string, id: string) =>
+      request<ResourceTestResult>(
+        `/v1/zones/${encodeURIComponent(zoneId)}/resources/${encodeURIComponent(id)}/test`,
+        { method: "POST", body: JSON.stringify({}) },
+      ),
   },
 
   providers: {

@@ -202,6 +202,12 @@ export interface ProviderTestResult {
   checked_at: string;
 }
 
+export interface ResourceTestResult {
+  status: "guarded" | "unverified" | "unreachable" | "endpoint_error";
+  detail: string;
+  checked_at: string;
+}
+
 export interface ProviderDiscovery {
   issuer: string;
   token_endpoint: string;
