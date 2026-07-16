@@ -96,7 +96,20 @@ OAuth providers own a token endpoint Caracal can genuinely verify before anythin
 
 A failing check blocks creation and reports a precise classification: authentication failed, endpoint unreachable, unexpected endpoint response, or configuration incomplete. **Skip for now** creates the OAuth provider without a passing check; it then carries a red **Failed** badge in the provider list and detail view until a check passes. Open the provider and run **Connect** from its Connectivity section after fixing the configuration - a passing check clears the badge automatically.
 
-The other kinds - none, Caracal mandate, API key, bearer token, and HTTP Basic - make no upstream credential request of their own, so no meaningful preflight exists before a resource uses them. The console creates them directly with **Create Provider** and shows no Connectivity section; their configuration is validated at creation and their credential is exercised once a resource uses it. Caracal never presents a check that cannot fail. Automation can run the OAuth check through `POST /v1/zones/{zoneId}/providers/{id}/test` or create with a check by setting `"check": true` on the create request; both reject non-OAuth kinds with `provider_check_unsupported`, and checks are rate limited per zone.
+The other kinds - none, Caracal mandate, API key, bearer token, and HTTP Basic - make no upstream credential request of their own, so no provider-level credential preflight exists before a resource uses them. The console creates them directly with **Create Provider** and shows no Connectivity section; their configuration is validated at creation and their credential is exercised once a resource uses it. Caracal never presents a check that cannot fail. Automation can run the OAuth check through `POST /v1/zones/{zoneId}/providers/{id}/test` or create with a check by setting `"check": true` on the create request; both reject non-OAuth kinds with `provider_check_unsupported`, and checks are rate limited per zone.
+
+## Resource verification checks
+
+A Caracal mandate resource names an upstream that is expected to verify Caracal mandates through a verifier or adapter. Because the mandate is itself the upstream credential, Caracal can confirm the upstream actually enforces verification before traffic is routed. The check presents an untrusted mandate - signed by an ephemeral key that is not published in the zone JWKS - to the resource's upstream URL over `HEAD` and classifies the response:
+
+- **Verifier enforcing** - the upstream rejected the untrusted mandate with `401` or `403`, so a verifier is enforcing verification on this URL.
+- **Not verifying mandates** - the upstream accepted the untrusted mandate with a `2xx`. Add a Caracal verifier or adapter before routing traffic.
+- **Upstream unreachable** - the upstream did not answer. A public host must resolve; a private host must be granted egress through `CARACAL_PRIVATE_EGRESS_HOSTS` on the API.
+- **Unexpected response** - the upstream answered with another status, so the URL likely does not point at a route a verifier guards.
+
+The probe carries the same egress protection as provider checks: DNS is pinned to approved addresses at dial time, and private space is accepted only for exact names in `CARACAL_PRIVATE_EGRESS_HOSTS`, while metadata, link-local, loopback, multicast, and unspecified addresses stay forbidden. The untrusted mandate never reaches upstream business logic and is discarded after the probe; nothing is stored or returned.
+
+Creating a Caracal mandate resource that has an upstream URL runs the check: **Create resource** requires an enforcing result, while **Skip for now** creates the resource without one. Run the check any time from the resource's Verification section with **Test connection**. Automation can call `POST /v1/zones/{zoneId}/resources/{id}/test`, or create with a check by setting `"check": true` on the resource create request; both reject resources that are not bound to a Caracal mandate provider or have no upstream URL with `resource_verification_unsupported`, and probes are rate limited per zone.
 
 ## Operation authority
 

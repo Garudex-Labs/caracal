@@ -29,6 +29,7 @@ import {
   type Column,
   type FilterGroup,
 } from "@/components/ui";
+import { ConsoleApiError } from "@/platform/api/client";
 import { errorMessage } from "@/platform/api/errors";
 import {
   useCreateResource,
@@ -264,13 +265,27 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         providers={providers}
         busy={createResource.isPending}
         onClose={() => setCreateOpen(false)}
-        onSubmit={async (input) => {
+        onSubmit={async (input): Promise<ResourceTestResult | undefined> => {
           try {
             const created = await createResource.mutateAsync(input);
             setCreateOpen(false);
             toast({ tone: "success", title: "Resource created", description: created.name });
+            return undefined;
           } catch (err) {
-            toast({ tone: "error", title: "Create failed", description: errorMessage(err) });
+            if (err instanceof ConsoleApiError && err.code === "resource_check_failed") {
+              const check = (err.detail as { details?: { check?: ResourceTestResult } } | undefined)
+                ?.details?.check;
+              if (check) return check;
+            }
+            toast({
+              tone: "error",
+              title: "Create failed",
+              description:
+                err instanceof ConsoleApiError && err.code === "resource_test_rate_limited"
+                  ? "Too many connectivity checks. Wait a minute and try again."
+                  : errorMessage(err),
+            });
+            return undefined;
           }
         }}
       />
@@ -282,8 +297,8 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
         providers={providers}
         busy={updateResource.isPending}
         onClose={() => setEditTarget(null)}
-        onSubmit={async (input: ResourceInput) => {
-          if (!editTarget) return;
+        onSubmit={async (input: ResourceInput): Promise<ResourceTestResult | undefined> => {
+          if (!editTarget) return undefined;
           try {
             await updateResource.mutateAsync({ id: editTarget.id, input });
             setEditTarget(null);
@@ -295,6 +310,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           } catch (err) {
             toast({ tone: "error", title: "Update failed", description: errorMessage(err) });
           }
+          return undefined;
         }}
       />
 

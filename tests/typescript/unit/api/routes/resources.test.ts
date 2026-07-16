@@ -5,7 +5,12 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { resourcesRoutes } from '../../../../../apps/api/src/routes/resources.js'
+import { runResourceVerificationCheck } from '../../../../../apps/api/src/resource-verify.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
+
+vi.mock('../../../../../apps/api/src/resource-verify.js', () => ({
+  runResourceVerificationCheck: vi.fn(),
+}))
 
 describe('GET /v1/zones/:zoneId/resources', () => {
   it('hides the Control API resource from generic resource lists', async () => {
@@ -139,6 +144,43 @@ describe('POST /v1/zones/:zoneId/resources/:id/test', () => {
 })
 
 describe('POST /v1/zones/:zoneId/resources', () => {
+  it('blocks create with 422 when a caracal_mandate connectivity check is not guarded', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', { stsUrl: 'http://sts.test' } as never)
+    redis.incr.mockResolvedValue(1)
+    vi.mocked(runResourceVerificationCheck).mockResolvedValue({
+      status: 'unverified',
+      detail: 'The upstream accepted an invalid Caracal mandate.',
+      checked_at: '2026-07-16T00:00:00.000Z',
+    })
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // providerExists
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'caracal_mandate' }] }) // kind lookup
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/resources',
+      payload: {
+        name: 'PiperNet',
+        identifier: 'resource://pipernet',
+        scopes: ['mcp:tool:call'],
+        operation_enforcement: 'transport_uniform',
+        upstream_url: 'https://api.pipernet.example',
+        credential_provider_id: 'provider-1',
+        check: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'resource_check_failed',
+      details: { check: { status: 'unverified' } },
+    })
+    expect(vi.mocked(runResourceVerificationCheck)).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a resource name longer than the maximum length', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
     db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] })

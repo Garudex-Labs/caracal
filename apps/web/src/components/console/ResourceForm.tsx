@@ -6,7 +6,7 @@ This file builds the create and edit dialog for Gateway-routed resources, coveri
 */
 import { useMemo, useState } from "react";
 
-import { Button, Disclosure, Field, InfoHint, Modal, Select } from "@/components/ui";
+import { Badge, Button, Disclosure, Field, InfoHint, Modal, Select } from "@/components/ui";
 import {
   RESOURCE_IDENTIFIER_PREFIX,
   stripResourceIdentifierPrefix,
@@ -18,7 +18,20 @@ import type {
   Resource,
   ResourceInput,
   ResourceOperationEnforcement,
+  ResourceTestResult,
 } from "@/platform/api/types";
+
+// Maps a failed create-time verification result to a badge, mirroring the OAuth provider
+// create flow. guarded never appears here because it is the passing outcome.
+const RESOURCE_TEST_STATUS: Record<
+  ResourceTestResult["status"],
+  { label: string; tone: "success" | "danger" | "warning" }
+> = {
+  guarded: { label: "Verifier enforcing", tone: "success" },
+  unverified: { label: "Not verifying mandates", tone: "danger" },
+  unreachable: { label: "Upstream unreachable", tone: "danger" },
+  endpoint_error: { label: "Unexpected response", tone: "warning" },
+};
 
 // Common methods offered as type-ahead suggestions. The Gateway authorizes any non-empty
 // method token (the control plane uppercases it), so the editor accepts free-form verbs
@@ -58,7 +71,7 @@ interface ResourceFormProps {
   providers: Provider[];
   busy: boolean;
   onClose: () => void;
-  onSubmit: (input: ResourceInput) => void;
+  onSubmit: (input: ResourceInput) => Promise<ResourceTestResult | undefined>;
 }
 
 // The form body only mounts while the dialog is open and remounts per target, so every
@@ -105,6 +118,7 @@ function ResourceFormBody({
     (resource?.operations ?? []).map((op) => ({ ...op })),
   );
   const [touched, setTouched] = useState(false);
+  const [checkFailed, setCheckFailed] = useState<ResourceTestResult | null>(null);
 
   const declaredScopes = useMemo(
     () =>
@@ -216,7 +230,7 @@ function ResourceFormBody({
 
   const show = (key: keyof FieldErrors) => (touched ? errors[key] : undefined);
 
-  function submit() {
+  function submit(check: boolean) {
     setTouched(true);
     if (Object.keys(errors).length > 0) return;
     const input: ResourceInput = {
@@ -236,8 +250,12 @@ function ResourceFormBody({
       ...(identifier.trim()
         ? { identifier: `${RESOURCE_IDENTIFIER_PREFIX}${identifier.trim()}` }
         : {}),
+      ...(check ? { check: true } : {}),
     };
-    onSubmit(input);
+    setCheckFailed(null);
+    void onSubmit(input).then((failed) => {
+      if (failed) setCheckFailed(failed);
+    });
   }
 
   function addOperation() {
@@ -255,6 +273,9 @@ function ResourceFormBody({
     setOperations((prev) => prev.filter((_, i) => i !== index));
   }
 
+  const boundProvider = providers.find((p) => p.id === credentialProvider);
+  const canVerify =
+    !isEdit && boundProvider?.kind === "caracal_mandate" && upstreamUrl.trim().length > 0;
   const missingPrereqs = !isEdit && providers.length === 0;
 
   return (
@@ -272,9 +293,29 @@ function ResourceFormBody({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy}>
-            {isEdit ? "Save changes" : "Create resource"}
-          </Button>
+          {isEdit ? (
+            <Button onClick={() => submit(false)} loading={busy}>
+              Save changes
+            </Button>
+          ) : canVerify ? (
+            <>
+              <Button onClick={() => submit(true)} loading={busy} disabled={busy}>
+                Create resource
+              </Button>
+              <button
+                type="button"
+                className="basis-full text-right text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => submit(false)}
+                disabled={busy}
+              >
+                Skip for now
+              </button>
+            </>
+          ) : (
+            <Button onClick={() => submit(false)} loading={busy}>
+              Create resource
+            </Button>
+          )}
         </>
       }
     >
@@ -506,6 +547,20 @@ function ResourceFormBody({
             onChange={(e) => setIdentifier(stripResourceIdentifierPrefix(e.target.value))}
           />
         </Disclosure>
+
+        {checkFailed ? (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <Badge tone={RESOURCE_TEST_STATUS[checkFailed.status].tone}>
+                {RESOURCE_TEST_STATUS[checkFailed.status].label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {new Date(checkFailed.checked_at).toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="text-xs text-foreground">{checkFailed.detail}</p>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );
