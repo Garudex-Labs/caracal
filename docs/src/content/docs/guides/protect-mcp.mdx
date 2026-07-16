@@ -7,6 +7,10 @@ import { Tabs, TabItem } from '@astrojs/starlight/components'
 
 Use the verify packages when your MCP framework does not have a dedicated Caracal adapter or when you want to build your own boundary.
 
+:::note[Two ways to protect an MCP server]
+This guide covers in-process verification, where the MCP server checks mandates itself. To route an MCP-over-HTTP server through the Caracal Gateway with no code in the server, model it as a resource with operation enforcement set to **Any operation**, bound to a credential provider - see [Protect an MCP server over the Gateway](/guides/resources-providers/#protect-an-mcp-server-over-the-gateway).
+:::
+
 ## Prerequisites
 
 - A resource mandate audience and tool-scope map.
@@ -83,13 +87,13 @@ async def verify_tool_request(authorization: str | None):
 
 ## Verification checklist
 
-| Check                            | Why it matters                                             |
-| -------------------------------- | ---------------------------------------------------------- |
-| Issuer and audience              | Prevents accepting mandates from the wrong zone or target. |
-| Required scopes                  | Enforces tool-level authority.                             |
-| Required targets                 | Prevents cross-resource token reuse.                       |
+| Check                              | Why it matters                                             |
+| ---------------------------------- | ---------------------------------------------------------- |
+| Issuer and audience                | Prevents accepting mandates from the wrong zone or target. |
+| Required scopes                    | Enforces tool-level authority.                             |
+| Required targets                   | Prevents cross-resource token reuse.                       |
 | Session or Delegation requirements | Keeps application-root and delegated calls separate.       |
-| Revocation store                 | Rejects revoked sessions and Delegations.                  |
+| Revocation store                   | Rejects revoked sessions and Delegations.                  |
 
 ## Production revocation
 

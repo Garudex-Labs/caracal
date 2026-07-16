@@ -40,19 +40,19 @@ Resource fields should answer "what is being protected and where does Gateway se
 3. Create a resource with a stable identifier, such as `resource://pipernet`, and action-oriented scopes, such as `pipernet:read` and `pipernet:refund`.
 4. Set the upstream URL and the Gateway application.
 5. Attach exactly one upstream credential provider: `None` when the Gateway is the enforcement point and the upstream expects no credential, `Caracal mandate` when the upstream verifies Caracal tokens itself, or a provider-native kind when the upstream needs external credentials.
-6. For a path-addressed REST upstream, declare the operations the Gateway may invoke and keep [operation authority](#operation-authority) `enforced`; choose `transport_uniform` for single-surface transports such as MCP.
+6. For a path-addressed REST upstream, declare the operations the Gateway may invoke and keep [operation authority](#operation-authority) `enforced`; choose **Any operation** for single-surface transports such as MCP.
 
 ## Provider auth modes
 
-| Provider type                | Required main fields                                                                                                   | Runtime behavior                                                                                                                                              |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| None                         | No credential fields.                                                                                                  | Gateway strips caller auth and forwards no upstream credential; use only when Gateway is the enforcement point and the upstream expects no credential.        |
-| Caracal mandate              | No credential fields.                                                                                                  | Gateway forwards the Caracal resource mandate in `Authorization: Bearer ...`; the resource verifies issuer, audience, scopes, target, expiry, and revocation. |
-| OAuth 2.0 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret, optional upstream OAuth scopes.        | Creates a shared provider connection (optionally bound to a Subject) through a browser consent callback, then refreshes the brokered upstream tokens inside STS.                          |
-| OAuth 2.0 client credentials | Token endpoint, client ID, grant type, client secret or private key depending on the grant and authentication choices. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls, via `client_credentials` or RFC 7523 `jwt_bearer` assertion grants.     |
-| API key                      | Header name and API key.                                                                                               | Gateway forwards the sealed provider key in the configured header, with an optional auth scheme prefix.                                                       |
-| Bearer token                 | Bearer token.                                                                                                          | Gateway forwards the sealed provider token as `Authorization: Bearer ...` unless Advanced routing configures another header or scheme.                        |
-| HTTP Basic                   | Username and password.                                                                                                 | Gateway forwards `Authorization: Basic ...` built from the username and the sealed password; the pair is never exposed to callers or runtimes.                |
+| Provider type                | Required main fields                                                                                                   | Runtime behavior                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| None                         | No credential fields.                                                                                                  | Gateway strips caller auth and forwards no upstream credential; use only when Gateway is the enforcement point and the upstream expects no credential.           |
+| Caracal mandate              | No credential fields.                                                                                                  | Gateway forwards the Caracal resource mandate in `Authorization: Bearer ...`; the resource verifies issuer, audience, scopes, target, expiry, and revocation.    |
+| OAuth 2.0 authorization code | Authorization endpoint, token endpoint, redirect URI, client ID, client secret, optional upstream OAuth scopes.        | Creates a shared provider connection (optionally bound to a Subject) through a browser consent callback, then refreshes the brokered upstream tokens inside STS. |
+| OAuth 2.0 client credentials | Token endpoint, client ID, grant type, client secret or private key depending on the grant and authentication choices. | STS obtains and caches service-to-service provider tokens for Gateway upstream calls, via `client_credentials` or RFC 7523 `jwt_bearer` assertion grants.        |
+| API key                      | Header name and API key.                                                                                               | Gateway forwards the sealed provider key in the configured header, with an optional auth scheme prefix.                                                          |
+| Bearer token                 | Bearer token.                                                                                                          | Gateway forwards the sealed provider token as `Authorization: Bearer ...` unless Advanced routing configures another header or scheme.                           |
+| HTTP Basic                   | Username and password.                                                                                                 | Gateway forwards `Authorization: Basic ...` built from the username and the sealed password; the pair is never exposed to callers or runtimes.                   |
 
 Rules shared by every kind: provider secrets are sealed at creation and never returned by list or detail APIs; every Gateway resource binds exactly one provider; one provider can serve many resources. Concrete per-upstream setups (OpenAI, Google, GitHub, Slack, Jira, internal APIs) live in [Provider Recipes](/guides/provider-recipes/).
 
@@ -102,15 +102,15 @@ The other kinds - none, Caracal mandate, API key, bearer token, and HTTP Basic -
 
 A resource declares which upstream operations the Gateway may invoke and how strictly that surface is enforced. This authority is native to the platform: the Gateway and STS enforce it directly, so adopters configure data, not policy control flow.
 
-| Field                   | Meaning                                                                                                                                                                                                                                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `operations`            | The operations the Gateway may forward, each a `{method, path, scope}` triple. `method` and `path` match the upstream call; `scope` is the Caracal resource scope the mandate must carry for that operation, and must be one of the resource's declared scopes.                              |
-| `operation_enforcement` | `enforced` denies any Gateway operation not listed in `operations` and requires its scope on the mandate. `transport_uniform` treats the upstream as a single surface and relies on the mint-time scope check, for protocols such as MCP that address every call through one transport path. |
+| Field                   | Meaning                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operations`            | The operations the Gateway may forward, each a `{method, path, scope}` triple. `method` and `path` match the upstream call; `scope` is the Caracal resource scope the mandate must carry for that operation, and must be one of the resource's declared scopes.                                                                               |
+| `operation_enforcement` | `enforced` (**Listed operations only**) denies any Gateway operation not listed in `operations` and requires its scope on the mandate. `transport_uniform` (**Any operation**) treats the upstream as a single surface and relies on the mint-time scope check, for protocols such as MCP that address every call through one transport path. |
 
 When `operation_enforcement` is `enforced`, the Gateway authorizes only declared operations and denies everything else with `operation_not_permitted` before any upstream call. A resource that is `enforced` with an empty `operations` list is fully closed: every Gateway operation is denied until operations are declared.
 
 :::caution[Defaults differ by creation surface]
-Resources created through the Control API default to `enforced`, so authority stays closed until you describe it. Web console guided setup opens resources as `transport_uniform` because it does not collect per-operation detail - tighten them from the resource editor once the operation set is known.
+Resources created through the Control API default to `enforced`, so authority stays closed until you describe it. Web console guided setup opens resources as **Any operation** because it does not collect per-operation detail - tighten them from the resource editor once the operation set is known.
 :::
 
 Because the floor is enforced in the platform rather than in adopter policy, a policy can further restrict an operation but can never widen authority beyond the declared operations and their scopes.
@@ -125,7 +125,7 @@ Because the floor is enforced in the platform rather than in adopter policy, a p
 | Gateway application          | The managed application this resource's route serves. Gateway exchanges as this identity, and STS only accepts callers whose mandates were minted under it - delegated calls must target a Session it owns. Policy then authorizes each call. DCR applications cannot be bound here - they are short-lived single-session credentials, not durable Gateway identities. |
 | Upstream credential provider | The provider record Gateway uses to attach no credential, a Caracal mandate, OAuth tokens, API keys, or bearer tokens.                                                                                                                                                                                                                                                 |
 | Authorized operation         | `{method, path, scope}`, such as `{ "method": "POST", "path": "/api/create_payout", "scope": "pipernet:payout" }`; the scope must be one of the resource's Caracal resource scopes.                                                                                                                                                                                    |
-| Operation enforcement        | `enforced` for path-addressed REST upstreams; `transport_uniform` for single-surface transports such as MCP.                                                                                                                                                                                                                                                           |
+| Operation enforcement        | `enforced` for path-addressed REST upstreams; **Any operation** for single-surface transports such as MCP.                                                                                                                                                                                                                                                             |
 | Provider identifier          | `provider://lowercase-slug` stable name for the upstream credential system.                                                                                                                                                                                                                                                                                            |
 
 Do not put provider-specific credential details on a resource. Do not use mutable deployment hostnames as policy identifiers unless they are the actual authority boundary. Keep the resource identifier stable even if the upstream URL or upstream credential provider binding changes.
@@ -144,8 +144,28 @@ Do not put provider-specific credential details on a resource. Do not use mutabl
 Expected result: OAuth provider checks pass where supported, the resource has one Gateway application and one provider binding, undeclared operations fail before the upstream, and an allowed request reaches only the configured host.
 
 :::caution[Failure point: operation mode]
-The API value is `enforced`, not `enforce`. An `enforced` resource with no operations is intentionally closed. Use `transport_uniform` only when every call shares one transport surface, such as MCP.
+The API value is `enforced`, not `enforce`. An `enforced` resource with no operations is intentionally closed. Use **Any operation** only when every call shares one transport surface, such as MCP.
 :::
+
+## Protect an MCP server over the Gateway
+
+An MCP server is a standard Gateway upstream: it resolves to the same Resource and Provider objects with no MCP-specific primitive. MCP-over-HTTP is proxied like any other HTTP upstream, so only two choices are particular to MCP.
+
+**Resource.** Set operation enforcement to **Any operation**. MCP addresses every tool call through one transport surface, so there is no per-operation `{method, path, scope}` list to declare and the mint-time scope check is the authority boundary. Give the resource a stable identifier such as `resource://pipernet`, one or more tool scopes such as `mcp:tool:call`, the MCP server's upstream URL, and a Gateway application.
+
+**Provider.** Choose the credential kind by how the MCP server authenticates the request the Gateway forwards to it:
+
+| The MCP server authenticates with                                                                | Provider kind                        |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| Caracal mandates it verifies itself through a verifier or adapter                                | Caracal mandate                      |
+| Nothing, because the Gateway is the enforcement point and the server is network-restricted to it | None                                 |
+| Delegated user consent through the MCP OAuth 2.1 authorization-code flow                         | OAuth 2.0 authorization code         |
+| A machine-to-machine OAuth client                                                                | OAuth 2.0 client credentials         |
+| A static API key, a pre-issued bearer token, or a username and password                          | API key, Bearer token, or HTTP Basic |
+
+For either OAuth kind, paste the MCP server's issuer URL and use endpoint autofill: MCP servers publish the OIDC and RFC 8414 metadata Caracal resolves, so the authorization and token endpoints fill in automatically.
+
+The Gateway proxies MCP-over-HTTP but does not proxy WebSocket upgrades. For a WebSocket MCP transport, verify mandates inside the server process with [Protect an MCP Server](/guides/protect-mcp/) instead.
 
 ## Related Guides
 
