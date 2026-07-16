@@ -34,8 +34,7 @@ export async function runResourceVerificationCheck(
   } catch {
     return {
       status: 'unreachable',
-      detail:
-        'The upstream could not be reached. Confirm the URL and network path; a private host must be granted egress with CARACAL_PRIVATE_EGRESS_HOSTS.',
+      detail: 'The upstream could not be reached.',
       checked_at: at,
     }
   }

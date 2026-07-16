@@ -41,6 +41,7 @@ const ResourceBodyBase = z.object({
   credential_provider_id: z.string().nullable().optional(),
   operations: z.array(ResourceOperation).max(256).optional(),
   operation_enforcement: z.enum(['enforced', 'transport_uniform']).optional(),
+  check: z.boolean().optional(),
 })
 const ResourceBody = ResourceBodyBase.refine((body) => body.name !== undefined || body.identifier !== undefined, {
   message: 'name_or_identifier_required',
@@ -322,6 +323,28 @@ export const resourcesRoutes: FastifyPluginAsync = async (fastify) => {
     const operationEnforcement = body.operation_enforcement ?? 'enforced'
     if (await resourceQuotaExceeded(fastify, params.zoneId)) {
       return reply.code(409).send({ error: 'resource_quota_exceeded' })
+    }
+    // Optional pre-create connectivity check, mirroring the OAuth provider create flow: only a
+    // Caracal-mandate-backed resource can be probed (the upstream verifies the mandate itself),
+    // and a non-guarded result blocks creation. Omitting check skips the probe and creates the
+    // resource anyway, matching the provider "Skip for now" path.
+    if (body.check && credentialProviderID && body.upstream_url) {
+      const { rows: kindRows } = await fastify.db.query<{ provider_kind: string }>(
+        `SELECT provider_kind FROM providers WHERE id = $1 AND zone_id = $2 AND archived_at IS NULL`,
+        [credentialProviderID, params.zoneId],
+      )
+      if (kindRows[0]?.provider_kind === 'caracal_mandate') {
+        if (!(await outboundProbeAllowed(fastify.redis, `resourcetest:${params.zoneId}`))) {
+          return reply.code(429).send({ error: 'resource_test_rate_limited' })
+        }
+        const issuer = fastify.cfg?.control?.issuer ?? fastify.cfg?.stsUrl
+        if (issuer) {
+          const check = await runResourceVerificationCheck(body.upstream_url, issuer, identifier, params.zoneId)
+          if (check.status !== 'guarded') {
+            return reply.code(422).send({ error: 'resource_check_failed', details: { check } })
+          }
+        }
+      }
     }
     const id = uuidv7()
     const attribution = await resolveAttribution(req, fastify.db, params.zoneId)

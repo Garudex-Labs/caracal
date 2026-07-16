@@ -137,6 +137,7 @@ export interface ResourceInput {
   credential_provider_id?: string | null;
   operations?: ResourceOperation[];
   operation_enforcement?: ResourceOperationEnforcement;
+  check?: boolean;
 }
 
 export type ResourcePatchInput = Partial<ResourceInput>;
