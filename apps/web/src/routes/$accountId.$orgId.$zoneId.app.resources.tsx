@@ -35,11 +35,12 @@ import {
   useDeleteResource,
   useProviders,
   useResources,
+  useTestResource,
   useUpdateResource,
 } from "@/platform/api/hooks";
 import { appLink } from "@/platform/nav/appLink";
 import { useCreateDeepLink } from "@/platform/nav/createDeepLink";
-import type { Provider, Resource, ResourceInput } from "@/platform/api/types";
+import type { Provider, Resource, ResourceInput, ResourceTestResult } from "@/platform/api/types";
 
 export const Route = createFileRoute("/$accountId/$orgId/$zoneId/app/resources")({
   component: ResourcesRoute,
@@ -245,6 +246,7 @@ function ResourcesPage({ zoneId }: { zoneId: string }) {
           icon: (r) => <IdentityAvatar seed={r.id || r.identifier} size="lg" />,
           render: (r) => (
             <ResourceDetail
+              zoneId={zoneId}
               resource={r}
               provider={
                 r.credential_provider_id ? providerById.get(r.credential_provider_id) : undefined
@@ -325,12 +327,26 @@ function hostOf(url: string): string {
   }
 }
 
+// The verification probe reports one of four outcomes: a guarded upstream (rejected the
+// invalid mandate) is a success; an unverified upstream (accepted it) is a hard failure; an
+// unreachable or unexpected response is a cautionary amber.
+function verificationTone(status: ResourceTestResult["status"]): string {
+  const base = "rounded-lg border px-3 py-2 text-xs";
+  if (status === "guarded")
+    return `${base} border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400`;
+  if (status === "unverified")
+    return `${base} border-destructive/30 bg-destructive/10 text-destructive`;
+  return `${base} border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400`;
+}
+
 function ResourceDetail({
+  zoneId,
   resource,
   provider,
   onEdit,
   onDelete,
 }: {
+  zoneId: string;
   resource: Resource;
   provider?: Provider;
   onEdit: () => void;
@@ -339,6 +355,10 @@ function ResourceDetail({
   const scopes = resource.scopes ?? [];
   const operations = resource.operations ?? [];
   const archived = Boolean(resource.archived_at);
+  const testResource = useTestResource(zoneId);
+  const [verifyResult, setVerifyResult] = useState<ResourceTestResult | null>(null);
+  const canVerify =
+    provider?.kind === "caracal_mandate" && Boolean(resource.upstream_url) && !archived;
   return (
     <div className="flex flex-col gap-6">
       <DetailHeader
@@ -400,6 +420,41 @@ function ResourceDetail({
           />
         </div>
       </DetailSection>
+
+      {canVerify ? (
+        <DetailSection title="Verification">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={testResource.isPending}
+                onClick={() =>
+                  testResource.mutate(resource.id, {
+                    onSuccess: (result) => setVerifyResult(result),
+                    onError: () => setVerifyResult(null),
+                  })
+                }
+              >
+                Test connection
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Sends a deliberately invalid Caracal mandate and confirms the upstream rejects it.
+                No valid mandate is sent, so nothing reaches the upstream&apos;s tools.
+              </span>
+            </div>
+            {verifyResult ? (
+              <div className={verificationTone(verifyResult.status)} role="status">
+                {verifyResult.detail}
+              </div>
+            ) : testResource.isError ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                The verification check could not run.
+              </div>
+            ) : null}
+          </div>
+        </DetailSection>
+      ) : null}
 
       <DetailSection title="Scopes">
         {scopes.length > 0 ? (

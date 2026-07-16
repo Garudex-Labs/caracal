@@ -89,6 +89,55 @@ describe('GET /v1/zones/:zoneId/resources/:id', () => {
   })
 })
 
+describe('POST /v1/zones/:zoneId/resources/:id/test', () => {
+  const mandateRow = { identifier: 'resource://pipernet', upstream_url: 'https://api.pipernet.example', provider_kind: 'caracal_mandate' }
+
+  it('returns 404 when the resource does not exist', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-x/test' })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_not_found' })
+  })
+
+  it('hides the Control API resource from the probe', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ ...mandateRow, identifier: 'caracal-control' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-control/test' })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('rejects a resource not bound to a Caracal mandate provider', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ ...mandateRow, provider_kind: 'api_key' }] })
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-1/test' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_verification_unsupported' })
+  })
+
+  it('rejects a Caracal mandate resource with no upstream URL', async () => {
+    const { app, db } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [{ ...mandateRow, upstream_url: null }] })
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-1/test' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_verification_unsupported' })
+  })
+
+  it('rate-limits the probe per zone', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    db.query.mockResolvedValueOnce({ rows: [mandateRow] })
+    redis.incr.mockResolvedValue(11)
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-1/test' })
+    expect(res.statusCode).toBe(429)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_test_rate_limited' })
+  })
+})
+
 describe('POST /v1/zones/:zoneId/resources', () => {
   it('rejects a resource name longer than the maximum length', async () => {
     const { app, db } = buildRouteApp(resourcesRoutes)
