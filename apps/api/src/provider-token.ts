@@ -3,10 +3,11 @@
 //
 // Hardened outbound OAuth token-endpoint client shared by provider grant exchange and provider connection tests.
 
-import { createHash, createPrivateKey, randomUUID, sign, X509Certificate, type KeyObject } from 'node:crypto'
+import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign, X509Certificate, type KeyObject } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
+import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import { isIP } from 'node:net'
+import { isIP, type LookupFunction } from 'node:net'
 import { providerSecretConfigRef, type SecretBackend } from '@caracalai/server-core'
 
 const PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
@@ -206,6 +207,28 @@ export function buildGrantAssertion(input: GrantAssertionInput): string {
   return signAssertion(claims, input.keyId, input.privateKeyPem)
 }
 
+// A Caracal-shaped resource mandate signed with a throwaway key that is deliberately absent
+// from Caracal's JWKS. A correctly configured upstream verifier fails key resolution or
+// signature verification and rejects the request before any business logic runs, so the probe
+// never presents a usable credential: it can only reveal whether the upstream rejects an
+// invalid mandate, never grant access.
+export function buildUntrustedProbeMandate(issuer: string, audience: string, zoneId: string): string {
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const pem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
+  const now = Math.floor(Date.now() / 1000)
+  const claims = {
+    iss: issuer,
+    sub: 'caracal-verification-probe',
+    aud: audience,
+    zone_id: zoneId,
+    use: 'resource',
+    iat: now,
+    exp: now + 60,
+    jti: randomUUID(),
+  }
+  return signAssertion(claims, `caracal-verify-probe-${randomUUID()}`, pem)
+}
+
 export function buildTokenRequest(
   form: URLSearchParams,
   clientId: string,
@@ -245,6 +268,70 @@ export async function fetchProviderMetadata(endpoint: URL): Promise<{ statusCode
   return providerHttpRequest(endpoint, 'GET', { Accept: 'application/json' })
 }
 
+// Node's autoSelectFamily (Happy Eyeballs, default-enabled since Node 20) calls this hook
+// with { all: true } and expects the full resolved address list; the single-address callback
+// form fails the connection with "Invalid IP address: undefined". Every address
+// resolveSafeHost returns is SSRF-validated at dial time - not only at preflight - so a
+// DNS-rebinding answer that flips to a private address after the check still fails here.
+const pinnedLookup: LookupFunction = (host, options, callback) => {
+  void (async () => {
+    try {
+      const addresses = await resolveSafeHost(host)
+      if ((options as { all?: boolean }).all) {
+        ;(callback as unknown as (err: NodeJS.ErrnoException | null, addresses: { address: string; family: number }[]) => void)(
+          null,
+          addresses,
+        )
+      } else {
+        callback(null, addresses[0]!.address, addresses[0]!.family)
+      }
+    } catch (err) {
+      callback(err instanceof Error ? err : new Error(String(err)), '', 4)
+    }
+  })()
+}
+
+const RESOURCE_PROBE_TIMEOUT_MS = 10_000
+
+// Sends a single HEAD request carrying an untrusted probe mandate to a resource's upstream to
+// observe whether the upstream rejects it. http is permitted alongside https because the
+// request carries no secret - only a deliberately-invalid mandate - and caracal_mandate
+// upstreams are frequently plain-http internal services. HEAD keeps a misconfigured open
+// upstream from being driven into stateful work; redirects are not followed, the host is
+// SSRF-pinned at preflight and at dial, and only the status code is returned.
+export async function headProbeRequest(rawUrl: string, authorization: string): Promise<{ statusCode: number }> {
+  const url = new URL(rawUrl)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('upstream url must use http or https')
+  if (url.username || url.password) throw new Error('upstream url must not embed credentials')
+  await resolveSafeHost(url.hostname)
+  const requestImpl = (url.protocol === 'https:' ? httpsRequest : httpRequest) as typeof httpsRequest
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (err: Error | undefined, value?: { statusCode: number }): void => {
+      if (settled) return
+      settled = true
+      if (err) reject(err)
+      else resolve(value ?? { statusCode: 0 })
+    }
+    const req = requestImpl(
+      url,
+      {
+        method: 'HEAD',
+        headers: { Authorization: authorization, Accept: '*/*' },
+        timeout: RESOURCE_PROBE_TIMEOUT_MS,
+        lookup: pinnedLookup,
+      },
+      (res) => {
+        res.resume()
+        finish(undefined, { statusCode: res.statusCode ?? 0 })
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('resource verification probe timed out')))
+    req.on('error', finish)
+    req.end()
+  })
+}
+
 async function providerHttpRequest(
   endpoint: URL,
   method: 'GET' | 'POST',
@@ -266,26 +353,7 @@ async function providerHttpRequest(
         method,
         headers,
         timeout: PROVIDER_TOKEN_EXCHANGE_TIMEOUT_MS,
-        // Node's autoSelectFamily (Happy Eyeballs, default-enabled since Node 20) calls
-        // this hook with { all: true } and expects the full resolved address list; the
-        // single-address callback form makes the connection fail with "Invalid IP
-        // address: undefined". Every address resolveSafeHost returns is SSRF-validated,
-        // so honoring the all option keeps the connection pinned to safe hosts either way.
-        lookup: async (host, options, callback) => {
-          try {
-            const addresses = await resolveSafeHost(host)
-            if ((options as { all?: boolean }).all) {
-              ;(callback as unknown as (err: NodeJS.ErrnoException | null, addresses: { address: string; family: number }[]) => void)(
-                null,
-                addresses,
-              )
-            } else {
-              callback(null, addresses[0].address, addresses[0].family)
-            }
-          } catch (err) {
-            callback(err instanceof Error ? err : new Error(String(err)), '', 4)
-          }
-        },
+        lookup: pinnedLookup,
       },
       (res) => {
         let text = ''

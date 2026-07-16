@@ -556,7 +556,7 @@ const PROVIDER_TEST_RATE_LIMIT = 10
 
 const OAUTH_PROVIDER_KINDS: ReadonlySet<ProviderKind> = new Set(['oauth2_authorization_code', 'oauth2_client_credentials'])
 
-async function outboundProbeAllowed(redis: FastifyInstance['redis'], bucket: string): Promise<boolean> {
+export async function outboundProbeAllowed(redis: FastifyInstance['redis'], bucket: string): Promise<boolean> {
   const rlKey = `rl:${bucket}`
   await redis.set(rlKey, 0, 'EX', 60, 'NX')
   return (await redis.incr(rlKey)) <= PROVIDER_TEST_RATE_LIMIT

@@ -739,6 +739,14 @@ export function useDeleteResource(zoneId: string | null) {
   });
 }
 
+// Side-effect-free upstream verification probe for a Caracal-mandate-backed resource. The
+// outcome is not persisted on the resource row, so no query needs invalidating.
+export function useTestResource(zoneId: string | null) {
+  return useMutation({
+    mutationFn: (id: string) => consoleApi.resources.test(zoneId as string, id),
+  });
+}
+
 export function useProviders(zoneId: string | null, status: "active" | "archived" = "active") {
   return useQuery({
     queryKey: [...keys.providers(zoneId), status],
