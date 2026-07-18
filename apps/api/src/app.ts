@@ -54,6 +54,7 @@ import { providersRoutes } from './routes/providers.js'
 import { policiesRoutes } from './routes/policies.js'
 import { policySetsRoutes } from './routes/policy-sets.js'
 import { grantsRoutes } from './routes/grants.js'
+import { providerConnectionsRoutes } from './routes/provider-connections.js'
 import { subjectIssuersRoutes } from './routes/subject-issuers.js'
 import { subjectsRoutes } from './routes/subjects.js'
 import { approvalsRoutes } from './routes/approvals.js'
@@ -304,6 +305,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   await app.register(policiesRoutes, { prefix: '/v1' })
   await app.register(policySetsRoutes, { prefix: '/v1' })
   await app.register(grantsRoutes, { prefix: '/v1' })
+  await app.register(providerConnectionsRoutes, { prefix: '/v1' })
   await app.register(subjectIssuersRoutes, { prefix: '/v1' })
   await app.register(subjectsRoutes, { prefix: '/v1' })
   await app.register(approvalsRoutes, { prefix: '/v1' })
