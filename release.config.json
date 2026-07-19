@@ -1,6 +1,6 @@
 {
   "product": {
-    "version": "0.2.1-rc.1",
+    "version": "0.2.1",
     "binaries": {
       "runtime": {
         "sourceDir": "apps/runtime/dist",
