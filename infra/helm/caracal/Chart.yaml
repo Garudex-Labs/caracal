@@ -7,7 +7,7 @@ apiVersion: v2
 name: caracal
 description: Enterprise-friendly Kubernetes deployment for the open-source Caracal stack.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1-rc.1
+appVersion: "0.2.1-rc.1"
 # Floor for the native preStop sleep action used for graceful connection draining.
 kubeVersion: ">=1.30.0-0"

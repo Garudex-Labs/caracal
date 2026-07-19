@@ -59,7 +59,7 @@ export const ENV_SCHEMA = {
   CARACAL_BASE_VERSION: {
     kind: 'string',
     description: 'Dev base tag used to build local image names (<base>-dev.sha<sha>).',
-    default: '0.2.0',
+    default: '0.2.1',
   },
   CARACAL_DEV_SHA: {
     kind: 'string',

@@ -9,13 +9,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caracalai-revocation-redis"
-version = "0.2.0"
+version = "0.2.1rc1"
 description = "Caracal Redis-backed revocation connector."
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["caracalai-revocation==0.2.0", "redis>=7.4"]
+dependencies = ["caracalai-revocation==0.2.1rc1", "redis>=7.4"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["caracalai_revocation_redis"]
