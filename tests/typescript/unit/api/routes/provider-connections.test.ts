@@ -365,6 +365,177 @@ describe('OAuth provider grant browser flow', () => {
     expect(body.get('tenant')).toBe('hooli')
   })
 
+  const callbackState = 'abcdefghijklmnopqrstuvwxyz1234567890'
+  const callbackStateBody = JSON.stringify({
+    zone_id: 'z1',
+    subject_id: 'user-1',
+    provider_id: 'provider-1',
+    code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-._~',
+  })
+
+  it('renders an HTML callback page when the browser accepts text/html', async () => {
+    const { app, redis } = buildRouteApp(providerConnectionsRoutes)
+    redis.call.mockResolvedValue(null) // GETDEL miss: the authorization state has expired
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}`,
+      headers: { accept: 'text/html' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.headers['content-type']).toContain('text/html')
+    expect(res.body).toContain('<!doctype html>')
+    expect(res.body).toContain('OAuth callback expired')
+  })
+
+  it('reports provider denial returned to the callback', async () => {
+    const { app, redis } = buildRouteApp(providerConnectionsRoutes)
+    redis.call.mockResolvedValue(callbackStateBody)
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&error=access_denied&error_description=user_declined`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_oauth_denied', error_description: 'user_declined' })
+  })
+
+  it('rejects a callback that returns no authorization code', async () => {
+    const { app, redis } = buildRouteApp(providerConnectionsRoutes)
+    redis.call.mockResolvedValue(callbackStateBody)
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'authorization_code_required' })
+  })
+
+  it('rejects a callback whose provider no longer exists', async () => {
+    const { app, db, redis } = buildRouteApp(providerConnectionsRoutes)
+    redis.call.mockResolvedValue(callbackStateBody)
+    db.query.mockResolvedValueOnce({ rows: [] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&code=provider-code`,
+    })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_not_found' })
+  })
+
+  it('rejects a callback for a provider that does not support browser authorization', async () => {
+    const { app, db, redis } = buildRouteApp(providerConnectionsRoutes)
+    redis.call.mockResolvedValue(callbackStateBody)
+    db.query.mockResolvedValueOnce({ rows: [{ id: 'provider-1', provider_kind: 'oauth2_client_credentials', config_json: {} }] })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&code=provider-code`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_connection_unsupported' })
+  })
+
+  it('reports a provider token exchange that returns a non-success status', async () => {
+    const { app, db, redis, secrets } = buildRouteApp(providerConnectionsRoutes)
+    seedProviderSecret(secrets)
+    redis.call.mockResolvedValue(callbackStateBody)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+        },
+      ],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
+    mockProviderTokenResponse({ error: 'invalid_grant' }, 400)
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&code=provider-code`,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_token_exchange_failed' })
+  })
+
+  it('rejects a provider token response that omits an access token', async () => {
+    const { app, db, redis, secrets } = buildRouteApp(providerConnectionsRoutes)
+    seedProviderSecret(secrets)
+    redis.call.mockResolvedValue(callbackStateBody)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
+            client_id: 'google-client',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+        },
+      ],
+    })
+    vi.mocked(lookup).mockResolvedValue([{ address: '142.250.0.1', family: 4 }])
+    mockProviderTokenResponse({ token_type: 'bearer', expires_in: 3600 })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&code=provider-code`,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'provider_token_response_invalid' })
+  })
+
+  it('rejects a callback that is missing the OAuth state parameter', async () => {
+    const { app } = buildRouteApp(providerConnectionsRoutes)
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?code=provider-code`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_oauth_callback' })
+  })
+
+  it('rejects a callback when the provider client configuration is incomplete', async () => {
+    const { app, db, redis, secrets } = buildRouteApp(providerConnectionsRoutes)
+    seedProviderSecret(secrets)
+    redis.call.mockResolvedValue(callbackStateBody)
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'provider-1',
+          provider_kind: 'oauth2_authorization_code',
+          config_json: {
+            token_endpoint: 'https://oauth2.googleapis.com/token',
+            redirect_uri: 'http://localhost:3000/v1/zones/z1/provider-connections/oauth/callback',
+            client_auth_method: 'client_secret_basic',
+            allowed_token_hosts: ['oauth2.googleapis.com'],
+          },
+        },
+      ],
+    })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/zones/z1/provider-connections/oauth/callback?state=${callbackState}&code=provider-code`,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'invalid_provider_config' })
+  })
+
   it('rejects callback token exchanges outside the provider host allow-list', async () => {
     const { app, db, redis } = buildRouteApp(providerConnectionsRoutes)
     const state = 'abcdefghijklmnopqrstuvwxyz1234567890'

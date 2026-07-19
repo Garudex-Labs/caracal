@@ -3,7 +3,7 @@
 //
 // Resource route unit tests for same-zone provider ownership.
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { resourcesRoutes } from '../../../../../apps/api/src/routes/resources.js'
 import { runResourceVerificationCheck } from '../../../../../apps/api/src/resource-verify.js'
 import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.js'
@@ -11,6 +11,12 @@ import { buildRouteApp } from '../../../../shared/test-utils/typescript/fastify.
 vi.mock('../../../../../apps/api/src/resource-verify.js', () => ({
   runResourceVerificationCheck: vi.fn(),
 }))
+
+// The probe is a module-level mock, so its call history and resolved value carry across tests
+// unless reset; each case seeds its own outcome and asserts its own call count.
+beforeEach(() => {
+  vi.mocked(runResourceVerificationCheck).mockReset()
+})
 
 describe('GET /v1/zones/:zoneId/resources', () => {
   it('hides the Control API resource from generic resource lists', async () => {
@@ -141,6 +147,41 @@ describe('POST /v1/zones/:zoneId/resources/:id/test', () => {
     expect(res.statusCode).toBe(429)
     expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_test_rate_limited' })
   })
+
+  it('returns 503 when no verifier issuer is configured', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', {} as never)
+    db.query.mockResolvedValueOnce({ rows: [mandateRow] })
+    redis.incr.mockResolvedValue(1)
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-1/test' })
+    expect(res.statusCode).toBe(503)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'service_unconfigured' })
+    expect(vi.mocked(runResourceVerificationCheck)).not.toHaveBeenCalled()
+  })
+
+  it('returns the verification result for a guarded upstream', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', { stsUrl: 'http://sts.test' } as never)
+    db.query.mockResolvedValueOnce({ rows: [mandateRow] })
+    redis.incr.mockResolvedValue(1)
+    const result = {
+      status: 'guarded' as const,
+      detail: 'The upstream rejected an invalid Caracal mandate.',
+      checked_at: '2026-07-16T00:00:00.000Z',
+    }
+    vi.mocked(runResourceVerificationCheck).mockResolvedValue(result)
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources/res-1/test' })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toEqual(result)
+    expect(vi.mocked(runResourceVerificationCheck)).toHaveBeenCalledWith(
+      mandateRow.upstream_url,
+      'http://sts.test',
+      mandateRow.identifier,
+      'z1',
+    )
+  })
 })
 
 describe('POST /v1/zones/:zoneId/resources', () => {
@@ -179,6 +220,90 @@ describe('POST /v1/zones/:zoneId/resources', () => {
       details: { check: { status: 'unverified' } },
     })
     expect(vi.mocked(runResourceVerificationCheck)).toHaveBeenCalledTimes(1)
+  })
+
+  const checkPayload = {
+    name: 'PiperNet',
+    identifier: 'resource://pipernet',
+    scopes: ['mcp:tool:call'],
+    operation_enforcement: 'transport_uniform',
+    upstream_url: 'https://api.pipernet.example',
+    credential_provider_id: 'provider-1',
+    check: true,
+  }
+
+  it('creates the resource when a caracal_mandate connectivity check is guarded', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', { stsUrl: 'http://sts.test' } as never)
+    redis.incr.mockResolvedValue(1)
+    vi.mocked(runResourceVerificationCheck).mockResolvedValue({
+      status: 'guarded',
+      detail: 'The upstream rejected an invalid Caracal mandate.',
+      checked_at: '2026-07-16T00:00:00.000Z',
+    })
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // providerExists
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'caracal_mandate' }] }) // kind lookup
+      .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'resource://pipernet' }] }) // insert
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources', payload: checkPayload })
+
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body)).toMatchObject({ id: 'res-1', identifier: 'resource://pipernet' })
+    expect(vi.mocked(runResourceVerificationCheck)).toHaveBeenCalledTimes(1)
+  })
+
+  it('rate-limits the pre-create connectivity check per zone', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', { stsUrl: 'http://sts.test' } as never)
+    redis.incr.mockResolvedValue(11)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // providerExists
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'caracal_mandate' }] }) // kind lookup
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources', payload: checkPayload })
+
+    expect(res.statusCode).toBe(429)
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'resource_test_rate_limited' })
+    expect(vi.mocked(runResourceVerificationCheck)).not.toHaveBeenCalled()
+  })
+
+  it('skips the connectivity check when the bound provider is not a caracal_mandate', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', { stsUrl: 'http://sts.test' } as never)
+    redis.incr.mockResolvedValue(1)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // providerExists
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'api_key' }] }) // kind lookup
+      .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'resource://pipernet' }] }) // insert
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources', payload: checkPayload })
+
+    expect(res.statusCode).toBe(201)
+    expect(vi.mocked(runResourceVerificationCheck)).not.toHaveBeenCalled()
+  })
+
+  it('skips the connectivity check when no verifier issuer is configured', async () => {
+    const { app, db, redis } = buildRouteApp(resourcesRoutes)
+    app.decorate('cfg', {} as never)
+    redis.incr.mockResolvedValue(1)
+    db.query
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // zoneExists
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] }) // providerExists
+      .mockResolvedValueOnce({ rows: [{ provider_kind: 'caracal_mandate' }] }) // kind lookup
+      .mockResolvedValueOnce({ rows: [{ id: 'res-1', identifier: 'resource://pipernet' }] }) // insert
+
+    await app.ready()
+    const res = await app.inject({ method: 'POST', url: '/v1/zones/z1/resources', payload: checkPayload })
+
+    expect(res.statusCode).toBe(201)
+    expect(vi.mocked(runResourceVerificationCheck)).not.toHaveBeenCalled()
   })
 
   it('rejects a resource name longer than the maximum length', async () => {
