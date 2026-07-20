@@ -20,6 +20,7 @@ import { zoneExists } from '../zone-guard.js'
 import { appendKeysetCondition, listPage, parseListPagination } from './list-pagination.js'
 import {
   buildTokenRequest,
+  ensureAllowedHttpsEndpoint,
   ensureAllowedTokenEndpoint,
   ensureHttpsEndpoint,
   exchangeProviderToken,
@@ -117,7 +118,11 @@ async function revokeUpstreamTokens(
   const endpointRaw = stringConfig(config, 'revocation_endpoint')
   if (!endpointRaw) return 'unsupported'
   try {
-    const endpoint = ensureHttpsEndpoint(endpointRaw, 'provider revocation endpoint')
+    const endpoint = ensureAllowedHttpsEndpoint(
+      endpointRaw,
+      stringListConfig(config, 'allowed_token_hosts'),
+      'provider revocation endpoint',
+    )
     const clientId = stringConfig(config, 'client_id')
     const method = stringConfig(config, 'client_auth_method') || 'client_secret_basic'
     const tokens: { value: string; hint: string }[] = []

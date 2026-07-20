@@ -64,15 +64,19 @@ export function ensureHttpsEndpoint(raw: string, label: string): URL {
   return url
 }
 
-export function ensureAllowedTokenEndpoint(raw: string, hosts: string[]): URL {
-  const url = ensureHttpsEndpoint(raw, 'provider token endpoint')
+export function ensureAllowedHttpsEndpoint(raw: string, hosts: string[], label: string): URL {
+  const url = ensureHttpsEndpoint(raw, label)
   if (hosts.length === 0) {
     throw new Error('provider has no allowed_token_hosts configured')
   }
   if (!hosts.some((host) => host.trim().toLowerCase() === url.hostname.toLowerCase())) {
-    throw new Error('provider token endpoint host is not allowlisted')
+    throw new Error(`${label} host is not allowlisted`)
   }
   return url
+}
+
+export function ensureAllowedTokenEndpoint(raw: string, hosts: string[]): URL {
+  return ensureAllowedHttpsEndpoint(raw, hosts, 'provider token endpoint')
 }
 
 // Extract the IPv4 address embedded in a NAT64 well-known-prefix address
