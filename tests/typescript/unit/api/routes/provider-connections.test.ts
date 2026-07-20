@@ -871,6 +871,7 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
+              allowed_token_hosts: ['oauth2.googleapis.com'],
             },
           },
         ],
@@ -898,6 +899,40 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
     )
   })
 
+  it('does not send credentials to an unallowlisted revocation host', async () => {
+    const { app, db, secrets } = buildRouteApp(providerConnectionsRoutes)
+    seedProviderSecret(secrets)
+    db.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            access_token_ct: null,
+            refresh_token_ct: sealedRefreshToken(),
+            config_json: {
+              client_id: 'google-client',
+              client_auth_method: 'client_secret_basic',
+              revocation_endpoint: 'https://untrusted.example/revoke',
+              allowed_token_hosts: ['oauth2.googleapis.com'],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'connection-1', zone_id: 'z1', provider_id: 'provider-1', status: 'revoked' }],
+      })
+
+    await app.ready()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/provider-connections/revoke',
+      payload: { subject_id: 'user-1', provider_id: 'provider-1' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'revoked', upstream_revocation: 'failed' })
+    expect(httpsRequest).not.toHaveBeenCalled()
+  })
+
   it('keeps local revocation successful when the upstream rejects the revocation call', async () => {
     const { app, db, secrets } = buildRouteApp(providerConnectionsRoutes)
     seedProviderSecret(secrets)
@@ -911,6 +946,7 @@ describe('POST /v1/zones/:zoneId/provider-connections/revoke', () => {
               client_id: 'google-client',
               client_auth_method: 'client_secret_basic',
               revocation_endpoint: 'https://oauth2.googleapis.com/revoke',
+              allowed_token_hosts: ['oauth2.googleapis.com'],
             },
           },
         ],

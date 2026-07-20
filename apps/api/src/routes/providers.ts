@@ -25,6 +25,7 @@ import {
   buildClientAssertion,
   buildGrantAssertion,
   buildTokenRequest,
+  ensureAllowedHttpsEndpoint,
   ensureAllowedTokenEndpoint,
   exchangeProviderToken,
   fetchProviderMetadata,
@@ -445,6 +446,11 @@ function splitProviderConfig(
           publicConfig,
           'revocation_endpoint',
           'oauth2_authorization_code provider config revocation_endpoint must be an HTTPS URL',
+        )
+        ensureAllowedHttpsEndpoint(
+          publicConfig.revocation_endpoint as string,
+          stringListConfig(publicConfig, 'allowed_token_hosts'),
+          'provider revocation endpoint',
         )
       }
       requireOptionalStringRecord(
