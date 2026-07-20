@@ -33,9 +33,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@tailwindcss/vite": "^4.3.2",
-    "@tanstack/router-generator": "^1.167.18",
-    "@tanstack/router-plugin": "^1.168.19",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/router-generator": "^1.167.21",
+    "@tanstack/router-plugin": "^1.168.23",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
@@ -47,10 +47,10 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "prettier": "^3.9.5",
-    "tailwindcss": "^4.3.2",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.63.0",
-    "vite": "^8.1.4",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.64.0",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10"
   }
 }
