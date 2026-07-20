@@ -42,6 +42,7 @@ describe('stack commands', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    process.exitCode = undefined
     stderr = ''
     stdout = ''
     xdg = mkdtempSync(join(tmpdir(), 'caracal-stack-command-'))
@@ -73,6 +74,7 @@ describe('stack commands', () => {
   })
 
   afterEach(() => {
+    process.exitCode = undefined
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     rmSync(xdg, { recursive: true, force: true })
@@ -177,8 +179,10 @@ describe('stack commands', () => {
   })
 
   it('reports services ready without creating runtime config after a full stack start', async () => {
-    await expect(upCommand([])).rejects.toThrow('exit:0')
+    await expect(upCommand([])).resolves.toBeUndefined()
 
+    expect(process.exit).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(0)
     expect(engineMocks.stackStatus).toHaveBeenCalledWith({
       probes: [],
     })
@@ -186,6 +190,16 @@ describe('stack commands', () => {
     expect(stdout).toContain('runtime services ready')
     expect(stdout).not.toContain('runtime onboarding complete')
     expect(stdout).not.toContain('runtime config not found')
+  })
+
+  it('returns naturally when full-stack readiness fails', async () => {
+    engineMocks.stackStatus.mockRejectedValue(new Error('readiness probe failed'))
+
+    await expect(upCommand([])).resolves.toBeUndefined()
+
+    expect(process.exit).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+    expect(stderr).toContain('readiness probe failed')
   })
 
   it('forwards BuildKit env to compose when starting the stack', async () => {
@@ -215,8 +229,10 @@ describe('stack commands', () => {
   })
 
   it('upgrade stages images, migrates expand-first, rolls, then gates readiness', async () => {
-    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+    await expect(upgradeCommand([])).resolves.toBeUndefined()
 
+    expect(process.exit).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(0)
     const calls = engineMocks.composeRun.mock.calls.map((c) => (c[0] as { args: string[] }).args)
     expect(calls).toContainEqual(['build'])
     const migrateIndex = calls.findIndex((a) => a[0] === 'run' && a.includes('dbMigrate'))
@@ -235,7 +251,7 @@ describe('stack commands', () => {
       secretsDir: '/tmp/caracal-secrets',
     })
 
-    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+    await expect(upgradeCommand([])).resolves.toBeUndefined()
 
     const calls = engineMocks.composeRun.mock.calls.map((c) => (c[0] as { args: string[] }).args)
     expect(calls).toContainEqual(['pull'])
@@ -245,10 +261,20 @@ describe('stack commands', () => {
   })
 
   it('upgrade skips the lock and journal in dev mode', async () => {
-    await expect(upgradeCommand([])).rejects.toThrow('exit:0')
+    await expect(upgradeCommand([])).resolves.toBeUndefined()
 
     expect(engineMocks.acquireStackLock).not.toHaveBeenCalled()
     expect(engineMocks.appendUpgradeRecord).not.toHaveBeenCalled()
+  })
+
+  it('returns naturally when upgrade readiness fails', async () => {
+    engineMocks.stackStatus.mockRejectedValue(new Error('readiness probe failed'))
+
+    await expect(upgradeCommand([])).resolves.toBeUndefined()
+
+    expect(process.exit).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+    expect(stderr).toContain('readiness probe failed')
   })
 
   it('upgrade aborts before rolling services when the migration fails', async () => {

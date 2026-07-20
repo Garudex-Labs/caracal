@@ -167,8 +167,11 @@ export async function upCommand(argv: string[]): Promise<void> {
       await completeRuntimeOnboarding()
     } catch (err) {
       printError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      process.exitCode = 1
+      return
     }
+    process.exitCode = 0
+    return
   }
   process.exit(code)
 }
@@ -240,10 +243,11 @@ export async function upgradeCommand(argv: string[]): Promise<void> {
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err))
     record('readinessFailed')
-    process.exit(1)
+    process.exitCode = 1
+    return
   }
   record('success')
-  process.exit(0)
+  process.exitCode = 0
 }
 
 function upgradeHelp(): never {
