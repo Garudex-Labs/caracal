@@ -9,7 +9,7 @@ ARG BUN_VERSION=1.3.14
 ARG BUN_LINUX_X64_INTEGRITY=sha512-7OVTAKvwfPmSbIV1HpdOoVVx5VRc427GuPPne93N6vk4eQBPId9nXmZDh9/zGaKPdbVjVtQSZafWQoUjx38Utw==
 ARG BUN_LINUX_AARCH64_INTEGRITY=sha512-X5SsPZHs+iYO8R/efIcRtc7gT2Q2DgPfliCxEkx4cXBumwkw0c/EsHMNwH3EgGpCDaZ7IYVPhpCG/xBOQHEwZw==
 
-FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09 AS builder
+FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583 AS builder
 ARG PNPM_VERSION
 ARG BUN_VERSION
 ARG BUN_LINUX_X64_INTEGRITY
@@ -86,7 +86,7 @@ RUN case "${TARGETARCH}" in \
     bun build --compile --target=${bunTarget} src/shell.ts --outfile dist/caracal && \
     chmod +x dist/caracal
 
-FROM debian:13-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd
 # The pinned base digest lags Debian security releases between upstream rebuilds;
 # upgrading at build time keeps apt packages (for example liblzma5) at their
 # current fixes without waiting for a newer base image digest to be published.
