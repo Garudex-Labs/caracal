@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     GOWORK=off go build -mod=readonly -trimpath ${GO_BUILDFLAGS} -ldflags="${GO_LDFLAGS}" -o /healthcheck-bin ./
 
-FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09 AS builder
+FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583 AS builder
 ARG PNPM_VERSION
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
