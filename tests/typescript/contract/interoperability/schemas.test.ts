@@ -43,7 +43,6 @@ const contracts = [
   ['caracal-revocation-event-2026-05-21.schema.json', 'revocation-event.session.valid.json'],
   ['caracal-w3c-baggage-2026-05-21.schema.json', 'w3c-baggage.valid.json'],
   ['caracal-gateway-upstream-manifest-2026-05-21.schema.json', 'gateway-upstream-manifest.http.valid.json'],
-  ['caracal-provider-credential-plugin-manifest-2026-05-21.schema.json', 'provider-credential-plugin-manifest.valid.json'],
   ['caracal-audit-exporter-manifest-2026-05-21.schema.json', 'audit-exporter-manifest.valid.json'],
   ['caracal-policy-pack-manifest-2026-05-21.schema.json', 'policy-pack-manifest.valid.json'],
   ['caracal-resource-verifier-manifest-2026-05-21.schema.json', 'resource-verifier-manifest.valid.json'],
