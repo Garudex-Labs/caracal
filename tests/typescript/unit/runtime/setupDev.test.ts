@@ -50,7 +50,7 @@ describe('developer setup', () => {
   })
 
   it('uses the configured Python executable directly', async () => {
-    process.env.PYTHON = 'C:\Program Files\Python\python.exe'
+    process.env.PYTHON = String.raw`C:\Program Files\Python\python.exe`
     existsSyncMock.mockReturnValue(false)
 
     await import('../../../../scripts/setupDev.mjs')
