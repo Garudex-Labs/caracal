@@ -18,7 +18,6 @@ Wire contracts are raw protocol behavior. Product and SDK facades deliberately m
 | Policy input                        | [`caracal-policy-input-2026-05-20.schema.json`](/schemas/caracal-policy-input-2026-05-20.schema.json)                                               |
 | Policy pack manifest                | [`caracal-policy-pack-manifest-2026-05-21.schema.json`](/schemas/caracal-policy-pack-manifest-2026-05-21.schema.json)                               |
 | Policy result                       | [`caracal-policy-result-2026-05-20.schema.json`](/schemas/caracal-policy-result-2026-05-20.schema.json)                                             |
-| Provider credential plugin manifest | [`caracal-provider-credential-plugin-manifest-2026-05-21.schema.json`](/schemas/caracal-provider-credential-plugin-manifest-2026-05-21.schema.json) |
 | Resource verifier manifest          | [`caracal-resource-verifier-manifest-2026-05-21.schema.json`](/schemas/caracal-resource-verifier-manifest-2026-05-21.schema.json)                   |
 | Revocation event                    | [`caracal-revocation-event-2026-05-21.schema.json`](/schemas/caracal-revocation-event-2026-05-21.schema.json)                                       |
 | Token response                      | [`caracal-token-response-2026-05-21.schema.json`](/schemas/caracal-token-response-2026-05-21.schema.json)                                           |
@@ -28,7 +27,7 @@ Dates in schema filenames identify that wire contract; they are not product rele
 
 ## Fixture Files
 
-Fixtures include valid examples for audit events, audit exporter manifests, Gateway upstream manifests, JWT claims, policy input/results, policy pack manifests, provider credential plugins, resource verifier manifests, revocation events, token responses, W3C baggage, trace context headers, and stream signature canonicalization vectors.
+Fixtures include valid examples for audit events, audit exporter manifests, Gateway upstream manifests, JWT claims, policy input/results, policy pack manifests, resource verifier manifests, revocation events, token responses, W3C baggage, trace context headers, and stream signature canonicalization vectors.
 
 ## Product-to-Wire Mapping
 
@@ -46,7 +45,7 @@ Do not rename raw fields in an interoperable implementation. Map them at the SDK
 
 ## Usage
 
-- Use schemas when building adapters, exporters, or provider plugins.
+- Use schemas when building adapters, exporters, or connectors.
 - Use fixtures when adding SDK or interoperability tests.
 - Preserve schema filenames when documenting versioned contracts.
 - Add equivalent TypeScript, Python, and Go tests when a shared contract changes.

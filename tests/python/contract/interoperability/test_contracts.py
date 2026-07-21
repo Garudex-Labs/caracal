@@ -54,13 +54,6 @@ class InteroperabilityContractTests(unittest.TestCase):
         self.assertIsInstance(audit, dict)
         self.assertTrue(audit["action_result_required"])
 
-    def test_provider_plugin_manifest_keeps_credentials_gateway_only(self) -> None:
-        manifest = read_fixture("provider-credential-plugin-manifest.valid.json")
-
-        execution = manifest["execution"]
-        self.assertIsInstance(execution, dict)
-        self.assertEqual(execution["credential_exposure"], "gateway_only")
-
     def test_agent_framework_connector_manifest_labels_enforcement(self) -> None:
         manifest = read_fixture("agent-connector-manifest.valid.json")
 

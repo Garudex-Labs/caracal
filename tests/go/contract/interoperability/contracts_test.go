@@ -113,17 +113,6 @@ func TestGatewayManifestFixtureDeclaresEnforcementRequirements(t *testing.T) {
 	}
 }
 
-func TestProviderPluginManifestKeepsCredentialsGatewayOnly(t *testing.T) {
-	manifest := readFixture[map[string]any](t, "provider-credential-plugin-manifest.valid.json")
-	execution, ok := manifest["execution"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing execution contract: %#v", manifest)
-	}
-	if execution["credential_exposure"] != "gateway_only" {
-		t.Fatalf("provider plugins must not expose credentials to agents: %#v", execution)
-	}
-}
-
 func TestAgentFrameworkConnectorManifestLabelsEnforcement(t *testing.T) {
 	manifest := readFixture[map[string]any](t, "agent-connector-manifest.valid.json")
 	audit, ok := manifest["audit"].(map[string]any)
