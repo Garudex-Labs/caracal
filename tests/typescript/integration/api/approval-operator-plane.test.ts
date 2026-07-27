@@ -220,9 +220,7 @@ describe('Operator Plane Approval Flow (Wire-Level Integration)', () => {
   it('Step 6: Rejection Path - Approving already settled or expired hold returns 409', async () => {
     const { app, db } = buildRouteApp(approvalsRoutes)
     // UPDATE returns 0 rows, SELECT existing returns state 'approved'
-    db.query
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ approver_class: 'operator', state: 'approved' }] })
+    db.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ approver_class: 'operator', state: 'approved' }] })
     await app.ready()
 
     const res = await app.inject({
@@ -238,9 +236,7 @@ describe('Operator Plane Approval Flow (Wire-Level Integration)', () => {
   it('Step 7: Rejection Path - Operator approving subject-only hold returns 403', async () => {
     const { app, db } = buildRouteApp(approvalsRoutes)
     // UPDATE returns 0 rows, SELECT existing shows approver_class 'subject'
-    db.query
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ approver_class: 'subject', state: 'pending' }] })
+    db.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ approver_class: 'subject', state: 'pending' }] })
     await app.ready()
 
     const res = await app.inject({
