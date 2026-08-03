@@ -33,12 +33,12 @@
   },
   "devDependencies": {
     "@caracalai/admin": "workspace:*",
-    "@fastify/rate-limit": "^11.1.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@vitest/coverage-v8": "4.1.10",
     "express": "^5.2.1",
     "fastify": "^5.10.0",
     "pg": "^8.22.0",
-    "knip": "^6.29.0",
+    "knip": "^6.30.0",
     "prettier": "^3.9.6",
     "vitest": "^4.1.10",
     "yaml": "^2.8.2"
