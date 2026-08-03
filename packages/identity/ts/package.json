@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@caracalai/core": "0.2.1",
-    "jose": "^6.2.4"
+    "jose": "^6.2.5"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
