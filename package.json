@@ -38,7 +38,7 @@
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "^10.8.0",
     "express": "^5.2.1",
-    "fastify": "^5.10.0",
+    "fastify": "^5.11.0",
     "globals": "^17.8.0",
     "jsdom": "^28.1.0",
     "knip": "^6.29.0",
