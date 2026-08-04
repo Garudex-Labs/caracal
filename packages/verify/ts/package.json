@@ -45,7 +45,7 @@
     "@caracalai/revocation": "1.0.0-rc.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }
