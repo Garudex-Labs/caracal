@@ -532,6 +532,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      # The boot-level API integration imports the Engine through buildApp(). The embedded
+      # runtime asset is generated (and intentionally gitignored), so a clean PostgreSQL job
+      # must create it just like the TypeScript build job does.
+      - name: Generate Engine embedded runtime asset
+        run: pnpm --filter @caracalai/engine sync-embedded
+
       - name: Apply migrations for integration tests
         env:
           MIGRATIONS_DIR: ${{ github.workspace }}/infra/postgres/migrations
