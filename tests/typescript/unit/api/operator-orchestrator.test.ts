@@ -8,6 +8,7 @@ import {
   createSkillRegistry,
   createOrchestrator,
   ASK_MODE_CHANGE_MESSAGE,
+  OrchestrationCancelledError,
   type SkillRegistry,
   type Skill,
 } from '../../../../apps/api/src/operator-orchestrator.js'
@@ -109,6 +110,53 @@ describe('createSkillRegistry', () => {
 })
 
 describe('createOrchestrator', () => {
+  it('stops before the next model stage when persisted run state is cancelled', async () => {
+    const gateway = gatewayFor('conversational')
+    const isCancelled = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    await expect(createOrchestrator().handle(gateway, 'hello', emptyContext, { isCancelled })).rejects.toBeInstanceOf(
+      OrchestrationCancelledError,
+    )
+    expect(gateway.completeObject).toHaveBeenCalledTimes(1)
+    expect(gateway.complete).not.toHaveBeenCalled()
+  })
+
+  it('stops a plan after planning when cancellation lands before guardian review', async () => {
+    const plan = {
+      summary: 'Connect GitHub',
+      steps: [{ id: 's1', capability: 'connectProvider', args: { name: 'GitHub', kind: 'api_key' } }],
+    }
+    const gateway = planningGateway('change', plan)
+    const isCancelled = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+
+    await expect(createOrchestrator().handle(gateway, 'connect github', emptyContext, { isCancelled })).rejects.toBeInstanceOf(
+      OrchestrationCancelledError,
+    )
+    // Triage and planning ran; the security guardian was never dispatched.
+    expect(gateway.completeObject).toHaveBeenCalledTimes(2)
+  })
+
+  it('binds the run signal to an in-flight model stage', async () => {
+    const controller = new AbortController()
+    const completeObject = vi.fn(
+      (_messages: unknown, _schema: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          expect(options?.signal).toBe(controller.signal)
+          options?.signal?.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')), { once: true })
+        }),
+    )
+    const gateway = { status: () => ({ enabled: true, providers: [] }), completeObject } as unknown as Gateway
+    const handling = createOrchestrator().handle(gateway, 'hello', emptyContext, { signal: controller.signal })
+    await vi.waitFor(() => expect(completeObject).toHaveBeenCalledTimes(1))
+    controller.abort()
+    await expect(handling).rejects.toThrow()
+  })
+
   it('answers a read tier with the answer skill', async () => {
     const result = await createOrchestrator().handle(gatewayFor('read', 'because the scope is missing'), 'why denied', emptyContext)
     expect(result.tier).toBe('read')

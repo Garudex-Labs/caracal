@@ -52,7 +52,13 @@ import {
 import { type GovernanceLimits } from '../operator-ai-governance.js'
 import { runVerifier, type AgentContext, type OperatorMode, type PolicyDraft } from '../operator-agents.js'
 import { recallConversationMemory, rememberAppliedChange } from '../operator-conversation-memory.js'
-import { createOrchestrator, type OnProgress, type PlanReview, type ProgressEvent } from '../operator-orchestrator.js'
+import {
+  createOrchestrator,
+  OrchestrationCancelledError,
+  type OnProgress,
+  type PlanReview,
+  type ProgressEvent,
+} from '../operator-orchestrator.js'
 import { createStateResearcher } from '../operator-research.js'
 import type { Evidence } from '../operator-research.js'
 import { retrieveDocs } from '../operator-docs.js'
@@ -780,6 +786,13 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // returning a typed artifact the deterministic spine below validates, previews, and governs.
   // Built once for the plugin; it holds no per-request state.
   const orchestrator = createOrchestrator()
+
+  // Active durable runs on this API instance. Persisted run state remains authoritative across
+  // replicas; this local index is only the fast path that lets the explicit cancel route abort a
+  // provider transport already running on the same instance. Entries live exactly as long as the
+  // orchestration call and are never tied to the SSE connection, so a disconnect still leaves the
+  // durable run working as designed.
+  const activeMessageRuns = new Map<string, AbortController>()
 
   // Builds the Operator's governed control client for the executor role identity scoped to the
   // zone the conversation acts in, or null when governed execution is not fully configured - no
@@ -2240,6 +2253,26 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       reply.raw.end()
     }
 
+    const activeRunId = messageRun?.id ?? null
+    const runController = activeRunId ? new AbortController() : null
+    if (activeRunId && runController) activeMessageRuns.set(activeRunId, runController)
+
+    // Poll the durable row only at bounded orchestration checkpoints. This is the cross-instance
+    // cancellation path: a cancel handled by another replica cannot reach the local controller,
+    // but its committed state is observed before the next stage spends another model call.
+    const isRunCancelled = async (): Promise<boolean> => {
+      if (!activeRunId) return false
+      if (runController?.signal.aborted) return true
+      const { rows } = await fastify.db.query<MessageRunRow>(
+        `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1 AND zone_id = $2`,
+        [activeRunId, params.zoneId],
+      )
+      if (rows[0]?.state !== 'cancelled') return false
+      messageRun = rows[0]
+      runController?.abort()
+      return true
+    }
+
     try {
       // For a read tier the orchestrator first gathers live state through governed reads, so the
       // answer is grounded in current state rather than the model's guess. The researcher is the
@@ -2272,6 +2305,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         // Forward each reasoning delta as a reasoning frame so the console shows the model's
         // thinking live while it works, rather than a blank wait before the answer begins.
         onReasoningDelta: wantsStream ? (chunk: string) => writeSseEvent(reply, 'reasoning', { text: chunk }) : undefined,
+        signal: runController?.signal,
+        isCancelled: activeRunId ? isRunCancelled : undefined,
       })
 
       // A cancel that landed while the turn deliberated wins: the run already settled as cancelled,
@@ -2279,8 +2314,8 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // user turn stays in the ledger - it was recorded before the work began and really happened.
       if (messageRun) {
         const { rows: current } = await fastify.db.query<MessageRunRow>(
-          `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1`,
-          [messageRun.id],
+          `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1 AND zone_id = $2`,
+          [messageRun.id, params.zoneId],
         )
         if (current[0] && current[0].state === 'cancelled') {
           messageRun = current[0]
@@ -2597,6 +2632,20 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
         { state: 'completed', reason: 'answer_recorded' },
       )
     } catch (err) {
+      // Explicit cancellation is not an AI failure. The cancel transaction settles the durable
+      // row first, then aborts the same-instance transport; a persisted checkpoint on another
+      // instance raises the same orchestration stop. Reload that authoritative row and return it
+      // without recording model output or overwriting cancellation with a failed state.
+      if ((runController?.signal.aborted || err instanceof OrchestrationCancelledError) && activeRunId) {
+        const { rows } = await fastify.db.query<MessageRunRow>(
+          `SELECT ${MESSAGE_RUN_SELECT} FROM operator_message_runs WHERE id = $1 AND zone_id = $2`,
+          [activeRunId, params.zoneId],
+        )
+        if (rows[0]?.state === 'cancelled') {
+          messageRun = rows[0]
+          return finish(200, { intent: 'cancelled', ok: false, error: 'run_cancelled', ...meta() })
+        }
+      }
       if (err instanceof GatewayUnavailableError)
         return finish(409, { error: 'ai_unavailable' }, { state: 'failed', reason: 'ai_unavailable', errorCode: 'ai_unavailable' })
       if (err instanceof GatewayBudgetError)
@@ -2641,6 +2690,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       }
       if (messageRun) return finish(500, { error: 'ai_failed' }, { state: 'failed', reason: 'ai_failed', errorCode: 'ai_failed' })
       throw err
+    } finally {
+      if (activeRunId && runController && activeMessageRuns.get(activeRunId) === runController) {
+        activeMessageRuns.delete(activeRunId)
+      }
     }
   })
 
@@ -2663,13 +2716,17 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
          FOR UPDATE`,
         [params.zoneId, params.id, parsed.data.client_message_id],
       )
-      if (!rows[0]) return { status: 404, body: { error: 'run_not_found' } }
+      if (!rows[0]) return { status: 404, body: { error: 'run_not_found' }, cancelledRunId: null }
       if (isTerminalMessageRunState(rows[0].state)) {
-        return { status: 409, body: { error: 'run_settled', message_run: publicMessageRun(rows[0]) } }
+        return { status: 409, body: { error: 'run_settled', message_run: publicMessageRun(rows[0]) }, cancelledRunId: null }
       }
       const run = await writeMessageRunEventLocked(client, { run: rows[0], state: 'cancelled', reason: 'operator_cancelled' })
-      return { status: 200, body: { ok: true, message_run: publicMessageRun(run) } }
+      return { status: 200, body: { ok: true, message_run: publicMessageRun(run) }, cancelledRunId: run.id }
     })
+    // Abort only after the transaction committed, so the message path always observes the
+    // authoritative cancelled row when its provider promise rejects. A run on another instance
+    // has no local entry and will stop at its next persisted checkpoint instead.
+    if (outcome.cancelledRunId) activeMessageRuns.get(outcome.cancelledRunId)?.abort()
     return reply.code(outcome.status).send(outcome.body)
   })
 }

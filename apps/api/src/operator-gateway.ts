@@ -47,6 +47,10 @@ export interface GatewayMessage {
 export interface CompletionOptions {
   maxTokens?: number
   temperature?: number
+  // An explicit caller cancellation signal. The provider call composes it with its own timeout,
+  // so cancelling a durable Operator run stops the in-flight transport while a timeout still
+  // follows the normal provider failover path.
+  signal?: AbortSignal
   // The id of the provider the caller would like to use first. When it is configured and
   // available it is tried ahead of the failover order; otherwise it is ignored and the
   // normal order applies, so a stale preference never disables the gateway.
@@ -338,6 +342,7 @@ async function callProvider(
 ): Promise<CompletionResult> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
   try {
     const { system, conversation } = splitSystem(messages)
     const result = await generateText({
@@ -346,9 +351,10 @@ async function callProvider(
       messages: conversation,
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
-      abortSignal: controller.signal,
+      abortSignal: signal,
       maxRetries: 0,
     })
+    options.signal?.throwIfAborted()
     const text = result.text.trim()
     if (text.length === 0) throw new Error('provider returned an empty completion')
     const reasoning = result.reasoningText?.trim()
@@ -383,6 +389,7 @@ async function callProviderStream(
 ): Promise<CompletionResult> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
   // Whether any delta has reached the client. Once it has, the partial answer is visible, so a
   // later failure ends the turn rather than failing over; before it has, the failure is invisible
   // and fails over cleanly.
@@ -395,7 +402,7 @@ async function callProviderStream(
       messages: conversation,
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
-      abortSignal: controller.signal,
+      abortSignal: signal,
       maxRetries: 0,
       // Azure delivers a completion in a few coarse chunks, so every token of a chunk lands in one
       // burst and a short answer arrives all at once. Re-pace the text channel word by word so the
@@ -419,6 +426,7 @@ async function callProviderStream(
         throw part.error
       }
     }
+    options.signal?.throwIfAborted()
     const text = (await result.text).trim()
     if (text.length === 0) throw new Error('provider returned an empty completion')
     const reasoning = (await result.reasoningText)?.trim()
@@ -457,6 +465,7 @@ async function callProviderObject<T>(
 ): Promise<CompletionObjectResult<T>> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), provider.timeoutMs)
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
   try {
     const { system, conversation } = splitSystem(messages)
     const result = await generateObject({
@@ -466,9 +475,10 @@ async function callProviderObject<T>(
       messages: conversation,
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
-      abortSignal: controller.signal,
+      abortSignal: signal,
       maxRetries: 0,
     })
+    options.signal?.throwIfAborted()
     return {
       value: result.object,
       provider: provider.id,
@@ -501,6 +511,7 @@ export interface Gateway {
 async function runWithFailover<T>(
   available: ProviderConfig[],
   preferredProvider: string | undefined,
+  signal: AbortSignal | undefined,
   call: (provider: ProviderConfig) => Promise<T>,
 ): Promise<T> {
   if (available.length === 0) throw new GatewayUnavailableError()
@@ -514,9 +525,13 @@ async function runWithFailover<T>(
   }
   const attempts: { provider: string; reason: string }[] = []
   for (const provider of order) {
+    signal?.throwIfAborted()
     try {
       return await call(provider)
     } catch (err) {
+      // Explicit run cancellation is authoritative and must never spend another provider call.
+      // The provider's private timeout signal is not this signal, so timeouts retain failover.
+      if (signal?.aborted) throw err
       // A stream that already reached the client cannot be retried on another provider without
       // corrupting the visible output, so this failure ends the turn instead of failing over.
       if (err instanceof GatewayStreamInterruptedError) throw err
@@ -554,19 +569,19 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
     },
 
     complete(messages, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
+      return runWithFailover(available, options.preferredProvider, options.signal, (provider) =>
         callProvider(fetchImpl, provider, messages, options, governanceMiddleware),
       )
     },
 
     completeObject(messages, schema, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
+      return runWithFailover(available, options.preferredProvider, options.signal, (provider) =>
         callProviderObject(fetchImpl, provider, messages, schema, options, governanceMiddleware),
       )
     },
 
     stream(messages, handlers, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
+      return runWithFailover(available, options.preferredProvider, options.signal, (provider) =>
         callProviderStream(fetchImpl, provider, messages, options, handlers, governanceMiddleware),
       )
     },
@@ -639,6 +654,19 @@ export function preferProvider(gateway: Gateway, providerId: string | null): Gat
     completeObject: (messages, schema, options = {}) =>
       gateway.completeObject(messages, schema, { ...options, preferredProvider: providerId }),
     stream: (messages, handlers, options = {}) => gateway.stream(messages, handlers, { ...options, preferredProvider: providerId }),
+  }
+}
+
+// Binds every model call made through a gateway to one durable run's cancellation signal without
+// teaching individual agents about HTTP or persistence. Call-specific generation settings still
+// pass through unchanged; the run signal is authoritative for the lifetime of this wrapper.
+export function withAbortSignal(gateway: Gateway, signal: AbortSignal): Gateway {
+  return {
+    status: () => gateway.status(),
+    active: () => gateway.active(),
+    complete: (messages, options = {}) => gateway.complete(messages, { ...options, signal }),
+    completeObject: (messages, schema, options = {}) => gateway.completeObject(messages, schema, { ...options, signal }),
+    stream: (messages, handlers, options = {}) => gateway.stream(messages, handlers, { ...options, signal }),
   }
 }
 

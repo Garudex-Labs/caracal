@@ -30,7 +30,7 @@ import { CAPABILITIES, collectStepReferences, validateProposedPlan, type Propose
 import type { Researcher } from './operator-research.js'
 import type { Evidence } from './operator-research.js'
 import type { DocSnippet } from './operator-docs.js'
-import { streamingAnswers, type Gateway } from './operator-gateway.js'
+import { streamingAnswers, withAbortSignal, type Gateway } from './operator-gateway.js'
 
 // A skill is a capability the orchestrator can invoke, not a pipeline stage. answer skills
 // reply as text; plan skills produce a proposed plan the deterministic spine then governs. A
@@ -207,6 +207,27 @@ export interface HandleOptions {
   // authoritative result is unchanged whether or not anyone listens, and it is absent for models
   // that expose no reasoning. Omitted when the caller does not stream.
   onReasoningDelta?: (chunk: string) => void
+  // The durable message-run cancellation boundary. signal interrupts a provider call on the same
+  // API instance; isCancelled reads persisted state between stages so cancellation observed by a
+  // different instance still prevents every subsequent model call. Neither is tied to the client
+  // connection: disconnected runs intentionally continue in the background.
+  signal?: AbortSignal
+  isCancelled?: () => boolean | Promise<boolean>
+}
+
+// A deliberate stop raised only at an orchestration checkpoint. The route distinguishes it from
+// provider and governance failures and returns the already-settled durable cancellation unchanged.
+export class OrchestrationCancelledError extends Error {
+  constructor() {
+    super('operator message run cancelled')
+    this.name = 'OrchestrationCancelledError'
+  }
+}
+
+async function cancellationCheckpoint(options: HandleOptions): Promise<void> {
+  if (options.signal?.aborted) throw new OrchestrationCancelledError()
+  if (await options.isCancelled?.()) throw new OrchestrationCancelledError()
+  if (options.signal?.aborted) throw new OrchestrationCancelledError()
 }
 
 // The deterministic answer an ask-mode conversation returns for a request that would require a
@@ -294,7 +315,9 @@ async function deliberatePlan(
   context: AgentContext,
   skill: PlanSkill,
   emit: OnProgress,
+  checkpoint: () => Promise<void>,
 ): Promise<AgentResult<PlannerProposal>> {
+  await checkpoint()
   emit({ stage: 'planning' })
   const proposal = await skill.run(gateway, message, context)
   if (!proposal.ok || proposal.value.steps.length === 0) return proposal
@@ -306,6 +329,7 @@ async function deliberatePlan(
       priorSummary: candidate.value.summary,
       diagnostics: validation.diagnostics.map((d) => `${d.step_id}: ${d.message}`),
     }
+    await checkpoint()
     emit({ stage: 'repairing' })
     const repaired = await runPlanner(gateway, message, context, feedback)
     if (repaired.ok && validateProposedPlan(repaired.value).ok) candidate = repaired
@@ -322,6 +346,7 @@ async function deliberatePlan(
   // have none of. Every skipped plan is still fully governed by catalog validation, preview, the
   // guardian's review, and the approval gate, so skipping spends no safety, only a model call.
   if (!planIsCoupled(candidate.value)) return candidate
+  await checkpoint()
   emit({ stage: 'critiquing' })
   const critique = await runCritic(gateway, candidate.value, message, context)
   if (critique.ok && critique.value.verdict === 'revise' && critique.value.deficiencies.length > 0) {
@@ -329,6 +354,7 @@ async function deliberatePlan(
       priorSummary: candidate.value.summary,
       diagnostics: critique.value.deficiencies.map((d) => d.issue),
     }
+    await checkpoint()
     emit({ stage: 'revising' })
     const revised = await runPlanner(gateway, message, context, feedback)
     if (revised.ok && revised.value.steps.length > 0 && validateProposedPlan(revised.value).ok) return revised
@@ -347,8 +373,10 @@ async function groundAnswer(
   message: string,
   answer: AgentResult<{ text: string; reasoning?: string }>,
   context: AgentContext,
+  checkpoint: () => Promise<void>,
 ): Promise<AgentResult<{ text: string; reasoning?: string }>> {
   if (!answer.ok || !context.evidence || context.evidence.length === 0) return answer
+  await checkpoint()
   try {
     const check = await runAnswerCheck(gateway, message, answer.value.text, context)
     if (check.ok && !check.value.grounded && check.value.correction) {
@@ -356,6 +384,9 @@ async function groundAnswer(
     }
     return answer
   } catch {
+    // The grounding check otherwise fails open. Cancellation is not a grounding failure: it must
+    // escape so the route stops the durable run instead of accepting the ungrounded draft.
+    await checkpoint()
     return answer
   }
 }
@@ -379,8 +410,11 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
     async handle(gateway, message, context, options = {}): Promise<OrchestrationResult> {
       const mode: OperatorMode = options.mode ?? 'agent'
       const emit: OnProgress = options.onProgress ?? (() => {})
+      const checkpoint = () => cancellationCheckpoint(options)
+      const runGateway = options.signal ? withAbortSignal(gateway, options.signal) : gateway
+      await checkpoint()
       emit({ stage: 'triaging' })
-      const triage = await runTriage(gateway, message, context)
+      const triage = await runTriage(runGateway, message, context)
       const classification: OperatorTriage = triage.ok ? triage.value : { tier: 'read', topic: 'general' }
       const tier = classification.tier
 
@@ -390,6 +424,7 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       // policy draft's whole purpose is a governed create the ask-mode write path would reject, so an
       // ask conversation must not surface that action at all. Conversational and read requests proceed.
       if (mode === 'ask' && (tierPlans(tier) || tierAuthorsPolicy(tier))) {
+        await checkpoint()
         return { tier, outcome: { kind: 'answer', result: { ok: true, value: { text: ASK_MODE_CHANGE_MESSAGE } } } }
       }
 
@@ -401,10 +436,12 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // specialist authors and validates a draft; it applies nothing, and creating, versioning, or
         // activating any document still flows through the governed, approval-gated path the route
         // owns. The draft is returned as its own outcome the route persists and surfaces.
+        await checkpoint()
         emit({ stage: 'gathering' })
         const policyContext = withDocs(await withEvidence(context, options.researcher, classification.domains), message, options.docs)
+        await checkpoint()
         emit({ stage: 'authoring' })
-        const result = await skill.run(gateway, message, policyContext)
+        const result = await skill.run(runGateway, message, policyContext)
         return { tier, outcome: { kind: 'policy', result } }
       }
 
@@ -416,18 +453,20 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // guardian review over any plan that proposes steps. The route still owns validate, preview,
         // approve, and apply; the guardian, the critic, and the repair pass only improve and inform
         // the proposal.
+        await checkpoint()
         emit({ stage: 'gathering' })
         let planContext = withDocs(await withEvidence(context, options.researcher, classification.domains), message, options.docs)
-        let result = await deliberatePlan(gateway, message, planContext, skill, emit)
+        let result = await deliberatePlan(runGateway, message, planContext, skill, emit, checkpoint)
         // The planner may decline to plan and instead name the object domains it must read before it
         // can propose responsibly. Caracal honors that exactly once: it reads those domains, merges
         // the fresh evidence into the context, and replans. The loop is bounded to a single expansion
         // so a turn can never fan out unboundedly, and the planner only directs what to read - Caracal
         // decides and still owns validate, preview, and approval of whatever plan results.
         if (result.ok && result.value.steps.length === 0 && result.value.needs && options.researcher) {
+          await checkpoint()
           emit({ stage: 'gathering' })
           planContext = await expandEvidence(planContext, options.researcher, result.value.needs.domains)
-          result = await deliberatePlan(gateway, message, planContext, skill, emit)
+          result = await deliberatePlan(runGateway, message, planContext, skill, emit, checkpoint)
         }
         // When the planner could not plan responsibly it proposes no steps and asks one clarifying
         // question instead of guessing. Caracal relays that question to the operator as an answer
@@ -443,17 +482,22 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
         // synthesizes the guidance the question actually asked for - so a read-only plan never
         // surfaces as an approvable artifact.
         if (result.ok && result.value.steps.length > 0 && result.value.steps.every((s) => CAPABILITIES[s.capability]?.mutating === false)) {
+          await checkpoint()
           const readDomains = [...new Set(result.value.steps.map((s) => CAPABILITIES[s.capability].domain))]
           const readContext = await expandEvidence(planContext, options.researcher, readDomains)
+          await checkpoint()
           emit({ stage: 'answering' })
-          const readGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta) : gateway
+          const readGateway = options.onAnswerDelta
+            ? streamingAnswers(runGateway, options.onAnswerDelta, options.onReasoningDelta)
+            : runGateway
           const drafted = await answerSkillForTopic(classification.topic).run(readGateway, message, readContext)
-          const grounded = await groundAnswer(gateway, message, drafted, readContext)
+          const grounded = await groundAnswer(runGateway, message, drafted, readContext, checkpoint)
           return { tier, outcome: { kind: 'answer', result: grounded, evidence: readContext.evidence } }
         }
         if (result.ok && result.value.steps.length > 0) {
+          await checkpoint()
           emit({ stage: 'guarding' })
-          const reviewed = await runSecurityAnalyst(gateway, result.value, planContext)
+          const reviewed = await runSecurityAnalyst(runGateway, result.value, planContext)
           // The review state is explicit either way: a completed review attaches its advisory, and a
           // failed one attaches the precise reason, so the plan is never silently unreviewed. The
           // guidance is the guardian's concrete recommendation when it judged the plan risky or
@@ -472,17 +516,23 @@ export function createOrchestrator(registry: SkillRegistry = createSkillRegistry
       // conversational tier needs no state read and pays nothing. Both ground their answer in the
       // real documentation so exact names, endpoints, and fields come from the docs, not the model.
       const reads = tierReadsState(tier)
-      if (reads) emit({ stage: 'gathering' })
+      if (reads) {
+        await checkpoint()
+        emit({ stage: 'gathering' })
+      }
       const stateContext = reads ? await withEvidence(context, options.researcher, classification.domains) : context
       const answerContext = withDocs(stateContext, message, options.docs)
+      await checkpoint()
       emit({ stage: 'answering' })
       // Stream the answer's tokens and the model's reasoning to the caller when it is listening, so
       // the console renders the answer as it is produced and shows the thinking while it works.
       // Only the answer skill streams; grounding below still uses the unwrapped gateway, so its
       // structured check is unaffected.
-      const answerGateway = options.onAnswerDelta ? streamingAnswers(gateway, options.onAnswerDelta, options.onReasoningDelta) : gateway
+      const answerGateway = options.onAnswerDelta
+        ? streamingAnswers(runGateway, options.onAnswerDelta, options.onReasoningDelta)
+        : runGateway
       const answer = await skill.run(answerGateway, message, answerContext)
-      const result = await groundAnswer(gateway, message, answer, answerContext)
+      const result = await groundAnswer(runGateway, message, answer, answerContext, checkpoint)
       // The gathered evidence rides along with the grounded answer so the route can persist the
       // structured live-state views the answer was grounded in, not just its prose.
       return { tier, outcome: { kind: 'answer', result, evidence: stateContext.evidence } }

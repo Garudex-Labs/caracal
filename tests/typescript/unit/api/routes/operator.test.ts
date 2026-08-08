@@ -2363,6 +2363,124 @@ describe('POST /v1/zones/:zoneId/operator-conversations/:id/message', () => {
     expect(messageInsert![1][8]).toBe('msg-2')
   })
 
+  it('aborts the in-flight provider on explicit cancel and persists no model output', async () => {
+    let providerStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve
+    })
+    let providerAborted = false
+    const fetchImpl = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          providerStarted()
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              providerAborted = true
+              reject(new DOMException('cancelled', 'AbortError'))
+            },
+            { once: true },
+          )
+        }),
+    ) as unknown as typeof fetch
+    const { app, clientQuery, db } = buildApp(true, { aiProviders: [provider], fetchImpl })
+
+    let created = false
+    let runId = 'run-unset'
+    let state = 'queued'
+    let reason: string | null = null
+    let serverTurnId: string | null = null
+    let lastEventSeq = 0
+    const run = () => ({
+      id: runId,
+      zone_id: 'z1',
+      conversation_id: 'conv-1',
+      client_message_id: 'msg-cancel',
+      server_message_turn_id: serverTurnId,
+      correlation_id: 'corr-cancel',
+      state,
+      actor_id: 'actor-1',
+      provider_id: 'primary',
+      reason,
+      error_code: null,
+      error_detail: null,
+      deadline_at: '2026-07-01T00:02:00Z',
+      started_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-01T00:00:01Z',
+      completed_at: state === 'cancelled' ? '2026-07-01T00:00:02Z' : null,
+      last_event_seq: lastEventSeq,
+    })
+
+    clientQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM operator_conversations') && sql.includes('FOR UPDATE')) {
+        return { rows: [{ status: 'active', mode: 'agent', autopilot: false, next_seq: 1 }] }
+      }
+      if (sql.includes('WHERE zone_id = $1 AND conversation_id = $2 AND client_message_id = $3')) {
+        return { rows: created ? [run()] : [] }
+      }
+      if (sql.includes('WHERE conversation_id = $1 AND client_message_id = $2')) return { rows: [] }
+      if (sql.startsWith('INSERT INTO operator_message_runs')) {
+        created = true
+        runId = String(params?.[0])
+        return { rows: [run()] }
+      }
+      if (sql.startsWith('INSERT INTO operator_message_run_events')) return { rows: [] }
+      if (sql.startsWith('UPDATE operator_message_runs') && sql.includes('SET state = $2')) {
+        state = String(params?.[1])
+        reason = typeof params?.[2] === 'string' ? params[2] : reason
+        lastEventSeq = Number(params?.[6])
+        return { rows: [run()] }
+      }
+      if (sql.startsWith('UPDATE operator_message_runs') && sql.includes('SET server_message_turn_id = $2')) {
+        serverTurnId = String(params?.[1])
+        return { rows: [run()] }
+      }
+      if (sql.includes('FROM operator_message_runs') && sql.includes('WHERE id = $1 FOR UPDATE')) return { rows: [run()] }
+      if (sql.startsWith('INSERT INTO operator_turns')) return { rows: [{ id: 'turn-user', seq: 1, kind: 'message' }] }
+      return { rows: [], rowCount: 1 }
+    })
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM operator_message_runs') && sql.includes('WHERE id = $1 AND zone_id = $2')) return { rows: [run()] }
+      if (sql.includes('FROM zones')) return { rows: [{ name: 'Pied Piper Production', slug: 'z1', operator_governed: false }] }
+      return { rows: [] }
+    })
+
+    await app.ready()
+    const messageResponse = app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message',
+      payload: {
+        message: 'why was this denied',
+        client_message_id: 'msg-cancel',
+        correlation_id: 'corr-cancel',
+        provider: 'primary',
+      },
+    })
+    await started
+
+    const cancelResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/zones/z1/operator-conversations/conv-1/message-runs/cancel',
+      payload: { client_message_id: 'msg-cancel' },
+    })
+    const messageResult = await messageResponse
+
+    expect(cancelResponse.statusCode).toBe(200)
+    expect(cancelResponse.json()).toMatchObject({ ok: true, message_run: { state: 'cancelled' } })
+    expect(providerAborted).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(messageResult.statusCode).toBe(200)
+    expect(messageResult.json()).toMatchObject({
+      intent: 'cancelled',
+      ok: false,
+      error: 'run_cancelled',
+      message_run: { state: 'cancelled', reason: 'operator_cancelled' },
+    })
+    // The user message remains in the ledger, but no operator note or plan is persisted after the
+    // cancellation wins the race.
+    expect(clientQuery.mock.calls.filter((call) => String(call[0]).startsWith('INSERT INTO operator_turns'))).toHaveLength(1)
+  })
+
   it('refuses a message in a system zone', async () => {
     const { app } = buildApp(true, { aiProviders: [provider], systemZones: ['z1'] })
     await app.ready()
