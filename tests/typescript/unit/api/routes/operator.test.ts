@@ -13,6 +13,7 @@ import { CAPABILITIES } from '../../../../../apps/api/src/operator-capabilities.
 import { isControlExecutable } from '../../../../../apps/api/src/operator-control-map.js'
 import { buildAutopilotPolicy } from '../../../../../apps/api/src/operator-autopilot.js'
 import type { OperatorAiManager } from '../../../../../apps/api/src/operator-ai-manager.js'
+import type { OperatorAiHealthStore } from '../../../../../apps/api/src/operator-ai-health.js'
 import type { OperatorControlIdentity } from '../../../../../apps/api/src/config.js'
 
 // Test-only deterministic KEK fixture (32-byte hex) so the plan credential vault can seal. Never use in production.
@@ -30,6 +31,7 @@ function buildApp(
     fetchImpl?: typeof fetch
     autopilotPolicy?: ReturnType<typeof buildAutopilotPolicy>
     aiGovernance?: { maxOutputTokens: number; maxCallsPerTurn: number }
+    aiHealth?: OperatorAiHealthStore
     auditStreamStart?: () => Promise<void>
   } = {},
 ) {
@@ -70,6 +72,7 @@ function buildApp(
     fetchImpl: authorityOpts.fetchImpl,
     autopilotPolicy: authorityOpts.autopilotPolicy,
     aiGovernance: authorityOpts.aiGovernance,
+    aiHealth: authorityOpts.aiHealth,
   })
   return { app, db, clientQuery, redis }
 }
@@ -2117,8 +2120,73 @@ describe('operator AI gateway routes', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/operator/ai/status' })
     const body = JSON.parse(res.body)
     expect(body.enabled).toBe(true)
-    expect(body.providers).toEqual([{ id: 'primary', model: 'gpt-x', available: true, contextWindow: 0 }])
+    expect(body.providers).toEqual([
+      {
+        id: 'primary',
+        model: 'gpt-x',
+        available: true,
+        contextWindow: 0,
+        last_ok_at: null,
+        last_error_at: null,
+        last_error_class: null,
+      },
+    ])
     expect(res.body).not.toContain('sk-secret')
+  })
+
+  it('surfaces passive provider observations without exposing credentials', async () => {
+    const aiHealth = {
+      recordSuccess: vi.fn(),
+      recordFailure: vi.fn(),
+      read: vi.fn(
+        async () =>
+          new Map([
+            [
+              'primary',
+              {
+                lastOkAt: '2026-08-08T12:00:00.000Z',
+                lastErrorAt: '2026-08-08T11:00:00.000Z',
+                lastErrorClass: 'auth_failed' as const,
+              },
+            ],
+          ]),
+      ),
+    }
+    const { app } = buildApp(true, { aiProviders: [provider], aiHealth })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/operator/ai/status' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().providers[0]).toMatchObject({
+      last_ok_at: '2026-08-08T12:00:00.000Z',
+      last_error_at: '2026-08-08T11:00:00.000Z',
+      last_error_class: 'auth_failed',
+    })
+    expect(aiHealth.read).toHaveBeenCalledWith(['primary'])
+    expect(res.body).not.toContain('sk-secret')
+  })
+
+  it('preserves configured-provider status with unknown observations when health storage is unavailable', async () => {
+    const aiHealth: OperatorAiHealthStore = {
+      recordSuccess: vi.fn(),
+      recordFailure: vi.fn(),
+      read: vi.fn().mockRejectedValue(new Error('redis unavailable')),
+    }
+    const { app } = buildApp(true, { aiProviders: [provider], aiHealth })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/v1/operator/ai/status' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().providers[0]).toMatchObject({
+      id: 'primary',
+      model: 'gpt-x',
+      available: true,
+      last_ok_at: null,
+      last_error_at: null,
+      last_error_class: null,
+    })
   })
 
   it('returns 409 ai_unavailable when checking with no provider', async () => {
@@ -2131,18 +2199,30 @@ describe('operator AI gateway routes', () => {
 
   it('checks connectivity with a real completion through the gateway', async () => {
     const fetchImpl = vi.fn(async () => chatResponse('OK')) as unknown as typeof fetch
-    const { app } = buildApp(true, { aiProviders: [provider], fetchImpl })
+    const aiHealth: OperatorAiHealthStore = {
+      recordSuccess: vi.fn(),
+      recordFailure: vi.fn(),
+      read: vi.fn(async () => new Map()),
+    }
+    const { app } = buildApp(true, { aiProviders: [provider], fetchImpl, aiHealth })
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/operator/ai/check' })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
     expect(body).toMatchObject({ ok: true, provider: 'primary', model: 'gpt-x' })
     expect(typeof body.latency_ms).toBe('number')
+    expect(aiHealth.recordSuccess).toHaveBeenCalledExactlyOnceWith('primary')
+    expect(aiHealth.recordFailure).not.toHaveBeenCalled()
   })
 
   it('returns 502 ai_unreachable when every provider fails', async () => {
     const fetchImpl = vi.fn(async () => new Response('boom', { status: 500 })) as unknown as typeof fetch
-    const { app } = buildApp(true, { aiProviders: [provider], fetchImpl })
+    const aiHealth: OperatorAiHealthStore = {
+      recordSuccess: vi.fn(),
+      recordFailure: vi.fn(),
+      read: vi.fn(async () => new Map()),
+    }
+    const { app } = buildApp(true, { aiProviders: [provider], fetchImpl, aiHealth })
     await app.ready()
     const res = await app.inject({ method: 'POST', url: '/v1/operator/ai/check' })
     expect(res.statusCode).toBe(502)
@@ -2150,6 +2230,8 @@ describe('operator AI gateway routes', () => {
     expect(body.error).toBe('ai_unreachable')
     expect(body.attempts[0]).toMatchObject({ provider: 'primary' })
     expect(res.body).not.toContain('sk-secret')
+    expect(aiHealth.recordFailure).toHaveBeenCalledExactlyOnceWith('primary', 'endpoint_error')
+    expect(aiHealth.recordSuccess).not.toHaveBeenCalled()
   })
 
   it('does not register AI routes when the operator is disabled', async () => {

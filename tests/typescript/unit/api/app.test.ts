@@ -55,6 +55,8 @@ function makeRedis(initialIncr = 0) {
     ping: vi.fn(async () => 'PONG'),
     get: vi.fn(async () => null),
     del: vi.fn(async () => 1),
+    eval: vi.fn(async () => 1),
+    hmget: vi.fn(async () => [null, null, null]),
   } as unknown as RedisClient
 }
 
@@ -237,6 +239,55 @@ describe('/metrics endpoint', () => {
     expect(res.body).toContain('caracal_api_outbox_oldest_dead_age_seconds 0')
     await app.close()
   })
+
+  it('renders passive Operator provider timestamps without model, endpoint, or credential labels', async () => {
+    process.env.CARACAL_MODE = 'dev'
+    const cfg = makeCfg({
+      operatorAiProviders: [
+        {
+          id: 'primary',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'gpt-x',
+          apiKey: 'sk-secret',
+          timeoutMs: 1000,
+          contextWindow: 0,
+        },
+      ],
+    })
+    const redis = makeRedis()
+    vi.mocked(redis.hmget).mockResolvedValueOnce(['1786190400000', '1786186800000', 'auth_failed'])
+    const app = await buildApp({ cfg, db: makeDb(), redis })
+
+    const res = await app.inject({ method: 'GET', url: '/metrics' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('caracal_operator_ai_provider_last_success_timestamp_seconds{provider="primary"} 1786190400')
+    expect(res.body).toContain(
+      'caracal_operator_ai_provider_last_failure_timestamp_seconds{provider="primary",error_class="auth_failed"} 1786186800',
+    )
+    expect(res.body).not.toContain('gpt-x')
+    expect(res.body).not.toContain('api.example.com')
+    expect(res.body).not.toContain('sk-secret')
+    await app.close()
+  })
+
+  it('keeps unrelated metric families available when provider health cannot be read', async () => {
+    process.env.CARACAL_MODE = 'dev'
+    const cfg = makeCfg({
+      operatorAiProviders: [{ id: 'primary', baseUrl: 'https://api.example.com/v1', model: 'gpt-x', timeoutMs: 1000, contextWindow: 0 }],
+    })
+    const redis = makeRedis()
+    vi.mocked(redis.hmget).mockRejectedValueOnce(new Error('redis unavailable'))
+    const app = await buildApp({ cfg, db: makeDb(), redis })
+
+    const res = await app.inject({ method: 'GET', url: '/metrics' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('caracal_api_outbox_dead_total')
+    expect(res.body).toContain('caracal_secret_backend_operations_total')
+    expect(res.body).toContain('caracal_operator_ai_provider_last_success_timestamp_seconds{provider="primary"} 0')
+    await app.close()
+  })
 })
 
 describe('/ready endpoint', () => {
@@ -262,6 +313,21 @@ describe('/ready endpoint', () => {
 
     expect(res.statusCode).toBe(503)
     expect(res.json()).toMatchObject({ ok: false, error: 'postgres_unreachable', dependency: 'postgres' })
+    await app.close()
+  })
+
+  it('never reads provider health or calls an LLM from readiness', async () => {
+    const cfg = makeCfg({
+      operatorAiProviders: [{ id: 'primary', baseUrl: 'https://api.example.com/v1', model: 'gpt-x', timeoutMs: 1000, contextWindow: 0 }],
+    })
+    const redis = makeRedis()
+    const app = await buildApp({ cfg, db: makeDb(), redis })
+
+    const res = await app.inject({ method: 'GET', url: '/ready' })
+
+    expect(res.statusCode).toBe(200)
+    expect(redis.hmget).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
     await app.close()
   })
 

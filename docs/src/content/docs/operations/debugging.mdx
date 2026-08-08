@@ -19,6 +19,8 @@ Preserve the first failing readiness response, deployment/config diff, workload 
 5. Read exact readiness reason and correlated logs.
 6. Inspect policy age, STS circuit, revocation snapshot, audit DLQ/replay, and evidence-loss latch.
 
+For an Operator model failure, inspect `GET /v1/operator/ai/status` and compare each provider's `last_ok_at`, `last_error_at`, and `last_error_class`. The matching `/metrics` timestamp gauges make the transition alertable without attaching high-cardinality error messages. These signals come from real requests, so stale or null values are not active reachability checks. Use **Test connection** only when a fresh, quota-consuming completion is appropriate. Do not use `/ready` to diagnose a model endpoint: readiness intentionally checks platform dependencies without calling or reading an LLM provider.
+
 Start with `caracal status --json`, Compose status/logs, or Kubernetes get/describe/logs.
 
 ## Verification

@@ -68,6 +68,7 @@ import { mintRateLimitRoutes } from './routes/mint-rate-limit.js'
 import { operatorRoutes } from './routes/operator.js'
 import { buildAutopilotPolicy } from './operator-autopilot.js'
 import { buildGovernanceLimits } from './operator-ai-governance.js'
+import { createOperatorAiHealthStore, renderOperatorAiHealthMetrics, type ProviderHealthObservation } from './operator-ai-health.js'
 
 import './fastify-augmentation.js'
 
@@ -367,6 +368,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
   // provider added or edited from the console applies to the next request without an env edit.
   let storeConfigs: ProviderConfig[] = []
   const loadAiProviders = (): ProviderConfig[] => [...envConfigs, ...storeConfigs]
+  const operatorAiHealth = createOperatorAiHealthStore(redis, app.log)
 
   // The env upstreams that must always remain in the desired set the reconciler prunes against,
   // so a store reconcile never archives an env-sealed provider.
@@ -411,6 +413,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       maxOutputTokens: cfg.operatorAiMaxOutputTokens,
       maxCallsPerTurn: cfg.operatorAiMaxCallsPerTurn,
     }),
+    aiHealth: operatorAiHealth,
     resolveControlIdentity: currentIdentity,
     controlEndpoints: cfg.control
       ? { stsUrl: cfg.stsUrl, audience: cfg.control.audience, controlUrl: cfg.control.apiUrl, controlEnabled: true }
@@ -565,6 +568,17 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       return reply.code(401).send({ error: 'unauthorized' })
     }
     const health = await withTimeout(queryOutboxHealth(db), READY_CHECK_TIMEOUT_MS, 'metrics outbox check timed out')
+    const aiProviders = loadAiProviders()
+    let aiHealth: ReadonlyMap<string, ProviderHealthObservation> = new Map()
+    try {
+      aiHealth = await withTimeout(
+        operatorAiHealth.read(aiProviders.map((provider) => provider.id)),
+        READY_CHECK_TIMEOUT_MS,
+        'metrics operator AI health check timed out',
+      )
+    } catch (err) {
+      req.log.warn({ err }, 'operator AI provider health metrics could not be read')
+    }
     reply.type('text/plain; version=0.0.4')
     const secretMetrics = [
       '# HELP caracal_secret_backend_operations_total Secret backend operations attempted',
@@ -574,7 +588,7 @@ export async function buildApp({ cfg, db, redis, isDraining }: AppDeps) {
       '# TYPE caracal_secret_backend_errors_total counter',
       `caracal_secret_backend_errors_total ${secretBackendCounters.errors}`,
     ].join('\n')
-    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n${secretMetrics}\n`
+    return `${renderObservabilityMetrics()}\n${renderOutboxMetrics(health)}\n${renderOperatorAiHealthMetrics(aiProviders, aiHealth)}\n${secretMetrics}\n`
   })
   app.get('/ready', async (req, reply) => {
     if (cfg.readyRateLimitPerMin > 0) {

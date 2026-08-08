@@ -41,10 +41,10 @@ That delegated authority is least-privilege: the Operator may execute only the c
 
 Every conversation runs in one of two modes, enforced by Caracal and never chosen by the model:
 
-| Mode | What the Operator can do |
-| --- | --- |
-| Agent | Answer questions, read state, and propose plans that apply changes after your approval. |
-| Ask | Strictly read-only: explain, investigate, and diagnose. It never produces a plan and cannot apply anything. |
+| Mode  | What the Operator can do                                                                                    |
+| ----- | ----------------------------------------------------------------------------------------------------------- |
+| Agent | Answer questions, read state, and propose plans that apply changes after your approval.                     |
+| Ask   | Strictly read-only: explain, investigate, and diagnose. It never produces a plan and cannot apply anything. |
 
 Ask mode is enforced in two independent places - the planning skill is never selected, and the change endpoints refuse outright - so a read-only conversation is provably write-incapable.
 
@@ -63,6 +63,14 @@ Every draft is validated and previewed against the same contract the platform en
 Turning words into a plan requires a model endpoint supplied by the operator. Open **Settings → AI Operator → Models** to add an OpenAI chat-completions-compatible endpoint, model IDs, optional context window, and key placement. The API key is accepted only when the model endpoint is created or rotated, sealed into a credential Provider in the reserved `caracal.sys` Zone, and never returned to the browser. Operator model calls use the governed Gateway route for that Resource.
 
 The settings page can edit model endpoint metadata, rotate the sealed key, delete a model endpoint, and run a real connectivity check. Multiple model endpoints and models participate in failover. Direct API-process `API_OPERATOR_AI_*` configuration also remains implemented, but the packaged-runtime workflow is console management; see [Configure Service Environment](/operations/env-vars/#api-operator-and-control) for that narrower path.
+
+### Provider Health Signals
+
+Caracal records the outcome of model requests the Operator already makes. For every configured provider, `GET /v1/operator/ai/status` includes `last_ok_at`, `last_error_at`, and a bounded `last_error_class`. A successful request advances `last_ok_at` but deliberately preserves the previous failure and its timestamp, so operators can see that a provider recovered without losing the recent incident. A provider with null timestamps has no recorded observation in Redis; null does not assert that the endpoint is healthy or unhealthy.
+
+The error classes are `auth_failed`, `rate_limited`, `timeout`, `unreachable`, `endpoint_error`, `config_error`, `invalid_response`, `stream_interrupted`, and `unknown_error`. Caracal stores only the provider ID, timestamps, and this bounded class in Redis. It never stores prompts, responses, SDK error messages, URLs, model IDs, or credentials in the health record.
+
+The same observations are exposed as `caracal_operator_ai_provider_last_success_timestamp_seconds` and `caracal_operator_ai_provider_last_failure_timestamp_seconds` gauges on `/metrics`. These are passive and traffic-dependent: an old success timestamp may only mean no request has used that provider recently. The **Test connection** action remains an explicit real completion and therefore consumes provider quota. Caracal does not run background model probes, and `/ready` never calls or reads an AI provider; a provider outage cannot restart an otherwise healthy control plane.
 
 ## Where to Use It
 

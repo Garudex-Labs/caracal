@@ -5,6 +5,17 @@
 
 import {
   APICallError,
+  EmptyResponseBodyError,
+  InvalidResponseDataError,
+  JSONParseError,
+  LoadAPIKeyError,
+  LoadSettingError,
+  NoContentGeneratedError,
+  NoObjectGeneratedError,
+  NoOutputGeneratedError,
+  NoSuchModelError,
+  TypeValidationError,
+  UnsupportedFunctionalityError,
   extractReasoningMiddleware,
   generateObject,
   generateText,
@@ -102,6 +113,31 @@ export interface GatewayStatus {
   providers: ProviderStatus[]
 }
 
+// A deliberately bounded taxonomy for passive provider health observations. It is safe to
+// expose as a metric label and API field: unlike an SDK error message, none of these values can
+// contain a credential, prompt, response body, endpoint, or other provider-controlled text.
+export const OPERATOR_AI_ERROR_CLASSES = [
+  'auth_failed',
+  'rate_limited',
+  'timeout',
+  'unreachable',
+  'endpoint_error',
+  'config_error',
+  'invalid_response',
+  'stream_interrupted',
+  'unknown_error',
+] as const
+
+export type OperatorAiErrorClass = (typeof OPERATOR_AI_ERROR_CLASSES)[number]
+
+// Receives the outcome of each real provider attempt. Implementations must be best-effort and
+// non-throwing: observability storage can never turn a successful completion into a failed one or
+// alter the gateway's failover order.
+export interface ProviderHealthObserver {
+  recordSuccess(providerId: string): void | Promise<void>
+  recordFailure(providerId: string, errorClass: OperatorAiErrorClass): void | Promise<void>
+}
+
 // The model that the next completion would run against, with its context window. Null
 // when no provider is configured. Drawn from the first available provider, which is the
 // one the failover order tries first.
@@ -167,6 +203,87 @@ export class GatewayStreamInterruptedError extends Error {
   ) {
     super(`streaming provider ${provider} failed after output began: ${reason}`)
     this.name = 'GatewayStreamInterruptedError'
+  }
+}
+
+// Gives an otherwise generic local validation failure a stable, non-message-based class.
+class ProviderEmptyCompletionError extends Error {
+  constructor() {
+    super('provider returned an empty completion')
+    this.name = 'ProviderEmptyCompletionError'
+  }
+}
+
+function errorChain(err: unknown): unknown[] {
+  const chain: unknown[] = []
+  const seen = new Set<unknown>()
+  let current: unknown = err
+  while (current !== null && current !== undefined && chain.length < 8 && !seen.has(current)) {
+    chain.push(current)
+    seen.add(current)
+    current = typeof current === 'object' && 'cause' in current ? (current as { cause?: unknown }).cause : undefined
+  }
+  return chain
+}
+
+function namedError(err: unknown, names: ReadonlySet<string>): boolean {
+  return err instanceof Error && names.has(err.name)
+}
+
+// Classifies SDK, HTTP, timeout, transport, and local validation failures without inspecting
+// error messages. Typed SDK guards are checked through the cause chain because providers commonly
+// wrap JSON/schema failures in an APICallError.
+export function classifyProviderError(err: unknown): OperatorAiErrorClass {
+  if (err instanceof GatewayStreamInterruptedError) return 'stream_interrupted'
+  const chain = errorChain(err)
+  const timeoutNames = new Set(['AbortError', 'TimeoutError', 'ResponseAborted'])
+  if (chain.some((entry) => namedError(entry, timeoutNames))) return 'timeout'
+
+  const invalidResponse = chain.some(
+    (entry) =>
+      entry instanceof ProviderEmptyCompletionError ||
+      EmptyResponseBodyError.isInstance(entry) ||
+      InvalidResponseDataError.isInstance(entry) ||
+      JSONParseError.isInstance(entry) ||
+      TypeValidationError.isInstance(entry) ||
+      NoContentGeneratedError.isInstance(entry) ||
+      NoObjectGeneratedError.isInstance(entry) ||
+      NoOutputGeneratedError.isInstance(entry),
+  )
+  if (invalidResponse) return 'invalid_response'
+
+  const apiError = chain.find((entry) => APICallError.isInstance(entry))
+  if (apiError && APICallError.isInstance(apiError)) {
+    const status = apiError.statusCode
+    if (status === 401 || status === 403) return 'auth_failed'
+    if (status === 429) return 'rate_limited'
+    if (status === 408 || status === 504) return 'timeout'
+    if (status !== undefined && status >= 500) return 'endpoint_error'
+    if (status !== undefined && status >= 400) return 'config_error'
+    return 'unreachable'
+  }
+
+  if (
+    chain.some(
+      (entry) =>
+        LoadAPIKeyError.isInstance(entry) ||
+        LoadSettingError.isInstance(entry) ||
+        NoSuchModelError.isInstance(entry) ||
+        UnsupportedFunctionalityError.isInstance(entry),
+    )
+  ) {
+    return 'config_error'
+  }
+  if (chain.some((entry) => entry instanceof TypeError)) return 'unreachable'
+  return 'unknown_error'
+}
+
+function observe(action: () => void | Promise<void>): void {
+  try {
+    const result = action()
+    if (result) void result.catch(() => {})
+  } catch {
+    // Health recording is observability only and must never affect provider execution.
   }
 }
 
@@ -350,7 +467,7 @@ async function callProvider(
       maxRetries: 0,
     })
     const text = result.text.trim()
-    if (text.length === 0) throw new Error('provider returned an empty completion')
+    if (text.length === 0) throw new ProviderEmptyCompletionError()
     const reasoning = result.reasoningText?.trim()
     return {
       text,
@@ -420,7 +537,7 @@ async function callProviderStream(
       }
     }
     const text = (await result.text).trim()
-    if (text.length === 0) throw new Error('provider returned an empty completion')
+    if (text.length === 0) throw new ProviderEmptyCompletionError()
     const reasoning = (await result.reasoningText)?.trim()
     const usage = await result.usage
     return {
@@ -502,6 +619,7 @@ async function runWithFailover<T>(
   available: ProviderConfig[],
   preferredProvider: string | undefined,
   call: (provider: ProviderConfig) => Promise<T>,
+  observer?: ProviderHealthObserver,
 ): Promise<T> {
   if (available.length === 0) throw new GatewayUnavailableError()
   const order = [...available]
@@ -515,8 +633,11 @@ async function runWithFailover<T>(
   const attempts: { provider: string; reason: string }[] = []
   for (const provider of order) {
     try {
-      return await call(provider)
+      const result = await call(provider)
+      if (observer) observe(() => observer.recordSuccess(provider.id))
+      return result
     } catch (err) {
+      if (observer) observe(() => observer.recordFailure(provider.id, classifyProviderError(err)))
       // A stream that already reached the client cannot be retried on another provider without
       // corrupting the visible output, so this failure ends the turn instead of failing over.
       if (err instanceof GatewayStreamInterruptedError) throw err
@@ -531,7 +652,12 @@ async function runWithFailover<T>(
 // fetchImpl is injectable so the transport can be exercised without a live backend. When
 // governance limits are supplied with a positive output ceiling, every model call carries the
 // Caracal governance middleware so the ceiling holds uniformly across providers.
-export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl = fetch, governance?: GovernanceLimits): Gateway {
+export function createGateway(
+  providers: ProviderConfig[],
+  fetchImpl: FetchImpl = fetch,
+  governance?: GovernanceLimits,
+  healthObserver?: ProviderHealthObserver,
+): Gateway {
   const available = providers.filter(providerAvailable)
   const governanceMiddleware = governance && governance.maxOutputTokens > 0 ? buildGovernanceMiddleware(governance) : undefined
 
@@ -554,20 +680,29 @@ export function createGateway(providers: ProviderConfig[], fetchImpl: FetchImpl 
     },
 
     complete(messages, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
-        callProvider(fetchImpl, provider, messages, options, governanceMiddleware),
+      return runWithFailover(
+        available,
+        options.preferredProvider,
+        (provider) => callProvider(fetchImpl, provider, messages, options, governanceMiddleware),
+        healthObserver,
       )
     },
 
     completeObject(messages, schema, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
-        callProviderObject(fetchImpl, provider, messages, schema, options, governanceMiddleware),
+      return runWithFailover(
+        available,
+        options.preferredProvider,
+        (provider) => callProviderObject(fetchImpl, provider, messages, schema, options, governanceMiddleware),
+        healthObserver,
       )
     },
 
     stream(messages, handlers, options = {}) {
-      return runWithFailover(available, options.preferredProvider, (provider) =>
-        callProviderStream(fetchImpl, provider, messages, options, handlers, governanceMiddleware),
+      return runWithFailover(
+        available,
+        options.preferredProvider,
+        (provider) => callProviderStream(fetchImpl, provider, messages, options, handlers, governanceMiddleware),
+        healthObserver,
       )
     },
   }

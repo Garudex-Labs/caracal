@@ -1108,6 +1108,19 @@ export interface OperatorAiProviderStatus {
   model: string;
   available: boolean;
   contextWindow: number;
+  last_ok_at: string | null;
+  last_error_at: string | null;
+  last_error_class:
+    | "auth_failed"
+    | "rate_limited"
+    | "timeout"
+    | "unreachable"
+    | "endpoint_error"
+    | "config_error"
+    | "invalid_response"
+    | "stream_interrupted"
+    | "unknown_error"
+    | null;
 }
 
 export interface OperatorAiStatus {

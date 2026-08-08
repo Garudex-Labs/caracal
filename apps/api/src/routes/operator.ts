@@ -49,6 +49,7 @@ import {
   type Gateway,
   type ProviderConfig,
 } from '../operator-gateway.js'
+import type { OperatorAiHealthStore, ProviderHealthObservation } from '../operator-ai-health.js'
 import { type GovernanceLimits } from '../operator-ai-governance.js'
 import { runVerifier, type AgentContext, type OperatorMode, type PolicyDraft } from '../operator-agents.js'
 import { recallConversationMemory, rememberAppliedChange } from '../operator-conversation-memory.js'
@@ -752,6 +753,9 @@ export interface OperatorRoutesOptions {
   // applied uniformly across providers, and a per-turn model-call budget. Optional; when absent
   // the gateway runs without a ceiling and the message turn without a call budget.
   aiGovernance?: GovernanceLimits
+  // Passive health storage receives only bounded outcome classes from real provider attempts.
+  // It is optional for isolated route tests and embedders; production supplies the Redis store.
+  aiHealth?: OperatorAiHealthStore
 }
 
 export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (fastify, opts) => {
@@ -774,7 +778,7 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
   // disabled and performs no work, so the AI tier costs nothing until an operator brings a key.
   // The Caracal governance limits, when supplied, install the output-token ceiling middleware on
   // every call.
-  const buildGateway = (): Gateway => createGateway(opts.loadAiProviders?.() ?? [], opts.fetchImpl, opts.aiGovernance)
+  const buildGateway = (): Gateway => createGateway(opts.loadAiProviders?.() ?? [], opts.fetchImpl, opts.aiGovernance, opts.aiHealth)
 
   // The orchestrator triages each turn to its tier and runs the one skill that handles it,
   // returning a typed artifact the deterministic spine below validates, previews, and governs.
@@ -888,8 +892,26 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
 
   // Reports which AI providers are configured, in failover order, never exposing
   // keys. The console uses this to show whether the AI tier is available.
-  fastify.get('/operator/ai/status', async () => {
-    return buildGateway().status()
+  fastify.get('/operator/ai/status', async (req) => {
+    const status = buildGateway().status()
+    let observations: ReadonlyMap<string, ProviderHealthObservation> = new Map()
+    try {
+      if (opts.aiHealth) observations = await opts.aiHealth.read(status.providers.map((provider) => provider.id))
+    } catch (err) {
+      req.log.warn({ err }, 'operator AI provider health observations could not be read')
+    }
+    return {
+      ...status,
+      providers: status.providers.map((provider) => {
+        const observation = observations.get(provider.id)
+        return {
+          ...provider,
+          last_ok_at: observation?.lastOkAt ?? null,
+          last_error_at: observation?.lastErrorAt ?? null,
+          last_error_class: observation?.lastErrorClass ?? null,
+        }
+      }),
+    }
   })
 
   // Verifies AI connectivity by sending a minimal completion through the failover
