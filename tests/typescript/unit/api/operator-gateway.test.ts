@@ -523,9 +523,9 @@ describe('withUsage', () => {
   it('records the provider and model that served, tracking a failover across calls', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(chatResponse('one'))
+      .mockResolvedValueOnce(chatResponse('one', { prompt_tokens: 100, completion_tokens: 20 }))
       .mockRejectedValueOnce(new TypeError('connection refused'))
-      .mockResolvedValueOnce(chatResponse('two'))
+      .mockResolvedValueOnce(chatResponse('two', { prompt_tokens: 30, completion_tokens: 5 }))
     const base = createGateway(
       [provider({ id: 'primary', model: 'gpt-a' }), provider({ id: 'secondary', model: 'gpt-b' })],
       fetchMock as unknown as typeof fetch,
@@ -535,7 +535,17 @@ describe('withUsage', () => {
     await gateway.complete([{ role: 'user', content: 'b' }])
     // The first call was served by the primary; the second failed over to the secondary, so both
     // providers are recorded in served order and the last served provider is the secondary.
-    expect(usage()).toMatchObject({ provider: 'secondary', model: 'gpt-b', providers: ['primary', 'secondary'] })
+    expect(usage()).toMatchObject({
+      inputTokens: 130,
+      outputTokens: 25,
+      provider: 'secondary',
+      model: 'gpt-b',
+      providers: ['primary', 'secondary'],
+      byProviderModel: [
+        { provider: 'primary', model: 'gpt-a', inputTokens: 100, outputTokens: 20 },
+        { provider: 'secondary', model: 'gpt-b', inputTokens: 30, outputTokens: 5 },
+      ],
+    })
   })
 
   it('reports a null served provider when no completion succeeded', async () => {

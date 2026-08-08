@@ -1175,6 +1175,16 @@ export interface OperatorUsage {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  // A run may move between providers across model calls. This breakdown is the authoritative cost
+  // attribution. The top-level provider/model retain the latest serving attribution and can be
+  // present when the run ultimately fails, is cancelled, or times out.
+  by_provider_model: Array<{
+    provider: string;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  }>;
 }
 
 export interface OperatorUsageMeta {
@@ -1217,6 +1227,11 @@ export interface OperatorMessageRun {
   deadline_at: string | null;
   completed_at: string | null;
   last_event_seq: number;
+  // Durable usage for this run, including a provider/model breakdown so historical cost analysis
+  // does not depend on the live response or misattribute a mixed-provider run.
+  usage: OperatorUsage;
+  provider: string | null;
+  model: string | null;
 }
 
 // The advisory severity of a single security finding. Advisory only: it informs the human who

@@ -124,6 +124,15 @@ export interface GatewayUsage {
   // The distinct providers that served a completion this request, in first-served order. More than
   // one entry, or a single entry that is not the failover order's primary, means Caracal fell back.
   providers: string[]
+  // Token totals grouped by the provider/model pair that produced them. A turn can use more than
+  // one pair when an early completion succeeds on the primary and a later one fails over, so this
+  // breakdown is the authoritative attribution for historical cost analysis.
+  byProviderModel: {
+    provider: string
+    model: string
+    inputTokens: number
+    outputTokens: number
+  }[]
 }
 
 // No provider is configured, so the AI tier is off. Distinct from a call failure so
@@ -588,17 +597,27 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
   let lastProvider: string | null = null
   let lastModel: string | null = null
   const servedProviders: string[] = []
+  const byProviderModel: GatewayUsage['byProviderModel'] = []
   const maxCalls = options.maxCalls
   const guard = () => {
     if (maxCalls !== undefined && maxCalls > 0 && calls >= maxCalls) throw new GatewayBudgetError(maxCalls)
     calls += 1
   }
   const record = (provider: string, model: string, promptTokens?: number, completionTokens?: number) => {
-    inputTokens += promptTokens ?? 0
-    outputTokens += completionTokens ?? 0
+    const input = promptTokens ?? 0
+    const output = completionTokens ?? 0
+    inputTokens += input
+    outputTokens += output
     lastProvider = provider
     lastModel = model
     if (!servedProviders.includes(provider)) servedProviders.push(provider)
+    const attributed = byProviderModel.find((entry) => entry.provider === provider && entry.model === model)
+    if (attributed) {
+      attributed.inputTokens += input
+      attributed.outputTokens += output
+    } else {
+      byProviderModel.push({ provider, model, inputTokens: input, outputTokens: output })
+    }
   }
   const tracked: Gateway = {
     status: () => gateway.status(),
@@ -624,7 +643,14 @@ export function withUsage(gateway: Gateway, options: { maxCalls?: number } = {})
   }
   return {
     gateway: tracked,
-    usage: () => ({ inputTokens, outputTokens, provider: lastProvider, model: lastModel, providers: [...servedProviders] }),
+    usage: () => ({
+      inputTokens,
+      outputTokens,
+      provider: lastProvider,
+      model: lastModel,
+      providers: [...servedProviders],
+      byProviderModel: byProviderModel.map((entry) => ({ ...entry })),
+    }),
   }
 }
 

@@ -47,6 +47,7 @@ import {
   GatewayBudgetError,
   GatewayStreamInterruptedError,
   type Gateway,
+  type GatewayUsage,
   type ProviderConfig,
 } from '../operator-gateway.js'
 import { type GovernanceLimits } from '../operator-ai-governance.js'
@@ -83,7 +84,7 @@ const CONVERSATION_SELECT =
 // honest numeric type keeps the approval and execution bodies from rejecting a stringified seq.
 const TURN_SELECT = 'id, conversation_id, seq::int AS seq, role, kind, content, actor_id, created_at'
 const MESSAGE_RUN_SELECT =
-  'id, zone_id, conversation_id, client_message_id, server_message_turn_id, correlation_id, state, actor_id, provider_id, reason, error_code, error_detail, deadline_at, started_at, updated_at, completed_at, last_event_seq::int AS last_event_seq'
+  'id, zone_id, conversation_id, client_message_id, server_message_turn_id, correlation_id, state, actor_id, provider_id, reason, error_code, error_detail, deadline_at, started_at, updated_at, completed_at, last_event_seq::int AS last_event_seq, input_tokens::int AS input_tokens, output_tokens::int AS output_tokens, usage_by_provider_model, served_provider_id, served_model'
 
 const CreateConversationBody = z
   .object({
@@ -289,6 +290,18 @@ interface MessageRunRow {
   updated_at: string
   completed_at: string | null
   last_event_seq: number
+  input_tokens: number
+  output_tokens: number
+  usage_by_provider_model: ProviderModelUsage[]
+  served_provider_id: string | null
+  served_model: string | null
+}
+
+interface ProviderModelUsage {
+  provider: string
+  model: string
+  input_tokens: number
+  output_tokens: number
 }
 
 interface PublicMessageRun {
@@ -302,6 +315,14 @@ interface PublicMessageRun {
   deadline_at: string | null
   completed_at: string | null
   last_event_seq: number
+  usage: {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    by_provider_model: (ProviderModelUsage & { total_tokens: number })[]
+  }
+  provider: string | null
+  model: string | null
 }
 
 function publicMessageRun(run: MessageRunRow): PublicMessageRun {
@@ -316,7 +337,27 @@ function publicMessageRun(run: MessageRunRow): PublicMessageRun {
     deadline_at: run.deadline_at,
     completed_at: run.completed_at,
     last_event_seq: run.last_event_seq,
+    usage: {
+      input_tokens: run.input_tokens,
+      output_tokens: run.output_tokens,
+      total_tokens: run.input_tokens + run.output_tokens,
+      by_provider_model: run.usage_by_provider_model.map((entry) => ({
+        ...entry,
+        total_tokens: entry.input_tokens + entry.output_tokens,
+      })),
+    },
+    provider: run.served_provider_id,
+    model: run.served_model,
   }
+}
+
+function providerModelUsage(usage: GatewayUsage): ProviderModelUsage[] {
+  return usage.byProviderModel.map((entry) => ({
+    provider: entry.provider,
+    model: entry.model,
+    input_tokens: entry.inputTokens,
+    output_tokens: entry.outputTokens,
+  }))
 }
 
 async function writeMessageRunEventLocked(
@@ -328,6 +369,7 @@ async function writeMessageRunEventLocked(
     errorCode?: string | null
     errorDetail?: string | null
     payload?: Record<string, unknown>
+    usage?: GatewayUsage
   },
 ): Promise<MessageRunRow> {
   assertMessageRunTransition(input.run.state, input.state)
@@ -358,12 +400,55 @@ async function writeMessageRunEventLocked(
          error_detail = COALESCE($5, error_detail),
          completed_at = CASE WHEN $6 THEN COALESCE(completed_at, now()) ELSE completed_at END,
          last_event_seq = $7,
+         input_tokens = CASE WHEN $8::boolean THEN $9 ELSE input_tokens END,
+         output_tokens = CASE WHEN $8::boolean THEN $10 ELSE output_tokens END,
+         usage_by_provider_model = CASE WHEN $8::boolean THEN $11::jsonb ELSE usage_by_provider_model END,
+         served_provider_id = CASE WHEN $8::boolean THEN $12 ELSE served_provider_id END,
+         served_model = CASE WHEN $8::boolean THEN $13 ELSE served_model END,
          updated_at = now()
      WHERE id = $1
      RETURNING ${MESSAGE_RUN_SELECT}`,
-    [input.run.id, input.state, input.reason ?? null, input.errorCode ?? null, input.errorDetail ?? null, terminal, eventSeq],
+    [
+      input.run.id,
+      input.state,
+      input.reason ?? null,
+      input.errorCode ?? null,
+      input.errorDetail ?? null,
+      terminal,
+      eventSeq,
+      input.usage !== undefined,
+      input.usage?.inputTokens ?? 0,
+      input.usage?.outputTokens ?? 0,
+      JSON.stringify(input.usage ? providerModelUsage(input.usage) : []),
+      input.usage?.provider ?? null,
+      input.usage?.model ?? null,
+    ],
   )
   return rows[0]
+}
+
+// Persists the final usage snapshot when another actor already settled the run (for example, a
+// cancellation racing a model response). The model work still spent tokens, so the terminal state
+// must not erase its cost. Replacing the snapshot is idempotent for a retried response path.
+async function writeMessageRunUsageLocked(client: TxClient, run: MessageRunRow, usage: GatewayUsage): Promise<MessageRunRow | null> {
+  const { rows } = await client.query<MessageRunRow>(
+    `UPDATE operator_message_runs
+     SET input_tokens = $2,
+         output_tokens = $3,
+         usage_by_provider_model = $4::jsonb,
+         served_provider_id = $5,
+         served_model = $6,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING ${MESSAGE_RUN_SELECT}`,
+    [run.id, usage.inputTokens, usage.outputTokens, JSON.stringify(providerModelUsage(usage)), usage.provider, usage.model],
+  )
+  return rows[0] ?? null
+}
+
+async function persistMessageRunUsage(db: DB, run: MessageRunRow | null, usage: GatewayUsage): Promise<MessageRunRow | null> {
+  if (!run) return null
+  return withTransaction(db, (client) => writeMessageRunUsageLocked(client, run, usage))
 }
 
 type MessageRunStartOutcome =
@@ -460,7 +545,13 @@ async function transitionMessageRun(
   db: DB,
   run: MessageRunRow | null,
   state: MessageRunState,
-  options: { reason?: string | null; errorCode?: string | null; errorDetail?: string | null; payload?: Record<string, unknown> } = {},
+  options: {
+    reason?: string | null
+    errorCode?: string | null
+    errorDetail?: string | null
+    payload?: Record<string, unknown>
+    usage?: GatewayUsage
+  } = {},
 ): Promise<MessageRunRow | null> {
   if (!run) return null
   return withTransaction(db, async (client) => {
@@ -471,7 +562,9 @@ async function transitionMessageRun(
     // A run that already settled - a concurrent cancel, the deadline reaper - stays as it settled;
     // the losing transition observes the terminal row instead of throwing, so a raced completion
     // never turns a deliberate cancellation into a 500.
-    if (isTerminalMessageRunState(rows[0].state)) return rows[0]
+    if (isTerminalMessageRunState(rows[0].state)) {
+      return options.usage ? writeMessageRunUsageLocked(client, rows[0], options.usage) : rows[0]
+    }
     return writeMessageRunEventLocked(client, {
       run: rows[0],
       state,
@@ -479,6 +572,7 @@ async function transitionMessageRun(
       errorCode: options.errorCode,
       errorDetail: options.errorDetail,
       payload: options.payload,
+      usage: options.usage,
     })
   })
 }
@@ -2170,6 +2264,10 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
           input_tokens: usage.inputTokens,
           output_tokens: usage.outputTokens,
           total_tokens: usage.inputTokens + usage.outputTokens,
+          by_provider_model: providerModelUsage(usage).map((entry) => ({
+            ...entry,
+            total_tokens: entry.input_tokens + entry.output_tokens,
+          })),
         },
         model: reporting?.model ?? null,
         provider: reporting?.id ?? null,
@@ -2226,12 +2324,16 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       body: Record<string, unknown>,
       runState?: { state: MessageRunState; reason?: string; errorCode?: string; errorDetail?: string },
     ) => {
+      const usage = tracked.usage()
       if (runState) {
         messageRun = await transitionMessageRun(fastify.db, messageRun, runState.state, {
           reason: runState.reason,
           errorCode: runState.errorCode,
           errorDetail: runState.errorDetail,
+          usage,
         })
+      } else if (messageRun) {
+        messageRun = await persistMessageRunUsage(fastify.db, messageRun, usage)
       }
       const payload = messageRun ? { ...body, message_run: publicMessageRun(messageRun) } : body
       if (!wantsStream) return reply.code(resultStatus).send(payload)
@@ -2630,7 +2732,11 @@ export const operatorRoutes: FastifyPluginAsync<OperatorRoutesOptions> = async (
       // through to the framework's error handler; it is closed as a terminal error frame. Durable
       // JSON requests also settle the run before returning the same terminal failure shape.
       if (wantsStream) {
-        messageRun = await transitionMessageRun(fastify.db, messageRun, 'failed', { reason: 'ai_failed', errorCode: 'ai_failed' })
+        messageRun = await transitionMessageRun(fastify.db, messageRun, 'failed', {
+          reason: 'ai_failed',
+          errorCode: 'ai_failed',
+          usage: tracked.usage(),
+        })
         writeSseEvent(reply, 'error', {
           error: 'ai_failed',
           status: 500,

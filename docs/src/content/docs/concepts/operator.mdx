@@ -48,6 +48,8 @@ Every conversation runs in one of two modes, enforced by Caracal and never chose
 
 Ask mode is enforced in two independent places - the planning skill is never selected, and the change endpoints refuse outright - so a read-only conversation is provably write-incapable.
 
+Each durable message run records its input and output token totals with a breakdown for every provider and model that served one of its completions. This usage survives the live response for accurate historical cost analysis even when a later call fails over; provider credentials and prompts are never stored in the usage record.
+
 ## Autopilot
 
 In agent mode you can engage **autopilot**, which lets Caracal auto-satisfy the approval step for every plan in the conversation. Engaging it is an explicit opt-in to acting without a human in the loop; it is off by default and per conversation, and a platform-level master switch must also be on. Auto-approval never widens authority - the governed execute path still enforces the capability allowlist, the least-privilege executor token, and zone isolation on every apply. Autopilot defers while a plan still needs credentials from the console's secure prompt and stops when a preview shows the plan cannot apply. A deployment can also bound an engaged conversation with a **write budget**: once the cumulative auto-approved write operations would exceed it, autopilot pauses, records the pause in the conversation ledger, and the plan waits for explicit human approval. The master switch is a single kill switch that stops all auto-approval on the next turn.
