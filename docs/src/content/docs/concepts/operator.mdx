@@ -64,6 +64,8 @@ Turning words into a plan requires a model endpoint supplied by the operator. Op
 
 The settings page can edit model endpoint metadata, rotate the sealed key, delete a model endpoint, and run a real connectivity check. Multiple model endpoints and models participate in failover. Direct API-process `API_OPERATOR_AI_*` configuration also remains implemented, but the packaged-runtime workflow is console management; see [Configure Service Environment](/operations/env-vars/#api-operator-and-control) for that narrower path.
 
+When an endpoint fails, the API process temporarily moves it behind endpoints without a recent failure. It remains available as a fallback, a later success restores it immediately, and its configured priority returns automatically after the recovery window. This ordering memory is local to each API process and resets on restart.
+
 ## Where to Use It
 
 Open **Caracal Operator** from the console utility rail or command palette. For the workspace and model-endpoint management paths, see [Caracal Operator](/runtime-console/console/#caracal-operator) in the web console reference.
