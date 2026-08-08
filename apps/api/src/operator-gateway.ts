@@ -17,6 +17,11 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { ZodType } from 'zod'
 import { buildGovernanceMiddleware, type GovernanceLimits } from './operator-ai-governance.js'
 
+// Let the AI SDK absorb one transient failure on the current provider before the gateway moves
+// through its failover order. The SDK owns retry classification, exponential backoff, and
+// Retry-After handling; the provider timeout still bounds the entire attempt including this retry.
+const PROVIDER_MAX_RETRIES = 1
+
 // A single configured backend. The OpenAI-compatible chat surface is the common
 // denominator across hosted providers (OpenAI, Together, Groq), local servers
 // (Ollama, vLLM), and aggregators (OpenRouter), so one client reaches all of them
@@ -325,10 +330,9 @@ function failureReason(err: unknown): string {
   return 'unknown error'
 }
 
-// Performs one free-text chat completion against a single provider through the AI SDK.
-// Per-call retry is disabled so this gateway's own failover order owns retry semantics;
-// network failures, non-2xx responses, timeouts, and empty completions all throw so the
-// caller can fail over.
+// Performs one free-text chat completion against a single provider through the AI SDK. One
+// SDK-managed retry absorbs a retryable transient failure before network failures, non-2xx
+// responses, timeouts, and empty completions throw so the caller can fail over.
 async function callProvider(
   fetchImpl: FetchImpl,
   provider: ProviderConfig,
@@ -347,7 +351,7 @@ async function callProvider(
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: controller.signal,
-      maxRetries: 0,
+      maxRetries: PROVIDER_MAX_RETRIES,
     })
     const text = result.text.trim()
     if (text.length === 0) throw new Error('provider returned an empty completion')
@@ -368,7 +372,7 @@ async function callProvider(
 // Performs one streaming free-text chat completion against a single provider. It emits each text
 // and reasoning delta to the handlers as it arrives, then returns the same CompletionResult the
 // non-streaming path would, so a caller gets a live preview and the authoritative final text from
-// one call. Per-call retry is disabled so this gateway's own failover order owns retry semantics. A
+// one call. One SDK-managed retry absorbs a retryable failure while the stream is being opened. A
 // provider that fails before the first delta fails over cleanly like the non-streaming path; a
 // provider that fails after a delta has reached the client cannot fail over without appending a
 // second answer to the partial one already on screen, so it raises a GatewayStreamInterruptedError
@@ -396,7 +400,7 @@ async function callProviderStream(
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: controller.signal,
-      maxRetries: 0,
+      maxRetries: PROVIDER_MAX_RETRIES,
       // Azure delivers a completion in a few coarse chunks, so every token of a chunk lands in one
       // burst and a short answer arrives all at once. Re-pace the text channel word by word so the
       // answer types out smoothly for the reader while reasoning parts pass through untouched.
@@ -467,7 +471,7 @@ async function callProviderObject<T>(
       maxOutputTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: controller.signal,
-      maxRetries: 0,
+      maxRetries: PROVIDER_MAX_RETRIES,
     })
     return {
       value: result.object,

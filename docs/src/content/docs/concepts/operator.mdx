@@ -62,7 +62,7 @@ Every draft is validated and previewed against the same contract the platform en
 
 Turning words into a plan requires a model endpoint supplied by the operator. Open **Settings → AI Operator → Models** to add an OpenAI chat-completions-compatible endpoint, model IDs, optional context window, and key placement. The API key is accepted only when the model endpoint is created or rotated, sealed into a credential Provider in the reserved `caracal.sys` Zone, and never returned to the browser. Operator model calls use the governed Gateway route for that Resource.
 
-The settings page can edit model endpoint metadata, rotate the sealed key, delete a model endpoint, and run a real connectivity check. Multiple model endpoints and models participate in failover. Direct API-process `API_OPERATOR_AI_*` configuration also remains implemented, but the packaged-runtime workflow is console management; see [Configure Service Environment](/operations/env-vars/#api-operator-and-control) for that narrower path.
+The settings page can edit model endpoint metadata, rotate the sealed key, delete a model endpoint, and run a real connectivity check. Multiple model endpoints and models participate in failover. Each logical completion gives its current model endpoint one SDK-managed retry for transient failures, including rate limits and server errors; terminal failures move directly to the next endpoint, and the endpoint timeout bounds the retry as well as the initial request. Direct API-process `API_OPERATOR_AI_*` configuration also remains implemented, but the packaged-runtime workflow is console management; see [Configure Service Environment](/operations/env-vars/#api-operator-and-control) for that narrower path.
 
 ## Where to Use It
 
