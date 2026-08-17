@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@caracalai/oauth": "1.0.0",
-    "smol-toml": "^1.7.1"
+    "smol-toml": "^1.8.0"
   },
   "scripts": {
     "build": "pnpm --dir ../../oauth/ts build && tsc",
