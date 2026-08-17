@@ -5,7 +5,7 @@
 
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, resolve, win32 } from 'node:path'
 
 const isWindows = process.platform === 'win32'
 // pnpm ships as a bare binary on POSIX; on Windows it is pnpm.exe (standalone install)
@@ -104,4 +104,71 @@ export function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
   } catch {
     /* already gone */
   }
+}
+
+function windowsPowershell(): string {
+  const windowsDir = process.env.SystemRoot || process.env.WINDIR
+  return windowsDir ? win32.join(windowsDir, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : 'powershell.exe'
+}
+
+function runWindowsPowershell(script: string): SpawnSyncReturns<string | Buffer> {
+  return spawnSync(
+    windowsPowershell(),
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { stdio: 'ignore', windowsHide: true },
+  )
+}
+
+export function isWindowsRuntime(): boolean {
+  return isWindows
+}
+
+export function isRunningExecutable(path: string, currentExecutable: string = process.execPath): boolean {
+  return isWindows && resolve(path).toLowerCase() === resolve(currentExecutable).toLowerCase()
+}
+
+// Windows keeps a running executable locked. Hand its removal to a detached
+// PowerShell process that waits for this process to exit before deleting it.
+export function deferRunningExecutableRemoval(
+  path: string,
+  currentExecutable: string = process.execPath,
+  currentPid: number = process.pid,
+): boolean {
+  if (!isRunningExecutable(path, currentExecutable)) return false
+  const literalPath = path.replace(/'/g, "''")
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `Wait-Process -Id ${currentPid}`,
+    'for ($attempt = 0; $attempt -lt 50; $attempt++) {',
+    `  Remove-Item -LiteralPath '${literalPath}' -Force`,
+    `  if (-not (Test-Path -LiteralPath '${literalPath}')) { exit 0 }`,
+    '  Start-Sleep -Milliseconds 100',
+    '}',
+    'exit 1',
+  ].join('\n')
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
+  const powershell = windowsPowershell()
+  const literalPowershell = powershell.replace(/'/g, "''")
+  const launcher = [
+    `$worker = Start-Process -FilePath '${literalPowershell}' -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', '${encoded}') -WindowStyle Hidden -PassThru`,
+    'if ($null -eq $worker) { exit 1 }',
+  ].join('\n')
+  const launch = runWindowsPowershell(launcher)
+  if (launch.error || launch.status !== 0) throw new Error('failed to schedule removal of the running Caracal executable')
+  return true
+}
+
+export function removeWindowsUserPathEntry(directory: string): boolean {
+  if (!isWindows) return false
+  const literalDirectory = directory.replace(/'/g, "''")
+  const script = [
+    "$current = [Environment]::GetEnvironmentVariable('Path', 'User')",
+    'if ($null -eq $current) { exit 0 }',
+    `$entries = @($current -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ine '${literalDirectory}' })`,
+    "$next = $entries -join ';'",
+    "if ($next -ne $current) { [Environment]::SetEnvironmentVariable('Path', $next, 'User') }",
+  ].join('\n')
+  const result = runWindowsPowershell(script)
+  if (result.error || result.status !== 0) throw new Error('failed to remove the Caracal install directory from the Windows user PATH')
+  return true
 }
